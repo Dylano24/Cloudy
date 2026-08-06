@@ -51,7 +51,7 @@ export default {
                     await channel.send({
                         content: messageContent || welcomeMessage
                     });
-                } else {
+            
                     } else {
                     const embed = new EmbedBuilder()
     .setColor("#FFFFFF")
