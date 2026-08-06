@@ -18,7 +18,6 @@ export default {
           data: {
             title: 'Nickname changed',
             lines: [
-              `**ID:** \`${newMember.user.id}\``,
               `**Before:** ${oldMember.nickname || '*(no nickname)*'}`,
               `**After:** ${newMember.nickname || '*(no nickname)*'}`,
             ],
