@@ -73,19 +73,21 @@ export default {
                             )
                         ) {
 
-                            const embed =
-                                new EmbedBuilder()
-                                .setColor('#FFFFFF')
-                                .setTitle(
-                                    welcome.welcomeEmbed?.title ||
-                                    '🎉 Welcome to Cloudy!'
-                                )
-                                .setDescription(
-                                    `${message}\n\nYou are our **${ordinal(guild.memberCount)}** member!`
-                                )
-                                .setThumbnail(
-                                    user.displayAvatarURL({
-                                        dynamic:true
+                          const embed =
+    new EmbedBuilder()
+    .setColor('#FFFFFF')
+    .setTitle('Welcome to Cloudy')
+    .setDescription(message)
+    .setThumbnail(
+        user.displayAvatarURL({
+            dynamic: true
+        })
+    )
+    .setTimestamp()
+    .setFooter({
+        text:
+        welcome.welcomeEmbed?.footer ||
+        `Welcome to ${guild.name}`
                                     })
                                 )
                                 .setTimestamp()
