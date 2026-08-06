@@ -7,12 +7,6 @@ import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
 import { logger } from '../utils/logger.js';
 
-function ordinal(num) {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = num % 100;
-    return num + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-
 export default {
     name: Events.GuildMemberAdd,
     once: false,
@@ -26,9 +20,6 @@ export default {
             const config = await getGuildConfig(member.client, guild.id);
             const welcome = await getWelcomeConfig(member.client, guild.id);
 
-            /*
-             * WELCOME
-             */
             if (welcome?.enabled && welcome.channelId) {
 
                 const channel = guild.channels.cache.get(
@@ -76,13 +67,8 @@ export default {
                             const embed =
                                 new EmbedBuilder()
                                 .setColor('#FFFFFF')
-                                .setTitle(
-                                    welcome.welcomeEmbed?.title ||
-                                    '🎉 Welcome!'
-                                )
-                                .setDescription(
-                                    `${message}\n\nYou are our **${ordinal(guild.memberCount)}** member!`
-                                )
+                                .setTitle('Welcome to Cloudy!')
+                                .setDescription(message)
                                 .setThumbnail(
                                     user.displayAvatarURL({
                                         dynamic:true
@@ -125,10 +111,6 @@ export default {
             }
 
 
-            /*
-             * AUTO ROLE
-             */
-
             if (welcome?.roleIds?.length) {
 
                 const role =
@@ -146,13 +128,7 @@ export default {
                     );
                 }
             }
-
-
-            /*
-             * VERIFICATION
-             */
-
-            if (
+                      if (
                 config?.verification?.enabled ||
                 config?.verification?.autoVerify?.enabled
             ) {
@@ -164,7 +140,6 @@ export default {
                     } = await import(
                         '../services/verificationService.js'
                     );
-
 
                     await autoVerifyOnJoin(
                         member.client,
@@ -183,10 +158,6 @@ export default {
                 }
             }
 
-
-            /*
-             * LOGGING
-             */
 
             try {
 
@@ -216,10 +187,6 @@ export default {
 
             }
 
-
-            /*
-             * COUNTERS
-             */
 
             try {
 
@@ -254,10 +221,6 @@ export default {
 
             }
 
-
-            /*
-             * RESTORE BIRTHDAY
-             */
 
             try {
 
@@ -311,4 +274,4 @@ export default {
 
         }
     }
-};
+};  
