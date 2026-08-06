@@ -20,6 +20,9 @@ export default {
             const config = await getGuildConfig(member.client, guild.id);
             const welcome = await getWelcomeConfig(member.client, guild.id);
 
+
+            // WELCOME MESSAGE
+
             if (welcome?.enabled && welcome.channelId) {
 
                 const channel = guild.channels.cache.get(
@@ -43,6 +46,7 @@ export default {
                             member
                         };
 
+
                         const message =
                             formatWelcomeMessage(
                                 welcome.welcomeMessage ||
@@ -51,6 +55,7 @@ export default {
                                 data
                             ) ||
                             `Welcome ${user} to ${guild.name}!`;
+
 
                         const ping =
                             welcome.welcomePing
@@ -68,7 +73,15 @@ export default {
                                 new EmbedBuilder()
                                 .setColor('#FFFFFF')
                                 .setTitle('Welcome to Cloudy!')
-                                .setDescription(message)
+                                .setDescription(
+`${message}
+
+**Rules**
+[View the server rules](https://discord.com/channels/1533189582064062564/1533189582064062564)
+
+**Terms Of Service**
+[View the terms of service](https://discord.com/channels/1533189582064062564/1533191366190829768)`
+                                )
                                 .setThumbnail(
                                     user.displayAvatarURL({
                                         dynamic:true
@@ -94,6 +107,7 @@ export default {
                                 embeds:[embed]
                             });
 
+
                         } else {
 
                             await channel.send({
@@ -105,11 +119,15 @@ export default {
 
                         }
 
+
                         console.log('Welcome sent');
+
                     }
                 }
             }
 
+
+            // AUTO ROLE
 
             if (welcome?.roleIds?.length) {
 
@@ -119,6 +137,7 @@ export default {
                     );
 
                 if (role) {
+
                     await member.roles.add(role)
                     .catch(err =>
                         logger.warn(
@@ -126,9 +145,11 @@ export default {
                             err
                         )
                     );
+
                 }
-            }
-                      if (
+            }            // VERIFICATION
+
+            if (
                 config?.verification?.enabled ||
                 config?.verification?.autoVerify?.enabled
             ) {
@@ -141,12 +162,14 @@ export default {
                         '../services/verificationService.js'
                     );
 
+
                     await autoVerifyOnJoin(
                         member.client,
                         guild,
                         member,
                         config.verification
                     );
+
 
                 } catch(err) {
 
@@ -159,24 +182,38 @@ export default {
             }
 
 
+
+            // LOGGING
+
             try {
 
                 await logEvent({
-                    client:member.client,
-                    guildId:guild.id,
-                    eventType:EVENT_TYPES.MEMBER_JOIN,
-                    data:{
-                        title:'User joined',
-                        lines:[
+
+                    client: member.client,
+
+                    guildId: guild.id,
+
+                    eventType: EVENT_TYPES.MEMBER_JOIN,
+
+                    data: {
+
+                        title: 'User joined',
+
+                        lines: [
                             `**Created:** <t:${Math.floor(user.createdTimestamp / 1000)}:R>`,
                             `**Members:** ${guild.memberCount}`
                         ],
-                        thumbnail:user.displayAvatarURL({
+
+                        thumbnail:
+                        user.displayAvatarURL({
                             dynamic:true
                         }),
+
                         userId:user.id
                     }
+
                 });
+
 
             } catch(err) {
 
@@ -188,6 +225,9 @@ export default {
             }
 
 
+
+            // COUNTERS
+
             try {
 
                 const counters =
@@ -195,6 +235,7 @@ export default {
                         member.client,
                         guild.id
                     );
+
 
                 for (const counter of counters) {
 
@@ -212,6 +253,7 @@ export default {
                     }
                 }
 
+
             } catch(err) {
 
                 logger.debug(
@@ -222,16 +264,21 @@ export default {
             }
 
 
+
+            // RESTORE BIRTHDAY
+
             try {
 
                 const key =
                     `guild:${guild.id}:birthdays:left`;
+
 
                 const backup =
                     await member.client.db.get(key) || {};
 
 
                 if (backup[user.id]) {
+
 
                     const {
                         month,
@@ -250,11 +297,14 @@ export default {
 
                     delete backup[user.id];
 
+
                     await member.client.db.set(
                         key,
                         backup
                     );
+
                 }
+
 
             } catch(err) {
 
@@ -262,6 +312,7 @@ export default {
                     'Birthday restore error:',
                     err
                 );
+
             }
 
 
@@ -274,4 +325,4 @@ export default {
 
         }
     }
-};  
+};
