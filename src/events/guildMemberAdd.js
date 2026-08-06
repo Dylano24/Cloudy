@@ -53,7 +53,7 @@ export default {
                     });
                 } else {
                     const embed = new EmbedBuilder()
-                        .setColor(welcomeConfig.welcomeEmbed?.color |('#FFFFFF')| getColor('success'))
+                        .setColor(welcomeConfig.welcomeEmbed?.color |#FFFFFF| getColor('success'))
                         .setTitle(embedTitle)
                         .setDescription(welcomeMessage)
                         .setThumbnail(user.displayAvatarURL())
