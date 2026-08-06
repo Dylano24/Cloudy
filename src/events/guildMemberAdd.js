@@ -1,5 +1,5 @@
 import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-import { getColor, botConfig } from '../config/bot.js';
+import { botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { getWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
 import { formatWelcomeMessage } from '../utils/welcome.js';
@@ -7,10 +7,10 @@ import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
 import { logger } from '../utils/logger.js';
 
-function toOrdinal(number) {
-    const suffixes = ['th', 'st', 'nd', 'rd'];
-    const value = number % 100;
-    return number + (suffixes[(value - 20) % 10] || suffixes[value] || suffixes[0]);
+function ordinal(num) {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = num % 100;
+    return num + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 export default {
@@ -18,45 +18,32 @@ export default {
     once: false,
 
     async execute(member) {
+        const { guild, user } = member;
+
         try {
-            const { guild, user } = member;
+            console.log(`JOIN: ${user.tag}`);
 
-            console.log(`Member joined: ${user.tag}`);
-
-            const config = await getGuildConfig(
-                member.client,
-                guild.id
-            );
-
-            const welcomeConfig = await getWelcomeConfig(
-                member.client,
-                guild.id
-            );
+            const config = await getGuildConfig(member.client, guild.id);
+            const welcome = await getWelcomeConfig(member.client, guild.id);
 
             /*
-             * WELCOME MESSAGE
+             * WELCOME
              */
-            if (
-                welcomeConfig?.enabled &&
-                welcomeConfig.channelId
-            ) {
+            if (welcome?.enabled && welcome.channelId) {
+
                 const channel = guild.channels.cache.get(
-                    welcomeConfig.channelId
+                    welcome.channelId
                 );
 
                 if (channel?.isTextBased()) {
 
-                    const permissions = channel.permissionsFor(
+                    const perms = channel.permissionsFor(
                         guild.members.me
                     );
 
                     if (
-                        permissions?.has(
-                            PermissionFlagsBits.ViewChannel
-                        ) &&
-                        permissions?.has(
-                            PermissionFlagsBits.SendMessages
-                        )
+                        perms?.has(PermissionFlagsBits.ViewChannel) &&
+                        perms?.has(PermissionFlagsBits.SendMessages)
                     ) {
 
                         const data = {
@@ -65,24 +52,23 @@ export default {
                             member
                         };
 
-                        const welcomeText =
+                        const message =
                             formatWelcomeMessage(
-                                welcomeConfig.welcomeMessage ||
+                                welcome.welcomeMessage ||
                                 botConfig.welcome?.defaultWelcomeMessage ||
                                 'Welcome {user} to {server}!',
                                 data
                             ) ||
                             `Welcome ${user} to ${guild.name}!`;
 
-
-                        const content =
-                            welcomeConfig.welcomePing
-                                ? user.toString()
-                                : undefined;
+                        const ping =
+                            welcome.welcomePing
+                            ? user.toString()
+                            : undefined;
 
 
                         if (
-                            permissions.has(
+                            perms.has(
                                 PermissionFlagsBits.EmbedLinks
                             )
                         ) {
@@ -91,54 +77,49 @@ export default {
                                 new EmbedBuilder()
                                 .setColor('#FFFFFF')
                                 .setTitle(
-                                    formatWelcomeMessage(
-                                        welcomeConfig.welcomeEmbed?.title ||
-                                        '🎉 Welcome!',
-                                        data
-                                    )
+                                    welcome.welcomeEmbed?.title ||
+                                    '🎉 Welcome!'
                                 )
                                 .setDescription(
-                                    `${welcomeText}\n\nYou are our **${toOrdinal(guild.memberCount)}** member!`
+                                    `${message}\n\nYou are our **${ordinal(guild.memberCount)}** member!`
                                 )
                                 .setThumbnail(
                                     user.displayAvatarURL({
-                                        dynamic: true
+                                        dynamic:true
                                     })
                                 )
                                 .setTimestamp()
                                 .setFooter({
                                     text:
-                                    welcomeConfig.welcomeEmbed?.footer ||
+                                    welcome.welcomeEmbed?.footer ||
                                     `Welcome to ${guild.name}`
                                 });
 
 
-                            if (welcomeConfig.welcomeImage) {
+                            if (welcome.welcomeImage) {
                                 embed.setImage(
-                                    welcomeConfig.welcomeImage
+                                    welcome.welcomeImage
                                 );
                             }
 
 
                             await channel.send({
-                                content,
-                                embeds: [embed]
+                                content: ping,
+                                embeds:[embed]
                             });
 
                         } else {
 
                             await channel.send({
                                 content:
-                                    content
-                                    ? `${content}\n${welcomeText}`
-                                    : welcomeText
+                                ping
+                                ? `${ping}\n${message}`
+                                : message
                             });
 
                         }
 
-                        console.log(
-                            'Welcome message sent'
-                        );
+                        console.log('Welcome sent');
                     }
                 }
             }
@@ -148,26 +129,186 @@ export default {
              * AUTO ROLE
              */
 
-            if (
-                welcomeConfig?.roleIds?.length
-            ) {
+            if (welcome?.roleIds?.length) {
 
                 const role =
                     guild.roles.cache.get(
-                        welcomeConfig.roleIds[0]
+                        welcome.roleIds[0]
                     );
 
                 if (role) {
-                    try {
-                        await member.roles.add(role);
-                        console.log(
-                            `Role added: ${role.name}`
-                        );
-                    } catch (err) {
+                    await member.roles.add(role)
+                    .catch(err =>
                         logger.warn(
-                            'Role add failed:',
+                            'Role error:',
                             err
-                        );
-                    }
+                        )
+                    );
                 }
             }
+
+
+            /*
+             * VERIFICATION
+             */
+
+            if (
+                config?.verification?.enabled ||
+                config?.verification?.autoVerify?.enabled
+            ) {
+
+                try {
+
+                    const {
+                        autoVerifyOnJoin
+                    } = await import(
+                        '../services/verificationService.js'
+                    );
+
+
+                    await autoVerifyOnJoin(
+                        member.client,
+                        guild,
+                        member,
+                        config.verification
+                    );
+
+                } catch(err) {
+
+                    logger.error(
+                        'Verification error:',
+                        err
+                    );
+
+                }
+            }
+
+
+            /*
+             * LOGGING
+             */
+
+            try {
+
+                await logEvent({
+                    client:member.client,
+                    guildId:guild.id,
+                    eventType:EVENT_TYPES.MEMBER_JOIN,
+                    data:{
+                        title:'User joined',
+                        lines:[
+                            `**Created:** <t:${Math.floor(user.createdTimestamp / 1000)}:R>`,
+                            `**Members:** ${guild.memberCount}`
+                        ],
+                        thumbnail:user.displayAvatarURL({
+                            dynamic:true
+                        }),
+                        userId:user.id
+                    }
+                });
+
+            } catch(err) {
+
+                logger.debug(
+                    'Join log error:',
+                    err
+                );
+
+            }
+
+
+            /*
+             * COUNTERS
+             */
+
+            try {
+
+                const counters =
+                    await getServerCounters(
+                        member.client,
+                        guild.id
+                    );
+
+                for (const counter of counters) {
+
+                    if (
+                        counter?.enabled !== false &&
+                        counter.channelId
+                    ) {
+
+                        await updateCounter(
+                            member.client,
+                            guild,
+                            counter
+                        );
+
+                    }
+                }
+
+            } catch(err) {
+
+                logger.debug(
+                    'Counter error:',
+                    err
+                );
+
+            }
+
+
+            /*
+             * RESTORE BIRTHDAY
+             */
+
+            try {
+
+                const key =
+                    `guild:${guild.id}:birthdays:left`;
+
+                const backup =
+                    await member.client.db.get(key) || {};
+
+
+                if (backup[user.id]) {
+
+                    const {
+                        month,
+                        day
+                    } = backup[user.id];
+
+
+                    await dbSetBirthday(
+                        member.client,
+                        guild.id,
+                        user.id,
+                        month,
+                        day
+                    );
+
+
+                    delete backup[user.id];
+
+                    await member.client.db.set(
+                        key,
+                        backup
+                    );
+                }
+
+            } catch(err) {
+
+                logger.debug(
+                    'Birthday restore error:',
+                    err
+                );
+            }
+
+
+        } catch(error) {
+
+            logger.error(
+                'guildMemberAdd failed:',
+                error
+            );
+
+        }
+    }
+};
