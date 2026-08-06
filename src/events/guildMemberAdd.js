@@ -38,7 +38,7 @@ export default {
                 const messageContent = welcomeConfig.welcomePing ? user.toString() : null;
 
                 const embedTitle = formatWelcomeMessage(
-                    welcomeConfig.welcomeEmbed?.title || '🎉 Welcome to Cloudy!',
+                    welcomeConfig.welcomeEmbed?.title Welcome to Cloudy|| '🎉 Welcome to Cloudy!',
                     formatData
                 );
                 const embedFooter = welcomeConfig.welcomeEmbed?.footer
