@@ -8,6 +8,12 @@ import { getServerCounters, updateCounter } from '../services/serverstatsService
 import { setBirthday as dbSetBirthday } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 
+function toOrdinal(n) {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 export default {
   name: Events.GuildMemberAdd,
   once: false,
@@ -38,7 +44,7 @@ export default {
                 const messageContent = welcomeConfig.welcomePing ? user.toString() : null;
 
                 const embedTitle = formatWelcomeMessage(
-                    welcomeConfig.welcomeEmbed?.title || '🎉 Welcome ',
+                    welcomeConfig.welcomeEmbed?.title || 'Welcome to Cloudy!',
                     formatData
                 );
                 const embedFooter = welcomeConfig.welcomeEmbed?.footer
@@ -47,161 +53,21 @@ export default {
 
                 const canEmbed = permissions.has(PermissionFlagsBits.EmbedLinks);
 
+                // Guarantee a non-empty, fully-formatted welcome string so no raw
+                // {placeholder} text ever appears (e.g. when the DB returns null/empty).
+                const safeWelcome = welcomeMessage || `Welcome to ${guild.name}!`;
+
                 if (!canEmbed) {
                     await channel.send({
-                        content: messageContent || welcomeMessage
+                        content: messageContent || safeWelcome
                     });
-            
-                    } const embed = new EmbedBuilder()
-    .setColor("#FFFFFF")
-    .setTitle(embedTitle)
-    .setDescription(welcomeMessage)
-    .setThumbnail(user.displayAvatarURL())
-    .setTimestamp()
-    .setFooter({ text: embedFooter });
-
-if (welcomeConfig.welcomeImage) {
-    embed.setImage(welcomeConfig.welcomeImage);
-} else if (welcomeConfig.welcomeEmbed?.image?.url) {
-    embed.setImage(welcomeConfig.welcomeEmbed.image.url);
-}
-
-await channel.send({
-    content: messageContent,
-    embeds: [embed]
-}); {
-    
-                    
-                    await channel.send({ 
-                        content: messageContent,
-                    
-                    if (welcomeConfig.welcomeImage) {
-                        embed.setImage(welcomeConfig.welcomeImage);
-                    } else if (welcomeConfig.welcomeEmbed?.image?.url) {
-                        embed.setImage(welcomeConfig.welcomeEmbed.image.url);
-                    }
-                    
-                    await channel.send({ 
-                        content: messageContent,
-                        embeds: [embed] 
-                    });
-                }
-            }
-        }
-        
-        if (welcomeConfig?.roleIds && welcomeConfig.roleIds.length > 0) {
-            const delay = welcomeConfig.autoRoleDelay || 0;
-            const singleRoleId = welcomeConfig.roleIds[0];
-            
-            if (delay > 0) {
-                const timeout = setTimeout(async () => {
-                    const role = guild.roles.cache.get(singleRoleId);
-                    if (role) {
-                        await assignRoleSafely(member, role);
-                    }
-                }, delay * 1000);
-                if (typeof timeout.unref === 'function') {
-                    timeout.unref();
-                }
-            } else {
-                const role = guild.roles.cache.get(singleRoleId);
-                if (role) {
-                    await assignRoleSafely(member, role);
-                }
-            }
-        }
-        
-        if (config?.verification?.enabled || config?.verification?.autoVerify?.enabled) {
-            await handleVerification(member, guild, config.verification, member.client);
-        }
-
-        try {
-            await logEvent({
-                client: member.client,
-                guildId: guild.id,
-                eventType: EVENT_TYPES.MEMBER_JOIN,
-                data: {
-                    title: 'User joined',
-                    lines: [
-                        `**Created:** <t:${Math.floor(user.createdTimestamp / 1000)}:R>`,
-                        `**Members:** ${guild.memberCount}`,
-                    ],
-                    quoted: false,
-                    thumbnail: user.displayAvatarURL({ dynamic: true }),
-                    userId: user.id,
-                }
-            });
-        } catch (error) {
-            logger.debug('Error logging member join:', error);
-        }
-
-        try {
-            const counters = await getServerCounters(member.client, guild.id);
-            for (const counter of counters) {
-                if (counter && counter.type && counter.channelId && counter.enabled !== false) {
-                    await updateCounter(member.client, guild, counter);
-                }
-            }
-        } catch (error) {
-            logger.debug('Error updating counters on member join:', error);
-        }
-
-        try {
-            const backupKey = `guild:${guild.id}:birthdays:left`;
-            const backup = (await member.client.db.get(backupKey)) || {};
-            if (backup[user.id]) {
-                const { month, day } = backup[user.id];
-                await dbSetBirthday(member.client, guild.id, user.id, month, day);
-                delete backup[user.id];
-                await member.client.db.set(backupKey, backup);
-                logger.debug(`Birthday restored for user ${user.id} in guild ${guild.id}`);
-            }
-        } catch (error) {
-            logger.debug('Error restoring birthday on member join:', error);
-        }
-        
-    } catch (error) {
-        logger.error('Error in guildMemberAdd event:', error);
-    }
-  }
-};
-
-async function handleVerification(member, guild, verificationConfig, client) {
-    const { autoVerifyOnJoin } = await import('../services/verificationService.js');
-    
-    try {
-        const result = await autoVerifyOnJoin(client, guild, member, verificationConfig);
-        
-        if (result.autoVerified) {
-            logger.info('User auto-verified on join', {
-                guildId: guild.id,
-                userId: member.id,
-                userTag: member.user.tag,
-                roleName: result.roleName,
-                criteria: result.criteria
-            });
-        } else {
-            logger.debug('User not auto-verified on join', {
-                guildId: guild.id,
-                userId: member.id,
-                reason: result.reason
-            });
-        }
-
-    } catch (error) {
-        logger.error('Error in auto-verification for member', {
-            guildId: guild.id,
-            userId: member.id,
-            userTag: member.user.tag,
-            error: error.message
-        });
-    }
-}
-
-async function assignRoleSafely(member, role) {
-    try {
-        await member.roles.add(role);
-    } catch (error) {
-        logger.warn(`Failed to assign role ${role.id} to member ${member.id}:`, error);
-    }
-}
+                } else {
+                    const memberOrdinal = toOrdinal(guild.memberCount);
+                    const descriptionParts = [safeWelcome, `You are our **${memberOrdinal}** member!`];
+                    const embed = new EmbedBuilder()
+                        .setColor('#FFFFFF')
+                        .setTitle(embedTitle)
+                        .setDescription(descriptionParts.join('\n\n'))
+                        .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+                        .setTimestamp()
+                        .setFooter({ text: embedFooter });
