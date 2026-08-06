@@ -78,7 +78,7 @@ export default {
                                 .setColor('#FFFFFF')
                                 .setTitle(
                                     welcome.welcomeEmbed?.title ||
-                                    '🎉 Welcome!'
+                                    '🎉 Welcome to Cloudy!'
                                 )
                                 .setDescription(
                                     `${message}\n\nYou are our **${ordinal(guild.memberCount)}** member!`
