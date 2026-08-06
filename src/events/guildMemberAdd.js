@@ -52,17 +52,23 @@ export default {
                         content: messageContent || welcomeMessage
                     });
                 } else {
+                    } else {
                     const embed = new EmbedBuilder()
-                        .setColor(welcomeConfig.welcomeEmbed?.color || getColor('success'))
-                        .setTitle(embedTitle)
-                        .setDescription(welcomeMessage)
-                        .setThumbnail(user.displayAvatarURL())
-                        .addFields(
-                            { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
-                          
-                        )
-                        .setTimestamp()
-                        .setFooter({ text: embedFooter });
+    .setColor("#FFFFFF")
+    .setTitle(embedTitle)
+    .setDescription(welcomeMessage)
+    .setThumbnail(user.displayAvatarURL())
+    .setTimestamp()
+    .setFooter({ text: embedFooter });
+                    
+                    if (welcomeConfig.welcomeImage) {
+                        embed.setImage(welcomeConfig.welcomeImage);
+                    } else if (welcomeConfig.welcomeEmbed?.image?.url) {
+                        embed.setImage(welcomeConfig.welcomeEmbed.image.url);
+                    }
+                    
+                    await channel.send({ 
+                        content: messageContent,
                     
                     if (welcomeConfig.welcomeImage) {
                         embed.setImage(welcomeConfig.welcomeImage);
