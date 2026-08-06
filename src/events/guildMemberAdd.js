@@ -1,73 +1,173 @@
 import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { getColor, botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
-import { getWelcomeConfig } from '../utils/database.js';
+import { getWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
 import { formatWelcomeMessage } from '../utils/welcome.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
-import { setBirthday as dbSetBirthday } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 
-function toOrdinal(n) {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+function toOrdinal(number) {
+    const suffixes = ['th', 'st', 'nd', 'rd'];
+    const value = number % 100;
+    return number + (suffixes[(value - 20) % 10] || suffixes[value] || suffixes[0]);
 }
 
 export default {
-  name: Events.GuildMemberAdd,
-  once: false,
-  
-  async execute(member) {
-    try {
-        const { guild, user } = member;
-        
-        const config = await getGuildConfig(member.client, guild.id);
-        
-        const welcomeConfig = await getWelcomeConfig(member.client, guild.id);
-        
-        const welcomeChannelId = welcomeConfig?.channelId;
+    name: Events.GuildMemberAdd,
+    once: false,
 
-        if (welcomeConfig?.enabled && welcomeChannelId) {
-            const channel = guild.channels.cache.get(welcomeChannelId);
-            const me = guild.members.me;
-            const permissions = channel?.isTextBased?.() && me ? channel.permissionsFor(me) : null;
-            // Skip only the welcome message if permissions are missing; the rest of the
-            // join pipeline (auto-role, verification, logging, counters) must still run.
-            if (permissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
-                const formatData = { user, guild, member };
-                const welcomeMessage = formatWelcomeMessage(
-                    welcomeConfig.welcomeMessage || welcomeConfig.welcomeEmbed?.description || botConfig.welcome?.defaultWelcomeMessage || 'Welcome {user} to {server}!',
-                    formatData
+    async execute(member) {
+        try {
+            const { guild, user } = member;
+
+            console.log(`Member joined: ${user.tag}`);
+
+            const config = await getGuildConfig(
+                member.client,
+                guild.id
+            );
+
+            const welcomeConfig = await getWelcomeConfig(
+                member.client,
+                guild.id
+            );
+
+            /*
+             * WELCOME MESSAGE
+             */
+            if (
+                welcomeConfig?.enabled &&
+                welcomeConfig.channelId
+            ) {
+                const channel = guild.channels.cache.get(
+                    welcomeConfig.channelId
                 );
 
-                const messageContent = welcomeConfig.welcomePing ? user.toString() : null;
+                if (channel?.isTextBased()) {
 
-                const embedTitle = formatWelcomeMessage(
-                    welcomeConfig.welcomeEmbed?.title || 'Welcome to Cloudy!',
-                    formatData
-                );
-                const embedFooter = welcomeConfig.welcomeEmbed?.footer
-                    ? formatWelcomeMessage(welcomeConfig.welcomeEmbed.footer, formatData)
-                    : `Welcome to ${guild.name}!`;
+                    const permissions = channel.permissionsFor(
+                        guild.members.me
+                    );
 
-                const canEmbed = permissions.has(PermissionFlagsBits.EmbedLinks);
+                    if (
+                        permissions?.has(
+                            PermissionFlagsBits.ViewChannel
+                        ) &&
+                        permissions?.has(
+                            PermissionFlagsBits.SendMessages
+                        )
+                    ) {
 
-                // Guarantee a non-empty, fully-formatted welcome string so no raw
-                // {placeholder} text ever appears (e.g. when the DB returns null/empty).
-                const safeWelcome = welcomeMessage || `Welcome to ${guild.name}!`;
+                        const data = {
+                            user,
+                            guild,
+                            member
+                        };
 
-                if (!canEmbed) {
-                    await channel.send({
-                        content: messageContent || safeWelcome
-                    });
-                } else {
-                    const memberOrdinal = toOrdinal(guild.memberCount);
-                    const descriptionParts = [safeWelcome, `You are our **${memberOrdinal}** member!`];
-                    const embed = new EmbedBuilder()
-                        .setColor('#FFFFFF')
-                        .setTitle(embedTitle)
-                        .setDescription(descriptionParts.join('\n\n'))
-                        .setThumbnail(user.displayAvatarURL({ dynamic: true }))
-                        .setTimestamp()
-                        .setFooter({ text: embedFooter });
+                        const welcomeText =
+                            formatWelcomeMessage(
+                                welcomeConfig.welcomeMessage ||
+                                botConfig.welcome?.defaultWelcomeMessage ||
+                                'Welcome {user} to {server}!',
+                                data
+                            ) ||
+                            `Welcome ${user} to ${guild.name}!`;
+
+
+                        const content =
+                            welcomeConfig.welcomePing
+                                ? user.toString()
+                                : undefined;
+
+
+                        if (
+                            permissions.has(
+                                PermissionFlagsBits.EmbedLinks
+                            )
+                        ) {
+
+                            const embed =
+                                new EmbedBuilder()
+                                .setColor('#FFFFFF')
+                                .setTitle(
+                                    formatWelcomeMessage(
+                                        welcomeConfig.welcomeEmbed?.title ||
+                                        '🎉 Welcome!',
+                                        data
+                                    )
+                                )
+                                .setDescription(
+                                    `${welcomeText}\n\nYou are our **${toOrdinal(guild.memberCount)}** member!`
+                                )
+                                .setThumbnail(
+                                    user.displayAvatarURL({
+                                        dynamic: true
+                                    })
+                                )
+                                .setTimestamp()
+                                .setFooter({
+                                    text:
+                                    welcomeConfig.welcomeEmbed?.footer ||
+                                    `Welcome to ${guild.name}`
+                                });
+
+
+                            if (welcomeConfig.welcomeImage) {
+                                embed.setImage(
+                                    welcomeConfig.welcomeImage
+                                );
+                            }
+
+
+                            await channel.send({
+                                content,
+                                embeds: [embed]
+                            });
+
+                        } else {
+
+                            await channel.send({
+                                content:
+                                    content
+                                    ? `${content}\n${welcomeText}`
+                                    : welcomeText
+                            });
+
+                        }
+
+                        console.log(
+                            'Welcome message sent'
+                        );
+                    }
+                }
+            }
+
+
+            /*
+             * AUTO ROLE
+             */
+
+            if (
+                welcomeConfig?.roleIds?.length
+            ) {
+
+                const role =
+                    guild.roles.cache.get(
+                        welcomeConfig.roleIds[0]
+                    );
+
+                if (role) {
+                    try {
+                        await member.roles.add(role);
+                        console.log(
+                            `Role added: ${role.name}`
+                        );
+                    } catch (err) {
+                        logger.warn(
+                            'Role add failed:',
+                            err
+                        );
+                    }
+                }
+            }
