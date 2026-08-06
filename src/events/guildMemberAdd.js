@@ -78,9 +78,11 @@ export default {
                                 .setColor('#FFFFFF')
                                 .setTitle(
                                     welcome.welcomeEmbed?.title ||
-                                    '🎉 Welcome to Cloudy!'
-                            
-                    
+                                    '🎉 Welcome!'
+                                )
+                                .setDescription(
+                                    `${message}\n\nYou are our **${ordinal(guild.memberCount)}** member!`
+                                )
                                 .setThumbnail(
                                     user.displayAvatarURL({
                                         dynamic:true
