@@ -55,6 +55,28 @@ export default {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName('picture')
+                .setDescription('Change the bot profile picture')
+                .addAttachmentOption((option) =>
+                    option
+                        .setName('image')
+                        .setDescription('Upload a PNG, JPG, WEBP, or GIF')
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName('banner')
+                .setDescription('Change the bot profile banner')
+                .addAttachmentOption((option) =>
+                    option
+                        .setName('image')
+                        .setDescription('Upload a PNG, JPG, WEBP, or GIF')
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName('status')
                 .setDescription('Change the bot activity and online status')
                 .addStringOption((option) =>
@@ -114,6 +136,46 @@ export default {
                 const bio = interaction.options.getString('text', true);
                 await interaction.client.application.edit({ description: bio });
                 await interaction.editReply('Bot bio updated.');
+                return;
+            }
+
+            if (subcommand === 'picture' || subcommand === 'banner') {
+                const image = interaction.options.getAttachment('image', true);
+                const allowedTypes = new Set([
+                    'image/png',
+                    'image/jpeg',
+                    'image/webp',
+                    'image/gif',
+                ]);
+
+                if (!allowedTypes.has(image.contentType)) {
+                    await interaction.editReply(
+                        'Please upload a PNG, JPG, WEBP, or GIF image.'
+                    );
+                    return;
+                }
+
+                if (image.size > 10 * 1024 * 1024) {
+                    await interaction.editReply(
+                        'The image must be smaller than 10 MB.'
+                    );
+                    return;
+                }
+
+                const response = await fetch(image.url);
+                if (!response.ok) {
+                    throw new Error(`Could not download the uploaded image (HTTP ${response.status})`);
+                }
+
+                const imageBuffer = Buffer.from(await response.arrayBuffer());
+
+                if (subcommand === 'picture') {
+                    await interaction.client.user.setAvatar(imageBuffer);
+                    await interaction.editReply('Bot profile picture updated.');
+                } else {
+                    await interaction.client.user.setBanner(imageBuffer);
+                    await interaction.editReply('Bot profile banner updated.');
+                }
                 return;
             }
 
