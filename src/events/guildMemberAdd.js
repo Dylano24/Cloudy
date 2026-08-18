@@ -113,12 +113,8 @@ export default {
 
                             embed
                                 .setImage(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@24f9ff1a5840b1571f812f8c4f687ff80cd7c733/assets/cloudy-waves-welcome.gif'
-                                )
-                                .setFooter({
-                                    text: '© Cloudy • Build. Compete. Dominate.',
-                                    iconURL: 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@a3523303898a32de406da2fea5864e1cce24bb11/assets/cloudy-logo.png'
-                                });
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@1f77c312a4c143f8b1a81dd988632610aa298c76/assets/cloudy-waves-welcome.gif'
+                                );
 
 
                             await channel.send({
