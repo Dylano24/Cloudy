@@ -83,13 +83,13 @@ export default {
                                 .setDescription(
 `${message}
 
-**Rules**
+**📜 Rules**
 [View the server rules](${rulesUrl})
 
-**Terms of Service**
+**📄 Terms of Service**
 [View the terms of service](${termsUrl})
 
-**Shop**
+**🛒 Shop**
 [Shop now](${shopUrl})`
                                 )
                                 .setThumbnail(
