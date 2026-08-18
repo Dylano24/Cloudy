@@ -111,7 +111,7 @@ export default {
                                     'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@a3523303898a32de406da2fea5864e1cce24bb11/assets/cloudy-logo.png'
                                 )
                                 .setImage(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@e7dcff2410abd2dc2705d6d892ea65eb8e7e95ec/assets/cloudy-waves-welcome.gif'
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@7f4f35a7cd9bf29bb2c8e1fd24d6ad2cca2677d9/assets/cloudy-welcome-banner.png'
                                 )
                                 .setFooter({
                                     text: '© Cloudy • Build. Compete. Dominate.',
