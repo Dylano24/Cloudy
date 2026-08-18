@@ -113,13 +113,19 @@ export default {
 
                             embed
                                 .setImage(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@1f77c312a4c143f8b1a81dd988632610aa298c76/assets/cloudy-waves-welcome.gif'
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@e7dcff2410abd2dc2705d6d892ea65eb8e7e95ec/assets/cloudy-waves-welcome.gif'
                                 );
 
 
+                            const brandingEmbed = new EmbedBuilder()
+                                .setColor('#FFFFFF')
+                                .setDescription(
+                                    '© Cloudy • Build. Compete. Dominate.'
+                                );
+
                             await channel.send({
                                 content: ping,
-                                embeds:[embed]
+                                embeds: [embed, brandingEmbed]
                             });
 
                         } else {
