@@ -98,6 +98,18 @@ export default {
                         .setMaxLength(128)
                         .setRequired(true)
                 )
+                .addStringOption((option) =>
+                    option
+                        .setName('type')
+                        .setDescription('Choose the activity type')
+                        .setRequired(true)
+                        .addChoices(
+                            { name: 'Playing', value: 'playing' },
+                            { name: 'Listening', value: 'listening' },
+                            { name: 'Watching', value: 'watching' },
+                            { name: 'Competing', value: 'competing' }
+                        )
+                )
         ),
 
     async execute(interaction) {
@@ -193,6 +205,7 @@ export default {
             }
 
             const text = interaction.options.getString('text', true);
+            const typeName = interaction.options.getString('type', true);
             const savedPresence =
                 await interaction.client.db.get('global:bot:profile:presence') ||
                 {};
@@ -200,7 +213,7 @@ export default {
                 status: savedPresence.status || 'online',
                 activities: [{
                     name: text,
-                    type: ActivityType.Playing,
+                    type: activityTypes[typeName],
                 }],
             };
 
@@ -210,7 +223,7 @@ export default {
                 presence
             );
             await interaction.editReply(
-                `Bot activity changed to: **${text}**.`
+                `Bot activity changed to **${typeName}**: **${text}**.`
             );
         } catch (error) {
             logger.error('Bot profile command failed:', error);
