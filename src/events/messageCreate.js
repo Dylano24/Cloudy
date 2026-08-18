@@ -27,7 +27,7 @@ export default {
   name: Events.MessageCreate,
   async execute(message, client) {
     try {
-      if (message.author.bot || !message.guild) return;
+      if (!message.guild || message.author.id === client.user?.id) return;
 
       logger.debug(`Message received from ${message.author.tag}: ${message.content}`);
 
@@ -35,6 +35,9 @@ export default {
       if (linkBlocked) {
         return;
       }
+
+      // Other bots are scanned for links, but never processed as users.
+      if (message.author.bot) return;
 
       const countingProcessed = await handleCountingGame(message, client);
       if (countingProcessed) {
