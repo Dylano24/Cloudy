@@ -258,6 +258,22 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     }
 
     logger.info(`Registering ${commandsToRegister.length} global commands...`);
+
+    const existingGlobalCommands = await client.rest.get(
+        `/applications/${clientId}/commands`
+    );
+    const staleWipeDataCommands = existingGlobalCommands.filter(
+        (command) => command.name === 'wipedata'
+    );
+    for (const staleCommand of staleWipeDataCommands) {
+        await client.rest.delete(
+            `/applications/${clientId}/commands/${staleCommand.id}`
+        );
+        logger.info(
+            `Deleted stale global /wipedata command ${staleCommand.id}`
+        );
+    }
+
     await client.rest.put(
         `/applications/${clientId}/commands`,
         { body: commandsToRegister }
@@ -275,6 +291,18 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
         const guildCommands = await client.rest.get(
             `/applications/${clientId}/guilds/${cloudyGuildId}/commands`
         );
+        const staleGuildWipeDataCommands = guildCommands.filter(
+            (command) => command.name === 'wipedata'
+        );
+        for (const staleCommand of staleGuildWipeDataCommands) {
+            await client.rest.delete(
+                `/applications/${clientId}/guilds/${cloudyGuildId}/commands/${staleCommand.id}`
+            );
+            logger.info(
+                `Deleted stale guild /wipedata command ${staleCommand.id}`
+            );
+        }
+
         const duplicateGuildBotProfiles = guildCommands.filter(
             (command) => command.name === 'botprofile'
         );
