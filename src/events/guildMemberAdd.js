@@ -92,7 +92,7 @@ export default {
 [Link your account here](${linkAccountUrl})
 
 **🛒 Shop**
-[Shop](${shopUrl})
+[Visit our shop](${shopUrl})
 
 **📩 Contact & Help**
 [Contact us here](${contactUrl})`
