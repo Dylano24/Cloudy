@@ -108,7 +108,7 @@ export default {
                                     }
                                 )
                                 .setThumbnail(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@2bf462fa544e0c7ed9c93f0ceae5c96c060800c2/assets/cloudy-logo.png'
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@a3523303898a32de406da2fea5864e1cce24bb11/assets/cloudy-logo.png'
                                 );
 
                             embed
