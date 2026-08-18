@@ -71,10 +71,12 @@ export default {
 
                             const rulesUrl =
                                 'https://discord.com/channels/1532882647838228723/1533189582064062564';
-                            const termsUrl =
-                                'https://discord.com/channels/1532882647838228723/1533191366190829768';
+                            const linkAccountUrl =
+                                'https://discord.com/channels/1532882647838228723/1539189240074870835';
                             const shopUrl =
                                 'https://discord.com/channels/1532882647838228723/1533188744562344016';
+                            const contactUrl =
+                                'https://discord.com/channels/1532882647838228723/1533197784725852181';
 
                             const embed =
                                 new EmbedBuilder()
@@ -84,13 +86,16 @@ export default {
 `${message}
 
 **📜 Rules**
-[View the server rules](${rulesUrl})
+[Check our rules](${rulesUrl})
 
-**📄 Terms of Service**
-[View the terms of service](${termsUrl})
+**🔗 Link Your Account**
+[Link your account here](${linkAccountUrl}) to claim free kits, purchases & alerts
 
 **🛒 Shop**
-[Shop now](${shopUrl})`
+[Visit our official Cloudy website](${shopUrl}) for subscriptions & purchases
+
+**📩 Contact & Help**
+Need help? [Contact us here](${contactUrl})`
                                 )
                                 .setThumbnail(
                                     user.displayAvatarURL({
