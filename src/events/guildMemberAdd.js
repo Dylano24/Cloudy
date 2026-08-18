@@ -115,7 +115,7 @@ export default {
 
                             embed
                                 .setImage(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@22049f372fe990ac257455957a045904461ec614/assets/cloudy-waves-welcome.gif'
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@4d2a9dc0db501f2cbe09381e8f3c3e2cc7839cdc/assets/cloudy-waves-welcome.gif'
                                 )
                                 .setFooter({
                                     text: '© Cloudy • Build. Compete. Dominate.',
