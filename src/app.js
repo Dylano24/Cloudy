@@ -15,6 +15,7 @@ import { loadCommands, registerCommands as registerSlashCommands } from './handl
 import { runSafeTask, handleTaskError, ErrorCodes } from './utils/errorHandler.js';
 import { initializeMusic } from './services/music/riffySetup.js';
 import { shutdownMusic } from './services/music/playerHandler.js';
+import { startRustPatchNotes } from './services/rustPatchNotesService.js';
 import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
 
@@ -103,6 +104,8 @@ class TitanBot extends Client {
       );
       
       this.setupCronJobs();
+      startRustPatchNotes(this);
+      startupLog('Rust patch notes monitor started');
     } catch (error) {
       logger.error('Failed to start bot:', error);
       process.exit(1);
