@@ -96,12 +96,12 @@ export default {
                                     },
                                     {
                                         name: '🛒 Shop',
-                                        value: `[Subscriptions & purchases • Official Cloudy website](${shopUrl})\n\u200b`,
+                                        value: `[Subscriptions & purchases Official Cloudy website](${shopUrl})\n\u200b`,
                                         inline: false
                                     },
                                     {
                                         name: '📩 Support & Help',
-                                        value: `[Contact us.](${contactUrl})`,
+                                        value: `[Contact us](${contactUrl})`,
                                         inline: false
                                     }
                                 )
