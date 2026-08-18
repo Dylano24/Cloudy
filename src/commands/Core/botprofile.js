@@ -126,10 +126,13 @@ export default {
                 ? { name: 'Custom Status', state: text, type }
                 : { name: text, type };
 
-            interaction.client.user.setPresence({
+            const presence = {
                 status: availability,
                 activities: [activity],
-            });
+            };
+
+            interaction.client.user.setPresence(presence);
+            await interaction.client.db.set('global:bot:profile:presence', presence);
 
             await interaction.editReply(
                 `Bot status updated to **${typeName}**: ${text} (${availability}).`
