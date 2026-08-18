@@ -86,16 +86,16 @@ export default {
 `${message}
 
 **📜 Rules**
-[Check our rules](${rulesUrl})
+ [Check our rules](${rulesUrl})
 
 **🔗 Link Your Account**
-[Link your account here](${linkAccountUrl})
+ [Link your account here](${linkAccountUrl})
 
 **🛒 Shop**
-[Visit our shop](${shopUrl})
+ [Visit our shop](${shopUrl})
 
 **📩 Contact & Help**
-[Contact us here](${contactUrl})`
+ [Contact us here](${contactUrl})`
                                 )
                                 .setThumbnail(
                                     user.displayAvatarURL({
