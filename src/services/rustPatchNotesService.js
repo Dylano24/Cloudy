@@ -10,7 +10,7 @@ import { logger } from '../utils/logger.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
 const RUST_NEWS_FEED = 'https://rust.facepunch.com/rss/news';
-const LAST_PATCH_KEY = `global:rust:patch-notes:${RUST_PATCH_CHANNEL_ID}:last-link:v5`;
+const LAST_PATCH_KEY = `global:rust:patch-notes:${RUST_PATCH_CHANNEL_ID}:last-link:v6`;
 
 const LATEST_KNOWN_PATCH = {
     title: 'Power Trip',
