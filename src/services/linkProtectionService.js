@@ -1,8 +1,8 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 
-const INVITE_TIMEOUT_MS = 10 * 60 * 1000;
-const MALICIOUS_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const INVITE_TIMEOUT_MS = 1 * 60 * 1000;
+const MALICIOUS_TIMEOUT_MS = 30 * 60 * 1000;
 const LINK_SPAM_TIMEOUT_MS = 60 * 60 * 1000;
 const SPAM_WINDOW_MS = 15 * 1000;
 const SPAM_MESSAGE_LIMIT = 3;
@@ -170,7 +170,7 @@ export async function enforceLinkProtection(message) {
         await sendTemporaryAlert(
             message,
             'Potentially Dangerous Link Blocked',
-            'your message was removed and you have been timed out for **24 hours** because the link appeared unsafe. If you believe this was a mistake, contact the staff team.'
+            'your message was removed and you have been timed out for **30 minutes** because the link appeared unsafe. If you believe this was a mistake, contact the staff team.'
         );
         return true;
     }
@@ -180,7 +180,7 @@ export async function enforceLinkProtection(message) {
         await sendTemporaryAlert(
             message,
             'Discord Invite Blocked',
-            'Discord invite links are not allowed here. Your message was removed and you have been timed out for **10 minutes**.'
+            'Discord invite links are not allowed here. Your message was removed and you have been timed out for **1 minute**.'
         );
         return true;
     }
