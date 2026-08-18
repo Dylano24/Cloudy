@@ -116,18 +116,20 @@ export default {
                             embed
                                 .setImage(
                                     'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@22049f372fe990ac257455957a045904461ec614/assets/cloudy-waves-welcome.gif'
-                                );
+                                )
+                                .setFooter({
+                                    text: '© Cloudy • Build. Compete. Dominate.',
+                                    iconURL: member.client.user.displayAvatarURL({
+                                        extension: 'png',
+                                        size: 64
+                                    })
+                                });
 
 
                             await channel.send({
                                 content: ping,
                                 embeds:[embed]
                             });
-
-                            await channel.send({
-                                content: '© Cloudy • Build. Compete. Dominate.'
-                            });
-
 
                         } else {
 
