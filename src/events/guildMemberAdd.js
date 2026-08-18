@@ -117,10 +117,7 @@ export default {
                                 )
                                 .setFooter({
                                     text: '© Cloudy • Build. Compete. Dominate.',
-                                    iconURL: member.client.user.displayAvatarURL({
-                                        extension: 'png',
-                                        size: 64
-                                    })
+                                    iconURL: 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@a3523303898a32de406da2fea5864e1cce24bb11/assets/cloudy-logo.png'
                                 });
 
 
