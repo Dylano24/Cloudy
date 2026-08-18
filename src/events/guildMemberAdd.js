@@ -114,7 +114,7 @@ export default {
 
                             embed
                                 .setImage(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@512c89761c26aa58cc9928689a19b94a4b654b7a/assets/cloudy-waves-welcome.gif'
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@646030183b4b3cb4379199a465b546f0bc17eb16/assets/cloudy-waves-welcome.gif'
                                 );
 
 
