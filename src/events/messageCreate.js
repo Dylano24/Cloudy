@@ -13,6 +13,7 @@ import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abusePr
 import { createEmbed } from '../utils/embeds.js';
 import { isCommandEnabled } from '../services/commandAccessService.js';
 import { enforceLinkProtection } from '../services/linkProtectionService.js';
+import { enforceProtectedIdentityMessage } from '../services/protectedIdentityService.js';
 import {
   getCountingGameConfig,
   saveCountingGameConfig,
@@ -30,6 +31,11 @@ export default {
       if (!message.guild || message.author.id === client.user?.id) return;
 
       logger.debug(`Message received from ${message.author.tag}: ${message.content}`);
+
+      const identityBlocked = await enforceProtectedIdentityMessage(message);
+      if (identityBlocked) {
+        return;
+      }
 
       const linkBlocked = await enforceLinkProtection(message);
       if (linkBlocked) {
