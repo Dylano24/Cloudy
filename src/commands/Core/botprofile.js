@@ -172,13 +172,18 @@ export default {
                 const savedPresence =
                     await interaction.client.db.get('global:bot:profile:presence') ||
                     {};
+                const otherActivities = (savedPresence.activities || [])
+                    .filter((activity) => activity.type !== ActivityType.Custom);
                 const presence = {
                     status: savedPresence.status || 'online',
-                    activities: [{
-                        name: 'Custom Status',
-                        state: text,
-                        type: ActivityType.Custom,
-                    }],
+                    activities: [
+                        {
+                            name: 'Custom Status',
+                            state: text,
+                            type: ActivityType.Custom,
+                        },
+                        ...otherActivities,
+                    ],
                 };
 
                 interaction.client.user.setPresence(presence);
@@ -196,12 +201,17 @@ export default {
             const savedPresence =
                 await interaction.client.db.get('global:bot:profile:presence') ||
                 {};
+            const customActivities = (savedPresence.activities || [])
+                .filter((activity) => activity.type === ActivityType.Custom);
             const presence = {
                 status: savedPresence.status || 'online',
-                activities: [{
-                    name: text,
-                    type: ActivityType.Playing,
-                }],
+                activities: [
+                    ...customActivities,
+                    {
+                        name: text,
+                        type: ActivityType.Playing,
+                    },
+                ],
             };
 
             interaction.client.user.setPresence(presence);
