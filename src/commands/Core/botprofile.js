@@ -90,37 +90,13 @@ export default {
         .addSubcommand((subcommand) =>
             subcommand
                 .setName('activity')
-                .setDescription('Change the bot activity and online status')
+                .setDescription('Change the bot activity text')
                 .addStringOption((option) =>
                     option
                         .setName('text')
-                        .setDescription('The status text')
+                        .setDescription('The activity text')
                         .setMaxLength(128)
                         .setRequired(true)
-                )
-                .addStringOption((option) =>
-                    option
-                        .setName('type')
-                        .setDescription('The activity type')
-                        .setRequired(true)
-                        .addChoices(
-                            { name: 'Custom', value: 'custom' },
-                            { name: 'Playing', value: 'playing' },
-                            { name: 'Listening', value: 'listening' },
-                            { name: 'Watching', value: 'watching' },
-                            { name: 'Competing', value: 'competing' }
-                        )
-                )
-                .addStringOption((option) =>
-                    option
-                        .setName('availability')
-                        .setDescription('The online indicator')
-                        .addChoices(
-                            { name: 'Online', value: 'online' },
-                            { name: 'Idle', value: 'idle' },
-                            { name: 'Do Not Disturb', value: 'dnd' },
-                            { name: 'Invisible', value: 'invisible' }
-                        )
                 )
         ),
 
@@ -217,24 +193,24 @@ export default {
             }
 
             const text = interaction.options.getString('text', true);
-            const typeName = interaction.options.getString('type', true);
-            const availability = interaction.options.getString('availability') || 'online';
-            const type = activityTypes[typeName];
-
-            const activity = type === ActivityType.Custom
-                ? { name: 'Custom Status', state: text, type }
-                : { name: text, type };
-
+            const savedPresence =
+                await interaction.client.db.get('global:bot:profile:presence') ||
+                {};
             const presence = {
-                status: availability,
-                activities: [activity],
+                status: savedPresence.status || 'online',
+                activities: [{
+                    name: text,
+                    type: ActivityType.Playing,
+                }],
             };
 
             interaction.client.user.setPresence(presence);
-            await interaction.client.db.set('global:bot:profile:presence', presence);
-
+            await interaction.client.db.set(
+                'global:bot:profile:presence',
+                presence
+            );
             await interaction.editReply(
-                `Bot status updated to **${typeName}**: ${text} (${availability}).`
+                `Bot activity changed to: **${text}**.`
             );
         } catch (error) {
             logger.error('Bot profile command failed:', error);
