@@ -90,17 +90,16 @@ export default {
 [View the terms of service](${termsUrl})
 
 **🛒 Shop**
-[Shop now](${shopUrl})`
+[Shop now](${shopUrl})
+
+Ⓒ Cloudy • Build. Compete. Dominate.`
                                 )
                                 .setThumbnail(
                                     user.displayAvatarURL({
                                         dynamic:true
                                     })
                                 )
-                                .setTimestamp()
-                                .setFooter({
-                                    text: 'Ⓒ Cloudy • Build. Compete. Dominate.'
-                                });
+                                .setTimestamp();
 
                             if (welcome.welcomeImage) {
                                 embed.setImage(
