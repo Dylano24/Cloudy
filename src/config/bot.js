@@ -490,12 +490,12 @@ export function validateConfig(config) {
     logger.debug('NODE_ENV:', process.env.NODE_ENV);
   }
 
-  if (!process.env.DISCORD_TOKEN && !process.env.TOKEN) {
-    errors.push("Bot token is required (DISCORD_TOKEN or TOKEN environment variable)");
+  if (!process.env.DISCORD_TOKEN && !process.env.TOKEN && !process.env.BOT_TOKEN && !process.env.DISCORD_BOT_TOKEN) {
+    errors.push("Bot token is required (DISCORD_TOKEN, TOKEN, BOT_TOKEN, or DISCORD_BOT_TOKEN)");
   }
 
-  if (!process.env.CLIENT_ID) {
-    errors.push("Client ID is required (CLIENT_ID environment variable)");
+  if (!process.env.CLIENT_ID && !process.env.DISCORD_CLIENT_ID && !process.env.APPLICATION_ID && !process.env.BOT_CLIENT_ID) {
+    errors.push("Client ID is required (CLIENT_ID, DISCORD_CLIENT_ID, APPLICATION_ID, or BOT_CLIENT_ID)");
   }
 
   // PostgreSQL is optional. initializeDatabase() automatically falls back to
