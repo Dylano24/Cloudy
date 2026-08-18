@@ -258,8 +258,14 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     }
 
     logger.info(`Registering ${commandsToRegister.length} global commands...`);
-    await client.rest.put(`/applications/${clientId}/commands`, { body: commandsToRegister });
-    logger.info(`Successfully registered ${commandsToRegister.length} global commands`);
+    const globalCommands = commandsToRegister.filter(
+        (command) => command.name !== 'botprofile'
+    );
+    await client.rest.put(
+        `/applications/${clientId}/commands`,
+        { body: globalCommands }
+    );
+    logger.info(`Successfully registered ${globalCommands.length} global commands`);
 
     const botProfileGuildId =
         process.env.BOTPROFILE_GUILD_ID ||
