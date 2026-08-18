@@ -82,20 +82,28 @@ export default {
                                 new EmbedBuilder()
                                 .setColor('#FFFFFF')
                                 .setTitle('Welcome to Cloudy!')
-                                .setDescription(
-`${message}
-
-**📜 Rules**
-[Check our rules](${rulesUrl})
-
-**🔗 Link Your Account**
-[Link your account here to claim free kits, purchases & alerts](${linkAccountUrl})
-
-**🛒 Shop**
-[Visit our official Cloudy website for subscriptions & purchases](${shopUrl})
-
-**📩 Contact & Help**
-[Need help? Contact us here](${contactUrl})`
+                                .setDescription(message)
+                                .addFields(
+                                    {
+                                        name: '📜 Rules',
+                                        value: `[Check our rules](${rulesUrl})`,
+                                        inline: false
+                                    },
+                                    {
+                                        name: '🔗 Link Your Account',
+                                        value: `[Link your account here to claim free kits, purchases & alerts](${linkAccountUrl})`,
+                                        inline: false
+                                    },
+                                    {
+                                        name: '🛒 Shop',
+                                        value: `[Visit our official Cloudy website for subscriptions & purchases](${shopUrl})`,
+                                        inline: false
+                                    },
+                                    {
+                                        name: '📩 Contact & Help',
+                                        value: `[Need help? Contact us here](${contactUrl})`,
+                                        inline: false
+                                    }
                                 )
                                 .setThumbnail(
                                     user.displayAvatarURL({
