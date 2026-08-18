@@ -97,14 +97,15 @@ export default {
                                         dynamic:true
                                     })
                                 )
-                                .setTimestamp()
+                                .setTimestamp();
+
+                            embed
+                                .setImage(
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-waves-welcome.gif'
+                                )
                                 .setFooter({
                                     text: 'Ⓒ Cloudy • Build. Compete. Dominate.'
                                 });
-
-                            embed.setImage(
-                                'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-waves-welcome.gif'
-                            );
 
 
                             await channel.send({
