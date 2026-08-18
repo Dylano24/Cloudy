@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
+import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
 
 export default {
   name: Events.UserUpdate,
@@ -46,6 +47,11 @@ export default {
       const guilds = [...newUser.client.guilds.cache.values()];
       for (const guild of guilds) {
         if (!guild.members.cache.has(newUser.id)) continue;
+
+        const member = guild.members.cache.get(newUser.id);
+        if (await enforceProtectedIdentityProfile(member)) {
+          continue;
+        }
 
         await logEvent({
           client: newUser.client,
