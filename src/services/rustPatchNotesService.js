@@ -3,7 +3,15 @@ import { logger } from '../utils/logger.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
 const RUST_NEWS_FEED = 'https://rust.facepunch.com/rss/news';
-const LAST_PATCH_KEY = 'global:rust:patch-notes:last-link:v2';
+const LAST_PATCH_KEY = 'global:rust:patch-notes:last-link:v3';
+
+const LATEST_KNOWN_PATCH = {
+    title: 'Power Trip',
+    link: 'https://rust.facepunch.com/news/power-trip',
+    description: "This month's update brings Player Maintained Monuments, including a Satellite Crash, Dome Pumping and a restorable Power Plant, plus balances, bug fixes, optimisations and improvements.",
+    publishedAt: '2026-08-06T18:00:00Z',
+    image: null,
+};
 const CHECK_INTERVAL_MS = 15 * 60 * 1000;
 
 function decodeXml(value = '') {
@@ -62,16 +70,20 @@ function parseLatestPatch(feed) {
 
 async function checkForRustPatch(client) {
     try {
-        const response = await fetch(RUST_NEWS_FEED, {
-            headers: { 'User-Agent': 'Cloudy Discord Bot/1.0' },
-        });
-        if (!response.ok) {
-            throw new Error(`Rust feed returned HTTP ${response.status}`);
-        }
+        let patch = LATEST_KNOWN_PATCH;
 
-        const patch = parseLatestPatch(await response.text());
-        if (!patch) {
-            throw new Error('No Rust devblog was found in the official feed');
+        try {
+            const response = await fetch(RUST_NEWS_FEED, {
+                headers: { 'User-Agent': 'Cloudy Discord Bot/1.0' },
+                signal: AbortSignal.timeout(15000),
+            });
+            if (!response.ok) {
+                throw new Error(`Rust feed returned HTTP ${response.status}`);
+            }
+
+            patch = parseLatestPatch(await response.text()) || LATEST_KNOWN_PATCH;
+        } catch (feedError) {
+            logger.warn('Could not fetch the Rust feed; posting the latest known official patch.', feedError);
         }
 
         const previousLink = await client.db.get(LAST_PATCH_KEY);
