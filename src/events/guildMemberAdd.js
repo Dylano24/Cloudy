@@ -74,7 +74,7 @@ export default {
                             const linkAccountUrl =
                                 'https://discord.com/channels/1532882647838228723/1539189240074870835';
                             const shopUrl =
-                                'https://discord.com/channels/1532882647838228723/1533188744562344016';
+                                'https://discord.com/channels/1532882647838228723/1533192856909512774';
                             const contactUrl =
                                 'https://discord.com/channels/1532882647838228723/1533197784725852181';
 
