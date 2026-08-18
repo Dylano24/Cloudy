@@ -96,7 +96,7 @@ export default {
                                     },
                                     {
                                         name: '🛒 Shop',
-                                        value: `[Subscriptions & purchases](${shopUrl})\n[Official Cloudy website](${shopUrl})\n\u200b`,
+                                        value: `[Subscriptions & purchases • Official Cloudy website](${shopUrl})\n\u200b`,
                                         inline: false
                                     },
                                     {
