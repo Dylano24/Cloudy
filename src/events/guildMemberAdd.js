@@ -108,9 +108,7 @@ export default {
                                     }
                                 )
                                 .setThumbnail(
-                                    user.displayAvatarURL({
-                                        dynamic:true
-                                    })
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@b9d034c9d9156e70bed180e45e537f381ceb584f/assets/cloudy-logo.png'
                                 );
 
                             embed
