@@ -110,6 +110,17 @@ export default {
                             { name: 'Competing', value: 'competing' }
                         )
                 )
+                .addStringOption((option) =>
+                    option
+                        .setName('availability')
+                        .setDescription('Choose the online indicator')
+                        .addChoices(
+                            { name: 'Online', value: 'online' },
+                            { name: 'Idle', value: 'idle' },
+                            { name: 'Do Not Disturb', value: 'dnd' },
+                            { name: 'Invisible', value: 'invisible' }
+                        )
+                )
         ),
 
     async execute(interaction) {
@@ -206,11 +217,13 @@ export default {
 
             const text = interaction.options.getString('text', true);
             const typeName = interaction.options.getString('type', true);
+            const availability =
+                interaction.options.getString('availability') || 'online';
             const savedPresence =
                 await interaction.client.db.get('global:bot:profile:presence') ||
                 {};
             const presence = {
-                status: savedPresence.status || 'online',
+                status: availability,
                 activities: [{
                     name: text,
                     type: activityTypes[typeName],
@@ -223,7 +236,7 @@ export default {
                 presence
             );
             await interaction.editReply(
-                `Bot activity changed to **${typeName}**: **${text}**.`
+                `Bot activity changed to **${typeName}**: **${text}** (${availability}).`
             );
         } catch (error) {
             logger.error('Bot profile command failed:', error);
