@@ -1,4 +1,11 @@
-import { EmbedBuilder, Events, PermissionFlagsBits } from 'discord.js';
+import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    EmbedBuilder,
+    Events,
+    PermissionFlagsBits,
+} from 'discord.js';
 import { logger } from '../utils/logger.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
@@ -11,6 +18,16 @@ const LATEST_KNOWN_PATCH = {
     description: "This month's update brings Player Maintained Monuments, including a Satellite Crash, Dome Pumping and a restorable Power Plant, plus balances, bug fixes, optimisations and improvements.",
     publishedAt: '2026-08-06T18:00:00Z',
     image: null,
+    body: [
+        '### Player Maintained Monuments',
+        'Restore and power key monuments across the island, including Power Plant production and new monument interactions.',
+        '',
+        '### Satellite Crash',
+        'Trigger a new server-wide satellite event and compete for its unique loot.',
+        '',
+        '### Balances & Improvements',
+        'Includes balancing changes, bug fixes, optimisations and quality-of-life improvements.',
+    ].join('\n'),
 };
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const STARTUP_RETRY_MS = 60 * 1000;
@@ -33,6 +50,31 @@ function stripHtml(value = '') {
         .trim();
 }
 
+
+function htmlToDiscord(value = '') {
+    const markdown = decodeXml(value)
+        .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+        .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+        .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n### $1\n')
+        .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n• $1')
+        .replace(/<(?:p|div|section|article)[^>]*>/gi, '\n')
+        .replace(/<\/(?:p|div|section|article)>/gi, '\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<img\b[^>]*>/gi, '')
+        .replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;|&#160;/gi, ' ')
+        .replace(/&#x27;/gi, "'")
+        .replace(/&#x2F;/gi, '/')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n[ \t]+/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    if (markdown.length <= 3600) return markdown;
+    return `${markdown.slice(0, 3596).trimEnd()} ...`;
+}
+
 function readTag(xml, tag) {
     const match = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i'));
     return match ? decodeXml(match[1]).trim() : '';
@@ -43,7 +85,11 @@ function readImage(xml) {
     if (enclosure?.[1]) return decodeXml(enclosure[1]);
 
     const media = xml.match(/<media:(?:content|thumbnail)[^>]+url=["']([^"']+)["']/i);
-    return media?.[1] ? decodeXml(media[1]) : null;
+    if (media?.[1]) return decodeXml(media[1]);
+
+    const content = readTag(xml, 'content:encoded') || readTag(xml, 'description');
+    const image = content.match(/<img[^>]+src=["']([^"']+)["']/i);
+    return image?.[1] ? decodeXml(image[1]) : null;
 }
 
 function parseLatestPatch(feed) {
@@ -57,10 +103,14 @@ function parseLatestPatch(feed) {
         const link = readTag(item, 'link') || readTag(item, 'guid');
         if (!title || !link) continue;
 
+        const descriptionHtml = readTag(item, 'description');
+        const fullArticleHtml = readTag(item, 'content:encoded');
+
         return {
             title,
             link,
-            description: stripHtml(readTag(item, 'description')).slice(0, 1000),
+            description: stripHtml(descriptionHtml).slice(0, 1000),
+            body: htmlToDiscord(fullArticleHtml || descriptionHtml),
             publishedAt: readTag(item, 'pubDate'),
             image: readImage(item),
         };
@@ -127,23 +177,34 @@ async function checkForRustPatch(client) {
             }
         }
 
+        const articlePreview =
+            patch.body ||
+            patch.description ||
+            'A new official Rust update is available.';
+
         const embed = new EmbedBuilder()
             .setColor('#CE422B')
-            .setTitle(`🛠️ Rust Patch Notes — ${patch.title}`)
+            .setAuthor({ name: 'RUST • OFFICIAL UPDATE' })
+            .setTitle(patch.title)
             .setURL(patch.link)
-            .setDescription(
-                patch.description || 'A new official Rust update is available. Click the title to read the full patch notes.'
-            )
-            .addFields({
-                name: 'Official Patch Notes',
-                value: `[Read the full update on Facepunch](${patch.link})`,
-            })
-            .setFooter({ text: 'Official Rust update • Facepunch Studios' })
+            .setDescription(articlePreview)
+            .setFooter({ text: 'Cloudy Patch Notes • Source: Facepunch Studios' })
             .setTimestamp(patch.publishedAt ? new Date(patch.publishedAt) : new Date());
 
         if (patch.image) embed.setImage(patch.image);
 
-        await channel.send({ embeds: [embed] });
+        const linkRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel('Read Full Patch Notes')
+                .setEmoji('🛠️')
+                .setStyle(ButtonStyle.Link)
+                .setURL(patch.link)
+        );
+
+        await channel.send({
+            embeds: [embed],
+            components: [linkRow],
+        });
         await client.db.set(LAST_PATCH_KEY, patch.link);
         logger.info(`Posted Rust patch notes: ${patch.title}`);
         return true;
