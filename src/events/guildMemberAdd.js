@@ -118,8 +118,7 @@ export default {
                             // always renders inside this embed, directly below the banner.
                             const embedPayload = embed.toJSON();
                             embedPayload.footer = {
-                                text: '© Cloudy • Build. Compete. Dominate.',
-                                icon_url: 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@a3523303898a32de406da2fea5864e1cce24bb11/assets/cloudy-logo.png'
+                                text: '© Cloudy • Build. Compete. Dominate.'
                             };
 
                             await channel.send({
