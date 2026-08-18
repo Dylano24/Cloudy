@@ -114,8 +114,11 @@ export default {
 
                             embed
                                 .setImage(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@646030183b4b3cb4379199a465b546f0bc17eb16/assets/cloudy-waves-welcome.gif'
-                                );
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@22049f372fe990ac257455957a045904461ec614/assets/cloudy-waves-welcome.gif'
+                                )
+                                .setFooter({
+                                    text: '© Cloudy • Build. Compete. Dominate.'
+                                });
 
 
                             await channel.send({
