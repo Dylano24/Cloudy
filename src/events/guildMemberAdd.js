@@ -90,16 +90,17 @@ export default {
 [View the terms of service](${termsUrl})
 
 **🛒 Shop**
-[Shop now](${shopUrl})
-
-Ⓒ Cloudy • Build. Compete. Dominate.`
+[Shop now](${shopUrl})`
                                 )
                                 .setThumbnail(
                                     user.displayAvatarURL({
                                         dynamic:true
                                     })
                                 )
-                                .setTimestamp();
+                                .setTimestamp()
+                                .setFooter({
+                                    text: 'Ⓒ Cloudy • Build. Compete. Dominate.'
+                                });
 
                             embed.setImage(
                                 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-waves-welcome.gif'
