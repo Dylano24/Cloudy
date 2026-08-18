@@ -89,13 +89,13 @@ export default {
 [Check our rules](${rulesUrl})
 
 **🔗 Link Your Account**
-[Link your account here](${linkAccountUrl}) to claim free kits, purchases & alerts
+[Link your account here](${linkAccountUrl})
 
 **🛒 Shop**
-[Visit our official Cloudy website](${shopUrl}) for subscriptions & purchases
+[Shop](${shopUrl})
 
 **📩 Contact & Help**
-Need help? [Contact us here](${contactUrl})`
+[Contact us here](${contactUrl})`
                                 )
                                 .setThumbnail(
                                     user.displayAvatarURL({
