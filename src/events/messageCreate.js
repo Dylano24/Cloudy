@@ -12,6 +12,7 @@ import { getCommandPrefix, getBotMessage, isBotOwner, isCommandCategoryEnabled, 
 import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abuseProtection.js';
 import { createEmbed } from '../utils/embeds.js';
 import { isCommandEnabled } from '../services/commandAccessService.js';
+import { enforceLinkProtection } from '../services/linkProtectionService.js';
 import {
   getCountingGameConfig,
   saveCountingGameConfig,
@@ -29,6 +30,11 @@ export default {
       if (message.author.bot || !message.guild) return;
 
       logger.debug(`Message received from ${message.author.tag}: ${message.content}`);
+
+      const linkBlocked = await enforceLinkProtection(message);
+      if (linkBlocked) {
+        return;
+      }
 
       const countingProcessed = await handleCountingGame(message, client);
       if (countingProcessed) {
