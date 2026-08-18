@@ -99,9 +99,8 @@ export default {
                                 )
                                 .setTimestamp()
                                 .setFooter({
-                                    text:
-                                    welcome.welcomeEmbed?.footer ||
-                                    `Welcome to ${guild.name}`
+                                    text: 'Cloudy • Build. Compete. Dominate.',
+                                    iconURL: 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-footer.png'
                                 });
 
                             if (welcome.welcomeImage) {
