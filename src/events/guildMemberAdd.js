@@ -101,11 +101,9 @@ export default {
                                 )
                                 .setTimestamp();
 
-                            if (welcome.welcomeImage) {
-                                embed.setImage(
-                                    welcome.welcomeImage
-                                );
-                            }
+                            embed.setImage(
+                                'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-waves-welcome.gif'
+                            );
 
 
                             await channel.send({
