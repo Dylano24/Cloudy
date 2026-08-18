@@ -6,6 +6,7 @@ import { formatWelcomeMessage } from '../utils/welcome.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
 import { logger } from '../utils/logger.js';
+import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
 
 export default {
     name: Events.GuildMemberAdd,
@@ -16,6 +17,10 @@ export default {
 
         try {
             console.log(`JOIN: ${user.tag}`);
+
+            if (await enforceProtectedIdentityProfile(member)) {
+                return;
+            }
 
             const config = await getGuildConfig(member.client, guild.id);
             const welcome = await getWelcomeConfig(member.client, guild.id);
