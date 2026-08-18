@@ -116,7 +116,7 @@ export default {
                                     'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@e56cbead4b6d6ef364a56f421bab08f683d0965f/assets/cloudy-c-logo.png'
                                 )
                                 .setImage(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-dynamic-banner.gif'
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@20f09b2423cab57aa9b193853f76b527e73bb0dd/assets/cloudy-dynamic-banner.gif'
                                 );
 
                             // Force the footer into the final Discord API payload so it
