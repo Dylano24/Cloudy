@@ -113,7 +113,7 @@ export default {
                                     }
                                 )
                                 .setThumbnail(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@a3523303898a32de406da2fea5864e1cce24bb11/assets/cloudy-logo.png'
+                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@e56cbead4b6d6ef364a56f421bab08f683d0965f/assets/cloudy-c-logo.png'
                                 )
                                 .setImage(
                                     'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-dynamic-banner.gif'
