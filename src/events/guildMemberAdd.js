@@ -86,22 +86,22 @@ export default {
                                 .addFields(
                                     {
                                         name: '📜 Rules',
-                                        value: `[Check our rules](${rulesUrl})`,
+                                        value: `[Check our rules](${rulesUrl})\n\u200b`,
                                         inline: false
                                     },
                                     {
                                         name: '🔗 Link Your Account',
-                                        value: `[Link your account here to claim free kits, purchases & alerts](${linkAccountUrl})`,
+                                        value: `[Claim free kits, purchases & alerts](${linkAccountUrl})\n\u200b`,
                                         inline: false
                                     },
                                     {
                                         name: '🛒 Shop',
-                                        value: `[Visit our official Cloudy website for subscriptions & purchases](${shopUrl})`,
+                                        value: `Subscriptions & purchases\n[Official Cloudy website](${shopUrl})\n\u200b`,
                                         inline: false
                                     },
                                     {
-                                        name: '📩 Contact & Help',
-                                        value: `[Need help? Contact us here](${contactUrl})`,
+                                        name: '📩 Support & Help',
+                                        value: `[Contact us.](${contactUrl})`,
                                         inline: false
                                     }
                                 )
