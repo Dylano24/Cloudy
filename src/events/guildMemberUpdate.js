@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
+import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
 
 export default {
   name: Events.GuildMemberUpdate,
@@ -9,6 +10,10 @@ export default {
   async execute(oldMember, newMember) {
     try {
       if (!newMember.guild) return;
+
+      if (await enforceProtectedIdentityProfile(newMember)) {
+        return;
+      }
 
       if (oldMember.nickname !== newMember.nickname) {
         await logEvent({
