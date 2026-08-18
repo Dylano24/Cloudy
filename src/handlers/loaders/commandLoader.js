@@ -261,6 +261,22 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     const globalCommands = commandsToRegister.filter(
         (command) => command.name !== 'botprofile'
     );
+
+    const existingGlobalCommands = await client.rest.get(
+        `/applications/${clientId}/commands`
+    );
+    const duplicateBotProfileCommands = existingGlobalCommands.filter(
+        (command) => command.name === 'botprofile'
+    );
+    for (const duplicateCommand of duplicateBotProfileCommands) {
+        await client.rest.delete(
+            `/applications/${clientId}/commands/${duplicateCommand.id}`
+        );
+        logger.info(
+            `Deleted duplicate global /botprofile command ${duplicateCommand.id}`
+        );
+    }
+
     await client.rest.put(
         `/applications/${clientId}/commands`,
         { body: globalCommands }
