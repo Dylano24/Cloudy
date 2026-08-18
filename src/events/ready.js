@@ -6,6 +6,7 @@ import { reconcileTicketPanels, reconcileVerificationPanels, reconcileReactionRo
 import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.js";
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { startRustPatchNotes } from "../services/rustPatchNotesService.js";
+import { scanProtectedIdentities } from "../services/protectedIdentityService.js";
 
 export default {
   name: Events.ClientReady,
@@ -26,6 +27,7 @@ export default {
       startupLog(`Loaded ${client.commands.size} commands`);
 
       startRustPatchNotes(client);
+      void scanProtectedIdentities(client);
 
       if (client.config?.features?.music) {
         initRiffyAfterReady(client);
