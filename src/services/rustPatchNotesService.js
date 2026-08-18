@@ -3,7 +3,7 @@ import { logger } from '../utils/logger.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
 const RUST_NEWS_FEED = 'https://rust.facepunch.com/rss/news';
-const LAST_PATCH_KEY = 'global:rust:patch-notes:last-link';
+const LAST_PATCH_KEY = 'global:rust:patch-notes:last-link:v2';
 const CHECK_INTERVAL_MS = 15 * 60 * 1000;
 
 function decodeXml(value = '') {
