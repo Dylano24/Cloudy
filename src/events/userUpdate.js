@@ -11,10 +11,22 @@ export default {
     try {
       if (oldUser.bot) return;
 
+      const guilds = [...newUser.client.guilds.cache.values()];
+      for (const guild of guilds) {
+        const member =
+          guild.members.cache.get(newUser.id) ||
+          await guild.members.fetch(newUser.id).catch(() => null);
+
+        if (member && await enforceProtectedIdentityProfile(member)) {
+          return;
+        }
+      }
+
       const usernameChanged = oldUser.username !== newUser.username;
+      const displayNameChanged = oldUser.globalName !== newUser.globalName;
       const discriminatorChanged = oldUser.discriminator !== newUser.discriminator;
 
-      if (!usernameChanged && !discriminatorChanged) return;
+      if (!usernameChanged && !displayNameChanged && !discriminatorChanged) return;
 
       const fields = [];
 
@@ -27,6 +39,19 @@ export default {
         fields.push({
           name: '🏷️ New Username',
           value: newUser.username,
+          inline: true
+        });
+      }
+
+      if (displayNameChanged) {
+        fields.push({
+          name: '👤 Old Display Name',
+          value: oldUser.globalName || '*(none)*',
+          inline: true
+        });
+        fields.push({
+          name: '👤 New Display Name',
+          value: newUser.globalName || '*(none)*',
           inline: true
         });
       }
@@ -44,14 +69,8 @@ export default {
         });
       }
 
-      const guilds = [...newUser.client.guilds.cache.values()];
       for (const guild of guilds) {
         if (!guild.members.cache.has(newUser.id)) continue;
-
-        const member = guild.members.cache.get(newUser.id);
-        if (await enforceProtectedIdentityProfile(member)) {
-          continue;
-        }
 
         await logEvent({
           client: newUser.client,
