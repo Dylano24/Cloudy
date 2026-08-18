@@ -77,23 +77,6 @@ export default {
         )
         .addSubcommand((subcommand) =>
             subcommand
-                .setName('availability')
-                .setDescription('Change the bot online indicator')
-                .addStringOption((option) =>
-                    option
-                        .setName('status')
-                        .setDescription('Choose the bot online status')
-                        .setRequired(true)
-                        .addChoices(
-                            { name: 'Online', value: 'online' },
-                            { name: 'Idle', value: 'idle' },
-                            { name: 'Do Not Disturb', value: 'dnd' },
-                            { name: 'Invisible', value: 'invisible' }
-                        )
-                )
-        )
-        .addSubcommand((subcommand) =>
-            subcommand
                 .setName('status')
                 .setDescription('Set the bot custom status')
                 .addStringOption((option) =>
@@ -165,35 +148,6 @@ export default {
                 const bio = interaction.options.getString('text', true);
                 await interaction.client.application.edit({ description: bio });
                 await interaction.editReply('Bot bio updated.');
-                return;
-            }
-
-            if (subcommand === 'availability') {
-                const availability = interaction.options.getString('status', true);
-                const savedPresence =
-                    await interaction.client.db.get('global:bot:profile:presence') ||
-                    {};
-                const presence = {
-                    ...savedPresence,
-                    status: availability,
-                    activities:
-                        savedPresence.activities ||
-                        interaction.client.user.presence.activities.map((activity) => ({
-                            name: activity.name,
-                            type: activity.type,
-                            state: activity.state || undefined,
-                            url: activity.url || undefined,
-                        })),
-                };
-
-                interaction.client.user.setPresence(presence);
-                await interaction.client.db.set(
-                    'global:bot:profile:presence',
-                    presence
-                );
-                await interaction.editReply(
-                    `Bot availability changed to **${availability}**.`
-                );
                 return;
             }
 
