@@ -12,7 +12,13 @@ export default {
 
   async execute(client) {
     try {
-      client.user.setPresence(config.bot.presence);
+      let presence = config.bot.presence;
+      try {
+        presence = await client.db.get('global:bot:profile:presence') || presence;
+      } catch (error) {
+        logger.warn('Could not load saved bot presence; using configured presence.', error);
+      }
+      client.user.setPresence(presence);
 
       startupLog(`Ready! Logged in as ${client.user.tag}`);
       startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
