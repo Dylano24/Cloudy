@@ -494,9 +494,9 @@ export function validateConfig(config) {
     errors.push("Bot token is required (DISCORD_TOKEN, TOKEN, BOT_TOKEN, or DISCORD_BOT_TOKEN)");
   }
 
-  if (!process.env.CLIENT_ID && !process.env.DISCORD_CLIENT_ID && !process.env.APPLICATION_ID && !process.env.BOT_CLIENT_ID) {
-    errors.push("Client ID is required (CLIENT_ID, DISCORD_CLIENT_ID, APPLICATION_ID, or BOT_CLIENT_ID)");
-  }
+  // The Discord application ID is optional here. After login the bot can
+  // safely use client.user.id, preventing Railway from crashing when a
+  // separate CLIENT_ID variable was not configured.
 
   // PostgreSQL is optional. initializeDatabase() automatically falls back to
   // in-memory storage when no database connection is configured.
@@ -506,7 +506,7 @@ export function validateConfig(config) {
 
 const configErrors = validateConfig(botConfig);
 if (configErrors.length > 0) {
-  logger.error("Bot configuration errors:", configErrors.join("\n"));
+  logger.error(`Bot configuration errors:\n${configErrors.join("\n")}`);
   if (process.env.NODE_ENV === "production") {
     process.exit(1);
   }
