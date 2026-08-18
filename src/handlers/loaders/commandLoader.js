@@ -258,47 +258,35 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     }
 
     logger.info(`Registering ${commandsToRegister.length} global commands...`);
-    const globalCommands = commandsToRegister.filter(
-        (command) => command.name !== 'botprofile'
-    );
-
-    const existingGlobalCommands = await client.rest.get(
-        `/applications/${clientId}/commands`
-    );
-    const duplicateBotProfileCommands = existingGlobalCommands.filter(
-        (command) => command.name === 'botprofile'
-    );
-    for (const duplicateCommand of duplicateBotProfileCommands) {
-        await client.rest.delete(
-            `/applications/${clientId}/commands/${duplicateCommand.id}`
-        );
-        logger.info(
-            `Deleted duplicate global /botprofile command ${duplicateCommand.id}`
-        );
-    }
-
     await client.rest.put(
         `/applications/${clientId}/commands`,
-        { body: globalCommands }
+        { body: commandsToRegister }
     );
-    logger.info(`Successfully registered ${globalCommands.length} global commands`);
+    logger.info(
+        `Successfully registered ${commandsToRegister.length} global commands`
+    );
 
-    const botProfileGuildId =
+    const cloudyGuildId =
         process.env.BOTPROFILE_GUILD_ID ||
         process.env.GUILD_ID ||
         '1532882647838228723';
-    const botProfileCommand = commandsToRegister.find(
-        (command) => command.name === 'botprofile'
-    );
 
-    if (botProfileCommand && botProfileGuildId) {
-        await client.rest.put(
-            `/applications/${clientId}/guilds/${botProfileGuildId}/commands`,
-            { body: [botProfileCommand] }
+    if (cloudyGuildId) {
+        const guildCommands = await client.rest.get(
+            `/applications/${clientId}/guilds/${cloudyGuildId}/commands`
         );
-        logger.info(
-            `Registered /botprofile immediately in guild ${botProfileGuildId}`
+        const duplicateGuildBotProfiles = guildCommands.filter(
+            (command) => command.name === 'botprofile'
         );
+
+        for (const duplicateCommand of duplicateGuildBotProfiles) {
+            await client.rest.delete(
+                `/applications/${clientId}/guilds/${cloudyGuildId}/commands/${duplicateCommand.id}`
+            );
+            logger.info(
+                `Deleted duplicate guild /botprofile command ${duplicateCommand.id}`
+            );
+        }
     }
 
     logger.info('Global commands may take up to an hour to appear in all servers on first deploy');
