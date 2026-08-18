@@ -1,9 +1,9 @@
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, Events, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
 const RUST_NEWS_FEED = 'https://rust.facepunch.com/rss/news';
-const LAST_PATCH_KEY = 'global:rust:patch-notes:last-link:v3';
+const LAST_PATCH_KEY = `global:rust:patch-notes:${RUST_PATCH_CHANNEL_ID}:last-link:v4`;
 
 const LATEST_KNOWN_PATCH = {
     title: 'Power Trip',
@@ -12,7 +12,8 @@ const LATEST_KNOWN_PATCH = {
     publishedAt: '2026-08-06T18:00:00Z',
     image: null,
 };
-const CHECK_INTERVAL_MS = 15 * 60 * 1000;
+const CHECK_INTERVAL_MS = 10 * 60 * 1000;
+const STARTUP_RETRY_MS = 60 * 1000;
 
 function decodeXml(value = '') {
     return value
@@ -73,8 +74,13 @@ async function checkForRustPatch(client) {
         let patch = LATEST_KNOWN_PATCH;
 
         try {
-            const response = await fetch(RUST_NEWS_FEED, {
-                headers: { 'User-Agent': 'Cloudy Discord Bot/1.0' },
+            const feedUrl = `${RUST_NEWS_FEED}?cloudy=${Date.now()}`;
+            const response = await fetch(feedUrl, {
+                headers: {
+                    'User-Agent': 'Cloudy Discord Bot/1.0',
+                    Accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+                    'Cache-Control': 'no-cache',
+                },
                 signal: AbortSignal.timeout(15000),
             });
             if (!response.ok) {
@@ -86,12 +92,39 @@ async function checkForRustPatch(client) {
             logger.warn('Could not fetch the Rust feed; posting the latest known official patch.', feedError);
         }
 
-        const previousLink = await client.db.get(LAST_PATCH_KEY);
-        if (previousLink === patch.link) return;
-
         const channel = await client.channels.fetch(RUST_PATCH_CHANNEL_ID);
         if (!channel?.isTextBased()) {
             throw new Error(`Channel ${RUST_PATCH_CHANNEL_ID} is not a text channel`);
+        }
+
+        const botMember = channel.guild?.members?.me;
+        const permissions = botMember ? channel.permissionsFor(botMember) : null;
+        const requiredPermissions = [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.EmbedLinks,
+        ];
+
+        if (permissions && !permissions.has(requiredPermissions)) {
+            throw new Error(
+                `Cloudy needs View Channel, Send Messages and Embed Links in channel ${RUST_PATCH_CHANNEL_ID}`
+            );
+        }
+
+        const previousLink = await client.db.get(LAST_PATCH_KEY);
+        if (previousLink === patch.link) {
+            try {
+                const recentMessages = await channel.messages.fetch({ limit: 25 });
+                const isStillPosted = recentMessages.some(message =>
+                    message.author.id === client.user.id &&
+                    message.embeds.some(embed => embed.url === patch.link)
+                );
+
+                if (isStillPosted) return true;
+            } catch (historyError) {
+                logger.warn('Could not verify recent Rust patch messages; using stored state.', historyError);
+                return true;
+            }
         }
 
         const embed = new EmbedBuilder()
@@ -113,17 +146,40 @@ async function checkForRustPatch(client) {
         await channel.send({ embeds: [embed] });
         await client.db.set(LAST_PATCH_KEY, patch.link);
         logger.info(`Posted Rust patch notes: ${patch.title}`);
+        return true;
     } catch (error) {
         logger.warn('Rust patch notes check failed:', error);
+        return false;
     }
 }
 
+let patchNotesTimer = null;
+
 export function startRustPatchNotes(client) {
-    void checkForRustPatch(client);
+    const beginMonitoring = async () => {
+        if (patchNotesTimer) return;
 
-    const timer = setInterval(() => {
-        void checkForRustPatch(client);
-    }, CHECK_INTERVAL_MS);
+        const posted = await checkForRustPatch(client);
+        if (!posted) {
+            const retry = setTimeout(() => {
+                void checkForRustPatch(client);
+            }, STARTUP_RETRY_MS);
+            retry.unref?.();
+        }
 
-    timer.unref?.();
+        patchNotesTimer = setInterval(() => {
+            void checkForRustPatch(client);
+        }, CHECK_INTERVAL_MS);
+
+        patchNotesTimer.unref?.();
+        logger.info(`Rust patch notes monitor active for channel ${RUST_PATCH_CHANNEL_ID}`);
+    };
+
+    if (client.isReady()) {
+        void beginMonitoring();
+    } else {
+        client.once(Events.ClientReady, () => {
+            void beginMonitoring();
+        });
+    }
 }
