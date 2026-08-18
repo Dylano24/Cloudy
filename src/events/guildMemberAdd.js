@@ -99,8 +99,7 @@ export default {
                                 )
                                 .setTimestamp()
                                 .setFooter({
-                                    text: 'Cloudy • Build. Compete. Dominate.',
-                                    iconURL: 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-c-footer.png'
+                                    text: 'Ⓒ Cloudy • Build. Compete. Dominate.'
                                 });
 
                             if (welcome.welcomeImage) {
