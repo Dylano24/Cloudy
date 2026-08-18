@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { getWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
@@ -89,7 +89,7 @@ export default {
 **Terms of Service**
 [View the terms of service](${termsUrl})
 
-**Cloudy Store**
+**Shop**
 [Shop now](${shopUrl})`
                                 )
                                 .setThumbnail(
@@ -104,26 +104,6 @@ export default {
                                     `Welcome to ${guild.name}`
                                 });
 
-                            const links =
-                                new ActionRowBuilder().addComponents(
-                                    new ButtonBuilder()
-                                        .setLabel('Rules')
-                                        .setEmoji('📜')
-                                        .setStyle(ButtonStyle.Link)
-                                        .setURL(rulesUrl),
-                                    new ButtonBuilder()
-                                        .setLabel('Terms of Service')
-                                        .setEmoji('📄')
-                                        .setStyle(ButtonStyle.Link)
-                                        .setURL(termsUrl),
-                                    new ButtonBuilder()
-                                        .setLabel('Shop Now')
-                                        .setEmoji('🛒')
-                                        .setStyle(ButtonStyle.Link)
-                                        .setURL(shopUrl)
-                                );
-
-
                             if (welcome.welcomeImage) {
                                 embed.setImage(
                                     welcome.welcomeImage
@@ -133,8 +113,7 @@ export default {
 
                             await channel.send({
                                 content: ping,
-                                embeds:[embed],
-                                components:[links]
+                                embeds:[embed]
                             });
 
 
