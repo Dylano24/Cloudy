@@ -10,7 +10,7 @@ const ALERT_DELETE_MS = 10 * 1000;
 
 const linkActivity = new Map();
 
-const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>()]+/gi;
+const URL_PATTERN = /\b(?:https?:\/\/|www\.|discord\.gg\/|(?:[a-z0-9-]+\.)+[a-z]{2,}\/)[^\s<>()]*/gi;
 const DISCORD_INVITE_PATTERN = /(?:https?:\/\/)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com\/invite)\/[a-z0-9-]+/i;
 const SHORTENER_HOSTS = new Set([
     'bit.ly',
