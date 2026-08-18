@@ -54,7 +54,9 @@ export default {
                                 'Welcome {user} to {server}!',
                                 data
                             ) ||
-                            `Welcome ${user} to ${guild.name}!`;
+                            `Welcome ${user} to ${guild.name}`;
+
+                        const cleanMessage = message.replace(/!+\s*$/, '');
 
 
                         const ping =
@@ -81,8 +83,8 @@ export default {
                             const embed =
                                 new EmbedBuilder()
                                 .setColor('#FFFFFF')
-                                .setTitle('Welcome to Cloudy!')
-                                .setDescription(message)
+                                .setTitle('Welcome to Cloudy')
+                                .setDescription(cleanMessage)
                                 .addFields(
                                     {
                                         name: '📜 Rules',
