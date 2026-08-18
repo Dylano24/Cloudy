@@ -6,7 +6,7 @@ const MALICIOUS_TIMEOUT_MS = 30 * 60 * 1000;
 const LINK_SPAM_TIMEOUT_MS = 60 * 60 * 1000;
 const SPAM_WINDOW_MS = 15 * 1000;
 const SPAM_MESSAGE_LIMIT = 3;
-const ALERT_DELETE_MS = 10 * 1000;
+const ALERT_DELETE_MS = 30 * 1000;
 
 const linkActivity = new Map();
 
@@ -169,7 +169,7 @@ export async function enforceLinkProtection(message) {
         await applyTimeout(message, MALICIOUS_TIMEOUT_MS, 'Automatic protection: potentially malicious link');
         await sendTemporaryAlert(
             message,
-            'Potentially Dangerous Link Blocked',
+            'Potentially dangerous link blocked',
             'your message was removed and you have been timed out for **30 minutes** because the link appeared unsafe. If you believe this was a mistake, contact the staff team.'
         );
         return true;
@@ -179,7 +179,7 @@ export async function enforceLinkProtection(message) {
         await applyTimeout(message, INVITE_TIMEOUT_MS, 'Automatic protection: unauthorized Discord invite');
         await sendTemporaryAlert(
             message,
-            'Discord Invite Blocked',
+            'Discord invite blocked',
             'Discord invite links are not allowed here. Your message was removed and you have been timed out for **1 minute**.'
         );
         return true;
