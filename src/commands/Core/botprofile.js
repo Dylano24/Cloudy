@@ -95,6 +95,18 @@ export default {
         .addSubcommand((subcommand) =>
             subcommand
                 .setName('status')
+                .setDescription('Set the bot custom status')
+                .addStringOption((option) =>
+                    option
+                        .setName('text')
+                        .setDescription('The custom status text')
+                        .setMaxLength(128)
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName('activity')
                 .setDescription('Change the bot activity and online status')
                 .addStringOption((option) =>
                     option
@@ -222,6 +234,31 @@ export default {
                     await interaction.client.user.setBanner(imageBuffer);
                     await interaction.editReply('Bot profile banner updated.');
                 }
+                return;
+            }
+
+            if (subcommand === 'status') {
+                const text = interaction.options.getString('text', true);
+                const savedPresence =
+                    await interaction.client.db.get('global:bot:profile:presence') ||
+                    {};
+                const presence = {
+                    status: savedPresence.status || 'online',
+                    activities: [{
+                        name: 'Custom Status',
+                        state: text,
+                        type: ActivityType.Custom,
+                    }],
+                };
+
+                interaction.client.user.setPresence(presence);
+                await interaction.client.db.set(
+                    'global:bot:profile:presence',
+                    presence
+                );
+                await interaction.editReply(
+                    `Bot custom status changed to: **${text}**.`
+                );
                 return;
             }
 
