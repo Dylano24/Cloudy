@@ -5,7 +5,7 @@ import { logger } from '../../utils/logger.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { getTicketPermissionContext } from '../../utils/ticket/ticketPermissions.js';
-import { claimTicket } from '../../services/ticket.js';
+import { claimTicket } from '../../services/ticketUiService.js';
 export default {
     data: new SlashCommandBuilder()
         .setName("claim")
