@@ -23,6 +23,7 @@ export const TICKET_RECEIVED_MESSAGE =
 const PIN_EMOJI = '📌';
 const DB_TIMEOUT_MS = 2500;
 const DISCORD_TIMEOUT_MS = 3500;
+const CHANNEL_NAME_DEBOUNCE_MS = 3000;
 const CHANNEL_NAME_RETRY_MS = 15_000;
 const channelNameJobs = new Map();
 
@@ -135,6 +136,25 @@ function getDesiredTicketChannelName(currentName, priority, pinned) {
   return parts.join('-');
 }
 
+function getRetryDelayMs(error) {
+  const values = [
+    error?.retry_after,
+    error?.retryAfter,
+    error?.data?.retry_after,
+    error?.rawError?.retry_after,
+    error?.response?.data?.retry_after,
+  ];
+
+  for (const value of values) {
+    const seconds = Number(value);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.ceil(seconds * 1000) + 250;
+    }
+  }
+
+  return CHANNEL_NAME_RETRY_MS;
+}
+
 function scheduleTicketChannelNameSync(channel, updates = {}) {
   if (!channel?.id || !channel?.guild?.id) return;
 
@@ -156,11 +176,22 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
   }
   channelNameJobs.set(key, existing);
 
-  if (existing.running || existing.timer) return;
+  // If Discord is already processing a previous rename, only replace the
+  // desired final state. The active worker will pick up the newest state when
+  // the current request finishes instead of creating another REST request.
+  if (existing.running) return;
+
+  // Latest-wins debounce: rapid priority changes are collapsed into one
+  // channel rename. This is important because Discord heavily rate-limits
+  // channel-name edits, while the database/embed can still update instantly.
+  if (existing.timer) {
+    clearTimeout(existing.timer);
+    existing.timer = null;
+  }
 
   const run = async () => {
     const job = channelNameJobs.get(key);
-    if (!job) return;
+    if (!job || job.running) return;
 
     job.timer = null;
     job.running = true;
@@ -182,18 +213,22 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
       );
 
       if (desiredName !== job.channel.name) {
-        await job.channel.setName(
+        const renamedChannel = await job.channel.setName(
           desiredName,
           `Synchronize ticket priority/status (${snapshotPriority})`,
         );
+        if (renamedChannel) job.channel = renamedChannel;
       }
 
-      if (
+      const hasNewerState =
         (job.desiredPriority ?? snapshotPriority) !== snapshotPriority
-        || (job.desiredPinned ?? snapshotPinned) !== snapshotPinned
-      ) {
-        job.running = false;
-        queueMicrotask(run);
+        || (job.desiredPinned ?? snapshotPinned) !== snapshotPinned;
+
+      job.running = false;
+
+      if (hasNewerState) {
+        job.timer = setTimeout(run, CHANNEL_NAME_DEBOUNCE_MS);
+        job.timer.unref?.();
         return;
       }
 
@@ -206,20 +241,23 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
         return;
       }
 
-      logger.warn('Ticket channel status rename delayed; retrying', {
+      const retryMs = getRetryDelayMs(error);
+      logger.warn('Ticket channel status rename delayed; latest state remains queued', {
         guildId: job.channel?.guild?.id,
         channelId: key,
         desiredPriority: job.desiredPriority,
         desiredPinned: job.desiredPinned,
+        retryMs,
         error: error.message,
       });
 
-      job.timer = setTimeout(run, CHANNEL_NAME_RETRY_MS);
+      job.timer = setTimeout(run, retryMs);
       job.timer.unref?.();
     }
   };
 
-  queueMicrotask(run);
+  existing.timer = setTimeout(run, CHANNEL_NAME_DEBOUNCE_MS);
+  existing.timer.unref?.();
 }
 
 export function buildCloudyTicketControls({ claimedBy = null } = {}) {
@@ -299,7 +337,15 @@ async function findMainTicketMessage(channel, ticketData) {
     if (isMainTicketMessage(direct, channel)) return direct;
   }
 
-  if (typeof channel.messages?.fetchPinned === 'function') {
+  if (typeof channel.messages?.fetchPins === 'function') {
+    const pinnedResponse = await withTimeout(
+      channel.messages.fetchPins(),
+      DISCORD_TIMEOUT_MS,
+      'Pinned ticket message fetch',
+    ).catch(() => null);
+    const pinnedTicket = pinnedResponse?.items?.find(message => isMainTicketMessage(message, channel));
+    if (pinnedTicket) return pinnedTicket;
+  } else if (typeof channel.messages?.fetchPinned === 'function') {
     const pinned = await withTimeout(
       channel.messages.fetchPinned(),
       DISCORD_TIMEOUT_MS,
