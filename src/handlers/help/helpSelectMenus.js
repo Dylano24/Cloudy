@@ -255,7 +255,7 @@ export async function createAllCommandsMenu(page = 1, client, interaction = null
     const categoryDirs = (
         await fs.readdir(commandsPath, { withFileTypes: true })
     )
-        .filter((dirent) => dirent.isDirectory())
+        .filter((dirent) => dirent.isDirectory() && dirent.name !== 'Leveling')
         .map((dirent) => dirent.name)
         .sort();
 
