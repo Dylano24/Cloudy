@@ -235,6 +235,45 @@ async function refreshDashboard(rootInteraction, guildConfig, guildId, client) {
     }).catch(() => {});
 }
 
+async function recoverTicketPanelConfig(interaction, client, guildConfig) {
+    const channel = interaction.channel;
+    if (!channel?.isTextBased?.() || !channel.messages?.fetch) return null;
+
+    const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    if (!messages) return null;
+
+    const panelMessage = messages.find(message =>
+        message.author?.id === client.user?.id &&
+        messageHasButtonCustomId(message, 'create_ticket')
+    );
+
+    if (!panelMessage) return null;
+
+    const panelButton = panelMessage.components
+        .flatMap(row => row.components || [])
+        .find(component => component.customId === 'create_ticket');
+
+    guildConfig.ticketPanelChannelId = channel.id;
+    guildConfig.ticketPanelMessageId = panelMessage.id;
+    guildConfig.ticketPanelMessage =
+        panelMessage.embeds?.[0]?.description ||
+        guildConfig.ticketPanelMessage ||
+        'Click the button below to create a support ticket.';
+    guildConfig.ticketButtonLabel =
+        panelButton?.label ||
+        guildConfig.ticketButtonLabel ||
+        'Create Ticket';
+
+    await setGuildConfig(client, interaction.guildId, guildConfig);
+    logger.info('Recovered ticket panel configuration from Discord', {
+        guildId: interaction.guildId,
+        channelId: channel.id,
+        messageId: panelMessage.id,
+    });
+
+    return guildConfig;
+}
+
 async function updateLivePanel(client, guild, config, guildId) {
     if (!config.ticketPanelChannelId) return false;
     try {
@@ -260,9 +299,13 @@ export default {
     async execute(interaction, config, client) {
         try {
             const guildId = interaction.guild.id;
-            const guildConfig = await getGuildConfig(client, guildId);
+            let guildConfig = await getGuildConfig(client, guildId);
 
             if (!guildConfig.ticketPanelChannelId) {
+                guildConfig = await recoverTicketPanelConfig(interaction, client, guildConfig);
+            }
+
+            if (!guildConfig?.ticketPanelChannelId) {
                 throw new TitanBotError(
                     'Ticket system not configured',
                     ErrorTypes.CONFIGURATION,
