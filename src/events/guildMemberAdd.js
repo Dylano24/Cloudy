@@ -8,6 +8,7 @@ import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
 import { logger } from '../utils/logger.js';
 import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
+import { trackMemberInvite } from '../services/inviteTrackingService.js';
 
 export default {
     name: Events.GuildMemberAdd,
@@ -18,6 +19,8 @@ export default {
 
         try {
             console.log(`JOIN: ${user.tag}`);
+
+            await trackMemberInvite(member);
 
             if (await enforceProtectedIdentityProfile(member)) {
                 return;
