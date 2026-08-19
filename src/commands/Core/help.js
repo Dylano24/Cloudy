@@ -18,7 +18,6 @@ const __dirname = path.dirname(__filename);
 
 const CATEGORY_SELECT_ID = "help-category-select";
 const ALL_COMMANDS_ID = "help-all-commands";
-const BUG_REPORT_BUTTON_ID = "help-bug-report";
 const HELP_MENU_TIMEOUT_MS = 5 * 60 * 1000;
 
 const CATEGORY_ICONS = {
@@ -56,6 +55,18 @@ export async function createInitialHelpMenu(client) {
     )
         .filter((dirent) => dirent.isDirectory())
         .map((dirent) => dirent.name)
+        .filter((category) => [
+            'Community',
+            'Economy',
+            'Fun',
+            'Leveling',
+            'Music',
+            'Search',
+            'Ticket',
+            'Tools',
+            'Utility',
+            'Verification',
+        ].includes(category))
         .sort();
 
     const options = [
@@ -78,24 +89,17 @@ export async function createInitialHelpMenu(client) {
     const botName = client?.user?.username || "Bot";
     const embed = createEmbed({
         title: `📖 ${botName} Help`,
-        description: 'Set up your server, pick what to enable, then browse commands below.',
+        description: 'Browse the commands available to Cloudy players.',
         color: 'primary',
         thumbnail: client.user?.displayAvatarURL?.({ size: 1024 }),
         fields: [
             {
-                name: '🚀 Getting Started',
+                name: '🎮 Player Commands',
                 value: [
-                    '**1. Launch setup** — Run `/configwizard` to configure prefix, mod role, and logs.',
-                    '**2. Enable systems** — Use `/commands dashboard` to turn categories on or off.',                    '**3. Browse commands** — Use the menu below to view categories and commands.',
-                ].join('\n'),
-                inline: false,
-            },
-            {
-                name: 'ℹ️ How It Works',
-                value: [
-                    '• Dashboard commands manage each feature visually',
-                    '• Settings are saved per server',
-                    '• Slash commands and prefixes both work once enabled',
+                    '• Gamble and manage your economy',
+                    '• Browse and buy items from the shop',
+                    '• Check weather, music, levels and other player features',
+                    '• Administration and bot system commands are hidden',
                 ].join('\n'),
                 inline: false,
             },
@@ -106,11 +110,6 @@ export async function createInitialHelpMenu(client) {
         text: "Made with ❤️" 
     });
     embed.setTimestamp();
-
-    const bugReportButton = new ButtonBuilder()
-        .setCustomId(BUG_REPORT_BUTTON_ID)
-        .setLabel("Report Bug")
-        .setStyle(ButtonStyle.Danger);
 
     const supportButton = new ButtonBuilder()
         .setLabel("Support Server")
@@ -123,10 +122,7 @@ export async function createInitialHelpMenu(client) {
         options,
     );
 
-    const buttonRow = new ActionRowBuilder().addComponents([
-        bugReportButton,
-        supportButton,
-    ]);
+    const buttonRow = new ActionRowBuilder().addComponents(supportButton);
 
     return {
         embeds: [embed],
