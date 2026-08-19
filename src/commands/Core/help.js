@@ -3,6 +3,7 @@ import {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
+    PermissionFlagsBits,
 } from "discord.js";
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed } from "../../utils/embeds.js";
@@ -12,6 +13,7 @@ import {
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { isBotOwner } from "../../config/bot.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,14 +50,18 @@ function formatCategoryName(rawCategory) {
         .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-export async function createInitialHelpMenu(client) {
+export async function createInitialHelpMenu(client, interaction = null) {
+    const showAllCommands =
+        isBotOwner(interaction?.user?.id) ||
+        interaction?.memberPermissions?.has(PermissionFlagsBits.Administrator);
+
     const commandsPath = path.join(__dirname, "../../commands");
     const categoryDirs = (
         await fs.readdir(commandsPath, { withFileTypes: true })
     )
         .filter((dirent) => dirent.isDirectory())
         .map((dirent) => dirent.name)
-        .filter((category) => [
+        .filter((category) => showAllCommands || [
             'Community',
             'Economy',
             'Fun',
@@ -89,7 +95,9 @@ export async function createInitialHelpMenu(client) {
     const botName = client?.user?.username || "Bot";
     const embed = createEmbed({
         title: `📖 ${botName} Help`,
-        description: 'Browse the commands available to Cloudy players.',
+        description: showAllCommands
+            ? 'Browse all player and administration commands.'
+            : 'Browse the commands available to Cloudy players.',
         color: 'primary',
         thumbnail: client.user?.displayAvatarURL?.({ size: 1024 }),
         fields: [
@@ -99,7 +107,9 @@ export async function createInitialHelpMenu(client) {
                     '• Gamble and manage your economy',
                     '• Browse and buy items from the shop',
                     '• Check weather, music, levels and other player features',
-                    '• Administration and bot system commands are hidden',
+                    showAllCommands
+                        ? '• All administration and bot system commands are available'
+                        : '• Administration and bot system commands are hidden',
                 ].join('\n'),
                 inline: false,
             },
@@ -141,7 +151,7 @@ export default {
         const { MessageFlags } = await import('discord.js');
         await InteractionHelper.safeDefer(interaction);
         
-        const { embeds, components } = await createInitialHelpMenu(client);
+        const { embeds, components } = await createInitialHelpMenu(client, interaction);
 
         await InteractionHelper.safeEditReply(interaction, {
             embeds,
