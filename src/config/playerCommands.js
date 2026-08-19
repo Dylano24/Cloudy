@@ -1,6 +1,5 @@
 const PLAYER_COMMAND_NAMES = [
   'help',
-  'support',
   'balance',
   'beg',
   'buy',
@@ -40,7 +39,6 @@ const PLAYER_COMMAND_NAMES = [
   'avatar',
   'todo',
   'weather',
-  'verify',
 ];
 
 export const PLAYER_COMMANDS = new Set(PLAYER_COMMAND_NAMES);
