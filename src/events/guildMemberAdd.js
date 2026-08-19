@@ -183,7 +183,7 @@ export default {
                                         inline: false
                                     }
                                 )
-                                .setThumbnail('https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-logo.png')
+                                .setThumbnail('attachment://cloudy-c-logo.png')
                                 .setImage('attachment://cloudy-dynamic-banner.gif');
 
                             // Force the footer into the final Discord API payload so it
@@ -197,11 +197,15 @@ export default {
                                 fileURLToPath(new URL('../../assets/cloudy-dynamic-banner.gif', import.meta.url)),
                                 { name: 'cloudy-dynamic-banner.gif' }
                             );
+                            const welcomeLogo = new AttachmentBuilder(
+                                fileURLToPath(new URL('../../assets/cloudy-c-logo.png', import.meta.url)),
+                                { name: 'cloudy-c-logo.png' }
+                            );
 
                             await channel.send({
                                 content: ping,
                                 embeds: [embedPayload],
-                                files: [welcomeBanner]
+                                files: [welcomeBanner, welcomeLogo]
                             });
 
                         } else {
