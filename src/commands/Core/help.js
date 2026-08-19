@@ -145,8 +145,7 @@ export default {
 
     async execute(interaction, guildConfig, client) {
         
-        const { MessageFlags } = await import('discord.js');
-        await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+        await InteractionHelper.safeDefer(interaction);
         
         const { embeds, components } = await createInitialHelpMenu(client, interaction);
 
