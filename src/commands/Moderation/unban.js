@@ -93,10 +93,14 @@ export default {
             reason,
         });
 
+        const moderatorName = interaction.member?.displayName
+            || interaction.user.globalName
+            || interaction.user.username;
+
         await InteractionHelper.safeEditReply(interaction, {
             embeds: [
                 successEmbed(
-                    "User unbanned by Automod",
+                    `User unbanned by ${moderatorName}`,
                     `Successfully unbanned **${targetUser.tag}** from the server.\n\n**Reason:** ${reason}\n**Case ID:** #${result.caseId}`,
                 ),
             ],
