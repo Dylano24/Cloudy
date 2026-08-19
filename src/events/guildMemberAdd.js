@@ -1,4 +1,5 @@
-import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { Events, EmbedBuilder, PermissionFlagsBits, AttachmentBuilder } from 'discord.js';
+import { fileURLToPath } from 'node:url';
 import { botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { getWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
@@ -113,11 +114,9 @@ export default {
                                     }
                                 )
                                 .setThumbnail(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-c-logo.png'
+                                    member.client.user.displayAvatarURL({ extension: 'png', size: 1024 })
                                 )
-                                .setImage(
-                                    'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@b99c69899540531d92514df84f1c19a13a1350a0/assets/cloudy-dynamic-banner.gif'
-                                );
+                                .setImage('attachment://cloudy-dynamic-banner.gif');
 
                             // Force the footer into the final Discord API payload so it
                             // always renders inside this embed, directly below the banner.
@@ -126,9 +125,15 @@ export default {
                                 text: '© Cloudy • Build. Compete. Dominate.'
                             };
 
+                            const welcomeBanner = new AttachmentBuilder(
+                                fileURLToPath(new URL('../../assets/cloudy-dynamic-banner.gif', import.meta.url)),
+                                { name: 'cloudy-dynamic-banner.gif' }
+                            );
+
                             await channel.send({
                                 content: ping,
-                                embeds: [embedPayload]
+                                embeds: [embedPayload],
+                                files: [welcomeBanner]
                             });
 
                         } else {
