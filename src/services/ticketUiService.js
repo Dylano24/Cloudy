@@ -19,7 +19,7 @@ import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logger } from '../utils/logger.js';
 
 export const TICKET_RECEIVED_MESSAGE =
-  'we’ve received your request! To help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation. Our team will be with you as soon as possible.';
+  'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation.\n\nOur team will be with you as soon as possible.';
 
 export function buildCloudyTicketControls({ claimedBy = null } = {}) {
   return new ActionRowBuilder().addComponents(
