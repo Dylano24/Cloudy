@@ -1,4 +1,4 @@
-import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { Events, EmbedBuilder, PermissionFlagsBits, AuditLogEvent } from 'discord.js';
 import { getColor, botConfig } from '../config/bot.js';
 import { getWelcomeConfig, getUserApplications, deleteApplication } from '../utils/database.js';
 import { formatWelcomeMessage } from '../utils/welcome.js';
@@ -15,6 +15,47 @@ export default {
   async execute(member) {
     try {
         const { guild, user } = member;
+
+        // Detect kicks performed directly through Discord as well as bot commands.
+        // Discord can publish GuildMemberRemove slightly before the audit entry,
+        // so wait briefly and match the newest entry by target and timestamp.
+        try {
+            await new Promise(resolve => setTimeout(resolve, 750));
+            const auditLogs = await guild.fetchAuditLogs({
+                type: AuditLogEvent.MemberKick,
+                limit: 6,
+            });
+            const now = Date.now();
+            const kickEntry = auditLogs.entries.find(entry =>
+                entry.target?.id === user.id &&
+                now - entry.createdTimestamp < 15_000
+            );
+
+            if (kickEntry) {
+                const executor = kickEntry.executor;
+                const reason = kickEntry.reason || 'No reason provided';
+
+                await logEvent({
+                    client: member.client,
+                    guildId: guild.id,
+                    eventType: EVENT_TYPES.MODERATION_KICK,
+                    data: {
+                        title: '👢 Kick Log',
+                        lines: [
+                            `**User:** ${user.toString()} (${user.tag})`,
+                            `**Kicked by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
+                            `**Reason:** ${reason}`,
+                            `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
+                        ],
+                        quoted: false,
+                        thumbnail: user.displayAvatarURL({ size: 256 }),
+                        userId: user.id,
+                    },
+                });
+            }
+        } catch (auditError) {
+            logger.warn('Could not inspect audit logs for a member kick:', auditError.message);
+        }
         
         const welcomeConfig = await getWelcomeConfig(member.client, guild.id);
         
