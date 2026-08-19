@@ -63,14 +63,12 @@ export async function createInitialHelpMenu(client, interaction = null) {
         .map((dirent) => dirent.name)
         .filter((category) => category !== 'Leveling')
         .filter((category) => showAllCommands || [
-            'Core',
             'Economy',
             'Fun',
             'Music',
             'Search',
             'Tools',
             'Utility',
-            'Verification',
         ].includes(category))
         .sort();
 
