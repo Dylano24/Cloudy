@@ -32,6 +32,9 @@ export default {
           );
           const executor = timeoutEntry?.executor;
           const reason = timeoutEntry?.reason || 'No reason provided';
+          const isAutoModAction =
+            executor?.id === newMember.client.user?.id &&
+            reason.startsWith('Automatic protection:');
           const durationMs = Math.max(0, newTimeout - Date.now());
           const durationMinutes = Math.max(1, Math.ceil(durationMs / 60_000));
 
@@ -40,7 +43,7 @@ export default {
             guildId: newMember.guild.id,
             eventType: EVENT_TYPES.MODERATION_TIMEOUT,
             data: {
-              title: 'Timeout log',
+              title: isAutoModAction ? 'AutoMod timeout' : 'Timeout log',
               lines: [
                 `**User:** ${newMember.user.toString()} (${newMember.user.tag})`,
                 `**Timed-out by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
