@@ -13,6 +13,8 @@ import {
 
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
 const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
+const RECENT_KICK_LOG_TTL_MS = 15_000;
+const recentKickLogs = new Map();
 
 const EVENT_TYPES = {
   MODERATION_BAN: 'moderation.ban',
@@ -219,6 +221,24 @@ export async function logEvent({
     if (!guild) {
       logger.warn(`logEvent: Guild not found: ${guildId}`);
       return null;
+    }
+
+    if (eventType === EVENT_TYPES.MODERATION_KICK && data?.userId) {
+      const dedupeKey = `${guildId}:${data.userId}`;
+      const previousLogAt = recentKickLogs.get(dedupeKey);
+      const now = Date.now();
+
+      if (previousLogAt && now - previousLogAt < RECENT_KICK_LOG_TTL_MS) {
+        return null;
+      }
+
+      recentKickLogs.set(dedupeKey, now);
+      const cleanupTimer = setTimeout(() => {
+        if (recentKickLogs.get(dedupeKey) === now) {
+          recentKickLogs.delete(dedupeKey);
+        }
+      }, RECENT_KICK_LOG_TTL_MS);
+      cleanupTimer.unref?.();
     }
 
     const config = await getGuildConfig(client, guildId);
