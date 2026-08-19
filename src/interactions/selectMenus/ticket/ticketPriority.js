@@ -10,8 +10,8 @@ export default {
   name: 'ticket_priority_select',
 
   async execute(interaction, client) {
-    // Acknowledge the select immediately. This prevents Discord's interaction timeout
-    // even when PostgreSQL or permission checks take a moment.
+    // Acknowledge immediately so the selector never expires while PostgreSQL
+    // or Discord is processing the update.
     try {
       await interaction.deferUpdate();
     } catch (error) {
@@ -25,6 +25,15 @@ export default {
 
     try {
       const priority = interaction.values?.[0];
+
+      // Remove the old selector immediately. Every future click on Priority
+      // creates a completely fresh selector instead of reusing stale state.
+      await interaction.editReply({
+        content: 'Updating priority...',
+        embeds: [],
+        components: [],
+      });
+
       if (!VALID_PRIORITIES.has(priority)) {
         await interaction.editReply({
           content: 'Invalid priority selected.',
@@ -56,16 +65,14 @@ export default {
       const priorityInfo = PRIORITY_MAP[priority] || PRIORITY_MAP.none;
       const currentPriority = String(context.ticketData.priority || 'none').toLowerCase();
 
-      if (currentPriority !== priority) {
-        await updateTicketPriority(interaction.channel, priority, interaction.user);
-      }
+      await updateTicketPriority(interaction.channel, priority, interaction.user);
 
       await interaction.editReply({
         content: '',
         embeds: [successEmbed(
           'Priority Updated',
           currentPriority === priority
-            ? `Ticket priority is already set to **${priorityInfo.emoji} ${priorityInfo.label}**.`
+            ? `Ticket priority remains **${priorityInfo.emoji} ${priorityInfo.label}**.`
             : `Ticket priority has been set to **${priorityInfo.emoji} ${priorityInfo.label}**.`,
         )],
         components: [],
@@ -78,7 +85,7 @@ export default {
       });
 
       await interaction.editReply({
-        content: 'An error occurred while updating the ticket priority. Please try again.',
+        content: error?.userMessage || 'An error occurred while updating the ticket priority. Please try again.',
         embeds: [],
         components: [],
       }).catch(() => {});
