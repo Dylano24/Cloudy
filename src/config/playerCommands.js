@@ -40,7 +40,7 @@ const PLAYER_COMMAND_NAMES = [
   'todo',
   'weather',
   'report',
-  'report to staff',
+  'reports',
 ];
 
 export const PLAYER_COMMANDS = new Set(PLAYER_COMMAND_NAMES);
