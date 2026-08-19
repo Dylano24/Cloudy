@@ -20,6 +20,91 @@ import { logger } from '../utils/logger.js';
 export const TICKET_RECEIVED_MESSAGE =
   'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation.\n\nOur team will be with you as soon as possible.';
 
+// One non-blocking rename worker per ticket channel. Discord rate-limits channel
+// name changes aggressively. The worker always converges to the LATEST priority
+// instead of making the interaction wait or giving up after one failed rename.
+const priorityRenameJobs = new Map();
+const PRIORITY_RENAME_RETRY_MS = 15_000;
+
+function getCleanTicketChannelName(name = '') {
+  const emojis = [...new Set(Object.values(PRIORITY_MAP).map(info => info.emoji).filter(Boolean))];
+  let cleanName = String(name);
+  for (const emoji of emojis) cleanName = cleanName.replaceAll(emoji, '');
+  return cleanName.replace(/^[-\s]+/, '').trim() || 'ticket';
+}
+
+function getPriorityChannelName(currentName, priority) {
+  const priorityInfo = PRIORITY_MAP[priority] || PRIORITY_MAP.none;
+  const cleanName = getCleanTicketChannelName(currentName);
+  return priority === 'none' ? cleanName : `${priorityInfo.emoji}-${cleanName}`;
+}
+
+function schedulePriorityChannelRename(channel, priority) {
+  const key = channel.id;
+  const existing = priorityRenameJobs.get(key) || {
+    channel,
+    desiredPriority: priority,
+    running: false,
+    timer: null,
+  };
+
+  existing.channel = channel;
+  existing.desiredPriority = priority;
+  priorityRenameJobs.set(key, existing);
+
+  if (existing.running || existing.timer) return;
+
+  const run = async () => {
+    const job = priorityRenameJobs.get(key);
+    if (!job) return;
+
+    job.timer = null;
+    job.running = true;
+
+    try {
+      const latestPriority = job.desiredPriority;
+      const desiredName = getPriorityChannelName(job.channel.name, latestPriority);
+
+      if (desiredName !== job.channel.name) {
+        await job.channel.setName(desiredName, `Ticket priority changed to ${latestPriority}`);
+      }
+
+      // A newer priority may have been selected while Discord was waiting on
+      // its rename rate limit. If so, immediately process the newest value.
+      if (job.desiredPriority !== latestPriority) {
+        job.running = false;
+        queueMicrotask(run);
+        return;
+      }
+
+      priorityRenameJobs.delete(key);
+    } catch (error) {
+      job.running = false;
+
+      // If the channel was deleted or is otherwise gone, stop retrying.
+      if ([10003, 10008].includes(error?.code)) {
+        priorityRenameJobs.delete(key);
+        return;
+      }
+
+      logger.warn('Ticket priority status emoji rename delayed; retrying', {
+        channelId: key,
+        desiredPriority: job.desiredPriority,
+        error: error.message,
+      });
+
+      job.timer = setTimeout(run, PRIORITY_RENAME_RETRY_MS);
+      job.timer.unref?.();
+      return;
+    }
+
+    const jobAfter = priorityRenameJobs.get(key);
+    if (jobAfter) jobAfter.running = false;
+  };
+
+  queueMicrotask(run);
+}
+
 export function buildCloudyTicketControls({ claimedBy = null } = {}) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('ticket_claim').setLabel(claimedBy ? 'Claimed' : 'Claim').setStyle(claimedBy ? ButtonStyle.Secondary : ButtonStyle.Primary).setEmoji('✋').setDisabled(Boolean(claimedBy)),
@@ -93,26 +178,27 @@ export async function updateTicketPriority(channel, priority, updater) {
   if (!priorityInfo) { const error = new Error('Invalid ticket priority.'); error.userMessage = 'Invalid priority selected.'; throw error; }
   const ticketData = await getTicketData(channel.guild.id, channel.id);
   if (!ticketData) { const error = new Error('Ticket data not found.'); error.userMessage = 'This action can only be used in a valid ticket channel.'; throw error; }
+
   const previousPriority = String(ticketData.priority || 'none').toLowerCase();
   ticketData.priority = priority;
   ticketData.priorityUpdatedBy = updater.id;
   ticketData.priorityUpdatedAt = new Date().toISOString();
+
+  // PostgreSQL is updated first. The visible ticket embed updates immediately.
+  // The channel-side emoji is queued separately and keeps retrying until it
+  // matches the latest priority, so Discord rename rate limits cannot break it.
   await saveTicketData(channel.guild.id, channel.id, ticketData);
-
-  // Restore the priority/status emoji at the side of the ticket channel.
-  // This rename is best-effort so a Discord rename rate limit can never block
-  // saving or updating the actual ticket priority.
-  const emojis = [...new Set(Object.values(PRIORITY_MAP).map(info => info.emoji).filter(Boolean))];
-  let cleanName = channel.name;
-  for (const emoji of emojis) cleanName = cleanName.replaceAll(emoji, '');
-  cleanName = cleanName.replace(/^[-\s]+/, '').trim();
-  const desiredName = priority === 'none' ? cleanName : `${priorityInfo.emoji}-${cleanName}`;
-  if (desiredName && desiredName !== channel.name) {
-    channel.setName(desiredName).catch(error => logger.warn('Could not update ticket status emoji', { channelId: channel.id, error: error.message }));
-  }
-
+  schedulePriorityChannelRename(channel, priority);
   await syncCloudyTicketMessage(channel);
-  logger.info('Ticket priority updated', { guildId: channel.guild.id, channelId: channel.id, previousPriority, priority, updaterId: updater.id });
+
+  logger.info('Ticket priority updated', {
+    guildId: channel.guild.id,
+    channelId: channel.id,
+    previousPriority,
+    priority,
+    updaterId: updater.id,
+  });
+
   return ticketData;
 }
 
