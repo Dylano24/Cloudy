@@ -48,16 +48,53 @@ const validatedTables = Object.fromEntries(
 
 const DEFAULT_POSTGRES_URL = 'postgresql://localhost:5432/titanbot';
 
+function getPostgresUrl() {
+    return (
+        process.env.POSTGRES_URL ||
+        process.env.DATABASE_URL ||
+        process.env.DATABASE_PRIVATE_URL ||
+        process.env.DATABASE_PUBLIC_URL ||
+        ''
+    ).trim();
+}
+
+function getPgHost() {
+    return process.env.POSTGRES_HOST || process.env.PGHOST || 'localhost';
+}
+
+function getPgPort() {
+    return parseInt(process.env.POSTGRES_PORT || process.env.PGPORT, 10) || 5432;
+}
+
+function getPgDatabase() {
+    return process.env.POSTGRES_DB || process.env.PGDATABASE || 'titanbot';
+}
+
+function getPgUser() {
+    return process.env.POSTGRES_USER || process.env.PGUSER || 'postgres';
+}
+
+function getPgPassword() {
+    return (process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD || '').toString();
+}
+
 export function resolveSslConfig() {
-    const sslEnv = process.env.POSTGRES_SSL?.toLowerCase();
-    if (sslEnv === 'false' || sslEnv === '0') {
+    const sslEnv = (process.env.POSTGRES_SSL || process.env.PGSSLMODE || '').toLowerCase();
+    if (sslEnv === 'false' || sslEnv === '0' || sslEnv === 'disable') {
         return false;
     }
-    if (sslEnv === 'true' || sslEnv === '1') {
+    if (
+        sslEnv === 'true' ||
+        sslEnv === '1' ||
+        sslEnv === 'require' ||
+        sslEnv === 'verify-ca' ||
+        sslEnv === 'verify-full' ||
+        sslEnv === 'prefer'
+    ) {
         return { rejectUnauthorized: false };
     }
 
-    const url = process.env.POSTGRES_URL || process.env.DATABASE_URL || '';
+    const url = getPostgresUrl();
     if (/sslmode=(require|verify-ca|verify-full|prefer)/i.test(url)) {
         return { rejectUnauthorized: false };
     }
@@ -75,12 +112,12 @@ export function resolveSslConfig() {
 
 export function resolvePostgresPoolConfig() {
     const ssl = resolveSslConfig();
-    const url = (process.env.POSTGRES_URL || process.env.DATABASE_URL || '').trim();
+    const url = getPostgresUrl();
     const sharedOptions = {
-        max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS) || 20,
-        min: parseInt(process.env.POSTGRES_MIN_CONNECTIONS) || 2,
-        idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT) || 30000,
-        connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT) || 10000,
+        max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS, 10) || 20,
+        min: parseInt(process.env.POSTGRES_MIN_CONNECTIONS, 10) || 2,
+        idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT, 10) || 30000,
+        connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT, 10) || 10000,
         application_name: 'titanbot',
         statement_timeout: process.env.NODE_ENV === 'production' ? 30000 : 0,
         keepalives: 1,
@@ -93,102 +130,79 @@ export function resolvePostgresPoolConfig() {
     }
 
     return {
-        host: process.env.POSTGRES_HOST || 'localhost',
-        port: parseInt(process.env.POSTGRES_PORT) || 5432,
-        database: process.env.POSTGRES_DB || 'titanbot',
-        user: process.env.POSTGRES_USER || 'postgres',
-        password: (process.env.POSTGRES_PASSWORD || '').toString(),
+        host: getPgHost(),
+        port: getPgPort(),
+        database: getPgDatabase(),
+        user: getPgUser(),
+        password: getPgPassword(),
         ...sharedOptions,
     };
 }
 
 export const pgConfig = {
-    url: process.env.POSTGRES_URL || process.env.DATABASE_URL || DEFAULT_POSTGRES_URL,
-    
+    url: getPostgresUrl() || DEFAULT_POSTGRES_URL,
+
     options: {
-        
-        host: process.env.POSTGRES_HOST || 'localhost',
-        port: parseInt(process.env.POSTGRES_PORT) || 5432,
-        database: process.env.POSTGRES_DB || 'titanbot',
-        user: process.env.POSTGRES_USER || 'postgres',
-        password: (process.env.POSTGRES_PASSWORD || '').toString(),
+        host: getPgHost(),
+        port: getPgPort(),
+        database: getPgDatabase(),
+        user: getPgUser(),
+        password: getPgPassword(),
         ssl: resolveSslConfig(),
 
-        max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS) || 20,
-        min: parseInt(process.env.POSTGRES_MIN_CONNECTIONS) || 2,
-        idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT) || 30000,
-        connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT) || 10000,
+        max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS, 10) || 20,
+        min: parseInt(process.env.POSTGRES_MIN_CONNECTIONS, 10) || 2,
+        idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT, 10) || 30000,
+        connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT, 10) || 10000,
 
         application_name: 'titanbot',
         statement_timeout: process.env.NODE_ENV === 'production' ? 30000 : 0,
         keepalives: 1,
         keepalives_idle: 30,
 
-        retries: parseInt(process.env.POSTGRES_RETRIES) || 3,
-        backoffBase: parseInt(process.env.POSTGRES_BACKOFF_BASE) || 100,
-        backoffMultiplier: parseInt(process.env.POSTGRES_BACKOFF_MULTIPLIER) || 2,
+        retries: parseInt(process.env.POSTGRES_RETRIES, 10) || 3,
+        backoffBase: parseInt(process.env.POSTGRES_BACKOFF_BASE, 10) || 100,
+        backoffMultiplier: parseInt(process.env.POSTGRES_BACKOFF_MULTIPLIER, 10) || 2,
     },
-    
+
     tables: validatedTables,
-    
+
     defaultTTL: {
         userSession: 86400,
-        
         temp: 3600,
-        
         cache: 1800,
-        
         guildConfig: null,
-        
         economy: null,
-        
         leveling: null,
-        
         giveaway: null,
-        
         ticket: 604800,
-        
         afk: 86400,
-        
         welcome: null,
-        
         birthday: null,
     },
-    
+
     features: {
         pooling: true,
         ssl: process.env.NODE_ENV === 'production',
-        
         metrics: true,
-        
         debug: process.env.NODE_ENV === 'development',
-        
         autoCreateTables: true,
-        
         autoMigrate: process.env.AUTO_MIGRATE !== 'false',
     },
-    
+
     healthCheck: {
         enabled: true,
-        
         interval: 30000,
-        
         maxFailures: 3,
-        
         query: 'SELECT 1',
     },
-    
+
     migration: {
         enabled: true,
-        
         table: 'schema_migrations',
-        
         directory: 'database/migrations',
-        
         rollbackOnFailure: false,
-
         expectedVersion: EXPECTED_SCHEMA_VERSION,
-
         expectedLabel: EXPECTED_SCHEMA_LABEL,
     }
 };
