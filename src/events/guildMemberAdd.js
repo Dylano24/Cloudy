@@ -10,6 +10,19 @@ import { logger } from '../utils/logger.js';
 import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
 import { trackMemberInvite } from '../services/inviteTrackingService.js';
 
+function getOrdinalSuffix(number) {
+    const value = Math.abs(Number(number));
+    const lastTwo = value % 100;
+    if (lastTwo >= 11 && lastTwo <= 13) return 'th';
+
+    switch (value % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+    }
+}
+
 export default {
     name: Events.GuildMemberAdd,
     once: false,
@@ -118,6 +131,8 @@ export default {
                             `Welcome ${user} to ${guild.name}`;
 
                         const cleanMessage = message.replace(/!+\s*$/, '');
+                        const memberNumber = guild.memberCount;
+                        const memberPosition = `You are the **${memberNumber}**${getOrdinalSuffix(memberNumber)} member of the server`;
 
 
                         const ping =
@@ -145,7 +160,7 @@ export default {
                                 new EmbedBuilder()
                                 .setColor('#FFFFFF')
                                 .setTitle('Welcome to Cloudy')
-                                .setDescription(cleanMessage)
+                                .setDescription(`${cleanMessage}\n\n${memberPosition}`)
                                 .addFields(
                                     {
                                         name: '📜 Rules',
