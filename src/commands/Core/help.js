@@ -97,11 +97,17 @@ export async function createInitialHelpMenu(client, interaction = null) {
         color: 'primary',
         thumbnail: client.user?.displayAvatarURL?.({ size: 1024 }),
         fields: [
-            {
-                name: '🎮 Member Commands',
-                value: '• Gamble and earn coins\n• Buy shop items\n• Play fun games\n• Listen to music\n• Use helpful tools',
-                inline: false,
-            },
+            showAllCommands
+                ? {
+                    name: '👑 All Commands',
+                    value: 'You have access to all member, moderation, administration and bot system commands.',
+                    inline: false,
+                }
+                : {
+                    name: '🎮 Member Commands',
+                    value: '• Gamble and earn coins\n• Buy shop items\n• Play fun games\n• Listen to music\n• Use helpful tools',
+                    inline: false,
+                },
         ],
     });
 
