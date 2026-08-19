@@ -99,7 +99,7 @@ export async function createInitialHelpMenu(client, interaction = null) {
         fields: [
             {
                 name: '🎮 Member Commands',
-                value: 'Gamble and earn coins, buy shop items, play fun games, listen to music, check the weather and use helpful tools.',
+                value: 'Gamble and earn coins, buy shop items, play fun games, listen to music and use helpful tools.',
                 inline: false,
             },
         ],
