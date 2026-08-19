@@ -95,20 +95,17 @@ export async function createInitialHelpMenu(client, interaction = null) {
     const embed = createEmbed({
         title: `📖 ${botName} Help`,
         description: showAllCommands
-            ? 'Browse all player and administration commands.'
-            : 'Browse the commands available to Cloudy players.',
+            ? 'Browse all member and administration commands.'
+            : 'Browse the commands available to Cloudy members.',
         color: 'primary',
         thumbnail: client.user?.displayAvatarURL?.({ size: 1024 }),
         fields: [
             {
-                name: '🎮 Player Commands',
+                name: '🎮 Member Commands',
                 value: [
                     '• Gamble and manage your economy',
                     '• Browse and buy items from the shop',
-                    '• Check weather, music, levels and other player features',
-                    showAllCommands
-                        ? '• All administration and bot system commands are available'
-                        : '• Administration and bot system commands are hidden',
+                    '• Check weather, music, levels and other member features',
                 ].join('\n'),
                 inline: false,
             },
@@ -148,7 +145,7 @@ export default {
     async execute(interaction, guildConfig, client) {
         
         const { MessageFlags } = await import('discord.js');
-        await InteractionHelper.safeDefer(interaction);
+        await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
         
         const { embeds, components } = await createInitialHelpMenu(client, interaction);
 
