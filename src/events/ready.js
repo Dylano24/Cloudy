@@ -8,7 +8,7 @@ import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.j
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { startRustPatchNotes } from "../services/rustPatchNotesService.js";
 import { scanProtectedIdentities } from "../services/protectedIdentityService.js";
-import { startInviteTracking } from "../services/inviteTrackingService.js";
+import { initializeInviteTracking } from "../services/inviteTrackingService.js";
 
 export default {
   name: Events.ClientReady,
@@ -46,7 +46,7 @@ export default {
 
       startRustPatchNotes(client);
       void scanProtectedIdentities(client);
-      await startInviteTracking(client);
+      await initializeInviteTracking(client);
 
       if (client.config?.features?.music) {
         initRiffyAfterReady(client);
