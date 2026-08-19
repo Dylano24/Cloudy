@@ -102,7 +102,7 @@ export async function recordInviteCreated(invite) {
       },
       {
         name: 'Invite',
-        value: `https://discord.gg/${invite.code}\nCode: \`${invite.code}\``,
+        value: `https://discord.gg/${invite.code}`,
         inline: false,
       },
       {
