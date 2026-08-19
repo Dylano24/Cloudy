@@ -43,7 +43,7 @@ export default {
             guildId: newMember.guild.id,
             eventType: EVENT_TYPES.MODERATION_TIMEOUT,
             data: {
-              title: isAutoModAction ? 'AutoMod timeout' : 'Timeout log',
+              title: isAutoModAction ? 'Automod timeout' : 'Timeout log',
               lines: [
                 `**User:** ${newMember.user.toString()} (${newMember.user.tag})`,
                 `**Timed-out by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
