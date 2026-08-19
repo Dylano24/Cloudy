@@ -1,9 +1,11 @@
 // moderationService.js
 
-import { PermissionFlagsBits } from 'discord.js';
+import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logModerationAction } from '../../utils/moderation.js';
+
+const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
 
 function getTargetLabel(target) {
   return target.user?.tag ?? target.displayName ?? 'this user';
@@ -234,6 +236,44 @@ export class ModerationService {
       }
 
       await member.kick(reason);
+
+      try {
+        const kickLogChannel =
+          guild.channels.cache.get(PERMANENT_KICK_LOG_CHANNEL_ID) ||
+          await guild.channels.fetch(PERMANENT_KICK_LOG_CHANNEL_ID).catch(() => null);
+
+        if (kickLogChannel?.isTextBased()) {
+          const kickLogEmbed = new EmbedBuilder()
+            .setColor(0xFFA500)
+            .setTitle('Kick Log')
+            .addFields(
+              {
+                name: 'User',
+                value: `${member.user} (${member.user.tag})`,
+                inline: false,
+              },
+              {
+                name: 'Kicked by',
+                value: `${moderator} (${moderator.user.tag})`,
+                inline: false,
+              },
+              {
+                name: 'Date',
+                value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
+                inline: false,
+              },
+            )
+            .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+            .setFooter({ text: 'Cloudy Moderation System' })
+            .setTimestamp();
+
+          await kickLogChannel.send({ embeds: [kickLogEmbed] });
+        } else {
+          logger.warn(`Permanent kick log channel not found: ${PERMANENT_KICK_LOG_CHANNEL_ID}`);
+        }
+      } catch (error) {
+        logger.error('Failed to send permanent kick log:', error);
+      }
 
       const caseId = await logModerationAction({
         client: guild.client,
