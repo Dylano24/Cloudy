@@ -1,7 +1,6 @@
 const PLAYER_COMMAND_NAMES = [
   'help',
   'support',
-  'apply',
   'balance',
   'beg',
   'buy',
@@ -32,7 +31,6 @@ const PLAYER_COMMAND_NAMES = [
   'play',
   'queue',
   'search',
-  'close',
   'baseconvert',
   'calculate',
   'countdown',
