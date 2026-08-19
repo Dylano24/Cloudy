@@ -3,10 +3,11 @@ import { createButton, getPaginationRow } from '../../utils/components.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { Collection, ActionRowBuilder, MessageFlags } from 'discord.js';
+import { Collection, ActionRowBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { handleInteractionError } from '../../utils/errorHandler.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
+import { isBotOwner } from '../../config/bot.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +41,13 @@ const CATEGORY_ICONS = {
     Verification: "✅",
     Config: "⚙️",
 };
+
+function canSeeAllCommands(interaction) {
+    return Boolean(
+        isBotOwner(interaction?.user?.id) ||
+        interaction?.memberPermissions?.has(PermissionFlagsBits.Administrator)
+    );
+}
 
 function formatCategoryName(rawCategory) {
     return rawCategory
@@ -121,7 +129,7 @@ function normalizeCommandData(command) {
     };
 }
 
-async function createCategoryCommandsMenu(category, client) {
+async function createCategoryCommandsMenu(category, client, interaction = null) {
     const categoryName = formatCategoryName(category);
     const icon = CATEGORY_ICONS[categoryName] || "🔍";
 
@@ -139,7 +147,7 @@ async function createCategoryCommandsMenu(category, client) {
             const command = commandModule.default;
             const commandData = normalizeCommandData(command);
 
-            if (commandData && isPlayerCommand(commandData.name)) {
+            if (commandData && (canSeeAllCommands(interaction) || isPlayerCommand(commandData.name))) {
                 if (
                     commandData.name === "help" ||
                     commandData.name === "commandlist"
@@ -239,7 +247,7 @@ async function createCategoryCommandsMenu(category, client) {
     };
 }
 
-export async function createAllCommandsMenu(page = 1, client) {
+export async function createAllCommandsMenu(page = 1, client, interaction = null) {
     const commandsPerPage = 45;
     const allCommands = [];
 
@@ -268,7 +276,7 @@ export async function createAllCommandsMenu(page = 1, client) {
                 const command = commandModule.default;
                 const commandData = normalizeCommandData(command);
 
-                if (commandData && isPlayerCommand(commandData.name)) {
+                if (commandData && (canSeeAllCommands(interaction) || isPlayerCommand(commandData.name))) {
                     if (
                         commandData.name === "help" ||
                         commandData.name === "commandlist"
@@ -309,7 +317,9 @@ export async function createAllCommandsMenu(page = 1, client) {
 
     const embed = createEmbed({
         title: "📋 All Commands",
-        description: `Browse every command available to Cloudy players.`
+        description: canSeeAllCommands(interaction)
+            ? `Browse all Cloudy player and administration commands.`
+            : `Browse every command available to Cloudy players.`
     });
 
     embed.setFooter({ text: FOOTER_TEXT });
@@ -383,13 +393,13 @@ export const helpCategorySelectMenu = {
             const selectedCategory = interaction.values[0];
 
             if (selectedCategory === ALL_COMMANDS_ID) {
-                const { embeds, components } = await createAllCommandsMenu(1, client);
+                const { embeds, components } = await createAllCommandsMenu(1, client, interaction);
                 await interaction.editReply({
                     embeds,
                     components,
                 });
             } else {
-                const { embeds, components } = await createCategoryCommandsMenu(selectedCategory, client);
+                const { embeds, components } = await createCategoryCommandsMenu(selectedCategory, client, interaction);
                 await interaction.editReply({
                     embeds,
                     components,
