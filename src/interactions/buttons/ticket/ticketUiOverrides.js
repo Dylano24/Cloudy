@@ -16,6 +16,7 @@ import {
   unclaimTicket,
   reopenTicket,
   deleteTicket,
+  setTicketPinned,
 } from '../../../services/ticketUiService.js';
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
@@ -23,6 +24,7 @@ import { logger } from '../../../utils/logger.js';
 
 async function requireStaff(interaction, client, action) {
   const context = await getTicketPermissionContext({ client, interaction });
+
   if (!context.ticketData) {
     await replyUserError(interaction, {
       type: ErrorTypes.VALIDATION,
@@ -30,6 +32,7 @@ async function requireStaff(interaction, client, action) {
     });
     return null;
   }
+
   if (!context.canManageTicket) {
     await replyUserError(interaction, {
       type: ErrorTypes.PERMISSION,
@@ -37,6 +40,7 @@ async function requireStaff(interaction, client, action) {
     });
     return null;
   }
+
   return context;
 }
 
@@ -51,8 +55,6 @@ const createTicketHandler = {
         });
       }
 
-      // Open the modal immediately. Limits and configuration are validated again
-      // when the modal is submitted, so there is no reason to block this interaction.
       const modal = new ModalBuilder()
         .setCustomId('create_ticket_modal')
         .setTitle('Create a Ticket');
@@ -118,21 +120,27 @@ const pinTicketHandler = {
       if (!context) return;
 
       const channel = interaction.channel;
-      const isPinned = channel.name.startsWith('📌');
-      const cleanName = channel.name.replace(/^📌\s*/, '');
-      const newName = isPinned ? cleanName : `📌 ${cleanName}`;
+      const wasPinned = String(channel.name || '').includes('📌');
+      const willBePinned = !wasPinned;
 
-      await channel.edit({
-        name: newName,
-        position: isPinned ? 999 : 0,
+      // Pin and Priority share one channel-name queue. This prevents them from
+      // overwriting each other or getting stuck behind Discord rename limits.
+      await setTicketPinned(channel, willBePinned);
+
+      // Position updates are independent from the channel-name status queue.
+      channel.setPosition(willBePinned ? 0 : 999).catch(error => {
+        logger.warn('Could not update ticket channel position', {
+          channelId: channel.id,
+          error: error.message,
+        });
       });
 
       await InteractionHelper.safeEditReply(interaction, {
         embeds: [successEmbed(
-          isPinned ? 'Ticket Unpinned' : 'Ticket Pinned',
-          isPinned
-            ? 'This ticket has been moved back to its normal position.'
-            : 'This ticket has been pinned to the top of the category.',
+          willBePinned ? 'Ticket Pinned' : 'Ticket Unpinned',
+          willBePinned
+            ? 'This ticket has been pinned to the top of the category.'
+            : 'This ticket has been moved back to its normal position.',
         )],
       });
 
@@ -140,15 +148,12 @@ const pinTicketHandler = {
         client: interaction.client,
         guildId: interaction.guildId,
         event: {
-          type: isPinned ? 'unpin' : 'pin',
+          type: willBePinned ? 'pin' : 'unpin',
           ticketId: channel.id,
-          ticketNumber: cleanName.replace(/[^0-9]/g, ''),
+          ticketNumber: String(channel.name || '').replace(/[^0-9]/g, ''),
           userId: context.ticketData.userId,
           executorId: interaction.user.id,
-          metadata: {
-            isPinned: !isPinned,
-            newChannelName: newName,
-          },
+          metadata: { isPinned: willBePinned },
         },
       }).catch(() => {});
     } catch (error) {
@@ -206,8 +211,8 @@ const closeTicketHandler = {
     try {
       if (!interaction.inGuild()) return;
 
-      // Show the close form immediately. Permission is enforced on submit.
-      // This avoids Discord's three-second modal interaction timeout.
+      // Permission is checked again when the modal is submitted. Showing the
+      // modal immediately avoids Discord's three-second interaction timeout.
       const modal = new ModalBuilder()
         .setCustomId('ticket_close_modal')
         .setTitle('Close Ticket');
@@ -239,16 +244,21 @@ const unclaimTicketHandler = {
   async execute(interaction, client) {
     const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
     if (!deferred) return;
+
     try {
       const context = await requireStaff(interaction, client, 'unclaim tickets');
       if (!context) return;
+
       await unclaimTicket(interaction.channel, interaction.member);
       await InteractionHelper.safeEditReply(interaction, {
         embeds: [successEmbed('Ticket Unclaimed', 'This ticket has been unclaimed.')],
       });
     } catch (error) {
       logger.error('Ticket unclaim button failed', { error: error.message, channelId: interaction.channelId });
-      await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred while unclaiming the ticket.' });
+      await replyUserError(interaction, {
+        type: ErrorTypes.UNKNOWN,
+        message: error?.userMessage || 'An error occurred while unclaiming the ticket.',
+      });
     }
   },
 };
@@ -258,19 +268,25 @@ const reopenTicketHandler = {
   async execute(interaction, client) {
     const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
     if (!deferred) return;
+
     try {
       const context = await requireStaff(interaction, client, 'reopen tickets');
       if (!context) return;
+
       const result = await reopenTicket(interaction.channel, interaction.member);
       const note = result.openCategoryMoveFailed
         ? ' The ticket was reopened, but the channel could not be moved back to the open category.'
         : '';
+
       await InteractionHelper.safeEditReply(interaction, {
         embeds: [successEmbed('Ticket Reopened', `This ticket has been reopened.${note}`)],
       });
     } catch (error) {
       logger.error('Ticket reopen button failed', { error: error.message, channelId: interaction.channelId });
-      await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred while reopening the ticket.' });
+      await replyUserError(interaction, {
+        type: ErrorTypes.UNKNOWN,
+        message: error?.userMessage || 'An error occurred while reopening the ticket.',
+      });
     }
   },
 };
