@@ -61,6 +61,7 @@ export async function createInitialHelpMenu(client, interaction = null) {
     )
         .filter((dirent) => dirent.isDirectory())
         .map((dirent) => dirent.name)
+        .filter((category) => category !== 'Leveling')
         .filter((category) => showAllCommands || [
             'Core',
             'Economy',
