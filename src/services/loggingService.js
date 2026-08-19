@@ -14,6 +14,7 @@ import {
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
 const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
 const PERMANENT_TIMEOUT_LOG_CHANNEL_ID = '1539371111240831078';
+const PERMANENT_UNBAN_LOG_CHANNEL_ID = '1539259457404412036';
 const PERMANENT_REPORT_LOG_CHANNEL_ID = '1539372511089926244';
 const RECENT_KICK_LOG_TTL_MS = 15_000;
 const recentKickLogs = new Map();
@@ -76,7 +77,7 @@ const EVENT_COLORS = {
   'moderation.purge': 0xE67E22,
   'moderation.timeout': 0xFEE75C,
   'moderation.untimeout': 0x2ecc71,
-  'moderation.unban': 0x3498db,
+  'moderation.unban': 0x2ecc71,
   'moderation.lock': 0xE67E22,
   'moderation.unlock': 0x2ecc71,
   'moderation.dm': 0x3498db,
@@ -201,12 +202,15 @@ function getLogChannelForEvent(config, eventType, overrideChannelId = null) {
   ) {
     return PERMANENT_TIMEOUT_LOG_CHANNEL_ID;
   }
+  if (eventType === EVENT_TYPES.MODERATION_UNBAN) {
+    return PERMANENT_UNBAN_LOG_CHANNEL_ID;
+  }
   if (eventType === EVENT_TYPES.REPORT_FILE) {
     return PERMANENT_REPORT_LOG_CHANNEL_ID;
   }
 
   if (overrideChannelId) {
-    return [PERMANENT_KICK_LOG_CHANNEL_ID, PERMANENT_TIMEOUT_LOG_CHANNEL_ID, PERMANENT_REPORT_LOG_CHANNEL_ID].includes(overrideChannelId)
+    return [PERMANENT_KICK_LOG_CHANNEL_ID, PERMANENT_TIMEOUT_LOG_CHANNEL_ID, PERMANENT_UNBAN_LOG_CHANNEL_ID, PERMANENT_REPORT_LOG_CHANNEL_ID].includes(overrideChannelId)
       ? null
       : overrideChannelId;
   }
@@ -216,7 +220,7 @@ function getLogChannelForEvent(config, eventType, overrideChannelId = null) {
   const channelId = resolveLogChannel(config, destination);
 
   // These channels are reserved exclusively for their moderation action.
-  return [PERMANENT_KICK_LOG_CHANNEL_ID, PERMANENT_TIMEOUT_LOG_CHANNEL_ID, PERMANENT_REPORT_LOG_CHANNEL_ID].includes(channelId)
+  return [PERMANENT_KICK_LOG_CHANNEL_ID, PERMANENT_TIMEOUT_LOG_CHANNEL_ID, PERMANENT_UNBAN_LOG_CHANNEL_ID, PERMANENT_REPORT_LOG_CHANNEL_ID].includes(channelId)
     ? null
     : channelId;
 }
@@ -290,6 +294,7 @@ export async function logEvent({
         EVENT_TYPES.MODERATION_KICK,
         EVENT_TYPES.MODERATION_TIMEOUT,
         EVENT_TYPES.MODERATION_UNTIMEOUT,
+        EVENT_TYPES.MODERATION_UNBAN,
         EVENT_TYPES.REPORT_FILE,
       ].includes(eventType) &&
       !isEventEnabled(config, eventType)
