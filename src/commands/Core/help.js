@@ -102,6 +102,10 @@ export async function createInitialHelpMenu(client, interaction = null) {
                 value: [
                     '• Gamble and earn coins',
                     '• Buy shop items',
+                    '• Play fun games',
+                    '• Listen to music',
+                    '• Check the weather',
+                    '• Use helpful tools',
                 ].join('\n'),
                 inline: false,
             },
