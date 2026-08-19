@@ -85,13 +85,31 @@ export default {
         }
 
         const reason = interaction.options.getString("reason") || "No reason provided";
+        const suppressionKey = `${interaction.guildId}:${targetUser.id}`;
+        const suppressionExpiresAt = Date.now() + 15000;
 
-        const result = await ModerationService.unbanUser({
-            guild: interaction.guild,
-            user: targetUser,
-            moderator: interaction.member,
-            reason,
-        });
+        client.commandUnbanLogSuppressions ??= new Map();
+        client.commandUnbanLogSuppressions.set(suppressionKey, suppressionExpiresAt);
+
+        let result;
+        try {
+            result = await ModerationService.unbanUser({
+                guild: interaction.guild,
+                user: targetUser,
+                moderator: interaction.member,
+                reason,
+            });
+        } catch (error) {
+            client.commandUnbanLogSuppressions.delete(suppressionKey);
+            throw error;
+        }
+
+        const cleanupTimer = setTimeout(() => {
+            if (client.commandUnbanLogSuppressions?.get(suppressionKey) === suppressionExpiresAt) {
+                client.commandUnbanLogSuppressions.delete(suppressionKey);
+            }
+        }, 16000);
+        cleanupTimer.unref?.();
 
         const moderatorName = interaction.member?.displayName
             || interaction.user.globalName
