@@ -40,7 +40,7 @@ export default {
             guildId: newMember.guild.id,
             eventType: EVENT_TYPES.MODERATION_TIMEOUT,
             data: {
-              title: 'Timeout log',
+              title: 'Time-out log',
               lines: [
                 `**User:** ${newMember.user.toString()} (${newMember.user.tag})`,
                 `**Timed-out by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
@@ -84,7 +84,7 @@ export default {
             guildId: newMember.guild.id,
             eventType: EVENT_TYPES.MODERATION_UNTIMEOUT,
             data: {
-              title: 'Untimeout log',
+              title: 'Untime-out log',
               color: 0x2ECC71,
               lines: [
                 `**User:** ${newMember.user.toString()} (${newMember.user.tag})`,
