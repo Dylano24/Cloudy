@@ -4,6 +4,7 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from 'discord.js';
+import { getGuildConfig, setGuildConfig } from './config/guildConfig.js';
 import { logger } from '../utils/logger.js';
 
 export const TICKET_PANEL_TITLE = 'Contact the support';
@@ -44,6 +45,26 @@ function isAlreadyStyled(message, button, avatarUrl) {
   );
 }
 
+async function persistDisplayedButtonLabel(message, desiredLabel) {
+  if (!message?.guildId || !message?.client) return;
+
+  try {
+    const config = await getGuildConfig(message.client, message.guildId);
+    if (!config?.ticketPanelChannelId) return;
+    if (config.ticketPanelMessageId && config.ticketPanelMessageId !== message.id) return;
+    if (config.ticketButtonLabel === desiredLabel) return;
+
+    config.ticketButtonLabel = desiredLabel;
+    await setGuildConfig(message.client, message.guildId, config);
+  } catch (error) {
+    logger.warn('Could not persist ticket panel button label', {
+      messageId: message.id,
+      guildId: message.guildId,
+      error: error.message,
+    });
+  }
+}
+
 export async function applyTicketPanelPresentation(message) {
   try {
     if (!message?.editable || !message?.embeds?.length) return false;
@@ -53,7 +74,11 @@ export async function applyTicketPanelPresentation(message) {
 
     const desiredLabel = getDesiredButtonLabel(button);
     const avatarUrl = message.client.user?.displayAvatarURL?.({ extension: 'png', size: 128 }) || null;
-    if (isAlreadyStyled(message, button, avatarUrl)) return false;
+
+    if (isAlreadyStyled(message, button, avatarUrl)) {
+      await persistDisplayedButtonLabel(message, desiredLabel);
+      return false;
+    }
 
     const embed = EmbedBuilder.from(message.embeds[0])
       .setTitle(TICKET_PANEL_TITLE)
@@ -79,6 +104,7 @@ export async function applyTicketPanelPresentation(message) {
       components: [row],
     });
 
+    await persistDisplayedButtonLabel(message, desiredLabel);
     return true;
   } catch (error) {
     logger.warn('Could not apply ticket panel presentation', {
