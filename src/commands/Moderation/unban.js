@@ -1,5 +1,4 @@
-import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import { successEmbed } from '../../utils/embeds.js';
+import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { ModerationService } from '../../services/moderation/moderationService.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -57,7 +56,9 @@ export default {
     },
 
     async execute(interaction, config, client) {
-        const deferSuccess = await InteractionHelper.safeDefer(interaction);
+        const deferSuccess = await InteractionHelper.safeDefer(interaction, {
+            flags: MessageFlags.Ephemeral,
+        });
         if (!deferSuccess) {
             logger.warn(`Unban interaction defer failed`, {
                 userId: interaction.user.id,
@@ -91,9 +92,8 @@ export default {
         client.commandUnbanLogSuppressions ??= new Map();
         client.commandUnbanLogSuppressions.set(suppressionKey, suppressionExpiresAt);
 
-        let result;
         try {
-            result = await ModerationService.unbanUser({
+            await ModerationService.unbanUser({
                 guild: interaction.guild,
                 user: targetUser,
                 moderator: interaction.member,
@@ -111,17 +111,8 @@ export default {
         }, 16000);
         cleanupTimer.unref?.();
 
-        const moderatorName = interaction.member?.displayName
-            || interaction.user.globalName
-            || interaction.user.username;
-
-        await InteractionHelper.safeEditReply(interaction, {
-            embeds: [
-                successEmbed(
-                    `User unbanned by ${moderatorName}`,
-                    `Successfully unbanned **${targetUser.tag}** from the server.\n\n**Reason:** ${reason}\n**Case ID:** #${result.caseId}`,
-                ),
-            ],
-        });
+        // The public unban message is created by guildBanRemove.js.
+        // Remove the ephemeral slash-command response so only that single log remains visible.
+        await interaction.deleteReply().catch(() => {});
     },
 };
