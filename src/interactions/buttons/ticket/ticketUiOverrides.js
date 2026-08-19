@@ -13,6 +13,7 @@ import {
   unclaimTicket,
   reopenTicket,
 } from '../../../services/ticketUiService.js';
+import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logger } from '../../../utils/logger.js';
 
 async function requireStaff(interaction, client, action) {
@@ -61,42 +62,39 @@ const claimTicketHandler = {
 const priorityMenuHandler = {
   name: 'ticket_priority_menu',
   async execute(interaction, client) {
+    // Acknowledge Discord immediately so a slower database lookup can never expire the button interaction.
+    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+    if (!deferred) return;
+
     try {
-      const context = await getTicketPermissionContext({ client, interaction });
-      if (!context.ticketData) {
-        return await replyUserError(interaction, {
-          type: ErrorTypes.VALIDATION,
-          message: 'This action can only be used in a valid ticket channel.',
-        });
-      }
-      if (!context.canManageTicket) {
-        return await replyUserError(interaction, {
-          type: ErrorTypes.PERMISSION,
-          message: 'Only admins or the configured Ticket Staff Role can change ticket priority.',
-        });
-      }
+      const context = await requireStaff(interaction, client, 'change ticket priority');
+      if (!context) return;
+
+      const currentPriority = String(context.ticketData.priority || 'none').toLowerCase();
+      const currentInfo = PRIORITY_MAP[currentPriority] || PRIORITY_MAP.none;
 
       const menu = new StringSelectMenuBuilder()
         .setCustomId('ticket_priority_select')
-        .setPlaceholder('Select ticket priority...')
+        .setPlaceholder('Select a new priority...')
         .addOptions(
-          new StringSelectMenuOptionBuilder().setLabel('Urgent').setValue('urgent').setEmoji('🔴'),
-          new StringSelectMenuOptionBuilder().setLabel('High').setValue('high').setEmoji('🟠'),
+          new StringSelectMenuOptionBuilder().setLabel('Urgent').setValue('urgent').setEmoji('🚨'),
+          new StringSelectMenuOptionBuilder().setLabel('High').setValue('high').setEmoji('🔴'),
           new StringSelectMenuOptionBuilder().setLabel('Medium').setValue('medium').setEmoji('🟡'),
-          new StringSelectMenuOptionBuilder().setLabel('Low').setValue('low').setEmoji('🔵'),
+          new StringSelectMenuOptionBuilder().setLabel('Low').setValue('low').setEmoji('🟢'),
           new StringSelectMenuOptionBuilder().setLabel('None').setValue('none').setEmoji('⚪'),
         );
 
-      await interaction.reply({
-        content: 'Select the priority for this ticket:',
+      await InteractionHelper.safeEditReply(interaction, {
+        content: `Current priority: **${currentInfo.emoji} ${currentInfo.label}**\nSelect a new priority below.`,
+        embeds: [],
         components: [new ActionRowBuilder().addComponents(menu)],
-        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       logger.error('Priority menu button failed', { error: error.message, channelId: interaction.channelId });
-      if (!interaction.replied && !interaction.deferred) {
-        await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Could not open the priority menu.' });
-      }
+      await replyUserError(interaction, {
+        type: ErrorTypes.UNKNOWN,
+        message: error?.userMessage || 'Could not open the priority menu.',
+      });
     }
   },
 };
