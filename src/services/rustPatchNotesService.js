@@ -162,19 +162,30 @@ async function checkForRustPatch(client) {
         }
 
         const previousLink = await client.db.get(LAST_PATCH_KEY);
-        if (previousLink === patch.link) {
-            try {
-                const recentMessages = await channel.messages.fetch({ limit: 25 });
-                const isStillPosted = recentMessages.some(message =>
-                    message.author.id === client.user.id &&
-                    message.embeds.some(embed => embed.url === patch.link)
-                );
 
-                if (isStillPosted) return true;
-            } catch (historyError) {
-                logger.warn('Could not verify recent Rust patch messages; using stored state.', historyError);
+        // Always check Discord itself, including after a restart or when the
+        // database temporarily falls back to in-memory storage.
+        try {
+            const recentMessages = await channel.messages.fetch({ limit: 100 });
+            const isAlreadyPosted = recentMessages.some(message =>
+                message.author.id === client.user.id &&
+                message.embeds.some(embed => embed.url === patch.link)
+            );
+
+            if (isAlreadyPosted) {
+                if (previousLink !== patch.link) {
+                    await client.db.set(LAST_PATCH_KEY, patch.link);
+                }
                 return true;
             }
+        } catch (historyError) {
+            logger.warn('Could not verify recent Rust patch messages; using stored state.', historyError);
+        }
+
+        // Never repost a patch that is already recorded, even when message
+        // history cannot be fetched.
+        if (previousLink === patch.link) {
+            return true;
         }
 
         const articlePreview =
