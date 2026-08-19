@@ -26,6 +26,18 @@ export default {
                         .setDescription('The reason for the report (be detailed).')
                         .setRequired(true)
                         .setMaxLength(500),
+                )
+                .addStringOption(option =>
+                    option
+                        .setName('message_link')
+                        .setDescription('Link to the Discord message you want to report.')
+                        .setRequired(false),
+                )
+                .addAttachmentOption(option =>
+                    option
+                        .setName('evidence')
+                        .setDescription('Picture or other evidence for the report.')
+                        .setRequired(false),
                 ),
         )
         .addSubcommand(subcommand =>
