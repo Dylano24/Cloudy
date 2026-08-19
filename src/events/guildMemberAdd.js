@@ -29,11 +29,37 @@ export default {
             // Recover the welcome setup after a degraded/in-memory database
             // restart by locating the server's existing welcome channel.
             if (!welcome?.enabled || !welcome?.channelId) {
-                const recoveredChannel = guild.channels.cache.find(channel =>
+                let recoveredChannel = guild.channels.cache.find(channel =>
                     channel?.isTextBased?.() &&
                     !channel?.isThread?.() &&
                     /(^|[^a-z])(welcome|welkom|arrivals)([^a-z]|$)/i.test(channel.name)
                 );
+
+                // If the channel has a custom name, locate the most recent
+                // Cloudy welcome embed instead of guessing a destination.
+                if (!recoveredChannel) {
+                    const textChannels = guild.channels.cache.filter(channel =>
+                        channel?.isTextBased?.() &&
+                        !channel?.isThread?.() &&
+                        channel.messages?.fetch
+                    );
+
+                    for (const channel of textChannels.values()) {
+                        const recentMessages = await channel.messages.fetch({ limit: 15 }).catch(() => null);
+                        const hasCloudyWelcome = recentMessages?.some(message =>
+                            message.author?.id === member.client.user?.id &&
+                            (
+                                message.embeds?.some(embed => embed.title === 'Welcome to Cloudy') ||
+                                message.attachments?.some(file => file.name === 'cloudy-dynamic-banner.gif')
+                            )
+                        );
+
+                        if (hasCloudyWelcome) {
+                            recoveredChannel = channel;
+                            break;
+                        }
+                    }
+                }
 
                 if (recoveredChannel) {
                     welcome = await updateWelcomeConfig(member.client, guild.id, {
