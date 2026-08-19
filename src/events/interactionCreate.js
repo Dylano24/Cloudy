@@ -1,4 +1,4 @@
-import { Events, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { Events, MessageFlags } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import {
@@ -80,19 +80,6 @@ export default {
                 `No command matching ${interaction.commandName} was found.`,
                 ErrorTypes.CONFIGURATION,
                 'Sorry, that command does not exist.',
-                withTraceContext({ commandName: interaction.commandName }, interactionTraceContext)
-              );
-            }
-
-            if (
-              command.adminOnly &&
-              !isBotOwner(interaction.user.id) &&
-              !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
-            ) {
-              throw createError(
-                `Admin-only command blocked: ${interaction.commandName}`,
-                ErrorTypes.PERMISSION,
-                'This command is only available to server administrators.',
                 withTraceContext({ commandName: interaction.commandName }, interactionTraceContext)
               );
             }
