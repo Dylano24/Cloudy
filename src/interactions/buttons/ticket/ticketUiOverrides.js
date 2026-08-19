@@ -3,6 +3,9 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   MessageFlags,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
 import { successEmbed } from '../../../utils/embeds.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
@@ -12,8 +15,10 @@ import {
   claimTicket,
   unclaimTicket,
   reopenTicket,
+  deleteTicket,
 } from '../../../services/ticketUiService.js';
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
+import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
 import { logger } from '../../../utils/logger.js';
 
 async function requireStaff(interaction, client, action) {
@@ -34,6 +39,49 @@ async function requireStaff(interaction, client, action) {
   }
   return context;
 }
+
+const createTicketHandler = {
+  name: 'create_ticket',
+  async execute(interaction) {
+    try {
+      if (!interaction.inGuild()) {
+        return await replyUserError(interaction, {
+          type: ErrorTypes.VALIDATION,
+          message: 'Tickets can only be created inside a server.',
+        });
+      }
+
+      // Open the modal immediately. Limits and configuration are validated again
+      // when the modal is submitted, so there is no reason to block this interaction.
+      const modal = new ModalBuilder()
+        .setCustomId('create_ticket_modal')
+        .setTitle('Create a Ticket');
+
+      const reasonInput = new TextInputBuilder()
+        .setCustomId('reason')
+        .setLabel('How can we help you?')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Describe your request or issue...')
+        .setRequired(true)
+        .setMaxLength(1000);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+      await interaction.showModal(modal);
+    } catch (error) {
+      logger.error('Create ticket button failed', {
+        error: error.message,
+        guildId: interaction.guildId,
+        channelId: interaction.channelId,
+      });
+      if (!interaction.replied && !interaction.deferred) {
+        await replyUserError(interaction, {
+          type: ErrorTypes.UNKNOWN,
+          message: 'Could not open the ticket form. Please try again.',
+        });
+      }
+    }
+  },
+};
 
 const claimTicketHandler = {
   name: 'ticket_claim',
@@ -59,10 +107,63 @@ const claimTicketHandler = {
   },
 };
 
+const pinTicketHandler = {
+  name: 'ticket_pin',
+  async execute(interaction, client) {
+    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+    if (!deferred) return;
+
+    try {
+      const context = await requireStaff(interaction, client, 'pin tickets');
+      if (!context) return;
+
+      const channel = interaction.channel;
+      const isPinned = channel.name.startsWith('📌');
+      const cleanName = channel.name.replace(/^📌\s*/, '');
+      const newName = isPinned ? cleanName : `📌 ${cleanName}`;
+
+      await channel.edit({
+        name: newName,
+        position: isPinned ? 999 : 0,
+      });
+
+      await InteractionHelper.safeEditReply(interaction, {
+        embeds: [successEmbed(
+          isPinned ? 'Ticket Unpinned' : 'Ticket Pinned',
+          isPinned
+            ? 'This ticket has been moved back to its normal position.'
+            : 'This ticket has been pinned to the top of the category.',
+        )],
+      });
+
+      await logTicketEvent({
+        client: interaction.client,
+        guildId: interaction.guildId,
+        event: {
+          type: isPinned ? 'unpin' : 'pin',
+          ticketId: channel.id,
+          ticketNumber: cleanName.replace(/[^0-9]/g, ''),
+          userId: context.ticketData.userId,
+          executorId: interaction.user.id,
+          metadata: {
+            isPinned: !isPinned,
+            newChannelName: newName,
+          },
+        },
+      }).catch(() => {});
+    } catch (error) {
+      logger.error('Ticket pin button failed', { error: error.message, channelId: interaction.channelId });
+      await replyUserError(interaction, {
+        type: ErrorTypes.UNKNOWN,
+        message: error?.userMessage || 'Failed to pin or unpin the ticket.',
+      });
+    }
+  },
+};
+
 const priorityMenuHandler = {
   name: 'ticket_priority_menu',
   async execute(interaction, client) {
-    // Acknowledge Discord immediately so a slower database lookup can never expire the button interaction.
     const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
     if (!deferred) return;
 
@@ -95,6 +196,40 @@ const priorityMenuHandler = {
         type: ErrorTypes.UNKNOWN,
         message: error?.userMessage || 'Could not open the priority menu.',
       });
+    }
+  },
+};
+
+const closeTicketHandler = {
+  name: 'ticket_close',
+  async execute(interaction) {
+    try {
+      if (!interaction.inGuild()) return;
+
+      // Show the close form immediately. Permission is enforced on submit.
+      // This avoids Discord's three-second modal interaction timeout.
+      const modal = new ModalBuilder()
+        .setCustomId('ticket_close_modal')
+        .setTitle('Close Ticket');
+
+      const reasonInput = new TextInputBuilder()
+        .setCustomId('reason')
+        .setLabel('Reason for closing (optional)')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Add an optional reason for closing this ticket...')
+        .setRequired(false)
+        .setMaxLength(1000);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+      await interaction.showModal(modal);
+    } catch (error) {
+      logger.error('Ticket close button failed', { error: error.message, channelId: interaction.channelId });
+      if (!interaction.replied && !interaction.deferred) {
+        await replyUserError(interaction, {
+          type: ErrorTypes.UNKNOWN,
+          message: 'Could not open the ticket close form. Please try again.',
+        });
+      }
     }
   },
 };
@@ -140,9 +275,37 @@ const reopenTicketHandler = {
   },
 };
 
+const deleteTicketHandler = {
+  name: 'ticket_delete',
+  async execute(interaction, client) {
+    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+    if (!deferred) return;
+
+    try {
+      const context = await requireStaff(interaction, client, 'delete tickets');
+      if (!context) return;
+
+      await deleteTicket(interaction.channel, interaction.user);
+      await InteractionHelper.safeEditReply(interaction, {
+        embeds: [successEmbed('Ticket Deleted', 'This ticket will be deleted shortly.')],
+      });
+    } catch (error) {
+      logger.error('Ticket delete button failed', { error: error.message, channelId: interaction.channelId });
+      await replyUserError(interaction, {
+        type: ErrorTypes.UNKNOWN,
+        message: error?.userMessage || 'An error occurred while deleting the ticket.',
+      });
+    }
+  },
+};
+
 export default [
+  createTicketHandler,
   claimTicketHandler,
+  pinTicketHandler,
   priorityMenuHandler,
+  closeTicketHandler,
   unclaimTicketHandler,
   reopenTicketHandler,
+  deleteTicketHandler,
 ];
