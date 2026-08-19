@@ -58,6 +58,50 @@ export default {
         }
       }
 
+      if (oldTimeout > Date.now() && newTimeout === 0) {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 750));
+          const auditLogs = await newMember.guild.fetchAuditLogs({
+            type: AuditLogEvent.MemberUpdate,
+            limit: 6,
+          });
+          const now = Date.now();
+          const matchingEntries = auditLogs.entries.filter(entry =>
+            entry.target?.id === newMember.id &&
+            now - entry.createdTimestamp < 15_000
+          );
+          const untimeoutEntry = matchingEntries.find(entry =>
+            entry.changes?.some(change =>
+              change.key === 'communication_disabled_until' &&
+              (change.new === null || change.new === undefined)
+            )
+          ) || matchingEntries.first();
+          const executor = untimeoutEntry?.executor;
+          const reason = untimeoutEntry?.reason || 'No reason provided';
+
+          await logEvent({
+            client: newMember.client,
+            guildId: newMember.guild.id,
+            eventType: EVENT_TYPES.MODERATION_UNTIMEOUT,
+            data: {
+              title: 'Untimeout log',
+              color: 0x2ECC71,
+              lines: [
+                `**User:** ${newMember.user.toString()} (${newMember.user.tag})`,
+                `**Untimed-out by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
+                `**Reason:** ${reason}`,
+                `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
+              ],
+              quoted: false,
+              thumbnail: newMember.user.displayAvatarURL({ size: 256 }),
+              userId: newMember.id,
+            },
+          });
+        } catch (auditError) {
+          logger.warn('Could not inspect audit logs for a removed timeout:', auditError.message);
+        }
+      }
+
       if (oldMember.nickname !== newMember.nickname) {
         await logEvent({
           client: newMember.client,
