@@ -92,7 +92,7 @@ export async function recordInviteCreated(invite) {
 
   const inviter = invite.inviter;
   const embed = new EmbedBuilder()
-    .setColor(0x57F287)
+    .setColor(0x5DADE2)
     .setTitle('Invite Created')
     .addFields(
       {
@@ -113,11 +113,6 @@ export async function recordInviteCreated(invite) {
       {
         name: 'Maximum uses',
         value: invite.maxUses ? String(invite.maxUses) : 'Unlimited',
-        inline: true,
-      },
-      {
-        name: 'Temporary membership',
-        value: invite.temporary ? 'Yes' : 'No',
         inline: true,
       },
       {
