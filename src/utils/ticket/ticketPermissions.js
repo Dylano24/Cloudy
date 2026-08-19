@@ -5,6 +5,25 @@ import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { getTicketData, saveTicketData } from '../database.js';
 import { logger } from '../logger.js';
 
+const TICKET_IO_TIMEOUT_MS = 1800;
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`${label} timed out after ${timeoutMs}ms`);
+        error.code = 'TICKET_IO_TIMEOUT';
+        reject(error);
+      }, timeoutMs);
+      timer.unref?.();
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function extractMentionedUserId(text = '') {
   return String(text).match(/<@!?(\d+)>/)?.[1] || null;
 }
@@ -19,6 +38,34 @@ function extractPriority(description = '') {
   return match?.[1]?.trim()?.toLowerCase() || 'none';
 }
 
+function isCloudyTicketMessage(message, botId) {
+  return Boolean(
+    message?.author?.id === botId
+    && message.embeds?.some(embed => embed.title?.startsWith('Ticket #')),
+  );
+}
+
+async function findTicketMessage(channel, botId) {
+  if (typeof channel.messages?.fetchPinned === 'function') {
+    const pinned = await withTimeout(
+      channel.messages.fetchPinned(),
+      TICKET_IO_TIMEOUT_MS,
+      'Pinned ticket message lookup',
+    ).catch(() => null);
+
+    const pinnedTicket = pinned?.find(message => isCloudyTicketMessage(message, botId));
+    if (pinnedTicket) return pinnedTicket;
+  }
+
+  const recent = await withTimeout(
+    channel.messages.fetch({ limit: 100 }),
+    TICKET_IO_TIMEOUT_MS,
+    'Recent ticket message lookup',
+  ).catch(() => null);
+
+  return recent?.find(message => isCloudyTicketMessage(message, botId)) || null;
+}
+
 async function recoverTicketDataFromChannel(interaction) {
   const channel = interaction.channel;
   const guild = interaction.guild;
@@ -27,21 +74,13 @@ async function recoverTicketDataFromChannel(interaction) {
     return null;
   }
 
-  // Only recover channels that actually contain Cloudy's ticket control message.
-  const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-  if (!messages) return null;
-
-  const ticketMessage = messages.find(message =>
-    message.author?.id === interaction.client.user?.id &&
-    message.embeds?.some(embed => embed.title?.startsWith('Ticket #'))
-  );
-
+  const ticketMessage = await findTicketMessage(channel, interaction.client.user?.id);
   if (!ticketMessage) return null;
 
   const embed = ticketMessage.embeds.find(item => item.title?.startsWith('Ticket #'));
   const creatorId =
-    extractMentionedUserId(ticketMessage.content) ||
-    extractMentionedUserId(embed?.description);
+    extractMentionedUserId(ticketMessage.content)
+    || extractMentionedUserId(embed?.description);
 
   if (!creatorId) {
     logger.warn('Could not recover ticket creator from existing ticket message', {
@@ -62,6 +101,7 @@ async function recoverTicketDataFromChannel(interaction) {
     id: channel.id,
     userId: creatorId,
     guildId: guild.id,
+    ticketMessageId: ticketMessage.id,
     createdAt: ticketMessage.createdAt?.toISOString?.() || new Date().toISOString(),
     status: /closed/i.test(statusField) ? 'closed' : 'open',
     claimedBy,
@@ -70,13 +110,18 @@ async function recoverTicketDataFromChannel(interaction) {
     recoveredFromDiscord: true,
   };
 
-  await saveTicketData(guild.id, channel.id, recovered);
-
-  logger.info('Recovered missing ticket data from Discord channel', {
-    guildId: guild.id,
-    channelId: channel.id,
-    userId: creatorId,
-    claimedBy,
+  // Do not let a slow database block the interaction. Recovery is already
+  // valid for the current click; persistence is best-effort and bounded.
+  void withTimeout(
+    saveTicketData(guild.id, channel.id, recovered),
+    TICKET_IO_TIMEOUT_MS,
+    'Recovered ticket save',
+  ).catch(error => {
+    logger.warn('Could not persist recovered ticket data quickly', {
+      guildId: guild.id,
+      channelId: channel.id,
+      error: error.message,
+    });
   });
 
   return recovered;
@@ -86,20 +131,44 @@ export async function getTicketPermissionContext({ client, interaction }) {
   const guildId = interaction.guildId;
   const channelId = interaction.channelId;
 
-  const configPromise = getGuildConfig(client, guildId);
-  let ticketData = await getTicketData(guildId, channelId);
+  const configPromise = withTimeout(
+    getGuildConfig(client, guildId),
+    TICKET_IO_TIMEOUT_MS,
+    'Ticket guild config lookup',
+  ).catch(error => {
+    logger.warn('Ticket guild config lookup timed out/failed', {
+      guildId,
+      channelId,
+      error: error.message,
+    });
+    return {};
+  });
 
-  // Tickets created before the PostgreSQL migration can still exist in Discord
-  // while the new database has no row for them. Recover them automatically.
+  let ticketData = await withTimeout(
+    getTicketData(guildId, channelId),
+    TICKET_IO_TIMEOUT_MS,
+    'Ticket database lookup',
+  ).catch(error => {
+    logger.warn('Ticket database lookup timed out/failed', {
+      guildId,
+      channelId,
+      error: error.message,
+    });
+    return null;
+  });
+
   if (!ticketData) {
     ticketData = await recoverTicketDataFromChannel(interaction);
   }
 
   const config = await configPromise;
-
-  const hasManageChannels = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
-  const staffRoleId = config.ticketStaffRoleId || null;
-  const hasTicketStaffRole = Boolean(staffRoleId && interaction.member.roles?.cache?.has(staffRoleId));
+  const hasManageChannels = Boolean(
+    interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels),
+  );
+  const staffRoleId = config?.ticketStaffRoleId || null;
+  const hasTicketStaffRole = Boolean(
+    staffRoleId && interaction.member?.roles?.cache?.has?.(staffRoleId),
+  );
   const isTicketCreator = Boolean(
     ticketData?.userId && String(ticketData.userId) === String(interaction.user.id),
   );
