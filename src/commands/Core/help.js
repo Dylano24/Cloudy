@@ -101,7 +101,7 @@ export async function createInitialHelpMenu(client, interaction = null) {
                 name: '🎮 Member Commands',
                 value: [
                     '• Gamble and manage your economy',
-                    '• Browse and buy items from the shop',
+                    '• Buy items from the shop',
                 ].join('\n'),
                 inline: false,
             },
