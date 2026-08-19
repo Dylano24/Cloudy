@@ -2,7 +2,7 @@ import { Events, EmbedBuilder, PermissionFlagsBits, AttachmentBuilder } from 'di
 import { fileURLToPath } from 'node:url';
 import { botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
-import { getWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
+import { getWelcomeConfig, updateWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
 import { formatWelcomeMessage } from '../utils/welcome.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
@@ -24,7 +24,33 @@ export default {
             }
 
             const config = await getGuildConfig(member.client, guild.id);
-            const welcome = await getWelcomeConfig(member.client, guild.id);
+            let welcome = await getWelcomeConfig(member.client, guild.id);
+
+            // Recover the welcome setup after a degraded/in-memory database
+            // restart by locating the server's existing welcome channel.
+            if (!welcome?.enabled || !welcome?.channelId) {
+                const recoveredChannel = guild.channels.cache.find(channel =>
+                    channel?.isTextBased?.() &&
+                    !channel?.isThread?.() &&
+                    /(^|[^a-z])(welcome|welkom|arrivals)([^a-z]|$)/i.test(channel.name)
+                );
+
+                if (recoveredChannel) {
+                    welcome = await updateWelcomeConfig(member.client, guild.id, {
+                        ...welcome,
+                        enabled: true,
+                        channelId: recoveredChannel.id,
+                        welcomeMessage:
+                            welcome?.welcomeMessage ||
+                            botConfig.welcome?.defaultWelcomeMessage ||
+                            'Welcome {user} to {server}!',
+                    });
+                    logger.info('Recovered welcome configuration from Discord', {
+                        guildId: guild.id,
+                        channelId: recoveredChannel.id,
+                    });
+                }
+            }
 
 
             // WELCOME MESSAGE
