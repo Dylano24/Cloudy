@@ -1,8 +1,5 @@
 import {
     SlashCommandBuilder,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
     PermissionFlagsBits,
 } from "discord.js";
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -116,22 +113,15 @@ export async function createInitialHelpMenu(client, interaction = null) {
     });
     embed.setTimestamp();
 
-    const supportButton = new ButtonBuilder()
-        .setLabel("Support Server")
-        .setURL("https://discord.gg/QnWNz2dKCE")
-        .setStyle(ButtonStyle.Link);
-
     const selectRow = createSelectMenu(
         CATEGORY_SELECT_ID,
         "Select to view the commands",
         options,
     );
 
-    const buttonRow = new ActionRowBuilder().addComponents(supportButton);
-
     return {
         embeds: [embed],
-        components: [buttonRow, selectRow],
+        components: [selectRow],
     };
 }
 
