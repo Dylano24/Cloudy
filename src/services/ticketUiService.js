@@ -47,6 +47,34 @@ export function buildCloudyTicketControls({ claimedBy = null } = {}) {
   );
 }
 
+function toDiscordTimestamp(value) {
+  const ms = value ? new Date(value).getTime() : NaN;
+  if (!Number.isFinite(ms)) return 'Unknown';
+  return `<t:${Math.floor(ms / 1000)}:R>`;
+}
+
+function buildTicketFields(ticketData) {
+  const status = String(ticketData.status || 'open').toLowerCase();
+
+  return [
+    {
+      name: 'Status',
+      value: status === 'closed' ? '🔴 Closed' : '🟢 Open',
+      inline: true,
+    },
+    {
+      name: 'Claimed By',
+      value: ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed',
+      inline: true,
+    },
+    {
+      name: 'Created',
+      value: toDiscordTimestamp(ticketData.createdAt),
+      inline: true,
+    },
+  ];
+}
+
 export async function syncCloudyTicketMessage(channel) {
   try {
     const ticketData = await getTicketData(channel.guild.id, channel.id);
@@ -62,6 +90,7 @@ export async function syncCloudyTicketMessage(channel) {
     const currentEmbed = ticketMessage.embeds[0];
     const priorityInfo = PRIORITY_MAP[ticketData.priority || 'none'] || PRIORITY_MAP.none;
     const ticketOwner = `<@${ticketData.userId}>`;
+    const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
 
     const updatedEmbed = createEmbed({
       title: currentEmbed.title || 'Ticket',
@@ -69,14 +98,14 @@ export async function syncCloudyTicketMessage(channel) {
         `${ticketOwner}, ${TICKET_RECEIVED_MESSAGE}`
         + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
         + `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`,
-      color: priorityInfo.color,
-      fields: currentEmbed.fields || [],
+      color: isClosed ? '#e74c3c' : priorityInfo.color,
+      fields: buildTicketFields(ticketData),
       footer: currentEmbed.footer,
     });
 
     await ticketMessage.edit({
       embeds: [updatedEmbed],
-      components: [buildCloudyTicketControls({ claimedBy: ticketData.claimedBy })],
+      components: isClosed ? [] : [buildCloudyTicketControls({ claimedBy: ticketData.claimedBy })],
     });
 
     return true;
@@ -90,6 +119,22 @@ export async function syncCloudyTicketMessage(channel) {
   }
 }
 
+async function runAndAlwaysSync(channel, operation) {
+  let result;
+  let operationError = null;
+
+  try {
+    result = await operation();
+  } catch (error) {
+    operationError = error;
+  }
+
+  await syncCloudyTicketMessage(channel);
+
+  if (operationError) throw operationError;
+  return result;
+}
+
 export async function createTicket(...args) {
   const result = await createTicketBase(...args);
   await syncCloudyTicketMessage(result.channel);
@@ -97,27 +142,19 @@ export async function createTicket(...args) {
 }
 
 export async function claimTicket(channel, claimer) {
-  const result = await claimTicketBase(channel, claimer);
-  await syncCloudyTicketMessage(channel);
-  return result;
+  return runAndAlwaysSync(channel, () => claimTicketBase(channel, claimer));
 }
 
 export async function unclaimTicket(channel, unclaimer) {
-  const result = await unclaimTicketBase(channel, unclaimer);
-  await syncCloudyTicketMessage(channel);
-  return result;
+  return runAndAlwaysSync(channel, () => unclaimTicketBase(channel, unclaimer));
 }
 
 export async function reopenTicket(channel, reopener) {
-  const result = await reopenTicketBase(channel, reopener);
-  await syncCloudyTicketMessage(channel);
-  return result;
+  return runAndAlwaysSync(channel, () => reopenTicketBase(channel, reopener));
 }
 
 export async function updateTicketPriority(channel, priority, updater) {
-  const result = await updateTicketPriorityBase(channel, priority, updater);
-  await syncCloudyTicketMessage(channel);
-  return result;
+  return runAndAlwaysSync(channel, () => updateTicketPriorityBase(channel, priority, updater));
 }
 
 export {
