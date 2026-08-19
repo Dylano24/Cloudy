@@ -17,6 +17,10 @@ function getCommandJson(commandData) {
 }
 
 export function resolveSlashAccessKey(interaction) {
+  if (!interaction.isChatInputCommand?.()) {
+    return interaction.commandName;
+  }
+
   const subcommandGroup = interaction.options.getSubcommandGroup(false);
   const subcommand = interaction.options.getSubcommand(false);
 
