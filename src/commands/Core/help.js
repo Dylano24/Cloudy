@@ -105,7 +105,6 @@ export async function createInitialHelpMenu(client, interaction = null) {
                 value: [
                     '• Gamble and manage your economy',
                     '• Browse and buy items from the shop',
-                    '• Check weather, music, levels and other member features',
                 ].join('\n'),
                 inline: false,
             },
