@@ -184,7 +184,7 @@ export async function getModerationCases(guildId, filters = {}) {
   }
 }
 
-export async function logModerationAction({ client, guild, event }) {
+export async function logModerationAction({ client, guild, event, skipChannelLog = false }) {
   const caseId = await generateCaseId(client, guild.id);
   
   await storeModerationCase({
@@ -201,15 +201,17 @@ export async function logModerationAction({ client, guild, event }) {
       moderatorId: event.metadata?.moderatorId
     }
   });
-  
-  await logEvent({
-    client,
-    guild,
-    event: {
-      ...event,
-      caseId
-    }
-  });
+
+  if (!skipChannelLog) {
+    await logEvent({
+      client,
+      guild,
+      event: {
+        ...event,
+        caseId
+      }
+    });
+  }
   
   return caseId;
 }
