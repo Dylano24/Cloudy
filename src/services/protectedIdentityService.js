@@ -59,7 +59,7 @@ async function sendPermanentLog(member, detection, source, banned, error = null)
 
     const embed = new EmbedBuilder()
         .setColor(banned ? '#ED4245' : '#FEE75C')
-        .setTitle(banned ? 'Account banned' : 'Account ban failed')
+        .setTitle(banned ? 'AutoMod account banned' : 'AutoMod account ban failed')
         .setDescription(
             banned
                 ? 'Account was automatically banned because the username, display name, or message contained a blocked identity.'
@@ -83,6 +83,25 @@ async function sendPermanentLog(member, detection, source, banned, error = null)
                 value: banned
                     ? 'Permanent ban'
                     : `Manual action required${error ? `: ${String(error).slice(0, 500)}` : ''}`,
+                inline: false,
+            },
+            {
+                name: 'Banned by',
+                value: banned
+                    ? `${member.client.user} (${member.client.user.tag})`
+                    : 'Not completed',
+                inline: false,
+            },
+            {
+                name: 'Reason',
+                value: banned
+                    ? `Blocked identity detected (${detection.identity})`
+                    : (error || 'Automatic protection failed'),
+                inline: false,
+            },
+            {
+                name: 'Date',
+                value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
                 inline: false,
             }
         )
