@@ -15,11 +15,6 @@ export default {
                 .setDescription("User to untimeout")
                 .setRequired(true),
         )
-        .addStringOption((option) =>
-            option
-                .setName("reason")
-                .setDescription("Reason for removing the timeout"),
-        )
         .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
     category: "moderation",
 
@@ -36,7 +31,6 @@ export default {
 
         const targetUser = interaction.options.getUser("target");
         const member = interaction.options.getMember("target");
-        const reason = interaction.options.getString("reason") || "No reason provided";
 
         if (!targetUser) {
             throw new TitanBotError(
@@ -59,7 +53,6 @@ export default {
             guild: interaction.guild,
             member,
             moderator: interaction.member,
-            reason,
         });
 
         await InteractionHelper.safeEditReply(interaction, {
