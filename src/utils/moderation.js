@@ -202,7 +202,17 @@ export async function logModerationAction({ client, guild, event, skipChannelLog
     }
   });
 
-  if (!skipChannelLog) {
+  let commandUnbanSuppressed = false;
+  if (event.action === 'Member Unbanned' && event.metadata?.userId) {
+    const suppressionKey = `${guild.id}:${event.metadata.userId}`;
+    const expiresAt = client.commandUnbanLogSuppressions?.get(suppressionKey);
+    if (expiresAt && expiresAt > Date.now()) {
+      commandUnbanSuppressed = true;
+      client.commandUnbanLogSuppressions.delete(suppressionKey);
+    }
+  }
+
+  if (!skipChannelLog && !commandUnbanSuppressed) {
     await logEvent({
       client,
       guild,
