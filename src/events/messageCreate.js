@@ -90,15 +90,21 @@ async function handlePrefixCommand(message, client) {
       return; 
     }
 
+    const requiredPermissionBits = command.data?.toJSON?.().default_member_permissions;
+    const hasRequiredCommandPermissions = requiredPermissionBits
+      ? message.member?.permissions?.has(BigInt(requiredPermissionBits))
+      : false;
+
     if (
       command.adminOnly &&
       !isBotOwner(message.author.id) &&
-      !message.member?.permissions?.has(PermissionFlagsBits.Administrator)
+      !message.member?.permissions?.has(PermissionFlagsBits.Administrator) &&
+      !hasRequiredCommandPermissions
     ) {
       await message.channel.send({
         embeds: [createEmbed({
-          title: 'Admin Only',
-          description: 'This command is only available to server administrators.',
+          title: 'Staff Only',
+          description: 'This command is only available to authorized staff members.',
           color: 'error',
         })],
       }).catch(() => {});
