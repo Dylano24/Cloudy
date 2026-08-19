@@ -39,6 +39,8 @@ const PLAYER_COMMAND_NAMES = [
   'avatar',
   'todo',
   'weather',
+  'report',
+  'report to staff',
 ];
 
 export const PLAYER_COMMANDS = new Set(PLAYER_COMMAND_NAMES);
