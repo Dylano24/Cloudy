@@ -4,6 +4,8 @@ import { getTicketCounterKey, getTicketKey } from './keys.js';
 
 export { getTicketKey, getTicketCounterKey } from './keys.js';
 
+const TICKET_STATS_TIMEOUT_MS = 1000;
+
 export async function getTicketData(guildId, channelId) {
     if (!db.initialized) {
         await db.initialize();
@@ -128,7 +130,21 @@ async function listGuildTickets(guildId) {
 
 export async function getGuildTicketStats(guildId) {
     try {
-        const tickets = await listGuildTickets(guildId);
+        let timer;
+        const tickets = await Promise.race([
+            listGuildTickets(guildId),
+            new Promise((resolve) => {
+                timer = setTimeout(() => resolve(null), TICKET_STATS_TIMEOUT_MS);
+            }),
+        ]).finally(() => {
+            if (timer) clearTimeout(timer);
+        });
+
+        if (!tickets) {
+            logger.warn(`Ticket stats timed out for guild ${guildId}; opening dashboard without stats.`);
+            return null;
+        }
+
         let openCount = 0;
         let closedCount = 0;
         let totalCloseMs = 0;
@@ -166,12 +182,6 @@ export async function getGuildTicketStats(guildId) {
         };
     } catch (error) {
         logger.error(`Error computing ticket stats for guild ${guildId}:`, error);
-        return {
-            openCount: 0,
-            closedCount: 0,
-            avgCloseTimeMs: null,
-            feedbackCount: 0,
-            avgRating: null,
-        };
+        return null;
     }
 }
