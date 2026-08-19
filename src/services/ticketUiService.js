@@ -19,7 +19,7 @@ import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logger } from '../utils/logger.js';
 
 export const TICKET_RECEIVED_MESSAGE =
-  'We’ve received your request! To help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation. Our team will be with you as soon as possible.';
+  'we’ve received your request! To help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation. Our team will be with you as soon as possible.';
 
 export function buildCloudyTicketControls({ claimedBy = null } = {}) {
   return new ActionRowBuilder().addComponents(
@@ -27,8 +27,7 @@ export function buildCloudyTicketControls({ claimedBy = null } = {}) {
       .setCustomId('ticket_claim')
       .setLabel(claimedBy ? 'Claimed' : 'Claim')
       .setStyle(claimedBy ? ButtonStyle.Secondary : ButtonStyle.Primary)
-      // Keep the current icon until the requested replacement emoji is supplied.
-      .setEmoji('🙋')
+      .setEmoji('✋')
       .setDisabled(Boolean(claimedBy)),
     new ButtonBuilder()
       .setCustomId('ticket_pin')
@@ -38,7 +37,6 @@ export function buildCloudyTicketControls({ claimedBy = null } = {}) {
     new ButtonBuilder()
       .setCustomId('ticket_priority_menu')
       .setLabel('Priority')
-      // Discord has no yellow button style; gray + yellow circle is the closest native option.
       .setStyle(ButtonStyle.Secondary)
       .setEmoji('🟡'),
     new ButtonBuilder()
