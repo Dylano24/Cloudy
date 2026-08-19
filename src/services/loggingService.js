@@ -74,7 +74,7 @@ const EVENT_COLORS = {
   'moderation.mute': 0xF1C40F,
   'moderation.warn': 0xFEE75C,
   'moderation.purge': 0xE67E22,
-  'moderation.timeout': 0x57F287,
+  'moderation.timeout': 0xFEE75C,
   'moderation.untimeout': 0x2ecc71,
   'moderation.unban': 0x3498db,
   'moderation.lock': 0xE67E22,
