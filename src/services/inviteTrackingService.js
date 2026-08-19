@@ -108,12 +108,12 @@ export async function recordInviteCreated(invite) {
       {
         name: 'Channel',
         value: invite.channel ? `${invite.channel}` : (invite.channelId ? `<#${invite.channelId}>` : 'Unknown'),
-        inline: true,
+        inline: false,
       },
       {
         name: 'Maximum uses',
         value: invite.maxUses ? String(invite.maxUses) : 'Unlimited',
-        inline: true,
+        inline: false,
       },
       {
         name: 'Expires',
