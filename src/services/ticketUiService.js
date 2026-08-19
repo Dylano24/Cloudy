@@ -22,27 +22,10 @@ export const TICKET_RECEIVED_MESSAGE =
 
 export function buildCloudyTicketControls({ claimedBy = null } = {}) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('ticket_claim')
-      .setLabel(claimedBy ? 'Claimed' : 'Claim')
-      .setStyle(claimedBy ? ButtonStyle.Secondary : ButtonStyle.Primary)
-      .setEmoji('✋')
-      .setDisabled(Boolean(claimedBy)),
-    new ButtonBuilder()
-      .setCustomId('ticket_pin')
-      .setLabel('Pin')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('📌'),
-    new ButtonBuilder()
-      .setCustomId('ticket_priority_menu')
-      .setLabel('Priority')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('🟡'),
-    new ButtonBuilder()
-      .setCustomId('ticket_close')
-      .setLabel('Close')
-      .setStyle(ButtonStyle.Danger)
-      .setEmoji('🔒'),
+    new ButtonBuilder().setCustomId('ticket_claim').setLabel(claimedBy ? 'Claimed' : 'Claim').setStyle(claimedBy ? ButtonStyle.Secondary : ButtonStyle.Primary).setEmoji('✋').setDisabled(Boolean(claimedBy)),
+    new ButtonBuilder().setCustomId('ticket_pin').setLabel('Pin').setStyle(ButtonStyle.Secondary).setEmoji('📌'),
+    new ButtonBuilder().setCustomId('ticket_priority_menu').setLabel('Priority').setStyle(ButtonStyle.Secondary).setEmoji('🟡'),
+    new ButtonBuilder().setCustomId('ticket_close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
   );
 }
 
@@ -54,23 +37,10 @@ function toDiscordTimestamp(value) {
 
 function buildTicketFields(ticketData) {
   const status = String(ticketData.status || 'open').toLowerCase();
-
   return [
-    {
-      name: 'Status',
-      value: status === 'closed' ? '🔴 Closed' : '🟢 Open',
-      inline: true,
-    },
-    {
-      name: 'Claimed By',
-      value: ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed',
-      inline: true,
-    },
-    {
-      name: 'Created',
-      value: toDiscordTimestamp(ticketData.createdAt),
-      inline: true,
-    },
+    { name: 'Status', value: status === 'closed' ? '🔴 Closed' : '🟢 Open', inline: true },
+    { name: 'Claimed By', value: ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed', inline: true },
+    { name: 'Created', value: toDiscordTimestamp(ticketData.createdAt), inline: true },
   ];
 }
 
@@ -78,42 +48,24 @@ export async function syncCloudyTicketMessage(channel) {
   try {
     const ticketData = await getTicketData(channel.guild.id, channel.id);
     if (!ticketData) return false;
-
     const messages = await channel.messages.fetch({ limit: 100 });
-    const ticketMessage = messages.find(
-      message => message.author?.id === channel.client.user?.id
-        && message.embeds?.[0]?.title?.startsWith('Ticket #'),
-    );
+    const ticketMessage = messages.find(message => message.author?.id === channel.client.user?.id && message.embeds?.[0]?.title?.startsWith('Ticket #'));
     if (!ticketMessage) return false;
-
     const currentEmbed = ticketMessage.embeds[0];
     const priorityInfo = PRIORITY_MAP[ticketData.priority || 'none'] || PRIORITY_MAP.none;
     const ticketOwner = `<@${ticketData.userId}>`;
     const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
-
     const updatedEmbed = createEmbed({
       title: currentEmbed.title || 'Ticket',
-      description:
-        `${ticketOwner}, ${TICKET_RECEIVED_MESSAGE}`
-        + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
-        + `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`,
+      description: `${ticketOwner}, ${TICKET_RECEIVED_MESSAGE}\n\n**Reason:** ${ticketData.reason || 'No reason provided'}\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`,
       color: isClosed ? '#e74c3c' : priorityInfo.color,
       fields: buildTicketFields(ticketData),
       footer: currentEmbed.footer,
     });
-
-    await ticketMessage.edit({
-      embeds: [updatedEmbed],
-      components: isClosed ? [] : [buildCloudyTicketControls({ claimedBy: ticketData.claimedBy })],
-    });
-
+    await ticketMessage.edit({ embeds: [updatedEmbed], components: isClosed ? [] : [buildCloudyTicketControls({ claimedBy: ticketData.claimedBy })] });
     return true;
   } catch (error) {
-    logger.warn('Could not sync Cloudy ticket UI', {
-      guildId: channel?.guild?.id,
-      channelId: channel?.id,
-      error: error.message,
-    });
+    logger.warn('Could not sync Cloudy ticket UI', { guildId: channel?.guild?.id, channelId: channel?.id, error: error.message });
     return false;
   }
 }
@@ -121,15 +73,8 @@ export async function syncCloudyTicketMessage(channel) {
 async function runAndAlwaysSync(channel, operation) {
   let result;
   let operationError = null;
-
-  try {
-    result = await operation();
-  } catch (error) {
-    operationError = error;
-  }
-
+  try { result = await operation(); } catch (error) { operationError = error; }
   await syncCloudyTicketMessage(channel);
-
   if (operationError) throw operationError;
   return result;
 }
@@ -139,60 +84,36 @@ export async function createTicket(...args) {
   await syncCloudyTicketMessage(result.channel);
   return result;
 }
-
-export async function claimTicket(channel, claimer) {
-  return runAndAlwaysSync(channel, () => claimTicketBase(channel, claimer));
-}
-
-export async function unclaimTicket(channel, unclaimer) {
-  return runAndAlwaysSync(channel, () => unclaimTicketBase(channel, unclaimer));
-}
-
-export async function reopenTicket(channel, reopener) {
-  return runAndAlwaysSync(channel, () => reopenTicketBase(channel, reopener));
-}
+export async function claimTicket(channel, claimer) { return runAndAlwaysSync(channel, () => claimTicketBase(channel, claimer)); }
+export async function unclaimTicket(channel, unclaimer) { return runAndAlwaysSync(channel, () => unclaimTicketBase(channel, unclaimer)); }
+export async function reopenTicket(channel, reopener) { return runAndAlwaysSync(channel, () => reopenTicketBase(channel, reopener)); }
 
 export async function updateTicketPriority(channel, priority, updater) {
   const priorityInfo = PRIORITY_MAP[priority];
-  if (!priorityInfo) {
-    const error = new Error('Invalid ticket priority.');
-    error.userMessage = 'Invalid priority selected.';
-    throw error;
-  }
-
+  if (!priorityInfo) { const error = new Error('Invalid ticket priority.'); error.userMessage = 'Invalid priority selected.'; throw error; }
   const ticketData = await getTicketData(channel.guild.id, channel.id);
-  if (!ticketData) {
-    const error = new Error('Ticket data not found.');
-    error.userMessage = 'This action can only be used in a valid ticket channel.';
-    throw error;
-  }
-
+  if (!ticketData) { const error = new Error('Ticket data not found.'); error.userMessage = 'This action can only be used in a valid ticket channel.'; throw error; }
   const previousPriority = String(ticketData.priority || 'none').toLowerCase();
   ticketData.priority = priority;
   ticketData.priorityUpdatedBy = updater.id;
   ticketData.priorityUpdatedAt = new Date().toISOString();
-
-  // Priority changes intentionally do NOT rename the Discord channel.
-  // Discord heavily rate-limits channel-name edits; repeatedly renaming the
-  // ticket was the reason priority changes appeared to stop working after a
-  // few attempts. PostgreSQL is the source of truth and the ticket embed is
-  // refreshed immediately instead.
   await saveTicketData(channel.guild.id, channel.id, ticketData);
+
+  // Restore the priority/status emoji at the side of the ticket channel.
+  // This rename is best-effort so a Discord rename rate limit can never block
+  // saving or updating the actual ticket priority.
+  const emojis = [...new Set(Object.values(PRIORITY_MAP).map(info => info.emoji).filter(Boolean))];
+  let cleanName = channel.name;
+  for (const emoji of emojis) cleanName = cleanName.replaceAll(emoji, '');
+  cleanName = cleanName.replace(/^[-\s]+/, '').trim();
+  const desiredName = priority === 'none' ? cleanName : `${priorityInfo.emoji}-${cleanName}`;
+  if (desiredName && desiredName !== channel.name) {
+    channel.setName(desiredName).catch(error => logger.warn('Could not update ticket status emoji', { channelId: channel.id, error: error.message }));
+  }
+
   await syncCloudyTicketMessage(channel);
-
-  logger.info('Ticket priority updated', {
-    guildId: channel.guild.id,
-    channelId: channel.id,
-    previousPriority,
-    priority,
-    updaterId: updater.id,
-  });
-
+  logger.info('Ticket priority updated', { guildId: channel.guild.id, channelId: channel.id, previousPriority, priority, updaterId: updater.id });
   return ticketData;
 }
 
-export {
-  closeTicket,
-  deleteTicket,
-  getUserTicketCount,
-};
+export { closeTicket, deleteTicket, getUserTicketCount };
