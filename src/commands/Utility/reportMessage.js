@@ -11,7 +11,7 @@ import { logger } from '../../utils/logger.js';
 
 export default {
   data: new ContextMenuCommandBuilder()
-    .setName('Report to Staff')
+    .setName('reports')
     .setType(ApplicationCommandType.Message)
     .setDMPermission(false),
   category: 'Utility',
