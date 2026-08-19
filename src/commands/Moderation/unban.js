@@ -12,8 +12,9 @@ export default {
         .addStringOption(option =>
             option
                 .setName("target")
-                .setDescription("The ID (or mention) of the user to unban")
-                .setRequired(true),
+                .setDescription("Search for the banned user")
+                .setRequired(true)
+                .setAutocomplete(true),
         )
         .addStringOption(option =>
             option.setName("reason")
@@ -22,6 +23,38 @@ export default {
         )
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
     category: "moderation",
+
+    async autocomplete(interaction) {
+        const focused = interaction.options.getFocused().toLowerCase();
+        const bans = await interaction.guild.bans.fetch().catch(() => null);
+
+        if (!bans) {
+            await interaction.respond([]).catch(() => {});
+            return;
+        }
+
+        const choices = bans
+            .filter(({ user }) => {
+                const searchable = [
+                    user.id,
+                    user.username,
+                    user.globalName,
+                    user.tag,
+                ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase();
+
+                return !focused || searchable.includes(focused);
+            })
+            .first(25)
+            .map(({ user }) => ({
+                name: `${user.tag} • ${user.id}`.slice(0, 100),
+                value: user.id,
+            }));
+
+        await interaction.respond(choices).catch(() => {});
+    },
 
     async execute(interaction, config, client) {
         const deferSuccess = await InteractionHelper.safeDefer(interaction);
@@ -34,21 +67,20 @@ export default {
             return;
         }
 
-        const rawTarget = interaction.options.getString("target");
-        const targetId = rawTarget.replace(/[<@!>]/g, '').trim();
+        const rawTarget = interaction.options.getString("target").trim();
+        const normalizedTarget = rawTarget.replace(/[<@!>]/g, '').trim();
+        const bans = await interaction.guild.bans.fetch().catch(() => null);
+        const banInfo = bans?.get(normalizedTarget) || bans?.find(({ user }) =>
+            [user.username, user.globalName, user.tag]
+                .filter(Boolean)
+                .some(value => value.toLowerCase() === rawTarget.toLowerCase())
+        );
+        const targetUser = banInfo?.user || null;
 
-        if (!/^\d{17,20}$/.test(targetId)) {
-            return replyUserError(interaction, {
-                type: ErrorTypes.USER_INPUT,
-                message: 'Please provide a valid user ID or mention.',
-            });
-        }
-
-        const targetUser = await client.users.fetch(targetId).catch(() => null);
         if (!targetUser) {
             return replyUserError(interaction, {
                 type: ErrorTypes.USER_INPUT,
-                message: `Could not find a user with the ID \`${targetId}\`.`,
+                message: 'That user was not found in the server ban list.',
             });
         }
 
