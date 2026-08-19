@@ -59,14 +59,13 @@ async function sendPermanentLog(member, detection, source, banned, error = null)
 
     const embed = new EmbedBuilder()
         .setColor(banned ? '#ED4245' : '#FEE75C')
-        .setTitle(banned ? 'AutoMod account banned' : 'AutoMod account ban failed')
+        .setTitle(banned ? 'Automod account banned' : 'Automod account ban failed')
         .setDescription(
             banned
                 ? 'Account was automatically banned because the username, display name, or message contained a blocked identity.'
                 : 'A blocked identity was detected, but Cloudy could not ban the account automatically.'
         )
         .addFields(
-            { name: 'Detected identity', value: detection.identity, inline: true },
             { name: 'Detected in', value: source, inline: true },
             {
                 name: 'Detected value',
