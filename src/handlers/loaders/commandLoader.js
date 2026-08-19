@@ -143,7 +143,7 @@ function collectCommandPayloads(client) {
 
         registeredNames.add(commandName);
         const commandJson = command.data.toJSON();
-        if (command.adminOnly) {
+        if (command.adminOnly && !commandJson.default_member_permissions) {
             commandJson.default_member_permissions = '8';
         }
         commands.push(commandJson);
