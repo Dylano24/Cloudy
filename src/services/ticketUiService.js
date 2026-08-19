@@ -28,6 +28,14 @@ function isPinnedChannelName(name = '') {
   return String(name).includes(PIN_EMOJI);
 }
 
+function getQueuedPinnedState(channel) {
+  const queued = channelNameJobs.get(channel.id);
+  if (queued?.desiredPinned !== null && queued?.desiredPinned !== undefined) {
+    return Boolean(queued.desiredPinned);
+  }
+  return isPinnedChannelName(channel.name);
+}
+
 function getCleanTicketChannelName(name = '') {
   const decorations = [
     PIN_EMOJI,
@@ -250,7 +258,7 @@ export async function syncCloudyTicketChannelName(channel) {
 
   scheduleTicketChannelNameSync(channel, {
     priority: String(ticketData.priority || 'none').toLowerCase(),
-    pinned: isPinnedChannelName(channel.name),
+    pinned: getQueuedPinnedState(channel),
   });
 
   return true;
@@ -333,7 +341,7 @@ export async function updateTicketPriority(channel, priority, updater) {
   await saveTicketData(channel.guild.id, channel.id, ticketData);
   scheduleTicketChannelNameSync(channel, {
     priority,
-    pinned: isPinnedChannelName(channel.name),
+    pinned: getQueuedPinnedState(channel),
   });
   await syncCloudyTicketMessage(channel);
 
