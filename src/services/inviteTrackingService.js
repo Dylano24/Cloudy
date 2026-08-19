@@ -94,7 +94,7 @@ export async function recordInviteCreated(invite) {
   const inviter = invite.inviter;
   const embed = new EmbedBuilder()
     .setColor(0x5DADE2)
-    .setTitle('Invite Created')
+    .setTitle('Invite created')
     .addFields(
       {
         name: 'Created by',
@@ -176,7 +176,7 @@ export async function trackMemberInvite(member) {
   const inviter = usedInvite?.inviter;
   const embed = new EmbedBuilder()
     .setColor(accountAgeDays < 7 ? 0xED4245 : accountAgeDays < 30 ? 0xFEE75C : 0x57F287)
-    .setTitle('Member Joined Using Invite')
+    .setTitle('Member joined using invite')
     .addFields(
       {
         name: 'Member',
@@ -189,8 +189,8 @@ export async function trackMemberInvite(member) {
         inline: false,
       },
       {
-        name: 'Invite code',
-        value: usedInvite ? `\`${usedInvite.code}\`` : 'Unknown',
+        name: 'Invite',
+        value: usedInvite ? `https://discord.gg/${usedInvite.code}` : 'Unknown',
         inline: true,
       },
       {
