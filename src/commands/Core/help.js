@@ -75,11 +75,13 @@ export async function createInitialHelpMenu(client, interaction = null) {
         .sort();
 
     const options = [
-        {
-            label: "📋 All Commands",
-            description: "Browse every available command in a single list",
-            value: ALL_COMMANDS_ID,
-        },
+        ...(showAllCommands
+            ? [{
+                label: "📋 All Commands",
+                description: "Browse every available command in a single list",
+                value: ALL_COMMANDS_ID,
+            }]
+            : []),
         ...categoryDirs.map((category) => {
             const categoryName = formatCategoryName(category);
             const icon = CATEGORY_ICONS[categoryName] || "🔍";
