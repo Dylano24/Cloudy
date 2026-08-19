@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import botConfig from '../../config/bot.js';
+import { isPlayerCommand } from '../../config/playerCommands.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,6 +81,7 @@ export async function loadCommands(client) {
             command.filePath = normalizedPath;
             
             const primaryCommandName = command.data.name;
+            command.adminOnly = !isPlayerCommand(primaryCommandName);
             
             if (!uniqueCommandNames.has(primaryCommandName)) {
                 uniqueCommandNames.add(primaryCommandName);
@@ -141,6 +143,9 @@ function collectCommandPayloads(client) {
 
         registeredNames.add(commandName);
         const commandJson = command.data.toJSON();
+        if (command.adminOnly) {
+            commandJson.default_member_permissions = '8';
+        }
         commands.push(commandJson);
         totalSubcommands += getSubcommandInfo(commandJson).length;
 
