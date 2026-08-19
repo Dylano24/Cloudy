@@ -65,7 +65,6 @@ export async function createInitialHelpMenu(client, interaction = null) {
             'Core',
             'Economy',
             'Fun',
-            'Leveling',
             'Music',
             'Search',
             'Tools',
