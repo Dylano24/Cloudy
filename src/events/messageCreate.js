@@ -1,4 +1,4 @@
-import { Events } from 'discord.js';
+import { Events, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getLevelingConfig, getUserLevelData } from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
@@ -88,6 +88,21 @@ async function handlePrefixCommand(message, client) {
     if (!command) {
       logger.warn(`Command not found: ${resolvedCommandName}`);
       return; 
+    }
+
+    if (
+      command.adminOnly &&
+      !isBotOwner(message.author.id) &&
+      !message.member?.permissions?.has(PermissionFlagsBits.Administrator)
+    ) {
+      await message.channel.send({
+        embeds: [createEmbed({
+          title: 'Admin Only',
+          description: 'This command is only available to server administrators.',
+          color: 'error',
+        })],
+      }).catch(() => {});
+      return;
     }
 
     if (isMaintenanceMode() && !isBotOwner(message.author.id)) {
