@@ -2,6 +2,22 @@
  * Shared helpers for detecting bot-posted panel messages (tickets, verification, etc.)
  */
 
+const PANEL_FETCH_TIMEOUT_MS = 1000;
+
+async function withPanelTimeout(promise, fallback = null) {
+    let timer;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise((resolve) => {
+                timer = setTimeout(() => resolve(fallback), PANEL_FETCH_TIMEOUT_MS);
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
+
 export function messageHasButtonCustomId(message, buttonCustomId) {
     if (!message?.components?.length || !buttonCustomId) return false;
 
@@ -81,7 +97,7 @@ export async function getBotPanelStatus(client, guild, {
         return { exists: false, reason: 'no_channel' };
     }
 
-    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    const channel = await withPanelTimeout(guild.channels.fetch(channelId).catch(() => null));
     if (!channel) {
         return { exists: false, reason: 'channel_missing' };
     }
@@ -89,13 +105,13 @@ export async function getBotPanelStatus(client, guild, {
     const marker = { buttonCustomId, selectCustomId };
 
     if (messageId) {
-        const message = await channel.messages.fetch(messageId).catch(() => null);
+        const message = await withPanelTimeout(channel.messages.fetch(messageId).catch(() => null));
         if (message && messageHasPanelMarker(message, marker)) {
             return { exists: true, message, channel };
         }
     }
 
-    const messages = await channel.messages.fetch({ limit: scanLimit }).catch(() => null);
+    const messages = await withPanelTimeout(channel.messages.fetch({ limit: scanLimit }).catch(() => null));
     const messageList = messages
         ? [...(typeof messages.values === 'function' ? messages.values() : messages)]
         : [];
@@ -133,4 +149,3 @@ export async function getReactionRolePanelStatus(client, guild, panelData) {
         selectCustomId: 'reaction_roles',
     });
 }
-
