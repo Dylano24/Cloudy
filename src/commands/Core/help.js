@@ -62,13 +62,12 @@ export async function createInitialHelpMenu(client, interaction = null) {
         .filter((dirent) => dirent.isDirectory())
         .map((dirent) => dirent.name)
         .filter((category) => showAllCommands || [
-            'Community',
+            'Core',
             'Economy',
             'Fun',
             'Leveling',
             'Music',
             'Search',
-            'Ticket',
             'Tools',
             'Utility',
             'Verification',
