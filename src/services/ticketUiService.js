@@ -23,7 +23,6 @@ export const TICKET_RECEIVED_MESSAGE =
 const PIN_EMOJI = '📌';
 const DB_TIMEOUT_MS = 2500;
 const DISCORD_TIMEOUT_MS = 3500;
-const CHANNEL_NAME_DEBOUNCE_MS = 3000;
 const CHANNEL_NAME_RETRY_MS = 15_000;
 const channelNameJobs = new Map();
 
@@ -176,18 +175,10 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
   }
   channelNameJobs.set(key, existing);
 
-  // If Discord is already processing a previous rename, only replace the
-  // desired final state. The active worker will pick up the newest state when
-  // the current request finishes instead of creating another REST request.
-  if (existing.running) return;
-
-  // Latest-wins debounce: rapid priority changes are collapsed into one
-  // channel rename. This is important because Discord heavily rate-limits
-  // channel-name edits, while the database/embed can still update instantly.
-  if (existing.timer) {
-    clearTimeout(existing.timer);
-    existing.timer = null;
-  }
+  // No artificial debounce or click limit. If a rename is already in flight,
+  // just keep the newest requested state; the worker immediately continues
+  // with it as soon as Discord finishes the current request.
+  if (existing.running || existing.timer) return;
 
   const run = async () => {
     const job = channelNameJobs.get(key);
@@ -227,8 +218,7 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
       job.running = false;
 
       if (hasNewerState) {
-        job.timer = setTimeout(run, CHANNEL_NAME_DEBOUNCE_MS);
-        job.timer.unref?.();
+        queueMicrotask(run);
         return;
       }
 
@@ -241,8 +231,10 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
         return;
       }
 
+      // Discord rate limits cannot be bypassed. Respect Discord's own
+      // Retry-After and automatically apply the latest requested state after it.
       const retryMs = getRetryDelayMs(error);
-      logger.warn('Ticket channel status rename delayed; latest state remains queued', {
+      logger.warn('Ticket channel status rename delayed by Discord; retrying latest state', {
         guildId: job.channel?.guild?.id,
         channelId: key,
         desiredPriority: job.desiredPriority,
@@ -256,8 +248,7 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
     }
   };
 
-  existing.timer = setTimeout(run, CHANNEL_NAME_DEBOUNCE_MS);
-  existing.timer.unref?.();
+  queueMicrotask(run);
 }
 
 export function buildCloudyTicketControls({ claimedBy = null } = {}) {
@@ -631,8 +622,6 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
     },
   }).catch(() => {});
 
-  // Give Discord time to deliver the ephemeral success response before the
-  // ticket creator loses access to the channel.
   const timer = setTimeout(() => {
     finishCloseSideEffects(channel, ticketData).catch(() => {});
   }, 1000);
