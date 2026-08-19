@@ -258,6 +258,11 @@ export class ModerationService {
                 inline: false,
               },
               {
+                name: 'Reason',
+                value: String(reason || 'No reason provided').slice(0, 1024),
+                inline: false,
+              },
+              {
                 name: 'Date',
                 value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
                 inline: false,
