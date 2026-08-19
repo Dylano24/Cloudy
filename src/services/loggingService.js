@@ -17,7 +17,9 @@ const PERMANENT_TIMEOUT_LOG_CHANNEL_ID = '1539371111240831078';
 const PERMANENT_UNBAN_LOG_CHANNEL_ID = '1539259457404412036';
 const PERMANENT_REPORT_LOG_CHANNEL_ID = '1539372511089926244';
 const RECENT_KICK_LOG_TTL_MS = 15_000;
+const recentBanLogs = new Map();
 const recentKickLogs = new Map();
+const recentUnbanLogs = new Map();
 const recentTimeoutLogs = new Map();
 
 const EVENT_TYPES = {
@@ -193,6 +195,12 @@ export function isEventEnabled(config, eventType) {
 }
 
 function getLogChannelForEvent(config, eventType, overrideChannelId = null) {
+  if (
+    eventType === EVENT_TYPES.MODERATION_BAN ||
+    eventType === EVENT_TYPES.MODERATION_UNBAN
+  ) {
+    return PERMANENT_UNBAN_LOG_CHANNEL_ID;
+  }
   if (eventType === EVENT_TYPES.MODERATION_KICK) {
     return PERMANENT_KICK_LOG_CHANNEL_ID;
   }
@@ -201,9 +209,6 @@ function getLogChannelForEvent(config, eventType, overrideChannelId = null) {
     eventType === EVENT_TYPES.MODERATION_UNTIMEOUT
   ) {
     return PERMANENT_TIMEOUT_LOG_CHANNEL_ID;
-  }
-  if (eventType === EVENT_TYPES.MODERATION_UNBAN) {
-    return PERMANENT_UNBAN_LOG_CHANNEL_ID;
   }
   if (eventType === EVENT_TYPES.REPORT_FILE) {
     return PERMANENT_REPORT_LOG_CHANNEL_ID;
@@ -241,6 +246,30 @@ export async function logEvent({
     if (!guild) {
       logger.warn(`logEvent: Guild not found: ${guildId}`);
       return null;
+    }
+
+    if (
+      [EVENT_TYPES.MODERATION_BAN, EVENT_TYPES.MODERATION_UNBAN].includes(eventType) &&
+      data?.userId
+    ) {
+      const dedupeMap = eventType === EVENT_TYPES.MODERATION_BAN
+        ? recentBanLogs
+        : recentUnbanLogs;
+      const dedupeKey = `${guildId}:${data.userId}`;
+      const previousLogAt = dedupeMap.get(dedupeKey);
+      const now = Date.now();
+
+      if (previousLogAt && now - previousLogAt < RECENT_KICK_LOG_TTL_MS) {
+        return null;
+      }
+
+      dedupeMap.set(dedupeKey, now);
+      const cleanupTimer = setTimeout(() => {
+        if (dedupeMap.get(dedupeKey) === now) {
+          dedupeMap.delete(dedupeKey);
+        }
+      }, RECENT_KICK_LOG_TTL_MS);
+      cleanupTimer.unref?.();
     }
 
     if (eventType === EVENT_TYPES.MODERATION_KICK && data?.userId) {
@@ -291,6 +320,7 @@ export async function logEvent({
 
     if (
       ![
+        EVENT_TYPES.MODERATION_BAN,
         EVENT_TYPES.MODERATION_KICK,
         EVENT_TYPES.MODERATION_TIMEOUT,
         EVENT_TYPES.MODERATION_UNTIMEOUT,
