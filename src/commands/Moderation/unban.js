@@ -96,7 +96,7 @@ export default {
         await InteractionHelper.safeEditReply(interaction, {
             embeds: [
                 successEmbed(
-                    "User unbanned by Cloudy",
+                    "User unbanned by Automod",
                     `Successfully unbanned **${targetUser.tag}** from the server.\n\n**Reason:** ${reason}\n**Case ID:** #${result.caseId}`,
                 ),
             ],
