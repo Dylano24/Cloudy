@@ -195,7 +195,10 @@ function getLogChannelForEvent(config, eventType, overrideChannelId = null) {
   if (eventType === EVENT_TYPES.MODERATION_KICK) {
     return PERMANENT_KICK_LOG_CHANNEL_ID;
   }
-  if (eventType === EVENT_TYPES.MODERATION_TIMEOUT) {
+  if (
+    eventType === EVENT_TYPES.MODERATION_TIMEOUT ||
+    eventType === EVENT_TYPES.MODERATION_UNTIMEOUT
+  ) {
     return PERMANENT_TIMEOUT_LOG_CHANNEL_ID;
   }
   if (eventType === EVENT_TYPES.REPORT_FILE) {
@@ -283,7 +286,12 @@ export async function logEvent({
     }
 
     if (
-      ![EVENT_TYPES.MODERATION_KICK, EVENT_TYPES.MODERATION_TIMEOUT, EVENT_TYPES.REPORT_FILE].includes(eventType) &&
+      ![
+        EVENT_TYPES.MODERATION_KICK,
+        EVENT_TYPES.MODERATION_TIMEOUT,
+        EVENT_TYPES.MODERATION_UNTIMEOUT,
+        EVENT_TYPES.REPORT_FILE,
+      ].includes(eventType) &&
       !isEventEnabled(config, eventType)
     ) {
       return null;
