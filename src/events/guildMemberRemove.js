@@ -40,7 +40,7 @@ export default {
                     guildId: guild.id,
                     eventType: EVENT_TYPES.MODERATION_KICK,
                     data: {
-                        title: '👢 Kick Log',
+                        title: 'Kick log',
                         lines: [
                             `**User:** ${user.toString()} (${user.tag})`,
                             `**Kicked by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
