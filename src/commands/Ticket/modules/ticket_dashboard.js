@@ -253,6 +253,28 @@ async function recoverTicketPanelConfig(interaction, client, guildConfig) {
         .flatMap(row => row.components || [])
         .find(component => component.customId === 'create_ticket');
 
+    const guild = interaction.guild;
+    const categoryChannels = guild.channels.cache.filter(
+        candidate => candidate.type === ChannelType.GuildCategory
+    );
+    const openCategory = categoryChannels.find(candidate =>
+        /support.*help|help.*support/i.test(candidate.name)
+    );
+    const closedCategory = categoryChannels.find(candidate =>
+        candidate.name.trim().toLowerCase() === 'tickets'
+    );
+    const ownerRole = guild.roles.cache.find(role =>
+        role.name.trim().toLowerCase() === 'owner'
+    );
+    const logsChannel = guild.channels.cache.find(candidate =>
+        candidate.type === ChannelType.GuildText &&
+        /^(ticket|tickets)[-_ ]?logs$/i.test(candidate.name)
+    );
+    const transcriptChannel = guild.channels.cache.find(candidate =>
+        candidate.type === ChannelType.GuildText &&
+        /^(ticket|tickets)[-_ ]?transcripts?$/i.test(candidate.name)
+    );
+
     guildConfig.ticketPanelChannelId = channel.id;
     guildConfig.ticketPanelMessageId = panelMessage.id;
     guildConfig.ticketPanelMessage =
@@ -263,6 +285,13 @@ async function recoverTicketPanelConfig(interaction, client, guildConfig) {
         panelButton?.label ||
         guildConfig.ticketButtonLabel ||
         'Create Ticket';
+    guildConfig.ticketCategoryId ||= openCategory?.id || null;
+    guildConfig.ticketClosedCategoryId ||= closedCategory?.id || null;
+    guildConfig.ticketStaffRoleId ||= ownerRole?.id || null;
+    guildConfig.ticketLogsChannelId ||= logsChannel?.id || null;
+    guildConfig.ticketTranscriptChannelId ||= transcriptChannel?.id || null;
+    guildConfig.maxTicketsPerUser = 1;
+    guildConfig.dmOnClose = false;
 
     await setGuildConfig(client, interaction.guildId, guildConfig);
     logger.info('Recovered ticket panel configuration from Discord', {
