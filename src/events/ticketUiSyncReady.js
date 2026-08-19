@@ -5,14 +5,12 @@ import {
 } from '../services/ticketUiService.js';
 import { logger } from '../utils/logger.js';
 
-const PERIODIC_TICKET_SYNC_MS = 5 * 60 * 1000;
-
 function looksLikeTicketChannel(channel) {
   if (channel.type !== ChannelType.GuildText) return false;
   return /ticket-?\d+/i.test(String(channel.name || ''));
 }
 
-async function synchronizeTickets(client, reason = 'manual') {
+async function synchronizeTickets(client) {
   let checked = 0;
   let messageSynced = 0;
   let channelSynced = 0;
@@ -24,16 +22,13 @@ async function synchronizeTickets(client, reason = 'manual') {
       checked += 1;
 
       try {
-        const [messageUpdated, channelQueued] = await Promise.all([
-          syncCloudyTicketMessage(channel),
-          syncCloudyTicketChannelName(channel),
-        ]);
+        const messageUpdated = await syncCloudyTicketMessage(channel);
+        const channelQueued = await syncCloudyTicketChannelName(channel);
 
         if (messageUpdated) messageSynced += 1;
         if (channelQueued) channelSynced += 1;
       } catch (error) {
-        logger.warn('Ticket reconciliation failed for channel', {
-          reason,
+        logger.warn('Startup ticket reconciliation failed for channel', {
           guildId: guild.id,
           channelId: channel.id,
           error: error.message,
@@ -42,8 +37,7 @@ async function synchronizeTickets(client, reason = 'manual') {
     }
   }
 
-  logger.info('Ticket reconciliation completed', {
-    reason,
+  logger.info('Startup ticket reconciliation completed', {
     checked,
     messageSynced,
     channelSynced,
@@ -55,19 +49,10 @@ export default {
   once: true,
 
   async execute(client) {
-    // Allow PostgreSQL and Discord caches to finish warming up.
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    await synchronizeTickets(client, 'startup');
-
-    // A lightweight safety reconciliation keeps the visible ticket UI and the
-    // channel-side priority emoji consistent with PostgreSQL for long-running
-    // processes, even after a temporary Discord API/rate-limit failure.
-    const timer = setInterval(() => {
-      synchronizeTickets(client, 'periodic').catch(error => {
-        logger.warn('Periodic ticket reconciliation failed', { error: error.message });
-      });
-    }, PERIODIC_TICKET_SYNC_MS);
-
-    timer.unref?.();
+    // One startup repair is enough. Priority/channel-name retries are already
+    // handled by the per-ticket queue. Running a full reconciliation every five
+    // minutes caused unnecessary Discord REST traffic and could delay buttons.
+    await new Promise(resolve => setTimeout(resolve, 2500));
+    await synchronizeTickets(client);
   },
 };
