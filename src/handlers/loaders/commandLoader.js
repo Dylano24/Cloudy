@@ -40,7 +40,7 @@ async function getAllFiles(directory, fileList = []) {
         const filePath = path.join(directory, file.name);
         
         if (file.isDirectory()) {
-            if (file.name === 'modules') {
+            if (file.name === 'modules' || file.name === 'Leveling') {
                 continue;
             }
             await getAllFiles(filePath, fileList);
