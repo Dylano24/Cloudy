@@ -132,7 +132,10 @@ export async function recordInviteCreated(invite) {
     cached = new Map();
     inviteCache.set(guild.id, cached);
   }
+
+  const alreadyKnown = cached.has(invite.code);
   cached.set(invite.code, snapshotInvite(invite));
+  if (alreadyKnown) return;
 
   const inviter = invite.inviter;
   const embed = new EmbedBuilder()
