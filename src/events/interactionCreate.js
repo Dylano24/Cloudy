@@ -58,7 +58,7 @@ export default {
         InteractionHelper.patchInteractionResponses(interaction);
         ResponseCoordinator.attach(interaction);
 
-        if (interaction.isChatInputCommand()) {
+        if (interaction.isChatInputCommand() || interaction.isMessageContextMenuCommand()) {
           try {
             logger.info(`Command executed: /${interaction.commandName} by ${interaction.user.tag}`, {
               event: 'interaction.command.received',
@@ -68,10 +68,12 @@ export default {
               command: interaction.commandName
             });
 
-            validateChatInputPayloadOrThrow(interaction, withTraceContext({
-              type: 'command_input_validation',
-              commandName: interaction.commandName
-            }, interactionTraceContext));
+            if (interaction.isChatInputCommand()) {
+              validateChatInputPayloadOrThrow(interaction, withTraceContext({
+                type: 'command_input_validation',
+                commandName: interaction.commandName
+              }, interactionTraceContext));
+            }
 
             const command = client.commands.get(interaction.commandName);
 
