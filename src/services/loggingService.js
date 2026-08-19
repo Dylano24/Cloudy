@@ -13,6 +13,7 @@ import {
 
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
 const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
+const PERMANENT_TIMEOUT_LOG_CHANNEL_ID = '1539371111240831078';
 const RECENT_KICK_LOG_TTL_MS = 15_000;
 const recentKickLogs = new Map();
 
@@ -192,17 +193,24 @@ function getLogChannelForEvent(config, eventType, overrideChannelId = null) {
   if (eventType === EVENT_TYPES.MODERATION_KICK) {
     return PERMANENT_KICK_LOG_CHANNEL_ID;
   }
+  if (eventType === EVENT_TYPES.MODERATION_TIMEOUT) {
+    return PERMANENT_TIMEOUT_LOG_CHANNEL_ID;
+  }
 
   if (overrideChannelId) {
-    return overrideChannelId === PERMANENT_KICK_LOG_CHANNEL_ID ? null : overrideChannelId;
+    return [PERMANENT_KICK_LOG_CHANNEL_ID, PERMANENT_TIMEOUT_LOG_CHANNEL_ID].includes(overrideChannelId)
+      ? null
+      : overrideChannelId;
   }
 
   const category = eventType?.split('.')[0];
   const destination = CATEGORY_DESTINATION[category] || 'audit';
   const channelId = resolveLogChannel(config, destination);
 
-  // This channel is reserved exclusively for permanent kick logs.
-  return channelId === PERMANENT_KICK_LOG_CHANNEL_ID ? null : channelId;
+  // These channels are reserved exclusively for their moderation action.
+  return [PERMANENT_KICK_LOG_CHANNEL_ID, PERMANENT_TIMEOUT_LOG_CHANNEL_ID].includes(channelId)
+    ? null
+    : channelId;
 }
 
 export async function logEvent({
@@ -252,7 +260,7 @@ export async function logEvent({
     }
 
     if (
-      eventType !== EVENT_TYPES.MODERATION_KICK &&
+      ![EVENT_TYPES.MODERATION_KICK, EVENT_TYPES.MODERATION_TIMEOUT].includes(eventType) &&
       !isEventEnabled(config, eventType)
     ) {
       return null;
