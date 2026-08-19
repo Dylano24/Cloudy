@@ -34,8 +34,14 @@ function buildModerationLogData(event) {
   if (event.target) {
     lines.push(formatLogLine('User', event.target));
   }
+  if (event.action === 'Member Banned' && event.executor) {
+    lines.push(formatLogLine('Banned by', event.executor));
+  }
   if (event.action === 'Member Kicked' && event.executor) {
     lines.push(formatLogLine('Kicked by', event.executor));
+  }
+  if (event.action === 'Member Unbanned' && event.executor) {
+    lines.push(formatLogLine('Unbanned by', event.executor));
   }
   if (event.action === 'Member Timed Out' && event.executor) {
     lines.push(formatLogLine('Timed-out by', event.executor));
