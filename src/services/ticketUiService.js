@@ -10,10 +10,9 @@ import {
   unclaimTicket as unclaimTicketBase,
   reopenTicket as reopenTicketBase,
   deleteTicket,
-  updateTicketPriority as updateTicketPriorityBase,
   getUserTicketCount,
 } from './ticket.js';
-import { getTicketData } from '../utils/database.js';
+import { getTicketData, saveTicketData } from '../utils/database.js';
 import { createEmbed } from '../utils/embeds.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logger } from '../utils/logger.js';
@@ -154,7 +153,42 @@ export async function reopenTicket(channel, reopener) {
 }
 
 export async function updateTicketPriority(channel, priority, updater) {
-  return runAndAlwaysSync(channel, () => updateTicketPriorityBase(channel, priority, updater));
+  const priorityInfo = PRIORITY_MAP[priority];
+  if (!priorityInfo) {
+    const error = new Error('Invalid ticket priority.');
+    error.userMessage = 'Invalid priority selected.';
+    throw error;
+  }
+
+  const ticketData = await getTicketData(channel.guild.id, channel.id);
+  if (!ticketData) {
+    const error = new Error('Ticket data not found.');
+    error.userMessage = 'This action can only be used in a valid ticket channel.';
+    throw error;
+  }
+
+  const previousPriority = String(ticketData.priority || 'none').toLowerCase();
+  ticketData.priority = priority;
+  ticketData.priorityUpdatedBy = updater.id;
+  ticketData.priorityUpdatedAt = new Date().toISOString();
+
+  // Priority changes intentionally do NOT rename the Discord channel.
+  // Discord heavily rate-limits channel-name edits; repeatedly renaming the
+  // ticket was the reason priority changes appeared to stop working after a
+  // few attempts. PostgreSQL is the source of truth and the ticket embed is
+  // refreshed immediately instead.
+  await saveTicketData(channel.guild.id, channel.id, ticketData);
+  await syncCloudyTicketMessage(channel);
+
+  logger.info('Ticket priority updated', {
+    guildId: channel.guild.id,
+    channelId: channel.id,
+    previousPriority,
+    priority,
+    updaterId: updater.id,
+  });
+
+  return ticketData;
 }
 
 export {
