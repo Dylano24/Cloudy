@@ -7,9 +7,20 @@ import { createError, ErrorTypes, wrapServiceBoundary } from '../../utils/errorH
 
 export { GUILD_CONFIG_DEFAULTS };
 
+function normalizeCloudyGuildConfig(config) {
+    const normalized = normalizeGuildConfig(config, GUILD_CONFIG_DEFAULTS);
+
+    // Ticket-close DMs are intentionally disabled for Cloudy. Keeping this at
+    // the config boundary makes every close path consistent, including older
+    // handlers that still read dmOnClose from guild configuration.
+    normalized.dmOnClose = false;
+
+    return normalized;
+}
+
 export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(client, guildId, context = {}) {
     const config = await readGuildConfig(client, guildId, context);
-    return normalizeGuildConfig(config, GUILD_CONFIG_DEFAULTS);
+    return normalizeCloudyGuildConfig(config);
 }, {
     service: 'guildConfigService',
     operation: 'getGuildConfig',
@@ -18,7 +29,7 @@ export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(
 });
 
 export const setGuildConfig = wrapServiceBoundary(async function setGuildConfig(client, guildId, config, context = {}) {
-    const normalized = normalizeGuildConfig(config, GUILD_CONFIG_DEFAULTS);
+    const normalized = normalizeCloudyGuildConfig(config);
     return await writeGuildConfig(client, guildId, normalized, context);
 }, {
     service: 'guildConfigService',
@@ -30,7 +41,7 @@ export const setGuildConfig = wrapServiceBoundary(async function setGuildConfig(
 export const updateGuildConfig = wrapServiceBoundary(async function updateGuildConfig(client, guildId, updates, context = {}) {
     const currentConfig = await readGuildConfig(client, guildId, context);
     const merged = { ...currentConfig, ...updates };
-    const normalized = normalizeGuildConfig(merged, GUILD_CONFIG_DEFAULTS);
+    const normalized = normalizeCloudyGuildConfig(merged);
     return await writeGuildConfig(client, guildId, normalized, context);
 }, {
     service: 'guildConfigService',
@@ -73,7 +84,7 @@ export const patchGuildConfig = wrapServiceBoundary(async function patchGuildCon
 
     const currentConfig = await readGuildConfig(client, guildId, context);
     const merged = deepMergeGuildConfig(currentConfig, patch);
-    const normalized = normalizeGuildConfig(merged, GUILD_CONFIG_DEFAULTS);
+    const normalized = normalizeCloudyGuildConfig(merged);
     validateGuildConfigOrThrow(normalized, { guildId, ...context });
     return await writeGuildConfig(client, guildId, normalized, context);
 }, {
