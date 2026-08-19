@@ -131,9 +131,12 @@ export async function recordInviteCreated(invite) {
         inline: false,
       },
     )
-    .setThumbnail(inviter?.displayAvatarURL({ size: 256 }) || null)
     .setFooter({ text: 'Cloudy Invite Tracking' })
     .setTimestamp();
+
+  if (inviter) {
+    embed.setThumbnail(inviter.displayAvatarURL({ size: 256 }));
+  }
 
   await sendInviteLog(guild, embed);
 }
