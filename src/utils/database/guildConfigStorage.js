@@ -27,12 +27,14 @@ export async function readGuildConfig(client, guildId, context = {}) {
             return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
         }
 
+        // The database wrapper deliberately falls back to MemoryStorage when
+        // PostgreSQL is unavailable. Reads must still use that fallback;
+        // isAvailable() only reports persistent PostgreSQL availability.
         if (typeof client.db.isAvailable === 'function' && !client.db.isAvailable()) {
-            logger.warn(`PostgreSQL unavailable for readGuildConfig in guild ${guildId}`, {
+            logger.debug(`Reading guild config from degraded storage for guild ${guildId}`, {
                 traceId: context.traceId,
                 guildId,
             });
-            return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
         }
 
         const rawConfig = await client.db.get(getGuildConfigKey(guildId), null);
