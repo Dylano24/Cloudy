@@ -8,6 +8,100 @@ import { handleInteractionError, replyUserError, ErrorTypes } from '../../utils/
 
 import ticketConfig from './modules/ticket_dashboard.js';
 
+function hasCreateTicketButton(message) {
+    return message?.components?.some(row =>
+        row.components?.some(component => component.customId === 'create_ticket')
+    );
+}
+
+async function recoverExistingTicketPanel(interaction, client, guildConfig) {
+    const guild = interaction.guild;
+    if (!guild || !client?.user?.id) return guildConfig;
+
+    const textChannels = guild.channels.cache
+        .filter(channel =>
+            channel.type === ChannelType.GuildText &&
+            channel.isTextBased?.() &&
+            channel.messages?.fetch
+        )
+        .sort((a, b) => a.rawPosition - b.rawPosition);
+
+    let panelChannel = null;
+    let panelMessage = null;
+
+    for (const channel of textChannels.values()) {
+        const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+        if (!messages) continue;
+
+        const found = messages.find(message =>
+            message.author?.id === client.user.id && hasCreateTicketButton(message)
+        );
+
+        if (found) {
+            panelChannel = channel;
+            panelMessage = found;
+            break;
+        }
+    }
+
+    if (!panelChannel || !panelMessage) {
+        return guildConfig;
+    }
+
+    const panelButton = panelMessage.components
+        .flatMap(row => row.components || [])
+        .find(component => component.customId === 'create_ticket');
+
+    const categoryChannels = guild.channels.cache.filter(
+        channel => channel.type === ChannelType.GuildCategory
+    );
+
+    const openCategory = categoryChannels.find(channel =>
+        /support.*help|help.*support|open.*ticket|ticket.*open/i.test(channel.name)
+    );
+    const closedCategory = categoryChannels.find(channel =>
+        /closed.*ticket|ticket.*closed/i.test(channel.name)
+    ) || categoryChannels.find(channel => channel.name.trim().toLowerCase() === 'tickets');
+    const ownerRole = guild.roles.cache.find(role =>
+        role.name.trim().toLowerCase() === 'owner'
+    );
+    const logsChannel = guild.channels.cache.find(channel =>
+        channel.type === ChannelType.GuildText && /^(ticket|tickets)[-_ ]?logs$/i.test(channel.name)
+    );
+    const transcriptChannel = guild.channels.cache.find(channel =>
+        channel.type === ChannelType.GuildText && /^(ticket|tickets)[-_ ]?transcripts?$/i.test(channel.name)
+    );
+
+    const recoveredConfig = {
+        ...guildConfig,
+        ticketPanelChannelId: panelChannel.id,
+        ticketPanelMessageId: panelMessage.id,
+        ticketPanelMessage:
+            panelMessage.embeds?.[0]?.description ||
+            guildConfig.ticketPanelMessage ||
+            'Click the button below to create a support ticket.',
+        ticketButtonLabel:
+            panelButton?.label ||
+            guildConfig.ticketButtonLabel ||
+            'Create Ticket',
+        ticketCategoryId: guildConfig.ticketCategoryId || openCategory?.id || null,
+        ticketClosedCategoryId: guildConfig.ticketClosedCategoryId || closedCategory?.id || null,
+        ticketStaffRoleId: guildConfig.ticketStaffRoleId || ownerRole?.id || null,
+        ticketLogsChannelId: guildConfig.ticketLogsChannelId || logsChannel?.id || null,
+        ticketTranscriptChannelId: guildConfig.ticketTranscriptChannelId || transcriptChannel?.id || null,
+    };
+
+    await setGuildConfig(client, interaction.guildId, recoveredConfig);
+
+    logger.info('Recovered existing ticket panel into persistent guild configuration', {
+        guildId: interaction.guildId,
+        panelChannelId: panelChannel.id,
+        panelMessageId: panelMessage.id,
+    });
+
+    return recoveredConfig;
+}
+
 export default {
     data: new SlashCommandBuilder()
         .setName("ticket")
@@ -115,7 +209,11 @@ export default {
         const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === "dashboard") {
-            return ticketConfig.execute(interaction, config, client);
+            let existingConfig = await getGuildConfig(client, interaction.guildId);
+            if (!existingConfig?.ticketPanelChannelId) {
+                existingConfig = await recoverExistingTicketPanel(interaction, client, existingConfig);
+            }
+            return ticketConfig.execute(interaction, existingConfig, client);
         }
 
         if (subcommand === "setup") {
