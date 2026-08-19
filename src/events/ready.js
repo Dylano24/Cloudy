@@ -1,4 +1,5 @@
 import { Events } from "discord.js";
+import { readFile } from "node:fs/promises";
 import { logger, startupLog } from "../utils/logger.js";
 import config from "../config/application.js";
 import { reconcileReactionRoleMessages } from "../services/reactionRoleService.js";
@@ -27,14 +28,9 @@ export default {
         const savedAvatarVersion = await client.db.get('global:bot:profile:avatar-version');
 
         if (savedAvatarVersion !== avatarVersion) {
-          const avatarUrl =
-            'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@88424525c1db154e3aff67404e69cae480806b31/assets/cloudy-c-logo.png';
-          const avatarResponse = await fetch(avatarUrl, { signal: AbortSignal.timeout(15000) });
-          if (!avatarResponse.ok) {
-            throw new Error(`Avatar download failed (HTTP ${avatarResponse.status})`);
-          }
-
-          const avatarBuffer = Buffer.from(await avatarResponse.arrayBuffer());
+          const avatarBuffer = await readFile(
+            new URL('../../assets/cloudy-c-logo.png', import.meta.url)
+          );
           await client.user.setAvatar(avatarBuffer);
           await client.db.set('global:bot:profile:avatar-version', avatarVersion);
           startupLog('Cloudy C bot profile picture updated');
