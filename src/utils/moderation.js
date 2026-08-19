@@ -37,6 +37,9 @@ function buildModerationLogData(event) {
   if (event.action === 'Member Kicked' && event.executor) {
     lines.push(formatLogLine('Kicked by', event.executor));
   }
+  if (event.action === 'Member Timed Out' && event.executor) {
+    lines.push(formatLogLine('Timed-out by', event.executor));
+  }
   if (event.reason) {
     const reason = event.reason.length > 900
       ? `${event.reason.substring(0, 897)}...`
