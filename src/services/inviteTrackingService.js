@@ -79,6 +79,50 @@ export async function initializeInviteTracking(client) {
   logger.info(`Invite tracking initialized for ${inviteCache.size} guild(s)`);
 }
 
+let inviteMonitor = null;
+
+async function checkForNewInvites(client) {
+  for (const guild of client.guilds.cache.values()) {
+    const previous = inviteCache.get(guild.id);
+    if (!previous) {
+      await cacheGuildInvites(guild);
+      continue;
+    }
+
+    let invites;
+    try {
+      invites = await guild.invites.fetch();
+    } catch (error) {
+      logger.warn(`Could not poll invites for guild ${guild.id}: ${error.message}`);
+      continue;
+    }
+
+    for (const invite of invites.values()) {
+      if (!previous.has(invite.code)) {
+        await recordInviteCreated(invite);
+      }
+    }
+
+    inviteCache.set(
+      guild.id,
+      new Map(invites.map(invite => [invite.code, snapshotInvite(invite)])),
+    );
+  }
+}
+
+export async function startInviteTracking(client) {
+  await initializeInviteTracking(client);
+
+  if (inviteMonitor) return;
+
+  inviteMonitor = setInterval(() => {
+    void checkForNewInvites(client);
+  }, 10_000);
+  inviteMonitor.unref?.();
+
+  logger.info('Invite creation monitor started');
+}
+
 export async function recordInviteCreated(invite) {
   const guild = invite.guild;
   if (!guild) return;
