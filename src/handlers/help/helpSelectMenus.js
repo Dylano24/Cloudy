@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { Collection, ActionRowBuilder, MessageFlags } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { handleInteractionError } from '../../utils/errorHandler.js';
+import { isPlayerCommand } from '../../config/playerCommands.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -138,7 +139,7 @@ async function createCategoryCommandsMenu(category, client) {
             const command = commandModule.default;
             const commandData = normalizeCommandData(command);
 
-            if (commandData) {
+            if (commandData && isPlayerCommand(commandData.name)) {
                 if (
                     commandData.name === "help" ||
                     commandData.name === "commandlist"
@@ -267,7 +268,7 @@ export async function createAllCommandsMenu(page = 1, client) {
                 const command = commandModule.default;
                 const commandData = normalizeCommandData(command);
 
-                if (commandData) {
+                if (commandData && isPlayerCommand(commandData.name)) {
                     if (
                         commandData.name === "help" ||
                         commandData.name === "commandlist"
@@ -308,7 +309,7 @@ export async function createAllCommandsMenu(page = 1, client) {
 
     const embed = createEmbed({
         title: "📋 All Commands",
-        description: `Browse every available command in one list. Use the page buttons below to move through the full set.`
+        description: `Browse every command available to Cloudy players.`
     });
 
     embed.setFooter({ text: FOOTER_TEXT });
