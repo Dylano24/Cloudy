@@ -12,6 +12,7 @@ import {
 } from '../utils/logging/logEmbeds.js';
 
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
+const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
 
 const EVENT_TYPES = {
   MODERATION_BAN: 'moderation.ban',
@@ -186,13 +187,20 @@ export function isEventEnabled(config, eventType) {
 }
 
 function getLogChannelForEvent(config, eventType, overrideChannelId = null) {
+  if (eventType === EVENT_TYPES.MODERATION_KICK) {
+    return PERMANENT_KICK_LOG_CHANNEL_ID;
+  }
+
   if (overrideChannelId) {
-    return overrideChannelId;
+    return overrideChannelId === PERMANENT_KICK_LOG_CHANNEL_ID ? null : overrideChannelId;
   }
 
   const category = eventType?.split('.')[0];
   const destination = CATEGORY_DESTINATION[category] || 'audit';
-  return resolveLogChannel(config, destination);
+  const channelId = resolveLogChannel(config, destination);
+
+  // This channel is reserved exclusively for permanent kick logs.
+  return channelId === PERMANENT_KICK_LOG_CHANNEL_ID ? null : channelId;
 }
 
 export async function logEvent({
@@ -223,7 +231,10 @@ export async function logEvent({
       return null;
     }
 
-    if (!isEventEnabled(config, eventType)) {
+    if (
+      eventType !== EVENT_TYPES.MODERATION_KICK &&
+      !isEventEnabled(config, eventType)
+    ) {
       return null;
     }
 
