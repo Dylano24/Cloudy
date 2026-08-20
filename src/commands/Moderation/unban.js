@@ -34,16 +34,10 @@ export default {
 
         const choices = bans
             .filter(({ user }) => {
-                const searchable = [
-                    user.id,
-                    user.username,
-                    user.globalName,
-                    user.tag,
-                ]
+                const searchable = [user.id, user.username, user.globalName, user.tag]
                     .filter(Boolean)
                     .join(' ')
                     .toLowerCase();
-
                 return !focused || searchable.includes(focused);
             })
             .first(25)
@@ -60,7 +54,7 @@ export default {
             flags: MessageFlags.Ephemeral,
         });
         if (!deferSuccess) {
-            logger.warn(`Unban interaction defer failed`, {
+            logger.warn('Unban interaction defer failed', {
                 userId: interaction.user.id,
                 guildId: interaction.guildId,
                 commandName: 'unban',
@@ -87,10 +81,16 @@ export default {
 
         const reason = interaction.options.getString("reason") || "No reason provided";
         const suppressionKey = `${interaction.guildId}:${targetUser.id}`;
-        const suppressionExpiresAt = Date.now() + 15000;
+        const attribution = {
+            expiresAt: Date.now() + 15000,
+            moderatorId: interaction.user.id,
+            moderatorTag: interaction.user.tag,
+            moderatorMention: `<@${interaction.user.id}>`,
+            reason,
+        };
 
         client.commandUnbanLogSuppressions ??= new Map();
-        client.commandUnbanLogSuppressions.set(suppressionKey, suppressionExpiresAt);
+        client.commandUnbanLogSuppressions.set(suppressionKey, attribution);
 
         try {
             await ModerationService.unbanUser({
@@ -105,14 +105,12 @@ export default {
         }
 
         const cleanupTimer = setTimeout(() => {
-            if (client.commandUnbanLogSuppressions?.get(suppressionKey) === suppressionExpiresAt) {
+            if (client.commandUnbanLogSuppressions?.get(suppressionKey) === attribution) {
                 client.commandUnbanLogSuppressions.delete(suppressionKey);
             }
         }, 16000);
         cleanupTimer.unref?.();
 
-        // The public unban message is created by guildBanRemove.js.
-        // Remove the ephemeral slash-command response so only that single log remains visible.
         await interaction.deleteReply().catch(() => {});
     },
 };
