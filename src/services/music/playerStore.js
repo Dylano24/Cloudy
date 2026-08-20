@@ -1,4 +1,4 @@
-// Per-guild music session state (in-memory). Adapted from Musicify playerStore (Apache-2.0).
+// Per-guild music session state.
 
 export class GuildMusicData {
     constructor() {
@@ -15,6 +15,17 @@ export class GuildMusicData {
         this.idleTimeout = null;
         this.autoPaused = false;
         this.stopConfirmPending = null;
+
+        // Jockie-style session controls. Defaults preserve Cloudy's historic
+        // behaviour: everyone in the same voice channel may control playback.
+        this.sessionOwnerId = null;
+        this.sessionLocked = false;
+        this.permissionMode = 'open'; // open | owner | dj
+        this.djRoleIds = new Set();
+        this.allowedUsers = new Set();
+        this.deniedUsers = new Set();
+        this.policyHydrated = false;
+        this.activeFilter = 'off';
     }
 }
 
