@@ -14,7 +14,7 @@ const PLAYER_COMMAND_NAMES = [
   'pay',
   'rob',
   'shop',
-  'slut',
+  'doriane bitch',
   'withdraw',
   'work',
   'count',
