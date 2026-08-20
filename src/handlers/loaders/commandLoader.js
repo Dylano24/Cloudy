@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 const COMMAND_COUNT_WARN_THRESHOLD = 90;
+const READY_TIMEOUT_MS = 30000;
 const CRITICAL_COMMANDS = new Set([
     'help',
     'ban',
@@ -41,9 +42,8 @@ async function getAllFiles(directory, fileList = []) {
     for (const file of files) {
         const filePath = path.join(directory, file.name);
         if (file.isDirectory()) {
-            // Keep the restored 100-command production set stable for now.
-            // Leveling is loaded separately and must not push this direct guild
-            // registration above Discord's 100 top-level command limit.
+            // Keep the restored production set under Discord's 100-command guild limit.
+            // Leveling can be folded back in later after the base command registry is stable.
             if (file.name === 'modules' || file.name === 'Leveling') continue;
             await getAllFiles(filePath, fileList);
         } else if (file.name.endsWith('.js')) {
@@ -171,6 +171,36 @@ function verifyReturnedCommands(expected, returned, scope) {
     }
 }
 
+async function waitForDiscordReady(client) {
+    if (client?.isReady?.()) return;
+
+    logger.info('[COMMAND_SYNC] Discord login completed but READY has not fired yet; waiting before slash registration.');
+
+    await new Promise((resolve, reject) => {
+        let settled = false;
+
+        const finish = (callback) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            client.off('ready', onReady);
+            callback();
+        };
+
+        const onReady = () => finish(resolve);
+        const timeout = setTimeout(() => {
+            finish(() => reject(new Error(`Discord did not become READY within ${READY_TIMEOUT_MS / 1000}s`)));
+        }, READY_TIMEOUT_MS);
+
+        client.once('ready', onReady);
+
+        // Close the tiny race where READY fired between the initial check and listener setup.
+        if (client.isReady()) finish(resolve);
+    });
+
+    logger.info(`[COMMAND_SYNC] Discord READY confirmed as ${client.user?.tag || client.user?.id}.`);
+}
+
 async function registerIndividually(client, route, commands, scopeLabel) {
     await client.rest.put(route, { body: [] });
 
@@ -225,8 +255,14 @@ async function registerOneGuild(client, guild, commands) {
 
 export async function registerCommands(client) {
     try {
-        if (!client?.rest || !client?.user?.id || !client.isReady()) {
-            throw new Error('Discord client is not READY for command registration');
+        if (!client?.rest) {
+            throw new Error('Discord REST client is unavailable for command registration');
+        }
+
+        await waitForDiscordReady(client);
+
+        if (!client.user?.id) {
+            throw new Error('Authenticated Discord application ID is unavailable after READY');
         }
 
         const commands = collectCommandPayloads(client);
@@ -245,9 +281,7 @@ export async function registerCommands(client) {
             `[COMMAND_SYNC] Hard reset: app=${client.user.id}, commands=${commands.length}, joinedGuilds=${guilds.length}`,
         );
 
-        // Remove every stale global command left behind by old tokens/client IDs.
-        // All production commands are registered immediately in the guild(s) the
-        // authenticated Cloudy bot is actually connected to.
+        // Remove every stale global command left behind by old registration attempts.
         await client.rest.put(`/applications/${client.user.id}/commands`, { body: [] });
         logger.info('[COMMAND_SYNC] Cleared stale global Cloudy commands.');
 
@@ -266,7 +300,7 @@ export async function registerCommands(client) {
 
         logger.info(
             `[COMMAND_SYNC] COMPLETE: ${commands.length} commands registered in ${summaries.length} joined guild(s). ` +
-            'No GUILD_ID lookup and no global propagation delay.',
+            'Guild registration is immediate; no global propagation delay.',
         );
         return client.commandRegistrationSummary;
     } catch (error) {
