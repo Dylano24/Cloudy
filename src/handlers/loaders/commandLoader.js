@@ -16,12 +16,12 @@ function getSubcommandInfo(commandData) {
     
     if (commandData.options) {
         for (const option of commandData.options) {
-if (option.type === 1) {
+            if (option.type === 1) {
                 subcommands.push(option.name);
-} else if (option.type === 2) {
+            } else if (option.type === 2) {
                 if (option.options) {
                     for (const subOption of option.options) {
-if (subOption.type === 1) {
+                        if (subOption.type === 1) {
                             subcommands.push(`${option.name}/${subOption.name}`);
                         }
                     }
@@ -65,7 +65,6 @@ export async function loadCommands(client) {
         try {
             const normalizedPath = filePath.replace(/\\/g, '/');
             
-            const commandName = path.basename(filePath, '.js');
             const commandDir = path.dirname(filePath);
             const category = path.basename(commandDir);
             
@@ -85,18 +84,15 @@ export async function loadCommands(client) {
             
             if (!uniqueCommandNames.has(primaryCommandName)) {
                 uniqueCommandNames.add(primaryCommandName);
-                
                 client.commands.set(primaryCommandName, command);
             }
             
             const subcommands = getSubcommandInfo(command.data.toJSON());
-            
             logger.info(`Loaded command: ${primaryCommandName} from ${normalizedPath} (category: ${category})`);
             
             if (subcommands.length > 0) {
                 logger.info(`  - Subcommands: ${subcommands.join(', ')}`);
             }
-            
         } catch (error) {
             logger.error(`Error loading command from ${filePath}:`, error);
         }
@@ -112,13 +108,13 @@ export async function loadCommands(client) {
     }, 0);
     
     const uniqueCommands = new Set();
-    for (const [name, command] of client.commands.entries()) {
+    for (const [, command] of client.commands.entries()) {
         if (command.data && command.data.name) {
             uniqueCommands.add(command.data.name);
         }
     }
     
-    logger.info(`Loaded ${uniqueCommands.size} commands`);
+    logger.info(`Loaded ${uniqueCommands.size} commands (${totalSubcommands} subcommands)`);
     return client.commands;
 }
 
@@ -185,7 +181,7 @@ function validateCommands(commands) {
                     if (choice.name && choice.name.length > 110) {
                         validationErrors.push(`Command ${cmd.name} option ${option.name} choice ${choice.name} has name longer than 110 chars: "${choice.name}" (${choice.name.length} chars)`);
                     }
-                    if (choice.value && choice.value.length > 100) {
+                    if (choice.value && typeof choice.value === 'string' && choice.value.length > 100) {
                         validationErrors.push(`Command ${cmd.name} option ${option.name} choice ${choice.name} has value longer than 100 chars: "${choice.value}" (${choice.value.length} chars)`);
                     }
                 }
@@ -211,7 +207,7 @@ function validateCommands(commands) {
                     if (choice.name && choice.name.length > 110) {
                         validationErrors.push(`Command ${cmd.name} subcommand ${option.name} option ${subOption.name} choice ${choice.name} has name longer than 110 chars: "${choice.name}" (${choice.name.length} chars)`);
                     }
-                    if (choice.value && choice.value.length > 100) {
+                    if (choice.value && typeof choice.value === 'string' && choice.value.length > 100) {
                         validationErrors.push(`Command ${cmd.name} subcommand ${option.name} option ${subOption.name} choice ${choice.name} has value longer than 100 chars: "${choice.value}" (${choice.value.length} chars)`);
                     }
                 }
@@ -239,6 +235,22 @@ function prepareCommandsForRegistration(commands) {
     const truncated = commands.slice(0, MAX_COMMANDS);
     logger.info(`Truncated to ${truncated.length} commands for registration`);
     return truncated;
+}
+
+async function registerGuildCommands(client, clientId, guildId, commands) {
+    if (!clientId || !guildId || !client.rest) {
+        return;
+    }
+
+    const commandsToRegister = prepareCommandsForRegistration(commands);
+    logger.info(`Registering ${commandsToRegister.length} commands immediately in guild ${guildId}...`);
+
+    await client.rest.put(
+        `/applications/${clientId}/guilds/${guildId}/commands`,
+        { body: commandsToRegister }
+    );
+
+    logger.info(`Successfully registered ${commandsToRegister.length} guild commands`);
 }
 
 async function registerGlobalCommands(client, clientId, commands, totalSubcommands) {
@@ -274,23 +286,16 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
         await client.rest.delete(
             `/applications/${clientId}/commands/${staleCommand.id}`
         );
-        logger.info(
-            `Deleted stale global /wipedata command ${staleCommand.id}`
-        );
+        logger.info(`Deleted stale global /wipedata command ${staleCommand.id}`);
     }
 
     await client.rest.put(
         `/applications/${clientId}/commands`,
         { body: commandsToRegister }
     );
-    logger.info(
-        `Successfully registered ${commandsToRegister.length} global commands`
-    );
+    logger.info(`Successfully registered ${commandsToRegister.length} global commands`);
 
-    const cloudyGuildId =
-        process.env.BOTPROFILE_GUILD_ID ||
-        process.env.GUILD_ID ||
-        '1532882647838228723';
+    const cloudyGuildId = process.env.BOTPROFILE_GUILD_ID || process.env.GUILD_ID;
 
     if (cloudyGuildId) {
         const guildCommands = await client.rest.get(
@@ -303,26 +308,11 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
             await client.rest.delete(
                 `/applications/${clientId}/guilds/${cloudyGuildId}/commands/${staleCommand.id}`
             );
-            logger.info(
-                `Deleted stale guild /wipedata command ${staleCommand.id}`
-            );
-        }
-
-        const duplicateGuildBotProfiles = guildCommands.filter(
-            (command) => command.name === 'botprofile'
-        );
-
-        for (const duplicateCommand of duplicateGuildBotProfiles) {
-            await client.rest.delete(
-                `/applications/${clientId}/guilds/${cloudyGuildId}/commands/${duplicateCommand.id}`
-            );
-            logger.info(
-                `Deleted duplicate guild /botprofile command ${duplicateCommand.id}`
-            );
+            logger.info(`Deleted stale guild /wipedata command ${staleCommand.id}`);
         }
     }
 
-    logger.info('Global commands may take up to an hour to appear in all servers on first deploy');
+    logger.info('Global commands registered successfully');
 }
 
 export async function registerCommands(client, options = {}) {
@@ -330,7 +320,21 @@ export async function registerCommands(client, options = {}) {
 
     try {
         const { commands, totalSubcommands } = collectCommandPayloads(client);
-        await registerGlobalCommands(client, clientId, commands, totalSubcommands);
+        validateCommands(commands);
+
+        // Always prefer the authenticated bot identity. This prevents an old
+        // Railway CLIENT_ID from registering commands on the wrong application.
+        const resolvedClientId = client.user?.id || clientId;
+        if (!resolvedClientId) {
+            throw new Error('Could not resolve authenticated Discord application ID');
+        }
+
+        const guildId = process.env.GUILD_ID || process.env.BOTPROFILE_GUILD_ID;
+        if (guildId) {
+            await registerGuildCommands(client, resolvedClientId, guildId, commands);
+        }
+
+        await registerGlobalCommands(client, resolvedClientId, commands, totalSubcommands);
     } catch (error) {
         logger.error('Error registering commands:', error);
         throw error;
@@ -350,9 +354,7 @@ export async function reloadCommand(client, commandName) {
         moduleUrl.searchParams.set('t', Date.now().toString());
 
         const newCommand = (await import(moduleUrl.href)).default;
-        
         client.commands.set(commandName, newCommand);
-        
         logger.info(`Reloaded command: ${commandName}`);
         return { success: true, message: `Successfully reloaded command "${commandName}"` };
     } catch (error) {
