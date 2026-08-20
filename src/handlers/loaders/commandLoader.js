@@ -3,43 +3,67 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
-import botConfig from '../../config/bot.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const MAX_COMMANDS = 100;
-const COMMAND_COUNT_WARN_THRESHOLD = 90;
+const MAX_COMMANDS_PER_SCOPE = 100;
+
+// Keep the commands the Cloudy server relies on most in the guild scope so
+// they update immediately and never disappear behind Discord's global cache.
+// This changes registration only; the command implementations remain exactly
+// the restored 06:00 versions.
+const GUILD_PRIORITY_COMMANDS = new Set([
+    'help',
+    'ban',
+    'unban',
+    'kick',
+    'timeout',
+    'untimeout',
+    'warn',
+    'massban',
+    'masskick',
+    'purge',
+    'lock',
+    'unlock',
+    'cases',
+    'usernotes',
+    'ticket',
+    'claim',
+    'close',
+    'priority',
+    'report',
+    'reports',
+]);
 
 function getSubcommandInfo(commandData) {
     const subcommands = [];
-    
+
     if (commandData.options) {
         for (const option of commandData.options) {
-if (option.type === 1) {
+            if (option.type === 1) {
                 subcommands.push(option.name);
-} else if (option.type === 2) {
-                if (option.options) {
-                    for (const subOption of option.options) {
-if (subOption.type === 1) {
-                            subcommands.push(`${option.name}/${subOption.name}`);
-                        }
+            } else if (option.type === 2 && option.options) {
+                for (const subOption of option.options) {
+                    if (subOption.type === 1) {
+                        subcommands.push(`${option.name}/${subOption.name}`);
                     }
                 }
             }
         }
     }
-    
+
     return subcommands;
 }
 
 async function getAllFiles(directory, fileList = []) {
     const files = await fs.readdir(directory, { withFileTypes: true });
-    
+
     for (const file of files) {
         const filePath = path.join(directory, file.name);
-        
+
         if (file.isDirectory()) {
+            // Preserve the exact 06:00 loader behavior.
             if (file.name === 'modules' || file.name === 'Leveling') {
                 continue;
             }
@@ -48,7 +72,7 @@ async function getAllFiles(directory, fileList = []) {
             fileList.push(filePath);
         }
     }
-    
+
     return fileList;
 }
 
@@ -56,281 +80,230 @@ export async function loadCommands(client) {
     client.commands = new Collection();
     const commandsPath = path.join(__dirname, '../../commands');
     const commandFiles = await getAllFiles(commandsPath);
-    
+
     logger.info(`Found ${commandFiles.length} command files to load`);
-    
+
     const uniqueCommandNames = new Set();
-    
+
     for (const filePath of commandFiles) {
         try {
             const normalizedPath = filePath.replace(/\\/g, '/');
-            
-            const commandName = path.basename(filePath, '.js');
             const commandDir = path.dirname(filePath);
             const category = path.basename(commandDir);
-            
             const commandModule = await import(`file://${filePath}`);
             const command = commandModule.default || commandModule;
-            
+
             if (!command.data || !command.execute) {
                 logger.warn(`Command at ${filePath} is missing required "data" or "execute" property.`);
                 continue;
             }
-            
+
             command.category = category;
             command.filePath = normalizedPath;
-            
+
             const primaryCommandName = command.data.name;
             command.adminOnly = !isPlayerCommand(primaryCommandName);
-            
+
             if (!uniqueCommandNames.has(primaryCommandName)) {
                 uniqueCommandNames.add(primaryCommandName);
-                
                 client.commands.set(primaryCommandName, command);
             }
-            
+
             const subcommands = getSubcommandInfo(command.data.toJSON());
-            
             logger.info(`Loaded command: ${primaryCommandName} from ${normalizedPath} (category: ${category})`);
-            
             if (subcommands.length > 0) {
                 logger.info(`  - Subcommands: ${subcommands.join(', ')}`);
             }
-            
         } catch (error) {
             logger.error(`Error loading command from ${filePath}:`, error);
         }
     }
-    
-    const commandsWithSubcommands = Array.from(client.commands.values()).filter(cmd => {
-        const subcommands = getSubcommandInfo(cmd.data.toJSON());
-        return subcommands.length > 0;
-    });
-    
-    const totalSubcommands = commandsWithSubcommands.reduce((total, cmd) => {
-        return total + getSubcommandInfo(cmd.data.toJSON()).length;
-    }, 0);
-    
-    const uniqueCommands = new Set();
-    for (const [name, command] of client.commands.entries()) {
-        if (command.data && command.data.name) {
-            uniqueCommands.add(command.data.name);
-        }
-    }
-    
-    logger.info(`Loaded ${uniqueCommands.size} commands`);
+
+    logger.info(`Loaded ${client.commands.size} commands`);
     return client.commands;
 }
 
-function collectCommandPayloads(client) {
-    const commands = [];
-    let totalSubcommands = 0;
+function collectCommandEntries(client) {
+    const entries = [];
     const registeredNames = new Set();
 
     for (const command of client.commands.values()) {
         if (!command.data || typeof command.data.toJSON !== 'function') {
-            logger.warn(`Command missing data or toJSON method: ${command}`);
+            logger.warn('Command missing data or toJSON method');
             continue;
         }
 
-        const commandName = command.data.name;
-        logger.debug(`Processing command for registration: ${commandName}`);
-
-        if (registeredNames.has(commandName)) {
-            logger.debug(`Skipping duplicate command: ${commandName}`);
+        const name = command.data.name;
+        if (registeredNames.has(name)) {
+            logger.warn(`Skipping duplicate command during registration: /${name}`);
             continue;
         }
+        registeredNames.add(name);
 
-        registeredNames.add(commandName);
-        const commandJson = command.data.toJSON();
-        if (command.adminOnly && !commandJson.default_member_permissions) {
-            commandJson.default_member_permissions = '8';
+        const payload = command.data.toJSON();
+        // Preserve the old 06:00 permission behavior.
+        if (command.adminOnly && !payload.default_member_permissions) {
+            payload.default_member_permissions = '8';
         }
-        commands.push(commandJson);
-        totalSubcommands += getSubcommandInfo(commandJson).length;
 
-        if (process.env.NODE_ENV !== 'production') {
-            logger.debug(`Registering command: ${commandName}`);
-        }
+        entries.push({
+            name,
+            payload,
+            adminOnly: Boolean(command.adminOnly),
+            category: command.category || 'Unknown',
+        });
     }
 
-    return { commands, totalSubcommands };
+    return entries;
 }
 
-function validateCommands(commands) {
-    const validationErrors = [];
+function validatePayloads(payloads, scopeName) {
+    const errors = [];
 
-    for (const cmd of commands) {
-        if (cmd.name && cmd.name.length > 32) {
-            validationErrors.push(`Command ${cmd.name} has name longer than 32 chars: "${cmd.name}" (${cmd.name.length} chars)`);
-        }
-        if (cmd.description && cmd.description.length > 110) {
-            validationErrors.push(`Command ${cmd.name} has description longer than 110 chars: "${cmd.description}" (${cmd.description.length} chars)`);
-        }
+    if (payloads.length > MAX_COMMANDS_PER_SCOPE) {
+        errors.push(`${scopeName} has ${payloads.length} top-level commands; Discord allows ${MAX_COMMANDS_PER_SCOPE}`);
+    }
 
-        if (!cmd.options) {
-            continue;
-        }
+    for (const cmd of payloads) {
+        if (cmd.name?.length > 32) errors.push(`/${cmd.name} name is longer than 32 characters`);
+        if (cmd.description?.length > 100) errors.push(`/${cmd.name} description is longer than 100 characters`);
 
-        for (const option of cmd.options) {
-            if (option.name && option.name.length > 32) {
-                validationErrors.push(`Command ${cmd.name} option ${option.name} has name longer than 32 chars: "${option.name}" (${option.name.length} chars)`);
-            }
-            if (option.description && option.description.length > 110) {
-                validationErrors.push(`Command ${cmd.name} option ${option.name} has description longer than 110 chars: "${option.description}" (${option.description.length} chars)`);
-            }
+        for (const option of cmd.options || []) {
+            if (option.name?.length > 32) errors.push(`/${cmd.name} option ${option.name} is longer than 32 characters`);
+            if (option.description?.length > 100) errors.push(`/${cmd.name} option ${option.name} description is longer than 100 characters`);
 
-            if (option.choices) {
-                for (const choice of option.choices) {
-                    if (choice.name && choice.name.length > 110) {
-                        validationErrors.push(`Command ${cmd.name} option ${option.name} choice ${choice.name} has name longer than 110 chars: "${choice.name}" (${choice.name.length} chars)`);
-                    }
-                    if (choice.value && choice.value.length > 100) {
-                        validationErrors.push(`Command ${cmd.name} option ${option.name} choice ${choice.name} has value longer than 100 chars: "${choice.value}" (${choice.value.length} chars)`);
-                    }
-                }
-            }
-
-            if (!option.options) {
-                continue;
-            }
-
-            for (const subOption of option.options) {
-                if (subOption.name && subOption.name.length > 32) {
-                    validationErrors.push(`Command ${cmd.name} subcommand ${option.name} option ${subOption.name} has name longer than 32 chars: "${subOption.name}" (${subOption.name.length} chars)`);
-                }
-                if (subOption.description && subOption.description.length > 110) {
-                    validationErrors.push(`Command ${cmd.name} subcommand ${option.name} option ${subOption.name} has description longer than 110 chars: "${subOption.description}" (${subOption.description.length} chars)`);
-                }
-
-                if (!subOption.choices) {
-                    continue;
-                }
-
-                for (const choice of subOption.choices) {
-                    if (choice.name && choice.name.length > 110) {
-                        validationErrors.push(`Command ${cmd.name} subcommand ${option.name} option ${subOption.name} choice ${choice.name} has name longer than 110 chars: "${choice.name}" (${choice.name.length} chars)`);
-                    }
-                    if (choice.value && choice.value.length > 100) {
-                        validationErrors.push(`Command ${cmd.name} subcommand ${option.name} option ${subOption.name} choice ${choice.name} has value longer than 100 chars: "${choice.value}" (${choice.value.length} chars)`);
-                    }
-                }
+            for (const subOption of option.options || []) {
+                if (subOption.name?.length > 32) errors.push(`/${cmd.name} nested option ${subOption.name} is longer than 32 characters`);
+                if (subOption.description?.length > 100) errors.push(`/${cmd.name} nested option ${subOption.name} description is longer than 100 characters`);
             }
         }
     }
 
-    if (validationErrors.length > 0) {
-        logger.error('Command validation failed. Errors:');
-        validationErrors.forEach((error) => logger.error(`  - ${error}`));
-        throw new Error(`Command validation failed with ${validationErrors.length} errors`);
+    if (errors.length > 0) {
+        errors.forEach((error) => logger.error(`[COMMAND_VALIDATION] ${error}`));
+        throw new Error(`Command validation failed for ${scopeName} with ${errors.length} error(s)`);
     }
 }
 
-function prepareCommandsForRegistration(commands) {
-    if (commands.length >= COMMAND_COUNT_WARN_THRESHOLD) {
-        logger.warn(`Command count (${commands.length}) is near Discord's ${MAX_COMMANDS} global command limit`);
-    }
-
-    if (commands.length <= MAX_COMMANDS) {
-        return commands;
-    }
-
-    logger.warn(`Command count (${commands.length}) exceeds Discord limit (${MAX_COMMANDS}), truncating...`);
-    const truncated = commands.slice(0, MAX_COMMANDS);
-    logger.info(`Truncated to ${truncated.length} commands for registration`);
-    return truncated;
-}
-
-async function registerGlobalCommands(client, clientId, commands, totalSubcommands) {
-    if (!clientId) {
-        throw new Error('CLIENT_ID is required for slash command registration');
-    }
-
-    if (!client.rest) {
-        throw new Error('Discord REST client is not available for slash command registration');
-    }
-
-    logger.info(`Preparing to register ${totalSubcommands + commands.length} commands globally`);
-    logger.info('Validating commands before registration...');
-    validateCommands(commands);
-    logger.info('Command validation passed');
-
-    const commandsToRegister = prepareCommandsForRegistration(commands);
-
-    if (botConfig.commands?.deleteCommands) {
-        logger.info('Clearing existing global commands before registration...');
-        await client.rest.put(`/applications/${clientId}/commands`, { body: [] });
-    }
-
-    logger.info(`Registering ${commandsToRegister.length} global commands...`);
-
-    const existingGlobalCommands = await client.rest.get(
-        `/applications/${clientId}/commands`
-    );
-    const staleWipeDataCommands = existingGlobalCommands.filter(
-        (command) => command.name === 'wipedata'
-    );
-    for (const staleCommand of staleWipeDataCommands) {
-        await client.rest.delete(
-            `/applications/${clientId}/commands/${staleCommand.id}`
-        );
-        logger.info(
-            `Deleted stale global /wipedata command ${staleCommand.id}`
+function partitionCommands(entries) {
+    if (entries.length > MAX_COMMANDS_PER_SCOPE * 2) {
+        throw new Error(
+            `Cloudy has ${entries.length} unique top-level commands. ` +
+            `The combined global + guild capacity is ${MAX_COMMANDS_PER_SCOPE * 2}.`
         );
     }
 
-    await client.rest.put(
-        `/applications/${clientId}/commands`,
-        { body: commandsToRegister }
-    );
+    const guildEntries = [];
+    const globalEntries = [];
+    const assigned = new Set();
+
+    const addGuild = (entry) => {
+        if (assigned.has(entry.name) || guildEntries.length >= MAX_COMMANDS_PER_SCOPE) return false;
+        guildEntries.push(entry);
+        assigned.add(entry.name);
+        return true;
+    };
+
+    const addGlobal = (entry) => {
+        if (assigned.has(entry.name) || globalEntries.length >= MAX_COMMANDS_PER_SCOPE) return false;
+        globalEntries.push(entry);
+        assigned.add(entry.name);
+        return true;
+    };
+
+    // 1. Critical legacy Cloudy commands are always guild-scoped and immediate.
+    for (const entry of entries) {
+        if (GUILD_PRIORITY_COMMANDS.has(entry.name)) addGuild(entry);
+    }
+
+    // 2. Keep the rest of the administration suite in the guild when possible.
+    for (const entry of entries) {
+        if (entry.adminOnly) addGuild(entry);
+    }
+
+    // 3. Member commands prefer global scope.
+    for (const entry of entries) {
+        if (!entry.adminOnly) addGlobal(entry);
+    }
+
+    // 4. If either preferred scope filled up, place remaining unique commands
+    //    into whichever scope still has capacity. Nothing is silently dropped.
+    for (const entry of entries) {
+        if (assigned.has(entry.name)) continue;
+        if (!addGlobal(entry) && !addGuild(entry)) {
+            throw new Error(`No Discord command capacity left for /${entry.name}`);
+        }
+    }
+
+    if (assigned.size !== entries.length) {
+        throw new Error(`Registration partition lost commands: expected ${entries.length}, assigned ${assigned.size}`);
+    }
+
+    return { guildEntries, globalEntries };
+}
+
+async function registerCommandScopes(client, clientId, guildId, entries) {
+    if (!clientId) throw new Error('CLIENT_ID is required for slash command registration');
+    if (!guildId) throw new Error('GUILD_ID is required for Cloudy guild command registration');
+    if (!client.rest) throw new Error('Discord REST client is not available for slash command registration');
+
+    const { guildEntries, globalEntries } = partitionCommands(entries);
+    const guildPayloads = guildEntries.map((entry) => entry.payload);
+    const globalPayloads = globalEntries.map((entry) => entry.payload);
+
+    validatePayloads(guildPayloads, 'Cloudy guild scope');
+    validatePayloads(globalPayloads, 'global scope');
+
     logger.info(
-        `Successfully registered ${commandsToRegister.length} global commands`
+        `[COMMAND_REGISTRATION] total=${entries.length} guild=${guildPayloads.length} global=${globalPayloads.length}`
     );
 
-    const cloudyGuildId =
-        process.env.BOTPROFILE_GUILD_ID ||
-        process.env.GUILD_ID ||
-        '1532882647838228723';
+    // PUT replaces the complete command list for each scope, so old/stale copies
+    // are removed rather than accumulating duplicate /help or moderation entries.
+    const guildResult = await client.rest.put(
+        `/applications/${clientId}/guilds/${guildId}/commands`,
+        { body: guildPayloads }
+    );
 
-    if (cloudyGuildId) {
-        const guildCommands = await client.rest.get(
-            `/applications/${clientId}/guilds/${cloudyGuildId}/commands`
-        );
-        const staleGuildWipeDataCommands = guildCommands.filter(
-            (command) => command.name === 'wipedata'
-        );
-        for (const staleCommand of staleGuildWipeDataCommands) {
-            await client.rest.delete(
-                `/applications/${clientId}/guilds/${cloudyGuildId}/commands/${staleCommand.id}`
-            );
-            logger.info(
-                `Deleted stale guild /wipedata command ${staleCommand.id}`
-            );
-        }
+    const globalResult = await client.rest.put(
+        `/applications/${clientId}/commands`,
+        { body: globalPayloads }
+    );
 
-        const duplicateGuildBotProfiles = guildCommands.filter(
-            (command) => command.name === 'botprofile'
-        );
+    const guildNames = new Set(guildResult.map((command) => command.name));
+    const globalNames = new Set(globalResult.map((command) => command.name));
 
-        for (const duplicateCommand of duplicateGuildBotProfiles) {
-            await client.rest.delete(
-                `/applications/${clientId}/guilds/${cloudyGuildId}/commands/${duplicateCommand.id}`
-            );
-            logger.info(
-                `Deleted duplicate guild /botprofile command ${duplicateCommand.id}`
-            );
+    for (const entry of entries) {
+        if (!guildNames.has(entry.name) && !globalNames.has(entry.name)) {
+            throw new Error(`Discord did not return registered command /${entry.name}`);
         }
     }
 
-    logger.info('Global commands may take up to an hour to appear in all servers on first deploy');
+    const requiredImmediate = ['help', 'ban', 'unban', 'kick', 'timeout', 'untimeout', 'ticket'];
+    const missingImmediate = requiredImmediate.filter((name) =>
+        entries.some((entry) => entry.name === name) && !guildNames.has(name)
+    );
+
+    if (missingImmediate.length > 0) {
+        throw new Error(`Critical Cloudy guild commands missing after sync: ${missingImmediate.join(', ')}`);
+    }
+
+    logger.info(
+        `Cloudy command sync complete: ${guildResult.length} immediate guild commands + ` +
+        `${globalResult.length} global commands; no command was truncated.`
+    );
 }
 
 export async function registerCommands(client, options = {}) {
-    const { clientId = null } = options;
+    const clientId = options.clientId || client.user?.id || null;
+    const guildId =
+        process.env.GUILD_ID ||
+        process.env.BOTPROFILE_GUILD_ID ||
+        '1532882647838228723';
 
     try {
-        const { commands, totalSubcommands } = collectCommandPayloads(client);
-        await registerGlobalCommands(client, clientId, commands, totalSubcommands);
+        const entries = collectCommandEntries(client);
+        await registerCommandScopes(client, clientId, guildId, entries);
     } catch (error) {
         logger.error('Error registering commands:', error);
         throw error;
@@ -339,20 +312,19 @@ export async function registerCommands(client, options = {}) {
 
 export async function reloadCommand(client, commandName) {
     const command = client.commands.get(commandName);
-    
+
     if (!command) {
         return { success: false, message: `Command "${commandName}" not found` };
     }
-    
+
     try {
         const commandPath = path.resolve(command.filePath);
         const moduleUrl = pathToFileURL(commandPath);
         moduleUrl.searchParams.set('t', Date.now().toString());
 
         const newCommand = (await import(moduleUrl.href)).default;
-        
         client.commands.set(commandName, newCommand);
-        
+
         logger.info(`Reloaded command: ${commandName}`);
         return { success: true, message: `Successfully reloaded command "${commandName}"` };
     } catch (error) {
