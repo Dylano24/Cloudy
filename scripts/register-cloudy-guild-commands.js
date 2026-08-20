@@ -15,8 +15,8 @@ const configuredClientId = String(
 const CRITICAL = ['help', 'ban', 'unban', 'kick', 'timeout', 'untimeout', 'warn', 'ticket'];
 const API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 20000;
-const MAX_SHORT_RATE_LIMIT_SECONDS = 60;
-const MAX_SYNC_ATTEMPTS = 2;
+const MAX_RATE_LIMIT_SECONDS = 3600;
+const MAX_SYNC_ATTEMPTS = 4;
 
 if (!token) {
   console.error('[PRESTART_COMMANDS] DISCORD_TOKEN is missing.');
@@ -80,8 +80,6 @@ async function loadPayloads() {
     if (!payload?.name || seen.has(payload.name)) continue;
     seen.add(payload.name);
 
-    // Keep command-specific permissions such as BanMembers/ModerateMembers.
-    // Only commands without their own Discord permission get Administrator.
     if (!isPlayerCommand(payload.name) && !payload.default_member_permissions) {
       payload.default_member_permissions = '8';
     }
@@ -111,7 +109,7 @@ async function syncCommands(applicationId, payloads) {
       });
     } catch (error) {
       if (error?.name === 'AbortError') {
-        console.error(`[PRESTART_COMMANDS] Discord command sync timed out after ${REQUEST_TIMEOUT_MS}ms. Bot startup will continue.`);
+        console.error(`[PRESTART_COMMANDS] Discord command sync timed out after ${REQUEST_TIMEOUT_MS}ms.`);
         return null;
       }
       throw error;
@@ -120,17 +118,19 @@ async function syncCommands(applicationId, payloads) {
     if (result.response.status !== 429) return result;
 
     const retryAfter = parseRetryAfter(result);
-    if (retryAfter == null || retryAfter > MAX_SHORT_RATE_LIMIT_SECONDS || attempt === MAX_SYNC_ATTEMPTS) {
+    if (retryAfter == null || retryAfter > MAX_RATE_LIMIT_SECONDS || attempt === MAX_SYNC_ATTEMPTS) {
       console.error(
         `[PRESTART_COMMANDS] RATE_LIMITED by Discord. retry_after=${retryAfter ?? 'unknown'}. ` +
-        'Bot startup will continue; command sync was not completed.'
+        'Automatic retry stopped; no commands were deleted.'
       );
       return null;
     }
 
-    const waitMs = Math.ceil((retryAfter + 1) * 1000);
+    const waitMs = Math.ceil((retryAfter + 1.5) * 1000);
     console.warn(
-      `[PRESTART_COMMANDS] Discord asked us to retry after ${retryAfter}s. Waiting ${Math.ceil(waitMs / 1000)}s, then retrying once automatically.`
+      `[PRESTART_COMMANDS] RATE_LIMITED: retry_after=${retryAfter}s. ` +
+      `Cloudy stays online; background command sync will retry automatically in ${Math.ceil(waitMs / 1000)}s ` +
+      `(attempt ${attempt + 1}/${MAX_SYNC_ATTEMPTS}).`
     );
     await sleep(waitMs);
   }
@@ -157,8 +157,6 @@ async function main() {
   const missingFiles = criticalMissing(payloads);
   if (missingFiles.length) throw new Error(`Critical command files missing: ${missingFiles.join(', ')}`);
 
-  // Never clear commands first. A direct bulk overwrite updates existing names and
-  // avoids needlessly consuming command-create quota.
   const existingResult = await discordFetch(`/applications/${applicationId}/commands`);
   if (!existingResult.response.ok) {
     throw new Error(`Cannot read existing global commands (${existingResult.response.status}): ${JSON.stringify(existingResult.body)}`);
@@ -191,5 +189,5 @@ async function main() {
 
 main().catch((error) => {
   console.error('[PRESTART_COMMANDS] FATAL:', error);
-  process.exit(1);
+  process.exitCode = 1;
 });
