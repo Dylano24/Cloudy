@@ -10,6 +10,16 @@ const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 const COMMAND_COUNT_WARN_THRESHOLD = 90;
 
+// These legacy top-level commands still exist as implementation files, but their
+// full functionality now lives under /music. Keeping the files lets old code be
+// reused while saving Discord slash-command slots for the rest of Cloudy.
+const GROUPED_TOP_LEVEL_COMMANDS = new Set([
+    'play',
+    'queue',
+    'nowplaying',
+    'join',
+]);
+
 function getSubcommandInfo(commandData) {
     const subcommands = [];
     if (commandData.options) {
@@ -64,6 +74,11 @@ export async function loadCommands(client) {
             const primaryCommandName = command.data.name;
             command.adminOnly = !isPlayerCommand(primaryCommandName);
 
+            if (GROUPED_TOP_LEVEL_COMMANDS.has(primaryCommandName)) {
+                logger.info(`Grouped /${primaryCommandName} under /music; not using an extra top-level slot.`);
+                continue;
+            }
+
             if (uniqueCommandNames.has(primaryCommandName)) {
                 logger.warn(`Skipping duplicate slash command /${primaryCommandName} from ${normalizedPath}`);
                 continue;
@@ -77,6 +92,7 @@ export async function loadCommands(client) {
             if (subcommands.length > 0) logger.info(`  - Subcommands: ${subcommands.join(', ')}`);
         } catch (error) {
             logger.error(`Error loading command from ${filePath}:`, error);
+            throw error;
         }
     }
 
@@ -150,19 +166,30 @@ export async function registerCommands(client, options = {}) {
 
     logger.info(`Registering ${commandsToRegister.length} top-level commands + ${totalSubcommands} subcommands in Cloudy guild ${guildId}`);
 
-    // Remove old global copies first. This prevents Discord from showing the same
-    // Cloudy command twice (global + guild) in autocomplete.
+    // Remove stale global copies so Discord never shows duplicate Cloudy commands.
     await client.rest.put(`/applications/${authenticatedClientId}/commands`, { body: [] });
 
-    await client.rest.put(
+    const registered = await client.rest.put(
         `/applications/${authenticatedClientId}/guilds/${guildId}/commands`,
         { body: commandsToRegister }
     );
 
-    logger.info(`Successfully registered ${commandsToRegister.length} Cloudy guild commands with no global duplicates`);
+    const registeredNames = new Set((registered || []).map((command) => command.name));
+    const missing = commandsToRegister.map((command) => command.name).filter((name) => !registeredNames.has(name));
+    if (missing.length > 0) {
+        throw new Error(`Discord did not register ${missing.length} Cloudy command(s): ${missing.join(', ')}`);
+    }
+
+    logger.info(`Successfully registered all ${commandsToRegister.length} Cloudy guild commands with no global duplicates`);
+    client.commandSyncReady = true;
+    client.registeredCommandCount = commandsToRegister.length;
 }
 
 export async function reloadCommand(client, commandName) {
+    if (GROUPED_TOP_LEVEL_COMMANDS.has(commandName)) {
+        return { success: false, message: `Command "${commandName}" is available under /music.` };
+    }
+
     const command = client.commands.get(commandName);
     if (!command) return { success: false, message: `Command "${commandName}" not found` };
 
