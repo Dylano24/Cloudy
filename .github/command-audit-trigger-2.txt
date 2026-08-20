@@ -1,0 +1,1 @@
+Run the validator after slash-command consolidation and duplicate-scope fixes.
