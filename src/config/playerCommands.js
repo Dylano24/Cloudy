@@ -1,5 +1,20 @@
 const PLAYER_COMMAND_NAMES = [
+  // Core member commands
   'help',
+  'ping',
+  'stats',
+  'uptime',
+  'support',
+
+  // Community / verification
+  'apply',
+  'verify',
+
+  // Leveling
+  'rank',
+  'leaderboard',
+
+  // Economy
   'balance',
   'beg',
   'buy',
@@ -17,15 +32,21 @@ const PLAYER_COMMAND_NAMES = [
   'slut',
   'withdraw',
   'work',
+
+  // Fun
   'count',
   'fight',
   'flip',
   'roll',
+
+  // Music
   'join',
   'music',
   'nowplaying',
   'play',
   'queue',
+
+  // Search / tools / utility
   'search',
   'baseconvert',
   'calculate',
@@ -39,6 +60,8 @@ const PLAYER_COMMAND_NAMES = [
   'avatar',
   'todo',
   'weather',
+
+  // Member reporting
   'report',
   'reports',
 ];
