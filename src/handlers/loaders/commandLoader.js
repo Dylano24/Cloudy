@@ -29,8 +29,10 @@ async function getAllFiles(directory, fileList = []) {
   for (const entry of entries) {
     const filePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      // Keep the stable production command set under Discord's 100 top-level limit.
-      if (entry.name === 'modules' || entry.name === 'Leveling') continue;
+      // Module files are implementation details, not top-level slash commands.
+      // Load every real command directory, including Leveling. The current
+      // production set is exactly Discord's 100 top-level command limit.
+      if (entry.name === 'modules') continue;
       await getAllFiles(filePath, fileList);
     } else if (entry.name.endsWith('.js')) {
       fileList.push(filePath);
@@ -81,17 +83,16 @@ export async function loadCommands(client) {
 }
 
 // Slash registration is intentionally handled by scripts/register-cloudy-guild-commands.js
-// before the bot starts. Do NOT perform a second registration here: Discord has a daily
-// application-command create limit, and repeated destructive syncs can exhaust it and
-// block the actual bot process from ever reaching READY.
+// alongside the bot process. Do NOT perform a second registration here: repeated syncs
+// consume Discord's application-command create quota and can delay command visibility.
 export async function registerCommands(client) {
   logger.info(
-    `[COMMAND_SYNC] Runtime registration skipped. Pre-start sync is the single source of truth; ` +
+    `[COMMAND_SYNC] Runtime registration skipped. Recovery sync is the single source of truth; ` +
     `${client?.commands?.size ?? 0} commands are loaded for interaction handling.`
   );
   return {
     skipped: true,
-    reason: 'prestart-single-source-of-truth',
+    reason: 'recovery-single-source-of-truth',
     loadedCommands: client?.commands?.size ?? 0,
   };
 }
