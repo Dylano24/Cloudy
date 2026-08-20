@@ -15,11 +15,15 @@ const configuredClientId = String(
 const CRITICAL = ['help', 'ban', 'unban', 'kick', 'timeout', 'untimeout', 'warn', 'ticket'];
 const API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 20000;
+const MAX_SHORT_RATE_LIMIT_SECONDS = 60;
+const MAX_SYNC_ATTEMPTS = 2;
 
 if (!token) {
   console.error('[PRESTART_COMMANDS] DISCORD_TOKEN is missing.');
   process.exit(1);
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function discordFetch(endpoint, options = {}) {
   const controller = new AbortController();
@@ -91,6 +95,49 @@ function criticalMissing(commands = []) {
   return CRITICAL.filter((name) => !names.has(name));
 }
 
+function parseRetryAfter(result) {
+  const raw = result.body?.retry_after ?? result.response.headers.get('retry-after');
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
+async function syncCommands(applicationId, payloads) {
+  for (let attempt = 1; attempt <= MAX_SYNC_ATTEMPTS; attempt += 1) {
+    let result;
+    try {
+      result = await discordFetch(`/applications/${applicationId}/commands`, {
+        method: 'PUT',
+        body: JSON.stringify(payloads),
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        console.error(`[PRESTART_COMMANDS] Discord command sync timed out after ${REQUEST_TIMEOUT_MS}ms. Bot startup will continue.`);
+        return null;
+      }
+      throw error;
+    }
+
+    if (result.response.status !== 429) return result;
+
+    const retryAfter = parseRetryAfter(result);
+    if (retryAfter == null || retryAfter > MAX_SHORT_RATE_LIMIT_SECONDS || attempt === MAX_SYNC_ATTEMPTS) {
+      console.error(
+        `[PRESTART_COMMANDS] RATE_LIMITED by Discord. retry_after=${retryAfter ?? 'unknown'}. ` +
+        'Bot startup will continue; command sync was not completed.'
+      );
+      return null;
+    }
+
+    const waitMs = Math.ceil((retryAfter + 1) * 1000);
+    console.warn(
+      `[PRESTART_COMMANDS] Discord asked us to retry after ${retryAfter}s. Waiting ${Math.ceil(waitMs / 1000)}s, then retrying once automatically.`
+    );
+    await sleep(waitMs);
+  }
+
+  return null;
+}
+
 async function main() {
   const meResult = await discordFetch('/users/@me');
   if (!meResult.response.ok || !meResult.body?.id) {
@@ -110,8 +157,8 @@ async function main() {
   const missingFiles = criticalMissing(payloads);
   if (missingFiles.length) throw new Error(`Critical command files missing: ${missingFiles.join(', ')}`);
 
-  // IMPORTANT: never clear commands first. A direct bulk overwrite is idempotent:
-  // existing names are updated instead of needlessly consuming create quota.
+  // Never clear commands first. A direct bulk overwrite updates existing names and
+  // avoids needlessly consuming command-create quota.
   const existingResult = await discordFetch(`/applications/${applicationId}/commands`);
   if (!existingResult.response.ok) {
     throw new Error(`Cannot read existing global commands (${existingResult.response.status}): ${JSON.stringify(existingResult.body)}`);
@@ -126,25 +173,8 @@ async function main() {
 
   console.log(`[PRESTART_COMMANDS] Non-destructive GLOBAL sync: existing=${existing.length}, desired=${payloads.length}, app=${applicationId}.`);
 
-  let syncResult;
-  try {
-    syncResult = await discordFetch(`/applications/${applicationId}/commands`, {
-      method: 'PUT',
-      body: JSON.stringify(payloads),
-    });
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      console.error(`[PRESTART_COMMANDS] Discord command sync timed out after ${REQUEST_TIMEOUT_MS}ms. Bot startup will continue.`);
-      return;
-    }
-    throw error;
-  }
-
-  if (syncResult.response.status === 429) {
-    const retryAfter = syncResult.body?.retry_after ?? syncResult.response.headers.get('retry-after') ?? 'unknown';
-    console.error(`[PRESTART_COMMANDS] RATE_LIMITED by Discord. retry_after=${retryAfter}. Bot startup will continue; DO NOT redeploy/re-register commands until reset.`);
-    return;
-  }
+  const syncResult = await syncCommands(applicationId, payloads);
+  if (!syncResult) return;
 
   if (!syncResult.response.ok) {
     throw new Error(`Global command sync failed (${syncResult.response.status}): ${JSON.stringify(syncResult.body)}`);
