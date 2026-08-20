@@ -14,6 +14,10 @@ import {
     clearQueue,
     setTwentyFourSeven,
     leaveVoiceChannel,
+    joinVoiceChannel,
+    playQuery,
+    buildNowPlayingReply,
+    buildQueueReply,
     replyMusicSuccess,
 } from '../../services/music/musicActions.js';
 import {
@@ -34,6 +38,24 @@ export default {
     data: new SlashCommandBuilder()
         .setName('music')
         .setDescription('Manage playback, queue, filters, autoplay and session permissions')
+        .addSubcommand((sub) => sub.setName('join').setDescription('Join your voice channel without starting playback'))
+        .addSubcommand((sub) =>
+            sub
+                .setName('play')
+                .setDescription('Play a song or add it to the queue')
+                .addStringOption((opt) =>
+                    opt.setName('query').setDescription('Song name or URL').setRequired(true),
+                ),
+        )
+        .addSubcommand((sub) => sub.setName('nowplaying').setDescription('Show the currently playing track'))
+        .addSubcommand((sub) =>
+            sub
+                .setName('queue')
+                .setDescription('Show the current music queue')
+                .addIntegerOption((opt) =>
+                    opt.setName('page').setDescription('Page number').setMinValue(1),
+                ),
+        )
         .addSubcommand((sub) => sub.setName('pause').setDescription('Pause playback'))
         .addSubcommand((sub) => sub.setName('resume').setDescription('Resume playback'))
         .addSubcommand((sub) => sub.setName('skip').setDescription('Skip the current track'))
@@ -180,9 +202,35 @@ export default {
         .addSubcommand((sub) => sub.setName('permissions').setDescription('Show current music session permissions')),
 
     async execute(interaction, config, client) {
-        await deferMusicCommand(interaction);
+        const deferred = await deferMusicCommand(interaction);
+        if (deferred === false) return;
+
         await hydrateMusicPolicy(client, interaction.guild.id);
         const subcommand = interaction.options.getSubcommand();
+
+        if (subcommand === 'join') {
+            const embed = await joinVoiceChannel(client, interaction);
+            return replyMusicSuccess(interaction, embed);
+        }
+
+        if (subcommand === 'play') {
+            const result = await playQuery(client, interaction, interaction.options.getString('query', true));
+            return replyMusicSuccess(interaction, result.embed);
+        }
+
+        if (subcommand === 'nowplaying') {
+            const payload = buildNowPlayingReply(client, interaction.guild.id);
+            return InteractionHelper.safeEditReply(interaction, payload);
+        }
+
+        if (subcommand === 'queue') {
+            const page = (interaction.options.getInteger('page') || 1) - 1;
+            const payload = buildQueueReply(client, interaction.guild.id, page);
+            return InteractionHelper.safeEditReply(interaction, {
+                embeds: payload.embeds,
+                components: payload.components,
+            });
+        }
 
         let embed = null;
         switch (subcommand) {
@@ -215,6 +263,6 @@ export default {
                 return InteractionHelper.safeEditReply(interaction, { content: 'Unknown music subcommand.' });
         }
 
-        await replyMusicSuccess(interaction, embed);
+        return replyMusicSuccess(interaction, embed);
     },
 };
