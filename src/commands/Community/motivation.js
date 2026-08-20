@@ -1,4 +1,10 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  MessageFlags,
+  PermissionFlagsBits,
+  ChannelType,
+} from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
   getRandomMotivation,
@@ -7,6 +13,7 @@ import {
   getUserMotivationReminders,
   cancelMotivationReminder,
 } from '../../services/motivationService.js';
+import motivationConfigCommand from './motivation-config.js';
 
 function quoteEmbed(text, title = '💡 Motivation') {
   return new EmbedBuilder()
@@ -19,7 +26,8 @@ export default {
   category: 'Community',
   data: new SlashCommandBuilder()
     .setName('motivation')
-    .setDescription('Motivational quotes and personal reminders')
+    .setDescription('Motivational quotes, reminders and daily motivation settings')
+    .setDMPermission(false)
     .addSubcommand((sub) =>
       sub.setName('quote').setDescription('Get a motivational quote'),
     )
@@ -68,10 +76,53 @@ export default {
         .addStringOption((option) =>
           option.setName('id').setDescription('Reminder ID from /motivation reminders').setRequired(true),
         ),
+    )
+    .addSubcommandGroup((group) =>
+      group
+        .setName('config')
+        .setDescription('Administrator settings for automatic motivation')
+        .addSubcommand((sub) =>
+          sub
+            .setName('daily')
+            .setDescription('Configure a daily motivation message')
+            .addBooleanOption((option) =>
+              option.setName('enabled').setDescription('Enable or disable daily motivation').setRequired(true),
+            )
+            .addChannelOption((option) =>
+              option
+                .setName('channel')
+                .setDescription('Channel for daily motivation')
+                .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
+            )
+            .addIntegerOption((option) =>
+              option
+                .setName('hour_utc')
+                .setDescription('UTC hour (0-23) to send the message')
+                .setMinValue(0)
+                .setMaxValue(23),
+            )
+            .addRoleOption((option) =>
+              option.setName('mention_role').setDescription('Optional role to mention'),
+            ),
+        )
+        .addSubcommand((sub) =>
+          sub.setName('status').setDescription('Show current daily motivation settings'),
+        ),
     ),
 
   async execute(interaction, config, client) {
+    const group = interaction.options.getSubcommandGroup(false);
     const subcommand = interaction.options.getSubcommand();
+
+    if (group === 'config') {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return InteractionHelper.safeReply(interaction, {
+          content: 'You need **Administrator** permission to change motivation server settings.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      return motivationConfigCommand.execute(interaction, config, client);
+    }
 
     if (subcommand === 'quote') {
       return InteractionHelper.safeReply(interaction, {
