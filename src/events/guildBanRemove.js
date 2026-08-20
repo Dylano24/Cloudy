@@ -12,6 +12,14 @@ export default {
     try {
       await new Promise(resolve => setTimeout(resolve, 750));
 
+      const suppressionKey = `${guild.id}:${user.id}`;
+      const attribution = guild.client.commandUnbanLogSuppressions?.get(suppressionKey);
+      const hasCommandAttribution = Boolean(
+        attribution &&
+        typeof attribution === 'object' &&
+        attribution.expiresAt > Date.now()
+      );
+
       const auditLogs = await guild.fetchAuditLogs({
         type: AuditLogEvent.MemberBanRemove,
         limit: 6,
@@ -21,8 +29,19 @@ export default {
         entry.target?.id === user.id &&
         now - entry.createdTimestamp < 15_000
       );
-      const executor = unbanEntry?.executor;
-      const reason = unbanEntry?.reason || 'No reason provided';
+
+      const auditExecutor = unbanEntry?.executor;
+      const reason = hasCommandAttribution
+        ? attribution.reason
+        : (unbanEntry?.reason || 'No reason provided');
+
+      let unbannedBy = 'Automod';
+      if (hasCommandAttribution) {
+        unbannedBy = `${attribution.moderatorMention} (${attribution.moderatorTag})`;
+        guild.client.commandUnbanLogSuppressions?.delete(suppressionKey);
+      } else if (auditExecutor && !auditExecutor.bot) {
+        unbannedBy = `${auditExecutor.toString()} (${auditExecutor.tag})`;
+      }
 
       await logEvent({
         client: guild.client,
@@ -33,7 +52,7 @@ export default {
           color: 0x2ECC71,
           lines: [
             `**User:** ${user.toString()} (${user.tag})`,
-            `**Unbanned by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
+            `**Unbanned by:** ${unbannedBy}`,
             `**Reason:** ${reason}`,
             `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
           ],
