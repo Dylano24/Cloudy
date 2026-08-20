@@ -16,27 +16,37 @@ import {
     leaveVoiceChannel,
     replyMusicSuccess,
 } from '../../services/music/musicActions.js';
+import {
+    toggleAutoplay,
+    reverseQueue,
+    setAudioFilter,
+    configureSessionMode,
+    configureSessionLock,
+    configureDjRole,
+    configureMusicUser,
+    musicPermissionStatus,
+} from '../../services/music/advancedMusicActions.js';
+import { hydrateMusicPolicy } from '../../services/music/musicSessionService.js';
 import { deferMusicCommand } from '../../services/music/prefixSupport.js';
 
 export default {
     category: 'Music',
     data: new SlashCommandBuilder()
         .setName('music')
-        .setDescription('Manage playback, queue, and voice session settings')
+        .setDescription('Manage playback, queue, filters, autoplay and session permissions')
+        .addSubcommand((sub) => sub.setName('pause').setDescription('Pause playback'))
+        .addSubcommand((sub) => sub.setName('resume').setDescription('Resume playback'))
+        .addSubcommand((sub) => sub.setName('skip').setDescription('Skip the current track'))
+        .addSubcommand((sub) => sub.setName('stop').setDescription('Stop playback and clear the queue'))
+        .addSubcommand((sub) => sub.setName('shuffle').setDescription('Shuffle the queue'))
+        .addSubcommand((sub) => sub.setName('reverse').setDescription('Reverse the queued tracks'))
         .addSubcommand((sub) =>
-            sub.setName('pause').setDescription('Pause playback'),
-        )
-        .addSubcommand((sub) =>
-            sub.setName('resume').setDescription('Resume playback'),
-        )
-        .addSubcommand((sub) =>
-            sub.setName('skip').setDescription('Skip the current track'),
-        )
-        .addSubcommand((sub) =>
-            sub.setName('stop').setDescription('Stop playback and clear the queue'),
-        )
-        .addSubcommand((sub) =>
-            sub.setName('shuffle').setDescription('Shuffle the queue'),
+            sub
+                .setName('autoplay')
+                .setDescription('Enable or disable automatic recommended tracks')
+                .addBooleanOption((opt) =>
+                    opt.setName('enabled').setDescription('Autoplay state').setRequired(true),
+                ),
         )
         .addSubcommand((sub) =>
             sub
@@ -89,100 +99,122 @@ export default {
                     opt.setName('to').setDescription('New position').setRequired(true).setMinValue(1),
                 ),
         )
-        .addSubcommand((sub) =>
-            sub.setName('clear').setDescription('Clear the queue'),
-        )
-        .addSubcommand((sub) =>
-            sub.setName('leave').setDescription('Disconnect the bot from the voice channel'),
-        )
+        .addSubcommand((sub) => sub.setName('clear').setDescription('Clear the queue'))
+        .addSubcommand((sub) => sub.setName('leave').setDescription('Disconnect the bot from the voice channel'))
         .addSubcommand((sub) =>
             sub
                 .setName('247')
-                .setDescription('Toggle 24/7 mode (stay in voice channel when idle)')
+                .setDescription('Toggle 24/7 mode')
                 .addBooleanOption((opt) =>
                     opt.setName('enabled').setDescription('Enable or disable 24/7 mode').setRequired(true),
                 ),
-        ),
+        )
+        .addSubcommand((sub) =>
+            sub
+                .setName('filter')
+                .setDescription('Apply an audio filter preset')
+                .addStringOption((opt) =>
+                    opt
+                        .setName('preset')
+                        .setDescription('Audio filter')
+                        .setRequired(true)
+                        .addChoices(
+                            { name: 'Off', value: 'off' },
+                            { name: 'Bass Boost', value: 'bassboost' },
+                            { name: 'Nightcore', value: 'nightcore' },
+                            { name: 'Vaporwave', value: 'vaporwave' },
+                            { name: 'Karaoke', value: 'karaoke' },
+                            { name: 'Tremolo', value: 'tremolo' },
+                            { name: 'Vibrato', value: 'vibrato' },
+                            { name: '8D Rotation', value: '8d' },
+                            { name: 'Low Pass', value: 'lowpass' },
+                        ),
+                ),
+        )
+        .addSubcommand((sub) =>
+            sub
+                .setName('session-mode')
+                .setDescription('Set who controls music sessions')
+                .addStringOption((opt) =>
+                    opt
+                        .setName('mode')
+                        .setDescription('Permission mode')
+                        .setRequired(true)
+                        .addChoices(
+                            { name: 'Open - everyone in voice', value: 'open' },
+                            { name: 'Owner - session owner only', value: 'owner' },
+                            { name: 'DJ - session owner + DJ roles', value: 'dj' },
+                        ),
+                ),
+        )
+        .addSubcommand((sub) =>
+            sub
+                .setName('session-lock')
+                .setDescription('Lock/unlock the current music session')
+                .addBooleanOption((opt) => opt.setName('locked').setDescription('Lock state').setRequired(true)),
+        )
+        .addSubcommand((sub) =>
+            sub
+                .setName('dj-role')
+                .setDescription('Add or remove a DJ role')
+                .addRoleOption((opt) => opt.setName('role').setDescription('DJ role').setRequired(true))
+                .addBooleanOption((opt) => opt.setName('enabled').setDescription('Add or remove the role').setRequired(true)),
+        )
+        .addSubcommand((sub) =>
+            sub
+                .setName('user-permission')
+                .setDescription('Allow, deny or reset a user for music controls')
+                .addUserOption((opt) => opt.setName('user').setDescription('User').setRequired(true))
+                .addStringOption((opt) =>
+                    opt
+                        .setName('state')
+                        .setDescription('Permission state')
+                        .setRequired(true)
+                        .addChoices(
+                            { name: 'Allow', value: 'allow' },
+                            { name: 'Deny', value: 'deny' },
+                            { name: 'Reset', value: 'reset' },
+                        ),
+                ),
+        )
+        .addSubcommand((sub) => sub.setName('permissions').setDescription('Show current music session permissions')),
 
     async execute(interaction, config, client) {
         await deferMusicCommand(interaction);
+        await hydrateMusicPolicy(client, interaction.guild.id);
         const subcommand = interaction.options.getSubcommand();
 
+        let embed = null;
         switch (subcommand) {
-            case 'pause': {
-                const embed = await pausePlayback(client, interaction);
-                await replyMusicSuccess(interaction, embed);
+            case 'pause': embed = await pausePlayback(client, interaction); break;
+            case 'resume': embed = await resumePlayback(client, interaction); break;
+            case 'skip': embed = await skipTrack(client, interaction); break;
+            case 'stop': embed = await stopPlayback(client, interaction); break;
+            case 'shuffle': embed = await shuffleQueue(client, interaction); break;
+            case 'reverse': embed = await reverseQueue(client, interaction); break;
+            case 'autoplay': embed = await toggleAutoplay(client, interaction, interaction.options.getBoolean('enabled')); break;
+            case 'loop': embed = await setLoopMode(client, interaction, interaction.options.getString('mode')); break;
+            case 'volume': embed = await setVolume(client, interaction, interaction.options.getInteger('level')); break;
+            case 'seek': embed = await seekTrack(client, interaction, interaction.options.getInteger('seconds')); break;
+            case 'remove': embed = await removeFromQueue(client, interaction, interaction.options.getInteger('position')); break;
+            case 'move':
+                embed = await moveInQueue(client, interaction, interaction.options.getInteger('from'), interaction.options.getInteger('to'));
                 break;
-            }
-            case 'resume': {
-                const embed = await resumePlayback(client, interaction);
-                await replyMusicSuccess(interaction, embed);
+            case 'clear': embed = await clearQueue(client, interaction); break;
+            case 'leave': embed = await leaveVoiceChannel(client, interaction); break;
+            case '247': embed = await setTwentyFourSeven(client, interaction, interaction.options.getBoolean('enabled')); break;
+            case 'filter': embed = await setAudioFilter(client, interaction, interaction.options.getString('preset')); break;
+            case 'session-mode': embed = await configureSessionMode(client, interaction, interaction.options.getString('mode')); break;
+            case 'session-lock': embed = await configureSessionLock(client, interaction, interaction.options.getBoolean('locked')); break;
+            case 'dj-role': embed = await configureDjRole(client, interaction, interaction.options.getRole('role'), interaction.options.getBoolean('enabled')); break;
+            case 'user-permission':
+                embed = await configureMusicUser(client, interaction, interaction.options.getUser('user'), interaction.options.getString('state'));
                 break;
-            }
-            case 'skip': {
-                const embed = await skipTrack(client, interaction);
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'stop': {
-                const embed = await stopPlayback(client, interaction);
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'shuffle': {
-                const embed = await shuffleQueue(client, interaction);
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'loop': {
-                const embed = await setLoopMode(client, interaction, interaction.options.getString('mode'));
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'volume': {
-                const embed = await setVolume(client, interaction, interaction.options.getInteger('level'));
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'seek': {
-                const embed = await seekTrack(client, interaction, interaction.options.getInteger('seconds'));
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'remove': {
-                const embed = await removeFromQueue(client, interaction, interaction.options.getInteger('position'));
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'move': {
-                const embed = await moveInQueue(
-                    client,
-                    interaction,
-                    interaction.options.getInteger('from'),
-                    interaction.options.getInteger('to'),
-                );
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'clear': {
-                const embed = await clearQueue(client, interaction);
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case 'leave': {
-                const embed = await leaveVoiceChannel(client, interaction);
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
-            case '247': {
-                const embed = await setTwentyFourSeven(client, interaction, interaction.options.getBoolean('enabled'));
-                await replyMusicSuccess(interaction, embed);
-                break;
-            }
+            case 'permissions': embed = await musicPermissionStatus(client, interaction); break;
             default:
-                await InteractionHelper.safeEditReply(interaction, {
-                    content: 'Unknown music subcommand.',
-                });
+                return InteractionHelper.safeEditReply(interaction, { content: 'Unknown music subcommand.' });
         }
+
+        await replyMusicSuccess(interaction, embed);
     },
 };
