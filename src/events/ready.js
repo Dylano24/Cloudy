@@ -67,8 +67,6 @@ function buildGuildCommandPayloads(client) {
       payload.options = payload.options.map(sanitizeOption);
     }
 
-    // Preserve the old Cloudy rule: normal/member commands remain visible;
-    // everything else is Administrator-only and hidden from regular members.
     payload.default_member_permissions = command.adminOnly ? '8' : null;
     payloads.push(payload);
   }
@@ -80,18 +78,16 @@ function buildGuildCommandPayloads(client) {
   });
 
   if (payloads.length > MAX_GUILD_COMMANDS) {
-    logger.error(
+    throw new Error(
       `Loaded ${payloads.length} top-level slash commands, but Discord allows ${MAX_GUILD_COMMANDS}. ` +
-      'Group new functionality under subcommands instead of adding more top-level commands.'
+      'Group new functionality under subcommands before deploying.'
     );
   }
 
-  return payloads.slice(0, MAX_GUILD_COMMANDS);
+  return payloads;
 }
 
 async function syncSingleGuildCommands(client, guild, payloads) {
-  // Fast/atomic path: update the complete command set in a single Discord API call.
-  // This avoids the old behaviour where every restart temporarily deleted every command.
   try {
     const registered = await guild.commands.set(payloads);
     const helpRegistered = registered.some((command) => command.name === 'help');
@@ -115,8 +111,6 @@ async function syncSingleGuildCommands(client, guild, payloads) {
     );
   }
 
-  // Recovery path: update/create commands individually so one malformed payload
-  // cannot make /help, /unban, /untimeout, etc. disappear together.
   const existing = await guild.commands.fetch().catch(() => null);
   const existingByName = new Map();
   if (existing) {
@@ -148,9 +142,6 @@ async function syncSingleGuildCommands(client, guild, payloads) {
     }
   }
 
-  // Only remove stale commands if the desired command set recovered cleanly.
-  // When recovery is partial we leave existing commands in place rather than
-  // making the outage larger.
   if (existing && failed.length === 0) {
     for (const command of existing.values()) {
       if (!desiredNames.has(command.name)) {
@@ -324,7 +315,6 @@ export default {
     startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
     startupLog(`Loaded ${client.commands.size} commands`);
 
-    // Presence is cosmetic. Failure here may never make the command system fail.
     await runOptionalTask(client, 'presence', async () => {
       let presence = config.bot.presence;
       try {
@@ -335,7 +325,6 @@ export default {
       client.user.setPresence(presence);
     }, 10_000);
 
-    // Command registration is the only critical Ready-stage operation.
     try {
       await syncGuildCommands(client);
     } catch (error) {
@@ -343,9 +332,6 @@ export default {
       logger.error('Critical slash-command sync failed:', error);
     }
 
-    // Everything below is intentionally isolated. Ticket reconciliation,
-    // invite tracking, music, avatars, etc. can degrade independently without
-    // taking /help or moderation commands offline.
     const optionalTasks = [
       runOptionalTask(client, 'profile-avatar', async () => {
         const avatarVersion = 'cloudy-c-transparent-v1';
