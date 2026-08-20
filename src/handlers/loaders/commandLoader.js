@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
+import { isGroupedTopLevelCommand } from '../../config/commands/groupedCommands.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,6 +77,11 @@ export async function loadCommands(client) {
             applyVisibilityRules(command);
 
             const primaryCommandName = command.data.name;
+            if (isGroupedTopLevelCommand(primaryCommandName)) {
+                logger.info(`Grouped legacy command /${primaryCommandName} is available through its parent command; skipping top-level registration.`);
+                continue;
+            }
+
             if (!primaryCommandName || uniqueCommandNames.has(primaryCommandName)) {
                 if (primaryCommandName) logger.warn(`Skipping duplicate command /${primaryCommandName}`);
                 continue;
@@ -143,10 +149,11 @@ function collectCommandPayloads(client) {
     });
 
     if (payloads.length > MAX_COMMANDS) {
-        logger.warn(`Discord allows ${MAX_COMMANDS} chat-input commands per scope; ${payloads.length} loaded. Keeping the first ${MAX_COMMANDS}.`);
+        logger.error(`Discord allows ${MAX_COMMANDS} chat-input commands per scope; ${payloads.length} loaded. Group more commands before deployment.`);
+        throw new Error(`Slash command limit exceeded: ${payloads.length}/${MAX_COMMANDS}`);
     }
 
-    return payloads.slice(0, MAX_COMMANDS);
+    return payloads;
 }
 
 export async function registerCommands(client, options = {}) {
@@ -170,9 +177,6 @@ export async function registerCommands(client, options = {}) {
         logger.warn(`Could not clear legacy global slash commands: ${error?.message || error}`);
     }
 
-    // Validate the in-memory payloads here as a second safety net even though
-    // this function does not publish them. Invalid builders should be visible in
-    // startup logs before ClientReady attempts the guild sync.
     const payloads = collectCommandPayloads(client);
     if (!payloads.length) {
         throw new Error('No slash commands were loaded');
@@ -181,6 +185,10 @@ export async function registerCommands(client, options = {}) {
 }
 
 export async function reloadCommand(client, commandName) {
+    if (isGroupedTopLevelCommand(commandName)) {
+        return { success: false, message: `Command "${commandName}" is grouped under another slash command.` };
+    }
+
     const current = client.commands.get(commandName);
     if (!current) return { success: false, message: `Command "${commandName}" not found` };
 
