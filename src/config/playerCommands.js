@@ -1,5 +1,9 @@
 const PLAYER_COMMAND_NAMES = [
   'help',
+  'support',
+  'verify',
+  'rank',
+  'leaderboard',
   'balance',
   'beg',
   'buy',
