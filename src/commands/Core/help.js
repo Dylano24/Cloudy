@@ -10,7 +10,6 @@ import {
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import { isBotOwner } from "../../config/bot.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,9 +47,13 @@ function formatCategoryName(rawCategory) {
 }
 
 export async function createInitialHelpMenu(client, interaction = null) {
-    const showAllCommands =
-        isBotOwner(interaction?.user?.id) ||
-        interaction?.memberPermissions?.has(PermissionFlagsBits.Administrator);
+    const isServerOwner = Boolean(
+        interaction?.guild?.ownerId && interaction?.user?.id === interaction.guild.ownerId
+    );
+    const isServerAdmin = Boolean(
+        interaction?.memberPermissions?.has(PermissionFlagsBits.Administrator)
+    );
+    const showAllCommands = isServerOwner || isServerAdmin;
 
     const commandsPath = path.join(__dirname, "../../commands");
     const categoryDirs = (
@@ -100,7 +103,7 @@ export async function createInitialHelpMenu(client, interaction = null) {
             showAllCommands
                 ? {
                     name: '👑 All Commands',
-                    value: 'You have access to all member, moderation, administration and bot system commands.',
+                    value: 'Server owner/admin access: member, moderation, administration and bot system commands.',
                     inline: false,
                 }
                 : {
@@ -135,9 +138,8 @@ export default {
         .setDescription("Displays the help menu with all available commands"),
 
     async execute(interaction, guildConfig, client) {
-        
         await InteractionHelper.safeDefer(interaction);
-        
+
         const { embeds, components } = await createInitialHelpMenu(client, interaction);
 
         await InteractionHelper.safeEditReply(interaction, {
@@ -161,8 +163,8 @@ export default {
                     embeds: [closedEmbed],
                     components: [],
                 });
-            } catch (error) {
-                logger.debug('Help menu close edit failed (interaction may have expired):', error?.message);
+            } catch {
+                // Interaction may have expired; nothing else to do.
             }
         }, HELP_MENU_TIMEOUT_MS);
     },
