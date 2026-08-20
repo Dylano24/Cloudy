@@ -6,6 +6,26 @@ import { pgConfig } from "./database/postgres.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function normalizeDiscordToken(value) {
+  if (!value) return undefined;
+
+  let token = String(value).trim();
+
+  // Railway/Discord copy-paste safety: tolerate surrounding quotes/backticks
+  // and an accidental "Bot " prefix without ever logging the secret.
+  token = token.replace(/^Bot\s+/i, "").trim();
+  token = token.replace(/^[`'\"]+|[`'\"]+$/g, "").trim();
+
+  return token || undefined;
+}
+
+const discordToken = normalizeDiscordToken(
+  process.env.DISCORD_TOKEN ||
+  process.env.TOKEN ||
+  process.env.BOT_TOKEN ||
+  process.env.DISCORD_BOT_TOKEN
+);
+
 const appConfig = {
   paths: {
     root: path.join(__dirname, "../.."),
@@ -20,7 +40,7 @@ const appConfig = {
 
   bot: {
     ...botConfig,
-    token: process.env.DISCORD_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN || process.env.DISCORD_BOT_TOKEN,
+    token: discordToken,
     clientId: process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || process.env.APPLICATION_ID || process.env.BOT_CLIENT_ID,
     // Retained for tutorial/setup compatibility; not used for command registration.
     guildId: process.env.GUILD_ID,
