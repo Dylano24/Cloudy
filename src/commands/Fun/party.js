@@ -24,12 +24,6 @@ function addModeOption(subcommand) {
   );
 }
 
-function gameSubcommand(name, description) {
-  return addModeOption(
-    new SlashCommandBuilder().addSubcommand((sub) => sub).options?.[0] || null
-  );
-}
-
 function addGameSubcommand(builder, name, description, { target = false } = {}) {
   return builder.addSubcommand((sub) => {
     sub.setName(name).setDescription(description);
