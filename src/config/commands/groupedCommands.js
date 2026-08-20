@@ -1,15 +1,16 @@
-// Top-level commands that remain as implementation modules but are exposed
-// through a grouped slash command instead. Keeping this list centralized means
-// the runtime loader and CI validator make exactly the same registration choice.
+// Top-level commands intentionally hidden from Discord's root slash-command list.
+// Old Cloudy commands keep priority as standalone commands. Newer expansion
+// modules are temporarily kept out of the root list so the bot stays under
+// Discord's 100 top-level application-command limit without hiding legacy tools.
 export const GROUPED_TOP_LEVEL_COMMANDS = new Set([
-  'gcreate',
-  'gdelete',
-  'gend',
-  'greroll',
   'motivation-config',
-  'claim',
-  'close',
-  'priority',
+  'party',
+  'motivation',
+  'youtube',
+  'youtube-alerts',
+  'patch',
+  'patch-config',
+  'security',
 ]);
 
 export function isGroupedTopLevelCommand(name) {
