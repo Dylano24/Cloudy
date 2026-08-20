@@ -149,39 +149,35 @@ function collectCommandPayloads(client) {
     return payloads.slice(0, MAX_COMMANDS);
 }
 
-async function putCommands(client, route, payloads, label) {
-    await client.rest.put(route, { body: payloads });
-    logger.info(`Successfully registered ${payloads.length} ${label} commands`);
-}
-
 export async function registerCommands(client, options = {}) {
     const resolvedClientId = client.user?.id || options.clientId;
     if (!resolvedClientId) throw new Error('Could not resolve authenticated Discord application ID');
     if (!client.rest) throw new Error('Discord REST client is not available');
 
-    // Guild registration is deliberately handled only by the ClientReady event.
-    // The old startup path and ClientReady path both wrote the same command set
-    // at the same time, creating avoidable races after deploys/re-invites.
-    // Global registration is optional because Cloudy is primarily a single-server
-    // bot and global commands can take time to propagate and leave stale copies.
-    if (String(process.env.REGISTER_GLOBAL_COMMANDS || '').toLowerCase() !== 'true') {
-        logger.info('Skipping startup command write; ClientReady will perform the authoritative guild sync.');
-        return;
-    }
-
-    const payloads = collectCommandPayloads(client);
-    if (!payloads.length) throw new Error('No slash commands were loaded');
-
+    // Cloudy uses guild-scoped slash commands exclusively. ClientReady performs
+    // the authoritative guild sync because guild commands update immediately.
+    // Older Cloudy builds also registered the same commands globally, which can
+    // make Discord display two copies of /help, /party, etc. Clear that legacy
+    // global command set on every startup so it can never reappear after a
+    // Railway environment-variable change or an older deployment.
     try {
-        await putCommands(
-            client,
+        await client.rest.put(
             `/applications/${resolvedClientId}/commands`,
-            payloads,
-            'global'
+            { body: [] }
         );
+        logger.info('Cleared legacy global slash commands; guild commands are authoritative.');
     } catch (error) {
-        logger.warn(`Optional global command registration failed: ${error?.message || error}`);
+        logger.warn(`Could not clear legacy global slash commands: ${error?.message || error}`);
     }
+
+    // Validate the in-memory payloads here as a second safety net even though
+    // this function does not publish them. Invalid builders should be visible in
+    // startup logs before ClientReady attempts the guild sync.
+    const payloads = collectCommandPayloads(client);
+    if (!payloads.length) {
+        throw new Error('No slash commands were loaded');
+    }
+    logger.info(`Validated ${payloads.length} guild slash-command payload(s) before sync.`);
 }
 
 export async function reloadCommand(client, commandName) {
