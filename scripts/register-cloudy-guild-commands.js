@@ -14,8 +14,14 @@ const configuredClientId = String(
 
 const API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 20000;
-const CRITICAL = ['help', 'ban', 'unban', 'timeout', 'untimeout', 'kick', 'warn', 'ticket'];
+const PRIORITY = [
+  'help',
+  'ban', 'unban', 'timeout', 'untimeout', 'kick', 'warn', 'warnings',
+  'cases', 'lock', 'unlock', 'purge', 'dm', 'massban', 'masskick', 'say', 'usernotes',
+  'ticket', 'close', 'claim', 'priority',
+];
 const MAX_RUNTIME_MS = 23 * 60 * 60 * 1000;
+const PERMANENT_FAILURE_BACKOFF_MS = 30 * 60 * 1000;
 
 if (!token) {
   console.error('[COMMAND_RECOVERY] DISCORD_TOKEN is missing.');
@@ -60,7 +66,9 @@ async function getCommandFiles(directory, files = []) {
   for (const entry of entries) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === 'modules' || entry.name === 'Leveling') continue;
+      // Only implementation-module folders are excluded. Every real command
+      // directory, including Leveling, is part of the 100-command production set.
+      if (entry.name === 'modules') continue;
       await getCommandFiles(fullPath, files);
     } else if (entry.name.endsWith('.js')) {
       files.push(fullPath);
@@ -106,7 +114,7 @@ function sortRecoveryQueue(payloads, existingNames) {
   const byName = new Map(payloads.map((payload) => [payload.name, payload]));
   const queue = [];
 
-  for (const name of CRITICAL) {
+  for (const name of PRIORITY) {
     if (!existingNames.has(name) && byName.has(name)) {
       queue.push(byName.get(name));
       byName.delete(name);
@@ -122,6 +130,7 @@ function sortRecoveryQueue(payloads, existingNames) {
 
 async function main() {
   const startedAt = Date.now();
+  const blockedUntil = new Map();
 
   const me = await discordFetch('/users/@me');
   if (!me.response.ok || !me.body?.id) {
@@ -140,7 +149,7 @@ async function main() {
 
   const route = `/applications/${applicationId}/guilds/${guildId}/commands`;
   console.log(`[COMMAND_RECOVERY] Incremental recovery started: app=${applicationId}, guild=${guildId}, desired=${payloads.length}.`);
-  console.log(`[COMMAND_RECOVERY] Priority order: ${CRITICAL.join(', ')}.`);
+  console.log(`[COMMAND_RECOVERY] Priority order: ${PRIORITY.join(', ')}.`);
 
   while (Date.now() - startedAt < MAX_RUNTIME_MS) {
     let current;
@@ -166,16 +175,27 @@ async function main() {
     }
 
     const existingNames = new Set(current.body.map((command) => command.name));
-    const queue = sortRecoveryQueue(payloads, existingNames);
+    const fullQueue = sortRecoveryQueue(payloads, existingNames);
 
-    if (!queue.length) {
+    if (!fullQueue.length) {
       console.log(`[COMMAND_RECOVERY] COMPLETE: all ${payloads.length} Cloudy guild commands are registered.`);
       return;
     }
 
+    const now = Date.now();
+    const queue = fullQueue.filter((payload) => (blockedUntil.get(payload.name) || 0) <= now);
+
+    if (!queue.length) {
+      const earliest = Math.min(...fullQueue.map((payload) => blockedUntil.get(payload.name) || (now + 60000)));
+      const waitMs = Math.max(5000, Math.min(earliest - now, 5 * 60 * 1000));
+      console.warn(`[COMMAND_RECOVERY] All currently missing commands are temporarily deferred; checking again in ${Math.ceil(waitMs / 1000)}s.`);
+      await sleep(waitMs);
+      continue;
+    }
+
     const next = queue[0];
     console.log(
-      `[COMMAND_RECOVERY] Progress ${existingNames.size}/${payloads.length}. Next command: /${next.name}. Remaining=${queue.length}.`
+      `[COMMAND_RECOVERY] Progress ${existingNames.size}/${payloads.length}. Next command: /${next.name}. Remaining=${fullQueue.length}.`
     );
 
     let create;
@@ -191,6 +211,7 @@ async function main() {
     }
 
     if (create.response.ok && create.body?.name === next.name) {
+      blockedUntil.delete(next.name);
       console.log(`[COMMAND_RECOVERY] RESTORED /${next.name}. Discord now has at least ${existingNames.size + 1}/${payloads.length} Cloudy commands.`);
       await sleep(1500);
       continue;
@@ -218,11 +239,12 @@ async function main() {
       continue;
     }
 
+    blockedUntil.set(next.name, Date.now() + PERMANENT_FAILURE_BACKOFF_MS);
     console.error(
       `[COMMAND_RECOVERY] Discord rejected /${next.name}: HTTP ${create.response.status}, body=${JSON.stringify(create.body)}. ` +
-      'Skipping it for 5 minutes before retrying.'
+      'That command is deferred for 30 minutes so it cannot block recovery of the others.'
     );
-    await sleep(5 * 60 * 1000);
+    await sleep(1500);
   }
 
   console.warn('[COMMAND_RECOVERY] 23-hour recovery window ended. Restart/redeploy later only if commands are still missing.');
