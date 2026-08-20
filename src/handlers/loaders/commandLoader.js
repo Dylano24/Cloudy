@@ -30,8 +30,6 @@ async function getAllFiles(directory, fileList = []) {
     for (const file of files) {
         const filePath = path.join(directory, file.name);
         if (file.isDirectory()) {
-            // Only helper modules are skipped. Leveling contains real slash
-            // commands (/rank, /leaderboard, /level, etc.) and must be loaded.
             if (file.name === 'modules') continue;
             await getAllFiles(filePath, fileList);
         } else if (file.name.endsWith('.js')) {
@@ -46,9 +44,6 @@ function applyVisibilityRules(command) {
     const commandName = String(command?.data?.name || '').toLowerCase();
     command.adminOnly = !isPlayerCommand(commandName);
 
-    // Old Cloudy rule: member commands are visible to normal members; every
-    // other command is Administrator-only and therefore hidden from members
-    // in Discord's slash-command picker.
     if (typeof command?.data?.setDefaultMemberPermissions === 'function') {
         command.data.setDefaultMemberPermissions(command.adminOnly ? 8n : null);
     }
@@ -141,7 +136,6 @@ function collectCommandPayloads(client) {
         payloads.push(payload);
     }
 
-    // Keep /help first. The normal case is below Discord's 100-command limit.
     payloads.sort((a, b) => {
         if (a.name === 'help') return -1;
         if (b.name === 'help') return 1;
@@ -165,26 +159,19 @@ export async function registerCommands(client, options = {}) {
     if (!resolvedClientId) throw new Error('Could not resolve authenticated Discord application ID');
     if (!client.rest) throw new Error('Discord REST client is not available');
 
+    // Guild registration is deliberately handled only by the ClientReady event.
+    // The old startup path and ClientReady path both wrote the same command set
+    // at the same time, creating avoidable races after deploys/re-invites.
+    // Global registration is optional because Cloudy is primarily a single-server
+    // bot and global commands can take time to propagate and leave stale copies.
+    if (String(process.env.REGISTER_GLOBAL_COMMANDS || '').toLowerCase() !== 'true') {
+        logger.info('Skipping startup command write; ClientReady will perform the authoritative guild sync.');
+        return;
+    }
+
     const payloads = collectCommandPayloads(client);
     if (!payloads.length) throw new Error('No slash commands were loaded');
 
-    // Immediate registration for the configured server.
-    const configuredGuildId = process.env.GUILD_ID || process.env.BOTPROFILE_GUILD_ID;
-    if (configuredGuildId) {
-        try {
-            await putCommands(
-                client,
-                `/applications/${resolvedClientId}/guilds/${configuredGuildId}/commands`,
-                payloads,
-                'guild'
-            );
-        } catch (error) {
-            logger.warn(`Configured guild command registration failed for ${configuredGuildId}: ${error?.message || error}`);
-        }
-    }
-
-    // Keep global commands in sync as a fallback. ClientReady performs another
-    // guild-specific repair for every guild the bot is actually connected to.
     try {
         await putCommands(
             client,
@@ -193,7 +180,7 @@ export async function registerCommands(client, options = {}) {
             'global'
         );
     } catch (error) {
-        logger.warn(`Global command registration failed; guild sync will still run: ${error?.message || error}`);
+        logger.warn(`Optional global command registration failed: ${error?.message || error}`);
     }
 }
 
