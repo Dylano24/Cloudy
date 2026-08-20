@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isGroupedTopLevelCommand } from '../src/config/commands/groupedCommands.js';
 
 const ROOT = process.cwd();
 const COMMANDS_DIR = path.join(ROOT, 'src', 'commands');
@@ -63,6 +64,7 @@ async function validateCommands() {
   const files = await walk(COMMANDS_DIR, { skipModules: true });
   const names = new Map();
   let validCommands = 0;
+  let groupedCommands = 0;
 
   console.log(`\nChecking ${files.length} command file(s)...`);
 
@@ -84,7 +86,6 @@ async function validateCommands() {
 
       let json;
       try {
-        // discord.js performs SlashCommandBuilder validation here.
         json = command.data.toJSON();
       } catch (error) {
         fail(`${display} has an invalid Discord command builder: ${error?.message || error}`);
@@ -97,18 +98,24 @@ async function validateCommands() {
         continue;
       }
 
+      if (typeof json.description === 'string' && json.description.length > 100) {
+        fail(`/${name} description is ${json.description.length} characters; Discord allows 100.`);
+      }
+      validateOptions(json.options, `/${name}`);
+      validCommands += 1;
+
+      if (isGroupedTopLevelCommand(name)) {
+        groupedCommands += 1;
+        console.log(`✅ /${name} — ${display} (implementation module; grouped in another command)`);
+        continue;
+      }
+
       if (names.has(name)) {
         fail(`Duplicate top-level slash command /${name}: ${names.get(name)} and ${display}.`);
       } else {
         names.set(name, display);
       }
 
-      if (typeof json.description === 'string' && json.description.length > 100) {
-        fail(`/${name} description is ${json.description.length} characters; Discord allows 100.`);
-      }
-
-      validateOptions(json.options, `/${name}`);
-      validCommands += 1;
       console.log(`✅ /${name} — ${display}`);
     } catch (error) {
       fail(`${display} could not be imported: ${error?.stack || error?.message || error}`);
@@ -116,11 +123,14 @@ async function validateCommands() {
   }
 
   if (names.size > MAX_TOP_LEVEL_COMMANDS) {
-    fail(`There are ${names.size} unique top-level slash commands; Discord allows ${MAX_TOP_LEVEL_COMMANDS} per scope.`);
+    fail(`There are ${names.size} registered top-level slash commands; Discord allows ${MAX_TOP_LEVEL_COMMANDS} per scope.`);
   }
 
-  console.log(`\nCommand result: ${validCommands}/${files.length} files importable, ${names.size} unique top-level command(s).`);
-  return { files: files.length, validCommands, uniqueCommands: names.size };
+  console.log(
+    `\nCommand result: ${validCommands}/${files.length} files importable, ` +
+    `${names.size} registered top-level command(s), ${groupedCommands} grouped implementation module(s).`
+  );
+  return { files: files.length, validCommands, uniqueCommands: names.size, groupedCommands };
 }
 
 async function validateEvents() {
@@ -152,9 +162,6 @@ async function validateEvents() {
     }
   }
 
-  // Multiple listeners for the same event are supported and intentional in
-  // Cloudy (for example normal logging + security monitoring), so report them
-  // for visibility without treating them as duplicate slash commands.
   for (const [eventName, listeners] of eventRegistrations) {
     if (listeners.length > 1) {
       warn(`${eventName} has ${listeners.length} listeners: ${listeners.join(', ')}`);
@@ -172,7 +179,8 @@ async function main() {
   const eventResult = await validateEvents();
 
   console.log('\n========================================');
-  console.log(`Commands: ${commandResult.uniqueCommands} unique`);
+  console.log(`Commands: ${commandResult.uniqueCommands} registered top-level`);
+  console.log(`Grouped:  ${commandResult.groupedCommands} implementation modules`);
   console.log(`Events:   ${eventResult.validEvents}/${eventResult.files} importable`);
   console.log(`Warnings: ${warnings.length}`);
   console.log(`Failures: ${failures.length}`);
