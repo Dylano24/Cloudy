@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import { REST } from '@discordjs/rest';
-import { Client, Events, GatewayIntentBits } from 'discord.js';
 
 function firstTrimmedEnv(...names) {
   for (const name of names) {
@@ -15,46 +14,6 @@ function firstTrimmedEnv(...names) {
 function assertSnowflake(value, label) {
   if (!/^\d{17,20}$/.test(String(value || ''))) {
     throw new Error(`${label} must be a valid Discord snowflake ID`);
-  }
-}
-
-async function verifyGateway(token) {
-  const probe = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.GuildInvites,
-      GatewayIntentBits.GuildMessageReactions,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.DirectMessages,
-      GatewayIntentBits.GuildVoiceStates,
-      GatewayIntentBits.GuildBans,
-    ],
-  });
-
-  let timeout;
-  try {
-    const readyPromise = new Promise((resolve, reject) => {
-      timeout = setTimeout(() => {
-        reject(new Error('Discord Gateway did not reach READY within 20 seconds'));
-      }, 20000);
-
-      probe.once(Events.ClientReady, () => resolve());
-      probe.once(Events.Error, (error) => reject(error));
-      probe.once(Events.ShardError, (error) => reject(error));
-    });
-
-    await probe.login(token);
-    await readyPromise;
-    console.log(`[PREFLIGHT] Discord Gateway READY confirmed for bot ${probe.user?.id || 'unknown'}.`);
-  } finally {
-    clearTimeout(timeout);
-    try {
-      probe.destroy();
-    } catch {
-      // Probe cleanup should never block the real bot startup.
-    }
   }
 }
 
@@ -156,10 +115,6 @@ async function preflightDiscord() {
     }
     console.warn(`[PREFLIGHT] Could not inspect application intent flags: ${error?.message || error}`);
   }
-
-  // Final proof: establish the same Gateway session/intents the production bot
-  // uses and require an actual READY event before the real application starts.
-  await verifyGateway(token);
 }
 
 try {
