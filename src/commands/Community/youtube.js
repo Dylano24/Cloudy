@@ -15,6 +15,13 @@ function number(value) {
   return Number.isFinite(numeric) ? numeric.toLocaleString('en-US') : String(value);
 }
 
+function setThumbnailIfPresent(embed, url) {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+    embed.setThumbnail(url);
+  }
+  return embed;
+}
+
 function errorReply(interaction, error) {
   return InteractionHelper.safeReply(interaction, {
     content: `❌ ${error?.message || 'YouTube request failed.'}`,
@@ -78,7 +85,8 @@ export default {
 
   async execute(interaction) {
     const subcommand = interaction.options.getSubcommand();
-    await InteractionHelper.safeDefer(interaction);
+    const deferred = await InteractionHelper.safeDefer(interaction);
+    if (!deferred) return;
 
     try {
       if (subcommand === 'latest') {
@@ -89,9 +97,9 @@ export default {
           .setTitle(result.video.title)
           .setURL(result.video.url)
           .setAuthor({ name: result.channel.title })
-          .setThumbnail(result.video.thumbnail)
           .setDescription(result.video.description?.slice(0, 1000) || 'Latest YouTube upload')
           .setTimestamp(result.video.published ? new Date(result.video.published) : new Date());
+        setThumbnailIfPresent(embed, result.video.thumbnail);
 
         return InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
       }
@@ -102,8 +110,8 @@ export default {
           .setTitle(video.title)
           .setURL(video.url)
           .setAuthor({ name: video.author })
-          .setThumbnail(video.thumbnail)
           .addFields({ name: 'Video ID', value: `\`${video.id}\``, inline: true });
+        setThumbnailIfPresent(embed, video.thumbnail);
         return InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
       }
 
@@ -113,13 +121,13 @@ export default {
           .setTitle(channel.title)
           .setURL(channel.url)
           .setDescription(channel.description?.slice(0, 1500) || 'YouTube channel')
-          .setThumbnail(channel.thumbnail || channel.latestVideo?.thumbnail || null)
           .addFields(
             { name: 'Channel ID', value: `\`${channel.id}\``, inline: false },
             { name: 'Subscribers', value: number(channel.statistics?.subscriberCount), inline: true },
             { name: 'Views', value: number(channel.statistics?.viewCount), inline: true },
             { name: 'Videos', value: number(channel.statistics?.videoCount), inline: true },
           );
+        setThumbnailIfPresent(embed, channel.thumbnail || channel.latestVideo?.thumbnail);
 
         if (channel.latestVideo) {
           embed.addFields({
@@ -138,11 +146,11 @@ export default {
           .setTitle(playlist.title)
           .setURL(playlist.url)
           .setDescription(playlist.description?.slice(0, 1500) || 'YouTube playlist')
-          .setThumbnail(playlist.thumbnail)
           .addFields(
             { name: 'Creator', value: playlist.creator, inline: true },
             { name: 'Videos', value: number(playlist.itemCount), inline: true },
           );
+        setThumbnailIfPresent(embed, playlist.thumbnail);
         return InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
       }
 
@@ -166,15 +174,12 @@ export default {
 
       if (subcommand === 'random') {
         const video = await getRandomYouTubeVideo(interaction.options.getString('query', true));
-        return InteractionHelper.safeEditReply(interaction, {
-          embeds: [
-            new EmbedBuilder()
-              .setTitle(video.title)
-              .setURL(video.url)
-              .setAuthor({ name: video.channelTitle })
-              .setThumbnail(video.thumbnail),
-          ],
-        });
+        const embed = new EmbedBuilder()
+          .setTitle(video.title)
+          .setURL(video.url)
+          .setAuthor({ name: video.channelTitle });
+        setThumbnailIfPresent(embed, video.thumbnail);
+        return InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
       }
     } catch (error) {
       if (interaction.deferred || interaction.replied) {
