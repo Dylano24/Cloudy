@@ -7,6 +7,9 @@ export const GROUPED_TOP_LEVEL_COMMANDS = new Set([
   'gend',
   'greroll',
   'motivation-config',
+  'claim',
+  'close',
+  'priority',
 ]);
 
 export function isGroupedTopLevelCommand(name) {
