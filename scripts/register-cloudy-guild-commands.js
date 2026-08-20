@@ -14,9 +14,8 @@ const configuredClientId = String(
 
 const API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 20000;
-const CRITICAL = ['help', 'ban', 'unban', 'kick', 'timeout', 'untimeout', 'warn', 'ticket'];
-const DAILY_CREATE_LIMIT_CODE = 30034;
-const MAX_ATTEMPTS = 48;
+const CRITICAL = ['help', 'ban', 'unban', 'timeout', 'untimeout', 'kick', 'warn', 'ticket'];
+const MAX_RUNTIME_MS = 23 * 60 * 60 * 1000;
 
 if (!token) {
   console.error('[COMMAND_RECOVERY] DISCORD_TOKEN is missing.');
@@ -76,26 +75,25 @@ async function loadPayloads() {
   const seen = new Set();
 
   for (const file of files) {
-    const mod = await import(pathToFileURL(file).href);
-    const command = mod.default || mod;
-    if (!command?.data || typeof command.data.toJSON !== 'function' || typeof command.execute !== 'function') continue;
+    try {
+      const mod = await import(pathToFileURL(file).href);
+      const command = mod.default || mod;
+      if (!command?.data || typeof command.data.toJSON !== 'function' || typeof command.execute !== 'function') continue;
 
-    const payload = JSON.parse(JSON.stringify(command.data.toJSON()));
-    if (!payload?.name || seen.has(payload.name)) continue;
-    seen.add(payload.name);
+      const payload = JSON.parse(JSON.stringify(command.data.toJSON()));
+      if (!payload?.name || seen.has(payload.name)) continue;
+      seen.add(payload.name);
 
-    if (!isPlayerCommand(payload.name) && !payload.default_member_permissions) {
-      payload.default_member_permissions = '8';
+      if (!isPlayerCommand(payload.name) && !payload.default_member_permissions) {
+        payload.default_member_permissions = '8';
+      }
+      payloads.push(payload);
+    } catch (error) {
+      console.error(`[COMMAND_RECOVERY] Failed loading ${file}: ${error.message}`);
     }
-    payloads.push(payload);
   }
 
   return payloads;
-}
-
-function missingCritical(commands = []) {
-  const names = new Set(commands.map((command) => command.name));
-  return CRITICAL.filter((name) => !names.has(name));
 }
 
 function retryAfterSeconds(result) {
@@ -104,15 +102,27 @@ function retryAfterSeconds(result) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-function mergeExistingIds(payloads, existing) {
-  const ids = new Map(existing.map((command) => [`${command.type || 1}:${command.name}`, command.id]));
-  return payloads.map((payload) => {
-    const id = ids.get(`${payload.type || 1}:${payload.name}`);
-    return id ? { ...payload, id } : payload;
-  });
+function sortRecoveryQueue(payloads, existingNames) {
+  const byName = new Map(payloads.map((payload) => [payload.name, payload]));
+  const queue = [];
+
+  for (const name of CRITICAL) {
+    if (!existingNames.has(name) && byName.has(name)) {
+      queue.push(byName.get(name));
+      byName.delete(name);
+    }
+  }
+
+  const rest = [...byName.values()]
+    .filter((payload) => !existingNames.has(payload.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return [...queue, ...rest];
 }
 
 async function main() {
+  const startedAt = Date.now();
+
   const me = await discordFetch('/users/@me');
   if (!me.response.ok || !me.body?.id) {
     throw new Error(`Discord token check failed (${me.response.status}): ${JSON.stringify(me.body)}`);
@@ -128,90 +138,94 @@ async function main() {
     throw new Error(`Invalid command count ${payloads.length}; expected 1-100.`);
   }
 
-  const missingFiles = missingCritical(payloads);
-  if (missingFiles.length) {
-    throw new Error(`Critical command files missing: ${missingFiles.join(', ')}`);
-  }
-
   const route = `/applications/${applicationId}/guilds/${guildId}/commands`;
-  console.log(`[COMMAND_RECOVERY] Target app=${applicationId} guild=${guildId} desired=${payloads.length}.`);
+  console.log(`[COMMAND_RECOVERY] Incremental recovery started: app=${applicationId}, guild=${guildId}, desired=${payloads.length}.`);
+  console.log(`[COMMAND_RECOVERY] Priority order: ${CRITICAL.join(', ')}.`);
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    let existingResult;
+  while (Date.now() - startedAt < MAX_RUNTIME_MS) {
+    let current;
     try {
-      existingResult = await discordFetch(route);
+      current = await discordFetch(route);
     } catch (error) {
-      console.error(`[COMMAND_RECOVERY] GET attempt ${attempt} failed: ${error.message}`);
+      console.error(`[COMMAND_RECOVERY] GET failed: ${error.message}; retrying in 60s.`);
       await sleep(60000);
       continue;
     }
 
-    if (existingResult.response.ok && Array.isArray(existingResult.body)) {
-      const existing = existingResult.body;
-      const criticalMissing = missingCritical(existing);
-      if (existing.length === payloads.length && criticalMissing.length === 0) {
-        console.log(`[COMMAND_RECOVERY] HEALTHY: ${existing.length} guild commands already registered. Critical commands present.`);
-        return;
-      }
-
-      console.log(
-        `[COMMAND_RECOVERY] Attempt ${attempt}/${MAX_ATTEMPTS}: existing=${existing.length}, desired=${payloads.length}, ` +
-        `missingCritical=${criticalMissing.join(',') || 'none'}.`
-      );
-
-      const body = mergeExistingIds(payloads, existing);
-      let sync;
-      try {
-        sync = await discordFetch(route, { method: 'PUT', body: JSON.stringify(body) });
-      } catch (error) {
-        console.error(`[COMMAND_RECOVERY] PUT attempt ${attempt} failed: ${error.message}`);
-        await sleep(60000);
-        continue;
-      }
-
-      if (sync.response.ok && Array.isArray(sync.body)) {
-        const missing = missingCritical(sync.body);
-        if (missing.length) {
-          throw new Error(`Discord accepted guild set but critical commands are missing: ${missing.join(', ')}`);
-        }
-        console.log(`[COMMAND_RECOVERY] SUCCESS: Discord accepted ${sync.body.length} GUILD commands; visible immediately in Cloudy.`);
-        return;
-      }
-
-      const retryAfter = retryAfterSeconds(sync);
-      const apiCode = Number(sync.body?.code);
-
-      if (sync.response.status === 429) {
+    if (!current.response.ok || !Array.isArray(current.body)) {
+      const retryAfter = retryAfterSeconds(current);
+      if (current.response.status === 429) {
         const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 60) + 2));
-        console.warn(`[COMMAND_RECOVERY] RATE_LIMIT 429: retry_after=${retryAfter ?? 'unknown'}s; retrying in ${waitSeconds}s.`);
+        console.warn(`[COMMAND_RECOVERY] GET rate-limited; waiting ${waitSeconds}s.`);
         await sleep(waitSeconds * 1000);
         continue;
       }
-
-      if (apiCode === DAILY_CREATE_LIMIT_CODE) {
-        console.warn('[COMMAND_RECOVERY] Discord daily command-create limit (30034) reached. Cloudy stays online; retrying in 60 minutes.');
-        await sleep(60 * 60 * 1000);
-        continue;
-      }
-
-      console.error(`[COMMAND_RECOVERY] Discord rejected guild sync HTTP ${sync.response.status}: ${JSON.stringify(sync.body)}`);
+      console.error(`[COMMAND_RECOVERY] GET rejected HTTP ${current.response.status}: ${JSON.stringify(current.body)}; retrying in 5m.`);
       await sleep(5 * 60 * 1000);
       continue;
     }
 
-    const retryAfter = retryAfterSeconds(existingResult);
-    if (existingResult.response.status === 429) {
-      const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 60) + 2));
-      console.warn(`[COMMAND_RECOVERY] GET rate-limited: retry_after=${retryAfter ?? 'unknown'}s; retrying in ${waitSeconds}s.`);
+    const existingNames = new Set(current.body.map((command) => command.name));
+    const queue = sortRecoveryQueue(payloads, existingNames);
+
+    if (!queue.length) {
+      console.log(`[COMMAND_RECOVERY] COMPLETE: all ${payloads.length} Cloudy guild commands are registered.`);
+      return;
+    }
+
+    const next = queue[0];
+    console.log(
+      `[COMMAND_RECOVERY] Progress ${existingNames.size}/${payloads.length}. Next command: /${next.name}. Remaining=${queue.length}.`
+    );
+
+    let create;
+    try {
+      create = await discordFetch(route, {
+        method: 'POST',
+        body: JSON.stringify(next),
+      });
+    } catch (error) {
+      console.error(`[COMMAND_RECOVERY] POST /${next.name} failed: ${error.message}; retrying in 60s.`);
+      await sleep(60000);
+      continue;
+    }
+
+    if (create.response.ok && create.body?.name === next.name) {
+      console.log(`[COMMAND_RECOVERY] RESTORED /${next.name}. Discord now has at least ${existingNames.size + 1}/${payloads.length} Cloudy commands.`);
+      await sleep(1500);
+      continue;
+    }
+
+    const retryAfter = retryAfterSeconds(create);
+    const apiCode = Number(create.body?.code);
+
+    if (create.response.status === 429) {
+      const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 432) + 2));
+      console.warn(
+        `[COMMAND_RECOVERY] CREATE_QUOTA: /${next.name} must wait ${waitSeconds}s (retry_after=${retryAfter ?? 'unknown'}). ` +
+        'Cloudy remains online; this command will be retried automatically.'
+      );
       await sleep(waitSeconds * 1000);
       continue;
     }
 
-    console.error(`[COMMAND_RECOVERY] Cannot read guild commands HTTP ${existingResult.response.status}: ${JSON.stringify(existingResult.body)}`);
+    if (apiCode === 30034) {
+      console.warn(
+        `[COMMAND_RECOVERY] DAILY_CREATE_LIMIT 30034 while restoring /${next.name}. ` +
+        'Waiting 10 minutes before checking for the next available create token.'
+      );
+      await sleep(10 * 60 * 1000);
+      continue;
+    }
+
+    console.error(
+      `[COMMAND_RECOVERY] Discord rejected /${next.name}: HTTP ${create.response.status}, body=${JSON.stringify(create.body)}. ` +
+      'Skipping it for 5 minutes before retrying.'
+    );
     await sleep(5 * 60 * 1000);
   }
 
-  console.error('[COMMAND_RECOVERY] Automatic recovery exhausted all attempts; bot remains online.');
+  console.warn('[COMMAND_RECOVERY] 23-hour recovery window ended. Restart/redeploy later only if commands are still missing.');
 }
 
 main().catch((error) => {
