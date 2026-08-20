@@ -84,22 +84,35 @@ async function preflightDiscord() {
     );
   }
 
-  // Discord application flags provide useful diagnostics for privileged gateway
-  // intent access. Do not hard-fail here because Discord may change flag policy;
-  // the real gateway login remains the final authority.
+  // app.js requests GuildMembers and MessageContent. If Discord says either
+  // privileged intent is unavailable, the gateway connection can be closed and
+  // the bot will appear offline even though Railway's HTTP server started.
   try {
     const application = await rest.get('/oauth2/applications/@me');
     const flags = BigInt(application?.flags || 0);
     const guildMembersBits = 16384n | 32768n;
     const messageContentBits = 262144n | 524288n;
+    const missing = [];
 
     if ((flags & guildMembersBits) === 0n) {
-      console.warn('[PREFLIGHT] Server Members privileged intent does not appear enabled for this application.');
+      missing.push('Server Members Intent');
     }
     if ((flags & messageContentBits) === 0n) {
-      console.warn('[PREFLIGHT] Message Content privileged intent does not appear enabled for this application.');
+      missing.push('Message Content Intent');
     }
+
+    if (missing.length > 0) {
+      throw new Error(
+        `Discord privileged intents missing: ${missing.join(', ')}. ` +
+        'Enable them in Discord Developer Portal > Bot > Privileged Gateway Intents and save changes.',
+      );
+    }
+
+    console.log('[PREFLIGHT] Required Discord privileged intents are available.');
   } catch (error) {
+    if (String(error?.message || '').startsWith('Discord privileged intents missing:')) {
+      throw error;
+    }
     console.warn(`[PREFLIGHT] Could not inspect application intent flags: ${error?.message || error}`);
   }
 }
