@@ -3,7 +3,6 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
-import botConfig from '../../config/bot.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,8 +31,6 @@ async function getAllFiles(directory, fileList = []) {
     for (const file of files) {
         const filePath = path.join(directory, file.name);
         if (file.isDirectory()) {
-            // Helper modules are not slash commands. Every real command category,
-            // including Leveling, must be traversed.
             if (file.name === 'modules') continue;
             await getAllFiles(filePath, fileList);
         } else if (file.name.endsWith('.js')) {
@@ -47,10 +44,9 @@ export async function loadCommands(client) {
     client.commands = new Collection();
     const commandsPath = path.join(__dirname, '../../commands');
     const commandFiles = await getAllFiles(commandsPath);
-
     logger.info(`Found ${commandFiles.length} command files to load`);
-    const uniqueCommandNames = new Set();
 
+    const uniqueCommandNames = new Set();
     for (const filePath of commandFiles) {
         try {
             const normalizedPath = filePath.replace(/\\/g, '/');
@@ -100,12 +96,9 @@ function collectCommandPayloads(client) {
         registeredNames.add(commandName);
 
         const commandJson = command.data.toJSON();
-        // Preserve explicit permissions already defined by a command. Otherwise
-        // legacy Cloudy rule applies: everything not in PLAYER_COMMANDS is admin-only.
         if (command.adminOnly && !commandJson.default_member_permissions) {
             commandJson.default_member_permissions = '8';
         }
-
         commands.push(commandJson);
         totalSubcommands += getSubcommandInfo(commandJson).length;
     }
@@ -143,11 +136,6 @@ function prepareCommandsForRegistration(commands) {
     return commands;
 }
 
-async function registerScope(client, route, commands, label) {
-    await client.rest.put(route, { body: commands });
-    logger.info(`Successfully registered ${commands.length} ${label} commands`);
-}
-
 export async function registerCommands(client, options = {}) {
     const authenticatedClientId = client.user?.id || options.clientId;
     if (!authenticatedClientId) throw new Error('Could not resolve Discord application ID');
@@ -156,30 +144,22 @@ export async function registerCommands(client, options = {}) {
     const { commands, totalSubcommands } = collectCommandPayloads(client);
     validateCommands(commands);
     const commandsToRegister = prepareCommandsForRegistration(commands);
-
-    logger.info(`Registering ${commandsToRegister.length} top-level commands + ${totalSubcommands} subcommands`);
-
     const guildId = process.env.BOTPROFILE_GUILD_ID || process.env.GUILD_ID || '1532882647838228723';
-    if (guildId) {
-        await registerScope(
-            client,
-            `/applications/${authenticatedClientId}/guilds/${guildId}/commands`,
-            commandsToRegister,
-            'Cloudy guild'
-        );
-    }
 
-    // Keep global commands in sync as fallback for any other server the bot joins.
-    // Guild commands above appear immediately in the Cloudy server.
-    if (botConfig.commands?.deleteCommands) {
-        await client.rest.put(`/applications/${authenticatedClientId}/commands`, { body: [] });
-    }
-    await registerScope(
-        client,
-        `/applications/${authenticatedClientId}/commands`,
-        commandsToRegister,
-        'global'
+    if (!guildId) throw new Error('GUILD_ID is required for immediate Cloudy command registration');
+
+    logger.info(`Registering ${commandsToRegister.length} top-level commands + ${totalSubcommands} subcommands in Cloudy guild ${guildId}`);
+
+    // Remove old global copies first. This prevents Discord from showing the same
+    // Cloudy command twice (global + guild) in autocomplete.
+    await client.rest.put(`/applications/${authenticatedClientId}/commands`, { body: [] });
+
+    await client.rest.put(
+        `/applications/${authenticatedClientId}/guilds/${guildId}/commands`,
+        { body: commandsToRegister }
     );
+
+    logger.info(`Successfully registered ${commandsToRegister.length} Cloudy guild commands with no global duplicates`);
 }
 
 export async function reloadCommand(client, commandName) {
