@@ -69,11 +69,65 @@ function buildGuildCommandPayloads(client) {
     payloads.push(payload);
   }
 
+  // Always put /help first. If another command is malformed or the bot ever
+  // reaches Discord's 100-command guild limit, /help must still be available.
+  payloads.sort((a, b) => {
+    if (a.name === 'help') return -1;
+    if (b.name === 'help') return 1;
+    return a.name.localeCompare(b.name);
+  });
+
   if (payloads.length > MAX_GUILD_COMMANDS) {
     logger.warn(`Discord allows at most ${MAX_GUILD_COMMANDS} guild commands; syncing the first ${MAX_GUILD_COMMANDS} of ${payloads.length}.`);
   }
 
   return payloads.slice(0, MAX_GUILD_COMMANDS);
+}
+
+async function syncSingleGuildCommands(client, guild, payloads) {
+  let cleared = false;
+
+  try {
+    await guild.commands.set([]);
+    cleared = true;
+    startupLog(`Cleared stale guild commands in ${guild.name} (${guild.id})`);
+  } catch (error) {
+    logger.warn(`Could not clear stale guild commands in ${guild.name} (${guild.id}): ${error?.message || error}`);
+  }
+
+  let registered = 0;
+  const failed = [];
+
+  // Register commands one-by-one. A single malformed command can no longer
+  // make Discord reject the entire command set.
+  for (const payload of payloads) {
+    try {
+      await guild.commands.create(payload);
+      registered += 1;
+    } catch (error) {
+      const message = error?.rawError?.message || error?.message || String(error);
+      failed.push({ name: payload.name, message });
+      logger.error(`Slash command /${payload.name} failed to register in ${guild.name} (${guild.id}): ${message}`, error);
+    }
+  }
+
+  const helpRegistered = registered > 0 && !failed.some((entry) => entry.name === 'help');
+
+  startupLog(
+    `Slash command sync for ${guild.name}: ${registered}/${payloads.length} registered, ${failed.length} failed${cleared ? '' : ', stale clear failed'}`
+  );
+
+  if (failed.length > 0) {
+    logger.warn(`Failed slash commands in ${guild.name}: ${failed.map((entry) => `/${entry.name}`).join(', ')}`);
+  }
+
+  return {
+    guildId: guild.id,
+    guildName: guild.name,
+    registered,
+    failed,
+    helpRegistered,
+  };
 }
 
 async function syncGuildCommands(client) {
@@ -86,28 +140,22 @@ async function syncGuildCommands(client) {
     throw new Error('Cloudy is not connected to any Discord guilds');
   }
 
+  const results = [];
+
   for (const guild of client.guilds.cache.values()) {
-    let lastError = null;
-
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const registered = await guild.commands.set(payloads);
-        startupLog(`✅ Slash command sync: ${registered.size} commands registered in ${guild.name} (${guild.id})`);
-        lastError = null;
-        break;
-      } catch (error) {
-        lastError = error;
-        logger.warn(`Slash command sync attempt ${attempt}/3 failed for ${guild.name} (${guild.id}): ${error?.message || error}`);
-        if (attempt < 3) {
-          await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
-        }
-      }
-    }
-
-    if (lastError) {
-      logger.error(`❌ Slash commands could not be registered in ${guild.name} (${guild.id}). Re-authorize Cloudy with the applications.commands scope.`, lastError);
-    }
+    results.push(await syncSingleGuildCommands(client, guild, payloads));
   }
+
+  const successfulGuilds = results.filter((result) => result.helpRegistered && result.registered > 0);
+  client.commandSyncReady = successfulGuilds.length > 0;
+  client.commandSyncResults = results;
+
+  if (!client.commandSyncReady) {
+    throw new Error('Slash command sync finished without registering /help in any guild');
+  }
+
+  startupLog(`✅ Slash command recovery complete in ${successfulGuilds.length}/${results.length} guild(s)`);
+  return results;
 }
 
 export default {
@@ -116,6 +164,8 @@ export default {
 
   async execute(client) {
     try {
+      client.commandSyncReady = false;
+
       let presence = config.bot.presence;
       try {
         presence = await client.db.get('global:bot:profile:presence') || presence;
@@ -144,9 +194,8 @@ export default {
       startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
       startupLog(`Loaded ${client.commands.size} commands`);
 
-      // A bot that was removed and re-added can have stale or missing guild
-      // command state. Sync after ClientReady so we use the guilds Discord says
-      // Cloudy is actually installed in, instead of relying on an old GUILD_ID.
+      // Rebuild the server command installation every time the bot becomes
+      // ready. This repairs command state after the bot was removed/re-added.
       await syncGuildCommands(client);
 
       startRustPatchNotes(client);
@@ -182,6 +231,7 @@ export default {
         `Level role sync: scanned ${levelRoleSummary.scannedGuilds} guilds, pruned ${levelRoleSummary.prunedRewardEntries} stale rewards, re-awarded ${levelRoleSummary.rolesReAwarded} roles, errors ${levelRoleSummary.errors}`
       );
     } catch (error) {
+      client.commandSyncReady = false;
       logger.error("Error in ready event:", error);
     }
   },
