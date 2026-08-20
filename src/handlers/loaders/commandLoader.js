@@ -10,9 +10,6 @@ const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 const COMMAND_COUNT_WARN_THRESHOLD = 90;
 
-// These legacy top-level commands still exist as implementation files, but their
-// full functionality now lives under /music. Keeping the files lets old code be
-// reused while saving Discord slash-command slots for the rest of Cloudy.
 const GROUPED_TOP_LEVEL_COMMANDS = new Set([
     'play',
     'queue',
@@ -152,6 +149,21 @@ function prepareCommandsForRegistration(commands) {
     return commands;
 }
 
+async function registerGuild(client, guild, commandsToRegister) {
+    const registered = await guild.commands.set(commandsToRegister);
+    const registeredNames = new Set([...registered.values()].map((command) => command.name));
+    const missing = commandsToRegister
+        .map((command) => command.name)
+        .filter((name) => !registeredNames.has(name));
+
+    if (missing.length > 0) {
+        throw new Error(`Discord did not register ${missing.length} command(s) in ${guild.name}: ${missing.join(', ')}`);
+    }
+
+    logger.info(`Successfully registered all ${commandsToRegister.length} Cloudy commands in ${guild.name} (${guild.id})`);
+    return registered.size;
+}
+
 export async function registerCommands(client, options = {}) {
     const authenticatedClientId = client.user?.id || options.clientId;
     if (!authenticatedClientId) throw new Error('Could not resolve Discord application ID');
@@ -160,29 +172,40 @@ export async function registerCommands(client, options = {}) {
     const { commands, totalSubcommands } = collectCommandPayloads(client);
     validateCommands(commands);
     const commandsToRegister = prepareCommandsForRegistration(commands);
-    const guildId = process.env.BOTPROFILE_GUILD_ID || process.env.GUILD_ID || '1532882647838228723';
 
-    if (!guildId) throw new Error('GUILD_ID is required for immediate Cloudy command registration');
+    logger.info(`Preparing ${commandsToRegister.length} top-level commands + ${totalSubcommands} subcommands for ${client.guilds.cache.size} connected guild(s)`);
 
-    logger.info(`Registering ${commandsToRegister.length} top-level commands + ${totalSubcommands} subcommands in Cloudy guild ${guildId}`);
-
-    // Remove stale global copies so Discord never shows duplicate Cloudy commands.
+    // Remove stale global copies first so Discord cannot show duplicate Cloudy commands.
     await client.rest.put(`/applications/${authenticatedClientId}/commands`, { body: [] });
 
-    const registered = await client.rest.put(
-        `/applications/${authenticatedClientId}/guilds/${guildId}/commands`,
-        { body: commandsToRegister }
-    );
-
-    const registeredNames = new Set((registered || []).map((command) => command.name));
-    const missing = commandsToRegister.map((command) => command.name).filter((name) => !registeredNames.has(name));
-    if (missing.length > 0) {
-        throw new Error(`Discord did not register ${missing.length} Cloudy command(s): ${missing.join(', ')}`);
+    if (client.guilds.cache.size === 0) {
+        throw new Error('Cloudy is not connected to any guild; cannot register guild commands');
     }
 
-    logger.info(`Successfully registered all ${commandsToRegister.length} Cloudy guild commands with no global duplicates`);
+    const failures = [];
+    let successfulGuilds = 0;
+
+    for (const guild of client.guilds.cache.values()) {
+        try {
+            await registerGuild(client, guild, commandsToRegister);
+            successfulGuilds += 1;
+        } catch (error) {
+            failures.push(`${guild.name} (${guild.id}): ${error?.message || error}`);
+            logger.error(`Failed command registration in ${guild.name} (${guild.id}):`, error);
+        }
+    }
+
+    if (successfulGuilds === 0) {
+        throw new Error(`Cloudy command registration failed in every connected guild. ${failures.join(' | ')}`);
+    }
+
     client.commandSyncReady = true;
     client.registeredCommandCount = commandsToRegister.length;
+    client.registeredGuildCount = successfulGuilds;
+
+    if (failures.length > 0) {
+        logger.warn(`Command sync succeeded in ${successfulGuilds} guild(s) but failed in ${failures.length}: ${failures.join(' | ')}`);
+    }
 }
 
 export async function reloadCommand(client, commandName) {
