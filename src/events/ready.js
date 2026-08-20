@@ -10,74 +10,125 @@ import { startRustPatchNotes } from "../services/rustPatchNotesService.js";
 import { scanProtectedIdentities } from "../services/protectedIdentityService.js";
 import { initializeInviteTracking } from "../services/inviteTrackingService.js";
 
+async function runReadyStep(label, task) {
+  try {
+    return await task();
+  } catch (error) {
+    logger.error(`[READY] ${label} failed:`, error);
+    return null;
+  }
+}
+
 export default {
   name: Events.ClientReady,
   once: true,
 
   async execute(client) {
+    let presence = config.bot.presence;
     try {
-      let presence = config.bot.presence;
-      try {
-        presence = await client.db.get('global:bot:profile:presence') || presence;
-      } catch (error) {
-        logger.warn('Could not load saved bot presence; using configured presence.', error);
-      }
+      presence = await client.db.get('global:bot:profile:presence') || presence;
+    } catch (error) {
+      logger.warn('Could not load saved bot presence; using configured presence.', error);
+    }
+
+    // Never allow a stale saved "invisible" state to make a healthy production
+    // bot look offline after a Railway restart. Admins can still choose idle/DND.
+    if (!presence || typeof presence !== 'object') {
+      presence = config.bot.presence;
+    }
+    if (presence.status === 'invisible') {
+      presence = { ...presence, status: 'online' };
+      await client.db.set('global:bot:profile:presence', presence).catch(() => {});
+      logger.warn('[READY] Replaced saved invisible presence with online status.');
+    }
+
+    try {
       client.user.setPresence(presence);
+    } catch (error) {
+      logger.warn('Could not apply saved bot presence; forcing online status.', error);
+      client.user.setPresence({ ...config.bot.presence, status: 'online' });
+    }
 
-      try {
-        const avatarVersion = 'cloudy-c-transparent-v1';
-        const savedAvatarVersion = await client.db.get('global:bot:profile:avatar-version');
+    await runReadyStep('bot avatar sync', async () => {
+      const avatarVersion = 'cloudy-c-transparent-v1';
+      const savedAvatarVersion = await client.db.get('global:bot:profile:avatar-version');
 
-        if (savedAvatarVersion !== avatarVersion) {
-          const avatarBuffer = await readFile(
-            new URL('../../assets/cloudy-c-logo.png', import.meta.url)
-          );
-          await client.user.setAvatar(avatarBuffer);
-          await client.db.set('global:bot:profile:avatar-version', avatarVersion);
-          startupLog('Cloudy C bot profile picture updated');
-        }
-      } catch (error) {
-        logger.warn('Could not update Cloudy bot profile picture.', error);
+      if (savedAvatarVersion !== avatarVersion) {
+        const avatarBuffer = await readFile(
+          new URL('../../assets/cloudy-c-logo.png', import.meta.url)
+        );
+        await client.user.setAvatar(avatarBuffer);
+        await client.db.set('global:bot:profile:avatar-version', avatarVersion);
+        startupLog('Cloudy C bot profile picture updated');
       }
+    });
 
-      startupLog(`Ready! Logged in as ${client.user.tag}`);
-      startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
-      startupLog(`Loaded ${client.commands.size} commands`);
+    startupLog(`Ready! Logged in as ${client.user.tag}`);
+    startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
+    startupLog(`Loaded ${client.commands.size} commands`);
 
-      startRustPatchNotes(client);
-      void scanProtectedIdentities(client);
-      await initializeInviteTracking(client);
+    // Every subsystem is isolated so one optional feature can never prevent the
+    // rest of Cloudy from finishing its startup sequence.
+    startRustPatchNotes(client);
 
-      if (client.config?.features?.music) {
-        initRiffyAfterReady(client);
-      }
+    void scanProtectedIdentities(client).catch((error) => {
+      logger.error('[READY] protected identity scan failed:', error);
+    });
 
-      const reconciliationSummary = await reconcileReactionRoleMessages(client);
+    await runReadyStep('invite tracking initialization', () => initializeInviteTracking(client));
+
+    if (client.config?.features?.music) {
+      await runReadyStep('music/Riffy initialization', async () => initRiffyAfterReady(client));
+    }
+
+    const reconciliationSummary = await runReadyStep(
+      'reaction role reconciliation',
+      () => reconcileReactionRoleMessages(client),
+    );
+    if (reconciliationSummary) {
       startupLog(
         `Reaction role reconciliation: scanned ${reconciliationSummary.scannedMessages}, removed ${reconciliationSummary.removedMessages}, errors ${reconciliationSummary.errors}`
       );
+    }
 
-      const ticketPanelSummary = await reconcileTicketPanels(client);
+    const ticketPanelSummary = await runReadyStep(
+      'ticket panel reconciliation',
+      () => reconcileTicketPanels(client),
+    );
+    if (ticketPanelSummary) {
       startupLog(
         `Ticket panel health: scanned ${ticketPanelSummary.scannedGuilds} guilds, healthy ${ticketPanelSummary.healthyPanels}, deleted ${ticketPanelSummary.deletedPanels}, missing channel ${ticketPanelSummary.missingChannels}, recovered ${ticketPanelSummary.recoveredIds}, errors ${ticketPanelSummary.errors}`
       );
+    }
 
-      const verificationPanelSummary = await reconcileVerificationPanels(client);
+    const verificationPanelSummary = await runReadyStep(
+      'verification panel reconciliation',
+      () => reconcileVerificationPanels(client),
+    );
+    if (verificationPanelSummary) {
       startupLog(
         `Verification panel health: scanned ${verificationPanelSummary.scannedGuilds} guilds, healthy ${verificationPanelSummary.healthyPanels}, deleted ${verificationPanelSummary.deletedPanels}, missing channel ${verificationPanelSummary.missingChannels}, recovered ${verificationPanelSummary.recoveredIds}, errors ${verificationPanelSummary.errors}`
       );
+    }
 
-      const reactionRolePanelSummary = await reconcileReactionRolePanelHealth(client);
+    const reactionRolePanelSummary = await runReadyStep(
+      'reaction role panel health',
+      () => reconcileReactionRolePanelHealth(client),
+    );
+    if (reactionRolePanelSummary) {
       startupLog(
         `Reaction role panel health: scanned ${reactionRolePanelSummary.scannedPanels} panels, healthy ${reactionRolePanelSummary.healthyPanels}, deleted ${reactionRolePanelSummary.deletedPanels}, missing channel ${reactionRolePanelSummary.missingChannels}, recovered ${reactionRolePanelSummary.recoveredIds}, errors ${reactionRolePanelSummary.errors}`
       );
+    }
 
-      const levelRoleSummary = await reconcileLevelRoles(client);
+    const levelRoleSummary = await runReadyStep(
+      'level role reconciliation',
+      () => reconcileLevelRoles(client),
+    );
+    if (levelRoleSummary) {
       startupLog(
         `Level role sync: scanned ${levelRoleSummary.scannedGuilds} guilds, pruned ${levelRoleSummary.prunedRewardEntries} stale rewards, re-awarded ${levelRoleSummary.rolesReAwarded} roles, errors ${levelRoleSummary.errors}`
       );
-    } catch (error) {
-      logger.error("Error in ready event:", error);
     }
   },
 };
