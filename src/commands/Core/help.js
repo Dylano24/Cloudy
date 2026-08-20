@@ -4,9 +4,8 @@ import {
 } from "discord.js";
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed } from "../../utils/embeds.js";
-import {
-    createSelectMenu,
-} from "../../utils/components.js";
+import { createSelectMenu } from "../../utils/components.js";
+import { logger } from '../../utils/logger.js';
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -40,6 +39,18 @@ const CATEGORY_ICONS = {
     Verification: "✅",
 };
 
+const MEMBER_CATEGORIES = new Set([
+    'Core',
+    'Economy',
+    'Fun',
+    'Leveling',
+    'Music',
+    'Search',
+    'Tools',
+    'Utility',
+    'Verification',
+]);
+
 function formatCategoryName(rawCategory) {
     return rawCategory
         .replace(/_/g, '')
@@ -58,15 +69,7 @@ export async function createInitialHelpMenu(client, interaction = null) {
     )
         .filter((dirent) => dirent.isDirectory())
         .map((dirent) => dirent.name)
-        .filter((category) => category !== 'Leveling')
-        .filter((category) => showAllCommands || [
-            'Economy',
-            'Fun',
-            'Music',
-            'Search',
-            'Tools',
-            'Utility',
-        ].includes(category))
+        .filter((category) => showAllCommands || MEMBER_CATEGORIES.has(category))
         .sort();
 
     const options = [
@@ -105,15 +108,13 @@ export async function createInitialHelpMenu(client, interaction = null) {
                 }
                 : {
                     name: '🎮 Member Commands',
-                    value: '• Gamble and earn coins\n• Buy shop items\n• Play fun games\n• Listen to music\n• Use helpful tools',
+                    value: '• Economy & shop\n• Fun & utility\n• Music\n• Rank & leaderboard\n• Weather & search\n• Support & verification',
                     inline: false,
                 },
         ],
     });
 
-    embed.setFooter({ 
-        text: "Made with ❤️" 
-    });
+    embed.setFooter({ text: "Made with ❤️" });
     embed.setTimestamp();
 
     const selectRow = createSelectMenu(
@@ -135,9 +136,7 @@ export default {
         .setDescription("Displays the help menu with all available commands"),
 
     async execute(interaction, guildConfig, client) {
-        
         await InteractionHelper.safeDefer(interaction);
-        
         const { embeds, components } = await createInitialHelpMenu(client, interaction);
 
         await InteractionHelper.safeEditReply(interaction, {
@@ -147,9 +146,7 @@ export default {
 
         setTimeout(async () => {
             try {
-                if (!InteractionHelper.isInteractionValid(interaction)) {
-                    return;
-                }
+                if (!InteractionHelper.isInteractionValid(interaction)) return;
 
                 const closedEmbed = createEmbed({
                     title: "Help menu closed",
