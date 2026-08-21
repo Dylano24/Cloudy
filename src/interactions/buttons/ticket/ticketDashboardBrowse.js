@@ -11,7 +11,10 @@ import {
   getCurrentTicketDashboardConfig,
   refreshTicketDashboardCache,
 } from '../../../services/ticketDashboardService.js';
-import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
+import {
+  brandTicketDashboardPayload,
+  buildTicketDashboardPayload,
+} from '../../../services/ticketDashboardViewService.js';
 import {
   buildAllChannelTicketPrompt,
   isAllChannelTicketSetting,
@@ -63,10 +66,10 @@ const pageHandler = {
         ? buildAllChannelTicketPrompt(interaction.guild, setting, config, page)
         : buildTicketDashboardValuePrompt(interaction.guild, setting, config, page);
 
-      await interaction.editReply(payload || buildTicketDashboardPayload(interaction.guild, config));
+      await interaction.editReply(
+        brandTicketDashboardPayload(payload || buildTicketDashboardPayload(interaction.guild, config)),
+      );
 
-      // Refresh after rendering, never before. The next page/click sees the
-      // refreshed inventory without this interaction sitting on "loading".
       if (isAllChannelTicketSetting(setting)) {
         void refreshAllTicketChannels(interaction.guild).catch(() => {});
       } else {
