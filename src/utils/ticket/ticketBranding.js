@@ -2,7 +2,14 @@ import { createEmbed } from '../embeds.js';
 
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
-export const CLOUDY_TICKET_C_FOOTER_IMAGE = 'attachment://cloudy-ticket-c-layout.png';
+
+// Exact same C logo used by the welcome message, rendered on the same small
+// transparent strip that previously placed it at the ticket's bottom-right.
+const CLOUDY_WELCOME_C_LOGO =
+  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+export const CLOUDY_TICKET_C_FOOTER_IMAGE =
+  `https://images.weserv.nl/?url=${encodeURIComponent(CLOUDY_WELCOME_C_LOGO)}`
+  + '&w=600&h=96&fit=contain&a=bottom-right&cbg=00000000&output=png';
 
 export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function'
