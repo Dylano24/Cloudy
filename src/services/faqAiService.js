@@ -34,7 +34,7 @@ const recentQuestions = new Map();
 function buildPanelPayload() {
   const footerText = '© Cloudy Inc. • Quality. Innovation. Performance.';
   const embed = new EmbedBuilder()
-    .setColor('#000000')
+    .setColor('#FFFFFF')
     .setTitle('Cloudy Support Assistant')
     .setDescription(
       'Have a question or need help with something?\n\n' +
