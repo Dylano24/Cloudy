@@ -53,16 +53,20 @@ export default {
     if (!deferred) return;
 
     try {
-      const rawValue = interaction.fields.getTextInputValue('value')?.trim();
-      const value = field === 'ticketButtonLabel'
-        ? (rawValue || 'Start Chat')
-        : rawValue;
+      // Preserve the exact text submitted by the user. Do not trim, rewrite,
+      // normalize punctuation, capitalization or spacing.
+      const rawValue = interaction.fields.getTextInputValue('value');
+      if (rawValue === null || rawValue === undefined || rawValue.length === 0) {
+        const error = new Error('Ticket dashboard text value is empty.');
+        error.userMessage = 'Enter a value before saving.';
+        throw error;
+      }
 
       let savedConfig = await saveTicketDashboardSetting(
         client,
         interaction.guild,
         field,
-        value,
+        rawValue,
       );
 
       savedConfig = await ensureLivePanel(client, interaction.guild, savedConfig);
