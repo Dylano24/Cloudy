@@ -8,7 +8,6 @@ import {
 } from 'discord.js';
 import {
   TICKET_DASHBOARD_CLEAR_VALUE,
-  buildTicketDashboardPayload,
   buildTicketDashboardValuePrompt,
   getCurrentTicketDashboardConfig,
   moveTicketPanel,
@@ -16,6 +15,7 @@ import {
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
+import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import {
   buildAllChannelTicketPrompt,
   isAllChannelTicketSetting,
@@ -66,9 +66,6 @@ function buildTextSettingModal(interaction, guildId, setting) {
     .setRequired(true)
     .setMaxLength(isPanelMessage ? 2000 : 80);
 
-  // The dashboard intentionally displays a shortened Panel Message preview.
-  // Never use that shortened preview as the modal value, otherwise saving it
-  // could silently replace the user's exact full text with a truncated copy.
   if (!isPanelMessage) {
     const currentButtonLabel = getDashboardFieldValue(interaction, 'Button Label');
     if (currentButtonLabel) input.setValue(currentButtonLabel.slice(0, 80));
@@ -99,21 +96,16 @@ const dashboardSelectHandler = {
     const setting = interaction.values?.[0];
 
     try {
-      // Modals cannot be shown after deferUpdate(), so open them immediately and
-      // never block on database/network work first.
       if (setting === 'panel_message' || setting === 'button_label') {
         await interaction.showModal(buildTextSettingModal(interaction, guildId, setting));
         return;
       }
 
-      // Acknowledge the Discord interaction before ANY database or REST call.
       await interaction.deferUpdate();
 
       if (isAllChannelTicketSetting(setting)) {
         await refreshAllTicketChannels(interaction.guild);
       } else if (setting === 'open_category' || setting === 'closed_category' || setting === 'staff_role') {
-        // Only settings that actually need channel/role inventory trigger a
-        // refresh. Max Tickets is now instant and does not perform useless REST.
         await refreshTicketDashboardCache(interaction.guild);
       }
 
@@ -168,9 +160,7 @@ const dashboardValueHandler = {
       await interaction.deferUpdate();
 
       const rawValue = interaction.values?.[0];
-      if (!rawValue) {
-        throw new Error('No ticket dashboard value was selected.');
-      }
+      if (!rawValue) throw new Error('No ticket dashboard value was selected.');
 
       let savedConfig;
 
@@ -181,12 +171,7 @@ const dashboardValueHandler = {
           throw error;
         }
 
-        const channelId = await validateTicketDashboardValue(
-          client,
-          interaction.guild,
-          field,
-          rawValue,
-        );
+        const channelId = await validateTicketDashboardValue(client, interaction.guild, field, rawValue);
         savedConfig = await moveTicketPanel(client, interaction.guild, channelId);
       } else if (field === 'maxTicketsPerUser') {
         const value = Number.parseInt(rawValue, 10);
@@ -198,18 +183,8 @@ const dashboardValueHandler = {
         savedConfig = await saveTicketDashboardSetting(client, interaction.guild, field, value);
       } else {
         const value = rawValue === TICKET_DASHBOARD_CLEAR_VALUE ? null : rawValue;
-        const validatedValue = await validateTicketDashboardValue(
-          client,
-          interaction.guild,
-          field,
-          value,
-        );
-        savedConfig = await saveTicketDashboardSetting(
-          client,
-          interaction.guild,
-          field,
-          validatedValue,
-        );
+        const validatedValue = await validateTicketDashboardValue(client, interaction.guild, field, value);
+        savedConfig = await saveTicketDashboardSetting(client, interaction.guild, field, validatedValue);
       }
 
       await interaction.editReply(buildTicketDashboardPayload(interaction.guild, savedConfig));
