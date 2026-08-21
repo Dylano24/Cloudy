@@ -242,7 +242,7 @@ export async function incrementTicketCounter(guildId) {
         return next;
     });
 
-    return nextCounter.toString().padStart(3, '0');
+    return String(nextCounter);
 }
 
 async function listGuildTickets(guildId) {
