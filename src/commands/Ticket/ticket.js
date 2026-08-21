@@ -15,6 +15,12 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { logger } from '../../utils/logger.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import ticketConfig from './modules/ticket_dashboard.js';
+import {
+    formatTicketHealthLines,
+    runTicketHealth,
+} from '../../services/ticketHealthService.js';
+
+const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 function hasCreateTicketButton(message) {
     return message?.components?.some(row =>
@@ -54,9 +60,42 @@ function buildTicketPanel(client, panelMessage, buttonLabel) {
     return { embed, row };
 }
 
+function buildHealthEmbed(report, detailed = false) {
+    const overall = report.overall === 'healthy'
+        ? 'Healthy'
+        : report.overall === 'degraded'
+            ? 'Degraded'
+            : 'Critical';
+    const icon = report.overall === 'healthy' ? '✅' : report.overall === 'degraded' ? '⚠️' : '❌';
+    const lines = formatTicketHealthLines(report, { includeFixes: detailed });
+
+    const statsLines = [
+        `**Overall:** ${icon} ${overall}`,
+        `**Critical issues:** ${report.critical}`,
+        `**Warnings:** ${report.warnings}`,
+        `**Gateway:** ${report.gatewayPing == null ? 'Unknown' : `${report.gatewayPing}ms`}`,
+    ];
+
+    if (report.stats) {
+        statsLines.push(
+            `**Open tickets:** ${report.stats.openCount ?? 0}`,
+            `**Closed tickets:** ${report.stats.closedCount ?? 0}`,
+        );
+    }
+
+    return new EmbedBuilder()
+        .setTitle(detailed ? 'Ticket System Debug' : 'Ticket System Health')
+        .setDescription(`${statsLines.join('\n')}\n\n${lines.join('\n\n')}`.slice(0, 4096))
+        .setColor(report.overall === 'healthy' ? 0x57F287 : report.overall === 'degraded' ? 0xFEE75C : 0xED4245)
+        .setFooter({ text: CLOUDY_FOOTER })
+        .setTimestamp();
+}
+
 async function recoverExistingTicketPanel(interaction, client, guildConfig) {
     const guild = interaction.guild;
     if (!guild || !client?.user?.id) return guildConfig;
+
+    await guild.channels.fetch().catch(() => {});
 
     const textChannels = guild.channels.cache
         .filter(channel =>
@@ -193,6 +232,16 @@ export default {
             subcommand
                 .setName('dashboard')
                 .setDescription('Open the interactive ticket system dashboard')
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('health')
+                .setDescription('Check ticket-system setup, database and permissions')
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('debug')
+                .setDescription('Show a detailed ticket-system diagnostic report')
         ),
 
     category: 'ticket',
@@ -209,6 +258,28 @@ export default {
         }
 
         const subcommand = interaction.options.getSubcommand();
+
+        if (subcommand === 'health' || subcommand === 'debug') {
+            try {
+                const report = await runTicketHealth(client, interaction.guild);
+                await InteractionHelper.safeEditReply(interaction, {
+                    content: '',
+                    embeds: [buildHealthEmbed(report, subcommand === 'debug')],
+                    components: [],
+                });
+            } catch (error) {
+                logger.error('Ticket health diagnostic failed', {
+                    guildId: interaction.guildId,
+                    error: error.message,
+                });
+                await InteractionHelper.safeEditReply(interaction, {
+                    content: `Ticket diagnostic failed: ${error.message}`,
+                    embeds: [],
+                    components: [],
+                });
+            }
+            return;
+        }
 
         if (!persistentDatabaseAvailable(client)) {
             return await replyUserError(interaction, {
@@ -292,7 +363,6 @@ export default {
                 dmOnClose: false,
             });
         } catch (error) {
-            // Never leave an orphan panel behind when persistence fails.
             if (sentPanel) {
                 await sentPanel.delete().catch(() => {});
             }
