@@ -279,6 +279,7 @@ export function buildCloudyTicketControls({ claimedBy = null } = {}) {
       .setCustomId('ticket_unclaim')
       .setLabel('Unclaim')
       .setStyle(ButtonStyle.Secondary)
+      .setEmoji('🔓')
     : new ButtonBuilder()
       .setCustomId('ticket_claim')
       .setLabel('Claim')
@@ -290,15 +291,18 @@ export function buildCloudyTicketControls({ claimedBy = null } = {}) {
     new ButtonBuilder()
       .setCustomId('ticket_pin')
       .setLabel('Pin')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji(PIN_EMOJI),
     new ButtonBuilder()
       .setCustomId('ticket_priority_menu')
       .setLabel('Priority')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('🟡'),
     new ButtonBuilder()
       .setCustomId('ticket_close')
       .setLabel('Close')
-      .setStyle(ButtonStyle.Danger),
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('🔒'),
   );
 }
 
