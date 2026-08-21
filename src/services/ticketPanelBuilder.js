@@ -9,7 +9,9 @@ import {
   forceCloudyTicketFooter,
 } from '../utils/ticket/ticketBranding.js';
 
-export const DEFAULT_TICKET_PANEL_MESSAGE = 'Click the button below to create a support ticket.';
+export const DEFAULT_TICKET_PANEL_MESSAGE = `If you need assistance or have something to report, simply hit the Start chat button below and our team will get back to you as soon as possible.
+
+Before submitting a request, please make sure the answer to your question cannot already be found in our FAQ section using the button at the bottom right`;
 export const DEFAULT_TICKET_BUTTON_LABEL = 'Start Chat';
 export const TICKET_FAQ_CHANNEL_ID = '1534654577385672917';
 export { CLOUDY_TICKET_FOOTER };
