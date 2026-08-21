@@ -15,10 +15,10 @@ import {
   claimTicket,
   unclaimTicket,
   reopenTicket,
-  deleteTicket,
   toggleTicketPinned,
   updateTicketPriority,
 } from '../../../services/ticketReliabilityService.js';
+import { deleteTicketSafely as deleteTicket } from '../../../services/ticketDeleteService.js';
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
 import { logger } from '../../../utils/logger.js';
@@ -336,7 +336,7 @@ const deleteTicketHandler = {
 
       await deleteTicket(interaction.channel, interaction.user);
       await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed('Ticket Deleted', 'This ticket will be deleted shortly.')],
+        embeds: [successEmbed('Ticket Deleted', 'The transcript was archived. This ticket will be deleted shortly.')],
       });
     } catch (error) {
       logger.error('Ticket delete button failed', { error: error.message, channelId: interaction.channelId });
