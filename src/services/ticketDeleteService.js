@@ -1,5 +1,5 @@
 import { getTicketData, saveTicketData } from '../utils/database.js';
-import { createEmbed } from '../utils/embeds.js';
+import { buildCloudyTicketEmbed } from '../utils/ticket/ticketBranding.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { requirePersistentTicketDatabase } from './ticketReliabilityService.js';
 import { archiveTicketTranscript } from './ticketTranscriptService.js';
@@ -108,13 +108,12 @@ export async function deleteTicketSafely(channel, deleter) {
         });
       }
 
-      const deleteEmbed = createEmbed({
-        title: 'Ticket Deleted',
-        description: `This ticket will be permanently deleted in ${Math.ceil(DELETE_DELAY_MS / 1000)} seconds.`,
-        color: '#e74c3c',
-        footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
-      });
-      await channel.send({ embeds: [deleteEmbed] }).catch(() => {});
+      await channel.send({
+        embeds: [buildCloudyTicketEmbed({
+          title: 'Ticket Deleted',
+          description: `This ticket will be permanently deleted in ${Math.ceil(DELETE_DELAY_MS / 1000)} seconds.`,
+        })],
+      }).catch(() => {});
 
       const timer = setTimeout(async () => {
         try {
