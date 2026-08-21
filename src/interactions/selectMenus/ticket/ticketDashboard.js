@@ -12,6 +12,7 @@ import {
   buildTicketDashboardValuePrompt,
   getCurrentTicketDashboardConfig,
   moveTicketPanel,
+  refreshTicketDashboardCache,
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
@@ -87,13 +88,16 @@ const dashboardSelectHandler = {
         return;
       }
 
-      const prompt = buildTicketDashboardValuePrompt(interaction.guild, setting, config);
+      await interaction.deferUpdate();
+      await refreshTicketDashboardCache(interaction.guild);
+      const freshConfig = await getCurrentTicketDashboardConfig(client, guildId);
+      const prompt = buildTicketDashboardValuePrompt(interaction.guild, setting, freshConfig, 0);
       if (!prompt) {
-        await interaction.update(buildTicketDashboardPayload(interaction.guild, config));
+        await interaction.editReply(buildTicketDashboardPayload(interaction.guild, freshConfig));
         return;
       }
 
-      await interaction.update(prompt);
+      await interaction.editReply(prompt);
     } catch (error) {
       logger.error('Persistent ticket dashboard select failed', {
         guildId,
@@ -101,7 +105,12 @@ const dashboardSelectHandler = {
         error: error.message,
       });
 
-      if (!interaction.replied && !interaction.deferred) {
+      if (interaction.deferred || interaction.replied) {
+        const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+        const payload = buildTicketDashboardPayload(interaction.guild, config);
+        payload.content = error?.userMessage || 'Could not open that ticket setting. Please try again.';
+        await interaction.editReply(payload).catch(() => {});
+      } else {
         await InteractionHelper.safeReply(interaction, {
           content: error?.userMessage || 'Could not open that ticket setting. Please try again.',
           flags: MessageFlags.Ephemeral,
