@@ -1,21 +1,30 @@
-// helpers.js
-
-import { BotConfig } from "../config/bot.js";
-
 export function getPriorityMap() {
-    const priorities = BotConfig.tickets?.priorities || {};
-    const map = {};
-
-    for (const [key, config] of Object.entries(priorities)) {
-        map[key] = {
-            name: `${config.emoji} ${config.label.toUpperCase()}`,
-            color: config.color,
-            emoji: config.emoji,
-            label: config.label,
-        };
-    }
-
-    return map;
+    return {
+        none: {
+            name: '⚪ NONE',
+            color: '#FFFFFF',
+            emoji: '⚪',
+            label: 'None',
+        },
+        low: {
+            name: '🔵 LOW',
+            color: '#3498DB',
+            emoji: '🔵',
+            label: 'Low',
+        },
+        medium: {
+            name: '🟡 MEDIUM',
+            color: '#F1C40F',
+            emoji: '🟡',
+            label: 'Medium',
+        },
+        high: {
+            name: '🔴 HIGH',
+            color: '#E74C3C',
+            emoji: '🔴',
+            label: 'High',
+        },
+    };
 }
 
 export const PRIORITY_MAP = getPriorityMap();
