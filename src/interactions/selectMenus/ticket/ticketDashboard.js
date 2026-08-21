@@ -15,7 +15,10 @@ import {
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
-import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
+import {
+  brandTicketDashboardPayload,
+  buildTicketDashboardPayload,
+} from '../../../services/ticketDashboardViewService.js';
 import {
   buildAllChannelTicketPrompt,
   isAllChannelTicketSetting,
@@ -125,7 +128,9 @@ const dashboardSelectHandler = {
         ? buildAllChannelTicketPrompt(interaction.guild, setting, freshConfig, 0)
         : buildTicketDashboardValuePrompt(interaction.guild, setting, freshConfig, 0);
 
-      await interaction.editReply(prompt || buildTicketDashboardPayload(interaction.guild, freshConfig));
+      await interaction.editReply(
+        brandTicketDashboardPayload(prompt || buildTicketDashboardPayload(interaction.guild, freshConfig)),
+      );
 
       if (isAllChannelTicketSetting(setting)) {
         void refreshAllTicketChannels(interaction.guild).catch(() => {});
@@ -212,11 +217,15 @@ const dashboardValueHandler = {
 
       if (isAllChannelTicketSetting(setting)) {
         const page = Math.max(0, Number.parseInt(pageRaw, 10) || 0);
-        payload = buildAllChannelTicketPrompt(interaction.guild, setting, config, page)
-          || buildTicketDashboardPayload(interaction.guild, config);
+        payload = brandTicketDashboardPayload(
+          buildAllChannelTicketPrompt(interaction.guild, setting, config, page)
+          || buildTicketDashboardPayload(interaction.guild, config),
+        );
       } else if (field === 'maxTicketsPerUser') {
-        payload = buildTicketDashboardValuePrompt(interaction.guild, 'max_tickets', config, 0)
-          || buildTicketDashboardPayload(interaction.guild, config);
+        payload = brandTicketDashboardPayload(
+          buildTicketDashboardValuePrompt(interaction.guild, 'max_tickets', config, 0)
+          || buildTicketDashboardPayload(interaction.guild, config),
+        );
       } else {
         payload = buildTicketDashboardPayload(interaction.guild, config);
       }
