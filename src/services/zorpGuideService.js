@@ -70,8 +70,8 @@ function buildZorpGuideEmbed(titleIcon = '') {
       'ZORP is a zone protection system that protects your team’s building area while your team is offline.'
     )
     .addFields(
-      ZORP_SECTIONS.map((section, index) => ({
-        name: index === 0 ? section.name : `\u200b\n${section.name}`,
+      ZORP_SECTIONS.map(section => ({
+        name: `\u200b\n${section.name}`,
         value: section.value,
         inline: false,
       }))
