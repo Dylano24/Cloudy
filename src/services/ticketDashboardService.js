@@ -2,8 +2,11 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelSelectMenuBuilder,
   ChannelType,
   EmbedBuilder,
+  PermissionFlagsBits,
+  RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
@@ -38,13 +41,13 @@ const SETTING_DEFINITIONS = {
     field: 'ticketLogsChannelId',
     type: 'text_channel',
     title: 'Ticket Logs Channel',
-    description: 'Choose the channel used for ticket lifecycle logs.',
+    description: 'Choose any text channel, including private channels, for ticket lifecycle logs.',
   },
   transcript_channel: {
     field: 'ticketTranscriptChannelId',
     type: 'text_channel',
     title: 'Transcript Channel',
-    description: 'Choose the channel used for ticket transcripts.',
+    description: 'Choose any text channel, including private channels, for ticket transcripts.',
   },
   staff_role: {
     field: 'ticketStaffRoleId',
@@ -59,6 +62,20 @@ const SETTING_DEFINITIONS = {
     description: 'Choose how many open tickets one member can have.',
   },
 };
+
+const NULLABLE_FIELDS = new Set([
+  'ticketCategoryId',
+  'ticketClosedCategoryId',
+  'ticketStaffRoleId',
+  'ticketLogsChannelId',
+  'ticketTranscriptChannelId',
+]);
+
+function dashboardError(message, userMessage) {
+  const error = new Error(message);
+  error.userMessage = userMessage;
+  return error;
+}
 
 function buildTicketPanelEmbed(client, config) {
   const avatarUrl = client.user?.displayAvatarURL?.({ extension: 'png', size: 128 }) || null;
@@ -98,11 +115,94 @@ function hasCreateTicketButton(message) {
   );
 }
 
+async function fetchGuildChannel(guild, channelId) {
+  return guild.channels.cache.get(channelId)
+    || await guild.channels.fetch(channelId).catch(() => null);
+}
+
+async function fetchGuildRole(guild, roleId) {
+  return guild.roles.cache.get(roleId)
+    || await guild.roles.fetch(roleId).catch(() => null);
+}
+
+function assertTextDestinationPermissions(guild, channel, { transcript = false } = {}) {
+  if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) {
+    throw dashboardError(
+      'Selected ticket destination is not a supported text channel.',
+      'Choose a normal text or announcement channel.',
+    );
+  }
+
+  if (!channel.isTextBased?.() || !channel.isSendable?.()) {
+    throw dashboardError(
+      'Selected ticket destination is not sendable.',
+      'Cloudy cannot send messages in that channel.',
+    );
+  }
+
+  const botMember = guild.members.me;
+  const permissions = botMember ? channel.permissionsFor(botMember) : null;
+  const required = [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.EmbedLinks,
+    ...(transcript ? [PermissionFlagsBits.AttachFiles] : []),
+  ];
+
+  if (!permissions || !permissions.has(required)) {
+    const requirements = transcript
+      ? '`View Channel`, `Send Messages`, `Embed Links` and `Attach Files`'
+      : '`View Channel`, `Send Messages` and `Embed Links`';
+    throw dashboardError(
+      'Cloudy is missing permissions in the selected private channel.',
+      `That channel is selectable, but Cloudy cannot use it yet. Give the bot ${requirements} in that channel and select it again.`,
+    );
+  }
+}
+
+export async function validateTicketDashboardValue(client, guild, field, value) {
+  if (value == null) {
+    if (!NULLABLE_FIELDS.has(field)) {
+      throw dashboardError('Ticket setting cannot be cleared.', 'That ticket setting cannot be cleared.');
+    }
+    return null;
+  }
+
+  if (field === 'ticketPanelChannelId' || field === 'ticketLogsChannelId' || field === 'ticketTranscriptChannelId') {
+    const channel = await fetchGuildChannel(guild, value);
+    if (!channel) {
+      throw dashboardError('Selected channel no longer exists.', 'That channel could not be found. Choose another channel.');
+    }
+
+    assertTextDestinationPermissions(guild, channel, {
+      transcript: field === 'ticketTranscriptChannelId',
+    });
+    return channel.id;
+  }
+
+  if (field === 'ticketCategoryId' || field === 'ticketClosedCategoryId') {
+    const channel = await fetchGuildChannel(guild, value);
+    if (!channel || channel.type !== ChannelType.GuildCategory) {
+      throw dashboardError('Selected category is invalid.', 'Choose a valid Discord category.');
+    }
+    return channel.id;
+  }
+
+  if (field === 'ticketStaffRoleId') {
+    const role = await fetchGuildRole(guild, value);
+    if (!role || role.id === guild.id || role.managed) {
+      throw dashboardError('Selected staff role is invalid.', 'Choose a normal server role that Cloudy can use for ticket staff.');
+    }
+    return role.id;
+  }
+
+  return value;
+}
+
 export async function findTicketPanelMessage(client, guild, config) {
   if (!config?.ticketPanelChannelId) return null;
 
-  const channel = guild.channels.cache.get(config.ticketPanelChannelId)
-    || await guild.channels.fetch(config.ticketPanelChannelId).catch(() => null);
+  const channel = await fetchGuildChannel(guild, config.ticketPanelChannelId);
   if (!channel?.isTextBased?.() || !channel.messages?.fetch) return null;
 
   if (config.ticketPanelMessageId) {
@@ -133,14 +233,13 @@ export async function updateLiveTicketPanel(client, guild, config) {
 
 export async function moveTicketPanel(client, guild, newChannelId) {
   const config = await getGuildConfig(client, guild.id);
-  const newChannel = guild.channels.cache.get(newChannelId)
-    || await guild.channels.fetch(newChannelId).catch(() => null);
-
-  if (!newChannel?.isTextBased?.() || !newChannel.isSendable?.()) {
-    const error = new Error('Selected panel channel is not sendable.');
-    error.userMessage = 'That channel cannot be used for the ticket panel.';
-    throw error;
-  }
+  const validatedChannelId = await validateTicketDashboardValue(
+    client,
+    guild,
+    'ticketPanelChannelId',
+    newChannelId,
+  );
+  const newChannel = await fetchGuildChannel(guild, validatedChannelId);
 
   const oldPanel = await findTicketPanelMessage(client, guild, config);
   const sent = await newChannel.send(buildTicketPanelPayload(client, config));
@@ -148,7 +247,7 @@ export async function moveTicketPanel(client, guild, newChannelId) {
   let saved;
   try {
     saved = await updateGuildConfig(client, guild.id, {
-      ticketPanelChannelId: newChannelId,
+      ticketPanelChannelId: validatedChannelId,
       ticketPanelMessageId: sent.id,
       dmOnClose: false,
     });
@@ -167,19 +266,16 @@ export async function moveTicketPanel(client, guild, newChannelId) {
 export async function repostTicketPanel(client, guild) {
   const config = await getGuildConfig(client, guild.id);
   if (!config.ticketPanelChannelId) {
-    const error = new Error('Ticket panel channel is not configured.');
-    error.userMessage = 'Choose a panel channel first.';
-    throw error;
+    throw dashboardError('Ticket panel channel is not configured.', 'Choose a panel channel first.');
   }
 
-  const channel = guild.channels.cache.get(config.ticketPanelChannelId)
-    || await guild.channels.fetch(config.ticketPanelChannelId).catch(() => null);
-  if (!channel?.isTextBased?.() || !channel.isSendable?.()) {
-    const error = new Error('Configured ticket panel channel is unavailable.');
-    error.userMessage = 'The configured panel channel is unavailable. Choose a new one first.';
-    throw error;
-  }
-
+  const channelId = await validateTicketDashboardValue(
+    client,
+    guild,
+    'ticketPanelChannelId',
+    config.ticketPanelChannelId,
+  );
+  const channel = await fetchGuildChannel(guild, channelId);
   const oldPanel = await findTicketPanelMessage(client, guild, config);
   const sent = await channel.send(buildTicketPanelPayload(client, config));
 
@@ -236,9 +332,7 @@ export async function saveTicketDashboardSetting(client, guild, field, value) {
   ]);
 
   if (!allowedFields.has(field)) {
-    const error = new Error(`Unsupported ticket dashboard field: ${field}`);
-    error.userMessage = 'That ticket setting cannot be changed.';
-    throw error;
+    throw dashboardError(`Unsupported ticket dashboard field: ${field}`, 'That ticket setting cannot be changed.');
   }
 
   const saved = await updateGuildConfig(client, guild.id, {
@@ -260,12 +354,12 @@ function buildDashboardSelect(guildId) {
     .addOptions(
       new StringSelectMenuOptionBuilder().setLabel('Edit Panel Message').setDescription('Change the panel description').setValue('panel_message').setEmoji('📝'),
       new StringSelectMenuOptionBuilder().setLabel('Edit Button Label').setDescription('Change the Start Chat button label').setValue('button_label').setEmoji('🏷️'),
-      new StringSelectMenuOptionBuilder().setLabel('Change Panel Channel').setDescription('Move the support panel to another channel').setValue('panel_channel').setEmoji('💬'),
-      new StringSelectMenuOptionBuilder().setLabel('Change Open Tickets Category').setDescription('Category where new tickets are created').setValue('open_category').setEmoji('📁'),
-      new StringSelectMenuOptionBuilder().setLabel('Change Closed Tickets Category').setDescription('Category where closed tickets are moved').setValue('closed_category').setEmoji('📂'),
+      new StringSelectMenuOptionBuilder().setLabel('Change Panel Channel').setDescription('Choose from all available text channels').setValue('panel_channel').setEmoji('💬'),
+      new StringSelectMenuOptionBuilder().setLabel('Change Open Tickets Category').setDescription('Choose from all server categories').setValue('open_category').setEmoji('📁'),
+      new StringSelectMenuOptionBuilder().setLabel('Change Closed Tickets Category').setDescription('Choose from all server categories').setValue('closed_category').setEmoji('📂'),
       new StringSelectMenuOptionBuilder().setLabel('Set Max Tickets per User').setDescription('Limit open tickets per member').setValue('max_tickets').setEmoji('🔢'),
-      new StringSelectMenuOptionBuilder().setLabel('Set Ticket Logs Channel').setDescription('Channel for ticket lifecycle logs').setValue('logs_channel').setEmoji('🎫'),
-      new StringSelectMenuOptionBuilder().setLabel('Set Transcript Channel').setDescription('Channel for ticket transcripts').setValue('transcript_channel').setEmoji('📜'),
+      new StringSelectMenuOptionBuilder().setLabel('Set Ticket Logs Channel').setDescription('Choose any visible text channel, including private').setValue('logs_channel').setEmoji('🎫'),
+      new StringSelectMenuOptionBuilder().setLabel('Set Transcript Channel').setDescription('Choose any visible text channel, including private').setValue('transcript_channel').setEmoji('📜'),
     );
 }
 
@@ -295,7 +389,10 @@ export function buildTicketDashboardPayload(guild, config) {
 
   const embed = new EmbedBuilder()
     .setTitle('🎫 Ticket System Dashboard')
-    .setDescription(`Manage the ticket system for **${guild.name}**. Changes are saved persistently as soon as you confirm them.`)
+    .setDescription(
+      `Manage the ticket system for **${guild.name}**. Changes are saved persistently as soon as you confirm them.\n\n` +
+      'Channel and role settings use Discord\'s native selectors, so they are no longer limited to 24 options.'
+    )
     .setColor(getColor('info'))
     .addFields(
       { name: 'Panel Channel', value: config.ticketPanelChannelId ? `<#${config.ticketPanelChannelId}>` : '`Not set`', inline: true },
@@ -321,67 +418,54 @@ export function buildTicketDashboardPayload(guild, config) {
   };
 }
 
-function getSortedChannels(guild, type) {
-  return [...guild.channels.cache.values()]
-    .filter(channel => channel.type === type)
-    .sort((a, b) => a.rawPosition - b.rawPosition);
-}
+function buildNumberSelect(guildId, definition, config) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`ticket_dashboard_value:${guildId}:${definition.field}`)
+    .setPlaceholder(`Choose ${definition.title.toLowerCase()}...`)
+    .setMinValues(1)
+    .setMaxValues(1);
 
-function buildValueOptions(guild, definition, config) {
-  const options = [];
-
-  if (definition.type === 'number') {
-    for (let value = 1; value <= 10; value += 1) {
-      options.push(
-        new StringSelectMenuOptionBuilder()
-          .setLabel(`${value} ticket${value === 1 ? '' : 's'}`)
-          .setValue(String(value))
-          .setDefault(Number(config.maxTicketsPerUser ?? 3) === value),
-      );
-    }
-    return options;
-  }
-
-  options.push(
-    new StringSelectMenuOptionBuilder()
-      .setLabel('Not set / None')
-      .setValue(TICKET_DASHBOARD_CLEAR_VALUE)
-      .setEmoji('✖️')
-      .setDefault(!config[definition.field]),
-  );
-
-  if (definition.type === 'role') {
-    const roles = [...guild.roles.cache.values()]
-      .filter(role => role.id !== guild.id && !role.managed)
-      .sort((a, b) => b.position - a.position)
-      .slice(0, 24);
-
-    for (const role of roles) {
-      options.push(
-        new StringSelectMenuOptionBuilder()
-          .setLabel(role.name.slice(0, 100))
-          .setValue(role.id)
-          .setDefault(config[definition.field] === role.id),
-      );
-    }
-    return options;
-  }
-
-  const channelType = definition.type === 'category'
-    ? ChannelType.GuildCategory
-    : ChannelType.GuildText;
-
-  const channels = getSortedChannels(guild, channelType).slice(0, 24);
-  for (const channel of channels) {
-    options.push(
+  for (let value = 1; value <= 10; value += 1) {
+    select.addOptions(
       new StringSelectMenuOptionBuilder()
-        .setLabel(channel.name.slice(0, 100))
-        .setValue(channel.id)
-        .setDefault(config[definition.field] === channel.id),
+        .setLabel(`${value} ticket${value === 1 ? '' : 's'}`)
+        .setValue(String(value))
+        .setDefault(Number(config.maxTicketsPerUser ?? 3) === value),
     );
   }
 
-  return options;
+  return select;
+}
+
+function buildNativeValueSelect(guild, definition, config) {
+  const customId = `ticket_dashboard_value:${guild.id}:${definition.field}`;
+
+  if (definition.type === 'number') {
+    return buildNumberSelect(guild.id, definition, config);
+  }
+
+  if (definition.type === 'role') {
+    return new RoleSelectMenuBuilder()
+      .setCustomId(customId)
+      .setPlaceholder('Choose any server role...')
+      .setMinValues(1)
+      .setMaxValues(1);
+  }
+
+  const channelTypes = definition.type === 'category'
+    ? [ChannelType.GuildCategory]
+    : [ChannelType.GuildText, ChannelType.GuildAnnouncement];
+
+  return new ChannelSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder(
+      definition.type === 'category'
+        ? 'Choose any server category...'
+        : 'Choose any text channel, including private channels...'
+    )
+    .setChannelTypes(...channelTypes)
+    .setMinValues(1)
+    .setMaxValues(1);
 }
 
 export function getTicketDashboardSettingDefinition(setting) {
@@ -392,22 +476,35 @@ export function buildTicketDashboardValuePrompt(guild, setting, config) {
   const definition = getTicketDashboardSettingDefinition(setting);
   if (!definition) return null;
 
-  const select = new StringSelectMenuBuilder()
-    .setCustomId(`ticket_dashboard_value:${guild.id}:${definition.field}`)
-    .setPlaceholder(`Choose ${definition.title.toLowerCase()}...`)
-    .setMinValues(1)
-    .setMaxValues(1)
-    .addOptions(buildValueOptions(guild, definition, config));
+  const select = buildNativeValueSelect(guild, definition, config);
+  const buttons = [
+    new ButtonBuilder()
+      .setCustomId(`ticket_dashboard_back:${guild.id}`)
+      .setLabel('Back')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('↩️'),
+  ];
 
-  const back = new ButtonBuilder()
-    .setCustomId(`ticket_dashboard_back:${guild.id}`)
-    .setLabel('Back')
-    .setStyle(ButtonStyle.Secondary)
-    .setEmoji('↩️');
+  if (NULLABLE_FIELDS.has(definition.field)) {
+    buttons.unshift(
+      new ButtonBuilder()
+        .setCustomId(`ticket_dashboard_clear:${guild.id}:${definition.field}`)
+        .setLabel('Clear setting')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('✖️'),
+    );
+  }
+
+  const currentValue = config[definition.field]
+    ? (definition.type === 'role' ? `<@&${config[definition.field]}>` : `<#${config[definition.field]}>`)
+    : '`Not set`';
 
   const embed = new EmbedBuilder()
     .setTitle(definition.title)
-    .setDescription(definition.description)
+    .setDescription(
+      `${definition.description}\n\n**Current:** ${definition.type === 'number' ? String(config.maxTicketsPerUser ?? 3) : currentValue}` +
+      (definition.type === 'text_channel' ? '\n\nPrivate channels are supported. Cloudy will verify its permissions when you select one.' : '')
+    )
     .setColor(getColor('info'));
 
   return {
@@ -415,7 +512,7 @@ export function buildTicketDashboardValuePrompt(guild, setting, config) {
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(select),
-      new ActionRowBuilder().addComponents(back),
+      new ActionRowBuilder().addComponents(...buttons),
     ],
   };
 }
