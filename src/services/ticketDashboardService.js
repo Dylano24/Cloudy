@@ -584,12 +584,12 @@ export function buildTicketDashboardValuePrompt(guild, setting, config, page = 0
       .setStyle(ButtonStyle.Secondary)
       .setEmoji('⌨️'),
     new ButtonBuilder()
-      .setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.max(0, safePage - 1)}`)
+      .setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.max(0, safePage - 1)}:previous`)
       .setLabel('Previous')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(safePage <= 0),
     new ButtonBuilder()
-      .setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.min(pageCount - 1, safePage + 1)}`)
+      .setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.min(pageCount - 1, safePage + 1)}:next`)
       .setLabel('Next')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(safePage >= pageCount - 1),
