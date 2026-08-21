@@ -138,7 +138,7 @@ const dashboardValueHandler = {
   name: 'ticket_dashboard_value',
 
   async execute(interaction, client, args = []) {
-    const [guildId, field] = args;
+    const [guildId, field, setting, pageRaw] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
 
     if (!canManageTickets(interaction)) {
@@ -197,12 +197,22 @@ const dashboardValueHandler = {
       logger.error('Persistent ticket dashboard value save failed', {
         guildId,
         field,
+        setting,
         userId: interaction.user?.id,
         error: error.message,
       });
 
       const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
-      const payload = buildTicketDashboardPayload(interaction.guild, config);
+      let payload;
+
+      if (isAllChannelTicketSetting(setting)) {
+        const page = Math.max(0, Number.parseInt(pageRaw, 10) || 0);
+        payload = buildAllChannelTicketPrompt(interaction.guild, setting, config, page)
+          || buildTicketDashboardPayload(interaction.guild, config);
+      } else {
+        payload = buildTicketDashboardPayload(interaction.guild, config);
+      }
+
       payload.content = error?.userMessage || 'Could not save that ticket setting. Please try again.';
 
       if (interaction.deferred || interaction.replied) {
