@@ -43,6 +43,22 @@ async function rejectUnauthorized(interaction) {
   }
 }
 
+async function acknowledgeDashboardUpdate(interaction) {
+  if (interaction.deferred || interaction.replied) return true;
+  try {
+    await interaction.deferUpdate();
+    return true;
+  } catch (error) {
+    logger.error('Could not acknowledge ticket dashboard interaction in time', {
+      customId: interaction.customId,
+      guildId: interaction.guildId,
+      userId: interaction.user?.id,
+      error: error.message,
+    });
+    return false;
+  }
+}
+
 function getDashboardFieldValue(interaction, fieldName) {
   const field = interaction.message?.embeds?.[0]?.fields?.find(item => item.name === fieldName);
   if (!field?.value) return '';
@@ -90,13 +106,19 @@ const dashboardSelectHandler = {
 
     try {
       if (setting === 'panel_message' || setting === 'button_label') {
+        if (interaction.deferred || interaction.replied) {
+          await InteractionHelper.safeEditReply(interaction, {
+            content: 'Please reopen the dashboard and choose this text setting again.',
+            embeds: [],
+            components: [],
+          });
+          return;
+        }
         await interaction.showModal(buildTextSettingModal(interaction, guildId, setting));
         return;
       }
 
-      // Discord interaction first, work second. No REST refresh is allowed to
-      // hold the component in a loading state.
-      await interaction.deferUpdate();
+      if (!(await acknowledgeDashboardUpdate(interaction))) return;
 
       const freshConfig = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
       const prompt = isAllChannelTicketSetting(setting)
@@ -105,8 +127,6 @@ const dashboardSelectHandler = {
 
       await interaction.editReply(prompt || buildTicketDashboardPayload(interaction.guild, freshConfig));
 
-      // Refresh inventory only after the response is visible. The normal guild
-      // cache already contains the current server structure in the common case.
       if (isAllChannelTicketSetting(setting)) {
         void refreshAllTicketChannels(interaction.guild).catch(() => {});
       } else if (setting === 'open_category' || setting === 'closed_category' || setting === 'staff_role') {
@@ -146,7 +166,7 @@ const dashboardValueHandler = {
     if (!canManageTickets(interaction)) return rejectUnauthorized(interaction);
 
     try {
-      await interaction.deferUpdate();
+      if (!(await acknowledgeDashboardUpdate(interaction))) return;
 
       const rawValue = interaction.values?.[0];
       if (!rawValue) throw new Error('No ticket dashboard value was selected.');
