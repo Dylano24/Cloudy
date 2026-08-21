@@ -2,10 +2,8 @@ import { createEmbed } from '../embeds.js';
 
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
-
-// Small original Cloudy C, shown once at the bottom-right of the main ticket embed.
 export const CLOUDY_TICKET_C_FOOTER_IMAGE =
-  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.png?v=3';
+  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-footer.png';
 
 export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function'
@@ -16,9 +14,6 @@ export function forceCloudyTicketFooter(embed) {
 
   if (/^Ticket\s*#\s*\d+/i.test(String(payload.title || ''))) {
     payload.image = { url: CLOUDY_TICKET_C_FOOTER_IMAGE };
-    if (Array.isArray(payload.fields)) {
-      payload.fields = payload.fields.map(field => ({ ...field, inline: false }));
-    }
   }
 
   return payload;
