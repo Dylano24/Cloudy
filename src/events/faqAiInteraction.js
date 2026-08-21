@@ -127,7 +127,7 @@ export default {
     try {
       const answer = await answerFaqQuestion(client, question);
       const embed = new EmbedBuilder()
-        .setColor('#5865F2')
+        .setColor('#000000')
         .setTitle('Cloudy FAQ Assistant')
         .setDescription(answer)
         .addFields({
