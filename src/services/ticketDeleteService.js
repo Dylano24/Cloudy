@@ -3,6 +3,7 @@ import { createEmbed } from '../utils/embeds.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { requirePersistentTicketDatabase } from './ticketReliabilityService.js';
 import { archiveTicketTranscript } from './ticketTranscriptService.js';
+import { ensureTicketDestinationConfig } from './ticketDestinationAutoConfig.js';
 import { logger } from '../utils/logger.js';
 
 const DELETE_DELAY_MS = 3000;
@@ -34,6 +35,12 @@ export async function deleteTicketSafely(channel, deleter) {
   const key = `${channel.guild.id}:${channel.id}`;
 
   return enqueue(key, async () => {
+    await ensureTicketDestinationConfig(
+      channel.client,
+      channel.guild,
+      { refreshIfMissing: true },
+    );
+
     const ticketData = await getTicketData(channel.guild.id, channel.id);
     if (!ticketData) {
       throw ticketDeleteError('Ticket data not found', 'This is not a valid ticket channel.', 'TICKET_NOT_FOUND');
