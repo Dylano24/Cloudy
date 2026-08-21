@@ -135,10 +135,10 @@ function getLogChannelForEventType(config, eventType) {
 }
 
 const TICKET_EVENT_STYLES = {
-  open: { color: 0x5865F2, title: 'Ticket Created' },
-  close: { color: 0xED4245, title: 'Ticket Closed' },
-  delete: { color: 0x8b0000, title: 'Ticket Deleted' },
-  claim: { color: 0x5865F2, title: 'Ticket Claimed' },
+  open: { color: 0xFFFFFF, title: 'Ticket Created' },
+  close: { color: 0x3498DB, title: 'Ticket Closed' },
+  delete: { color: 0xED4245, title: 'Ticket Deleted' },
+  claim: { color: 0x57F287, title: 'Ticket Claimed' },
   unclaim: { color: 0xFAA61A, title: 'Ticket Unclaimed' },
   priority: { color: 0x9b59b6, title: 'Priority Updated' },
   pin: { color: 0x5865F2, title: 'Ticket Pinned' },
