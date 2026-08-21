@@ -13,6 +13,7 @@ import {
   getCurrentTicketDashboardConfig,
   moveTicketPanel,
   saveTicketDashboardSetting,
+  validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
@@ -126,6 +127,10 @@ const dashboardValueHandler = {
       await interaction.deferUpdate();
 
       const rawValue = interaction.values?.[0];
+      if (!rawValue) {
+        throw new Error('No ticket dashboard value was selected.');
+      }
+
       let savedConfig;
 
       if (field === 'ticketPanelChannelId') {
@@ -134,7 +139,14 @@ const dashboardValueHandler = {
           error.userMessage = 'Choose another panel channel, or use **Delete System** if you want to remove the ticket system.';
           throw error;
         }
-        savedConfig = await moveTicketPanel(client, interaction.guild, rawValue);
+
+        const channelId = await validateTicketDashboardValue(
+          client,
+          interaction.guild,
+          field,
+          rawValue,
+        );
+        savedConfig = await moveTicketPanel(client, interaction.guild, channelId);
       } else if (field === 'maxTicketsPerUser') {
         const value = Number.parseInt(rawValue, 10);
         if (!Number.isInteger(value) || value < 1 || value > 10) {
@@ -143,7 +155,18 @@ const dashboardValueHandler = {
         savedConfig = await saveTicketDashboardSetting(client, interaction.guild, field, value);
       } else {
         const value = rawValue === TICKET_DASHBOARD_CLEAR_VALUE ? null : rawValue;
-        savedConfig = await saveTicketDashboardSetting(client, interaction.guild, field, value);
+        const validatedValue = await validateTicketDashboardValue(
+          client,
+          interaction.guild,
+          field,
+          value,
+        );
+        savedConfig = await saveTicketDashboardSetting(
+          client,
+          interaction.guild,
+          field,
+          validatedValue,
+        );
       }
 
       await interaction.editReply(buildTicketDashboardPayload(interaction.guild, savedConfig));
