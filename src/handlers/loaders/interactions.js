@@ -10,7 +10,8 @@ const __dirname = dirname(__filename);
 const interactionTypes = ['buttons', 'selectMenus', 'modals'];
 
 async function getAllInteractionFiles(directory, fileList = []) {
-  const entries = await readdir(directory, { withFileTypes: true });
+  const entries = (await readdir(directory, { withFileTypes: true }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   for (const entry of entries) {
     const entryPath = join(directory, entry.name);
@@ -33,8 +34,8 @@ export default async (client) => {
       const typePath = join(interactionsPath, type);
 
       try {
-        const interactionFiles = await getAllInteractionFiles(typePath);
-        interactionFiles.sort((a, b) => a.localeCompare(b));
+        const interactionFiles = (await getAllInteractionFiles(typePath)).sort((a, b) => a.localeCompare(b));
+        const registeredSources = new Map();
         let loadedCount = 0;
 
         for (const filePath of interactionFiles) {
@@ -52,15 +53,21 @@ export default async (client) => {
                 continue;
               }
 
-              const previous = client[type].get(interaction.name);
-              client[type].set(interaction.name, interaction);
-              loadedCount += 1;
-
-              if (previous) {
-                logger.info(`Overrode ${type.slice(0, -1)}: ${interaction.name} (${fileName})`);
-              } else {
-                logger.info(`Loaded ${type.slice(0, -1)}: ${interaction.name} (${fileName})`);
+              const existingSource = registeredSources.get(interaction.name);
+              if (existingSource || client[type].has(interaction.name)) {
+                logger.error('Duplicate interaction handler blocked', {
+                  type,
+                  name: interaction.name,
+                  existingSource: existingSource || 'already registered before loader pass',
+                  duplicateSource: relativePath,
+                });
+                continue;
               }
+
+              client[type].set(interaction.name, interaction);
+              registeredSources.set(interaction.name, relativePath);
+              loadedCount += 1;
+              logger.info(`Loaded ${type.slice(0, -1)}: ${interaction.name} (${fileName})`);
             }
           } catch (error) {
             logger.error(`Error loading interaction ${relativePath} in ${type}:`, error);
