@@ -106,13 +106,10 @@ function buildZorpSections(colorEmojis) {
       value: [
         `${colorEmojis.white} **White**`,
         'Newly created zone that will turn green shortly.',
-        '',
         `${colorEmojis.green} **Green**`,
         'Team is currently online.',
-        '',
         `${colorEmojis.yellow} **Yellow**`,
         'Team is offline; zone is about to turn red.',
-        '',
         `${colorEmojis.red} **Red**`,
         'Team is offline and the zone is protected.',
       ].join('\n'),
@@ -120,21 +117,9 @@ function buildZorpSections(colorEmojis) {
   ];
 }
 
-function formatLastUpdated(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Amsterdam',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).formatToParts(date);
-
-  const get = type => parts.find(part => part.type === type)?.value || '';
-  return `${get('day')} ${get('month')} ${get('year')}`;
-}
-
 function buildZorpGuideEmbed(titleIcon = '', colorEmojis) {
   const title = titleIcon ? `${titleIcon} ZORP Guide` : 'ZORP Guide';
-  const footerText = `© Cloudy Inc. • Quality. Innovation. Performance. • Last updated: ${formatLastUpdated()}`;
+  const footerText = '© Cloudy Inc. • Quality. Innovation. Performance.';
   const sections = buildZorpSections(colorEmojis);
 
   const embed = new EmbedBuilder()
