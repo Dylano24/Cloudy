@@ -3,12 +3,9 @@ import { createEmbed } from '../embeds.js';
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
 
-// Exact same cloudy-c-logo.png artwork as the welcome message, positioned once
-// near the bottom-right of the main ticket embed.
-const CLOUDY_TICKET_C_LAYOUT =
-  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.svg?v=2';
+// Small original Cloudy C, shown once at the bottom-right of the main ticket embed.
 export const CLOUDY_TICKET_C_FOOTER_IMAGE =
-  `https://images.weserv.nl/?url=${encodeURIComponent(CLOUDY_TICKET_C_LAYOUT)}&output=png`;
+  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.png?v=3';
 
 export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function'
