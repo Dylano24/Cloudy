@@ -14,7 +14,7 @@ export const FAQ_AI_BUTTON_ID = 'faq_ai_question';
 export const FAQ_AI_MODAL_ID = 'faq_ai_question_modal';
 
 const FAQ_PANEL_STATE_KEY = `global:faq-ai:panel:${FAQ_AI_CHANNEL_ID}`;
-const DEFAULT_MODEL = 'gpt-5.6-luna';
+const DEFAULT_MODEL = 'gpt-5.4-mini';
 const MAX_KNOWLEDGE_MESSAGES = 300;
 const MAX_KNOWLEDGE_CHARS = 24000;
 const MAX_ANSWER_CHARS = 3600;
