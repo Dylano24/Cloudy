@@ -108,8 +108,13 @@ function buildChannelSelect(guild, setting, definition, pageChannels, localStart
   if (!segment.length) return null;
   const first = globalStart + localStart + 1;
   const last = first + segment.length - 1;
+  const segmentIndex = Math.floor(localStart / SELECT_SIZE);
   const select = new StringSelectMenuBuilder()
-    .setCustomId(`ticket_dashboard_value:${guild.id}:${definition.field}:${setting}:${page}`)
+    // Discord requires every component custom_id in one message to be unique.
+    // The final segment index is routing metadata only; the handler safely
+    // ignores extra args after page and therefore all dropdowns share the same
+    // save logic without colliding with each other.
+    .setCustomId(`ticket_dashboard_value:${guild.id}:${definition.field}:${setting}:${page}:${segmentIndex}`)
     .setPlaceholder(`Channels ${first}-${last} of ${total}`)
     .setMinValues(1).setMaxValues(1);
   select.addOptions(...segment.map(channel => buildChannelOption(guild, channel, config?.[definition.field])));
