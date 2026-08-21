@@ -43,24 +43,39 @@ async function rejectUnauthorized(interaction) {
   }
 }
 
-function buildTextSettingModal(interaction, guildId, setting, config) {
+function getDashboardFieldValue(interaction, fieldName) {
+  const field = interaction.message?.embeds?.[0]?.fields?.find(item => item.name === fieldName);
+  if (!field?.value) return '';
+  const value = String(field.value);
+  if (value === '`Not set`') return '';
+  if (value.startsWith('`') && value.endsWith('`')) return value.slice(1, -1);
+  return '';
+}
+
+function buildTextSettingModal(interaction, guildId, setting) {
   const isPanelMessage = setting === 'panel_message';
   const field = isPanelMessage ? 'ticketPanelMessage' : 'ticketButtonLabel';
   const modal = new ModalBuilder()
     .setCustomId(`ticket_dashboard_modal:${guildId}:${field}:${interaction.message.id}`)
     .setTitle(isPanelMessage ? 'Edit Panel Message' : 'Edit Button Label');
 
+  // Do not wait on PostgreSQL before showing a modal. Discord requires modal
+  // interactions to be acknowledged immediately. The visible dashboard already
+  // contains the latest displayed value, so use that as an optional prefill.
   const currentValue = isPanelMessage
-    ? (config.ticketPanelMessage || '')
-    : (config.ticketButtonLabel || 'Start Chat');
+    ? getDashboardFieldValue(interaction, 'Panel Message')
+    : getDashboardFieldValue(interaction, 'Button Label');
 
   const input = new TextInputBuilder()
     .setCustomId('value')
     .setLabel(isPanelMessage ? 'Panel message' : 'Button label')
     .setStyle(isPanelMessage ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(true)
-    .setMaxLength(isPanelMessage ? 2000 : 80)
-    .setValue(String(currentValue).slice(0, isPanelMessage ? 2000 : 80));
+    .setMaxLength(isPanelMessage ? 2000 : 80);
+
+  if (currentValue) {
+    input.setValue(currentValue.slice(0, isPanelMessage ? 2000 : 80));
+  }
 
   if (isPanelMessage) {
     input.setPlaceholder('Enter the support panel message...');
@@ -84,15 +99,18 @@ const dashboardSelectHandler = {
       return;
     }
 
-    try {
-      const setting = interaction.values?.[0];
-      const config = await getCurrentTicketDashboardConfig(client, guildId);
+    const setting = interaction.values?.[0];
 
+    try {
+      // Modals cannot be shown after deferUpdate(), so open them immediately and
+      // never block on database/network work first.
       if (setting === 'panel_message' || setting === 'button_label') {
-        await interaction.showModal(buildTextSettingModal(interaction, guildId, setting, config));
+        await interaction.showModal(buildTextSettingModal(interaction, guildId, setting));
         return;
       }
 
+      // Acknowledge the Discord interaction before ANY database or REST call.
+      // This prevents the selector from expiring when PostgreSQL/Discord is slow.
       await interaction.deferUpdate();
 
       if (isAllChannelTicketSetting(setting)) {
@@ -115,18 +133,20 @@ const dashboardSelectHandler = {
     } catch (error) {
       logger.error('Persistent ticket dashboard select failed', {
         guildId,
+        setting,
         userId: interaction.user?.id,
         error: error.message,
+        stack: error.stack,
       });
 
       if (interaction.deferred || interaction.replied) {
         const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
         const payload = buildTicketDashboardPayload(interaction.guild, config);
-        payload.content = error?.userMessage || 'Could not open that ticket setting. Please try again.';
+        payload.content = error?.userMessage || `Could not open ${setting || 'that ticket setting'}. Please try again.`;
         await interaction.editReply(payload).catch(() => {});
       } else {
         await InteractionHelper.safeReply(interaction, {
-          content: error?.userMessage || 'Could not open that ticket setting. Please try again.',
+          content: error?.userMessage || `Could not open ${setting || 'that ticket setting'}. Please try again.`,
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -147,6 +167,7 @@ const dashboardValueHandler = {
     }
 
     try {
+      // Acknowledge immediately; persistence/Discord validation happens after.
       await interaction.deferUpdate();
 
       const rawValue = interaction.values?.[0];
@@ -173,7 +194,9 @@ const dashboardValueHandler = {
       } else if (field === 'maxTicketsPerUser') {
         const value = Number.parseInt(rawValue, 10);
         if (!Number.isInteger(value) || value < 1 || value > 10) {
-          throw new Error('Invalid max tickets value.');
+          const error = new Error('Invalid max tickets value.');
+          error.userMessage = 'Choose a maximum between **1 and 10 tickets per user**.';
+          throw error;
         }
         savedConfig = await saveTicketDashboardSetting(client, interaction.guild, field, value);
       } else {
@@ -200,6 +223,7 @@ const dashboardValueHandler = {
         setting,
         userId: interaction.user?.id,
         error: error.message,
+        stack: error.stack,
       });
 
       const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
@@ -208,6 +232,9 @@ const dashboardValueHandler = {
       if (isAllChannelTicketSetting(setting)) {
         const page = Math.max(0, Number.parseInt(pageRaw, 10) || 0);
         payload = buildAllChannelTicketPrompt(interaction.guild, setting, config, page)
+          || buildTicketDashboardPayload(interaction.guild, config);
+      } else if (field === 'maxTicketsPerUser') {
+        payload = buildTicketDashboardValuePrompt(interaction.guild, 'max_tickets', config, 0)
           || buildTicketDashboardPayload(interaction.guild, config);
       } else {
         payload = buildTicketDashboardPayload(interaction.guild, config);
