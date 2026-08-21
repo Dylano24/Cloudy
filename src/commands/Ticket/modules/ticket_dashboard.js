@@ -1,8 +1,6 @@
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
-import {
-    buildTicketDashboardPayload,
-    getCurrentTicketDashboardConfig,
-} from '../../../services/ticketDashboardService.js';
+import { getCurrentTicketDashboardConfig } from '../../../services/ticketDashboardService.js';
+import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import { recoverTicketDashboardConfig } from '../../../services/ticketDashboardRecoveryService.js';
 
 export default {
@@ -15,10 +13,6 @@ export default {
             ? recoveredConfig
             : await getCurrentTicketDashboardConfig(client, guildId);
 
-        // A partial/default config must not make the dashboard pretend the
-        // ticket system does not exist. Recover the existing Contact the support
-        // / Start Chat panel directly from Discord, prioritizing the channel in
-        // which the command was used.
         if (!guildConfig?.ticketPanelChannelId) {
             guildConfig = await recoverTicketDashboardConfig(
                 client,
