@@ -28,6 +28,13 @@ function extractMentionedUserId(text = '') {
   return String(text).match(/<@!?(\d+)>/)?.[1] || null;
 }
 
+function extractTicketNumber(text = '') {
+  const match = String(text).match(/(?:Ticket\s*#|ticket-)\s*0*(\d+)/i);
+  if (!match) return null;
+  const number = Number.parseInt(match[1], 10);
+  return Number.isFinite(number) && number > 0 ? String(number) : null;
+}
+
 function extractReason(description = '') {
   const match = String(description).match(/\*\*Reason:\*\*\s*([^\n]+)/i);
   return match?.[1]?.trim() || 'Recovered ticket';
@@ -96,9 +103,11 @@ async function recoverTicketDataFromChannel(interaction) {
   const claimedBy = /not claimed/i.test(claimedField)
     ? null
     : extractMentionedUserId(claimedField);
+  const ticketNumber = extractTicketNumber(embed?.title) || extractTicketNumber(channel.name);
 
   const recovered = {
     id: channel.id,
+    ticketNumber,
     userId: creatorId,
     guildId: guild.id,
     ticketMessageId: ticketMessage.id,
@@ -110,8 +119,6 @@ async function recoverTicketDataFromChannel(interaction) {
     recoveredFromDiscord: true,
   };
 
-  // Do not let a slow database block the interaction. Recovery is already
-  // valid for the current click; persistence is best-effort and bounded.
   void withTimeout(
     saveTicketData(guild.id, channel.id, recovered),
     TICKET_IO_TIMEOUT_MS,
