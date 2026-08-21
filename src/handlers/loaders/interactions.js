@@ -34,6 +34,7 @@ export default async (client) => {
 
       try {
         const interactionFiles = await getAllInteractionFiles(typePath);
+        interactionFiles.sort((a, b) => a.localeCompare(b));
         let loadedCount = 0;
 
         for (const filePath of interactionFiles) {
@@ -51,9 +52,15 @@ export default async (client) => {
                 continue;
               }
 
+              const previous = client[type].get(interaction.name);
               client[type].set(interaction.name, interaction);
               loadedCount += 1;
-              logger.info(`Loaded ${type.slice(0, -1)}: ${interaction.name} (${fileName})`);
+
+              if (previous) {
+                logger.info(`Overrode ${type.slice(0, -1)}: ${interaction.name} (${fileName})`);
+              } else {
+                logger.info(`Loaded ${type.slice(0, -1)}: ${interaction.name} (${fileName})`);
+              }
             }
           } catch (error) {
             logger.error(`Error loading interaction ${relativePath} in ${type}:`, error);
