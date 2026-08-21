@@ -2,11 +2,9 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelSelectMenuBuilder,
   ChannelType,
   EmbedBuilder,
   PermissionFlagsBits,
-  RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
@@ -17,6 +15,7 @@ export const TICKET_DASHBOARD_CLEAR_VALUE = '__clear__';
 
 const DEFAULT_PANEL_MESSAGE = 'Click the button below to create a support ticket.';
 const DEFAULT_BUTTON_LABEL = 'Start Chat';
+const PAGE_SIZE = 24;
 
 const SETTING_DEFINITIONS = {
   panel_channel: {
@@ -125,6 +124,13 @@ async function fetchGuildRole(guild, roleId) {
     || await guild.roles.fetch(roleId).catch(() => null);
 }
 
+export async function refreshTicketDashboardCache(guild) {
+  await Promise.allSettled([
+    guild.channels.fetch(),
+    guild.roles.fetch(),
+  ]);
+}
+
 function assertTextDestinationPermissions(guild, channel, { transcript = false } = {}) {
   if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) {
     throw dashboardError(
@@ -154,8 +160,8 @@ function assertTextDestinationPermissions(guild, channel, { transcript = false }
       ? '`View Channel`, `Send Messages`, `Embed Links` and `Attach Files`'
       : '`View Channel`, `Send Messages` and `Embed Links`';
     throw dashboardError(
-      'Cloudy is missing permissions in the selected private channel.',
-      `That channel is selectable, but Cloudy cannot use it yet. Give the bot ${requirements} in that channel and select it again.`,
+      'Cloudy is missing permissions in the selected channel.',
+      `Cloudy cannot use that channel yet. Give the bot ${requirements} in that channel and select it again.`,
     );
   }
 }
@@ -354,12 +360,12 @@ function buildDashboardSelect(guildId) {
     .addOptions(
       new StringSelectMenuOptionBuilder().setLabel('Edit Panel Message').setDescription('Change the panel description').setValue('panel_message').setEmoji('📝'),
       new StringSelectMenuOptionBuilder().setLabel('Edit Button Label').setDescription('Change the Start Chat button label').setValue('button_label').setEmoji('🏷️'),
-      new StringSelectMenuOptionBuilder().setLabel('Change Panel Channel').setDescription('Choose from all available text channels').setValue('panel_channel').setEmoji('💬'),
-      new StringSelectMenuOptionBuilder().setLabel('Change Open Tickets Category').setDescription('Choose from all server categories').setValue('open_category').setEmoji('📁'),
-      new StringSelectMenuOptionBuilder().setLabel('Change Closed Tickets Category').setDescription('Choose from all server categories').setValue('closed_category').setEmoji('📂'),
+      new StringSelectMenuOptionBuilder().setLabel('Change Panel Channel').setDescription('Browse every text channel').setValue('panel_channel').setEmoji('💬'),
+      new StringSelectMenuOptionBuilder().setLabel('Change Open Tickets Category').setDescription('Browse every server category').setValue('open_category').setEmoji('📁'),
+      new StringSelectMenuOptionBuilder().setLabel('Change Closed Tickets Category').setDescription('Browse every server category').setValue('closed_category').setEmoji('📂'),
       new StringSelectMenuOptionBuilder().setLabel('Set Max Tickets per User').setDescription('Limit open tickets per member').setValue('max_tickets').setEmoji('🔢'),
-      new StringSelectMenuOptionBuilder().setLabel('Set Ticket Logs Channel').setDescription('Choose any visible text channel, including private').setValue('logs_channel').setEmoji('🎫'),
-      new StringSelectMenuOptionBuilder().setLabel('Set Transcript Channel').setDescription('Choose any visible text channel, including private').setValue('transcript_channel').setEmoji('📜'),
+      new StringSelectMenuOptionBuilder().setLabel('Set Ticket Logs Channel').setDescription('Browse all public and private text channels').setValue('logs_channel').setEmoji('🎫'),
+      new StringSelectMenuOptionBuilder().setLabel('Set Transcript Channel').setDescription('Browse all public and private text channels').setValue('transcript_channel').setEmoji('📜'),
     );
 }
 
@@ -391,7 +397,7 @@ export function buildTicketDashboardPayload(guild, config) {
     .setTitle('🎫 Ticket System Dashboard')
     .setDescription(
       `Manage the ticket system for **${guild.name}**. Changes are saved persistently as soon as you confirm them.\n\n` +
-      'Channel and role settings use Discord\'s native selectors, so they are no longer limited to 24 options.'
+      'Channel settings browse the full server channel list with pages. You can also set a channel directly by mention or ID.'
     )
     .setColor(getColor('info'))
     .addFields(
@@ -437,64 +443,94 @@ function buildNumberSelect(guildId, definition, config) {
   return select;
 }
 
-function buildNativeValueSelect(guild, definition, config) {
-  const customId = `ticket_dashboard_value:${guild.id}:${definition.field}`;
-
-  if (definition.type === 'number') {
-    return buildNumberSelect(guild.id, definition, config);
-  }
-
+function getSelectableItems(guild, definition) {
   if (definition.type === 'role') {
-    return new RoleSelectMenuBuilder()
-      .setCustomId(customId)
-      .setPlaceholder('Choose any server role...')
-      .setMinValues(1)
-      .setMaxValues(1);
+    return [...guild.roles.cache.values()]
+      .filter(role => role.id !== guild.id && !role.managed)
+      .sort((a, b) => b.position - a.position);
   }
 
-  const channelTypes = definition.type === 'category'
-    ? [ChannelType.GuildCategory]
-    : [ChannelType.GuildText, ChannelType.GuildAnnouncement];
+  if (definition.type === 'category') {
+    return [...guild.channels.cache.values()]
+      .filter(channel => channel.type === ChannelType.GuildCategory)
+      .sort((a, b) => a.rawPosition - b.rawPosition || a.name.localeCompare(b.name));
+  }
 
-  return new ChannelSelectMenuBuilder()
-    .setCustomId(customId)
-    .setPlaceholder(
-      definition.type === 'category'
-        ? 'Choose any server category...'
-        : 'Choose any text channel, including private channels...'
-    )
-    .setChannelTypes(...channelTypes)
+  if (definition.type === 'text_channel') {
+    return [...guild.channels.cache.values()]
+      .filter(channel => [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type))
+      .sort((a, b) => {
+        const parentA = a.parent?.rawPosition ?? -1;
+        const parentB = b.parent?.rawPosition ?? -1;
+        return parentA - parentB || a.rawPosition - b.rawPosition || a.name.localeCompare(b.name);
+      });
+  }
+
+  return [];
+}
+
+function buildPagedSelect(guild, definition, config, page = 0) {
+  const items = getSelectableItems(guild, definition);
+  const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
+  const pageItems = items.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+  if (pageItems.length === 0) {
+    return { select: null, page: safePage, pageCount, total: items.length };
+  }
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`ticket_dashboard_value:${guild.id}:${definition.field}`)
+    .setPlaceholder(`Choose ${definition.title.toLowerCase()}...`)
     .setMinValues(1)
     .setMaxValues(1);
+
+  for (const item of pageItems) {
+    const isRole = definition.type === 'role';
+    const parentName = !isRole && item.parent?.name ? ` • ${item.parent.name}` : '';
+    select.addOptions(
+      new StringSelectMenuOptionBuilder()
+        .setLabel(String(item.name || item.id).slice(0, 100))
+        .setDescription(`${item.id}${parentName}`.slice(0, 100))
+        .setValue(item.id)
+        .setDefault(config[definition.field] === item.id),
+    );
+  }
+
+  return { select, page: safePage, pageCount, total: items.length };
 }
 
 export function getTicketDashboardSettingDefinition(setting) {
   return SETTING_DEFINITIONS[setting] || null;
 }
 
-export function buildTicketDashboardValuePrompt(guild, setting, config) {
+export function buildTicketDashboardValuePrompt(guild, setting, config, page = 0) {
   const definition = getTicketDashboardSettingDefinition(setting);
   if (!definition) return null;
 
-  const select = buildNativeValueSelect(guild, definition, config);
-  const buttons = [
-    new ButtonBuilder()
-      .setCustomId(`ticket_dashboard_back:${guild.id}`)
-      .setLabel('Back')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('↩️'),
-  ];
+  if (definition.type === 'number') {
+    const embed = new EmbedBuilder()
+      .setTitle(definition.title)
+      .setDescription(`${definition.description}\n\n**Current:** ${String(config.maxTicketsPerUser ?? 3)}`)
+      .setColor(getColor('info'));
 
-  if (NULLABLE_FIELDS.has(definition.field)) {
-    buttons.unshift(
-      new ButtonBuilder()
-        .setCustomId(`ticket_dashboard_clear:${guild.id}:${definition.field}`)
-        .setLabel('Clear setting')
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji('✖️'),
-    );
+    return {
+      content: '',
+      embeds: [embed],
+      components: [
+        new ActionRowBuilder().addComponents(buildNumberSelect(guild.id, definition, config)),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`ticket_dashboard_back:${guild.id}`)
+            .setLabel('Back')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('↩️'),
+        ),
+      ],
+    };
   }
 
+  const { select, page: safePage, pageCount, total } = buildPagedSelect(guild, definition, config, page);
   const currentValue = config[definition.field]
     ? (definition.type === 'role' ? `<@&${config[definition.field]}>` : `<#${config[definition.field]}>`)
     : '`Not set`';
@@ -502,18 +538,57 @@ export function buildTicketDashboardValuePrompt(guild, setting, config) {
   const embed = new EmbedBuilder()
     .setTitle(definition.title)
     .setDescription(
-      `${definition.description}\n\n**Current:** ${definition.type === 'number' ? String(config.maxTicketsPerUser ?? 3) : currentValue}` +
-      (definition.type === 'text_channel' ? '\n\nPrivate channels are supported. Cloudy will verify its permissions when you select one.' : '')
+      `${definition.description}\n\n**Current:** ${currentValue}\n` +
+      `**Showing:** ${total} total ${definition.type === 'role' ? 'roles' : definition.type === 'category' ? 'categories' : 'text channels'} • Page ${safePage + 1}/${pageCount}` +
+      (definition.type === 'text_channel' ? '\n\nPublic and private text channels are included. If one is still missing, use **Set by ID**.' : '')
     )
     .setColor(getColor('info'));
 
+  const navigationButtons = [];
+
+  if (NULLABLE_FIELDS.has(definition.field)) {
+    navigationButtons.push(
+      new ButtonBuilder()
+        .setCustomId(`ticket_dashboard_clear:${guild.id}:${definition.field}`)
+        .setLabel('Clear')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('✖️'),
+    );
+  }
+
+  navigationButtons.push(
+    new ButtonBuilder()
+      .setCustomId(`ticket_dashboard_manual:${guild.id}:${definition.field}`)
+      .setLabel(definition.type === 'role' ? 'Set by role ID' : 'Set by ID')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('⌨️'),
+    new ButtonBuilder()
+      .setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.max(0, safePage - 1)}`)
+      .setLabel('Previous')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safePage <= 0),
+    new ButtonBuilder()
+      .setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.min(pageCount - 1, safePage + 1)}`)
+      .setLabel('Next')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safePage >= pageCount - 1),
+    new ButtonBuilder()
+      .setCustomId(`ticket_dashboard_back:${guild.id}`)
+      .setLabel('Back')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('↩️'),
+  );
+
+  const components = [];
+  if (select) {
+    components.push(new ActionRowBuilder().addComponents(select));
+  }
+  components.push(new ActionRowBuilder().addComponents(...navigationButtons.slice(0, 5)));
+
   return {
-    content: '',
+    content: select ? '' : 'No matching server items were found. You can still use **Set by ID**.',
     embeds: [embed],
-    components: [
-      new ActionRowBuilder().addComponents(select),
-      new ActionRowBuilder().addComponents(...buttons),
-    ],
+    components,
   };
 }
 
