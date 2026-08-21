@@ -1,62 +1,100 @@
-import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { AttachmentBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { fileURLToPath } from 'node:url';
 import { logger } from '../utils/logger.js';
+import { getTermsTitleIcon } from './termsIconService.js';
 
 export const ZORP_GUIDE_CHANNEL_ID = '1533212973034770462';
 
-function buildZorpGuideEmbed() {
-  return new EmbedBuilder()
+const ZORP_SECTIONS = [
+  {
+    name: 'How to Claim a ZORP Zone',
+    value: [
+      'To create a ZORP zone, the player must:',
+      '',
+      '• Be part of a team.',
+      '• Be the Team Leader.',
+      '• Use `Can I build around here?`',
+      '• Confirm the zone by selecting `Yes`.',
+      '',
+      '*You can find `Can I build around here?` and `Yes` in the Emote Wheel.*',
+    ].join('\n'),
+  },
+  {
+    name: 'Important Information',
+    value: [
+      '• ZORP zones expire after 24 hours.',
+      '• The timer is automatically reset while the team is online.',
+      '• A team cannot create a ZORP zone that overlaps with another team’s zone.',
+      '• If a player switches teams, their existing ZORP zone will be removed to prevent abuse.',
+    ].join('\n'),
+  },
+  {
+    name: 'How to Remove a ZORP Zone',
+    value: [
+      'To delete an existing ZORP zone:',
+      '',
+      '• Use `Can I build around here?`',
+      '• Select `Good Bye` to confirm the removal.',
+    ].join('\n'),
+  },
+  {
+    name: 'Zone Colors',
+    value: [
+      '⚪ **White** — Newly created zone that will turn green shortly.',
+      '🟢 **Green** — Team is currently online.',
+      '🟡 **Yellow** — Team is offline; zone is about to turn red.',
+      '🔴 **Red** — Team is offline and the zone is protected.',
+    ].join('\n'),
+  },
+];
+
+function formatLastUpdated(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Amsterdam',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).formatToParts(date);
+
+  const get = type => parts.find(part => part.type === type)?.value || '';
+  return `${get('day')} ${get('month')} ${get('year')}`;
+}
+
+function buildZorpGuideEmbed(titleIcon = '') {
+  const title = titleIcon ? `${titleIcon} ZORP Guide` : 'ZORP Guide';
+  const footerText = `© Cloudy Inc. • Last updated: ${formatLastUpdated()}`;
+
+  const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
-    .setTitle('🛡️ ZORP Guide')
+    .setTitle(title)
     .setDescription(
       'ZORP is a zone protection system that protects your team’s building area while your team is offline.'
     )
     .addFields(
-      {
-        name: 'How to Claim a ZORP Zone',
-        value: [
-          'To create a ZORP zone, the player must:',
-          '',
-          '• Be part of a team.',
-          '• Be the Team Leader.',
-          '• Use `Can I build around here?`',
-          '• Confirm the zone by selecting `Yes`.',
-          '',
-          '*You can find `Can I build around here?` and `Yes` in the Emote Wheel.*',
-        ].join('\n'),
+      ZORP_SECTIONS.map(section => ({
+        // The zero-width spacer plus newline gives the same clean section spacing
+        // used by the Cloudy Terms embeds instead of crowding each block together.
+        name: `\u200b\n${section.name}`,
+        value: section.value,
         inline: false,
-      },
-      {
-        name: 'Important Information',
-        value: [
-          '• ZORP zones expire after 24 hours.',
-          '• The timer is automatically reset while the team is online.',
-          '• A team cannot create a ZORP zone that overlaps with another team’s zone.',
-          '• If a player switches teams, their existing ZORP zone will be removed to prevent abuse.',
-        ].join('\n'),
-        inline: false,
-      },
-      {
-        name: 'How to Remove a ZORP Zone',
-        value: [
-          'To delete an existing ZORP zone:',
-          '',
-          '• Use `Can I build around here?`',
-          '• Select `Good Bye` to confirm the removal.',
-        ].join('\n'),
-        inline: false,
-      },
-      {
-        name: 'Zone Colors',
-        value: [
-          '⚪ **White** — Newly created zone that will turn green shortly.',
-          '🟢 **Green** — Team is currently online.',
-          '🟡 **Yellow** — Team is offline; zone is about to turn red.',
-          '🔴 **Red** — Team is offline and the zone is protected.',
-        ].join('\n'),
-        inline: false,
-      }
+      }))
     )
-    .setFooter({ text: '© Cloudy Inc. • ZORP Guide' });
+    // Use the exact same Cloudy C asset as the welcome message.
+    .setThumbnail('attachment://cloudy-c-logo.png')
+    .setFooter({ text: footerText });
+
+  // Keep the footer explicit in the final Discord payload, matching the
+  // established Terms/Welcome embed pattern in this bot.
+  const payload = embed.toJSON();
+  payload.footer = { text: footerText };
+  return payload;
+}
+
+function buildCloudyLogoAttachment() {
+  return new AttachmentBuilder(
+    fileURLToPath(new URL('../../assets/cloudy-c-logo.png', import.meta.url)),
+    { name: 'cloudy-c-logo.png' }
+  );
 }
 
 async function findExistingGuide(channel, clientUserId) {
@@ -66,8 +104,8 @@ async function findExistingGuide(channel, clientUserId) {
   return messages.find(message =>
     message.author?.id === clientUserId &&
     message.embeds?.some(embed =>
-      embed.title === '🛡️ ZORP Guide' ||
       embed.title === 'ZORP Guide' ||
+      embed.title === '🛡️ ZORP Guide' ||
       embed.title?.endsWith(' ZORP Guide')
     )
   ) || null;
@@ -87,24 +125,33 @@ export async function reconcileZorpGuide(client) {
     if (
       !permissions?.has(PermissionFlagsBits.ViewChannel) ||
       !permissions?.has(PermissionFlagsBits.SendMessages) ||
-      !permissions?.has(PermissionFlagsBits.EmbedLinks)
+      !permissions?.has(PermissionFlagsBits.EmbedLinks) ||
+      !permissions?.has(PermissionFlagsBits.AttachFiles)
     ) {
-      logger.warn(`[ZORP] Missing View Channel, Send Messages, or Embed Links in ${ZORP_GUIDE_CHANNEL_ID}.`);
+      logger.warn(`[ZORP] Missing View Channel, Send Messages, Embed Links, or Attach Files in ${ZORP_GUIDE_CHANNEL_ID}.`);
       return { ok: false, reason: 'missing_permissions' };
     }
 
-    const embed = buildZorpGuideEmbed();
+    const titleIcon = await getTermsTitleIcon(client);
+    const embed = buildZorpGuideEmbed(titleIcon);
     const existing = permissions.has(PermissionFlagsBits.ReadMessageHistory)
       ? await findExistingGuide(channel, client.user.id)
       : null;
 
     if (existing) {
-      await existing.edit({ embeds: [embed] });
+      await existing.edit({
+        embeds: [embed],
+        attachments: [],
+        files: [buildCloudyLogoAttachment()],
+      });
       logger.info(`[ZORP] Updated ZORP Guide message ${existing.id}.`);
       return { ok: true, action: 'updated', messageId: existing.id };
     }
 
-    const sent = await channel.send({ embeds: [embed] });
+    const sent = await channel.send({
+      embeds: [embed],
+      files: [buildCloudyLogoAttachment()],
+    });
     logger.info(`[ZORP] Sent ZORP Guide message ${sent.id}.`);
     return { ok: true, action: 'sent', messageId: sent.id };
   } catch (error) {
