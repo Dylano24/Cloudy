@@ -1,9 +1,12 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { getTicketPermissionContext } from '../../utils/ticket/ticketPermissions.js';
+import {
+    buildCloudyTicketEmbed,
+    scheduleTicketReplyDeletion,
+} from '../../utils/ticket/ticketBranding.js';
 import { closeTicket } from '../../services/ticketReliabilityService.js';
 
 export default {
@@ -41,8 +44,14 @@ export default {
         await closeTicket(interaction.channel, interaction.user, reason);
 
         await InteractionHelper.safeEditReply(interaction, {
-            embeds: [successEmbed('Ticket Closed!', 'This ticket has been closed successfully.')],
+            content: '',
+            embeds: [buildCloudyTicketEmbed({
+                title: 'Ticket Closed',
+                description: 'This ticket has been closed successfully.',
+            })],
+            components: [],
         });
+        scheduleTicketReplyDeletion(interaction);
 
         logger.info('Ticket closed successfully', {
             userId: interaction.user.id,
