@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType } from 'discord.js';
 import {
   claimTicket as claimTicketBase,
   closeTicket as closeTicketBase,
@@ -282,25 +282,46 @@ export async function updateTicketPriority(channel, priority, updater) {
   });
 }
 
+async function applyPinnedState(channel, pinned) {
+  const ticketData = await getTicketData(channel.guild.id, channel.id);
+  if (!ticketData) {
+    throw ticketError(
+      'Ticket data not found while updating pin state',
+      'This action can only be used in a valid ticket channel.',
+      'TICKET_NOT_FOUND',
+    );
+  }
+  if (String(ticketData.status || 'open').toLowerCase() === 'closed') {
+    throw ticketError('Cannot pin closed ticket', 'This ticket is already closed.', 'TICKET_CLOSED');
+  }
+
+  ticketData.pinned = Boolean(pinned);
+  ticketData.pinnedUpdatedAt = new Date().toISOString();
+  await saveTicketData(channel.guild.id, channel.id, ticketData);
+  await setTicketPinnedBase(channel, Boolean(pinned));
+  return Boolean(pinned);
+}
+
 export async function setTicketPinned(channel, pinned) {
+  return mutate(channel, () => applyPinnedState(channel, pinned));
+}
+
+export async function toggleTicketPinned(channel) {
   return mutate(channel, async () => {
     const ticketData = await getTicketData(channel.guild.id, channel.id);
     if (!ticketData) {
       throw ticketError(
-        'Ticket data not found while updating pin state',
+        'Ticket data not found while toggling pin state',
         'This action can only be used in a valid ticket channel.',
         'TICKET_NOT_FOUND',
       );
     }
-    if (String(ticketData.status || 'open').toLowerCase() === 'closed') {
-      throw ticketError('Cannot pin closed ticket', 'This ticket is already closed.', 'TICKET_CLOSED');
-    }
 
-    ticketData.pinned = Boolean(pinned);
-    ticketData.pinnedUpdatedAt = new Date().toISOString();
-    await saveTicketData(channel.guild.id, channel.id, ticketData);
-    await setTicketPinnedBase(channel, Boolean(pinned));
-    return Boolean(pinned);
+    const currentPinned = ticketData.pinned == null
+      ? String(channel.name || '').includes('📌')
+      : Boolean(ticketData.pinned);
+
+    return applyPinnedState(channel, !currentPinned);
   });
 }
 
