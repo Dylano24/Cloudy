@@ -20,8 +20,6 @@ const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 function scheduleEphemeralDeletion(interaction) {
   const timer = setTimeout(() => {
     interaction.deleteReply().catch(error => {
-      // Unknown message / expired interaction is harmless here: the private
-      // FAQ response is already gone or Discord no longer exposes it.
       if (![10008, 10062].includes(error?.code)) {
         logger.debug('FAQ AI auto-delete could not remove reply:', error?.message || error);
       }
@@ -69,8 +67,6 @@ export default {
           return;
         }
 
-        // showModal itself acknowledges the Discord button interaction.
-        // Do this immediately so the button can never hit Discord's 3 second timeout.
         await interaction.showModal(buildFaqQuestionModal());
       } catch (error) {
         logger.error('FAQ AI button failed:', {
@@ -95,8 +91,6 @@ export default {
       return;
     }
 
-    // Acknowledge the submitted modal immediately. Groq can then take as long as
-    // needed within Discord's deferred interaction window without timing out.
     try {
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -143,9 +137,12 @@ export default {
         })
         .setFooter({ text: CLOUDY_FOOTER });
 
+      const embedPayload = embed.toJSON();
+      embedPayload.footer = { text: CLOUDY_FOOTER };
+
       await interaction.editReply({
         content: '',
-        embeds: [embed],
+        embeds: [embedPayload],
         components: [],
       });
       scheduleEphemeralDeletion(interaction);
