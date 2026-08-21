@@ -14,7 +14,7 @@ const TERMS_SECTIONS = [
   },
   {
     name: '3. Service Availability',
-    value: `Our Services are provided "as is" and according to their availability.\n\nWhile we make reasonable efforts to maintain reliable access to our Services, we cannot guarantee permanent and uninterrupted availability.\n\nTemporary interruptions, periods of unavailability, maintenance, or technical issues may occur, including but not limited to:\nHosting provider failures;\nServer maintenance;\nDiscord outages;\nPlayStation Network or Xbox Network outages;\nIssues related to Internet infrastructure;\nThird-party service failures;\nPayment provider issues;\nCybersecurity incidents or DDoS attacks.`
+    value: `Our Services are provided "as is" and according to their availability.\n\nWhile we make reasonable efforts to maintain reliable access to our Services, we cannot guarantee permanent and uninterrupted availability.\n\nTemporary interruptions, periods of unavailability, maintenance, or technical issues may occur, including but not limited to:\n\nHosting provider failures;\nServer maintenance;\nDiscord outages;\nPlayStation Network or Xbox Network outages;\nIssues related to Internet infrastructure;\nThird-party service failures;\nPayment provider issues;\nCybersecurity incidents or DDoS attacks.`
   },
   {
     name: '4. Wipes, Rollbacks and Data Loss',
@@ -22,7 +22,7 @@ const TERMS_SECTIONS = [
   },
   {
     name: '5. Limitation of Liability',
-    value: `To the extent permitted by applicable law, we shall not be held liable for, including but not limited to:\nLoss of in-game content or progression;\nTemporary service interruptions;\nFailures of our hosting provider or third-party platforms;\nData loss;\nIndirect damages resulting from the use of our Services.\n\nAt our sole discretion, and without any obligation on our part, we may decide to provide compensation, extensions, or any other goodwill gesture in exceptional circumstances.\n\nProviding compensation in one situation does not create any obligation to provide compensation in future situations.`
+    value: `To the extent permitted by applicable law, we shall not be held liable for, including but not limited to:\n\nLoss of in-game content or progression;\nTemporary service interruptions;\nFailures of our hosting provider or third-party platforms;\nData loss;\nIndirect damages resulting from the use of our Services.\n\nAt our sole discretion, and without any obligation on our part, we may decide to provide compensation, extensions, or any other goodwill gesture in exceptional circumstances.\n\nProviding compensation in one situation does not create any obligation to provide compensation in future situations.`
   },
   {
     name: '6. Administrative Actions',
