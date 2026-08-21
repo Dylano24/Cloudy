@@ -1,5 +1,6 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { getTermsTitleIcon } from './termsIconService.js';
 
 const STORE_TERMS_CHANNEL_ID = '1534786470790037665';
 
@@ -54,12 +55,13 @@ function formatLastUpdated(date = new Date()) {
   return `${get('day')} ${get('month')} ${get('year')}`;
 }
 
-function buildStoreTermsEmbed() {
+function buildStoreTermsEmbed(titleIcon = '') {
   const footerText = `© Cloudy Inc. • Last updated: ${formatLastUpdated()}`;
+  const title = titleIcon ? `${titleIcon} Store terms of sale` : 'Store terms of sale';
 
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
-    .setTitle('Store terms of sale')
+    .setTitle(title)
     .addFields(STORE_TERMS_SECTIONS.map((section, index) => ({
       name: `${index > 0 ? '\u200b\n' : ''}${section.name}`,
       value: section.value,
@@ -78,7 +80,10 @@ async function findExistingStoreTermsMessage(channel, clientUserId) {
 
   return messages.find(message =>
     message.author?.id === clientUserId &&
-    message.embeds?.some(embed => embed.title === 'Store terms of sale')
+    message.embeds?.some(embed =>
+      embed.title === 'Store terms of sale' ||
+      embed.title?.endsWith(' Store terms of sale')
+    )
   ) || null;
 }
 
@@ -103,7 +108,8 @@ export async function reconcileStoreTermsMessage(client) {
       return { ok: false, reason: 'missing_permissions' };
     }
 
-    const embed = buildStoreTermsEmbed();
+    const titleIcon = await getTermsTitleIcon(client);
+    const embed = buildStoreTermsEmbed(titleIcon);
     const existing = permissions.has(PermissionFlagsBits.ReadMessageHistory)
       ? await findExistingStoreTermsMessage(channel, client.user.id)
       : null;
