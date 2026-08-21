@@ -93,6 +93,14 @@ async function loadPayloads() {
       if (!isPlayerCommand(payload.name) && !payload.default_member_permissions) {
         payload.default_member_permissions = '8';
       }
+
+      // This script registers GUILD commands. Discord does not persist the
+      // deprecated dm_permission field on guild commands consistently. Sending
+      // and comparing it caused Cloudy to think /cases changed forever, PATCH it
+      // continuously, and hit Discord rate limits. Guild commands cannot be used
+      // in DMs anyway, so omit it from the guild payload entirely.
+      delete payload.dm_permission;
+
       payloads.push(payload);
     } catch (error) {
       console.error(`[COMMAND_RECOVERY] Failed loading ${file}: ${error.message}`);
@@ -156,7 +164,6 @@ function comparableCommand(command) {
     description: command.description || '',
     options: normalizeOptions(command.options),
     default_member_permissions: command.default_member_permissions ?? null,
-    dm_permission: command.dm_permission ?? true,
     nsfw: command.nsfw ?? false,
   };
 }
