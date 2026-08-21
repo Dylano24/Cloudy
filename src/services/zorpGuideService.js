@@ -39,7 +39,6 @@ const ZORP_SECTIONS = [
   {
     name: 'Zone Colors',
     value: [
-      '\u200b',
       '⚪ Newly created zone that will turn green shortly.',
       '🟢 Team is currently online.',
       '🟡 Team is offline; zone is about to turn red.',
