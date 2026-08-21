@@ -3,14 +3,13 @@ import { createEmbed } from '../embeds.js';
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
 
-// Exact same source asset used by the welcome message.
-// The logo itself stays unchanged; only transparent empty space is added on
-// the left so Discord renders that exact C at the bottom-right of the embed.
-const CLOUDY_WELCOME_C_LOGO =
-  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+// Uses the exact same cloudy-c-logo.png bytes as the welcome message.
+// The SVG only provides transparent spacing/positioning so the unchanged C
+// renders at welcome-thumbnail scale near the bottom-right of ticket embeds.
+const CLOUDY_TICKET_C_LAYOUT =
+  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.svg?v=1';
 export const CLOUDY_TICKET_C_FOOTER_IMAGE =
-  `https://images.weserv.nl/?url=${encodeURIComponent(CLOUDY_WELCOME_C_LOGO)}`
-  + '&w=1600&h=500&fit=contain&a=bottom-right&we=1&cbg=00000000&output=png';
+  `https://images.weserv.nl/?url=${encodeURIComponent(CLOUDY_TICKET_C_LAYOUT)}&output=png`;
 
 export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function'
