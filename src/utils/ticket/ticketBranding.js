@@ -3,13 +3,6 @@ import { createEmbed } from '../embeds.js';
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
 
-const TICKET_STATUS_COLORS = Object.freeze({
-  'Ticket Created': 0xFFFFFF,
-  'Ticket Claimed': 0x57F287,
-  'Ticket Closed': 0x3498DB,
-  'Ticket Deleted': 0xED4245,
-});
-
 // Exact same source asset used by the welcome message.
 // The logo itself stays unchanged; only transparent empty space is added on
 // the left so Discord renders that exact C at the bottom-right of the embed.
@@ -25,11 +18,6 @@ export function forceCloudyTicketFooter(embed) {
     : { ...(embed || {}) };
 
   payload.footer = { text: CLOUDY_TICKET_FOOTER };
-
-  const forcedStatusColor = TICKET_STATUS_COLORS[String(payload.title || '')];
-  if (forcedStatusColor !== undefined) {
-    payload.color = forcedStatusColor;
-  }
 
   if (/^Ticket\s*#\s*\d+/i.test(String(payload.title || ''))) {
     payload.image = { url: CLOUDY_TICKET_C_FOOTER_IMAGE };
