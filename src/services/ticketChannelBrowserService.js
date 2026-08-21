@@ -77,6 +77,10 @@ function isPublicToEveryone(guild, channel) {
   }
 }
 
+function isUsableTicketDestination(channel) {
+  return [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type);
+}
+
 function channelSortKey(channel) {
   const parentPosition = channel.parent?.rawPosition ?? channel.rawPosition ?? 0;
   const ownPosition = channel.rawPosition ?? 0;
@@ -109,25 +113,26 @@ export function getEveryGuildChannel(guild) {
 
 function buildChannelOption(guild, channel, currentId) {
   const visibility = isPublicToEveryone(guild, channel) ? 'Public' : 'Private';
+  const compatibility = isUsableTicketDestination(channel) ? 'Usable' : 'Visible only';
   const parent = channel.parent?.name ? ` • ${channel.parent.name}` : '';
   const type = channelTypeName(channel);
   const name = String(channel.name || channel.id);
 
   return new StringSelectMenuOptionBuilder()
     .setLabel(`${channelIcon(channel)} ${name}`.slice(0, 100))
-    .setDescription(`${visibility} • ${type}${parent} • ${channel.id}`.slice(0, 100))
+    .setDescription(`${visibility} • ${type} • ${compatibility}${parent} • ${channel.id}`.slice(0, 100))
     .setValue(channel.id)
     .setDefault(String(currentId || '') === String(channel.id));
 }
 
-function buildChannelSelect(guild, setting, definition, channels, startIndex, total, config) {
-  const segment = channels.slice(startIndex, startIndex + SELECT_SIZE);
+function buildChannelSelect(guild, setting, definition, pageChannels, localStart, globalStart, total, page, config) {
+  const segment = pageChannels.slice(localStart, localStart + SELECT_SIZE);
   if (!segment.length) return null;
 
-  const first = startIndex + 1;
-  const last = startIndex + segment.length;
+  const first = globalStart + localStart + 1;
+  const last = first + segment.length - 1;
   const select = new StringSelectMenuBuilder()
-    .setCustomId(`ticket_dashboard_value:${guild.id}:${definition.field}:${setting}:${startIndex}`)
+    .setCustomId(`ticket_dashboard_value:${guild.id}:${definition.field}:${setting}:${page}`)
     .setPlaceholder(`Channels ${first}-${last} of ${total}`)
     .setMinValues(1)
     .setMaxValues(1);
@@ -158,8 +163,7 @@ export function buildAllChannelTicketPrompt(guild, setting, config = {}, page = 
       `**Current:** ${currentId ? `<#${currentId}>` : '`Not set`'}\n` +
       `**All Discord channels loaded:** ${channels.length}\n` +
       `**Showing:** ${channels.length ? `${pageStart + 1}-${pageEnd}` : '0'} of ${channels.length} • Page ${safePage + 1}/${pageCount}\n\n` +
-      'Nothing is hidden by channel type or public/private status. If Discord exposes the channel to Cloudy, it appears here. ' +
-      'Cloudy validates whether the selected channel can actually be used only after you select it.'
+      'Nothing is hidden by channel type or public/private status. **Usable** means Cloudy can potentially use that channel for this ticket setting; **Visible only** means it is shown so nothing is missing, but Discord does not allow that channel type for this destination.'
     )
     .setColor('#FFFFFF')
     .setFooter({ text: CLOUDY_TICKET_FOOTER });
@@ -172,7 +176,9 @@ export function buildAllChannelTicketPrompt(guild, setting, config = {}, page = 
       definition,
       pageChannels,
       offset,
+      pageStart,
       channels.length,
+      safePage,
       config,
     );
     if (row) components.push(row);
@@ -212,7 +218,7 @@ export function buildAllChannelTicketPrompt(guild, setting, config = {}, page = 
       .setEmoji('↩️'),
   );
 
-  // Discord supports at most five action rows. Four dropdown rows expose up to
+  // Discord allows at most five action rows. Four dropdown rows expose up to
   // 100 channels at once; the fifth row is reserved for navigation/actions.
   components.push(new ActionRowBuilder().addComponents(...buttons.slice(0, 5)));
 
