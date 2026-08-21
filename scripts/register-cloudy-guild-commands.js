@@ -13,26 +13,19 @@ const configuredClientId = String(
 ).trim();
 
 const API = 'https://discord.com/api/v10';
-const REQUEST_TIMEOUT_MS = 20000;
-const PRIORITY = [
-  'help',
-  'ban', 'unban', 'timeout', 'untimeout', 'kick', 'warn', 'warnings',
-  'cases', 'lock', 'unlock', 'purge', 'dm', 'massban', 'masskick', 'say', 'usernotes',
-  'ticket', 'close', 'claim', 'priority',
-];
-const MAX_RUNTIME_MS = 23 * 60 * 60 * 1000;
-const PERMANENT_FAILURE_BACKOFF_MS = 30 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 20_000;
+const MAX_RETRIES = 2;
 
 if (!token) {
-  console.error('[COMMAND_RECOVERY] DISCORD_TOKEN is missing.');
+  console.error('[COMMAND_SYNC] DISCORD_TOKEN is missing.');
   process.exit(1);
 }
 if (!guildId) {
-  console.error('[COMMAND_RECOVERY] GUILD_ID is missing.');
+  console.error('[COMMAND_SYNC] GUILD_ID is missing.');
   process.exit(1);
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function discordFetch(endpoint, options = {}) {
   const controller = new AbortController();
@@ -94,20 +87,17 @@ async function loadPayloads() {
         payload.default_member_permissions = '8';
       }
 
-      // This script registers GUILD commands. Discord does not persist the
-      // deprecated dm_permission field on guild commands consistently. Sending
-      // and comparing it caused Cloudy to think /cases changed forever, PATCH it
-      // continuously, and hit Discord rate limits. Guild commands cannot be used
-      // in DMs anyway, so omit it from the guild payload entirely.
+      // These are guild commands. Discord does not consistently persist the
+      // deprecated dm_permission field for guild-scoped application commands.
       delete payload.dm_permission;
 
       payloads.push(payload);
     } catch (error) {
-      console.error(`[COMMAND_RECOVERY] Failed loading ${file}: ${error.message}`);
+      console.error(`[COMMAND_SYNC] Failed loading ${file}: ${error.message}`);
     }
   }
 
-  return payloads;
+  return payloads.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function retryAfterSeconds(result) {
@@ -116,79 +106,7 @@ function retryAfterSeconds(result) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-function sortRecoveryQueue(payloads, existingNames) {
-  const byName = new Map(payloads.map((payload) => [payload.name, payload]));
-  const queue = [];
-
-  for (const name of PRIORITY) {
-    if (!existingNames.has(name) && byName.has(name)) {
-      queue.push(byName.get(name));
-      byName.delete(name);
-    }
-  }
-
-  const rest = [...byName.values()]
-    .filter((payload) => !existingNames.has(payload.name))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  return [...queue, ...rest];
-}
-
-function normalizeOptions(options) {
-  if (!Array.isArray(options)) return [];
-  return options.map((option) => {
-    const normalized = {
-      type: option.type,
-      name: option.name,
-      description: option.description,
-      required: option.required ?? false,
-      autocomplete: option.autocomplete ?? false,
-    };
-
-    if (Array.isArray(option.options)) normalized.options = normalizeOptions(option.options);
-    if (Array.isArray(option.choices)) {
-      normalized.choices = option.choices.map((choice) => ({ name: choice.name, value: choice.value }));
-    }
-    if (Array.isArray(option.channel_types)) normalized.channel_types = [...option.channel_types];
-    if (option.min_value !== undefined) normalized.min_value = option.min_value;
-    if (option.max_value !== undefined) normalized.max_value = option.max_value;
-    if (option.min_length !== undefined) normalized.min_length = option.min_length;
-    if (option.max_length !== undefined) normalized.max_length = option.max_length;
-    return normalized;
-  });
-}
-
-function comparableCommand(command) {
-  return {
-    name: command.name,
-    description: command.description || '',
-    options: normalizeOptions(command.options),
-    default_member_permissions: command.default_member_permissions ?? null,
-    nsfw: command.nsfw ?? false,
-  };
-}
-
-function commandNeedsUpdate(desired, current) {
-  return JSON.stringify(comparableCommand(desired)) !== JSON.stringify(comparableCommand(current));
-}
-
-function sortUpdateQueue(payloads, currentByName) {
-  const changed = payloads
-    .filter((payload) => currentByName.has(payload.name) && commandNeedsUpdate(payload, currentByName.get(payload.name)));
-
-  return changed.sort((a, b) => {
-    const priorityA = PRIORITY.indexOf(a.name);
-    const priorityB = PRIORITY.indexOf(b.name);
-    const rankA = priorityA === -1 ? Number.MAX_SAFE_INTEGER : priorityA;
-    const rankB = priorityB === -1 ? Number.MAX_SAFE_INTEGER : priorityB;
-    return rankA - rankB || a.name.localeCompare(b.name);
-  });
-}
-
 async function main() {
-  const startedAt = Date.now();
-  const blockedUntil = new Map();
-
   const me = await discordFetch('/users/@me');
   if (!me.response.ok || !me.body?.id) {
     throw new Error(`Discord token check failed (${me.response.status}): ${JSON.stringify(me.body)}`);
@@ -196,7 +114,7 @@ async function main() {
 
   const applicationId = String(me.body.id);
   if (configuredClientId && configuredClientId !== applicationId) {
-    console.warn(`[COMMAND_RECOVERY] CLIENT_ID ${configuredClientId} != authenticated app ${applicationId}; authenticated app wins.`);
+    console.warn(`[COMMAND_SYNC] CLIENT_ID ${configuredClientId} != authenticated app ${applicationId}; authenticated app wins.`);
   }
 
   const payloads = await loadPayloads();
@@ -205,153 +123,42 @@ async function main() {
   }
 
   const route = `/applications/${applicationId}/guilds/${guildId}/commands`;
-  console.log(`[COMMAND_RECOVERY] Incremental recovery/sync started: app=${applicationId}, guild=${guildId}, desired=${payloads.length}.`);
-  console.log(`[COMMAND_RECOVERY] Priority order: ${PRIORITY.join(', ')}.`);
+  console.log(`[COMMAND_SYNC] Bulk guild sync started: app=${applicationId}, guild=${guildId}, commands=${payloads.length}.`);
 
-  while (Date.now() - startedAt < MAX_RUNTIME_MS) {
-    let current;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    let result;
     try {
-      current = await discordFetch(route);
+      result = await discordFetch(route, {
+        method: 'PUT',
+        body: JSON.stringify(payloads),
+      });
     } catch (error) {
-      console.error(`[COMMAND_RECOVERY] GET failed: ${error.message}; retrying in 60s.`);
-      await sleep(60000);
+      if (attempt >= MAX_RETRIES) throw error;
+      console.warn(`[COMMAND_SYNC] Request failed: ${error.message}; retrying once shortly.`);
+      await sleep(5_000);
       continue;
     }
 
-    if (!current.response.ok || !Array.isArray(current.body)) {
-      const retryAfter = retryAfterSeconds(current);
-      if (current.response.status === 429) {
-        const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 60) + 2));
-        console.warn(`[COMMAND_RECOVERY] GET rate-limited; waiting ${waitSeconds}s.`);
-        await sleep(waitSeconds * 1000);
-        continue;
-      }
-      console.error(`[COMMAND_RECOVERY] GET rejected HTTP ${current.response.status}: ${JSON.stringify(current.body)}; retrying in 5m.`);
-      await sleep(5 * 60 * 1000);
-      continue;
-    }
-
-    const currentByName = new Map(current.body.map((command) => [command.name, command]));
-    const existingNames = new Set(currentByName.keys());
-    const updateQueue = sortUpdateQueue(payloads, currentByName);
-    const missingQueue = sortRecoveryQueue(payloads, existingNames);
-
-    const availableUpdate = updateQueue.find((payload) => (blockedUntil.get(`update:${payload.name}`) || 0) <= Date.now());
-    if (availableUpdate) {
-      const existing = currentByName.get(availableUpdate.name);
-      console.log(`[COMMAND_RECOVERY] Updating changed schema for /${availableUpdate.name}.`);
-
-      let update;
-      try {
-        update = await discordFetch(`${route}/${existing.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify(availableUpdate),
-        });
-      } catch (error) {
-        console.error(`[COMMAND_RECOVERY] PATCH /${availableUpdate.name} failed: ${error.message}; retrying in 60s.`);
-        await sleep(60000);
-        continue;
-      }
-
-      if (update.response.ok && update.body?.name === availableUpdate.name) {
-        blockedUntil.delete(`update:${availableUpdate.name}`);
-        console.log(`[COMMAND_RECOVERY] UPDATED /${availableUpdate.name}.`);
-        await sleep(1500);
-        continue;
-      }
-
-      const retryAfter = retryAfterSeconds(update);
-      if (update.response.status === 429) {
-        const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 60) + 2));
-        console.warn(`[COMMAND_RECOVERY] UPDATE_RATE_LIMIT /${availableUpdate.name}; waiting ${waitSeconds}s.`);
-        await sleep(waitSeconds * 1000);
-        continue;
-      }
-
-      blockedUntil.set(`update:${availableUpdate.name}`, Date.now() + PERMANENT_FAILURE_BACKOFF_MS);
-      console.error(`[COMMAND_RECOVERY] Discord rejected update for /${availableUpdate.name}: HTTP ${update.response.status}, body=${JSON.stringify(update.body)}.`);
-      await sleep(1500);
-      continue;
-    }
-
-    if (!missingQueue.length && !updateQueue.length) {
-      console.log(`[COMMAND_RECOVERY] COMPLETE: all ${payloads.length} Cloudy guild commands are registered and synchronized.`);
+    if (result.response.ok && Array.isArray(result.body)) {
+      console.log(`[COMMAND_SYNC] COMPLETE: Discord now has ${result.body.length} Cloudy guild commands.`);
       return;
     }
 
-    const now = Date.now();
-    const queue = missingQueue.filter((payload) => (blockedUntil.get(`create:${payload.name}`) || 0) <= now);
-
-    if (!queue.length) {
-      const pendingTimes = [
-        ...missingQueue.map((payload) => blockedUntil.get(`create:${payload.name}`) || (now + 60000)),
-        ...updateQueue.map((payload) => blockedUntil.get(`update:${payload.name}`) || (now + 60000)),
-      ];
-      const earliest = pendingTimes.length ? Math.min(...pendingTimes) : now + 60000;
-      const waitMs = Math.max(5000, Math.min(earliest - now, 5 * 60 * 1000));
-      console.warn(`[COMMAND_RECOVERY] Pending command work is temporarily deferred; checking again in ${Math.ceil(waitMs / 1000)}s.`);
-      await sleep(waitMs);
-      continue;
-    }
-
-    const next = queue[0];
-    console.log(
-      `[COMMAND_RECOVERY] Progress ${existingNames.size}/${payloads.length}. Next missing command: /${next.name}. Remaining=${missingQueue.length}.`
-    );
-
-    let create;
-    try {
-      create = await discordFetch(route, {
-        method: 'POST',
-        body: JSON.stringify(next),
-      });
-    } catch (error) {
-      console.error(`[COMMAND_RECOVERY] POST /${next.name} failed: ${error.message}; retrying in 60s.`);
-      await sleep(60000);
-      continue;
-    }
-
-    if (create.response.ok && create.body?.name === next.name) {
-      blockedUntil.delete(`create:${next.name}`);
-      console.log(`[COMMAND_RECOVERY] RESTORED /${next.name}. Discord now has at least ${existingNames.size + 1}/${payloads.length} Cloudy commands.`);
-      await sleep(1500);
-      continue;
-    }
-
-    const retryAfter = retryAfterSeconds(create);
-    const apiCode = Number(create.body?.code);
-
-    if (create.response.status === 429) {
-      const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 432) + 2));
-      console.warn(
-        `[COMMAND_RECOVERY] CREATE_QUOTA: /${next.name} must wait ${waitSeconds}s (retry_after=${retryAfter ?? 'unknown'}). ` +
-        'Cloudy remains online; this command will be retried automatically.'
-      );
+    if (result.response.status === 429 && attempt < MAX_RETRIES) {
+      const retryAfter = retryAfterSeconds(result);
+      const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 5) + 1));
+      console.warn(`[COMMAND_SYNC] Rate-limited once; waiting ${waitSeconds}s before retry.`);
       await sleep(waitSeconds * 1000);
       continue;
     }
 
-    if (apiCode === 30034) {
-      console.warn(
-        `[COMMAND_RECOVERY] DAILY_CREATE_LIMIT 30034 while restoring /${next.name}. ` +
-        'Waiting 10 minutes before checking for the next available create token.'
-      );
-      await sleep(10 * 60 * 1000);
-      continue;
-    }
-
-    blockedUntil.set(`create:${next.name}`, Date.now() + PERMANENT_FAILURE_BACKOFF_MS);
-    console.error(
-      `[COMMAND_RECOVERY] Discord rejected /${next.name}: HTTP ${create.response.status}, body=${JSON.stringify(create.body)}. ` +
-      'That command is deferred for 30 minutes so it cannot block recovery of the others.'
+    throw new Error(
+      `Bulk command sync rejected HTTP ${result.response.status}: ${JSON.stringify(result.body)}`
     );
-    await sleep(1500);
   }
-
-  console.warn('[COMMAND_RECOVERY] 23-hour recovery window ended. Restart/redeploy later only if commands are still missing.');
 }
 
-main().catch((error) => {
-  console.error('[COMMAND_RECOVERY] FATAL:', error);
+main().catch(error => {
+  console.error('[COMMAND_SYNC] FATAL:', error.message);
   process.exitCode = 1;
 });
