@@ -2,6 +2,7 @@ import {
   CLOUDY_TICKET_FOOTER,
   TICKET_REPLY_DELETE_MS,
 } from '../utils/ticket/ticketBranding.js';
+import { getGuildConfig } from './config/guildConfig.js';
 
 const AUTO_DELETE_TITLES = new Set([
   'Ticket Reopened',
@@ -28,6 +29,17 @@ function scheduleDelete(message) {
 export async function brandTicketStatusMessage(message, client) {
   if (!message?.guild?.id || !message?.id) return false;
   if (message.author?.id !== client.user?.id) return false;
+
+  // Ticket lifecycle logs are permanent records. They must keep the colors
+  // assigned by ticketLogging.js and must never be auto-deleted or restyled
+  // by the temporary in-ticket status-message branding.
+  const config = await getGuildConfig(client, message.guild.id).catch(() => null);
+  if (
+    message.channelId === config?.ticketLogsChannelId
+    || message.channelId === config?.ticketTranscriptChannelId
+  ) {
+    return false;
+  }
 
   const embed = message.embeds?.[0];
   const title = embed?.title;
