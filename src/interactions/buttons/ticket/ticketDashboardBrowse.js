@@ -52,27 +52,26 @@ const pageHandler = {
   async execute(interaction, client, args = []) {
     const [guildId, setting, pageRaw] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
-    if (!canManageTickets(interaction)) {
-      await rejectUnauthorized(interaction);
-      return;
-    }
+    if (!canManageTickets(interaction)) return rejectUnauthorized(interaction);
 
     try {
       await interaction.deferUpdate();
 
-      if (isAllChannelTicketSetting(setting)) {
-        await refreshAllTicketChannels(interaction.guild);
-      } else {
-        await refreshTicketDashboardCache(interaction.guild);
-      }
-
-      const config = await getCurrentTicketDashboardConfig(client, guildId);
+      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
       const page = Math.max(0, Number.parseInt(pageRaw, 10) || 0);
       const payload = isAllChannelTicketSetting(setting)
         ? buildAllChannelTicketPrompt(interaction.guild, setting, config, page)
         : buildTicketDashboardValuePrompt(interaction.guild, setting, config, page);
 
       await interaction.editReply(payload || buildTicketDashboardPayload(interaction.guild, config));
+
+      // Refresh after rendering, never before. The next page/click sees the
+      // refreshed inventory without this interaction sitting on "loading".
+      if (isAllChannelTicketSetting(setting)) {
+        void refreshAllTicketChannels(interaction.guild).catch(() => {});
+      } else {
+        void refreshTicketDashboardCache(interaction.guild).catch(() => {});
+      }
     } catch (error) {
       logger.error('Ticket dashboard pagination failed', {
         guildId,
@@ -83,7 +82,7 @@ const pageHandler = {
 
       const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
       const payload = buildTicketDashboardPayload(interaction.guild, config);
-      payload.content = error?.userMessage || 'Could not load that channel page. Please try again.';
+      payload.content = error?.userMessage || 'Could not load that page. Please try again.';
       await interaction.editReply(payload).catch(() => {});
     }
   },
@@ -95,10 +94,7 @@ const manualHandler = {
   async execute(interaction, _client, args = []) {
     const [guildId, field] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
-    if (!canManageTickets(interaction)) {
-      await rejectUnauthorized(interaction);
-      return;
-    }
+    if (!canManageTickets(interaction)) return rejectUnauthorized(interaction);
 
     if (!MANUAL_FIELDS.has(field)) {
       await InteractionHelper.safeReply(interaction, {
