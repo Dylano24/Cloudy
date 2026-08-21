@@ -5,9 +5,19 @@ import {
   deleteTicketSystem,
   getCurrentTicketDashboardConfig,
   repostTicketPanel,
+  saveTicketDashboardSetting,
+  validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
+
+const CLEARABLE_FIELDS = new Set([
+  'ticketCategoryId',
+  'ticketClosedCategoryId',
+  'ticketStaffRoleId',
+  'ticketLogsChannelId',
+  'ticketTranscriptChannelId',
+]);
 
 function canManageTickets(interaction) {
   return Boolean(interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels));
@@ -47,6 +57,39 @@ const backHandler = {
     await interaction.deferUpdate();
     const config = await getCurrentTicketDashboardConfig(client, guildId);
     await interaction.editReply(buildTicketDashboardPayload(interaction.guild, config));
+  },
+};
+
+const clearHandler = {
+  name: 'ticket_dashboard_clear',
+
+  async execute(interaction, client, args = []) {
+    const [guildId, field] = args;
+    if (!(await validateDashboardInteraction(interaction, guildId))) return;
+
+    try {
+      await interaction.deferUpdate();
+
+      if (!CLEARABLE_FIELDS.has(field)) {
+        throw new Error(`Ticket dashboard field cannot be cleared: ${field}`);
+      }
+
+      await validateTicketDashboardValue(client, interaction.guild, field, null);
+      const config = await saveTicketDashboardSetting(client, interaction.guild, field, null);
+      const payload = buildTicketDashboardPayload(interaction.guild, config);
+      payload.content = '✅ Ticket setting cleared.';
+      await interaction.editReply(payload);
+    } catch (error) {
+      logger.error('Ticket dashboard clear failed', {
+        guildId,
+        field,
+        error: error.message,
+      });
+      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+      const payload = buildTicketDashboardPayload(interaction.guild, config);
+      payload.content = error?.userMessage || 'Could not clear that ticket setting.';
+      await interaction.editReply(payload).catch(() => {});
+    }
   },
 };
 
@@ -129,4 +172,4 @@ const deleteHandler = {
   },
 };
 
-export default [backHandler, staffHandler, repostHandler, deleteHandler];
+export default [backHandler, clearHandler, staffHandler, repostHandler, deleteHandler];
