@@ -18,6 +18,7 @@ const KNOWLEDGE_CHANNELS = [
   { id: '1533189582064062564', label: 'Rules' },
   { id: '1533191366190829768', label: 'Terms of Service' },
   { id: '1534786470790037665', label: 'Store terms of sale' },
+  { id: '1533212973034770462', label: 'ZORP Guide' },
 ];
 
 const FAQ_PANEL_STATE_KEY = `global:faq-ai:panel:${FAQ_AI_CHANNEL_ID}`;
@@ -35,7 +36,7 @@ function buildPanelPayload() {
     .setColor('#5865F2')
     .setTitle('Cloudy FAQ Assistant')
     .setDescription(
-      'Have a question about Cloudy, purchases, rules, terms, linking your account, or server information?\n\n' +
+      'Have a question about Cloudy, purchases, rules, terms, ZORP, linking your account, or server information?\n\n' +
       'Click **Ask a question** below. Your question and the AI answer are private and only visible to you.'
     )
     .setFooter({ text: 'Cloudy Support • Private AI Assistant' });
@@ -252,8 +253,8 @@ export async function answerFaqQuestion(client, question) {
 
   const systemPrompt = [
     'You are Cloudy Support AI, a private intelligent assistant inside the Cloudy Discord server.',
-    'Use the supplied Cloudy FAQ, Rules, Terms of Service, and Store terms as your primary factual knowledge about Cloudy.',
-    'Source labels identify where information came from. When sources conflict, prefer the more specific official policy source: Store terms for purchases, Terms of Service for service/legal matters, Rules for conduct, and FAQ for quick support guidance.',
+    'Use the supplied Cloudy FAQ, Rules, Terms of Service, Store terms, and ZORP Guide as your primary factual knowledge about Cloudy.',
+    'Source labels identify where information came from. When sources conflict, prefer the more specific official source: ZORP Guide for ZORP and zone-protection details, Store terms for purchases, Terms of Service for service/legal matters, Rules for conduct, and FAQ for quick support guidance.',
     'You are not an exact lookup tool: reason about the information, combine multiple facts, understand paraphrases, and infer direct logical consequences.',
     'Answer new wording, follow-up style questions, hypothetical situations, and practical member questions even when the exact question is not written in a source.',
     'Do not merely copy a matching sentence. Formulate a natural answer that directly addresses what the member is asking.',
