@@ -5,11 +5,14 @@ import {
     MessageFlags,
     EmbedBuilder,
 } from 'discord.js';
-import { successEmbed } from '../../utils/embeds.js';
 import { getGuildConfig, setGuildConfig } from '../../services/config/guildConfig.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { logger } from '../../utils/logger.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
+import {
+    buildCloudyTicketEmbed,
+    scheduleTicketReplyDeletion,
+} from '../../utils/ticket/ticketBranding.js';
 import ticketConfig from './modules/ticket_dashboard.js';
 import {
     formatTicketHealthLines,
@@ -175,9 +178,6 @@ export default {
         }
 
         if (subcommand === 'dashboard') {
-            // The global command router already loaded guild config. Reusing it
-            // removes a duplicate DB read and, critically, no panel/channel scan
-            // is allowed before the dashboard becomes visible.
             return ticketConfig.execute(interaction, routerConfig || {}, client);
         }
 
@@ -240,8 +240,14 @@ export default {
             successMessage += '\n**Private close DMs:** Disabled';
 
             await InteractionHelper.safeEditReply(interaction, {
-                embeds: [successEmbed('Ticket Panel Set Up', successMessage)],
+                content: '',
+                embeds: [buildCloudyTicketEmbed({
+                    title: 'Ticket Panel Set Up',
+                    description: successMessage,
+                })],
+                components: [],
             });
+            scheduleTicketReplyDeletion(interaction);
 
             logger.info('Ticket panel setup completed', {
                 guildId: interaction.guildId,
