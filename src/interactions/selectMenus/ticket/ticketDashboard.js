@@ -16,6 +16,11 @@ import {
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
+import {
+  buildAllChannelTicketPrompt,
+  isAllChannelTicketSetting,
+  refreshAllTicketChannels,
+} from '../../../services/ticketChannelBrowserService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -89,9 +94,18 @@ const dashboardSelectHandler = {
       }
 
       await interaction.deferUpdate();
-      await refreshTicketDashboardCache(interaction.guild);
+
+      if (isAllChannelTicketSetting(setting)) {
+        await refreshAllTicketChannels(interaction.guild);
+      } else {
+        await refreshTicketDashboardCache(interaction.guild);
+      }
+
       const freshConfig = await getCurrentTicketDashboardConfig(client, guildId);
-      const prompt = buildTicketDashboardValuePrompt(interaction.guild, setting, freshConfig, 0);
+      const prompt = isAllChannelTicketSetting(setting)
+        ? buildAllChannelTicketPrompt(interaction.guild, setting, freshConfig, 0)
+        : buildTicketDashboardValuePrompt(interaction.guild, setting, freshConfig, 0);
+
       if (!prompt) {
         await interaction.editReply(buildTicketDashboardPayload(interaction.guild, freshConfig));
         return;
