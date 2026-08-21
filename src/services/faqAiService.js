@@ -33,20 +33,21 @@ const recentQuestions = new Map();
 
 function buildPanelPayload() {
   const embed = new EmbedBuilder()
-    .setColor('#5865F2')
-    .setTitle('Cloudy FAQ Assistant')
+    .setColor('#FFFFFF')
+    .setTitle('Cloudy Support Assistant')
     .setDescription(
-      'Have a question about Cloudy, purchases, rules, terms, ZORP, linking your account, or server information?\n\n' +
-      'Click **Ask a question** below. Your question and the AI answer are private and only visible to you.'
+      'Have a question or need help with something?\n\n' +
+      'Our AI Assistant can help you find answers to common questions, server information, features, commands, and more.\n\n' +
+      'Click the Ask a question button below and let Cloudy Inc. assist you.'
     )
-    .setFooter({ text: 'Cloudy Support • Private AI Assistant' });
+    .setFooter({ text: '© Cloudy Inc. • Quality. Innovation. Performance.' });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(FAQ_AI_BUTTON_ID)
-      .setLabel('Ask a question')
-      .setEmoji('❓')
-      .setStyle(ButtonStyle.Primary)
+      .setLabel('Ask a Question')
+      .setEmoji('❔')
+      .setStyle(ButtonStyle.Secondary)
   );
 
   return { embeds: [embed], components: [row] };
