@@ -1,12 +1,29 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import {
   buildTicketDashboardPayload,
+  repostTicketPanel,
   saveTicketDashboardSetting,
+  updateLiveTicketPanel,
 } from '../../../services/ticketDashboardService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
 const ALLOWED_TEXT_FIELDS = new Set(['ticketPanelMessage', 'ticketButtonLabel']);
+
+async function ensureLivePanel(client, guild, config) {
+  try {
+    const updated = await updateLiveTicketPanel(client, guild, config);
+    if (updated) return config;
+  } catch (error) {
+    logger.warn('Live ticket panel edit failed; recreating panel', {
+      guildId: guild.id,
+      error: error.message,
+    });
+  }
+
+  const recovered = await repostTicketPanel(client, guild);
+  return recovered.config;
+}
 
 export default {
   name: 'ticket_dashboard_modal',
@@ -41,23 +58,23 @@ export default {
         ? (rawValue || 'Start Chat')
         : rawValue;
 
-      const savedConfig = await saveTicketDashboardSetting(
+      let savedConfig = await saveTicketDashboardSetting(
         client,
         interaction.guild,
         field,
         value,
       );
 
+      savedConfig = await ensureLivePanel(client, interaction.guild, savedConfig);
+
       await InteractionHelper.safeEditReply(interaction, {
         content: field === 'ticketPanelMessage'
-          ? '✅ The ticket panel message has been saved.'
-          : '✅ The ticket button label has been saved.',
+          ? '✅ The ticket panel message has been saved and updated.'
+          : '✅ The ticket button label has been saved and updated.',
         embeds: [],
         components: [],
       });
 
-      // A modal opened from a dashboard component normally includes the source
-      // message. Refresh it so the dashboard immediately shows the saved value.
       if (interaction.message?.edit) {
         await interaction.message.edit(
           buildTicketDashboardPayload(interaction.guild, savedConfig),
@@ -72,7 +89,7 @@ export default {
       });
 
       await InteractionHelper.safeEditReply(interaction, {
-        content: error?.userMessage || 'Could not save that ticket setting. Please try again.',
+        content: error?.userMessage || 'Could not save and update that ticket setting. Please try again.',
         embeds: [],
         components: [],
       }).catch(() => {});
