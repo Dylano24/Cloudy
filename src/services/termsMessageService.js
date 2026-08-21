@@ -58,7 +58,7 @@ function buildTermsEmbed() {
     .setTitle('Terms of Service')
     .addFields(TERMS_SECTIONS.map(section => ({
       name: section.name,
-      value: `\u200b\n${section.value}\n\u200b`,
+      value: section.value,
       inline: false
     })))
     .setFooter({ text: footerText });
