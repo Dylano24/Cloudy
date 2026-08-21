@@ -1,9 +1,12 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { successEmbed } from '../../../utils/embeds.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { handleInteractionError } from '../../../utils/errorHandler.js';
 import { getGuildConfig } from '../../../services/config/guildConfig.js';
 import { getTicketPermissionContext } from '../../../utils/ticket/ticketPermissions.js';
+import {
+  buildCloudyTicketEmbed,
+  scheduleTicketReplyDeletion,
+} from '../../../utils/ticket/ticketBranding.js';
 import {
   closeTicket,
   createTicket,
@@ -81,8 +84,14 @@ const createTicketModal = {
 
       const channelLink = buildTicketChannelLink(channel);
       await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed('Ticket Created', `Your ticket has been created in ${channelLink}!`)],
+        content: '',
+        embeds: [buildCloudyTicketEmbed({
+          title: 'Ticket Created',
+          description: `Your ticket has been created in ${channelLink}!`,
+        })],
+        components: [],
       });
+      scheduleTicketReplyDeletion(interaction);
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
         await InteractionHelper.safeEditReply(interaction, {
@@ -133,9 +142,6 @@ const closeTicketModal = {
       const providedReason = interaction.fields.getTextInputValue('reason')?.trim();
       const reason = providedReason || 'No reason provided.';
 
-      // closeTicket already posts the one public Ticket Closed message with the
-      // Reopen/Delete controls. Remove the private deferred response afterwards
-      // so the user does not see a second duplicate Ticket Closed embed.
       await closeTicket(interaction.channel, interaction.user, reason);
       await interaction.deleteReply().catch(() => {});
     } catch (error) {
