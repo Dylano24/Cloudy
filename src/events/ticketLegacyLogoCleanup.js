@@ -1,7 +1,44 @@
-import { Events } from 'discord.js';
+import { AttachmentBuilder, Events } from 'discord.js';
+import { fileURLToPath } from 'node:url';
 import { logger } from '../utils/logger.js';
 
 const LEGACY_LOGO_FILENAME = 'cloudy-ticket-welcome-c.png';
+const TICKET_LOGO_FILENAME = 'cloudy-ticket-c-layout.png';
+const TICKET_LOGO_URL = `attachment://${TICKET_LOGO_FILENAME}`;
+
+function buildLogoFile() {
+  return new AttachmentBuilder(
+    fileURLToPath(new URL('../../assets/cloudy-ticket-c-layout.png', import.meta.url)),
+    { name: TICKET_LOGO_FILENAME },
+  );
+}
+
+async function ensureTicketLogo(message) {
+  let current = message;
+
+  const legacyAttachments = [...current.attachments.values()].filter(
+    attachment => attachment.name === LEGACY_LOGO_FILENAME,
+  );
+
+  if (legacyAttachments.length === 1 && current.attachments.size === 1) {
+    current = await current.edit({ attachments: [] });
+  }
+
+  const embed = current.embeds?.[0];
+  if (!embed) return;
+
+  const raw = embed.toJSON();
+  raw.image = { url: TICKET_LOGO_URL };
+
+  const hasLogo = [...current.attachments.values()].some(
+    attachment => attachment.name === TICKET_LOGO_FILENAME,
+  );
+
+  const payload = { embeds: [raw] };
+  if (!hasLogo) payload.files = [buildLogoFile()];
+
+  await current.edit(payload);
+}
 
 async function cleanChannel(channel, clientUserId) {
   if (!channel?.isTextBased?.() || channel.isThread?.()) return;
@@ -15,22 +52,14 @@ async function cleanChannel(channel, clientUserId) {
     if (message.author?.id !== clientUserId) continue;
     if (!message.embeds?.[0]?.title?.startsWith('Ticket #')) continue;
 
-    const legacyAttachments = [...message.attachments.values()].filter(
-      attachment => attachment.name === LEGACY_LOGO_FILENAME,
-    );
-
-    // The old duplicate-logo system attached this as the only file on the
-    // main ticket message. Remove it so only the embed's bottom-right C remains.
-    if (legacyAttachments.length === 1 && message.attachments.size === 1) {
-      await message.edit({ attachments: [] }).catch(error => {
-        logger.warn('Could not remove legacy duplicate ticket C attachment', {
-          guildId: message.guild?.id,
-          channelId: channel.id,
-          messageId: message.id,
-          error: error.message,
-        });
+    await ensureTicketLogo(message).catch(error => {
+      logger.warn('Could not restore Cloudy C on existing ticket', {
+        guildId: message.guild?.id,
+        channelId: channel.id,
+        messageId: message.id,
+        error: error.message,
       });
-    }
+    });
   }
 }
 
