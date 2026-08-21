@@ -15,7 +15,10 @@ import {
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
-import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
+import {
+  brandTicketDashboardPayload,
+  buildTicketDashboardPayload,
+} from '../../../services/ticketDashboardViewService.js';
 import {
   buildAllChannelTicketPrompt,
   isAllChannelTicketSetting,
@@ -91,9 +94,6 @@ function buildTextSettingModal(interaction, guildId, setting) {
     .setRequired(true)
     .setMaxLength(isPanelMessage ? 2000 : 80);
 
-  // Panel Message is intentionally not prefilled from the dashboard because
-  // the dashboard only shows a shortened preview. This prevents truncating the
-  // exact text supplied by the user. Button Label is safe to prefill in full.
   if (isPanelMessage) {
     input.setPlaceholder('Enter the exact support panel message...');
   } else {
@@ -119,10 +119,10 @@ async function renderSetting(interaction, client, guildId, setting) {
     ? buildAllChannelTicketPrompt(interaction.guild, setting, config, 0)
     : buildTicketDashboardValuePrompt(interaction.guild, setting, config, 0);
 
-  await interaction.editReply(prompt || buildTicketDashboardPayload(interaction.guild, config));
+  await interaction.editReply(
+    brandTicketDashboardPayload(prompt || buildTicketDashboardPayload(interaction.guild, config)),
+  );
 
-  // Inventory refresh is intentionally background-only. A dashboard click must
-  // never wait on a full Discord REST channel/role fetch.
   if (isAllChannelTicketSetting(setting)) {
     void refreshAllTicketChannels(interaction.guild).catch(() => {});
   } else if (setting === 'open_category' || setting === 'closed_category' || setting === 'staff_role') {
@@ -168,7 +168,6 @@ const textSettingHandler = {
     }
 
     try {
-      // Modals must be shown before any defer/database call.
       await interaction.showModal(buildTextSettingModal(interaction, guildId, setting));
     } catch (error) {
       logger.error('Ticket dashboard text modal failed', {
@@ -220,7 +219,6 @@ const clearHandler = {
   },
 };
 
-// Compatibility handlers for dashboard messages created by older deployments.
 const staffHandler = {
   name: 'ticket_dashboard_staff',
   async execute(interaction, client, args = []) {
