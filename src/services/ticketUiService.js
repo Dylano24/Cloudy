@@ -49,8 +49,20 @@ function ticketError(message, userMessage) {
   return error;
 }
 
+function normalizeTicketNumber(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (Number.isFinite(parsed) && parsed > 0) return String(parsed);
+  return String(value || 'Unknown');
+}
+
 function ticketNumberOf(ticketData) {
-  return ticketData?.ticketNumber || ticketData?.id;
+  return normalizeTicketNumber(ticketData?.ticketNumber || ticketData?.id);
+}
+
+function ticketNumberFromTitle(title = '') {
+  const match = String(title).match(/^Ticket\s*#\s*0*(\d+)$/i);
+  if (!match) return null;
+  return normalizeTicketNumber(match[1]);
 }
 
 async function getTicketDataFast(channel) {
@@ -368,22 +380,36 @@ export async function syncCloudyTicketMessage(channel) {
       return false;
     }
 
+    const currentEmbed = ticketMessage.embeds[0];
+    const normalizedTicketNumber = ticketNumberFromTitle(currentEmbed?.title);
+    let stateChanged = false;
+
     if (!ticketData.ticketMessageId) {
       ticketData.ticketMessageId = ticketMessage.id;
+      stateChanged = true;
+    }
+    if (normalizedTicketNumber && ticketData.ticketNumber !== normalizedTicketNumber) {
+      ticketData.ticketNumber = normalizedTicketNumber;
+      stateChanged = true;
+    }
+    if (stateChanged) {
       await saveTicketDataFast(channel, ticketData).catch(() => {});
     }
 
-    const currentEmbed = ticketMessage.embeds[0];
-    const priorityInfo = PRIORITY_MAP[ticketData.priority || 'none'] || PRIORITY_MAP.none;
+    const priorityKey = String(ticketData.priority || 'none').toLowerCase();
+    const priorityInfo = PRIORITY_MAP[priorityKey] || PRIORITY_MAP.none;
     const ticketOwner = `<@${ticketData.userId}>`;
     const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
+    const priorityLine = priorityKey !== 'none'
+      ? `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`
+      : '';
 
     const updatedEmbed = createEmbed({
-      title: currentEmbed.title || 'Ticket',
+      title: normalizedTicketNumber ? `Ticket #${normalizedTicketNumber}` : (currentEmbed.title || 'Ticket'),
       description:
         `${ticketOwner}, ${TICKET_RECEIVED_MESSAGE}`
         + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
-        + `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`,
+        + priorityLine,
       color: isClosed ? '#e74c3c' : priorityInfo.color,
       fields: buildTicketFields(ticketData),
       footer: currentEmbed.footer,
