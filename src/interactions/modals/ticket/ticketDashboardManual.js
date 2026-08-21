@@ -2,7 +2,6 @@ import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import {
   getCurrentTicketDashboardConfig,
   moveTicketPanel,
-  refreshTicketDashboardCache,
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
@@ -59,7 +58,8 @@ export default {
         throw error;
       }
 
-      await refreshTicketDashboardCache(interaction.guild);
+      // The validator fetches only the exact requested channel/role if needed.
+      // Never refresh the entire server for one pasted Discord ID.
       const validated = await validateTicketDashboardValue(
         client,
         interaction.guild,
