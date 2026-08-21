@@ -32,15 +32,17 @@ const QUESTION_COOLDOWN_MS = 20_000;
 const recentQuestions = new Map();
 
 function buildPanelPayload() {
+  const footerText = '© Cloudy Inc. • Quality. Innovation. Performance.';
+
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
     .setTitle('Cloudy Support Assistant')
     .setDescription(
       'Have a question or need help with something?\n\n' +
       'Our AI Assistant can help you find answers to common questions, server information, features, commands, and more.\n\n' +
-      'Click the Ask a question button below and let Cloudy Inc. assist you.'
-    )
-    .setFooter({ text: '© Cloudy Inc. • Quality. Innovation. Performance.' });
+      'Click the Ask a question button below and let Cloudy Inc. assist you.\n\n' +
+      `**${footerText}**`
+    );
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
