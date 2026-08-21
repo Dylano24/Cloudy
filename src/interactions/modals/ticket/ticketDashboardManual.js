@@ -1,12 +1,12 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import {
-  buildTicketDashboardPayload,
   getCurrentTicketDashboardConfig,
   moveTicketPanel,
   refreshTicketDashboardCache,
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
+import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
