@@ -7,6 +7,10 @@ import {
 } from '../../../services/ticketDashboardService.js';
 import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
+import {
+  buildCloudyTicketEmbed,
+  scheduleTicketReplyDeletion,
+} from '../../../utils/ticket/ticketBranding.js';
 import { logger } from '../../../utils/logger.js';
 
 const MANUAL_FIELDS = new Set([
@@ -58,8 +62,6 @@ export default {
         throw error;
       }
 
-      // The validator fetches only the exact requested channel/role if needed.
-      // Never refresh the entire server for one pasted Discord ID.
       const validated = await validateTicketDashboardValue(
         client,
         interaction.guild,
@@ -80,10 +82,14 @@ export default {
       }
 
       await InteractionHelper.safeEditReply(interaction, {
-        content: '✅ Ticket setting saved.',
-        embeds: [],
+        content: '',
+        embeds: [buildCloudyTicketEmbed({
+          title: 'Ticket Setting Updated',
+          description: 'Ticket setting saved.',
+        })],
         components: [],
       });
+      scheduleTicketReplyDeletion(interaction);
 
       if (interaction.message?.edit) {
         await interaction.message.edit(
