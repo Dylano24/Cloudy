@@ -16,8 +16,9 @@ import {
   unclaimTicket,
   reopenTicket,
   deleteTicket,
-  setTicketPinned,
-} from '../../../services/ticketUiService.js';
+  toggleTicketPinned,
+  updateTicketPriority,
+} from '../../../services/ticketReliabilityService.js';
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
 import { logger } from '../../../utils/logger.js';
@@ -119,18 +120,11 @@ const pinTicketHandler = {
       const context = await requireStaff(interaction, client, 'pin tickets');
       if (!context) return;
 
-      const channel = interaction.channel;
-      const wasPinned = String(channel.name || '').includes('📌');
-      const willBePinned = !wasPinned;
+      const willBePinned = await toggleTicketPinned(interaction.channel);
 
-      // Pin and Priority share one channel-name queue. This prevents them from
-      // overwriting each other or getting stuck behind Discord rename limits.
-      await setTicketPinned(channel, willBePinned);
-
-      // Position updates are independent from the channel-name status queue.
-      channel.setPosition(willBePinned ? 0 : 999).catch(error => {
+      interaction.channel.setPosition(willBePinned ? 0 : 999).catch(error => {
         logger.warn('Could not update ticket channel position', {
-          channelId: channel.id,
+          channelId: interaction.channelId,
           error: error.message,
         });
       });
@@ -144,13 +138,13 @@ const pinTicketHandler = {
         )],
       });
 
-      await logTicketEvent({
+      void logTicketEvent({
         client: interaction.client,
         guildId: interaction.guildId,
         event: {
           type: willBePinned ? 'pin' : 'unpin',
-          ticketId: channel.id,
-          ticketNumber: String(channel.name || '').replace(/[^0-9]/g, ''),
+          ticketId: interaction.channelId,
+          ticketNumber: context.ticketData.ticketNumber || context.ticketData.id,
           userId: context.ticketData.userId,
           executorId: interaction.user.id,
           metadata: { isPinned: willBePinned },
@@ -205,14 +199,53 @@ const priorityMenuHandler = {
   },
 };
 
+const legacyPriorityHandler = {
+  name: 'ticket_priority',
+  async execute(interaction, client, args = []) {
+    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+    if (!deferred) return;
+
+    try {
+      const context = await requireStaff(interaction, client, 'change ticket priority');
+      if (!context) return;
+
+      const priority = String(args[0] || '').toLowerCase();
+      const info = PRIORITY_MAP[priority];
+      if (!info) {
+        await InteractionHelper.safeEditReply(interaction, {
+          content: 'Invalid priority selected.',
+          embeds: [],
+          components: [],
+        });
+        return;
+      }
+
+      await updateTicketPriority(interaction.channel, priority, interaction.user);
+      await InteractionHelper.safeEditReply(interaction, {
+        content: '',
+        embeds: [successEmbed('Priority Updated', `Ticket priority has been set to **${info.emoji} ${info.label}**.`)],
+        components: [],
+      });
+    } catch (error) {
+      logger.error('Legacy ticket priority button failed', {
+        error: error.message,
+        channelId: interaction.channelId,
+      });
+      await InteractionHelper.safeEditReply(interaction, {
+        content: error?.userMessage || 'An error occurred while updating the ticket priority.',
+        embeds: [],
+        components: [],
+      }).catch(() => {});
+    }
+  },
+};
+
 const closeTicketHandler = {
   name: 'ticket_close',
   async execute(interaction) {
     try {
       if (!interaction.inGuild()) return;
 
-      // Permission is checked again when the modal is submitted. Showing the
-      // modal immediately avoids Discord's three-second interaction timeout.
       const modal = new ModalBuilder()
         .setCustomId('ticket_close_modal')
         .setTitle('Close Ticket');
@@ -274,8 +307,8 @@ const reopenTicketHandler = {
       if (!context) return;
 
       const result = await reopenTicket(interaction.channel, interaction.member);
-      const note = result.openCategoryMoveFailed
-        ? ' The ticket was reopened, but the channel could not be moved back to the open category.'
+      const note = result?.openCategoryMoveFailed
+        ? ' The ticket was reopened, but the channel could not be moved back to the open category yet. Cloudy will retry automatically.'
         : '';
 
       await InteractionHelper.safeEditReply(interaction, {
@@ -320,6 +353,7 @@ export default [
   claimTicketHandler,
   pinTicketHandler,
   priorityMenuHandler,
+  legacyPriorityHandler,
   closeTicketHandler,
   unclaimTicketHandler,
   reopenTicketHandler,
