@@ -7,6 +7,16 @@ import { createError, ErrorTypes, wrapServiceBoundary } from '../../utils/errorH
 
 export { GUILD_CONFIG_DEFAULTS };
 
+const CONFIG_CACHE_TTL_MS = 15_000;
+const guildConfigCache = new Map();
+const guildWriteQueues = new Map();
+
+function cloneConfig(value) {
+    if (!value || typeof value !== 'object') return value;
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+}
+
 function normalizeCloudyGuildConfig(config) {
     const normalized = normalizeGuildConfig(config, GUILD_CONFIG_DEFAULTS);
 
@@ -18,9 +28,53 @@ function normalizeCloudyGuildConfig(config) {
     return normalized;
 }
 
+function cacheGuildConfig(guildId, config) {
+    const normalized = normalizeCloudyGuildConfig(config);
+    guildConfigCache.set(String(guildId), {
+        value: cloneConfig(normalized),
+        expiresAt: Date.now() + CONFIG_CACHE_TTL_MS,
+    });
+    return normalized;
+}
+
+function getCachedGuildConfig(guildId) {
+    const key = String(guildId);
+    const cached = guildConfigCache.get(key);
+    if (!cached) return null;
+    if (cached.expiresAt <= Date.now()) {
+        guildConfigCache.delete(key);
+        return null;
+    }
+    return cloneConfig(cached.value);
+}
+
+function enqueueGuildWrite(guildId, operation) {
+    const key = String(guildId);
+    const previous = guildWriteQueues.get(key) || Promise.resolve();
+    const current = previous.catch(() => {}).then(operation);
+
+    guildWriteQueues.set(key, current);
+    current.finally(() => {
+        if (guildWriteQueues.get(key) === current) {
+            guildWriteQueues.delete(key);
+        }
+    }).catch(() => {});
+
+    return current;
+}
+
+async function readLatestGuildConfig(client, guildId, context = {}) {
+    const raw = await readGuildConfig(client, guildId, context);
+    return normalizeCloudyGuildConfig(raw);
+}
+
 export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(client, guildId, context = {}) {
-    const config = await readGuildConfig(client, guildId, context);
-    return normalizeCloudyGuildConfig(config);
+    const cached = getCachedGuildConfig(guildId);
+    if (cached) return cached;
+
+    const config = await readLatestGuildConfig(client, guildId, context);
+    cacheGuildConfig(guildId, config);
+    return cloneConfig(config);
 }, {
     service: 'guildConfigService',
     operation: 'getGuildConfig',
@@ -29,8 +83,12 @@ export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(
 });
 
 export const setGuildConfig = wrapServiceBoundary(async function setGuildConfig(client, guildId, config, context = {}) {
-    const normalized = normalizeCloudyGuildConfig(config);
-    return await writeGuildConfig(client, guildId, normalized, context);
+    return await enqueueGuildWrite(guildId, async () => {
+        const normalized = normalizeCloudyGuildConfig(config);
+        const saved = await writeGuildConfig(client, guildId, normalized, context);
+        cacheGuildConfig(guildId, saved);
+        return cloneConfig(saved);
+    });
 }, {
     service: 'guildConfigService',
     operation: 'setGuildConfig',
@@ -39,10 +97,16 @@ export const setGuildConfig = wrapServiceBoundary(async function setGuildConfig(
 });
 
 export const updateGuildConfig = wrapServiceBoundary(async function updateGuildConfig(client, guildId, updates, context = {}) {
-    const currentConfig = await readGuildConfig(client, guildId, context);
-    const merged = { ...currentConfig, ...updates };
-    const normalized = normalizeCloudyGuildConfig(merged);
-    return await writeGuildConfig(client, guildId, normalized, context);
+    return await enqueueGuildWrite(guildId, async () => {
+        // Always read the latest persistent value inside the per-guild queue.
+        // This prevents two fast dashboard changes from overwriting each other.
+        const currentConfig = await readLatestGuildConfig(client, guildId, context);
+        const merged = { ...currentConfig, ...updates };
+        const normalized = normalizeCloudyGuildConfig(merged);
+        const saved = await writeGuildConfig(client, guildId, normalized, context);
+        cacheGuildConfig(guildId, saved);
+        return cloneConfig(saved);
+    });
 }, {
     service: 'guildConfigService',
     operation: 'updateGuildConfig',
@@ -82,11 +146,15 @@ export const patchGuildConfig = wrapServiceBoundary(async function patchGuildCon
         );
     }
 
-    const currentConfig = await readGuildConfig(client, guildId, context);
-    const merged = deepMergeGuildConfig(currentConfig, patch);
-    const normalized = normalizeCloudyGuildConfig(merged);
-    validateGuildConfigOrThrow(normalized, { guildId, ...context });
-    return await writeGuildConfig(client, guildId, normalized, context);
+    return await enqueueGuildWrite(guildId, async () => {
+        const currentConfig = await readLatestGuildConfig(client, guildId, context);
+        const merged = deepMergeGuildConfig(currentConfig, patch);
+        const normalized = normalizeCloudyGuildConfig(merged);
+        validateGuildConfigOrThrow(normalized, { guildId, ...context });
+        const saved = await writeGuildConfig(client, guildId, normalized, context);
+        cacheGuildConfig(guildId, saved);
+        return cloneConfig(saved);
+    });
 }, {
     service: 'guildConfigService',
     operation: 'patchGuildConfig',
