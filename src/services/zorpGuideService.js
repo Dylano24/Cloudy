@@ -47,21 +47,9 @@ const ZORP_SECTIONS = [
   },
 ];
 
-function formatLastUpdated(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Amsterdam',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).formatToParts(date);
-
-  const get = type => parts.find(part => part.type === type)?.value || '';
-  return `${get('day')} ${get('month')} ${get('year')}`;
-}
-
 function buildZorpGuideEmbed(titleIcon = '') {
   const title = titleIcon ? `${titleIcon} ZORP Guide` : 'ZORP Guide';
-  const footerText = `© Cloudy Inc. • Last updated: ${formatLastUpdated()}`;
+  const footerText = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
