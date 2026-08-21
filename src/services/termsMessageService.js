@@ -6,35 +6,35 @@ const TERMS_CHANNEL_ID = '1533191366190829768';
 const TERMS_SECTIONS = [
   {
     name: '1. Introduction',
-    value: `These Terms of Service ("Terms") govern access to and use of our Discord community, Rust game servers, website, online store, and any related services operated by us (collectively referred to as the "Services").\nBy accessing or using our Services, you agree to be bound by these Terms.\nOur Discord Rules and Rust Server Rules are separate documents that define additional requirements regarding community behavior and gameplay rules. These rules form an integral part of our general operating guidelines.`
+    value: `These Terms of Service ("Terms") govern access to and use of our Discord community, Rust game servers, website, online store, and any related services operated by us (collectively referred to as the "Services"). By accessing or using our Services, you agree to be bound by these Terms. Our Discord Rules and Rust Server Rules are separate documents that define additional requirements regarding community behavior and gameplay rules. These rules form an integral part of our general operating guidelines.`
   },
   {
     name: '2. Community Conduct',
-    value: `Users must comply with our Discord Rules and Rust Server Rules available on our official platforms.\nAny behavior that negatively impacts the community, the operation of our Services, or the experience of other users may result in administrative action.`
+    value: `Users must comply with our Discord Rules and Rust Server Rules available on our official platforms. Any behavior that negatively impacts the community, the operation of our Services, or the experience of other users may result in administrative action.`
   },
   {
     name: '3. Service Availability',
-    value: `Our Services are provided "as is" and according to their availability.\nWhile we make reasonable efforts to maintain reliable access to our Services, we cannot guarantee permanent and uninterrupted availability.\nTemporary interruptions, periods of unavailability, maintenance, or technical issues may occur, including but not limited to:\nHosting provider failures;\nServer maintenance;\nDiscord outages;\nPlayStation Network or Xbox Network outages;\nIssues related to Internet infrastructure;\nThird-party service failures;\nPayment provider issues;\nCybersecurity incidents or DDoS attacks.`
+    value: `Our Services are provided "as is" and according to their availability. While we make reasonable efforts to maintain reliable access to our Services, we cannot guarantee permanent and uninterrupted availability. Temporary interruptions, periods of unavailability, maintenance, or technical issues may occur, including but not limited to:\nHosting provider failures;\nServer maintenance;\nDiscord outages;\nPlayStation Network or Xbox Network outages;\nIssues related to Internet infrastructure;\nThird-party service failures;\nPayment provider issues;\nCybersecurity incidents or DDoS attacks.`
   },
   {
     name: '4. Wipes, Rollbacks and Data Loss',
-    value: `Rust servers may be subject to scheduled wipes, emergency wipes, rollbacks, technical issues, or unexpected data loss.\nThese situations may result in the loss of in-game items, bases, inventories, progression, statistics, or any other digital content.\nUsers acknowledge that online gaming services may experience technical limitations and that these events may occur despite reasonable measures taken to prevent them.`
+    value: `Rust servers may be subject to scheduled wipes, emergency wipes, rollbacks, technical issues, or unexpected data loss. These situations may result in the loss of in-game items, bases, inventories, progression, statistics, or any other digital content. Users acknowledge that online gaming services may experience technical limitations and that these events may occur despite reasonable measures taken to prevent them.`
   },
   {
     name: '5. Limitation of Liability',
-    value: `To the extent permitted by applicable law, we shall not be held liable for, including but not limited to:\nLoss of in-game content or progression;\nTemporary service interruptions;\nFailures of our hosting provider or third-party platforms;\nData loss;\nIndirect damages resulting from the use of our Services.\nAt our sole discretion, and without any obligation on our part, we may decide to provide compensation, extensions, or any other goodwill gesture in exceptional circumstances.\nProviding compensation in one situation does not create any obligation to provide compensation in future situations.`
+    value: `To the extent permitted by applicable law, we shall not be held liable for, including but not limited to:\nLoss of in-game content or progression;\nTemporary service interruptions;\nFailures of our hosting provider or third-party platforms;\nData loss;\nIndirect damages resulting from the use of our Services. At our sole discretion, and without any obligation on our part, we may decide to provide compensation, extensions, or any other goodwill gesture in exceptional circumstances. Providing compensation in one situation does not create any obligation to provide compensation in future situations.`
   },
   {
     name: '6. Administrative Actions',
-    value: `We reserve the right to take appropriate measures whenever necessary to protect our community, our Services, and our users.\nDepending on the circumstances, these measures may include restricting access to certain features, removing benefits obtained or used abusively, suspending access, or permanently denying access to our Services.\nAdministrative decisions are made based on each individual situation and remain at our reasonable discretion.`
+    value: `We reserve the right to take appropriate measures whenever necessary to protect our community, our Services, and our users. Depending on the circumstances, these measures may include restricting access to certain features, removing benefits obtained or used abusively, suspending access, or permanently denying access to our Services. Administrative decisions are made based on each individual situation and remain at our reasonable discretion.`
   },
   {
     name: '7. Changes to These Terms',
-    value: `We reserve the right to modify these Terms at any time.\nThe most recent version published on our official website or official Discord server will always be considered the applicable version.\nContinued use of our Services after changes to these Terms constitutes acceptance of the updated conditions.`
+    value: `We reserve the right to modify these Terms at any time. The most recent version published on our official website or official Discord server will always be considered the applicable version. Continued use of our Services after changes to these Terms constitutes acceptance of the updated conditions.`
   },
   {
     name: '8. Governing Law',
-    value: `These Terms shall be governed and interpreted in accordance with French law.\nThese Terms apply to all users worldwide. However, mandatory consumer protection rights provided by the applicable laws of the user's country of residence remain applicable where required by law.`
+    value: `These Terms shall be governed and interpreted in accordance with French law. These Terms apply to all users worldwide. However, mandatory consumer protection rights provided by the applicable laws of the user's country of residence remain applicable where required by law.`
   }
 ];
 
