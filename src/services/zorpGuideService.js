@@ -8,7 +8,6 @@ const ZORP_SECTIONS = [
   {
     name: 'How to claim a ZORP zone',
     value: [
-      '\u200b',
       'To create a ZORP zone, the player must:',
       '',
       '• Be part of a team.',
