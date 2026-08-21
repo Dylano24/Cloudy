@@ -75,11 +75,11 @@ export default {
       });
 
       const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
-      const technicalError = String(error?.message || 'Unknown API error').slice(0, 1200);
+      const technicalError = String(error?.message || 'Unknown Groq API error').slice(0, 1200);
 
       await InteractionHelper.safeEditReply(interaction, {
         content: isAdmin
-          ? `The FAQ AI request failed.\n\n**Admin diagnostic:** ${technicalError}\n\nIf this mentions quota, billing, or credits, add API billing/credits in the OpenAI Platform account linked to this API key.`
+          ? `The FAQ AI request failed.\n\n**Admin diagnostic:** ${technicalError}\n\nCheck that \`GROQ_API_KEY\` is set in Railway. If the error mentions rate limits, wait briefly and try again.`
           : 'The private FAQ assistant could not answer right now. Please open a support ticket.',
         embeds: [],
         components: [],
