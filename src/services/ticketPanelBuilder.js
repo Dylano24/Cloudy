@@ -28,7 +28,7 @@ export function buildTicketPanelPayload(client, guildId, config = {}) {
 
   const embed = new EmbedBuilder()
     .setTitle('Contact the support')
-    .setDescription(config.ticketPanelMessage || DEFAULT_TICKET_PANEL_MESSAGE)
+    .setDescription(DEFAULT_TICKET_PANEL_MESSAGE)
     .setColor('#FFFFFF');
 
   const row = new ActionRowBuilder().addComponents(
