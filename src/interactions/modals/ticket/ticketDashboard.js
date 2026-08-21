@@ -1,10 +1,10 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import {
-  buildTicketDashboardPayload,
   repostTicketPanel,
   saveTicketDashboardSetting,
   updateLiveTicketPanel,
 } from '../../../services/ticketDashboardService.js';
+import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -53,8 +53,6 @@ export default {
     if (!deferred) return;
 
     try {
-      // Preserve the exact text submitted by the user. Do not trim, rewrite,
-      // normalize punctuation, capitalization or spacing.
       const rawValue = interaction.fields.getTextInputValue('value');
       if (rawValue === null || rawValue === undefined || rawValue.length === 0) {
         const error = new Error('Ticket dashboard text value is empty.');
