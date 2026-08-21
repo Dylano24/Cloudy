@@ -1,44 +1,11 @@
-import { AttachmentBuilder, Events } from 'discord.js';
-import { fileURLToPath } from 'node:url';
+import { Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 
-const LEGACY_LOGO_FILENAME = 'cloudy-ticket-welcome-c.png';
-const TICKET_LOGO_FILENAME = 'cloudy-ticket-c-layout.png';
-const TICKET_LOGO_URL = `attachment://${TICKET_LOGO_FILENAME}`;
-
-function buildLogoFile() {
-  return new AttachmentBuilder(
-    fileURLToPath(new URL('../../assets/cloudy-ticket-c-layout.png', import.meta.url)),
-    { name: TICKET_LOGO_FILENAME },
-  );
-}
-
-async function ensureTicketLogo(message) {
-  let current = message;
-
-  const legacyAttachments = [...current.attachments.values()].filter(
-    attachment => attachment.name === LEGACY_LOGO_FILENAME,
-  );
-
-  if (legacyAttachments.length === 1 && current.attachments.size === 1) {
-    current = await current.edit({ attachments: [] });
-  }
-
-  const embed = current.embeds?.[0];
-  if (!embed) return;
-
-  const raw = embed.toJSON();
-  raw.image = { url: TICKET_LOGO_URL };
-
-  const hasLogo = [...current.attachments.values()].some(
-    attachment => attachment.name === TICKET_LOGO_FILENAME,
-  );
-
-  const payload = { embeds: [raw] };
-  if (!hasLogo) payload.files = [buildLogoFile()];
-
-  await current.edit(payload);
-}
+const OLD_LOGO_FILENAMES = new Set([
+  'cloudy-ticket-welcome-c.png',
+  'cloudy-ticket-c-layout.png',
+]);
 
 async function cleanChannel(channel, clientUserId) {
   if (!channel?.isTextBased?.() || channel.isThread?.()) return;
@@ -52,14 +19,24 @@ async function cleanChannel(channel, clientUserId) {
     if (message.author?.id !== clientUserId) continue;
     if (!message.embeds?.[0]?.title?.startsWith('Ticket #')) continue;
 
-    await ensureTicketLogo(message).catch(error => {
-      logger.warn('Could not restore Cloudy C on existing ticket', {
+    try {
+      const raw = forceCloudyTicketFooter(message.embeds[0]);
+      const hasOldLogoAttachment = [...message.attachments.values()].some(
+        attachment => OLD_LOGO_FILENAMES.has(attachment.name),
+      );
+
+      await message.edit({
+        embeds: [raw],
+        ...(hasOldLogoAttachment ? { attachments: [] } : {}),
+      });
+    } catch (error) {
+      logger.warn('Could not restore bottom-right Cloudy C on existing ticket', {
         guildId: message.guild?.id,
         channelId: channel.id,
         messageId: message.id,
         error: error.message,
       });
-    });
+    }
   }
 }
 
