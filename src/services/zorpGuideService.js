@@ -104,17 +104,10 @@ function buildZorpSections(colorEmojis) {
     {
       name: 'Zone colors',
       value: [
-        `${colorEmojis.white} **White**`,
-        'Newly created zone that will turn green shortly.',
-        '',
-        `${colorEmojis.green} **Green**`,
-        'Team is currently online.',
-        '',
-        `${colorEmojis.yellow} **Yellow**`,
-        'Team is offline; zone is about to turn red.',
-        '',
-        `${colorEmojis.red} **Red**`,
-        'Team is offline and the zone is protected.',
+        `${colorEmojis.white} White — Newly created zone that will turn green shortly.`,
+        `${colorEmojis.green} Green — Team is currently online.`,
+        `${colorEmojis.yellow} Yellow — Team is offline; zone is about to turn red.`,
+        `${colorEmojis.red} Red — Team is offline and the zone is protected.`,
       ].join('\n'),
     },
   ];
