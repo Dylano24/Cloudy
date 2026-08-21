@@ -118,6 +118,31 @@ const staffHandler = {
   },
 };
 
+const maxTicketsHandler = {
+  name: 'ticket_dashboard_max',
+
+  async execute(interaction, client, args = []) {
+    const guildId = args[0];
+    if (!(await validateDashboardInteraction(interaction, guildId))) return;
+
+    try {
+      await interaction.deferUpdate();
+      const config = await getCurrentTicketDashboardConfig(client, guildId);
+      const prompt = buildTicketDashboardValuePrompt(interaction.guild, 'max_tickets', config);
+      await interaction.editReply(prompt || buildTicketDashboardPayload(interaction.guild, config));
+    } catch (error) {
+      logger.error('Ticket dashboard max-tickets prompt failed', {
+        guildId,
+        error: error.message,
+      });
+      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+      const payload = buildTicketDashboardPayload(interaction.guild, config);
+      payload.content = 'Could not open the max-tickets setting. Please try again.';
+      await interaction.editReply(payload).catch(() => {});
+    }
+  },
+};
+
 const repostHandler = {
   name: 'ticket_dashboard_repost',
 
@@ -172,4 +197,11 @@ const deleteHandler = {
   },
 };
 
-export default [backHandler, clearHandler, staffHandler, repostHandler, deleteHandler];
+export default [
+  backHandler,
+  clearHandler,
+  staffHandler,
+  maxTicketsHandler,
+  repostHandler,
+  deleteHandler,
+];
