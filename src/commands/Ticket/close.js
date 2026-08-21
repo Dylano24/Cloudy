@@ -4,7 +4,7 @@ import { logger } from '../../utils/logger.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { getTicketPermissionContext } from '../../utils/ticket/ticketPermissions.js';
-import { closeTicket } from '../../services/ticketUiService.js';
+import { closeTicket } from '../../services/ticketReliabilityService.js';
 
 export default {
     data: new SlashCommandBuilder()
