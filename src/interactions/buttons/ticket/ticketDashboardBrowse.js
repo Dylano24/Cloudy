@@ -12,6 +12,11 @@ import {
   getCurrentTicketDashboardConfig,
   refreshTicketDashboardCache,
 } from '../../../services/ticketDashboardService.js';
+import {
+  buildAllChannelTicketPrompt,
+  isAllChannelTicketSetting,
+  refreshAllTicketChannels,
+} from '../../../services/ticketChannelBrowserService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -54,12 +59,20 @@ const pageHandler = {
 
     try {
       await interaction.deferUpdate();
-      await refreshTicketDashboardCache(interaction.guild);
+
+      if (isAllChannelTicketSetting(setting)) {
+        await refreshAllTicketChannels(interaction.guild);
+      } else {
+        await refreshTicketDashboardCache(interaction.guild);
+      }
+
       const config = await getCurrentTicketDashboardConfig(client, guildId);
       const page = Math.max(0, Number.parseInt(pageRaw, 10) || 0);
-      const payload = buildTicketDashboardValuePrompt(interaction.guild, setting, config, page)
-        || buildTicketDashboardPayload(interaction.guild, config);
-      await interaction.editReply(payload);
+      const payload = isAllChannelTicketSetting(setting)
+        ? buildAllChannelTicketPrompt(interaction.guild, setting, config, page)
+        : buildTicketDashboardValuePrompt(interaction.guild, setting, config, page);
+
+      await interaction.editReply(payload || buildTicketDashboardPayload(interaction.guild, config));
     } catch (error) {
       logger.error('Ticket dashboard pagination failed', {
         guildId,
