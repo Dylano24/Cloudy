@@ -17,7 +17,7 @@ const TERMS_SECTIONS = [
     value: `Our Services are provided "as is" and according to their availability.\n\nWhile we make reasonable efforts to maintain reliable access to our Services, we cannot guarantee permanent and uninterrupted availability.\n\nTemporary interruptions, periods of unavailability, maintenance, or technical issues may occur, including but not limited to:\n\nHosting provider failures;\nServer maintenance;\nDiscord outages;\nPlayStation Network or Xbox Network outages;\nIssues related to Internet infrastructure;\nThird-party service failures;\nPayment provider issues;\nCybersecurity incidents or DDoS attacks.`
   },
   {
-    name: '4. Wipes, rollbacks and data loss',
+    name: '4. Wipes, Rollbacks and Data loss',
     value: `Rust servers may be subject to scheduled wipes, emergency wipes, rollbacks, technical issues, or unexpected data loss.\n\nThese situations may result in the loss of in-game items, bases, inventories, progression, statistics, or any other digital content.\n\nUsers acknowledge that online gaming services may experience technical limitations and that these events may occur despite reasonable measures taken to prevent them.`
   },
   {
