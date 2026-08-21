@@ -21,6 +21,9 @@ export function forceCloudyTicketFooter(embed) {
 
   if (/^Ticket\s*#\s*\d+/i.test(String(payload.title || ''))) {
     payload.image = { url: CLOUDY_TICKET_C_FOOTER_IMAGE };
+    if (Array.isArray(payload.fields)) {
+      payload.fields = payload.fields.map(field => ({ ...field, inline: false }));
+    }
   }
 
   return payload;
