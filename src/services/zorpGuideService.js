@@ -6,8 +6,9 @@ export const ZORP_GUIDE_CHANNEL_ID = '1533212973034770462';
 
 const ZORP_SECTIONS = [
   {
-    name: 'How to Claim a ZORP Zone',
+    name: 'How to claim a ZORP zone',
     value: [
+      '\u200b',
       'To create a ZORP zone, the player must:',
       '',
       '• Be part of a team.',
@@ -19,7 +20,7 @@ const ZORP_SECTIONS = [
     ].join('\n'),
   },
   {
-    name: 'Important Information',
+    name: 'Important information',
     value: [
       '• ZORP zones expire after 24 hours.',
       '• The timer is automatically reset while the team is online.',
@@ -28,7 +29,7 @@ const ZORP_SECTIONS = [
     ].join('\n'),
   },
   {
-    name: 'How to Remove a ZORP Zone',
+    name: 'How to remove a ZORP zone',
     value: [
       'To delete an existing ZORP zone:',
       '',
@@ -37,7 +38,7 @@ const ZORP_SECTIONS = [
     ].join('\n'),
   },
   {
-    name: 'Zone Colors',
+    name: 'Zone colors',
     value: [
       '⚪ Newly created zone that will turn green shortly.',
       '🟢 Team is currently online.',
