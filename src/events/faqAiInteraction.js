@@ -14,6 +14,23 @@ import {
   getFaqQuestionCooldown,
 } from '../services/faqAiService.js';
 
+const FAQ_RESPONSE_DELETE_DELAY_MS = 5 * 60 * 1000;
+const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+
+function scheduleEphemeralDeletion(interaction) {
+  const timer = setTimeout(() => {
+    interaction.deleteReply().catch(error => {
+      // Unknown message / expired interaction is harmless here: the private
+      // FAQ response is already gone or Discord no longer exposes it.
+      if (![10008, 10062].includes(error?.code)) {
+        logger.debug('FAQ AI auto-delete could not remove reply:', error?.message || error);
+      }
+    });
+  }, FAQ_RESPONSE_DELETE_DELAY_MS);
+
+  timer.unref?.();
+}
+
 async function replyEphemeral(interaction, content) {
   try {
     if (interaction.deferred || interaction.replied) {
@@ -21,6 +38,7 @@ async function replyEphemeral(interaction, content) {
     } else {
       await interaction.reply({ content, flags: MessageFlags.Ephemeral });
     }
+    scheduleEphemeralDeletion(interaction);
   } catch (error) {
     logger.warn('FAQ AI fallback response failed:', error?.message || error);
   }
@@ -38,6 +56,7 @@ export default {
             content: 'This FAQ assistant can only be used in the FAQ channel.',
             flags: MessageFlags.Ephemeral,
           });
+          scheduleEphemeralDeletion(interaction);
           return;
         }
 
@@ -46,6 +65,7 @@ export default {
             content: 'The private FAQ assistant is temporarily unavailable. Please open a support ticket.',
             flags: MessageFlags.Ephemeral,
           });
+          scheduleEphemeralDeletion(interaction);
           return;
         }
 
@@ -121,14 +141,14 @@ export default {
           value: question.length > 1000 ? `${question.slice(0, 997)}...` : question,
           inline: false,
         })
-        .setFooter({ text: 'Private response • Only you can see this message' })
-        .setTimestamp();
+        .setFooter({ text: CLOUDY_FOOTER });
 
       await interaction.editReply({
         content: '',
         embeds: [embed],
         components: [],
       });
+      scheduleEphemeralDeletion(interaction);
     } catch (error) {
       logger.error('FAQ AI answer failed:', {
         error: error?.message,
