@@ -1,5 +1,6 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { getTermsTitleIcon } from './termsIconService.js';
 
 const TERMS_CHANNEL_ID = '1533191366190829768';
 
@@ -50,12 +51,13 @@ function formatLastUpdated(date = new Date()) {
   return `${get('day')} ${get('month')} ${get('year')}`;
 }
 
-function buildTermsEmbed() {
+function buildTermsEmbed(titleIcon = '') {
   const footerText = `© Cloudy Inc. • Last updated: ${formatLastUpdated()}`;
+  const title = titleIcon ? `${titleIcon} Terms of service` : 'Terms of service';
 
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
-    .setTitle('Terms of service')
+    .setTitle(title)
     .addFields(TERMS_SECTIONS.map((section, index) => ({
       name: `${index > 0 ? '\u200b\n' : ''}${section.name}`,
       value: section.value,
@@ -74,7 +76,11 @@ async function findExistingTermsMessage(channel, clientUserId) {
 
   return messages.find(message =>
     message.author?.id === clientUserId &&
-    message.embeds?.some(embed => embed.title === 'Terms of Service' || embed.title === 'Terms of service')
+    message.embeds?.some(embed =>
+      embed.title === 'Terms of Service' ||
+      embed.title === 'Terms of service' ||
+      embed.title?.endsWith(' Terms of service')
+    )
   ) || null;
 }
 
@@ -99,7 +105,8 @@ export async function reconcileTermsMessage(client) {
       return { ok: false, reason: 'missing_permissions' };
     }
 
-    const embed = buildTermsEmbed();
+    const titleIcon = await getTermsTitleIcon(client);
+    const embed = buildTermsEmbed(titleIcon);
     const existing = permissions.has(PermissionFlagsBits.ReadMessageHistory)
       ? await findExistingTermsMessage(channel, client.user.id)
       : null;
