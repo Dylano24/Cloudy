@@ -3,6 +3,7 @@ import {
     buildTicketDashboardPayload,
     getCurrentTicketDashboardConfig,
 } from '../../../services/ticketDashboardService.js';
+import { recoverTicketDashboardConfig } from '../../../services/ticketDashboardRecoveryService.js';
 
 export default {
     prefixOnly: false,
@@ -10,14 +11,21 @@ export default {
     async execute(interaction, recoveredConfig, client) {
         const guildId = interaction.guildId;
 
-        // /ticket already attempts to recover an existing Cloudy ticket panel
-        // before opening the dashboard. Use that recovered config directly.
-        // Never force admins to run /ticket setup again just because part of the
-        // persistent configuration is missing; the dashboard itself supports
-        // incomplete settings and is the place where they should be repaired.
-        const guildConfig = recoveredConfig && typeof recoveredConfig === 'object'
+        let guildConfig = recoveredConfig && typeof recoveredConfig === 'object'
             ? recoveredConfig
             : await getCurrentTicketDashboardConfig(client, guildId);
+
+        // A partial/default config must not make the dashboard pretend the
+        // ticket system does not exist. Recover the existing Contact the support
+        // / Start Chat panel directly from Discord, prioritizing the channel in
+        // which the command was used.
+        if (!guildConfig?.ticketPanelChannelId) {
+            guildConfig = await recoverTicketDashboardConfig(
+                client,
+                interaction.guild,
+                interaction.channelId,
+            );
+        }
 
         await InteractionHelper.safeEditReply(
             interaction,
