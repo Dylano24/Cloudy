@@ -1,5 +1,4 @@
-import { AttachmentBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-import { fileURLToPath } from 'node:url';
+import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getTermsTitleIcon } from './termsIconService.js';
 
@@ -40,10 +39,11 @@ const ZORP_SECTIONS = [
   {
     name: 'Zone Colors',
     value: [
-      '⚪ **White** — Newly created zone that will turn green shortly.',
-      '🟢 **Green** — Team is currently online.',
-      '🟡 **Yellow** — Team is offline; zone is about to turn red.',
-      '🔴 **Red** — Team is offline and the zone is protected.',
+      '\u200b',
+      '⚪ Newly created zone that will turn green shortly.',
+      '🟢 Team is currently online.',
+      '🟡 Team is offline; zone is about to turn red.',
+      '🔴 Team is offline and the zone is protected.',
     ].join('\n'),
   },
 ];
@@ -72,29 +72,16 @@ function buildZorpGuideEmbed(titleIcon = '') {
     )
     .addFields(
       ZORP_SECTIONS.map(section => ({
-        // The zero-width spacer plus newline gives the same clean section spacing
-        // used by the Cloudy Terms embeds instead of crowding each block together.
         name: `\u200b\n${section.name}`,
         value: section.value,
         inline: false,
       }))
     )
-    // Use the exact same Cloudy C asset as the welcome message.
-    .setThumbnail('attachment://cloudy-c-logo.png')
     .setFooter({ text: footerText });
 
-  // Keep the footer explicit in the final Discord payload, matching the
-  // established Terms/Welcome embed pattern in this bot.
   const payload = embed.toJSON();
   payload.footer = { text: footerText };
   return payload;
-}
-
-function buildCloudyLogoAttachment() {
-  return new AttachmentBuilder(
-    fileURLToPath(new URL('../../assets/cloudy-c-logo.png', import.meta.url)),
-    { name: 'cloudy-c-logo.png' }
-  );
 }
 
 async function findExistingGuide(channel, clientUserId) {
@@ -125,10 +112,9 @@ export async function reconcileZorpGuide(client) {
     if (
       !permissions?.has(PermissionFlagsBits.ViewChannel) ||
       !permissions?.has(PermissionFlagsBits.SendMessages) ||
-      !permissions?.has(PermissionFlagsBits.EmbedLinks) ||
-      !permissions?.has(PermissionFlagsBits.AttachFiles)
+      !permissions?.has(PermissionFlagsBits.EmbedLinks)
     ) {
-      logger.warn(`[ZORP] Missing View Channel, Send Messages, Embed Links, or Attach Files in ${ZORP_GUIDE_CHANNEL_ID}.`);
+      logger.warn(`[ZORP] Missing View Channel, Send Messages, or Embed Links in ${ZORP_GUIDE_CHANNEL_ID}.`);
       return { ok: false, reason: 'missing_permissions' };
     }
 
@@ -139,19 +125,12 @@ export async function reconcileZorpGuide(client) {
       : null;
 
     if (existing) {
-      await existing.edit({
-        embeds: [embed],
-        attachments: [],
-        files: [buildCloudyLogoAttachment()],
-      });
+      await existing.edit({ embeds: [embed], attachments: [] });
       logger.info(`[ZORP] Updated ZORP Guide message ${existing.id}.`);
       return { ok: true, action: 'updated', messageId: existing.id };
     }
 
-    const sent = await channel.send({
-      embeds: [embed],
-      files: [buildCloudyLogoAttachment()],
-    });
+    const sent = await channel.send({ embeds: [embed] });
     logger.info(`[ZORP] Sent ZORP Guide message ${sent.id}.`);
     return { ok: true, action: 'sent', messageId: sent.id };
   } catch (error) {
