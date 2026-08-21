@@ -2,6 +2,7 @@ import { createEmbed } from '../embeds.js';
 
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
+export const CLOUDY_TICKET_C_FOOTER_IMAGE = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-footer.png';
 
 export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function'
@@ -9,6 +10,11 @@ export function forceCloudyTicketFooter(embed) {
     : { ...(embed || {}) };
 
   payload.footer = { text: CLOUDY_TICKET_FOOTER };
+
+  if (/^Ticket\s*#\s*\d+/i.test(String(payload.title || ''))) {
+    payload.image = { url: CLOUDY_TICKET_C_FOOTER_IMAGE };
+  }
+
   return payload;
 }
 
