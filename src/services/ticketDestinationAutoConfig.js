@@ -1,18 +1,6 @@
 import { ChannelType } from 'discord.js';
 import { getGuildConfig, updateGuildConfig } from './config/guildConfig.js';
 
-const LOG_PATTERNS = [
-  /^ticket[-_ ]logs$/i,
-  /^tickets[-_ ]logs$/i,
-  /^ticket[-_ ]log$/i,
-];
-
-const TRANSCRIPT_PATTERNS = [
-  /^ticket[-_ ]transcripts?$/i,
-  /^tickets[-_ ]transcripts?$/i,
-  /^transcripts?$/i,
-];
-
 function isTextDestination(channel) {
   return Boolean(
     channel
@@ -20,11 +8,33 @@ function isTextDestination(channel) {
   );
 }
 
-function findMatchingChannel(guild, patterns) {
+function normalizeName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function looksLikeLogsChannel(channel) {
+  const name = normalizeName(channel?.name);
+  return name.includes('ticket-logs')
+    || name.includes('tickets-logs')
+    || name.endsWith('ticket-log');
+}
+
+function looksLikeTranscriptChannel(channel) {
+  const name = normalizeName(channel?.name);
+  return name.includes('ticket-transcript')
+    || name.includes('tickets-transcript')
+    || name.endsWith('transcript')
+    || name.endsWith('transcripts');
+}
+
+function findMatchingChannel(guild, matcher) {
   return [...guild.channels.cache.values()]
     .filter(isTextDestination)
     .sort((a, b) => (a.rawPosition ?? 0) - (b.rawPosition ?? 0))
-    .find(channel => patterns.some(pattern => pattern.test(String(channel.name || '')))) || null;
+    .find(matcher) || null;
 }
 
 export async function ensureTicketDestinationConfig(client, guild, { refreshIfMissing = false } = {}) {
@@ -34,13 +44,13 @@ export async function ensureTicketDestinationConfig(client, guild, { refreshIfMi
   let logsChannel = config.ticketLogsChannelId ? guild.channels.cache.get(config.ticketLogsChannelId) : null;
   let transcriptChannel = config.ticketTranscriptChannelId ? guild.channels.cache.get(config.ticketTranscriptChannelId) : null;
 
-  if (!logsChannel) logsChannel = findMatchingChannel(guild, LOG_PATTERNS);
-  if (!transcriptChannel) transcriptChannel = findMatchingChannel(guild, TRANSCRIPT_PATTERNS);
+  if (!logsChannel) logsChannel = findMatchingChannel(guild, looksLikeLogsChannel);
+  if (!transcriptChannel) transcriptChannel = findMatchingChannel(guild, looksLikeTranscriptChannel);
 
   if (refreshIfMissing && (!logsChannel || !transcriptChannel)) {
     await guild.channels.fetch().catch(() => {});
-    if (!logsChannel) logsChannel = findMatchingChannel(guild, LOG_PATTERNS);
-    if (!transcriptChannel) transcriptChannel = findMatchingChannel(guild, TRANSCRIPT_PATTERNS);
+    if (!logsChannel) logsChannel = findMatchingChannel(guild, looksLikeLogsChannel);
+    if (!transcriptChannel) transcriptChannel = findMatchingChannel(guild, looksLikeTranscriptChannel);
   }
 
   const updates = {};
