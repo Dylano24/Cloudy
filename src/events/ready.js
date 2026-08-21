@@ -9,6 +9,7 @@ import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { startRustPatchNotes } from "../services/rustPatchNotesService.js";
 import { scanProtectedIdentities } from "../services/protectedIdentityService.js";
 import { initializeInviteTracking } from "../services/inviteTrackingService.js";
+import { reconcileTermsMessage } from "../services/termsMessageService.js";
 
 async function runReadyStep(label, task) {
   try {
@@ -75,6 +76,7 @@ export default {
       logger.error('[READY] protected identity scan failed:', error);
     });
 
+    await runReadyStep('Terms of Service message sync', () => reconcileTermsMessage(client));
     await runReadyStep('invite tracking initialization', () => initializeInviteTracking(client));
 
     if (client.config?.features?.music) {
