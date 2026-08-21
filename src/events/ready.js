@@ -10,6 +10,7 @@ import { startRustPatchNotes } from "../services/rustPatchNotesService.js";
 import { scanProtectedIdentities } from "../services/protectedIdentityService.js";
 import { initializeInviteTracking } from "../services/inviteTrackingService.js";
 import { reconcileTermsMessage } from "../services/termsMessageService.js";
+import { reconcileStoreTermsMessage } from "../services/storeTermsMessageService.js";
 
 async function runReadyStep(label, task) {
   try {
@@ -77,6 +78,7 @@ export default {
     });
 
     await runReadyStep('Terms of Service message sync', () => reconcileTermsMessage(client));
+    await runReadyStep('Store terms of sale message sync', () => reconcileStoreTermsMessage(client));
     await runReadyStep('invite tracking initialization', () => initializeInviteTracking(client));
 
     if (client.config?.features?.music) {
@@ -104,7 +106,7 @@ export default {
     }
 
     const verificationPanelSummary = await runReadyStep(
-      'verification panel reconciliation',
+      'verification panel health',
       () => reconcileVerificationPanels(client),
     );
     if (verificationPanelSummary) {
