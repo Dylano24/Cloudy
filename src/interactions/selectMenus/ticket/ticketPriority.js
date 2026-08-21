@@ -1,6 +1,6 @@
 import { successEmbed } from '../../../utils/embeds.js';
 import { getTicketPermissionContext } from '../../../utils/ticket/ticketPermissions.js';
-import { updateTicketPriority } from '../../../services/ticketUiService.js';
+import { updateTicketPriority } from '../../../services/ticketReliabilityService.js';
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -10,8 +10,6 @@ export default {
   name: 'ticket_priority_select',
 
   async execute(interaction, client) {
-    // Acknowledge immediately so the selector never expires while PostgreSQL
-    // or Discord is processing the update.
     try {
       await interaction.deferUpdate();
     } catch (error) {
@@ -26,8 +24,6 @@ export default {
     try {
       const priority = interaction.values?.[0];
 
-      // Remove the old selector immediately. Every future click on Priority
-      // creates a completely fresh selector instead of reusing stale state.
       await interaction.editReply({
         content: 'Updating priority...',
         embeds: [],
