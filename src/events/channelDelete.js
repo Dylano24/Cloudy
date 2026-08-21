@@ -15,25 +15,30 @@ export default {
         if (channel.type === 0 && channel.guild) {
             try {
                 const ticketData = await getTicketData(channel.guild.id, channel.id);
-                if (ticketData && ticketData.status === 'open') {
+                if (ticketData && ticketData.status !== 'deleted') {
+                    const previousStatus = ticketData.status || 'unknown';
                     ticketData.status = 'deleted';
-                    ticketData.closedAt = new Date().toISOString();
+                    ticketData.deletedAt = ticketData.deletedAt || new Date().toISOString();
+                    ticketData.closedAt = ticketData.closedAt || ticketData.deletedAt;
+                    ticketData.previousStatusBeforeDelete = previousStatus;
+                    ticketData.deletionScheduledAt = null;
                     await saveTicketData(channel.guild.id, channel.id, ticketData);
-                    logger.info(`Ticket channel ${channel.id} was manually deleted in guild ${channel.guild.id}, marked as deleted`);
+                    logger.info(`Ticket channel ${channel.id} was deleted in guild ${channel.guild.id}, marked as deleted`, {
+                        previousStatus,
+                    });
                 }
             } catch (err) {
-                logger.warn(`Could not clean up ticket record for deleted channel ${channel.id}:`, err);
+                logger.warn(`Could not persist ticket record for deleted channel ${channel.id}:`, err);
             }
         }
 
-if (channel.type !== 2 && channel.type !== 4) {
+        if (channel.type !== 2 && channel.type !== 4) {
             return;
         }
 
         const guildId = channel.guild.id;
 
         try {
-            
             const counters = await getServerCounters(client, guildId);
             const orphanedCounter = counters.find(c => c.channelId === channel.id);
             
@@ -74,7 +79,7 @@ if (channel.type !== 2 && channel.type !== 4) {
                 if (success) {
                     logger.info(`Successfully cleaned up temporary channel ${channel.id} from database`);
                 } else {
-                    logger.warn(`Failed to cleanup temporary channel ${channel.id} from database`);
+                    logger.warn(`Failed to cleanup temporary channel ${channel.id} from Join to Create configuration`);
                 }
             }
 
