@@ -45,7 +45,7 @@ function buildPanelPayload() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(FAQ_AI_BUTTON_ID)
-      .setLabel('Ask a Question')
+      .setLabel('Ask a question')
       .setEmoji('❔')
       .setStyle(ButtonStyle.Secondary)
   );
