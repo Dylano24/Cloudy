@@ -7,6 +7,19 @@ const OLD_LOGO_FILENAMES = new Set([
   'cloudy-ticket-c-layout.png',
 ]);
 
+async function cleanMainTicketMessage(message) {
+  const raw = forceCloudyTicketFooter(message.embeds[0]);
+  const hasOldLogoAttachment = [...message.attachments.values()].some(
+    attachment => OLD_LOGO_FILENAMES.has(attachment.name),
+  );
+
+  await message.edit({
+    content: null,
+    embeds: [raw],
+    ...(hasOldLogoAttachment ? { attachments: [] } : {}),
+  });
+}
+
 async function cleanChannel(channel, clientUserId) {
   if (!channel?.isTextBased?.() || channel.isThread?.()) return;
   if (!/ticket-\d+/i.test(String(channel.name || ''))) return;
@@ -19,24 +32,14 @@ async function cleanChannel(channel, clientUserId) {
     if (message.author?.id !== clientUserId) continue;
     if (!message.embeds?.[0]?.title?.startsWith('Ticket #')) continue;
 
-    try {
-      const raw = forceCloudyTicketFooter(message.embeds[0]);
-      const hasOldLogoAttachment = [...message.attachments.values()].some(
-        attachment => OLD_LOGO_FILENAMES.has(attachment.name),
-      );
-
-      await message.edit({
-        embeds: [raw],
-        ...(hasOldLogoAttachment ? { attachments: [] } : {}),
-      });
-    } catch (error) {
-      logger.warn('Could not restore bottom-right Cloudy C on existing ticket', {
+    await cleanMainTicketMessage(message).catch(error => {
+      logger.warn('Could not clean existing Cloudy ticket message', {
         guildId: message.guild?.id,
         channelId: channel.id,
         messageId: message.id,
         error: error.message,
       });
-    }
+    });
   }
 }
 
