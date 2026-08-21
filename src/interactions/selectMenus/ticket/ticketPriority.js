@@ -1,10 +1,13 @@
-import { successEmbed } from '../../../utils/embeds.js';
 import { getTicketPermissionContext } from '../../../utils/ticket/ticketPermissions.js';
 import { updateTicketPriority } from '../../../services/ticketReliabilityService.js';
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
+import {
+  buildCloudyTicketEmbed,
+  scheduleTicketReplyDeletion,
+} from '../../../utils/ticket/ticketBranding.js';
 import { logger } from '../../../utils/logger.js';
 
-const VALID_PRIORITIES = new Set(['urgent', 'high', 'medium', 'low', 'none']);
+const VALID_PRIORITIES = new Set(['high', 'medium', 'low', 'none']);
 
 export default {
   name: 'ticket_priority_select',
@@ -23,12 +26,6 @@ export default {
 
     try {
       const priority = interaction.values?.[0];
-
-      await interaction.editReply({
-        content: 'Updating priority...',
-        embeds: [],
-        components: [],
-      });
 
       if (!VALID_PRIORITIES.has(priority)) {
         await interaction.editReply({
@@ -59,20 +56,22 @@ export default {
       }
 
       const priorityInfo = PRIORITY_MAP[priority] || PRIORITY_MAP.none;
-      const currentPriority = String(context.ticketData.priority || 'none').toLowerCase();
+      const storedPriority = String(context.ticketData.priority || 'none').toLowerCase();
+      const currentPriority = storedPriority === 'urgent' ? 'high' : storedPriority;
 
       await updateTicketPriority(interaction.channel, priority, interaction.user);
 
       await interaction.editReply({
         content: '',
-        embeds: [successEmbed(
-          'Priority Updated',
-          currentPriority === priority
+        embeds: [buildCloudyTicketEmbed({
+          title: 'Priority Updated',
+          description: currentPriority === priority
             ? `Ticket priority remains **${priorityInfo.emoji} ${priorityInfo.label}**.`
             : `Ticket priority has been set to **${priorityInfo.emoji} ${priorityInfo.label}**.`,
-        )],
+        })],
         components: [],
       });
+      scheduleTicketReplyDeletion(interaction);
     } catch (error) {
       logger.error('Ticket priority select failed', {
         error: error.message,
