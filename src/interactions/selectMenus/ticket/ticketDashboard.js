@@ -71,11 +71,8 @@ function buildTextSettingModal(interaction, guildId, setting) {
     if (currentButtonLabel) input.setValue(currentButtonLabel.slice(0, 80));
   }
 
-  if (isPanelMessage) {
-    input.setPlaceholder('Enter the exact support panel message...');
-  } else {
-    input.setPlaceholder('Start Chat');
-  }
+  if (isPanelMessage) input.setPlaceholder('Enter the exact support panel message...');
+  else input.setPlaceholder('Start Chat');
 
   modal.addComponents(new ActionRowBuilder().addComponents(input));
   return modal;
@@ -87,11 +84,7 @@ const dashboardSelectHandler = {
   async execute(interaction, client, args = []) {
     const guildId = args[0];
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
-
-    if (!canManageTickets(interaction)) {
-      await rejectUnauthorized(interaction);
-      return;
-    }
+    if (!canManageTickets(interaction)) return rejectUnauthorized(interaction);
 
     const setting = interaction.values?.[0];
 
@@ -101,25 +94,24 @@ const dashboardSelectHandler = {
         return;
       }
 
+      // Discord interaction first, work second. No REST refresh is allowed to
+      // hold the component in a loading state.
       await interaction.deferUpdate();
 
-      if (isAllChannelTicketSetting(setting)) {
-        await refreshAllTicketChannels(interaction.guild);
-      } else if (setting === 'open_category' || setting === 'closed_category' || setting === 'staff_role') {
-        await refreshTicketDashboardCache(interaction.guild);
-      }
-
-      const freshConfig = await getCurrentTicketDashboardConfig(client, guildId);
+      const freshConfig = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
       const prompt = isAllChannelTicketSetting(setting)
         ? buildAllChannelTicketPrompt(interaction.guild, setting, freshConfig, 0)
         : buildTicketDashboardValuePrompt(interaction.guild, setting, freshConfig, 0);
 
-      if (!prompt) {
-        await interaction.editReply(buildTicketDashboardPayload(interaction.guild, freshConfig));
-        return;
-      }
+      await interaction.editReply(prompt || buildTicketDashboardPayload(interaction.guild, freshConfig));
 
-      await interaction.editReply(prompt);
+      // Refresh inventory only after the response is visible. The normal guild
+      // cache already contains the current server structure in the common case.
+      if (isAllChannelTicketSetting(setting)) {
+        void refreshAllTicketChannels(interaction.guild).catch(() => {});
+      } else if (setting === 'open_category' || setting === 'closed_category' || setting === 'staff_role') {
+        void refreshTicketDashboardCache(interaction.guild).catch(() => {});
+      }
     } catch (error) {
       logger.error('Persistent ticket dashboard select failed', {
         guildId,
@@ -129,14 +121,15 @@ const dashboardSelectHandler = {
         stack: error.stack,
       });
 
+      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+      const payload = buildTicketDashboardPayload(interaction.guild, config);
+      payload.content = error?.userMessage || `Could not open ${setting || 'that ticket setting'}. Please try again.`;
+
       if (interaction.deferred || interaction.replied) {
-        const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
-        const payload = buildTicketDashboardPayload(interaction.guild, config);
-        payload.content = error?.userMessage || `Could not open ${setting || 'that ticket setting'}. Please try again.`;
         await interaction.editReply(payload).catch(() => {});
       } else {
         await InteractionHelper.safeReply(interaction, {
-          content: error?.userMessage || `Could not open ${setting || 'that ticket setting'}. Please try again.`,
+          content: payload.content,
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -150,11 +143,7 @@ const dashboardValueHandler = {
   async execute(interaction, client, args = []) {
     const [guildId, field, setting, pageRaw] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
-
-    if (!canManageTickets(interaction)) {
-      await rejectUnauthorized(interaction);
-      return;
-    }
+    if (!canManageTickets(interaction)) return rejectUnauthorized(interaction);
 
     try {
       await interaction.deferUpdate();
