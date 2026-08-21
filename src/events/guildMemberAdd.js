@@ -190,7 +190,7 @@ export default {
                             // always renders inside this embed, directly below the banner.
                             const embedPayload = embed.toJSON();
                             embedPayload.footer = {
-                                text: '© Cloudy • Build. Compete. Dominate.'
+                                text: '© Cloudy Inc. • Quality. Innovation. Performance.'
                             };
 
                             const welcomeBanner = new AttachmentBuilder(
