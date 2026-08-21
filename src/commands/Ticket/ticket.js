@@ -2,13 +2,9 @@ import {
     SlashCommandBuilder,
     PermissionFlagsBits,
     ChannelType,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
     MessageFlags,
     EmbedBuilder,
 } from 'discord.js';
-import { getColor } from '../../config/bot.js';
 import { successEmbed } from '../../utils/embeds.js';
 import { getGuildConfig, setGuildConfig } from '../../services/config/guildConfig.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -19,45 +15,15 @@ import {
     formatTicketHealthLines,
     runTicketHealth,
 } from '../../services/ticketHealthService.js';
+import { buildTicketPanelPayload } from '../../services/ticketPanelBuilder.js';
 
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-
-function hasCreateTicketButton(message) {
-    return message?.components?.some(row =>
-        row.components?.some(component => component.customId === 'create_ticket')
-    );
-}
 
 function persistentDatabaseAvailable(client) {
     if (!client?.db) return false;
     if (client.db.isDegraded?.()) return false;
     if (typeof client.db.isAvailable === 'function' && !client.db.isAvailable()) return false;
     return typeof client.db.set === 'function';
-}
-
-function buildTicketPanel(client, panelMessage, buttonLabel) {
-    const avatarUrl = client.user?.displayAvatarURL?.({ extension: 'png', size: 128 }) || null;
-
-    const embed = new EmbedBuilder()
-        .setTitle('Contact the support')
-        .setDescription(panelMessage)
-        .setColor(getColor('info'))
-        .setFooter({
-            text: 'Cloudy Support',
-            ...(avatarUrl ? { iconURL: avatarUrl } : {}),
-        });
-
-    if (avatarUrl) embed.setThumbnail(avatarUrl);
-
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('create_ticket')
-            .setLabel(buttonLabel)
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('💬'),
-    );
-
-    return { embed, row };
 }
 
 function buildHealthEmbed(report, detailed = false) {
@@ -89,86 +55,6 @@ function buildHealthEmbed(report, detailed = false) {
         .setColor(report.overall === 'healthy' ? 0x57F287 : report.overall === 'degraded' ? 0xFEE75C : 0xED4245)
         .setFooter({ text: CLOUDY_FOOTER })
         .setTimestamp();
-}
-
-async function recoverExistingTicketPanel(interaction, client, guildConfig) {
-    const guild = interaction.guild;
-    if (!guild || !client?.user?.id) return guildConfig;
-
-    await guild.channels.fetch().catch(() => {});
-
-    const textChannels = guild.channels.cache
-        .filter(channel =>
-            channel.type === ChannelType.GuildText
-            && channel.isTextBased?.()
-            && channel.messages?.fetch
-        )
-        .sort((a, b) => a.rawPosition - b.rawPosition);
-
-    let panelChannel = null;
-    let panelMessage = null;
-
-    for (const channel of textChannels.values()) {
-        const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-        if (!messages) continue;
-
-        const found = messages.find(message =>
-            message.author?.id === client.user.id && hasCreateTicketButton(message)
-        );
-
-        if (found) {
-            panelChannel = channel;
-            panelMessage = found;
-            break;
-        }
-    }
-
-    if (!panelChannel || !panelMessage) return guildConfig;
-
-    const panelButton = panelMessage.components
-        .flatMap(row => row.components || [])
-        .find(component => component.customId === 'create_ticket');
-
-    const categories = guild.channels.cache.filter(channel => channel.type === ChannelType.GuildCategory);
-    const openCategory = categories.find(channel => /support.*help|help.*support|open.*ticket|ticket.*open/i.test(channel.name));
-    const closedCategory = categories.find(channel => /closed.*ticket|ticket.*closed/i.test(channel.name));
-    const ownerRole = guild.roles.cache.find(role => role.name.trim().toLowerCase() === 'owner');
-    const logsChannel = guild.channels.cache.find(channel =>
-        channel.type === ChannelType.GuildText && /^(ticket|tickets)[-_ ]?logs$/i.test(channel.name)
-    );
-    const transcriptChannel = guild.channels.cache.find(channel =>
-        channel.type === ChannelType.GuildText && /^(ticket|tickets)[-_ ]?transcripts?$/i.test(channel.name)
-    );
-
-    const recoveredConfig = {
-        ...guildConfig,
-        ticketPanelChannelId: panelChannel.id,
-        ticketPanelMessageId: panelMessage.id,
-        ticketPanelMessage:
-            panelMessage.embeds?.[0]?.description
-            || guildConfig.ticketPanelMessage
-            || 'Click the button below to create a support ticket.',
-        ticketButtonLabel:
-            panelButton?.label
-            || guildConfig.ticketButtonLabel
-            || 'Start Chat',
-        ticketCategoryId: guildConfig.ticketCategoryId || openCategory?.id || null,
-        ticketClosedCategoryId: guildConfig.ticketClosedCategoryId || closedCategory?.id || null,
-        ticketStaffRoleId: guildConfig.ticketStaffRoleId || ownerRole?.id || null,
-        ticketLogsChannelId: guildConfig.ticketLogsChannelId || logsChannel?.id || null,
-        ticketTranscriptChannelId: guildConfig.ticketTranscriptChannelId || transcriptChannel?.id || null,
-        dmOnClose: false,
-    };
-
-    await setGuildConfig(client, interaction.guildId, recoveredConfig);
-
-    logger.info('Recovered existing ticket panel into persistent guild configuration', {
-        guildId: interaction.guildId,
-        panelChannelId: panelChannel.id,
-        panelMessageId: panelMessage.id,
-    });
-
-    return recoveredConfig;
 }
 
 export default {
@@ -246,7 +132,7 @@ export default {
 
     category: 'ticket',
 
-    async execute(interaction, _config, client) {
+    async execute(interaction, routerConfig, client) {
         const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
         if (!deferred) return;
 
@@ -289,16 +175,18 @@ export default {
         }
 
         if (subcommand === 'dashboard') {
-            let existingConfig = await getGuildConfig(client, interaction.guildId);
-            if (!existingConfig?.ticketPanelChannelId) {
-                existingConfig = await recoverExistingTicketPanel(interaction, client, existingConfig);
-            }
-            return ticketConfig.execute(interaction, existingConfig, client);
+            // The global command router already loaded guild config. Reusing it
+            // removes a duplicate DB read and, critically, no panel/channel scan
+            // is allowed before the dashboard becomes visible.
+            return ticketConfig.execute(interaction, routerConfig || {}, client);
         }
 
         if (subcommand !== 'setup') return;
 
-        const existingConfig = await getGuildConfig(client, interaction.guildId);
+        const existingConfig = routerConfig && typeof routerConfig === 'object'
+            ? routerConfig
+            : await getGuildConfig(client, interaction.guildId);
+
         if (existingConfig?.ticketPanelChannelId) {
             return await replyUserError(interaction, {
                 type: ErrorTypes.CONFIGURATION,
@@ -315,25 +203,27 @@ export default {
         const buttonLabel = interaction.options.getString('button_label') || 'Start Chat';
         const maxTicketsPerUser = interaction.options.getInteger('max_tickets_per_user') || 3;
 
-        const { embed, row } = buildTicketPanel(client, panelMessage, buttonLabel);
+        const nextConfig = {
+            ...existingConfig,
+            ticketCategoryId: categoryChannel?.id || null,
+            ticketClosedCategoryId: closedCategoryChannel?.id || null,
+            ticketStaffRoleId: staffRole?.id || null,
+            ticketPanelChannelId: panelChannel.id,
+            ticketPanelMessageId: null,
+            ticketPanelMessage: panelMessage,
+            ticketButtonLabel: buttonLabel,
+            maxTicketsPerUser,
+            dmOnClose: false,
+        };
+
         let sentPanel = null;
 
         try {
-            sentPanel = await panelChannel.send({ embeds: [embed], components: [row] });
+            sentPanel = await panelChannel.send(
+                buildTicketPanelPayload(client, interaction.guildId, nextConfig),
+            );
 
-            const nextConfig = {
-                ...existingConfig,
-                ticketCategoryId: categoryChannel?.id || null,
-                ticketClosedCategoryId: closedCategoryChannel?.id || null,
-                ticketStaffRoleId: staffRole?.id || null,
-                ticketPanelChannelId: panelChannel.id,
-                ticketPanelMessageId: sentPanel.id,
-                ticketPanelMessage: panelMessage,
-                ticketButtonLabel: buttonLabel,
-                maxTicketsPerUser,
-                dmOnClose: false,
-            };
-
+            nextConfig.ticketPanelMessageId = sentPanel.id;
             await setGuildConfig(client, interaction.guildId, nextConfig);
 
             let successMessage = `The ticket creation panel has been sent to ${panelChannel}.`;
