@@ -7,10 +7,13 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import { successEmbed } from '../../../utils/embeds.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { replyUserError, ErrorTypes } from '../../../utils/errorHandler.js';
 import { getTicketPermissionContext } from '../../../utils/ticket/ticketPermissions.js';
+import {
+  buildCloudyTicketEmbed,
+  scheduleTicketReplyDeletion,
+} from '../../../utils/ticket/ticketBranding.js';
 import {
   claimTicket,
   unclaimTicket,
@@ -43,6 +46,15 @@ async function requireStaff(interaction, client, action) {
   }
 
   return context;
+}
+
+async function editBasicTicketReply(interaction, title, description, components = []) {
+  await InteractionHelper.safeEditReply(interaction, {
+    content: '',
+    embeds: [buildCloudyTicketEmbed({ title, description })],
+    components,
+  });
+  scheduleTicketReplyDeletion(interaction);
 }
 
 const createTicketHandler = {
@@ -97,9 +109,7 @@ const claimTicketHandler = {
       if (!context) return;
 
       await claimTicket(interaction.channel, interaction.user);
-      await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed('Ticket Claimed', 'You have claimed this ticket.')],
-      });
+      await editBasicTicketReply(interaction, 'Ticket Claimed', 'You have claimed this ticket.');
     } catch (error) {
       logger.error('Ticket claim button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {
@@ -129,14 +139,13 @@ const pinTicketHandler = {
         });
       });
 
-      await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed(
-          willBePinned ? 'Ticket Pinned' : 'Ticket Unpinned',
-          willBePinned
-            ? 'This ticket has been pinned to the top of the category.'
-            : 'This ticket has been moved back to its normal position.',
-        )],
-      });
+      await editBasicTicketReply(
+        interaction,
+        willBePinned ? 'Ticket Pinned' : 'Ticket Unpinned',
+        willBePinned
+          ? 'This ticket has been pinned to the top of the category.'
+          : 'This ticket has been moved back to its normal position.',
+      );
 
       void logTicketEvent({
         client: interaction.client,
@@ -170,25 +179,29 @@ const priorityMenuHandler = {
       const context = await requireStaff(interaction, client, 'change ticket priority');
       if (!context) return;
 
-      const currentPriority = String(context.ticketData.priority || 'none').toLowerCase();
+      const storedPriority = String(context.ticketData.priority || 'none').toLowerCase();
+      const currentPriority = storedPriority === 'urgent' ? 'high' : storedPriority;
       const currentInfo = PRIORITY_MAP[currentPriority] || PRIORITY_MAP.none;
 
       const menu = new StringSelectMenuBuilder()
         .setCustomId('ticket_priority_select')
         .setPlaceholder('Select a new priority...')
         .addOptions(
-          new StringSelectMenuOptionBuilder().setLabel('Urgent').setValue('urgent').setEmoji('🚨'),
           new StringSelectMenuOptionBuilder().setLabel('High').setValue('high').setEmoji('🔴'),
           new StringSelectMenuOptionBuilder().setLabel('Medium').setValue('medium').setEmoji('🟡'),
-          new StringSelectMenuOptionBuilder().setLabel('Low').setValue('low').setEmoji('🟢'),
+          new StringSelectMenuOptionBuilder().setLabel('Low').setValue('low').setEmoji('🔵'),
           new StringSelectMenuOptionBuilder().setLabel('None').setValue('none').setEmoji('⚪'),
         );
 
       await InteractionHelper.safeEditReply(interaction, {
-        content: `Current priority: **${currentInfo.emoji} ${currentInfo.label}**\nSelect a new priority below.`,
-        embeds: [],
+        content: '',
+        embeds: [buildCloudyTicketEmbed({
+          title: 'Ticket Priority',
+          description: `Current priority: **${currentInfo.emoji} ${currentInfo.label}**\nSelect a new priority below.`,
+        })],
         components: [new ActionRowBuilder().addComponents(menu)],
       });
+      scheduleTicketReplyDeletion(interaction);
     } catch (error) {
       logger.error('Priority menu button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {
@@ -209,7 +222,8 @@ const legacyPriorityHandler = {
       const context = await requireStaff(interaction, client, 'change ticket priority');
       if (!context) return;
 
-      const priority = String(args[0] || '').toLowerCase();
+      const requestedPriority = String(args[0] || '').toLowerCase();
+      const priority = requestedPriority === 'urgent' ? 'high' : requestedPriority;
       const info = PRIORITY_MAP[priority];
       if (!info) {
         await InteractionHelper.safeEditReply(interaction, {
@@ -221,11 +235,11 @@ const legacyPriorityHandler = {
       }
 
       await updateTicketPriority(interaction.channel, priority, interaction.user);
-      await InteractionHelper.safeEditReply(interaction, {
-        content: '',
-        embeds: [successEmbed('Priority Updated', `Ticket priority has been set to **${info.emoji} ${info.label}**.`)],
-        components: [],
-      });
+      await editBasicTicketReply(
+        interaction,
+        'Priority Updated',
+        `Ticket priority has been set to **${info.emoji} ${info.label}**.`,
+      );
     } catch (error) {
       logger.error('Legacy ticket priority button failed', {
         error: error.message,
@@ -283,9 +297,7 @@ const unclaimTicketHandler = {
       if (!context) return;
 
       await unclaimTicket(interaction.channel, interaction.member);
-      await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed('Ticket Unclaimed', 'This ticket has been unclaimed.')],
-      });
+      await editBasicTicketReply(interaction, 'Ticket Unclaimed', 'This ticket has been unclaimed.');
     } catch (error) {
       logger.error('Ticket unclaim button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {
@@ -311,9 +323,7 @@ const reopenTicketHandler = {
         ? ' The ticket was reopened, but the channel could not be moved back to the open category yet. Cloudy will retry automatically.'
         : '';
 
-      await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed('Ticket Reopened', `This ticket has been reopened.${note}`)],
-      });
+      await editBasicTicketReply(interaction, 'Ticket Reopened', `This ticket has been reopened.${note}`);
     } catch (error) {
       logger.error('Ticket reopen button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {
@@ -335,9 +345,11 @@ const deleteTicketHandler = {
       if (!context) return;
 
       await deleteTicket(interaction.channel, interaction.user);
-      await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed('Ticket Deleted', 'The transcript was archived. This ticket will be deleted shortly.')],
-      });
+      await editBasicTicketReply(
+        interaction,
+        'Ticket Deleted',
+        'The transcript was archived. This ticket will be deleted shortly.',
+      );
     } catch (error) {
       logger.error('Ticket delete button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {
