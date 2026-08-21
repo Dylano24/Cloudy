@@ -59,13 +59,6 @@ function buildTextSettingModal(interaction, guildId, setting) {
     .setCustomId(`ticket_dashboard_modal:${guildId}:${field}:${interaction.message.id}`)
     .setTitle(isPanelMessage ? 'Edit Panel Message' : 'Edit Button Label');
 
-  // Do not wait on PostgreSQL before showing a modal. Discord requires modal
-  // interactions to be acknowledged immediately. The visible dashboard already
-  // contains the latest displayed value, so use that as an optional prefill.
-  const currentValue = isPanelMessage
-    ? getDashboardFieldValue(interaction, 'Panel Message')
-    : getDashboardFieldValue(interaction, 'Button Label');
-
   const input = new TextInputBuilder()
     .setCustomId('value')
     .setLabel(isPanelMessage ? 'Panel message' : 'Button label')
@@ -73,12 +66,16 @@ function buildTextSettingModal(interaction, guildId, setting) {
     .setRequired(true)
     .setMaxLength(isPanelMessage ? 2000 : 80);
 
-  if (currentValue) {
-    input.setValue(currentValue.slice(0, isPanelMessage ? 2000 : 80));
+  // The dashboard intentionally displays a shortened Panel Message preview.
+  // Never use that shortened preview as the modal value, otherwise saving it
+  // could silently replace the user's exact full text with a truncated copy.
+  if (!isPanelMessage) {
+    const currentButtonLabel = getDashboardFieldValue(interaction, 'Button Label');
+    if (currentButtonLabel) input.setValue(currentButtonLabel.slice(0, 80));
   }
 
   if (isPanelMessage) {
-    input.setPlaceholder('Enter the support panel message...');
+    input.setPlaceholder('Enter the exact support panel message...');
   } else {
     input.setPlaceholder('Start Chat');
   }
@@ -110,12 +107,13 @@ const dashboardSelectHandler = {
       }
 
       // Acknowledge the Discord interaction before ANY database or REST call.
-      // This prevents the selector from expiring when PostgreSQL/Discord is slow.
       await interaction.deferUpdate();
 
       if (isAllChannelTicketSetting(setting)) {
         await refreshAllTicketChannels(interaction.guild);
-      } else {
+      } else if (setting === 'open_category' || setting === 'closed_category' || setting === 'staff_role') {
+        // Only settings that actually need channel/role inventory trigger a
+        // refresh. Max Tickets is now instant and does not perform useless REST.
         await refreshTicketDashboardCache(interaction.guild);
       }
 
@@ -167,7 +165,6 @@ const dashboardValueHandler = {
     }
 
     try {
-      // Acknowledge immediately; persistence/Discord validation happens after.
       await interaction.deferUpdate();
 
       const rawValue = interaction.values?.[0];
