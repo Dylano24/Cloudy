@@ -52,18 +52,12 @@ export default {
       const embed = new EmbedBuilder()
         .setColor('#5865F2')
         .setTitle('Cloudy FAQ Assistant')
-        .addFields(
-          {
-            name: 'Your question',
-            value: question.length > 1000 ? `${question.slice(0, 997)}...` : question,
-            inline: false,
-          },
-          {
-            name: 'Answer',
-            value: answer,
-            inline: false,
-          }
-        )
+        .setDescription(answer)
+        .addFields({
+          name: 'Your question',
+          value: question.length > 1000 ? `${question.slice(0, 997)}...` : question,
+          inline: false,
+        })
         .setFooter({ text: 'Private response • Only you can see this message' })
         .setTimestamp();
 
