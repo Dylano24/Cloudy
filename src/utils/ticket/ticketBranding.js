@@ -3,11 +3,10 @@ import { createEmbed } from '../embeds.js';
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
 
-// Uses the exact same cloudy-c-logo.png bytes as the welcome message.
-// The SVG only provides transparent spacing/positioning so the unchanged C
-// renders at welcome-thumbnail scale near the bottom-right of ticket embeds.
+// Exact same cloudy-c-logo.png artwork as the welcome message, positioned once
+// near the bottom-right of the main ticket embed.
 const CLOUDY_TICKET_C_LAYOUT =
-  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.svg?v=1';
+  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.svg?v=2';
 export const CLOUDY_TICKET_C_FOOTER_IMAGE =
   `https://images.weserv.nl/?url=${encodeURIComponent(CLOUDY_TICKET_C_LAYOUT)}&output=png`;
 
