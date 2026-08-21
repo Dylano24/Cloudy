@@ -168,7 +168,7 @@ export default {
                                         inline: false
                                     },
                                     {
-                                        name: '🔗 Link Your Account',
+                                        name: '🔗 Link your account',
                                         value: `[Claim free kits, purchases & alerts](${linkAccountUrl})\n\u200b`,
                                         inline: false
                                     },
