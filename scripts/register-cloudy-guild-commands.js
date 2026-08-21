@@ -66,8 +66,6 @@ async function getCommandFiles(directory, files = []) {
   for (const entry of entries) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      // Only implementation-module folders are excluded. Every real command
-      // directory, including Leveling, is part of the 100-command production set.
       if (entry.name === 'modules') continue;
       await getCommandFiles(fullPath, files);
     } else if (entry.name.endsWith('.js')) {
@@ -128,6 +126,58 @@ function sortRecoveryQueue(payloads, existingNames) {
   return [...queue, ...rest];
 }
 
+function normalizeOptions(options) {
+  if (!Array.isArray(options)) return [];
+  return options.map((option) => {
+    const normalized = {
+      type: option.type,
+      name: option.name,
+      description: option.description,
+      required: option.required ?? false,
+      autocomplete: option.autocomplete ?? false,
+    };
+
+    if (Array.isArray(option.options)) normalized.options = normalizeOptions(option.options);
+    if (Array.isArray(option.choices)) {
+      normalized.choices = option.choices.map((choice) => ({ name: choice.name, value: choice.value }));
+    }
+    if (Array.isArray(option.channel_types)) normalized.channel_types = [...option.channel_types];
+    if (option.min_value !== undefined) normalized.min_value = option.min_value;
+    if (option.max_value !== undefined) normalized.max_value = option.max_value;
+    if (option.min_length !== undefined) normalized.min_length = option.min_length;
+    if (option.max_length !== undefined) normalized.max_length = option.max_length;
+    return normalized;
+  });
+}
+
+function comparableCommand(command) {
+  return {
+    name: command.name,
+    description: command.description || '',
+    options: normalizeOptions(command.options),
+    default_member_permissions: command.default_member_permissions ?? null,
+    dm_permission: command.dm_permission ?? true,
+    nsfw: command.nsfw ?? false,
+  };
+}
+
+function commandNeedsUpdate(desired, current) {
+  return JSON.stringify(comparableCommand(desired)) !== JSON.stringify(comparableCommand(current));
+}
+
+function sortUpdateQueue(payloads, currentByName) {
+  const changed = payloads
+    .filter((payload) => currentByName.has(payload.name) && commandNeedsUpdate(payload, currentByName.get(payload.name)));
+
+  return changed.sort((a, b) => {
+    const priorityA = PRIORITY.indexOf(a.name);
+    const priorityB = PRIORITY.indexOf(b.name);
+    const rankA = priorityA === -1 ? Number.MAX_SAFE_INTEGER : priorityA;
+    const rankB = priorityB === -1 ? Number.MAX_SAFE_INTEGER : priorityB;
+    return rankA - rankB || a.name.localeCompare(b.name);
+  });
+}
+
 async function main() {
   const startedAt = Date.now();
   const blockedUntil = new Map();
@@ -148,7 +198,7 @@ async function main() {
   }
 
   const route = `/applications/${applicationId}/guilds/${guildId}/commands`;
-  console.log(`[COMMAND_RECOVERY] Incremental recovery started: app=${applicationId}, guild=${guildId}, desired=${payloads.length}.`);
+  console.log(`[COMMAND_RECOVERY] Incremental recovery/sync started: app=${applicationId}, guild=${guildId}, desired=${payloads.length}.`);
   console.log(`[COMMAND_RECOVERY] Priority order: ${PRIORITY.join(', ')}.`);
 
   while (Date.now() - startedAt < MAX_RUNTIME_MS) {
@@ -174,28 +224,72 @@ async function main() {
       continue;
     }
 
-    const existingNames = new Set(current.body.map((command) => command.name));
-    const fullQueue = sortRecoveryQueue(payloads, existingNames);
+    const currentByName = new Map(current.body.map((command) => [command.name, command]));
+    const existingNames = new Set(currentByName.keys());
+    const updateQueue = sortUpdateQueue(payloads, currentByName);
+    const missingQueue = sortRecoveryQueue(payloads, existingNames);
 
-    if (!fullQueue.length) {
-      console.log(`[COMMAND_RECOVERY] COMPLETE: all ${payloads.length} Cloudy guild commands are registered.`);
+    const availableUpdate = updateQueue.find((payload) => (blockedUntil.get(`update:${payload.name}`) || 0) <= Date.now());
+    if (availableUpdate) {
+      const existing = currentByName.get(availableUpdate.name);
+      console.log(`[COMMAND_RECOVERY] Updating changed schema for /${availableUpdate.name}.`);
+
+      let update;
+      try {
+        update = await discordFetch(`${route}/${existing.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(availableUpdate),
+        });
+      } catch (error) {
+        console.error(`[COMMAND_RECOVERY] PATCH /${availableUpdate.name} failed: ${error.message}; retrying in 60s.`);
+        await sleep(60000);
+        continue;
+      }
+
+      if (update.response.ok && update.body?.name === availableUpdate.name) {
+        blockedUntil.delete(`update:${availableUpdate.name}`);
+        console.log(`[COMMAND_RECOVERY] UPDATED /${availableUpdate.name}.`);
+        await sleep(1500);
+        continue;
+      }
+
+      const retryAfter = retryAfterSeconds(update);
+      if (update.response.status === 429) {
+        const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 60) + 2));
+        console.warn(`[COMMAND_RECOVERY] UPDATE_RATE_LIMIT /${availableUpdate.name}; waiting ${waitSeconds}s.`);
+        await sleep(waitSeconds * 1000);
+        continue;
+      }
+
+      blockedUntil.set(`update:${availableUpdate.name}`, Date.now() + PERMANENT_FAILURE_BACKOFF_MS);
+      console.error(`[COMMAND_RECOVERY] Discord rejected update for /${availableUpdate.name}: HTTP ${update.response.status}, body=${JSON.stringify(update.body)}.`);
+      await sleep(1500);
+      continue;
+    }
+
+    if (!missingQueue.length && !updateQueue.length) {
+      console.log(`[COMMAND_RECOVERY] COMPLETE: all ${payloads.length} Cloudy guild commands are registered and synchronized.`);
       return;
     }
 
     const now = Date.now();
-    const queue = fullQueue.filter((payload) => (blockedUntil.get(payload.name) || 0) <= now);
+    const queue = missingQueue.filter((payload) => (blockedUntil.get(`create:${payload.name}`) || 0) <= now);
 
     if (!queue.length) {
-      const earliest = Math.min(...fullQueue.map((payload) => blockedUntil.get(payload.name) || (now + 60000)));
+      const pendingTimes = [
+        ...missingQueue.map((payload) => blockedUntil.get(`create:${payload.name}`) || (now + 60000)),
+        ...updateQueue.map((payload) => blockedUntil.get(`update:${payload.name}`) || (now + 60000)),
+      ];
+      const earliest = pendingTimes.length ? Math.min(...pendingTimes) : now + 60000;
       const waitMs = Math.max(5000, Math.min(earliest - now, 5 * 60 * 1000));
-      console.warn(`[COMMAND_RECOVERY] All currently missing commands are temporarily deferred; checking again in ${Math.ceil(waitMs / 1000)}s.`);
+      console.warn(`[COMMAND_RECOVERY] Pending command work is temporarily deferred; checking again in ${Math.ceil(waitMs / 1000)}s.`);
       await sleep(waitMs);
       continue;
     }
 
     const next = queue[0];
     console.log(
-      `[COMMAND_RECOVERY] Progress ${existingNames.size}/${payloads.length}. Next command: /${next.name}. Remaining=${fullQueue.length}.`
+      `[COMMAND_RECOVERY] Progress ${existingNames.size}/${payloads.length}. Next missing command: /${next.name}. Remaining=${missingQueue.length}.`
     );
 
     let create;
@@ -211,7 +305,7 @@ async function main() {
     }
 
     if (create.response.ok && create.body?.name === next.name) {
-      blockedUntil.delete(next.name);
+      blockedUntil.delete(`create:${next.name}`);
       console.log(`[COMMAND_RECOVERY] RESTORED /${next.name}. Discord now has at least ${existingNames.size + 1}/${payloads.length} Cloudy commands.`);
       await sleep(1500);
       continue;
@@ -239,7 +333,7 @@ async function main() {
       continue;
     }
 
-    blockedUntil.set(next.name, Date.now() + PERMANENT_FAILURE_BACKOFF_MS);
+    blockedUntil.set(`create:${next.name}`, Date.now() + PERMANENT_FAILURE_BACKOFF_MS);
     console.error(
       `[COMMAND_RECOVERY] Discord rejected /${next.name}: HTTP ${create.response.status}, body=${JSON.stringify(create.body)}. ` +
       'That command is deferred for 30 minutes so it cannot block recovery of the others.'
