@@ -6,6 +6,10 @@ import {
 } from '../../../services/ticketDashboardService.js';
 import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
+import {
+  buildCloudyTicketEmbed,
+  scheduleTicketReplyDeletion,
+} from '../../../utils/ticket/ticketBranding.js';
 import { logger } from '../../../utils/logger.js';
 
 const ALLOWED_TEXT_FIELDS = new Set(['ticketPanelMessage', 'ticketButtonLabel']);
@@ -70,12 +74,16 @@ export default {
       savedConfig = await ensureLivePanel(client, interaction.guild, savedConfig);
 
       await InteractionHelper.safeEditReply(interaction, {
-        content: field === 'ticketPanelMessage'
-          ? '✅ The ticket panel message has been saved and updated.'
-          : '✅ The ticket button label has been saved and updated.',
-        embeds: [],
+        content: '',
+        embeds: [buildCloudyTicketEmbed({
+          title: 'Ticket Setting Updated',
+          description: field === 'ticketPanelMessage'
+            ? 'The ticket panel message has been saved and updated.'
+            : 'The ticket button label has been saved and updated.',
+        })],
         components: [],
       });
+      scheduleTicketReplyDeletion(interaction);
 
       if (interaction.message?.edit) {
         await interaction.message.edit(
