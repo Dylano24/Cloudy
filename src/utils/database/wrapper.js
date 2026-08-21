@@ -3,6 +3,18 @@ import { MemoryStorage } from '../memoryStorage.js';
 import { logger } from '../logger.js';
 import { validateGuildConfigOrThrow } from '../schemas.js';
 
+function requiresPersistentStorage(key) {
+    if (typeof key !== 'string') return false;
+    return /^guild:[^:]+:config$/.test(key) || /^guild:[^:]+:ticket:/.test(key);
+}
+
+function persistentStorageError(key, operation) {
+    const error = new Error(`Persistent PostgreSQL storage is required to ${operation} ${key}`);
+    error.code = 'PERSISTENT_STORAGE_REQUIRED';
+    error.userMessage = 'The persistent database is currently unavailable. Please try again once PostgreSQL is connected.';
+    return error;
+}
+
 class DatabaseWrapper {
     constructor() {
         this.initialized = false;
@@ -57,6 +69,10 @@ class DatabaseWrapper {
     }
 
     async set(key, value, ttl = null) {
+        if (this.useFallback && requiresPersistentStorage(key)) {
+            throw persistentStorageError(key, 'write');
+        }
+
         if (this.useFallback) {
             logger.debug(`[DEGRADED] Writing to memory: ${key}`);
         }
@@ -77,6 +93,10 @@ class DatabaseWrapper {
     }
 
     async delete(key) {
+        if (this.useFallback && requiresPersistentStorage(key)) {
+            throw persistentStorageError(key, 'delete');
+        }
+
         if (this.useFallback) {
             logger.debug(`[DEGRADED] Deleting from memory: ${key}`);
         }
@@ -96,6 +116,10 @@ class DatabaseWrapper {
     }
 
     async increment(key, amount = 1) {
+        if (this.useFallback && requiresPersistentStorage(key)) {
+            throw persistentStorageError(key, 'increment');
+        }
+
         if (this.useFallback) {
             logger.debug(`[DEGRADED] Incrementing in memory: ${key}`);
         }
@@ -109,6 +133,10 @@ class DatabaseWrapper {
     }
 
     async decrement(key, amount = 1) {
+        if (this.useFallback && requiresPersistentStorage(key)) {
+            throw persistentStorageError(key, 'decrement');
+        }
+
         if (this.useFallback) {
             logger.debug(`[DEGRADED] Decrementing in memory: ${key}`);
         }
