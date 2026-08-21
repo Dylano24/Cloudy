@@ -110,10 +110,6 @@ function buildChannelSelect(guild, setting, definition, pageChannels, localStart
   const last = first + segment.length - 1;
   const segmentIndex = Math.floor(localStart / SELECT_SIZE);
   const select = new StringSelectMenuBuilder()
-    // Discord requires every component custom_id in one message to be unique.
-    // The final segment index is routing metadata only; the handler safely
-    // ignores extra args after page and therefore all dropdowns share the same
-    // save logic without colliding with each other.
     .setCustomId(`ticket_dashboard_value:${guild.id}:${definition.field}:${setting}:${page}:${segmentIndex}`)
     .setPlaceholder(`Channels ${first}-${last} of ${total}`)
     .setMinValues(1).setMaxValues(1);
@@ -150,8 +146,8 @@ export function buildAllChannelTicketPrompt(guild, setting, config = {}, page = 
   }
   buttons.push(
     new ButtonBuilder().setCustomId(`ticket_dashboard_manual:${guild.id}:${definition.field}`).setLabel('Set by ID').setStyle(ButtonStyle.Secondary).setEmoji('⌨️'),
-    new ButtonBuilder().setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.max(0, safePage - 1)}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(safePage <= 0),
-    new ButtonBuilder().setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.min(pageCount - 1, safePage + 1)}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(safePage >= pageCount - 1),
+    new ButtonBuilder().setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.max(0, safePage - 1)}:previous`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(safePage <= 0),
+    new ButtonBuilder().setCustomId(`ticket_dashboard_page:${guild.id}:${setting}:${Math.min(pageCount - 1, safePage + 1)}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(safePage >= pageCount - 1),
     new ButtonBuilder().setCustomId(`ticket_dashboard_back:${guild.id}`).setLabel('Back').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
   );
   components.push(new ActionRowBuilder().addComponents(...buttons.slice(0, 5)));
