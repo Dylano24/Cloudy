@@ -7,11 +7,11 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import {
-  buildTicketDashboardPayload,
   buildTicketDashboardValuePrompt,
   getCurrentTicketDashboardConfig,
   refreshTicketDashboardCache,
 } from '../../../services/ticketDashboardService.js';
+import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import {
   buildAllChannelTicketPrompt,
   isAllChannelTicketSetting,
