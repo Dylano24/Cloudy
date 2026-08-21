@@ -32,6 +32,7 @@ const QUESTION_COOLDOWN_MS = 20_000;
 const recentQuestions = new Map();
 
 function buildPanelPayload() {
+  const footerText = '© Cloudy Inc. • Quality. Innovation. Performance.';
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
     .setTitle('Cloudy Support Assistant')
@@ -40,7 +41,10 @@ function buildPanelPayload() {
       'Our AI Assistant can help you find answers to common questions, server information, features, commands, and more.\n\n' +
       'Click the Ask a question button below and let Cloudy Inc. assist you.'
     )
-    .setFooter({ text: '© Cloudy Inc. • Quality. Innovation. Performance.' });
+    .setFooter({ text: footerText });
+
+  const embedPayload = embed.toJSON();
+  embedPayload.footer = { text: footerText };
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -50,7 +54,7 @@ function buildPanelPayload() {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  return { embeds: [embed], components: [row] };
+  return { embeds: [embedPayload], components: [row] };
 }
 
 export function buildFaqQuestionModal() {
