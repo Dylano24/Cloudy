@@ -1,13 +1,26 @@
-import { MessageFlags, PermissionFlagsBits } from 'discord.js';
+import {
+  ActionRowBuilder,
+  MessageFlags,
+  ModalBuilder,
+  PermissionFlagsBits,
+  TextInputBuilder,
+  TextInputStyle,
+} from 'discord.js';
 import {
   buildTicketDashboardValuePrompt,
   deleteTicketSystem,
   getCurrentTicketDashboardConfig,
+  refreshTicketDashboardCache,
   repostTicketPanel,
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
 import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
+import {
+  buildAllChannelTicketPrompt,
+  isAllChannelTicketSetting,
+  refreshAllTicketChannels,
+} from '../../../services/ticketChannelBrowserService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -18,6 +31,18 @@ const CLEARABLE_FIELDS = new Set([
   'ticketLogsChannelId',
   'ticketTranscriptChannelId',
 ]);
+
+const OPENABLE_SETTINGS = new Set([
+  'panel_channel',
+  'open_category',
+  'closed_category',
+  'staff_role',
+  'max_tickets',
+  'logs_channel',
+  'transcript_channel',
+]);
+
+const TEXT_SETTINGS = new Set(['panel_message', 'button_label']);
 
 function canManageTickets(interaction) {
   return Boolean(interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels));
@@ -47,13 +72,127 @@ async function validateDashboardInteraction(interaction, guildId) {
   return true;
 }
 
+function dashboardFieldValue(interaction, fieldName) {
+  const field = interaction.message?.embeds?.[0]?.fields?.find(item => item.name === fieldName);
+  if (!field?.value) return '';
+  const value = String(field.value);
+  if (value === '`Not set`') return '';
+  if (value.startsWith('`') && value.endsWith('`')) return value.slice(1, -1);
+  return '';
+}
+
+function buildTextSettingModal(interaction, guildId, setting) {
+  const isPanelMessage = setting === 'panel_message';
+  const field = isPanelMessage ? 'ticketPanelMessage' : 'ticketButtonLabel';
+  const input = new TextInputBuilder()
+    .setCustomId('value')
+    .setLabel(isPanelMessage ? 'Panel message' : 'Button label')
+    .setStyle(isPanelMessage ? TextInputStyle.Paragraph : TextInputStyle.Short)
+    .setRequired(true)
+    .setMaxLength(isPanelMessage ? 2000 : 80);
+
+  // Panel Message is intentionally not prefilled from the dashboard because
+  // the dashboard only shows a shortened preview. This prevents truncating the
+  // exact text supplied by the user. Button Label is safe to prefill in full.
+  if (isPanelMessage) {
+    input.setPlaceholder('Enter the exact support panel message...');
+  } else {
+    const current = dashboardFieldValue(interaction, 'Button Label');
+    if (current) input.setValue(current.slice(0, 80));
+    input.setPlaceholder('Start Chat');
+  }
+
+  return new ModalBuilder()
+    .setCustomId(`ticket_dashboard_modal:${guildId}:${field}:${interaction.message.id}`)
+    .setTitle(isPanelMessage ? 'Edit Panel Message' : 'Edit Button Label')
+    .addComponents(new ActionRowBuilder().addComponents(input));
+}
+
+async function renderSetting(interaction, client, guildId, setting) {
+  if (!OPENABLE_SETTINGS.has(setting)) {
+    throw new Error(`Unknown ticket dashboard setting: ${setting}`);
+  }
+
+  await interaction.deferUpdate();
+  const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+  const prompt = isAllChannelTicketSetting(setting)
+    ? buildAllChannelTicketPrompt(interaction.guild, setting, config, 0)
+    : buildTicketDashboardValuePrompt(interaction.guild, setting, config, 0);
+
+  await interaction.editReply(prompt || buildTicketDashboardPayload(interaction.guild, config));
+
+  // Inventory refresh is intentionally background-only. A dashboard click must
+  // never wait on a full Discord REST channel/role fetch.
+  if (isAllChannelTicketSetting(setting)) {
+    void refreshAllTicketChannels(interaction.guild).catch(() => {});
+  } else if (setting === 'open_category' || setting === 'closed_category' || setting === 'staff_role') {
+    void refreshTicketDashboardCache(interaction.guild).catch(() => {});
+  }
+}
+
+const openSettingHandler = {
+  name: 'ticket_dashboard_open',
+  async execute(interaction, client, args = []) {
+    const [guildId, setting] = args;
+    if (!(await validateDashboardInteraction(interaction, guildId))) return;
+
+    try {
+      await renderSetting(interaction, client, guildId, setting);
+    } catch (error) {
+      logger.error('Ticket dashboard setting button failed', {
+        guildId,
+        setting,
+        error: error.message,
+      });
+      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+      const payload = buildTicketDashboardPayload(interaction.guild, config);
+      payload.content = error?.userMessage || 'Could not open that ticket setting. Please try again.';
+      if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
+      else await InteractionHelper.safeReply(interaction, { content: payload.content, flags: MessageFlags.Ephemeral });
+    }
+  },
+};
+
+const textSettingHandler = {
+  name: 'ticket_dashboard_text',
+  async execute(interaction, _client, args = []) {
+    const [guildId, setting] = args;
+    if (!(await validateDashboardInteraction(interaction, guildId))) return;
+
+    if (!TEXT_SETTINGS.has(setting)) {
+      await InteractionHelper.safeReply(interaction, {
+        content: 'That ticket text setting is not available.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    try {
+      // Modals must be shown before any defer/database call.
+      await interaction.showModal(buildTextSettingModal(interaction, guildId, setting));
+    } catch (error) {
+      logger.error('Ticket dashboard text modal failed', {
+        guildId,
+        setting,
+        error: error.message,
+      });
+      if (!interaction.replied && !interaction.deferred) {
+        await InteractionHelper.safeReply(interaction, {
+          content: 'Could not open that ticket setting. Please try again.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+    }
+  },
+};
+
 const backHandler = {
   name: 'ticket_dashboard_back',
   async execute(interaction, client, args = []) {
     const guildId = args[0];
     if (!(await validateDashboardInteraction(interaction, guildId))) return;
     await interaction.deferUpdate();
-    const config = await getCurrentTicketDashboardConfig(client, guildId);
+    const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
     await interaction.editReply(buildTicketDashboardPayload(interaction.guild, config));
   },
 };
@@ -81,22 +220,16 @@ const clearHandler = {
   },
 };
 
+// Compatibility handlers for dashboard messages created by older deployments.
 const staffHandler = {
   name: 'ticket_dashboard_staff',
   async execute(interaction, client, args = []) {
     const guildId = args[0];
     if (!(await validateDashboardInteraction(interaction, guildId))) return;
     try {
-      await interaction.deferUpdate();
-      const config = await getCurrentTicketDashboardConfig(client, guildId);
-      const prompt = buildTicketDashboardValuePrompt(interaction.guild, 'staff_role', config);
-      await interaction.editReply(prompt || buildTicketDashboardPayload(interaction.guild, config));
+      await renderSetting(interaction, client, guildId, 'staff_role');
     } catch (error) {
-      logger.error('Ticket dashboard staff-role prompt failed', { guildId, error: error.message });
-      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
-      const payload = buildTicketDashboardPayload(interaction.guild, config);
-      payload.content = 'Could not open the staff-role setting. Please try again.';
-      await interaction.editReply(payload).catch(() => {});
+      logger.error('Ticket dashboard legacy staff button failed', { guildId, error: error.message });
     }
   },
 };
@@ -107,16 +240,9 @@ const maxTicketsHandler = {
     const guildId = args[0];
     if (!(await validateDashboardInteraction(interaction, guildId))) return;
     try {
-      await interaction.deferUpdate();
-      const config = await getCurrentTicketDashboardConfig(client, guildId);
-      const prompt = buildTicketDashboardValuePrompt(interaction.guild, 'max_tickets', config);
-      await interaction.editReply(prompt || buildTicketDashboardPayload(interaction.guild, config));
+      await renderSetting(interaction, client, guildId, 'max_tickets');
     } catch (error) {
-      logger.error('Ticket dashboard max-tickets prompt failed', { guildId, error: error.message });
-      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
-      const payload = buildTicketDashboardPayload(interaction.guild, config);
-      payload.content = 'Could not open the max-tickets setting. Please try again.';
-      await interaction.editReply(payload).catch(() => {});
+      logger.error('Ticket dashboard legacy max button failed', { guildId, error: error.message });
     }
   },
 };
@@ -165,4 +291,13 @@ const deleteHandler = {
   },
 };
 
-export default [backHandler, clearHandler, staffHandler, maxTicketsHandler, repostHandler, deleteHandler];
+export default [
+  openSettingHandler,
+  textSettingHandler,
+  backHandler,
+  clearHandler,
+  staffHandler,
+  maxTicketsHandler,
+  repostHandler,
+  deleteHandler,
+];
