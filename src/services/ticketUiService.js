@@ -15,6 +15,7 @@ import { getTicketData, saveTicketData } from '../utils/database.js';
 import { createEmbed } from '../utils/embeds.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
+import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 import { logger } from '../utils/logger.js';
 
 export const TICKET_RECEIVED_MESSAGE =
@@ -63,6 +64,12 @@ function ticketNumberFromTitle(title = '') {
   const match = String(title).match(/^Ticket\s*#\s*0*(\d+)$/i);
   if (!match) return null;
   return normalizeTicketNumber(match[1]);
+}
+
+function normalizePriorityKey(value) {
+  const key = String(value || 'none').toLowerCase();
+  if (key === 'urgent') return 'high';
+  return PRIORITY_MAP[key] ? key : 'none';
 }
 
 async function getTicketDataFast(channel) {
@@ -120,6 +127,8 @@ function getQueuedPinnedState(channel) {
 function getCleanTicketChannelName(name = '') {
   const decorations = [
     PIN_EMOJI,
+    '🚨',
+    '🟢',
     ...new Set(Object.values(PRIORITY_MAP).map(info => info?.emoji).filter(Boolean)),
   ];
 
@@ -137,10 +146,11 @@ function getCleanTicketChannelName(name = '') {
 }
 
 function getDesiredTicketChannelName(currentName, priority, pinned) {
-  const priorityInfo = PRIORITY_MAP[priority] || PRIORITY_MAP.none;
+  const normalizedPriority = normalizePriorityKey(priority);
+  const priorityInfo = PRIORITY_MAP[normalizedPriority] || PRIORITY_MAP.none;
   const parts = [];
 
-  if (priority !== 'none' && priorityInfo?.emoji) {
+  if (normalizedPriority !== 'none' && priorityInfo?.emoji) {
     parts.push(priorityInfo.emoji);
   }
   if (pinned) {
@@ -184,7 +194,7 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
 
   existing.channel = channel;
   if (updates.priority !== undefined) {
-    existing.desiredPriority = String(updates.priority || 'none').toLowerCase();
+    existing.desiredPriority = normalizePriorityKey(updates.priority);
   }
   if (updates.pinned !== undefined) {
     existing.desiredPinned = Boolean(updates.pinned);
@@ -207,8 +217,9 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
         'Ticket rename state read',
       ).catch(() => null);
 
-      const snapshotPriority = job.desiredPriority
-        ?? String(storedTicket?.priority || 'none').toLowerCase();
+      const snapshotPriority = normalizePriorityKey(
+        job.desiredPriority ?? storedTicket?.priority ?? 'none',
+      );
       const snapshotPinned = job.desiredPinned ?? isPinnedChannelName(job.channel.name);
       const desiredName = getDesiredTicketChannelName(
         job.channel.name,
@@ -225,7 +236,7 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
       }
 
       const hasNewerState =
-        (job.desiredPriority ?? snapshotPriority) !== snapshotPriority
+        normalizePriorityKey(job.desiredPriority ?? snapshotPriority) !== snapshotPriority
         || (job.desiredPinned ?? snapshotPinned) !== snapshotPinned;
 
       job.running = false;
@@ -272,8 +283,8 @@ export function buildCloudyTicketControls({ claimedBy = null } = {}) {
     : new ButtonBuilder()
       .setCustomId('ticket_claim')
       .setLabel('Claim')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('✋');
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('✋🏽');
 
   return new ActionRowBuilder().addComponents(
     claimButton,
@@ -382,6 +393,7 @@ export async function syncCloudyTicketMessage(channel) {
 
     const currentEmbed = ticketMessage.embeds[0];
     const normalizedTicketNumber = ticketNumberFromTitle(currentEmbed?.title);
+    const priorityKey = normalizePriorityKey(ticketData.priority);
     let stateChanged = false;
 
     if (!ticketData.ticketMessageId) {
@@ -392,11 +404,14 @@ export async function syncCloudyTicketMessage(channel) {
       ticketData.ticketNumber = normalizedTicketNumber;
       stateChanged = true;
     }
+    if (String(ticketData.priority || 'none').toLowerCase() !== priorityKey) {
+      ticketData.priority = priorityKey;
+      stateChanged = true;
+    }
     if (stateChanged) {
       await saveTicketDataFast(channel, ticketData).catch(() => {});
     }
 
-    const priorityKey = String(ticketData.priority || 'none').toLowerCase();
     const priorityInfo = PRIORITY_MAP[priorityKey] || PRIORITY_MAP.none;
     const ticketOwner = `<@${ticketData.userId}>`;
     const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
@@ -410,14 +425,13 @@ export async function syncCloudyTicketMessage(channel) {
         `${ticketOwner}, ${TICKET_RECEIVED_MESSAGE}`
         + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
         + priorityLine,
-      color: isClosed ? '#e74c3c' : priorityInfo.color,
+      color: isClosed ? '#FFFFFF' : priorityInfo.color,
       fields: buildTicketFields(ticketData),
-      footer: currentEmbed.footer,
     });
 
     await withTimeout(
       ticketMessage.edit({
-        embeds: [updatedEmbed],
+        embeds: [forceCloudyTicketFooter(updatedEmbed)],
         components: isClosed ? [] : [buildCloudyTicketControls({ claimedBy: ticketData.claimedBy })],
       }),
       DISCORD_TIMEOUT_MS,
@@ -444,7 +458,7 @@ export async function syncCloudyTicketChannelName(channel) {
   if (!ticketData) return false;
 
   scheduleTicketChannelNameSync(channel, {
-    priority: String(ticketData.priority || 'none').toLowerCase(),
+    priority: normalizePriorityKey(ticketData.priority),
     pinned: getQueuedPinnedState(channel),
   });
   return true;
@@ -460,7 +474,7 @@ export async function setTicketPinned(channel, pinned) {
   }
 
   scheduleTicketChannelNameSync(channel, {
-    priority: String(ticketData.priority || 'none').toLowerCase(),
+    priority: normalizePriorityKey(ticketData.priority),
     pinned: Boolean(pinned),
   });
   return Boolean(pinned);
@@ -605,9 +619,11 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
 
   const closeEmbed = createEmbed({
     title: 'Ticket Closed',
-    description: `This ticket has been closed by ${closer}.\n**Reason:** ${reason}`,
-    color: '#e74c3c',
-    footer: { text: `Ticket #${ticketNumberOf(ticketData)}` },
+    description:
+      `This ticket has been closed by ${closer}.\n` +
+      `**Reason:** ${reason}\n` +
+      `**Ticket:** #${ticketNumberOf(ticketData)}`,
+    color: '#FFFFFF',
   });
   const controlRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -623,7 +639,7 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
   );
 
   await withTimeout(
-    channel.send({ embeds: [closeEmbed], components: [controlRow] }),
+    channel.send({ embeds: [forceCloudyTicketFooter(closeEmbed)], components: [controlRow] }),
     DISCORD_TIMEOUT_MS,
     'Close ticket status message',
   ).catch(error => {
@@ -671,7 +687,8 @@ export async function reopenTicket(channel, reopener) {
 }
 
 export async function updateTicketPriority(channel, priority, updater) {
-  const priorityInfo = PRIORITY_MAP[priority];
+  const normalizedPriority = normalizePriorityKey(priority);
+  const priorityInfo = PRIORITY_MAP[normalizedPriority];
   if (!priorityInfo) {
     throw ticketError('Invalid ticket priority', 'Invalid priority selected.');
   }
@@ -684,14 +701,14 @@ export async function updateTicketPriority(channel, priority, updater) {
     );
   }
 
-  const previousPriority = String(ticketData.priority || 'none').toLowerCase();
-  ticketData.priority = priority;
+  const previousPriority = normalizePriorityKey(ticketData.priority);
+  ticketData.priority = normalizedPriority;
   ticketData.priorityUpdatedBy = updater.id;
   ticketData.priorityUpdatedAt = new Date().toISOString();
 
   await saveTicketDataFast(channel, ticketData);
   scheduleTicketChannelNameSync(channel, {
-    priority,
+    priority: normalizedPriority,
     pinned: getQueuedPinnedState(channel),
   });
   await syncCloudyTicketMessage(channel);
@@ -705,8 +722,8 @@ export async function updateTicketPriority(channel, priority, updater) {
       ticketNumber: ticketNumberOf(ticketData),
       userId: ticketData.userId,
       executorId: updater.id,
-      priority,
-      metadata: { previousPriority, priority },
+      priority: normalizedPriority,
+      metadata: { previousPriority, priority: normalizedPriority },
     },
   }).catch(() => {});
 
@@ -714,7 +731,7 @@ export async function updateTicketPriority(channel, priority, updater) {
     guildId: channel.guild.id,
     channelId: channel.id,
     previousPriority,
-    priority,
+    priority: normalizedPriority,
     updaterId: updater.id,
   });
 
