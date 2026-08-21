@@ -49,6 +49,10 @@ function ticketError(message, userMessage) {
   return error;
 }
 
+function ticketNumberOf(ticketData) {
+  return ticketData?.ticketNumber || ticketData?.id;
+}
+
 async function getTicketDataFast(channel) {
   try {
     return await withTimeout(
@@ -175,9 +179,6 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
   }
   channelNameJobs.set(key, existing);
 
-  // No artificial debounce or click limit. If a rename is already in flight,
-  // just keep the newest requested state; the worker immediately continues
-  // with it as soon as Discord finishes the current request.
   if (existing.running || existing.timer) return;
 
   const run = async () => {
@@ -231,8 +232,6 @@ function scheduleTicketChannelNameSync(channel, updates = {}) {
         return;
       }
 
-      // Discord rate limits cannot be bypassed. Respect Discord's own
-      // Retry-After and automatically apply the latest requested state after it.
       const retryMs = getRetryDelayMs(error);
       logger.warn('Ticket channel status rename delayed by Discord; retrying latest state', {
         guildId: job.channel?.guild?.id,
@@ -483,7 +482,7 @@ export async function claimTicket(channel, claimer) {
     event: {
       type: 'claim',
       ticketId: channel.id,
-      ticketNumber: ticketData.id,
+      ticketNumber: ticketNumberOf(ticketData),
       userId: ticketData.userId,
       executorId: claimer.id,
       metadata: { claimedAt: ticketData.claimedAt },
@@ -515,7 +514,7 @@ export async function unclaimTicket(channel, unclaimer) {
     event: {
       type: 'unclaim',
       ticketId: channel.id,
-      ticketNumber: ticketData.id,
+      ticketNumber: ticketNumberOf(ticketData),
       userId: ticketData.userId,
       executorId: unclaimer.id,
       metadata: { previousClaimer },
@@ -582,7 +581,7 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
     title: 'Ticket Closed',
     description: `This ticket has been closed by ${closer}.\n**Reason:** ${reason}`,
     color: '#e74c3c',
-    footer: { text: `Ticket ID: ${ticketData.id}` },
+    footer: { text: `Ticket #${ticketNumberOf(ticketData)}` },
   });
   const controlRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -614,7 +613,7 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
     event: {
       type: 'close',
       ticketId: channel.id,
-      ticketNumber: ticketData.id,
+      ticketNumber: ticketNumberOf(ticketData),
       userId: ticketData.userId,
       executorId: closer.id,
       reason,
@@ -677,7 +676,7 @@ export async function updateTicketPriority(channel, priority, updater) {
     event: {
       type: 'priority',
       ticketId: channel.id,
-      ticketNumber: ticketData.id,
+      ticketNumber: ticketNumberOf(ticketData),
       userId: ticketData.userId,
       executorId: updater.id,
       priority,
