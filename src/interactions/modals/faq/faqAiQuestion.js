@@ -1,4 +1,4 @@
-import { EmbedBuilder, MessageFlags } from 'discord.js';
+import { EmbedBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 import {
@@ -74,8 +74,13 @@ export default {
         userId: interaction.user.id,
       });
 
+      const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+      const technicalError = String(error?.message || 'Unknown API error').slice(0, 1200);
+
       await InteractionHelper.safeEditReply(interaction, {
-        content: 'The private FAQ assistant could not answer right now. Please open a support ticket.',
+        content: isAdmin
+          ? `The FAQ AI request failed.\n\n**Admin diagnostic:** ${technicalError}\n\nIf this mentions quota, billing, or credits, add API billing/credits in the OpenAI Platform account linked to this API key.`
+          : 'The private FAQ assistant could not answer right now. Please open a support ticket.',
         embeds: [],
         components: [],
       }).catch(() => {});
