@@ -133,12 +133,11 @@ const closeTicketModal = {
       const providedReason = interaction.fields.getTextInputValue('reason')?.trim();
       const reason = providedReason || 'No reason provided.';
 
+      // closeTicket already posts the one public Ticket Closed message with the
+      // Reopen/Delete controls. Remove the private deferred response afterwards
+      // so the user does not see a second duplicate Ticket Closed embed.
       await closeTicket(interaction.channel, interaction.user, reason);
-      await InteractionHelper.safeEditReply(interaction, {
-        content: '',
-        embeds: [successEmbed('Ticket Closed', 'This ticket has been closed.')],
-        components: [],
-      });
+      await interaction.deleteReply().catch(() => {});
     } catch (error) {
       logger.error('Ticket close modal failed', {
         error: error.message,
