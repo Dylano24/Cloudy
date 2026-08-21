@@ -56,8 +56,8 @@ function buildTermsEmbed() {
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
     .setTitle('Terms of Service')
-    .addFields(TERMS_SECTIONS.map(section => ({
-      name: section.name,
+    .addFields(TERMS_SECTIONS.map((section, index) => ({
+      name: `${index > 0 ? '\u200b\n' : ''}${section.name}`,
       value: section.value,
       inline: false
     })))
