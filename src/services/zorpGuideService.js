@@ -40,10 +40,10 @@ const ZORP_SECTIONS = [
   {
     name: 'Zone colors',
     value: [
-      '⚪ Newly created zone that will turn green shortly.',
-      '🟢 Team is currently online.',
-      '🟡 Team is offline; zone is about to turn red.',
-      '🔴 Team is offline and the zone is protected.',
+      '- [⚪](https://discord.com/assets/d1fd617c21dd1b26.svg) White — Newly created zone that will turn green shortly.',
+      '- [🟢](https://discord.com/assets/2d6d478121939bde.svg) Green — Team is currently online.',
+      '- [🟡](https://discord.com/assets/621a7aa2fab475e2.svg) Yellow — Team is offline; zone is about to turn red.',
+      '- [🔴](https://discord.com/assets/75d49373b7b7ee6f.svg) Red — Team is offline and the zone is protected.',
     ].join('\n'),
   },
 ];
