@@ -55,20 +55,20 @@ function getLogChannelForEventType(config, eventType) {
 }
 
 const TICKET_EVENT_STYLES = {
-  open: { color: 0xFFFFFF, title: 'Ticket Created' },
-  close: { color: 0xFF7A00, title: 'Ticket Closed' },
-  delete: { color: 0xED4245, title: 'Ticket Deleted' },
-  claim: { color: 0x57F287, title: 'Ticket Claimed' },
-  unclaim: { color: 0x000000, title: 'Ticket Unclaimed' },
-  priority: { color: 0xFF1493, title: 'Priority Updated' },
-  pin: { color: 0x8A2BE2, title: 'Ticket Pinned' },
-  unpin: { color: 0x95A5A6, title: 'Ticket Unpinned' },
+  open: { color: 0xFFFFFF, title: 'Ticket created' },
+  close: { color: 0xFF7A00, title: 'Ticket closed' },
+  delete: { color: 0xED4245, title: 'Ticket deleted' },
+  claim: { color: 0x57F287, title: 'Ticket claimed' },
+  unclaim: { color: 0x000000, title: 'Ticket unclaimed' },
+  priority: { color: 0xFF1493, title: 'Priority updated' },
+  pin: { color: 0x8A2BE2, title: 'Ticket pinned' },
+  unpin: { color: 0x95A5A6, title: 'Ticket unpinned' },
   transcript: { color: 0xFFFFFF, title: 'Transcript generated' },
-  feedback: { color: 0x57F287, title: 'Feedback Received' },
+  feedback: { color: 0x57F287, title: 'Feedback received' },
 };
 
 async function createTicketLogEmbed(guild, event) {
-  const style = TICKET_EVENT_STYLES[event.type] || { color: 0x95A5A6, title: 'Ticket Event' };
+  const style = TICKET_EVENT_STYLES[event.type] || { color: 0x95A5A6, title: 'Ticket event' };
   const ticketNumber = event.ticketNumber || event.ticketId;
   const ticketRef = ticketNumber ? `#${ticketNumber}` : 'Unknown';
   const channelMention = event.ticketId ? `<#${event.ticketId}>` : null;
@@ -116,6 +116,7 @@ async function createTicketLogEmbed(guild, event) {
   }
   const titlePrefix = event.type === 'feedback' ? '⭐ ' : '';
   const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author:null,footer });
+  embed.setFooter({ text: CLOUDY_FOOTER });
   embed.setThumbnail(CLOUDY_C_LOGO_URL);
   return embed;
 }
