@@ -12,7 +12,6 @@ const NITRADO_PATCH_CHANNEL_ID = '1539397467647377530';
 const NITRADO_NEWS_URL = 'https://server.nitrado.net/en-US/news';
 const LAST_NITRADO_KEY = `global:nitrado:patch-notes:${NITRADO_PATCH_CHANNEL_ID}:last-link:v1`;
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
-const MAX_FAILURE_BACKOFF_MS = 60 * 60 * 1000;
 
 function decodeHtml(value = '') {
   return String(value)
@@ -50,50 +49,20 @@ function readMeta(html, key) {
   return '';
 }
 
-function normalizeArticleLink(rawLink) {
-  if (!rawLink) return null;
+function findLatestArticleLink(html) {
+  const matches = [...html.matchAll(/href=["'](https:\/\/server\.nitrado\.net\/en-US\/news\/[^"'#?]+|\/en-US\/news\/[^"'#?]+)["']/gi)];
 
-  const normalized = decodeHtml(String(rawLink))
-    .replace(/\\\//g, '/')
-    .trim();
-
-  if (!normalized || normalized.endsWith('/news') || normalized.includes('news-sitemap')) {
-    return null;
-  }
-
-  if (normalized.startsWith('https://server.nitrado.net/')) {
-    return normalized;
-  }
-
-  if (normalized.startsWith('/')) {
-    return `https://server.nitrado.net${normalized}`;
+  for (const match of matches) {
+    const raw = match[1];
+    if (!raw || raw.endsWith('/news') || raw.includes('news-sitemap')) continue;
+    return raw.startsWith('http') ? raw : `https://server.nitrado.net${raw}`;
   }
 
   return null;
 }
 
-function findLatestArticleLink(html) {
-  const candidates = [];
-  const patterns = [
-    /href\s*=\s*["']([^"']*\/news\/[^"'#?]+)["']/gi,
-    /["']url["']\s*:\s*["'](https:\\/\\/server\.nitrado\.net\\/[^"']*\\/news\\/[^"']+|https:\/\/server\.nitrado\.net\/[^"']*\/news\/[^"']+)["']/gi,
-    /(https:\/\/server\.nitrado\.net\/(?:en-US\/)?news\/[^\s"'<>?#]+)/gi,
-  ];
-
-  for (const pattern of patterns) {
-    for (const match of html.matchAll(pattern)) {
-      const candidate = normalizeArticleLink(match[1]);
-      if (candidate && !candidates.includes(candidate)) {
-        candidates.push(candidate);
-      }
-    }
-  }
-
-  return candidates[0] || null;
-}
-
-async function fetchHtml(url) {
-  const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}cloudy=${Date.now()}`, {
+async function fetchLatestNitradoArticle() {
+  const listResponse = await fetch(`${NITRADO_NEWS_URL}?cloudy=${Date.now()}`, {
     headers: {
       'User-Agent': 'Cloudy Discord Bot/1.0',
       Accept: 'text/html,application/xhtml+xml',
@@ -102,19 +71,28 @@ async function fetchHtml(url) {
     signal: AbortSignal.timeout(15000),
   });
 
-  if (!response.ok) {
-    throw new Error(`Nitrado request returned HTTP ${response.status}`);
+  if (!listResponse.ok) {
+    throw new Error(`Nitrado news returned HTTP ${listResponse.status}`);
   }
 
-  return response.text();
-}
-
-async function fetchLatestNitradoArticle() {
-  const listHtml = await fetchHtml(NITRADO_NEWS_URL);
+  const listHtml = await listResponse.text();
   const link = findLatestArticleLink(listHtml);
   if (!link) throw new Error('Could not find the latest Nitrado article link');
 
-  const articleHtml = await fetchHtml(link);
+  const articleResponse = await fetch(`${link}${link.includes('?') ? '&' : '?'}cloudy=${Date.now()}`, {
+    headers: {
+      'User-Agent': 'Cloudy Discord Bot/1.0',
+      Accept: 'text/html,application/xhtml+xml',
+      'Cache-Control': 'no-cache',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!articleResponse.ok) {
+    throw new Error(`Nitrado article returned HTTP ${articleResponse.status}`);
+  }
+
+  const articleHtml = await articleResponse.text();
   const title = readMeta(articleHtml, 'og:title')
     || stripHtml(articleHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '')
     || 'Nitrado Update';
@@ -209,33 +187,13 @@ export default {
   once: true,
 
   async execute(client) {
-    let consecutiveFailures = 0;
+    await checkForNitradoUpdate(client);
 
-    const scheduleNextCheck = (delayMs) => {
-      const timer = setTimeout(() => {
-        void runCheck();
-      }, delayMs);
-      timer.unref?.();
-    };
+    const timer = setInterval(() => {
+      void checkForNitradoUpdate(client);
+    }, CHECK_INTERVAL_MS);
 
-    const runCheck = async () => {
-      const success = await checkForNitradoUpdate(client);
-
-      if (success) {
-        consecutiveFailures = 0;
-        scheduleNextCheck(CHECK_INTERVAL_MS);
-        return;
-      }
-
-      consecutiveFailures += 1;
-      const backoff = Math.min(
-        CHECK_INTERVAL_MS * Math.pow(2, Math.min(consecutiveFailures - 1, 3)),
-        MAX_FAILURE_BACKOFF_MS,
-      );
-      scheduleNextCheck(backoff);
-    };
-
-    await runCheck();
+    timer.unref?.();
     logger.info(`Nitrado update monitor active for channel ${NITRADO_PATCH_CHANNEL_ID}`);
   },
 };
