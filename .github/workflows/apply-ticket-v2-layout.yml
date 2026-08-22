@@ -1,0 +1,189 @@
+name: Apply ticket V2 layout
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-ticket-v2-layout.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch ticket UI to Components V2
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('src/services/ticketUiService.js')
+          s = path.read_text()
+
+          old_import = """import {\n  ActionRowBuilder,\n  ButtonBuilder,\n  ButtonStyle,\n  ChannelType,\n} from 'discord.js';"""
+          new_import = """import {\n  ActionRowBuilder,\n  ButtonBuilder,\n  ButtonStyle,\n  ChannelType,\n  ContainerBuilder,\n  MessageFlags,\n  SectionBuilder,\n  TextDisplayBuilder,\n} from 'discord.js';"""
+          if old_import not in s:
+              raise SystemExit('import block not found')
+          s = s.replace(old_import, new_import, 1)
+
+          marker = """function isMainTicketMessage(message, channel) {\n  return Boolean(\n    message?.author?.id === channel.client.user?.id\n    && message.embeds?.[0]?.title?.startsWith('Ticket #'),\n  );\n}\n"""
+          replacement = r"""function buildCloudyTicketContainer(ticketData, ticketNumber, priorityKey, isClosed) {
+  const priorityInfo = PRIORITY_MAP[priorityKey] || PRIORITY_MAP.none;
+  const claimButton = ticketData.claimedBy
+    ? new ButtonBuilder()
+      .setCustomId('ticket_unclaim')
+      .setLabel('Unclaim')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('🔓')
+    : new ButtonBuilder()
+      .setCustomId('ticket_claim')
+      .setLabel('Claim')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('✋🏽');
+
+  const closeButton = new ButtonBuilder()
+    .setCustomId('ticket_close')
+    .setLabel('Close')
+    .setStyle(ButtonStyle.Danger)
+    .setEmoji('🔒');
+
+  const priorityButton = new ButtonBuilder()
+    .setCustomId('ticket_priority_menu')
+    .setLabel('Priority')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('🟡');
+
+  const pinButton = new ButtonBuilder()
+    .setCustomId('ticket_pin')
+    .setLabel('Pin')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji(PIN_EMOJI);
+
+  const status = isClosed ? 'Closed' : 'Open';
+  const claimedBy = ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed';
+  const priorityLine = priorityKey !== 'none'
+    ? `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`
+    : '';
+
+  const container = new ContainerBuilder()
+    .setAccentColor(isClosed ? 0xFFFFFF : Number.parseInt(String(priorityInfo.color || '#FFFFFF').replace('#', ''), 16))
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `## Ticket #${ticketNumber}\n<@${ticketData.userId}>, ${TICKET_RECEIVED_MESSAGE}`
+        + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
+        + priorityLine,
+      ),
+      new TextDisplayBuilder().setContent(
+        `**Status**\n${status}\n\n**Claimed By**\n${claimedBy}`,
+      ),
+    );
+
+  if (!isClosed) {
+    container
+      .addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`**Created**\n${toDiscordTimestamp(ticketData.createdAt)}`),
+          )
+          .setButtonAccessory(priorityButton),
+        new SectionBuilder()
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent('‎'),
+          )
+          .setButtonAccessory(pinButton),
+      )
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
+      )
+      .addActionRowComponents(
+        new ActionRowBuilder().addComponents(claimButton, closeButton),
+      );
+  } else {
+    container
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`**Created**\n${toDiscordTimestamp(ticketData.createdAt)}`),
+        new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
+      );
+  }
+
+  return container;
+}
+
+function isMainTicketMessage(message, channel) {
+  if (message?.author?.id !== channel.client.user?.id) return false;
+  if (message.embeds?.[0]?.title?.startsWith('Ticket #')) return true;
+
+  try {
+    const data = JSON.stringify(message.components?.map(component => component.toJSON?.() ?? component) || []);
+    return data.includes('Ticket #');
+  } catch {
+    return false;
+  }
+}
+"""
+          if marker not in s:
+              raise SystemExit('isMainTicketMessage block not found')
+          s = s.replace(marker, replacement, 1)
+
+          start = s.index('    const currentEmbed = ticketMessage.embeds[0];')
+          end_marker = """    return true;\n  } catch (error) {"""
+          end = s.index(end_marker, start)
+          new_body = r"""    const currentEmbed = ticketMessage.embeds?.[0];
+    const normalizedTicketNumber = ticketNumberFromTitle(currentEmbed?.title)
+      || normalizeTicketNumber(ticketData.ticketNumber || ticketData.id);
+    const priorityKey = normalizePriorityKey(ticketData.priority);
+    let stateChanged = false;
+
+    if (!ticketData.ticketMessageId) {
+      ticketData.ticketMessageId = ticketMessage.id;
+      stateChanged = true;
+    }
+    if (normalizedTicketNumber && ticketData.ticketNumber !== normalizedTicketNumber) {
+      ticketData.ticketNumber = normalizedTicketNumber;
+      stateChanged = true;
+    }
+    if (String(ticketData.priority || 'none').toLowerCase() !== priorityKey) {
+      ticketData.priority = priorityKey;
+      stateChanged = true;
+    }
+    if (stateChanged) {
+      await saveTicketDataFast(channel, ticketData).catch(() => {});
+    }
+
+    const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
+    const container = buildCloudyTicketContainer(
+      ticketData,
+      normalizedTicketNumber,
+      priorityKey,
+      isClosed,
+    );
+
+    await withTimeout(
+      ticketMessage.edit({
+        content: null,
+        embeds: [],
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+      }),
+      DISCORD_TIMEOUT_MS,
+      'Ticket message edit',
+    );
+
+"""
+          s = s[:start] + new_body + s[end:]
+          path.write_text(s)
+
+      - name: Syntax check
+        run: node --check src/services/ticketUiService.js
+      - name: Commit patched layout
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/services/ticketUiService.js
+          git commit -m 'Move Priority and Pin inside ticket card' || exit 0
+          git push origin main
