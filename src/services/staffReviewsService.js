@@ -13,6 +13,7 @@ export const COMMUNITY_REVIEWS_CHANNEL_ID = '1540625438601379961';
 export const STAFF_REVIEW_RATING_ID = 'staff_review_rating';
 export const STAFF_REVIEW_MODAL_ID = 'staff_review_modal';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const WIDTH_SPACER = '⠀'.repeat(42);
 
 const pendingRatings = new Map();
 
@@ -87,11 +88,8 @@ export function buildPublishedReview(interaction, rating, comment) {
       iconURL: interaction.user.displayAvatarURL(),
     })
     .setTitle(`${stars} Staff review`)
-    .setDescription(comment)
-    .addFields(
-      { name: 'Rating', value: `${stars} ${normalizedRating}/5`, inline: false },
-      { name: '\u200B', value: '\u200B', inline: false },
-    )
+    .setDescription(`${comment}\n${WIDTH_SPACER}`)
+    .addFields({ name: 'Rating', value: `${stars} ${normalizedRating}/5`, inline: false })
     .setFooter({ text: FOOTER })
     .setTimestamp();
 }
