@@ -1,7 +1,6 @@
 // ticketLogging.js
 
-import { AttachmentBuilder, ChannelType, PermissionFlagsBits } from 'discord.js';
-import { fileURLToPath } from 'node:url';
+import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { logger } from '../logger.js';
 import {
@@ -11,7 +10,7 @@ import {
 } from '../logging/logEmbeds.js';
 
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-const CLOUDY_C_LOGO_NAME = 'cloudy-c-logo.png';
+const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 
 function getRequiredDestinationPermissions({ attachments = false } = {}) {
   return [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, ...(attachments ? [PermissionFlagsBits.AttachFiles] : [])];
@@ -34,19 +33,12 @@ export async function logTicketEvent({ client, guildId, event }) {
     const channel = guild.channels.cache.get(logChannelId) || await guild.channels.fetch(logChannelId).catch(() => null);
     if (!channel) { logger.warn(`Ticket log channel not found: ${logChannelId} for event type: ${event.type}`); return false; }
     if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type) || !channel.isSendable?.()) return false;
-    const hasAttachments = Boolean(event.attachments?.length) || event.type === 'transcript';
+    const hasAttachments = Boolean(event.attachments?.length);
     const missing = getMissingPermissions(channel, guild.members.me, { attachments: hasAttachments });
     if (missing.length > 0) return false;
     const embed = await createTicketLogEmbed(guild, event);
     const messageOptions = { embeds: [embed] };
-    const files = [...(event.attachments || [])];
-    if (event.type === 'transcript') {
-      files.push(new AttachmentBuilder(
-        fileURLToPath(new URL('../../../assets/cloudy-c-logo.png', import.meta.url)),
-        { name: CLOUDY_C_LOGO_NAME },
-      ));
-    }
-    if (files.length) messageOptions.files = files;
+    if (hasAttachments) messageOptions.files = event.attachments;
     await channel.send(messageOptions);
     logger.info(`Ticket event logged: ${event.type} in guild ${guildId}`);
     return true;
@@ -132,7 +124,7 @@ async function createTicketLogEmbed(guild, event) {
   }
   const titlePrefix = event.type === 'feedback' ? '⭐ ' : '';
   const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author,footer });
-  if (event.type === 'transcript') embed.setThumbnail(`attachment://${CLOUDY_C_LOGO_NAME}`);
+  if (event.type === 'transcript') embed.setThumbnail(CLOUDY_C_LOGO_URL);
   return embed;
 }
 
