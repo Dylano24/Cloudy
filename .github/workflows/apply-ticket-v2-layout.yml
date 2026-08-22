@@ -20,7 +20,6 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import re
 
           path = Path('src/services/ticketUiService.js')
           s = path.read_text()
@@ -187,3 +186,5 @@ function isMainTicketMessage(message, channel) {
           git add src/services/ticketUiService.js
           git commit -m 'Move Priority and Pin inside ticket card' || exit 0
           git push origin main
+
+# trigger
