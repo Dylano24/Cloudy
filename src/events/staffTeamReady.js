@@ -31,11 +31,11 @@ function buildStaffEmbed(guild) {
 function buildButtons(guildId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setLabel('📨 Contact Support')
+      .setLabel('✉️ Contact Support')
       .setStyle(ButtonStyle.Link)
       .setURL(`https://discord.com/channels/${guildId}/${CONTACT_SUPPORT_CHANNEL_ID}`),
     new ButtonBuilder()
-      .setLabel('❔ FAQ')
+      .setLabel('❔FAQ')
       .setStyle(ButtonStyle.Link)
       .setURL(`https://discord.com/channels/${guildId}/${FAQ_AI_CHANNEL_ID}`),
   );
