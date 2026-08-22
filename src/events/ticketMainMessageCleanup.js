@@ -15,17 +15,27 @@ function isMainTicketMessage(message, clientUserId) {
   );
 }
 
+function isOldLogoAttachment(attachment) {
+  return OLD_LOGO_FILENAMES.has(attachment?.name);
+}
+
 async function cleanMainTicketMessage(message) {
-  const raw = forceCloudyTicketFooter(message.embeds[0]);
-  const hasOldLogoAttachment = [...message.attachments.values()].some(
-    attachment => OLD_LOGO_FILENAMES.has(attachment.name),
-  );
+  const currentEmbed = message.embeds[0].toJSON();
+  const brandedEmbed = forceCloudyTicketFooter(message.embeds[0]);
+  const attachments = [...message.attachments.values()];
+  const onlyOldLogoAttachments = attachments.length > 0 && attachments.every(isOldLogoAttachment);
+  const needsContentCleanup = Boolean(message.content);
+  const needsEmbedCleanup = JSON.stringify(currentEmbed) !== JSON.stringify(brandedEmbed);
+
+  if (!needsContentCleanup && !needsEmbedCleanup && !onlyOldLogoAttachments) return false;
 
   await message.edit({
-    content: null,
-    embeds: [raw],
-    ...(hasOldLogoAttachment ? { attachments: [] } : {}),
+    ...(needsContentCleanup ? { content: null } : {}),
+    ...(needsEmbedCleanup ? { embeds: [brandedEmbed] } : {}),
+    ...(onlyOldLogoAttachments ? { attachments: [] } : {}),
   });
+
+  return true;
 }
 
 export default {
