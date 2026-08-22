@@ -22,20 +22,20 @@ function cleanBrandingText(value) {
     .trim();
 }
 
-export function normalizeCloudyEmbed(embed) {
+export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
   const source = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...embed };
 
   if (source.type && source.type !== 'rich') {
     return { embed, changed: false };
   }
 
-  // Only clean embeds that ALREADY have the correct ticket-log footer.
-  // This prevents adding/changing branding on otherwise-good existing formats.
-  if (source.footer?.text !== CLOUDY_BRANDING) {
+  const alreadyHasCorrectFooter = source.footer?.text === CLOUDY_BRANDING;
+  let changed = false;
+
+  // Existing-message cleanup mode: only touch embeds that already have the correct footer.
+  if (!ensureFooter && !alreadyHasCorrectFooter) {
     return { embed, changed: false };
   }
-
-  let changed = false;
 
   if (source.description && containsCloudyBranding(source.description)) {
     const description = cleanBrandingText(source.description);
@@ -59,7 +59,6 @@ export function normalizeCloudyEmbed(embed) {
         continue;
       }
 
-      // Only remove a spacer when it directly belongs to an old fake footer.
       if (
         removedLegacyBranding
         && (field.name === '\u200B' || field.name?.trim() === '')
@@ -75,12 +74,16 @@ export function normalizeCloudyEmbed(embed) {
     if (changed) source.fields = fields;
   }
 
+  if (ensureFooter && !alreadyHasCorrectFooter) {
+    source.footer = { text: CLOUDY_BRANDING };
+    changed = true;
+  } else if (alreadyHasCorrectFooter) {
+    source.footer = { ...source.footer, text: CLOUDY_BRANDING };
+  }
+
   if (!changed) {
     return { embed, changed: false };
   }
-
-  // Preserve the already-correct native ticket-log footer exactly as-is.
-  source.footer = { ...source.footer, text: CLOUDY_BRANDING };
 
   return {
     embed: new EmbedBuilder(source),
@@ -88,12 +91,12 @@ export function normalizeCloudyEmbed(embed) {
   };
 }
 
-export async function normalizeCloudyMessage(message) {
+export async function normalizeCloudyMessage(message, options = {}) {
   if (!message?.editable || !message.embeds?.length) return false;
 
   let changed = false;
   const embeds = message.embeds.map(embed => {
-    const normalized = normalizeCloudyEmbed(embed);
+    const normalized = normalizeCloudyEmbed(embed, options);
     if (normalized.changed) changed = true;
     return normalized.embed;
   });
