@@ -15,11 +15,13 @@ export default {
 
     try {
       const config = await getGuildConfig(client, message.guild.id);
+      if (config?.ticketSystemDisabled === true) return;
       if (!config?.ticketPanelChannelId || config.ticketPanelMessageId !== message.id) return;
 
       const timer = setTimeout(async () => {
         try {
           const latest = await getGuildConfig(client, message.guild.id);
+          if (latest?.ticketSystemDisabled === true) return;
           if (!latest?.ticketPanelChannelId || latest.ticketPanelMessageId !== message.id) return;
 
           const { panel } = await repostTicketPanel(client, message.guild);
