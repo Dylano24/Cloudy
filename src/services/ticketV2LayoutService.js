@@ -113,19 +113,19 @@ function buildContainer(ticketData, number) {
     container
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `**Status**\n${isClosed ? 'Closed' : 'Open'}\n\n**Claimed By**\n${claimedBy}`,
+          `**Status**\n${isClosed ? 'Closed' : 'Open'}\n**Claimed By**\n${claimedBy}`,
         ),
       )
       .addSectionComponents(createdAndPriority, pinSection)
       .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality.\nInnovation. Performance.'),
+        new TextDisplayBuilder().setContent('-# © Cloudy Inc. • Quality. Innovation. Performance.'),
       );
   } else {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `**Status**\nClosed\n\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
+        `**Status**\nClosed\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
       ),
-      new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality.\nInnovation. Performance.'),
+      new TextDisplayBuilder().setContent('-# © Cloudy Inc. • Quality. Innovation. Performance.'),
     );
   }
 
