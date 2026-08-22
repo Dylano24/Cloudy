@@ -6,7 +6,6 @@ import { logger } from '../logger.js';
 import {
   buildStandardLogEmbed,
   formatRatingStars,
-  resolveUserAuthor,
 } from '../logging/logEmbeds.js';
 
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -75,35 +74,29 @@ async function createTicketLogEmbed(guild, event) {
   const channelMention = event.ticketId ? `<#${event.ticketId}>` : null;
   const executorMention = event.executorId ? `<@${event.executorId}>` : null;
   const userMention = event.userId ? `<@${event.userId}>` : null;
-  let inlineFields = []; let fields = []; let author = null;
+  let inlineFields = []; let fields = [];
   const footer = { text: CLOUDY_FOOTER };
 
   switch (event.type) {
     case 'open':
-      author = await resolveUserAuthor(guild.client, event.userId);
       inlineFields = [{ name:'Ticket',value:ticketRef,inline:true},{ name:'Creator',value:userMention || 'Unknown',inline:true }];
       if (channelMention) inlineFields.push({ name:'Channel',value:channelMention,inline:true });
       if (event.reason) fields.push({ name:'Reason',value:String(event.reason).slice(0,1024),inline:false });
       break;
     case 'close':
-      author = await resolveUserAuthor(guild.client, event.executorId);
       inlineFields = [{ name:'Ticket',value:ticketRef,inline:true},{ name:'Closed by',value:executorMention || 'Unknown',inline:true }];
       if (channelMention) inlineFields.push({ name:'Channel',value:channelMention,inline:true });
       if (event.reason) fields.push({ name:'Reason',value:String(event.reason).slice(0,1024),inline:false });
       break;
     case 'delete':
-      author = await resolveUserAuthor(guild.client, event.executorId);
       inlineFields = [{ name:'Ticket',value:ticketRef,inline:true},{ name:'Deleted by',value:executorMention || 'Unknown',inline:true }]; break;
     case 'claim': case 'unclaim':
-      author = await resolveUserAuthor(guild.client, event.executorId);
       inlineFields = [{ name:'Ticket',value:ticketRef,inline:true},{ name:event.type === 'claim' ? 'Claimed by' : 'Unclaimed by',value:executorMention || 'Unknown',inline:true }]; break;
     case 'pin': case 'unpin':
-      author = await resolveUserAuthor(guild.client, event.executorId);
       inlineFields = [{ name:'Ticket',value:ticketRef,inline:true},{ name:event.type === 'pin' ? 'Pinned by' : 'Unpinned by',value:executorMention || 'Unknown',inline:true }]; break;
     case 'priority': {
       const priorityEmojis = { none:'⚪',low:'🔵',medium:'🟢',high:'🟡',urgent:'🔴' };
       const priorityLabel = event.priority ? `${priorityEmojis[event.priority] || '⚪'} ${event.priority.charAt(0).toUpperCase()}${event.priority.slice(1)}` : 'Unknown';
-      author = await resolveUserAuthor(guild.client, event.executorId);
       inlineFields = [{ name:'Ticket',value:ticketRef,inline:true},{ name:'Priority',value:priorityLabel,inline:true},{ name:'Updated by',value:executorMention || 'Unknown',inline:true }]; break;
     }
     case 'transcript':
@@ -114,7 +107,6 @@ async function createTicketLogEmbed(guild, event) {
       break;
     case 'feedback': {
       const rating = event.metadata?.rating ?? event.rating; const comment = event.metadata?.comment;
-      author = await resolveUserAuthor(guild.client, event.userId);
       inlineFields = [{ name:'Ticket',value:ticketRef,inline:true},{ name:'Rating',value:formatRatingStars(rating) || 'No rating',inline:true }];
       if (comment) fields.push({ name:'Comment',value:String(comment).slice(0,1024),inline:false }); break;
     }
@@ -123,8 +115,8 @@ async function createTicketLogEmbed(guild, event) {
       if (event.reason) fields.push({ name:'Details',value:String(event.reason).slice(0,1024),inline:false });
   }
   const titlePrefix = event.type === 'feedback' ? '⭐ ' : '';
-  const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author,footer });
-  if (event.type === 'transcript') embed.setThumbnail(CLOUDY_C_LOGO_URL);
+  const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author:null,footer });
+  embed.setThumbnail(CLOUDY_C_LOGO_URL);
   return embed;
 }
 
