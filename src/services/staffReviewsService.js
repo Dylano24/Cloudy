@@ -1,0 +1,85 @@
+import {
+  ActionRowBuilder,
+  EmbedBuilder,
+  ModalBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} from 'discord.js';
+
+export const STAFF_REVIEWS_CHANNEL_ID = '1533965979682476082';
+export const STAFF_REVIEW_RATING_ID = 'staff_review_rating';
+export const STAFF_REVIEW_MODAL_ID = 'staff_review_modal';
+const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+
+const pendingRatings = new Map();
+
+export function buildStaffReviewsPanel() {
+  const embed = new EmbedBuilder()
+    .setColor(0xFFFFFF)
+    .setTitle('Staff reviews')
+    .setDescription(
+      'Share your experience with the Cloudy staff team.\n\n'
+      + 'Choose a rating below, then leave a short comment about your experience. Your review will be published in this channel for the community to see.\n\n'
+      + FOOTER,
+    );
+
+  const ratingMenu = new StringSelectMenuBuilder()
+    .setCustomId(STAFF_REVIEW_RATING_ID)
+    .setPlaceholder('Choose your rating')
+    .addOptions(
+      new StringSelectMenuOptionBuilder().setLabel('1 star').setValue('1').setEmoji('⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('2 stars').setValue('2').setEmoji('⭐⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('3 stars').setValue('3').setEmoji('⭐⭐⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('4 stars').setValue('4').setEmoji('⭐⭐⭐⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('5 stars').setValue('5').setEmoji('⭐⭐⭐⭐⭐'),
+    );
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(ratingMenu)],
+  };
+}
+
+export function rememberRating(userId, rating) {
+  pendingRatings.set(userId, Number(rating));
+}
+
+export function takeRating(userId) {
+  const rating = pendingRatings.get(userId) || null;
+  pendingRatings.delete(userId);
+  return rating;
+}
+
+export function buildStaffReviewModal() {
+  const comment = new TextInputBuilder()
+    .setCustomId('staff_review_comment')
+    .setLabel('Tell us about your experience')
+    .setPlaceholder('Write your review here...')
+    .setStyle(TextInputStyle.Paragraph)
+    .setMinLength(3)
+    .setMaxLength(1000)
+    .setRequired(true);
+
+  return new ModalBuilder()
+    .setCustomId(STAFF_REVIEW_MODAL_ID)
+    .setTitle('Staff review')
+    .addComponents(new ActionRowBuilder().addComponents(comment));
+}
+
+export function buildPublishedReview(interaction, rating, comment) {
+  const stars = '⭐'.repeat(Math.max(1, Math.min(5, Number(rating) || 1)));
+
+  return new EmbedBuilder()
+    .setColor(0xFFFFFF)
+    .setAuthor({
+      name: interaction.user.globalName || interaction.user.username,
+      iconURL: interaction.user.displayAvatarURL(),
+    })
+    .setTitle(`${stars} Staff review`)
+    .setDescription(comment)
+    .addFields({ name: 'Rating', value: `${stars} ${rating}/5`, inline: true })
+    .setFooter({ text: FOOTER })
+    .setTimestamp();
+}
