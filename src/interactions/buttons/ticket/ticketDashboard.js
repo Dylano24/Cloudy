@@ -275,7 +275,7 @@ const deleteHandler = {
       await interaction.deferUpdate();
       await deleteTicketSystem(client, interaction.guild);
       await interaction.editReply({
-        content: '✅ The ticket panel and saved ticket-system configuration have been removed. Run `/ticket setup` to create a new system.',
+        content: '✅ The live ticket panel has been removed. All saved ticket settings are preserved. Open `/ticket dashboard` and use `Repost Panel` to restore it with the same settings.',
         embeds: [],
         components: [],
       });

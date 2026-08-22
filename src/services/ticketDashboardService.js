@@ -321,21 +321,33 @@ export async function deleteTicketSystem(client, guild) {
   const config = await getGuildConfig(client, guild.id);
   const panel = await findTicketPanelMessage(client, guild, config);
 
+  // Preserve every configured ticket setting. Clearing only the live panel
+  // message ID prevents the MessageDelete recovery event from immediately
+  // recreating an intentionally removed panel, while keeping the configured
+  // channel, categories, roles, destinations, text and limits in PostgreSQL.
+  // Repost Panel and startup recovery can therefore rebuild the exact same
+  // ticket panel later without forcing the administrator to configure it again.
   const saved = await updateGuildConfig(client, guild.id, {
-    ticketPanelChannelId: null,
     ticketPanelMessageId: null,
-    ticketPanelMessage: null,
-    ticketButtonLabel: DEFAULT_TICKET_BUTTON_LABEL,
-    ticketCategoryId: null,
-    ticketClosedCategoryId: null,
-    ticketStaffRoleId: null,
-    ticketLogsChannelId: null,
-    ticketTranscriptChannelId: null,
-    maxTicketsPerUser: 3,
-    dmOnClose: false,
   });
 
-  if (panel) await panel.delete().catch(() => {});
+  if (!panel) return saved;
+
+  try {
+    await panel.delete();
+  } catch (error) {
+    // If Discord rejects the deletion, restore the live message ID so the
+    // persistent state continues to match what actually exists in Discord.
+    await updateGuildConfig(client, guild.id, {
+      ticketPanelMessageId: panel.id,
+    }).catch(() => {});
+
+    throw dashboardError(
+      `Could not delete ticket panel ${panel.id}: ${error.message}`,
+      'Cloudy could not delete the ticket panel. Your saved ticket settings were not removed.',
+    );
+  }
+
   return saved;
 }
 
