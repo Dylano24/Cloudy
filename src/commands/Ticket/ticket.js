@@ -29,6 +29,30 @@ function persistentDatabaseAvailable(client) {
     return typeof client.db.set === 'function';
 }
 
+function normalizeDisabledHealthReport(report) {
+    if (report?.config?.ticketSystemDisabled !== true) return report;
+
+    const checks = (report.checks || []).map(check => {
+        if (check.id !== 'panel') return check;
+        return {
+            ...check,
+            status: 'info',
+            detail: 'Ticket system is intentionally disabled. Saved ticket settings are preserved.',
+            fix: null,
+        };
+    });
+    const critical = checks.filter(check => check.status === 'critical').length;
+    const warnings = checks.filter(check => check.status === 'warning').length;
+
+    return {
+        ...report,
+        checks,
+        critical,
+        warnings,
+        overall: critical > 0 ? 'critical' : warnings > 0 ? 'degraded' : 'healthy',
+    };
+}
+
 function buildHealthEmbed(report, detailed = false) {
     const overall = report.overall === 'healthy'
         ? 'Healthy'
@@ -150,7 +174,8 @@ export default {
 
         if (subcommand === 'health' || subcommand === 'debug') {
             try {
-                const report = await runTicketHealth(client, interaction.guild);
+                let report = await runTicketHealth(client, interaction.guild);
+                report = normalizeDisabledHealthReport(report);
                 await InteractionHelper.safeEditReply(interaction, {
                     content: '',
                     embeds: [buildHealthEmbed(report, subcommand === 'debug')],

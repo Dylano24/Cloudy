@@ -10,6 +10,7 @@ import {
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { replyUserError, ErrorTypes } from '../../../utils/errorHandler.js';
 import { getTicketPermissionContext } from '../../../utils/ticket/ticketPermissions.js';
+import { getGuildConfig } from '../../../services/config/guildConfig.js';
 import {
   buildCloudyTicketEmbed,
   scheduleTicketReplyDeletion,
@@ -25,6 +26,23 @@ import { deleteTicketSafely as deleteTicket } from '../../../services/ticketDele
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
 import { logger } from '../../../utils/logger.js';
+
+const PANEL_STATE_PRECHECK_MS = 1200;
+
+async function getPanelStateFast(client, guildId) {
+  let timer;
+  try {
+    return await Promise.race([
+      getGuildConfig(client, guildId),
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve(null), PANEL_STATE_PRECHECK_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 async function requireStaff(interaction, client, action) {
   const context = await getTicketPermissionContext({ client, interaction });
@@ -59,12 +77,35 @@ async function editBasicTicketReply(interaction, title, description, components 
 
 const createTicketHandler = {
   name: 'create_ticket',
-  async execute(interaction) {
+  async execute(interaction, client) {
     try {
       if (!interaction.inGuild()) {
         return await replyUserError(interaction, {
           type: ErrorTypes.VALIDATION,
           message: 'Tickets can only be created inside a server.',
+        });
+      }
+
+      // Modal interactions must be acknowledged quickly. Do a best-effort
+      // stale-panel precheck, but never let a slow database call cause Discord's
+      // "Unknown Interaction" error. The modal submit handler performs the hard
+      // server-side disabled-state check after safely deferring the interaction.
+      const config = await getPanelStateFast(client, interaction.guildId);
+      if (config?.ticketSystemDisabled === true) {
+        return await replyUserError(interaction, {
+          type: ErrorTypes.VALIDATION,
+          message: 'The ticket system is currently disabled.',
+        });
+      }
+
+      if (
+        config?.ticketPanelMessageId
+        && interaction.message?.id
+        && String(config.ticketPanelMessageId) !== String(interaction.message.id)
+      ) {
+        return await replyUserError(interaction, {
+          type: ErrorTypes.VALIDATION,
+          message: 'This ticket panel is outdated. Please use the newest ticket panel.',
         });
       }
 
