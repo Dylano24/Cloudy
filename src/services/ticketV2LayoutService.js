@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
 
 const PIN_EMOJI = '📌';
 const RECEIVED_MESSAGE =
-  'we’ve received your request!\nTo help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation.\nOur team will be with you as soon as possible.';
+  'we’ve received your request!\n\nTo help us process it as quickly as possible,\nfeel free to provide any additional details\nyou think may be useful, as well as any\nscreenshots or files that could help us\nbetter understand your situation.\n\nOur team will be with you as soon as possible.';
 
 function normalizePriority(value) {
   const key = String(value || 'none').toLowerCase();
@@ -54,7 +54,7 @@ function buildContainer(ticketData, number) {
   const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
   const claimedBy = ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed';
   const priorityLine = priorityKey !== 'none'
-    ? `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`
+    ? `\n\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`
     : '';
 
   const accent = Number.parseInt(
@@ -66,8 +66,8 @@ function buildContainer(ticketData, number) {
     .setAccentColor(Number.isFinite(accent) ? accent : 0xFFFFFF)
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## Ticket #${number}\n<@${ticketData.userId}>, ${RECEIVED_MESSAGE}`
-        + `\n**Reason:** ${ticketData.reason || 'No reason provided'}`
+        `## Ticket #${number}\n\n<@${ticketData.userId}>, ${RECEIVED_MESSAGE}`
+        + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
         + priorityLine,
       ),
     );
@@ -88,7 +88,7 @@ function buildContainer(ticketData, number) {
     const compactInfo = new SectionBuilder()
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `**Status** ${isClosed ? 'Closed' : 'Open'}  •  **Claimed By** ${claimedBy}\n**Created** ${relativeTimestamp(ticketData.createdAt)}`,
+          `**Status**\n${isClosed ? 'Closed' : 'Open'}\n\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
         ),
       )
       .setButtonAccessory(priorityButton);
@@ -102,7 +102,7 @@ function buildContainer(ticketData, number) {
     container
       .addSectionComponents(compactInfo, pinSection)
       .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
+        new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality. Innovation. Performance.'),
       )
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
@@ -117,9 +117,9 @@ function buildContainer(ticketData, number) {
   } else {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `**Status** Closed  •  **Claimed By** ${claimedBy}  •  **Created** ${relativeTimestamp(ticketData.createdAt)}`,
+        `**Status**\nClosed\n\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
       ),
-      new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
+      new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality. Innovation. Performance.'),
     );
   }
 
