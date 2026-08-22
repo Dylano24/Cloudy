@@ -69,17 +69,25 @@ export function buildStaffReviewModal() {
 }
 
 export function buildPublishedReview(interaction, rating, comment) {
-  const stars = '⭐'.repeat(Math.max(1, Math.min(5, Number(rating) || 1)));
+  const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
+  const stars = '⭐'.repeat(normalizedRating);
+  const ratingColors = {
+    1: 0xED4245,
+    2: 0xF39C12,
+    3: 0xF1C40F,
+    4: 0x3498DB,
+    5: 0x57F287,
+  };
 
   return new EmbedBuilder()
-    .setColor(0xFFFFFF)
+    .setColor(ratingColors[normalizedRating])
     .setAuthor({
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
     .setTitle(`${stars} Staff review`)
     .setDescription(comment)
-    .addFields({ name: 'Rating', value: `${stars} ${rating}/5`, inline: true })
+    .addFields({ name: 'Rating', value: `${stars} ${normalizedRating}/5`, inline: true })
     .setFooter({ text: FOOTER })
     .setTimestamp();
 }
