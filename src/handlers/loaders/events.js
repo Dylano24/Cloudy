@@ -13,6 +13,17 @@ export default async function loadEvents(client) {
 
     logger.info(`Found ${eventFiles.length} event files to load`);
 
+    // Cloudy intentionally has several independent handlers for the same Discord event
+    // (especially ClientReady). Raise the EventEmitter safety limit to match the actual
+    // registered event set so Node does not report a false-positive memory-leak warning.
+    // This does not change when or how any handler executes.
+    if (typeof client.setMaxListeners === 'function' && typeof client.getMaxListeners === 'function') {
+        const requiredListenerLimit = Math.max(20, eventFiles.length + 5);
+        if (client.getMaxListeners() < requiredListenerLimit) {
+            client.setMaxListeners(requiredListenerLimit);
+        }
+    }
+
     for (const file of eventFiles) {
         const filePath = join(eventsPath, file);
         try {
