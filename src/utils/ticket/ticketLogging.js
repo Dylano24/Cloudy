@@ -151,14 +151,10 @@ function buildTranscriptLogV2(event) {
   const fieldText = fields
     .map(field => `**${field.name}**\n${field.value}`)
     .join('\n\n');
-  const content = [
-    `## ${style.title}`,
-    inlineText,
-    fieldText,
-  ].filter(Boolean).join('\n\n');
+  const details = [inlineText, fieldText].filter(Boolean).join('\n\n');
 
   const section = new SectionBuilder()
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(content))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(details))
     .setThumbnailAccessory(
       new ThumbnailBuilder()
         .setURL(CLOUDY_C_LOGO_URL)
@@ -167,6 +163,9 @@ function buildTranscriptLogV2(event) {
 
   const container = new ContainerBuilder()
     .setAccentColor(style.color)
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`## ${style.title}`),
+    )
     .addSectionComponents(section);
 
   for (const [index, attachment] of (event.attachments || []).entries()) {
