@@ -1,6 +1,14 @@
 // ticketLogging.js
 
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import {
+  ChannelType,
+  ContainerBuilder,
+  MessageFlags,
+  PermissionFlagsBits,
+  SectionBuilder,
+  TextDisplayBuilder,
+  ThumbnailBuilder,
+} from 'discord.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { logger } from '../logger.js';
 import {
@@ -35,8 +43,18 @@ export async function logTicketEvent({ client, guildId, event }) {
     const hasAttachments = Boolean(event.attachments?.length);
     const missing = getMissingPermissions(channel, guild.members.me, { attachments: hasAttachments });
     if (missing.length > 0) return false;
-    const embed = await createTicketLogEmbed(guild, event);
-    const messageOptions = { embeds: [embed] };
+
+    let messageOptions;
+    if (event.type === 'transcript') {
+      const embed = await createTicketLogEmbed(guild, event);
+      messageOptions = { embeds: [embed] };
+    } else {
+      messageOptions = {
+        components: [buildTicketLogV2(event)],
+        flags: MessageFlags.IsComponentsV2,
+      };
+    }
+
     if (hasAttachments) messageOptions.files = event.attachments;
     await channel.send(messageOptions);
     logger.info(`Ticket event logged: ${event.type} in guild ${guildId}`);
@@ -67,7 +85,7 @@ const TICKET_EVENT_STYLES = {
   feedback: { color: 0x57F287, title: 'Feedback received' },
 };
 
-async function createTicketLogEmbed(guild, event) {
+function getTicketLogData(event) {
   const style = TICKET_EVENT_STYLES[event.type] || { color: 0x95A5A6, title: 'Ticket event' };
   const ticketNumber = event.ticketNumber || event.ticketId;
   const ticketRef = ticketNumber ? `#${ticketNumber}` : 'Unknown';
@@ -75,7 +93,6 @@ async function createTicketLogEmbed(guild, event) {
   const executorMention = event.executorId ? `<@${event.executorId}>` : null;
   const userMention = event.userId ? `<@${event.userId}>` : null;
   let inlineFields = []; let fields = [];
-  const footer = { text: CLOUDY_FOOTER };
 
   switch (event.type) {
     case 'open':
@@ -114,6 +131,44 @@ async function createTicketLogEmbed(guild, event) {
       inlineFields = [{ name:'Ticket',value:ticketRef,inline:true }];
       if (event.reason) fields.push({ name:'Details',value:String(event.reason).slice(0,1024),inline:false });
   }
+
+  return { style, inlineFields, fields };
+}
+
+function buildTicketLogV2(event) {
+  const { style, inlineFields, fields } = getTicketLogData(event);
+  const titlePrefix = event.type === 'feedback' ? '⭐ ' : '';
+  const inlineText = inlineFields
+    .map(field => `**${field.name}**\n${field.value}`)
+    .join('\n\n');
+  const fieldText = fields
+    .map(field => `**${field.name}**\n${field.value}`)
+    .join('\n\n');
+  const content = [
+    `## ${titlePrefix}${style.title}`,
+    inlineText,
+    fieldText,
+  ].filter(Boolean).join('\n\n');
+
+  const section = new SectionBuilder()
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(content))
+    .setThumbnailAccessory(
+      new ThumbnailBuilder()
+        .setURL(CLOUDY_C_LOGO_URL)
+        .setDescription('Cloudy'),
+    );
+
+  return new ContainerBuilder()
+    .setAccentColor(style.color)
+    .addSectionComponents(section)
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(CLOUDY_FOOTER),
+    );
+}
+
+async function createTicketLogEmbed(guild, event) {
+  const { style, inlineFields, fields } = getTicketLogData(event);
+  const footer = { text: CLOUDY_FOOTER };
   const titlePrefix = event.type === 'feedback' ? '⭐ ' : '';
   const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author:null,footer });
   embed.setFooter({ text: CLOUDY_FOOTER });
