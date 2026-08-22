@@ -15,6 +15,7 @@ import {
   saveTicketDashboardSetting,
   validateTicketDashboardValue,
 } from '../../../services/ticketDashboardService.js';
+import { updateGuildConfig } from '../../../services/config/guildConfig.js';
 import {
   brandTicketDashboardPayload,
   buildTicketDashboardPayload,
@@ -252,7 +253,10 @@ const repostHandler = {
     if (!(await validateDashboardInteraction(interaction, guildId))) return;
     try {
       await interaction.deferUpdate();
-      const { config } = await repostTicketPanel(client, interaction.guild);
+      const { config: repostedConfig } = await repostTicketPanel(client, interaction.guild);
+      const config = repostedConfig.ticketSystemDisabled === true
+        ? await updateGuildConfig(client, guildId, { ticketSystemDisabled: false })
+        : repostedConfig;
       const payload = buildTicketDashboardPayload(interaction.guild, config);
       payload.content = '✅ The ticket panel was reposted and the new message ID was saved.';
       await interaction.editReply(payload);
@@ -274,6 +278,7 @@ const deleteHandler = {
     try {
       await interaction.deferUpdate();
       await deleteTicketSystem(client, interaction.guild);
+      await updateGuildConfig(client, guildId, { ticketSystemDisabled: true });
       await interaction.editReply({
         content: '✅ The live ticket panel has been removed. All saved ticket settings are preserved. Open `/ticket dashboard` and use `Repost Panel` to restore it with the same settings.',
         embeds: [],
