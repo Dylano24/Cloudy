@@ -2,12 +2,12 @@ import { EmbedBuilder } from 'discord.js';
 
 export const CLOUDY_BRANDING = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
-const CLOUDY_BRANDING_LINE_PATTERN = /(?:^|\n)[ \t]*(?:-#[ \t]*)?(?:\*\*|__|\*|_)?[ \t]*©[ \t]*Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?[ \t]*(?=\n|$)/gi;
-const CLOUDY_BRANDING_INLINE_PATTERN = /(?:\*\*|__|\*|_)?[ \t]*©[ \t]*Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?/gi;
+const CLOUDY_BRANDING_LINE_PATTERN = /(?:^|\n)[ \t]*(?:-#[ \t]*)?(?:\*\*|__|\*|_)?[ \t]*(?:©[ \t]*)?Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?[ \t]*(?=\n|$)/gi;
+const CLOUDY_BRANDING_INLINE_PATTERN = /(?:\*\*|__|\*|_)?[ \t]*(?:©[ \t]*)?Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?/gi;
 
 function containsCloudyBranding(value) {
   if (!value) return false;
-  return /©\s*Cloudy\s+Inc\.?\s*•\s*Quality\.?\s*Innovation\.?\s*Performance\.?/i.test(String(value));
+  return /(?:©\s*)?Cloudy\s+Inc\.?\s*•\s*Quality\.?\s*Innovation\.?\s*Performance\.?/i.test(String(value));
 }
 
 function cleanBrandingText(value) {
@@ -32,11 +32,12 @@ export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
   const alreadyHasCorrectFooter = source.footer?.text === CLOUDY_BRANDING;
   let changed = false;
 
-  // Existing-message cleanup mode: only touch embeds that already have the correct footer.
+  // Existing-message cleanup mode: only touch embeds that already have the correct ticket-log footer.
   if (!ensureFooter && !alreadyHasCorrectFooter) {
     return { embed, changed: false };
   }
 
+  // Remove every older/larger copy from the body; keep the native footer only.
   if (source.description && containsCloudyBranding(source.description)) {
     const description = cleanBrandingText(source.description);
     changed = true;
