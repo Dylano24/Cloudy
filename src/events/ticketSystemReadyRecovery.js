@@ -16,12 +16,15 @@ async function recoverGuildTicketSystem(client, guild) {
     panelUpdated: false,
     panelReposted: false,
     panelStyled: false,
+    panelDisabled: false,
     ticketsRecovered: 0,
   };
 
   const config = await getGuildConfig(client, guild.id);
 
-  if (config?.ticketPanelChannelId) {
+  if (config?.ticketSystemDisabled === true) {
+    summary.panelDisabled = true;
+  } else if (config?.ticketPanelChannelId) {
     try {
       summary.panelUpdated = await updateLiveTicketPanel(client, guild, config);
 
