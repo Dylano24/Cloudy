@@ -19,13 +19,18 @@ function getAppealUrl() {
   return `${base}/appeal`;
 }
 
-function buildAppealEmbed() {
+function buildAppealEmbed(appealUrl) {
+  const appealLink = appealUrl
+    ? `[Submit an Appeal](${appealUrl})`
+    : 'Submit an Appeal';
+
   return new EmbedBuilder()
     .setTitle('Appeal form')
     .setDescription(
       'If you believe you received a ban or timeout unfairly, believe it was issued by mistake, or simply wish to provide an explanation regarding the situation, you are always welcome to contact our staff team and submit an appeal.\n\n'
       + 'We will review your case and may restore your access if deemed appropriate. However, submitting an appeal does not guarantee that the punishment will be removed or your access restored.\n\n'
-      + '*The appeal form is available directly on our official website. The link can also be copied and shared with members who no longer have access to the server, allowing them to submit an appeal.*\n\n'
+      + 'The appeal form is available directly on our official website. The link can also be copied and shared with members who no longer have access to the server, allowing them to submit an appeal.\n\n'
+      + `**Appeal here:** ${appealLink}\n\n`
       + `Submitted appeals are sent directly to <#${BAN_APPEAL_CHANNEL_ID}>.\n\n`
       + FOOTER,
     )
@@ -53,7 +58,7 @@ export default {
         : [];
 
       const payload = {
-        embeds: [buildAppealEmbed()],
+        embeds: [buildAppealEmbed(appealUrl)],
         components,
       };
 
