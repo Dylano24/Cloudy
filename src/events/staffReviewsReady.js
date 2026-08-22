@@ -37,11 +37,18 @@ async function reformatExistingReviews(client) {
 
       const updated = EmbedBuilder.from(source)
         .setDescription(description)
-        .setFields({
-          name: 'Rating',
-          value: ratingField.value,
-          inline: true,
-        })
+        .setFields(
+          {
+            name: 'Rating',
+            value: ratingField.value,
+            inline: false,
+          },
+          {
+            name: '\u200B',
+            value: '\u200B',
+            inline: false,
+          },
+        )
         .setFooter({ text: FOOTER });
 
       await message.edit({ embeds: [updated] }).catch(() => {});
