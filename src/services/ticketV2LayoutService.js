@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
 
 const PIN_EMOJI = '📌';
 const RECEIVED_MESSAGE =
-  'we’ve received your request!\n\nTo help us process it as quickly as possible,\nfeel free to provide any additional details\nyou think may be useful, as well as any\nscreenshots or files that could help us\nbetter understand your situation.\n\nOur team will be with you as soon as possible.';
+  'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details\n\nyou think may be useful, as well as any screenshots or files that could help us better understand your situation.\n\nOur team will be with you as soon as possible.';
 
 function normalizePriority(value) {
   const key = String(value || 'none').toLowerCase();
@@ -85,10 +85,10 @@ function buildContainer(ticketData, number) {
       .setStyle(ButtonStyle.Secondary)
       .setEmoji(PIN_EMOJI);
 
-    const compactInfo = new SectionBuilder()
+    const createdAndPriority = new SectionBuilder()
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `**Status**\n${isClosed ? 'Closed' : 'Open'}\n\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
+          `**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
         ),
       )
       .setButtonAccessory(priorityButton);
@@ -100,7 +100,12 @@ function buildContainer(ticketData, number) {
       .setButtonAccessory(pinButton);
 
     container
-      .addSectionComponents(compactInfo, pinSection)
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `**Status**\n${isClosed ? 'Closed' : 'Open'}\n\n**Claimed By**\n${claimedBy}`,
+        ),
+      )
+      .addSectionComponents(createdAndPriority, pinSection)
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality. Innovation. Performance.'),
       )
