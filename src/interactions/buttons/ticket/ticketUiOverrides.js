@@ -27,6 +27,23 @@ import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
 import { logger } from '../../../utils/logger.js';
 
+const PANEL_STATE_PRECHECK_MS = 1200;
+
+async function getPanelStateFast(client, guildId) {
+  let timer;
+  try {
+    return await Promise.race([
+      getGuildConfig(client, guildId),
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve(null), PANEL_STATE_PRECHECK_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function requireStaff(interaction, client, action) {
   const context = await getTicketPermissionContext({ client, interaction });
 
@@ -69,8 +86,12 @@ const createTicketHandler = {
         });
       }
 
-      const config = await getGuildConfig(client, interaction.guildId);
-      if (config.ticketSystemDisabled === true) {
+      // Modal interactions must be acknowledged quickly. Do a best-effort
+      // stale-panel precheck, but never let a slow database call cause Discord's
+      // "Unknown Interaction" error. The modal submit handler performs the hard
+      // server-side disabled-state check after safely deferring the interaction.
+      const config = await getPanelStateFast(client, interaction.guildId);
+      if (config?.ticketSystemDisabled === true) {
         return await replyUserError(interaction, {
           type: ErrorTypes.VALIDATION,
           message: 'The ticket system is currently disabled.',
@@ -78,7 +99,7 @@ const createTicketHandler = {
       }
 
       if (
-        config.ticketPanelMessageId
+        config?.ticketPanelMessageId
         && interaction.message?.id
         && String(config.ticketPanelMessageId) !== String(interaction.message.id)
       ) {
