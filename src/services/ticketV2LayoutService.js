@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
 
 const PIN_EMOJI = '📌';
 const RECEIVED_MESSAGE =
-  'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details\n\nyou think may be useful, as well as any screenshots or files that could help us better understand your situation.\n\nOur team will be with you as soon as possible.';
+  'we’ve received your request!\n\nTo help us process it as quickly as possible,\nfeel free to provide any additional details\n\nyou think may be useful, as well as any\nscreenshots or files that could help us better\nunderstand your situation.\n\nOur team will be with you as soon as possible.';
 
 function normalizePriority(value) {
   const key = String(value || 'none').toLowerCase();
@@ -46,6 +46,17 @@ function makeClaimButton(ticketData) {
       .setLabel('Claim')
       .setStyle(ButtonStyle.Success)
       .setEmoji('✋🏽');
+}
+
+function makeTicketActionRow(ticketData) {
+  return new ActionRowBuilder().addComponents(
+    makeClaimButton(ticketData),
+    new ButtonBuilder()
+      .setCustomId('ticket_close')
+      .setLabel('Close')
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('🔒'),
+  );
 }
 
 function buildContainer(ticketData, number) {
@@ -107,24 +118,14 @@ function buildContainer(ticketData, number) {
       )
       .addSectionComponents(createdAndPriority, pinSection)
       .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality. Innovation. Performance.'),
-      )
-      .addActionRowComponents(
-        new ActionRowBuilder().addComponents(
-          makeClaimButton(ticketData),
-          new ButtonBuilder()
-            .setCustomId('ticket_close')
-            .setLabel('Close')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('🔒'),
-        ),
+        new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality.\nInnovation. Performance.'),
       );
   } else {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         `**Status**\nClosed\n\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
       ),
-      new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality. Innovation. Performance.'),
+      new TextDisplayBuilder().setContent('\n© Cloudy Inc. • Quality.\nInnovation. Performance.'),
     );
   }
 
@@ -173,11 +174,16 @@ export async function renderTicketV2(channel, preferredMessage = null) {
       await saveTicketData(channel.guild.id, channel.id, ticketData).catch(() => {});
     }
 
+    const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
     const container = buildContainer(ticketData, number);
+    const components = isClosed
+      ? [container]
+      : [container, makeTicketActionRow(ticketData)];
+
     await message.edit({
       content: null,
       embeds: [],
-      components: [container],
+      components,
       flags: MessageFlags.IsComponentsV2,
     });
 
