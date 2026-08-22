@@ -73,7 +73,7 @@ export function buildPublishedReview(interaction, rating, comment) {
   const stars = '⭐'.repeat(normalizedRating);
   const ratingColors = {
     1: 0xED4245,
-    2: 0xF39C12,
+    2: 0xFF7A00,
     3: 0xF1C40F,
     4: 0x3498DB,
     5: 0x57F287,
