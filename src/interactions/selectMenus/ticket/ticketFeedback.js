@@ -1,4 +1,4 @@
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { getTicketData, saveTicketData } from '../../../utils/database.js';
 import { logger } from '../../../utils/logger.js';
 import { getColor } from '../../../config/bot.js';
@@ -31,14 +31,33 @@ function feedbackEmbed(title, description, color) {
         .setColor(color);
 }
 
+async function editSurvey(interaction, payload) {
+    return interaction.editReply(payload).catch(error => {
+        logger.warn('ticketFeedback: failed to edit survey response', {
+            guildId: interaction.guildId,
+            error: error.message,
+        });
+    });
+}
+
 export default {
     name: 'ticket_feedback',
 
     async execute(interaction, client, args) {
+        try {
+            await interaction.deferUpdate();
+        } catch (error) {
+            logger.warn('ticketFeedback: failed to acknowledge interaction', {
+                guildId: interaction.guildId,
+                error: error.message,
+            });
+            return;
+        }
+
         const [guildId, channelId] = args;
 
         if (!guildId || !channelId) {
-            await interaction.update({
+            await editSurvey(interaction, {
                 embeds: [feedbackEmbed(
                     '⚠️ Invalid Feedback Link',
                     'This feedback link appears to be malformed.',
@@ -51,7 +70,7 @@ export default {
 
         const rating = Number.parseInt(interaction.values?.[0], 10);
         if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-            await interaction.update({
+            await editSurvey(interaction, {
                 embeds: [feedbackEmbed(
                     '⚠️ Invalid Rating',
                     'Please select a rating between 1 and 5.',
@@ -74,19 +93,19 @@ export default {
                     channelId,
                     error: err.message,
                 });
-                await interaction.update({
+                await editSurvey(interaction, {
                     embeds: [feedbackEmbed(
                         '⚠️ Feedback Unavailable',
                         'Cloudy could not verify this ticket right now. Please try again.',
                         getColor('error'),
                     )],
                     components: [],
-                }).catch(() => {});
+                });
                 return;
             }
 
             if (!ticketData) {
-                await interaction.update({
+                await editSurvey(interaction, {
                     embeds: [feedbackEmbed(
                         '⚠️ Ticket Not Found',
                         'Could not find the ticket associated with this survey.',
@@ -98,21 +117,21 @@ export default {
             }
 
             if (interaction.user.id !== ticketData.userId) {
-                await interaction.reply({
+                await interaction.followUp({
                     embeds: [feedbackEmbed(
                         '❌ Not Allowed',
                         'Only the ticket creator can submit feedback for this ticket.',
                         getColor('error'),
                     )],
-                    ephemeral: true,
-                });
+                    flags: MessageFlags.Ephemeral,
+                }).catch(() => {});
                 return;
             }
 
             if (ticketData.feedback?.rating) {
                 const existingLabel = STAR_LABELS[String(ticketData.feedback.rating)]
                     || `${ticketData.feedback.rating} stars`;
-                await interaction.update({
+                await editSurvey(interaction, {
                     embeds: [feedbackEmbed(
                         '✅ Already Submitted',
                         `You already rated this ticket **${existingLabel}**.\nThank you for your feedback!`,
@@ -135,14 +154,14 @@ export default {
                     rating,
                     error: err.message,
                 });
-                await interaction.update({
+                await editSurvey(interaction, {
                     embeds: [feedbackEmbed(
                         '⚠️ Feedback Not Saved',
                         'Cloudy could not save your feedback. Please try again.',
                         getColor('error'),
                     )],
                     components: [],
-                }).catch(() => {});
+                });
                 return;
             }
 
@@ -173,7 +192,7 @@ export default {
                 .setFooter({ text: 'Thank you for using our support system.' })
                 .setTimestamp();
 
-            await interaction.update({
+            await editSurvey(interaction, {
                 embeds: [thankYouEmbed],
                 components: [],
             });
