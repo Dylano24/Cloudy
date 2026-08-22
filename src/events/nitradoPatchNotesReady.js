@@ -9,9 +9,15 @@ import {
 import { logger } from '../utils/logger.js';
 
 const NITRADO_PATCH_CHANNEL_ID = '1539397467647377530';
-const NITRADO_NEWS_URL = 'https://server.nitrado.net/en-US/news';
+const NITRADO_NEWS_SOURCES = [
+  'https://server.nitrado.net/en-US/news',
+  'https://server.nitrado.net/usa/',
+  'https://server.nitrado.net/eng/',
+];
 const LAST_NITRADO_KEY = `global:nitrado:patch-notes:${NITRADO_PATCH_CHANNEL_ID}:last-link:v1`;
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
+const FAILURE_LOG_INTERVAL_MS = 60 * 60 * 1000;
+let lastFailureLogAt = 0;
 
 function decodeHtml(value = '') {
   return String(value)
@@ -35,11 +41,12 @@ function stripHtml(value = '') {
 }
 
 function readMeta(html, key) {
+  const escapedKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const patterns = [
-    new RegExp(`<meta[^>]+property=["']${key}["'][^>]+content=["']([^"']+)["']`, 'i'),
-    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']${key}["']`, 'i'),
-    new RegExp(`<meta[^>]+name=["']${key}["'][^>]+content=["']([^"']+)["']`, 'i'),
-    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+name=["']${key}["']`, 'i'),
+    new RegExp(`<meta[^>]+property=["']${escapedKey}["'][^>]+content=["']([^"']+)["']`, 'i'),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']${escapedKey}["']`, 'i'),
+    new RegExp(`<meta[^>]+name=["']${escapedKey}["'][^>]+content=["']([^"']+)["']`, 'i'),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+name=["']${escapedKey}["']`, 'i'),
   ];
 
   for (const pattern of patterns) {
@@ -63,16 +70,27 @@ function toCanonicalArticleUrl(raw) {
   try {
     const url = new URL(decodeHtml(raw), 'https://server.nitrado.net');
     if (url.hostname !== 'server.nitrado.net') return null;
-    if (!url.pathname.startsWith('/en-US/news/')) return null;
 
-    const slug = url.pathname.slice('/en-US/news/'.length).replace(/^\/+|\/+$/g, '');
+    const pathname = url.pathname.replace(/\/{2,}/g, '/');
+    const modernMatch = pathname.match(/^\/(?:en-US|en-GB)\/news\/([^/?#]+)\/?$/i);
+    const legacyMatch = pathname.match(/^\/(?:usa|eng)\/news2\/view\/([^/?#]+)\/?$/i);
+
+    if (!modernMatch && !legacyMatch) return null;
+
+    const slug = (modernMatch?.[1] || legacyMatch?.[1] || '').replace(/^\/+|\/+$/g, '');
     if (!slug || ['page', 'category', 'tag', 'search', 'news-sitemap'].includes(slug.toLowerCase())) {
       return null;
     }
 
     url.search = '';
     url.hash = '';
-    url.pathname = `/en-US/news/${slug}`;
+
+    if (modernMatch) {
+      url.pathname = `/en-US/news/${slug}`;
+    } else {
+      url.pathname = `/usa/news2/view/${slug}/`;
+    }
+
     return url.toString();
   } catch {
     return null;
@@ -95,8 +113,12 @@ function findLatestArticleLink(html) {
     addCandidate(match[1]);
   }
 
-  if (candidates.length === 0) {
-    const routePattern = /(?:https:\/\/server\.nitrado\.net)?\/en-US\/news\/[a-z0-9][a-z0-9-_]*(?:\/)?/gi;
+  const routePatterns = [
+    /(?:https:\/\/server\.nitrado\.net)?\/(?:en-US|en-GB)\/news\/[a-z0-9][a-z0-9-_]*(?:\/)?/gi,
+    /(?:https:\/\/server\.nitrado\.net)?\/(?:usa|eng)\/news2\/view\/[a-z0-9][a-z0-9-_]*(?:\/)?/gi,
+  ];
+
+  for (const routePattern of routePatterns) {
     for (const match of normalizedHtml.matchAll(routePattern)) {
       addCandidate(match[0]);
     }
@@ -105,38 +127,45 @@ function findLatestArticleLink(html) {
   return candidates[0] || null;
 }
 
+async function fetchText(url) {
+  const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}cloudy=${Date.now()}`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; CloudyDiscordBot/2.1; +https://discord.com)',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Cache-Control': 'no-cache',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} from ${new URL(url).pathname}`);
+  }
+
+  return response.text();
+}
+
+async function discoverLatestNitradoArticleLink() {
+  const errors = [];
+
+  for (const sourceUrl of NITRADO_NEWS_SOURCES) {
+    try {
+      const html = await fetchText(sourceUrl);
+      const link = findLatestArticleLink(html);
+      if (link) return link;
+      errors.push(`${new URL(sourceUrl).pathname}: no article links`);
+    } catch (error) {
+      errors.push(`${new URL(sourceUrl).pathname}: ${error?.message || error}`);
+    }
+  }
+
+  throw new Error(`Could not find the latest Nitrado article link (${errors.join('; ')})`);
+}
+
 async function fetchLatestNitradoArticle() {
-  const listResponse = await fetch(`${NITRADO_NEWS_URL}?cloudy=${Date.now()}`, {
-    headers: {
-      'User-Agent': 'Cloudy Discord Bot/1.0',
-      Accept: 'text/html,application/xhtml+xml',
-      'Cache-Control': 'no-cache',
-    },
-    signal: AbortSignal.timeout(15000),
-  });
+  const link = await discoverLatestNitradoArticleLink();
+  const articleHtml = await fetchText(link);
 
-  if (!listResponse.ok) {
-    throw new Error(`Nitrado news returned HTTP ${listResponse.status}`);
-  }
-
-  const listHtml = await listResponse.text();
-  const link = findLatestArticleLink(listHtml);
-  if (!link) throw new Error('Could not find the latest Nitrado article link');
-
-  const articleResponse = await fetch(`${link}${link.includes('?') ? '&' : '?'}cloudy=${Date.now()}`, {
-    headers: {
-      'User-Agent': 'Cloudy Discord Bot/1.0',
-      Accept: 'text/html,application/xhtml+xml',
-      'Cache-Control': 'no-cache',
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!articleResponse.ok) {
-    throw new Error(`Nitrado article returned HTTP ${articleResponse.status}`);
-  }
-
-  const articleHtml = await articleResponse.text();
   const title = readMeta(articleHtml, 'og:title')
     || stripHtml(articleHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '')
     || 'Nitrado Update';
@@ -153,6 +182,17 @@ async function fetchLatestNitradoArticle() {
     image,
     publishedAt,
   };
+}
+
+function logNitradoFailure(error) {
+  const now = Date.now();
+  if (now - lastFailureLogAt >= FAILURE_LOG_INTERVAL_MS) {
+    lastFailureLogAt = now;
+    logger.warn(`Nitrado update check unavailable: ${error?.message || error}`);
+    return;
+  }
+
+  logger.debug(`Nitrado update check still unavailable: ${error?.message || error}`);
 }
 
 async function checkForNitradoUpdate(client) {
@@ -218,10 +258,11 @@ async function checkForNitradoUpdate(client) {
 
     await channel.send({ embeds: [embed], components: [row] });
     await client.db?.set?.(LAST_NITRADO_KEY, article.link).catch(() => {});
+    lastFailureLogAt = 0;
     logger.info(`Posted Nitrado update: ${article.title}`);
     return true;
   } catch (error) {
-    logger.warn('Nitrado update check failed:', error);
+    logNitradoFailure(error);
     return false;
   }
 }
