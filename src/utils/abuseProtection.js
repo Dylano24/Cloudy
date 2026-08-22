@@ -38,6 +38,22 @@ const RISKY_COMMAND_NAMES = new Set([
 ]);
 
 const blockedAttemptStore = new Map();
+const BLOCKED_SWEEP_INTERVAL_MS = 60_000;
+let lastBlockedSweepAt = 0;
+
+function sweepBlockedAttempts(now = Date.now()) {
+  if (now - lastBlockedSweepAt < BLOCKED_SWEEP_INTERVAL_MS) {
+    return;
+  }
+
+  lastBlockedSweepAt = now;
+  for (const [key, entry] of blockedAttemptStore) {
+    const windowMs = Number(entry?.windowMs) || DEFAULT_ANOMALY_POLICY.windowMs;
+    if (!entry || now - entry.windowStart >= windowMs) {
+      blockedAttemptStore.delete(key);
+    }
+  }
+}
 
 function normalizeCommandCategory(command) {
   return String(command?.category || '').trim().toLowerCase();
@@ -79,18 +95,22 @@ function getProtectionKey(interaction, commandName) {
 
 function recordBlockedAttempt(key, commandName, interaction, command, remainingMs) {
   const now = Date.now();
+  sweepBlockedAttempts(now);
+
   const anomalyPolicy = getAnomalyPolicy(command);
   const current = blockedAttemptStore.get(key);
 
-  if (!current || now - current.windowStart > anomalyPolicy.windowMs) {
+  if (!current || now - current.windowStart >= anomalyPolicy.windowMs) {
     blockedAttemptStore.set(key, {
       count: 1,
       windowStart: now,
+      windowMs: anomalyPolicy.windowMs,
       thresholdReachedAt: null
     });
     return;
   }
 
+  current.windowMs = anomalyPolicy.windowMs;
   current.count += 1;
 
   if (current.count >= anomalyPolicy.threshold && !current.thresholdReachedAt) {
@@ -195,5 +215,6 @@ export async function enforceAbuseProtection(interaction, command, commandName) 
 
 export function resetAbuseProtectionState() {
   blockedAttemptStore.clear();
+  lastBlockedSweepAt = 0;
   clearAllRateLimits();
 }
