@@ -66,6 +66,19 @@ const createTicketModal = {
 
       const reason = interaction.fields.getTextInputValue('reason');
       const config = await getGuildConfig(client, interaction.guildId);
+
+      // A modal can stay open after an administrator disables/removes the
+      // ticket system. Treat PostgreSQL as the source of truth and block that
+      // stale submit instead of allowing a deleted panel to create new tickets.
+      if (config.ticketSystemDisabled === true) {
+        await InteractionHelper.safeEditReply(interaction, {
+          content: 'The ticket system is currently disabled. Please wait until an administrator enables it again.',
+          embeds: [],
+          components: [],
+        });
+        return;
+      }
+
       const categoryId = config.ticketCategoryId || null;
 
       const { channel } = await createTicket(

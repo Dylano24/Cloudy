@@ -275,16 +275,25 @@ const deleteHandler = {
   async execute(interaction, client, args = []) {
     const guildId = args[0];
     if (!(await validateDashboardInteraction(interaction, guildId))) return;
+    let disabledSaved = false;
     try {
       await interaction.deferUpdate();
-      await deleteTicketSystem(client, interaction.guild);
+
+      // Disable creation first so stale panel interactions cannot create a
+      // ticket during the short window while the Discord panel is being removed.
       await updateGuildConfig(client, guildId, { ticketSystemDisabled: true });
+      disabledSaved = true;
+
+      await deleteTicketSystem(client, interaction.guild);
       await interaction.editReply({
         content: '✅ The live ticket panel has been removed. All saved ticket settings are preserved. Open `/ticket dashboard` and use `Repost Panel` to restore it with the same settings.',
         embeds: [],
         components: [],
       });
     } catch (error) {
+      if (disabledSaved) {
+        await updateGuildConfig(client, guildId, { ticketSystemDisabled: false }).catch(() => {});
+      }
       logger.error('Ticket dashboard delete failed', { guildId, error: error.message });
       const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
       const payload = buildTicketDashboardPayload(interaction.guild, config);
