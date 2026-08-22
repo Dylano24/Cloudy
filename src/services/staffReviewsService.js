@@ -22,7 +22,7 @@ export function buildStaffReviewsPanel() {
     .setTitle('Staff reviews')
     .setDescription(
       'Share your experience with the Cloudy staff team.\n\n'
-      + 'Choose a rating below, then leave a short comment about your experience. Your review will be published in the community-reviews for everyone to see.\n\n'
+      + `Choose a rating below, then leave a short comment about your experience. Your review will be published in <#${COMMUNITY_REVIEWS_CHANNEL_ID}> for everyone to see.\n\n`
       + FOOTER,
     );
 
