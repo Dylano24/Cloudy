@@ -92,13 +92,13 @@ function buildContainer(ticketData, number) {
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`**Created**\n${relativeTimestamp(ticketData.createdAt)}`),
       )
-      .setSecondaryButtonAccessory(priorityButton);
+      .setButtonAccessory(priorityButton);
 
     const pinSection = new SectionBuilder()
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent('‎'),
       )
-      .setSecondaryButtonAccessory(pinButton);
+      .setButtonAccessory(pinButton);
 
     container
       .addSectionComponents(createdAndPriority, pinSection)
