@@ -88,7 +88,10 @@ export function buildPublishedReview(interaction, rating, comment) {
     })
     .setTitle(`${stars} Staff review`)
     .setDescription(comment)
-    .addFields({ name: 'Rating', value: `${stars} ${normalizedRating}/5`, inline: false })
+    .addFields(
+      { name: 'Rating', value: `${stars} ${normalizedRating}/5`, inline: false },
+      { name: '\u200B', value: '\u200B', inline: false },
+    )
     .setFooter({ text: FOOTER })
     .setTimestamp();
 }
