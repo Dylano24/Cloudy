@@ -13,7 +13,10 @@ export function forceCloudyTicketFooter(embed) {
   payload.footer = { text: CLOUDY_TICKET_FOOTER };
 
   if (/^Ticket\s*#\s*\d+/i.test(String(payload.title || ''))) {
-    payload.image = { url: CLOUDY_TICKET_C_FOOTER_IMAGE };
+    // Discord renders embed thumbnails on the right side of the ticket card,
+    // beside the description/fields, instead of forcing the C underneath them.
+    payload.thumbnail = { url: CLOUDY_TICKET_C_FOOTER_IMAGE };
+    delete payload.image;
   }
 
   return payload;
