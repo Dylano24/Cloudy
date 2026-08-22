@@ -134,6 +134,15 @@ const closeTicketModal = {
     try {
       const context = await getTicketPermissionContext({ client, interaction });
 
+      if (context.ticketDataLookupFailed) {
+        await InteractionHelper.safeEditReply(interaction, {
+          content: 'The ticket database is temporarily unavailable. Please try again.',
+          embeds: [],
+          components: [],
+        });
+        return;
+      }
+
       if (!context.ticketData) {
         await InteractionHelper.safeEditReply(interaction, {
           content: 'This action can only be used in a valid ticket channel.',

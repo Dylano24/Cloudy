@@ -47,6 +47,14 @@ async function getPanelStateFast(client, guildId) {
 async function requireStaff(interaction, client, action) {
   const context = await getTicketPermissionContext({ client, interaction });
 
+  if (context.ticketDataLookupFailed) {
+    await replyUserError(interaction, {
+      type: ErrorTypes.UNKNOWN,
+      message: 'The ticket database is temporarily unavailable. Please try again.',
+    });
+    return null;
+  }
+
   if (!context.ticketData) {
     await replyUserError(interaction, {
       type: ErrorTypes.VALIDATION,
