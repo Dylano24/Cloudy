@@ -20,7 +20,7 @@ function buildStaffEmbed(guild) {
     .setDescription(
       `Here are the people currently managing the server: ${ownerMention}\n\n`
       + `Our staff team can be contacted directly through the <#${CONTACT_SUPPORT_CHANNEL_ID}> section, which has been specifically created for this purpose.\n\n`
-      + 'Before contacting the staff team, please make sure that the answer to your question cannot already be found in our FAQ section.\n\n'
+      + 'Before contacting the staff team, please make sure that the answer to your question cannot already be found in our **FAQ** section.\n\n'
       + 'Please note that staff members will not handle support requests through private messages. Friend requests may also not be accepted.\n\n'
       + 'To ensure your request is properly received and handled, please use the dedicated support section.\n\n'
       + FOOTER,
