@@ -9,6 +9,8 @@ import {
   takeRating,
 } from '../services/staffReviewsService.js';
 
+const REVIEW_CONFIRMATION_TTL_MS = 10 * 1000;
+
 export default {
   name: Events.InteractionCreate,
   once: false,
@@ -51,5 +53,13 @@ export default {
       content: 'Your staff review has been published. Thank you!',
       flags: MessageFlags.Ephemeral,
     }).catch(() => {});
+
+    const timer = setTimeout(async () => {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.deleteReply().catch(() => {});
+      }
+    }, REVIEW_CONFIRMATION_TTL_MS);
+
+    timer.unref?.();
   },
 };
