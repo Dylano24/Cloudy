@@ -7,15 +7,17 @@ export default {
   once: false,
 
   async execute(interaction) {
+    // Only target the ephemeral "Ticket Created" reply from the ticket modal.
+    // This never touches the created ticket channel or its messages.
     if (interaction?.customId !== 'create_ticket_modal') return;
 
     const timer = setTimeout(async () => {
       try {
-        if (interaction.deferred || interaction.replied) {
-          await interaction.deleteReply().catch(() => {});
-        }
+        // Prefer Discord.js' interaction helper for the original ephemeral reply.
+        await interaction.deleteReply();
       } catch {
-        // Reply may already have been dismissed/deleted.
+        // Fallback to deleting only the original interaction response.
+        await interaction.webhook?.deleteMessage?.('@original').catch(() => {});
       }
     }, TICKET_CREATED_REPLY_TTL_MS);
 
