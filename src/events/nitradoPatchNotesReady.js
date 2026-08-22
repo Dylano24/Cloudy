@@ -49,16 +49,60 @@ function readMeta(html, key) {
   return '';
 }
 
-function findLatestArticleLink(html) {
-  const matches = [...html.matchAll(/href=["'](https:\/\/server\.nitrado\.net\/en-US\/news\/[^"'#?]+|\/en-US\/news\/[^"'#?]+)["']/gi)];
+function normalizeNitradoHtml(html = '') {
+  return String(html)
+    .replace(/\\u002f/gi, '/')
+    .replace(/\\\//g, '/')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x2F;|&#47;/gi, '/');
+}
 
-  for (const match of matches) {
-    const raw = match[1];
-    if (!raw || raw.endsWith('/news') || raw.includes('news-sitemap')) continue;
-    return raw.startsWith('http') ? raw : `https://server.nitrado.net${raw}`;
+function toCanonicalArticleUrl(raw) {
+  if (!raw) return null;
+
+  try {
+    const url = new URL(decodeHtml(raw), 'https://server.nitrado.net');
+    if (url.hostname !== 'server.nitrado.net') return null;
+    if (!url.pathname.startsWith('/en-US/news/')) return null;
+
+    const slug = url.pathname.slice('/en-US/news/'.length).replace(/^\/+|\/+$/g, '');
+    if (!slug || ['page', 'category', 'tag', 'search', 'news-sitemap'].includes(slug.toLowerCase())) {
+      return null;
+    }
+
+    url.search = '';
+    url.hash = '';
+    url.pathname = `/en-US/news/${slug}`;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function findLatestArticleLink(html) {
+  const normalizedHtml = normalizeNitradoHtml(html);
+  const candidates = [];
+  const seen = new Set();
+
+  const addCandidate = (raw) => {
+    const canonical = toCanonicalArticleUrl(raw);
+    if (!canonical || seen.has(canonical)) return;
+    seen.add(canonical);
+    candidates.push(canonical);
+  };
+
+  for (const match of normalizedHtml.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) {
+    addCandidate(match[1]);
   }
 
-  return null;
+  if (candidates.length === 0) {
+    const routePattern = /(?:https:\/\/server\.nitrado\.net)?\/en-US\/news\/[a-z0-9][a-z0-9-_]*(?:\/)?/gi;
+    for (const match of normalizedHtml.matchAll(routePattern)) {
+      addCandidate(match[0]);
+    }
+  }
+
+  return candidates[0] || null;
 }
 
 async function fetchLatestNitradoArticle() {
