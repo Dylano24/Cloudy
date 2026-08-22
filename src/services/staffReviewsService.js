@@ -1,7 +1,5 @@
 import {
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   EmbedBuilder,
   ModalBuilder,
   StringSelectMenuBuilder,
@@ -11,10 +9,9 @@ import {
 } from 'discord.js';
 
 export const STAFF_REVIEWS_CHANNEL_ID = '1533965979682476082';
+export const COMMUNITY_REVIEWS_CHANNEL_ID = '1540625438601379961';
 export const STAFF_REVIEW_RATING_ID = 'staff_review_rating';
 export const STAFF_REVIEW_MODAL_ID = 'staff_review_modal';
-export const STAFF_REVIEWS_VIEW_ID = 'staff_reviews_view';
-export const STAFF_REVIEWS_PAGE_PREFIX = 'staff_reviews_page:';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 const pendingRatings = new Map();
@@ -25,8 +22,7 @@ export function buildStaffReviewsPanel() {
     .setTitle('Staff reviews')
     .setDescription(
       'Share your experience with the Cloudy staff team.\n\n'
-      + 'Choose a rating below, then leave a short comment about your experience. Your review will be published in this channel for the community to see.\n\n'
-      + '**Want to see all reviews? Click here.**\n\n'
+      + 'Choose a rating below, then leave a short comment about your experience. Your review will be published in the community-reviews for everyone to see.\n\n'
       + FOOTER,
     );
 
@@ -41,38 +37,10 @@ export function buildStaffReviewsPanel() {
       new StringSelectMenuOptionBuilder().setLabel('5 stars').setValue('5').setEmoji('⭐'),
     );
 
-  const viewReviewsButton = new ButtonBuilder()
-    .setCustomId(STAFF_REVIEWS_VIEW_ID)
-    .setLabel('View Reviews')
-    .setEmoji('🫙')
-    .setStyle(ButtonStyle.Secondary);
-
   return {
     embeds: [embed],
-    components: [
-      new ActionRowBuilder().addComponents(ratingMenu),
-      new ActionRowBuilder().addComponents(viewReviewsButton),
-    ],
+    components: [new ActionRowBuilder().addComponents(ratingMenu)],
   };
-}
-
-export function buildReviewsPagination(page, totalPages) {
-  if (totalPages <= 1) return [];
-
-  return [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`${STAFF_REVIEWS_PAGE_PREFIX}${Math.max(0, page - 1)}`)
-        .setLabel('Previous')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(page <= 0),
-      new ButtonBuilder()
-        .setCustomId(`${STAFF_REVIEWS_PAGE_PREFIX}${Math.min(totalPages - 1, page + 1)}`)
-        .setLabel('Next')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(page >= totalPages - 1),
-    ),
-  ];
 }
 
 export function rememberRating(userId, rating) {
