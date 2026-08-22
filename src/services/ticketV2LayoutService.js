@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
 
 const PIN_EMOJI = '📌';
 const RECEIVED_MESSAGE =
-  'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation.\n\nOur team will be with you as soon as possible.';
+  'we’ve received your request!\nTo help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation.\nOur team will be with you as soon as possible.';
 
 function normalizePriority(value) {
   const key = String(value || 'none').toLowerCase();
@@ -67,11 +67,8 @@ function buildContainer(ticketData, number) {
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         `## Ticket #${number}\n<@${ticketData.userId}>, ${RECEIVED_MESSAGE}`
-        + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
+        + `\n**Reason:** ${ticketData.reason || 'No reason provided'}`
         + priorityLine,
-      ),
-      new TextDisplayBuilder().setContent(
-        `**Status**\n${isClosed ? 'Closed' : 'Open'}\n\n**Claimed By**\n${claimedBy}`,
       ),
     );
 
@@ -88,9 +85,11 @@ function buildContainer(ticketData, number) {
       .setStyle(ButtonStyle.Secondary)
       .setEmoji(PIN_EMOJI);
 
-    const createdAndPriority = new SectionBuilder()
+    const compactInfo = new SectionBuilder()
       .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**Created**\n${relativeTimestamp(ticketData.createdAt)}`),
+        new TextDisplayBuilder().setContent(
+          `**Status** ${isClosed ? 'Closed' : 'Open'}  •  **Claimed By** ${claimedBy}\n**Created** ${relativeTimestamp(ticketData.createdAt)}`,
+        ),
       )
       .setButtonAccessory(priorityButton);
 
@@ -101,7 +100,7 @@ function buildContainer(ticketData, number) {
       .setButtonAccessory(pinButton);
 
     container
-      .addSectionComponents(createdAndPriority, pinSection)
+      .addSectionComponents(compactInfo, pinSection)
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
       )
@@ -117,7 +116,9 @@ function buildContainer(ticketData, number) {
       );
   } else {
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`**Created**\n${relativeTimestamp(ticketData.createdAt)}`),
+      new TextDisplayBuilder().setContent(
+        `**Status** Closed  •  **Claimed By** ${claimedBy}  •  **Created** ${relativeTimestamp(ticketData.createdAt)}`,
+      ),
       new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
     );
   }
