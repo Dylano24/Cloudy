@@ -12,26 +12,27 @@ const STAFF_CHANNEL_ID = '1533198028733939722';
 const CONTACT_SUPPORT_CHANNEL_ID = '1533197784725852181';
 
 function buildStaffEmbed(guild) {
-  const ownerRole = guild.roles.cache.find(role => role.name.toLowerCase() === 'owner');
-  const ownerMention = ownerRole ? `<@&${ownerRole.id}>` : '@Owner';
+  const staffRole = guild.roles.cache.find(role => role.name.toLowerCase() === 'staff');
+  const staffMention = staffRole ? `<@&${staffRole.id}>` : '@Staff';
+  const contactUrl = `https://discord.com/channels/${guild.id}/${CONTACT_SUPPORT_CHANNEL_ID}`;
 
   return new EmbedBuilder()
     .setTitle('Staff team')
     .setDescription(
-      `Here are the people currently managing the server: ${ownerMention}\n\n`
-      + `Our staff team can be contacted directly through the <#${CONTACT_SUPPORT_CHANNEL_ID}> section, which has been specifically created for this purpose.\n\n`
+      `Here are the people currently managing the server: ${staffMention}\n\n`
+      + `Our staff team can be contacted directly through [Contact us](${contactUrl}), which has been specifically created for this purpose.\n\n`
       + 'Before contacting the staff team, please make sure that the answer to your question cannot already be found in our **FAQ** section.\n\n'
       + 'Please note that staff members will not handle support requests through private messages. Friend requests may also not be accepted.\n\n'
-      + 'To ensure your request is properly received and handled, please use the dedicated support section.\n\n'
-      + FOOTER,
+      + 'To ensure your request is properly received and handled, please use the dedicated contact section.',
     )
-    .setColor(0xFFFFFF);
+    .setColor(0xFFFFFF)
+    .setFooter({ text: FOOTER });
 }
 
 function buildButtons(guildId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setLabel('Contact Support')
+      .setLabel('Contact us')
       .setEmoji('✉️')
       .setStyle(ButtonStyle.Link)
       .setURL(`https://discord.com/channels/${guildId}/${CONTACT_SUPPORT_CHANNEL_ID}`),
