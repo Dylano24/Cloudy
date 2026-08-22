@@ -1,6 +1,6 @@
 import { EmbedBuilder, Events } from 'discord.js';
 
-const FOOTER = '© Cʟᴏᴜᴅʏ Iɴᴄ. • Qᴜᴀʟɪᴛʏ. Iɴɴᴏᴠᴀᴛɪᴏɴ. Pᴇʀғᴏʀᴍᴀɴᴄᴇ.';
+const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const SECURITY_CHANNEL_ID = '1533197569495142551';
 const CONTACT_CHANNEL_ID = '1533197784725852181';
 
