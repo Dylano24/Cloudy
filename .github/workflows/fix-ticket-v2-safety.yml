@@ -1,0 +1,82 @@
+name: Fix ticket V2 safety
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-ticket-v2-safety.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch ticket safety
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          reliability = Path('src/services/ticketReliabilityService.js')
+          text = reliability.read_text()
+
+          old = """  const isMain = message => Boolean(\n    message?.author?.id === channel.client.user?.id\n    && message.embeds?.[0]?.title?.startsWith('Ticket #'),\n  );"""
+          new = """  const isMain = message => {\n    if (message?.author?.id !== channel.client.user?.id) return false;\n    if (message.embeds?.[0]?.title?.startsWith('Ticket #')) return true;\n    try {\n      const serialized = JSON.stringify(\n        message.components?.map(component => component.toJSON?.() ?? component) || [],\n      );\n      return serialized.includes('Ticket #');\n    } catch {\n      return false;\n    }\n  };"""
+          if old not in text:
+              raise SystemExit('reliability isMain target not found')
+          text = text.replace(old, new, 1)
+
+          old = """async function cleanupIncompleteTicket(channel) {\n  await deleteTicketData(channel.guild.id, channel.id).catch(() => {});\n  await channel.delete('Rollback incomplete ticket creation').catch(() => {});\n}"""
+          new = """async function cleanupIncompleteTicket(channel) {\n  logger.warn('Preserving ticket channel after incomplete UI stabilization', {\n    guildId: channel?.guild?.id,\n    channelId: channel?.id,\n  });\n  return false;\n}"""
+          if old not in text:
+              raise SystemExit('cleanup target not found')
+          text = text.replace(old, new, 1)
+
+          old = """        await cleanupIncompleteTicket(channel);"""
+          new = """        const preservedData = await getTicketData(guild.id, channel.id).catch(() => null);\n        if (preservedData) {\n          logger.warn('Preserved newly-created ticket after UI stabilization failure', {\n            guildId: guild.id,\n            userId: member.id,\n            channelId: channel.id,\n            originalError: error.message,\n          });\n          return { channel, ticketData: preservedData };\n        }\n        await cleanupIncompleteTicket(channel);"""
+          if old not in text:
+              raise SystemExit('recovery target not found')
+          text = text.replace(old, new, 1)
+          reliability.write_text(text)
+
+          ui = Path('src/services/ticketUiService.js')
+          text = ui.read_text()
+          marker = "import { logger } from '../utils/logger.js';"
+          replacement = marker + "\nimport { renderTicketV2 } from './ticketV2LayoutService.js';"
+          if "renderTicketV2" not in text:
+              if marker not in text:
+                  raise SystemExit('UI import marker not found')
+              text = text.replace(marker, replacement, 1)
+
+          old = """function isMainTicketMessage(message, channel) {\n  return Boolean(\n    message?.author?.id === channel.client.user?.id\n    && message.embeds?.[0]?.title?.startsWith('Ticket #'),\n  );\n}"""
+          new = """function isMainTicketMessage(message, channel) {\n  if (message?.author?.id !== channel.client.user?.id) return false;\n  if (message.embeds?.[0]?.title?.startsWith('Ticket #')) return true;\n  try {\n    const serialized = JSON.stringify(\n      message.components?.map(component => component.toJSON?.() ?? component) || [],\n    );\n    return serialized.includes('Ticket #');\n  } catch {\n    return false;\n  }\n}"""
+          if old not in text:
+              raise SystemExit('UI isMain target not found')
+          text = text.replace(old, new, 1)
+
+          old = """    const currentEmbed = ticketMessage.embeds[0];"""
+          new = """    if (!ticketMessage.embeds?.length) {\n      return await renderTicketV2(channel, ticketMessage);\n    }\n\n    const currentEmbed = ticketMessage.embeds[0];"""
+          if old not in text:
+              raise SystemExit('UI V2 delegation target not found')
+          text = text.replace(old, new, 1)
+          ui.write_text(text)
+          PY
+
+      - name: Syntax check
+        run: |
+          node --check src/services/ticketReliabilityService.js
+          node --check src/services/ticketUiService.js
+          node --check src/services/ticketV2LayoutService.js
+
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/services/ticketReliabilityService.js src/services/ticketUiService.js
+          git commit -m 'Fix Components V2 ticket creation safety'
+          git push origin HEAD:main
