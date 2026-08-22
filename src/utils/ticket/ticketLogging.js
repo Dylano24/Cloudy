@@ -1,6 +1,7 @@
 // ticketLogging.js
 
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { AttachmentBuilder, ChannelType, PermissionFlagsBits } from 'discord.js';
+import { fileURLToPath } from 'node:url';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { logger } from '../logger.js';
 import {
@@ -10,6 +11,7 @@ import {
 } from '../logging/logEmbeds.js';
 
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const CLOUDY_C_LOGO_NAME = 'cloudy-c-logo.png';
 
 function getRequiredDestinationPermissions({ attachments = false } = {}) {
   return [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, ...(attachments ? [PermissionFlagsBits.AttachFiles] : [])];
@@ -32,12 +34,19 @@ export async function logTicketEvent({ client, guildId, event }) {
     const channel = guild.channels.cache.get(logChannelId) || await guild.channels.fetch(logChannelId).catch(() => null);
     if (!channel) { logger.warn(`Ticket log channel not found: ${logChannelId} for event type: ${event.type}`); return false; }
     if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type) || !channel.isSendable?.()) return false;
-    const hasAttachments = Boolean(event.attachments?.length);
+    const hasAttachments = Boolean(event.attachments?.length) || event.type === 'transcript';
     const missing = getMissingPermissions(channel, guild.members.me, { attachments: hasAttachments });
     if (missing.length > 0) return false;
     const embed = await createTicketLogEmbed(guild, event);
     const messageOptions = { embeds: [embed] };
-    if (hasAttachments) messageOptions.files = event.attachments;
+    const files = [...(event.attachments || [])];
+    if (event.type === 'transcript') {
+      files.push(new AttachmentBuilder(
+        fileURLToPath(new URL('../../../assets/cloudy-c-logo.png', import.meta.url)),
+        { name: CLOUDY_C_LOGO_NAME },
+      ));
+    }
+    if (files.length) messageOptions.files = files;
     await channel.send(messageOptions);
     logger.info(`Ticket event logged: ${event.type} in guild ${guildId}`);
     return true;
@@ -63,7 +72,7 @@ const TICKET_EVENT_STYLES = {
   priority: { color: 0xFF1493, title: 'Priority Updated' },
   pin: { color: 0x8A2BE2, title: 'Ticket Pinned' },
   unpin: { color: 0x95A5A6, title: 'Ticket Unpinned' },
-  transcript: { color: 0x57F287, title: 'Transcript Generated' },
+  transcript: { color: 0xFFFFFF, title: 'Transcript generated' },
   feedback: { color: 0x57F287, title: 'Feedback Received' },
 };
 
@@ -122,7 +131,9 @@ async function createTicketLogEmbed(guild, event) {
       if (event.reason) fields.push({ name:'Details',value:String(event.reason).slice(0,1024),inline:false });
   }
   const titlePrefix = event.type === 'feedback' ? '⭐ ' : '';
-  return buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author,footer });
+  const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author,footer });
+  if (event.type === 'transcript') embed.setThumbnail(`attachment://${CLOUDY_C_LOGO_NAME}`);
+  return embed;
 }
 
 export async function getTicketLoggingConfig(client, guildId) {
