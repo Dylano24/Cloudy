@@ -37,6 +37,15 @@ export default {
       }
 
       const context = await getTicketPermissionContext({ client, interaction });
+      if (context.ticketDataLookupFailed) {
+        await interaction.editReply({
+          content: 'The ticket database is temporarily unavailable. Please try again.',
+          embeds: [],
+          components: [],
+        });
+        return;
+      }
+
       if (!context.ticketData) {
         await interaction.editReply({
           content: 'This action can only be used in a valid ticket channel.',
