@@ -87,8 +87,7 @@ export function buildPublishedReview(interaction, rating, comment) {
       iconURL: interaction.user.displayAvatarURL(),
     })
     .setTitle(`${stars} Staff review`)
-    .setDescription(comment)
+    .setDescription(`${comment}\n\n**${FOOTER}**`)
     .addFields({ name: 'Rating', value: `${stars} ${normalizedRating}/5`, inline: true })
-    .setFooter({ text: FOOTER })
     .setTimestamp();
 }
