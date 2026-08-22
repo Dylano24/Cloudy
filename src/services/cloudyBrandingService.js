@@ -25,54 +25,66 @@ function cleanBrandingText(value) {
 export function normalizeCloudyEmbed(embed) {
   const source = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...embed };
 
-  // Discord-generated link/media embeds cannot safely be re-sent as normal bot embeds.
   if (source.type && source.type !== 'rich') {
     return { embed, changed: false };
   }
 
-  let changed = source.footer?.text !== CLOUDY_BRANDING;
+  // Only clean embeds that ALREADY have the correct ticket-log footer.
+  // This prevents adding/changing branding on otherwise-good existing formats.
+  if (source.footer?.text !== CLOUDY_BRANDING) {
+    return { embed, changed: false };
+  }
 
-  if (source.description) {
+  let changed = false;
+
+  if (source.description && containsCloudyBranding(source.description)) {
     const description = cleanBrandingText(source.description);
-    if (description !== source.description) changed = true;
+    changed = true;
     if (description) source.description = description;
     else delete source.description;
   }
 
   if (Array.isArray(source.fields)) {
     const fields = [];
+    let removedLegacyBranding = false;
 
     for (const field of source.fields) {
       const originalValue = field.value || '';
       const originalName = field.name || '';
-      const value = cleanBrandingText(originalValue);
-      const name = cleanBrandingText(originalName);
       const hadBranding = containsCloudyBranding(originalValue) || containsCloudyBranding(originalName);
 
-      if (value !== originalValue || name !== originalName) changed = true;
-
-      // Remove old fake-footer fields and their spacer fields completely.
-      if (hadBranding || ((field.name === '\u200B' || field.name?.trim() === '') && (field.value === '\u200B' || field.value?.trim() === ''))) {
+      if (hadBranding) {
+        removedLegacyBranding = true;
         changed = true;
         continue;
       }
 
-      fields.push({
-        ...field,
-        name: name || originalName,
-        value: value || originalValue,
-      });
+      // Only remove a spacer when it directly belongs to an old fake footer.
+      if (
+        removedLegacyBranding
+        && (field.name === '\u200B' || field.name?.trim() === '')
+        && (field.value === '\u200B' || field.value?.trim() === '')
+      ) {
+        changed = true;
+        continue;
+      }
+
+      fields.push(field);
     }
 
-    source.fields = fields;
+    if (changed) source.fields = fields;
   }
 
-  // Always keep exactly one native Discord footer, matching ticket-log format.
-  source.footer = { text: CLOUDY_BRANDING };
+  if (!changed) {
+    return { embed, changed: false };
+  }
+
+  // Preserve the already-correct native ticket-log footer exactly as-is.
+  source.footer = { ...source.footer, text: CLOUDY_BRANDING };
 
   return {
     embed: new EmbedBuilder(source),
-    changed,
+    changed: true,
   };
 }
 
