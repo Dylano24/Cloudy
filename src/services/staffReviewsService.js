@@ -30,10 +30,10 @@ export function buildStaffReviewsPanel() {
     .setPlaceholder('Choose your rating')
     .addOptions(
       new StringSelectMenuOptionBuilder().setLabel('1 star').setValue('1').setEmoji('⭐'),
-      new StringSelectMenuOptionBuilder().setLabel('2 stars').setValue('2').setEmoji('⭐⭐'),
-      new StringSelectMenuOptionBuilder().setLabel('3 stars').setValue('3').setEmoji('⭐⭐⭐'),
-      new StringSelectMenuOptionBuilder().setLabel('4 stars').setValue('4').setEmoji('⭐⭐⭐⭐'),
-      new StringSelectMenuOptionBuilder().setLabel('5 stars').setValue('5').setEmoji('⭐⭐⭐⭐⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('2 stars').setValue('2').setEmoji('⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('3 stars').setValue('3').setEmoji('⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('4 stars').setValue('4').setEmoji('⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('5 stars').setValue('5').setEmoji('⭐'),
     );
 
   return {
