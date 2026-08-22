@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
 
 const PIN_EMOJI = '📌';
 const RECEIVED_MESSAGE =
-  'we’ve received your request!\n\nTo help us process it as quickly as possible,\nfeel free to provide any additional details\n\nyou think may be useful, as well as any\nscreenshots or files that could help us better\nunderstand your situation.\n\nOur team will be with you as soon as possible.';
+  'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details\n\nyou think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.\n\nOur team will be with you as soon as possible.';
 
 function normalizePriority(value) {
   const key = String(value || 'none').toLowerCase();
@@ -99,7 +99,7 @@ function buildContainer(ticketData, number) {
     const createdAndPriority = new SectionBuilder()
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
+          `**Created**\n${relativeTimestamp(ticketData.createdAt)}\n\u200B`,
         ),
       )
       .setButtonAccessory(priorityButton);
