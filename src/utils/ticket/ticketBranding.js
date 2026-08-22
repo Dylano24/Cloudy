@@ -3,7 +3,7 @@ import { createEmbed } from '../embeds.js';
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
 export const CLOUDY_TICKET_C_FOOTER_IMAGE =
-  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.png?v=compact-created-logo-20260822';
+  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.png?v=bottom-right-20260822';
 
 export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function'
@@ -13,10 +13,9 @@ export function forceCloudyTicketFooter(embed) {
   payload.footer = { text: CLOUDY_TICKET_FOOTER };
 
   if (/^Ticket\s*#\s*\d+/i.test(String(payload.title || ''))) {
-    // Keep the ticket compact: Discord's thumbnail occupies the right column
-    // beside the Created/status row instead of adding a large image block below.
-    payload.thumbnail = { url: CLOUDY_TICKET_C_FOOTER_IMAGE };
-    delete payload.image;
+    // Render the C as a full‐width image so Discord positions it bottom‑right
+    payload.image = { url: CLOUDY_TICKET_C_FOOTER_IMAGE };
+    delete payload.thumbnail;
   }
 
   return payload;
