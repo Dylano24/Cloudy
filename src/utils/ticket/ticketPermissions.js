@@ -53,7 +53,16 @@ function isCloudyTicketMessage(message, botId) {
 }
 
 async function findTicketMessage(channel, botId) {
-  if (typeof channel.messages?.fetchPinned === 'function') {
+  if (typeof channel.messages?.fetchPins === 'function') {
+    const pinnedResponse = await withTimeout(
+      channel.messages.fetchPins(),
+      TICKET_IO_TIMEOUT_MS,
+      'Pinned ticket message lookup',
+    ).catch(() => null);
+
+    const pinnedTicket = pinnedResponse?.items?.find(message => isCloudyTicketMessage(message, botId));
+    if (pinnedTicket) return pinnedTicket;
+  } else if (typeof channel.messages?.fetchPinned === 'function') {
     const pinned = await withTimeout(
       channel.messages.fetchPinned(),
       TICKET_IO_TIMEOUT_MS,
@@ -151,20 +160,29 @@ export async function getTicketPermissionContext({ client, interaction }) {
     return {};
   });
 
-  let ticketData = await withTimeout(
-    getTicketData(guildId, channelId),
-    TICKET_IO_TIMEOUT_MS,
-    'Ticket database lookup',
-  ).catch(error => {
+  let ticketData = null;
+  let ticketDataLookupFailed = false;
+
+  try {
+    ticketData = await withTimeout(
+      getTicketData(guildId, channelId),
+      TICKET_IO_TIMEOUT_MS,
+      'Ticket database lookup',
+    );
+  } catch (error) {
+    ticketDataLookupFailed = true;
     logger.warn('Ticket database lookup timed out/failed', {
       guildId,
       channelId,
       error: error.message,
     });
-    return null;
-  });
+  }
 
-  if (!ticketData) {
+  // Discord recovery is only allowed after a successful authoritative database
+  // read that confirms the record is actually missing. A timeout/failure must
+  // never be treated as "not found", otherwise stale Discord state could be
+  // written back over PostgreSQL after a temporary outage.
+  if (!ticketData && !ticketDataLookupFailed) {
     ticketData = await recoverTicketDataFromChannel(interaction);
   }
 
@@ -183,6 +201,7 @@ export async function getTicketPermissionContext({ client, interaction }) {
   return {
     config,
     ticketData,
+    ticketDataLookupFailed,
     hasManageChannels,
     hasTicketStaffRole,
     isTicketCreator,
