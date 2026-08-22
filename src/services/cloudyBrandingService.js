@@ -2,21 +2,21 @@ import { EmbedBuilder } from 'discord.js';
 
 export const CLOUDY_BRANDING = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+const CLOUDY_BRANDING_LINE_PATTERN = /(?:^|\n)[ \t]*(?:-#[ \t]*)?(?:\*\*|__|\*|_)?[ \t]*©[ \t]*Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?[ \t]*(?=\n|$)/gi;
+const CLOUDY_BRANDING_INLINE_PATTERN = /(?:\*\*|__|\*|_)?[ \t]*©[ \t]*Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?/gi;
 
-const BRANDING_PATTERN = new RegExp(
-  String.raw`(?:\*\*|__|\*|_)?${escapeRegExp(CLOUDY_BRANDING)}(?:\*\*|__|\*|_)?`,
-  'gi',
-);
+function containsCloudyBranding(value) {
+  if (!value) return false;
+  return /©\s*Cloudy\s+Inc\.?\s*•\s*Quality\.?\s*Innovation\.?\s*Performance\.?/i.test(String(value));
+}
 
 function cleanBrandingText(value) {
   if (!value) return value;
 
   return String(value)
-    .replace(BRANDING_PATTERN, '')
-    .replace(/(^|\n)\s*-#\s*(?=\n|$)/g, '$1')
+    .replace(CLOUDY_BRANDING_LINE_PATTERN, match => (match.startsWith('\n') ? '\n' : ''))
+    .replace(CLOUDY_BRANDING_INLINE_PATTERN, '')
+    .replace(/(^|\n)[ \t]*-#[ \t]*(?=\n|$)/g, '$1')
     .replace(/\n[ \t]+\n/g, '\n\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -43,21 +43,31 @@ export function normalizeCloudyEmbed(embed) {
     const fields = [];
 
     for (const field of source.fields) {
-      const value = cleanBrandingText(field.value);
-      if (value !== field.value) changed = true;
+      const originalValue = field.value || '';
+      const originalName = field.name || '';
+      const value = cleanBrandingText(originalValue);
+      const name = cleanBrandingText(originalName);
+      const hadBranding = containsCloudyBranding(originalValue) || containsCloudyBranding(originalName);
 
-      // Remove branding-only fields/spacers that were previously used as a fake footer.
-      if (!value && (field.value?.includes(CLOUDY_BRANDING) || field.name === '\u200B')) {
+      if (value !== originalValue || name !== originalName) changed = true;
+
+      // Remove old fake-footer fields and their spacer fields completely.
+      if (hadBranding || ((field.name === '\u200B' || field.name?.trim() === '') && (field.value === '\u200B' || field.value?.trim() === ''))) {
         changed = true;
         continue;
       }
 
-      fields.push({ ...field, value: value || field.value });
+      fields.push({
+        ...field,
+        name: name || originalName,
+        value: value || originalValue,
+      });
     }
 
     source.fields = fields;
   }
 
+  // Always keep exactly one native Discord footer, matching ticket-log format.
   source.footer = { text: CLOUDY_BRANDING };
 
   return {
