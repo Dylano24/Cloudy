@@ -5,11 +5,40 @@ import {
   updateLiveTicketPanel,
 } from '../services/ticketDashboardService.js';
 import { applyTicketPanelPresentation } from '../services/ticketPanelPresentation.js';
-import { getGuildConfig } from '../services/config/guildConfig.js';
+import { getGuildConfig, updateGuildConfig } from '../services/config/guildConfig.js';
 import { recoverGuildTickets } from '../services/ticketReliabilityService.js';
 import { logger } from '../utils/logger.js';
 
 const STARTUP_DELAY_MS = 1800;
+
+async function reconcileDisabledTicketPanel(client, guild, config, summary) {
+  summary.panelDisabled = true;
+
+  if (!config?.ticketPanelChannelId) return;
+
+  try {
+    const stalePanel = await findTicketPanelMessage(client, guild, config).catch(() => null);
+    if (!stalePanel) {
+      if (config.ticketPanelMessageId) {
+        await updateGuildConfig(client, guild.id, { ticketPanelMessageId: null });
+      }
+      return;
+    }
+
+    await stalePanel.delete();
+    await updateGuildConfig(client, guild.id, { ticketPanelMessageId: null });
+
+    logger.info('Removed stale ticket panel while ticket system is disabled', {
+      guildId: guild.id,
+      messageId: stalePanel.id,
+    });
+  } catch (error) {
+    logger.warn('Could not fully reconcile disabled ticket panel state', {
+      guildId: guild.id,
+      error: error.message,
+    });
+  }
+}
 
 async function recoverGuildTicketSystem(client, guild) {
   const summary = {
@@ -23,7 +52,7 @@ async function recoverGuildTicketSystem(client, guild) {
   const config = await getGuildConfig(client, guild.id);
 
   if (config?.ticketSystemDisabled === true) {
-    summary.panelDisabled = true;
+    await reconcileDisabledTicketPanel(client, guild, config, summary);
   } else if (config?.ticketPanelChannelId) {
     try {
       summary.panelUpdated = await updateLiveTicketPanel(client, guild, config);
