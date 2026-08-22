@@ -3,6 +3,7 @@
 import {
   ChannelType,
   ContainerBuilder,
+  FileBuilder,
   MessageFlags,
   PermissionFlagsBits,
   SectionBuilder,
@@ -49,6 +50,7 @@ export async function logTicketEvent({ client, guildId, event }) {
       messageOptions = {
         components: [buildTranscriptLogV2(event)],
         flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
       };
     } else {
       const embed = await createTicketLogEmbed(guild, event);
@@ -135,6 +137,12 @@ function getTicketLogData(event) {
   return { style, inlineFields, fields };
 }
 
+function getAttachmentFilename(attachment, index) {
+  const name = attachment?.name || attachment?.data?.name;
+  if (name) return String(name);
+  return `ticket-transcript-${index + 1}.html`;
+}
+
 function buildTranscriptLogV2(event) {
   const { style, inlineFields, fields } = getTicketLogData(event);
   const inlineText = inlineFields
@@ -157,12 +165,19 @@ function buildTranscriptLogV2(event) {
         .setDescription('Cloudy'),
     );
 
-  return new ContainerBuilder()
+  const container = new ContainerBuilder()
     .setAccentColor(style.color)
-    .addSectionComponents(section)
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(CLOUDY_FOOTER),
+    .addSectionComponents(section);
+
+  for (const [index, attachment] of (event.attachments || []).entries()) {
+    container.addFileComponents(
+      new FileBuilder().setURL(`attachment://${getAttachmentFilename(attachment, index)}`),
     );
+  }
+
+  return container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(CLOUDY_FOOTER),
+  );
 }
 
 async function createTicketLogEmbed(guild, event) {
