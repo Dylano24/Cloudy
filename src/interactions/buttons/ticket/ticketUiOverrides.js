@@ -10,6 +10,7 @@ import {
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { replyUserError, ErrorTypes } from '../../../utils/errorHandler.js';
 import { getTicketPermissionContext } from '../../../utils/ticket/ticketPermissions.js';
+import { getGuildConfig } from '../../../services/config/guildConfig.js';
 import {
   buildCloudyTicketEmbed,
   scheduleTicketReplyDeletion,
@@ -59,12 +60,31 @@ async function editBasicTicketReply(interaction, title, description, components 
 
 const createTicketHandler = {
   name: 'create_ticket',
-  async execute(interaction) {
+  async execute(interaction, client) {
     try {
       if (!interaction.inGuild()) {
         return await replyUserError(interaction, {
           type: ErrorTypes.VALIDATION,
           message: 'Tickets can only be created inside a server.',
+        });
+      }
+
+      const config = await getGuildConfig(client, interaction.guildId);
+      if (config.ticketSystemDisabled === true) {
+        return await replyUserError(interaction, {
+          type: ErrorTypes.VALIDATION,
+          message: 'The ticket system is currently disabled.',
+        });
+      }
+
+      if (
+        config.ticketPanelMessageId
+        && interaction.message?.id
+        && String(config.ticketPanelMessageId) !== String(interaction.message.id)
+      ) {
+        return await replyUserError(interaction, {
+          type: ErrorTypes.VALIDATION,
+          message: 'This ticket panel is outdated. Please use the newest ticket panel.',
         });
       }
 
