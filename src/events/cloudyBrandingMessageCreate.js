@@ -11,7 +11,7 @@ export default {
     if (!message.embeds?.length) return;
 
     const timer = setTimeout(() => {
-      void normalizeCloudyMessage(message);
+      void normalizeCloudyMessage(message, { ensureFooter: true });
     }, 500);
 
     timer.unref?.();
