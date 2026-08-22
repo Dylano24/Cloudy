@@ -28,7 +28,7 @@ async function normalizeChannel(channel, botUserId) {
       if (message.author?.id !== botUserId) continue;
       if (!message.embeds?.length) continue;
 
-      if (await normalizeCloudyMessage(message)) updated += 1;
+      if (await normalizeCloudyMessage(message, { ensureFooter: true })) updated += 1;
     }
 
     before = messages.last()?.id;
