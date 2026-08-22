@@ -21,8 +21,8 @@ function getAppealUrl() {
 
 function buildAppealEmbed(appealUrl) {
   const appealLink = appealUrl
-    ? `[Submit an Appeal](${appealUrl})`
-    : 'Submit an Appeal';
+    ? `\[[Submit an Appeal](${appealUrl})\]`
+    : '[Submit an Appeal]';
 
   return new EmbedBuilder()
     .setTitle('Appeal form')
