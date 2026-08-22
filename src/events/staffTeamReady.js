@@ -31,7 +31,8 @@ function buildStaffEmbed(guild) {
 function buildButtons(guildId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setLabel('✉️ Contact Support')
+      .setLabel('Contact Support')
+      .setEmoji('✉️')
       .setStyle(ButtonStyle.Link)
       .setURL(`https://discord.com/channels/${guildId}/${CONTACT_SUPPORT_CHANNEL_ID}`),
     new ButtonBuilder()
