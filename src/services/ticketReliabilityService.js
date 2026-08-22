@@ -112,10 +112,18 @@ function extractTicketNumber(message, channel) {
 async function findMainTicketMessage(channel) {
   if (!channel?.messages?.fetch) return null;
 
-  const isMain = message => Boolean(
-    message?.author?.id === channel.client.user?.id
-    && message.embeds?.[0]?.title?.startsWith('Ticket #'),
-  );
+  const isMain = message => {
+    if (message?.author?.id !== channel.client.user?.id) return false;
+    if (message.embeds?.[0]?.title?.startsWith('Ticket #')) return true;
+    try {
+      const serialized = JSON.stringify(
+        message.components?.map(component => component.toJSON?.() ?? component) || [],
+      );
+      return serialized.includes('Ticket #');
+    } catch {
+      return false;
+    }
+  };
 
   if (typeof channel.messages.fetchPins === 'function') {
     const pinned = await channel.messages.fetchPins().catch(() => null);
@@ -177,8 +185,11 @@ function findNewTicketChannels(guild, beforeIds, memberId) {
 }
 
 async function cleanupIncompleteTicket(channel) {
-  await deleteTicketData(channel.guild.id, channel.id).catch(() => {});
-  await channel.delete('Rollback incomplete ticket creation').catch(() => {});
+  logger.warn('Preserving ticket channel after incomplete UI stabilization', {
+    guildId: channel?.guild?.id,
+    channelId: channel?.id,
+  });
+  return false;
 }
 
 export async function createTicket(guild, member, categoryId, reason, priority = 'none') {
@@ -249,6 +260,16 @@ export async function createTicket(guild, member, categoryId, reason, priority =
             originalError: error.message,
           });
           return recovered;
+        }
+        const preservedData = await getTicketData(guild.id, channel.id).catch(() => null);
+        if (preservedData) {
+          logger.warn('Preserved newly-created ticket after UI stabilization failure', {
+            guildId: guild.id,
+            userId: member.id,
+            channelId: channel.id,
+            originalError: error.message,
+          });
+          return { channel, ticketData: preservedData };
         }
         await cleanupIncompleteTicket(channel);
       }

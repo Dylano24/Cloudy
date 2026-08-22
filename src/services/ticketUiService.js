@@ -17,6 +17,7 @@ import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 import { logger } from '../utils/logger.js';
+import { renderTicketV2 } from './ticketV2LayoutService.js';
 
 export const TICKET_RECEIVED_MESSAGE =
   'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details you think may be useful, as well as any screenshots or files that could help us better understand your situation.\n\nOur team will be with you as soon as possible.';
@@ -334,10 +335,16 @@ function buildTicketFields(ticketData) {
 }
 
 function isMainTicketMessage(message, channel) {
-  return Boolean(
-    message?.author?.id === channel.client.user?.id
-    && message.embeds?.[0]?.title?.startsWith('Ticket #'),
-  );
+  if (message?.author?.id !== channel.client.user?.id) return false;
+  if (message.embeds?.[0]?.title?.startsWith('Ticket #')) return true;
+  try {
+    const serialized = JSON.stringify(
+      message.components?.map(component => component.toJSON?.() ?? component) || [],
+    );
+    return serialized.includes('Ticket #');
+  } catch {
+    return false;
+  }
 }
 
 async function findMainTicketMessage(channel, ticketData) {
@@ -389,6 +396,10 @@ export async function syncCloudyTicketMessage(channel) {
         channelId: channel.id,
       });
       return false;
+    }
+
+    if (!ticketMessage.embeds?.length) {
+      return await renderTicketV2(channel, ticketMessage);
     }
 
     const currentEmbed = ticketMessage.embeds[0];
