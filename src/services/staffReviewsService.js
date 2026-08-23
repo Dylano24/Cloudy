@@ -72,7 +72,6 @@ export function buildStaffReviewModal() {
 
 export function buildPublishedReview(interaction, rating, comment) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  const stars = '⭐'.repeat(normalizedRating);
   const ratingColors = {
     1: 0xED4245,
     2: 0xFF7A00,
@@ -87,7 +86,6 @@ export function buildPublishedReview(interaction, rating, comment) {
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
-    .setTitle(`${stars} Staff review`)
     .setDescription(comment)
     .addFields({ name: 'Rating', value: `${normalizedRating}/5`, inline: false })
     .setFooter({ text: FOOTER })
