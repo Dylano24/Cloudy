@@ -201,10 +201,9 @@ export function buildPublishedReview(interaction, rating, comment, memberId) {
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
-    .setTitle('Staff review')
     .setThumbnail(CLOUDY_C_LOGO_URL)
     .setDescription(
-      `<@${memberId}> ${stars}\n\n`
+      `**Staff review**\n<@${memberId}> ${stars}\n\n`
       + `**Review**\n${comment}`,
     )
     .setFooter({ text: FOOTER })
