@@ -71,12 +71,11 @@ export function buildStaffReviewModal() {
 }
 
 /**
- * Build the published community review embed with the actual clickable Staff
- * role mention and the exact number of stars selected by the reviewer.
+ * Build the published community review embed with the selected yellow stars,
+ * the clickable Staff role mention, and the review text in a compact layout.
  */
 export function buildPublishedReview(interaction, rating, comment, staffRole = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  // Use Discord's yellow star emoji while preserving the existing Staff role mention.
   const stars = '⭐'.repeat(normalizedRating);
   const staffMention = staffRole ? `<@&${staffRole.id}>` : '@Staff';
   const ratingColors = {
@@ -93,8 +92,7 @@ export function buildPublishedReview(interaction, rating, comment, staffRole = n
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
-    .setDescription(`${staffMention} ${stars}\n\n${comment}`)
-    .addFields({ name: 'Rating', value: `${normalizedRating}/5`, inline: false })
+    .setDescription(`${stars}\n${staffMention}\n${comment}`)
     .setFooter({ text: FOOTER })
     .setTimestamp();
 }
