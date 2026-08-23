@@ -8,6 +8,7 @@ reviews:
   high_level_summary: true
   review_status: true
   request_changes_workflow: false
+  abort_on_close: false
 
   auto_review:
     # Review every PR automatically, including draft PRs and PRs targeting any branch.
