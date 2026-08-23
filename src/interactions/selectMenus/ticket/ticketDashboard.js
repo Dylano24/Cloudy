@@ -27,6 +27,18 @@ import {
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
+const FIELD_TO_SETTING = new Map([
+  ['ticketPanelChannelId', 'panel_channel'],
+  ['ticketCategoryId', 'open_category'],
+  ['ticketClosedCategoryId', 'closed_category'],
+  ['ticketStaffRoleId', 'staff_role'],
+  ['maxTicketsPerUser', 'max_tickets'],
+  ['ticketLogsChannelId', 'logs_channel'],
+  ['ticketTranscriptChannelId', 'transcript_channel'],
+]);
+
+const CONFIG_READ_TIMEOUT_MS = 1500;
+
 function canManageTickets(interaction) {
   return Boolean(interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels));
 }
@@ -46,19 +58,18 @@ async function rejectUnauthorized(interaction) {
   }
 }
 
-async function acknowledgeDashboardUpdate(interaction) {
-  if (interaction.deferred || interaction.replied) return true;
+async function readConfigFast(client, guildId) {
+  let timer;
   try {
-    await interaction.deferUpdate();
-    return true;
-  } catch (error) {
-    logger.error('Could not acknowledge ticket dashboard interaction in time', {
-      customId: interaction.customId,
-      guildId: interaction.guildId,
-      userId: interaction.user?.id,
-      error: error.message,
-    });
-    return false;
+    return await Promise.race([
+      getCurrentTicketDashboardConfig(client, guildId).catch(() => ({})),
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve({}), CONFIG_READ_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -97,40 +108,61 @@ function buildTextSettingModal(interaction, guildId, setting) {
   return modal;
 }
 
+async function validateDashboardContext(interaction, guildId) {
+  if (!interaction.inGuild() || guildId !== interaction.guildId) {
+    await InteractionHelper.safeReply(interaction, {
+      content: 'This ticket dashboard is outdated. Run `/ticket dashboard` again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return false;
+  }
+
+  if (!canManageTickets(interaction)) {
+    await rejectUnauthorized(interaction);
+    return false;
+  }
+
+  return true;
+}
+
 const dashboardSelectHandler = {
   name: 'ticket_dashboard_select',
 
   async execute(interaction, client, args = []) {
     const guildId = args[0];
-    if (!interaction.inGuild() || guildId !== interaction.guildId) return;
-    if (!canManageTickets(interaction)) return rejectUnauthorized(interaction);
+    if (!(await validateDashboardContext(interaction, guildId))) return;
 
     const setting = interaction.values?.[0];
+    logger.info('Ticket dashboard setting selected', {
+      guildId,
+      setting,
+      userId: interaction.user?.id,
+    });
 
     try {
       if (setting === 'panel_message' || setting === 'button_label') {
         if (interaction.deferred || interaction.replied) {
-          await InteractionHelper.safeEditReply(interaction, {
-            content: 'Please reopen the dashboard and choose this text setting again.',
-            embeds: [],
-            components: [],
-          });
-          return;
+          throw new Error('Ticket dashboard text interaction was acknowledged before the modal could open.');
         }
+
         await interaction.showModal(buildTextSettingModal(interaction, guildId, setting));
         return;
       }
 
-      if (!(await acknowledgeDashboardUpdate(interaction))) return;
-
-      const freshConfig = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+      const freshConfig = await readConfigFast(client, guildId);
       const prompt = isAllChannelTicketSetting(setting)
         ? buildAllChannelTicketPrompt(interaction.guild, setting, freshConfig, 0)
         : buildTicketDashboardValuePrompt(interaction.guild, setting, freshConfig, 0);
 
-      await interaction.editReply(
-        brandTicketDashboardPayload(prompt || buildTicketDashboardPayload(interaction.guild, freshConfig)),
+      const payload = brandTicketDashboardPayload(
+        prompt || buildTicketDashboardPayload(interaction.guild, freshConfig),
       );
+
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.update(payload);
+      } else {
+        await interaction.editReply(payload);
+      }
 
       if (isAllChannelTicketSetting(setting)) {
         void refreshAllTicketChannels(interaction.guild).catch(() => {});
@@ -146,7 +178,7 @@ const dashboardSelectHandler = {
         stack: error.stack,
       });
 
-      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+      const config = await readConfigFast(client, guildId);
       const payload = buildTicketDashboardPayload(interaction.guild, config);
       payload.content = error?.userMessage || `Could not open ${setting || 'that ticket setting'}. Please try again.`;
 
@@ -166,12 +198,17 @@ const dashboardValueHandler = {
   name: 'ticket_dashboard_value',
 
   async execute(interaction, client, args = []) {
-    const [guildId, field, setting, pageRaw] = args;
-    if (!interaction.inGuild() || guildId !== interaction.guildId) return;
-    if (!canManageTickets(interaction)) return rejectUnauthorized(interaction);
+    const [guildId, field, settingArg, pageRaw = '0'] = args;
+    if (!(await validateDashboardContext(interaction, guildId))) return;
+
+    // Older dashboard messages only encoded guild + field in this custom ID.
+    // Derive the setting from the field so those existing panels keep working too.
+    const setting = settingArg || FIELD_TO_SETTING.get(field) || null;
 
     try {
-      if (!(await acknowledgeDashboardUpdate(interaction))) return;
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferUpdate();
+      }
 
       const rawValue = interaction.values?.[0];
       if (!rawValue) throw new Error('No ticket dashboard value was selected.');
@@ -212,10 +249,10 @@ const dashboardValueHandler = {
         stack: error.stack,
       });
 
-      const config = await getCurrentTicketDashboardConfig(client, guildId).catch(() => ({}));
+      const config = await readConfigFast(client, guildId);
       let payload;
 
-      if (isAllChannelTicketSetting(setting)) {
+      if (setting && isAllChannelTicketSetting(setting)) {
         const page = Math.max(0, Number.parseInt(pageRaw, 10) || 0);
         payload = brandTicketDashboardPayload(
           buildAllChannelTicketPrompt(interaction.guild, setting, config, page)
