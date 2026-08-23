@@ -9,29 +9,58 @@ import {
 
 const PANEL_REFRESH_MS = 5 * 60 * 1000;
 
-/** Refresh the staff-review panel from the guild's current Owner membership. */
-async function refreshStaffReviewsPanel(client) {
-  const channel = await client.channels.fetch(STAFF_REVIEWS_CHANNEL_ID).catch(() => null);
-  if (!channel?.isSendable?.()) return;
-
-  const ownerMembers = await getOwnerMembers(channel.guild);
-  const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-  if (!recent) return;
-
-  const existing = recent.find(message =>
-    message.author?.id === client.user?.id
+/** Return whether a bot message is the persistent staff-review panel. */
+function isStaffReviewsPanel(message, client) {
+  return Boolean(
+    message?.author?.id === client.user?.id
     && message.components?.some(row => row.components?.some(component =>
       component.customId === STAFF_REVIEW_MEMBER_ID
       || component.customId === STAFF_REVIEW_RATING_ID
       || component.customId?.startsWith(`${STAFF_REVIEW_RATING_ID}:`),
     )),
   );
+}
+
+/** Find the durable pinned panel, migrating a recent legacy panel if needed. */
+async function findStaffReviewsPanel(channel, client) {
+  const pins = await channel.messages.fetchPins().catch(() => null);
+  if (!pins) return { lookupSucceeded: false, message: null };
+
+  const pinnedPanel = pins.items
+    .map(pin => pin.message)
+    .find(message => isStaffReviewsPanel(message, client));
+  if (pinnedPanel) return { lookupSucceeded: true, message: pinnedPanel };
+
+  const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!recent) return { lookupSucceeded: false, message: null };
+
+  return {
+    lookupSucceeded: true,
+    message: recent.find(message => isStaffReviewsPanel(message, client)) || null,
+  };
+}
+
+/** Refresh the staff-review panel from the guild's current Owner membership. */
+async function refreshStaffReviewsPanel(client) {
+  const channel = await client.channels.fetch(STAFF_REVIEWS_CHANNEL_ID).catch(() => null);
+  if (!channel?.isSendable?.()) return;
+
+  const ownerMembers = await getOwnerMembers(channel.guild);
+  const lookup = await findStaffReviewsPanel(channel, client);
+  if (!lookup.lookupSucceeded) return;
 
   const payload = buildStaffReviewsPanel(ownerMembers);
-  if (existing) {
-    await existing.edit(payload).catch(() => {});
-  } else {
-    await channel.send(payload).catch(() => {});
+  if (lookup.message) {
+    await lookup.message.edit(payload).catch(() => {});
+    if (!lookup.message.pinned) {
+      await channel.messages.pin(lookup.message, 'Cloudy staff reviews panel').catch(() => {});
+    }
+    return;
+  }
+
+  const sent = await channel.send(payload).catch(() => null);
+  if (sent) {
+    await channel.messages.pin(sent, 'Cloudy staff reviews panel').catch(() => {});
   }
 }
 
