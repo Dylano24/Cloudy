@@ -45,7 +45,11 @@ export default {
 
     // Acknowledge the modal immediately so Discord's three-second interaction deadline
     // cannot expire while we fetch the channel/roles and publish the review.
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch {
+      return;
+    }
 
     const channel = await interaction.client.channels.fetch(COMMUNITY_REVIEWS_CHANNEL_ID).catch(() => null);
     if (!channel?.isSendable?.()) {
