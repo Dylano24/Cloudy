@@ -49,7 +49,6 @@ export async function enforceDedicatedCommandChannel(interaction, key) {
 
   const targetChannel = await resolveDedicatedChannel(interaction.guild, key);
   if (!targetChannel) {
-    // Do not break commands if the configured Discord channel was renamed/deleted.
     return true;
   }
 
@@ -101,14 +100,31 @@ async function ensureGuideMessage(guild, key) {
   return Boolean(sent);
 }
 
+async function removeInactiveShopMessages(guild) {
+  const channel = await resolveDedicatedChannel(guild, 'shop');
+  if (!channel?.messages?.fetch) return;
+
+  const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!recent) return;
+
+  const removable = recent.filter(message =>
+    message.author?.id === guild.client.user?.id
+    && message.embeds?.some(embed => embed.title === 'Shop commands' || embed.title === 'Store')
+  );
+
+  for (const message of removable.values()) {
+    await message.delete().catch(() => {});
+  }
+}
+
 export async function ensureDedicatedChannelGuides(client) {
   const results = [];
 
   for (const guild of client.guilds.cache.values()) {
-    for (const key of Object.keys(CHANNEL_RULES)) {
-      const ok = await ensureGuideMessage(guild, key);
-      results.push({ guildId: guild.id, key, ok });
-    }
+    await removeInactiveShopMessages(guild);
+
+    const ok = await ensureGuideMessage(guild, 'gambling');
+    results.push({ guildId: guild.id, key: 'gambling', ok });
   }
 
   return results;
