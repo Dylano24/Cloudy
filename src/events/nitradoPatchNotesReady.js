@@ -18,6 +18,11 @@ const NITRADO_NEWS_SOURCES = [
   'https://server.nitrado.net/usa/',
   'https://server.nitrado.net/eng/',
 ];
+const NITRADO_SITEMAP_SOURCES = [
+  'https://server.nitrado.net/sitemap.xml',
+  'https://server.nitrado.net/sitemap_index.xml',
+  'https://server.nitrado.net/news-sitemap.xml',
+];
 const LAST_NITRADO_KEY = `global:nitrado:patch-notes:${NITRADO_PATCH_CHANNEL_ID}:last-link:v1`;
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const FAILURE_LOG_INTERVAL_MS = 60 * 60 * 1000;
@@ -152,11 +157,38 @@ function findLatestArticleLinkFromRss(xml = '') {
   return null;
 }
 
+function parseSitemapUrls(xml = '') {
+  const entries = [];
+  const source = String(xml);
+  for (const match of source.matchAll(/<url\b[^>]*>([\s\S]*?)<\/url>/gi)) {
+    const block = match[1];
+    const loc = decodeHtml(block.match(/<loc>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/loc>/i)?.[1] || '');
+    const canonical = toCanonicalArticleUrl(loc);
+    if (!canonical) continue;
+    const lastmodRaw = stripHtml(block.match(/<lastmod>([\s\S]*?)<\/lastmod>/i)?.[1] || '');
+    const lastmod = Date.parse(lastmodRaw);
+    entries.push({ link: canonical, lastmod: Number.isFinite(lastmod) ? lastmod : 0 });
+  }
+  return entries.sort((a, b) => b.lastmod - a.lastmod);
+}
+
+function parseSitemapIndex(xml = '') {
+  const urls = [];
+  for (const match of String(xml).matchAll(/<sitemap\b[^>]*>[\s\S]*?<loc>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/loc>[\s\S]*?<\/sitemap>/gi)) {
+    const raw = decodeHtml(match[1]);
+    try {
+      const url = new URL(raw);
+      if (url.hostname === 'server.nitrado.net') urls.push(url.toString());
+    } catch {}
+  }
+  return urls;
+}
+
 async function fetchText(url) {
   const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}cloudy=${Date.now()}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; CloudyDiscordBot/2.1; +https://discord.com)',
-      Accept: 'text/html,application/xhtml+xml,application/rss+xml,application/xml;q=0.9,*/*;q=0.8',
+      Accept: 'text/html,application/xhtml+xml,application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
       'Cache-Control': 'no-cache',
     },
@@ -168,6 +200,36 @@ async function fetchText(url) {
   }
 
   return response.text();
+}
+
+async function discoverFromSitemap(errors) {
+  const seenSitemaps = new Set();
+  const queue = [...NITRADO_SITEMAP_SOURCES];
+  let best = null;
+
+  while (queue.length && seenSitemaps.size < 20) {
+    const sitemapUrl = queue.shift();
+    if (!sitemapUrl || seenSitemaps.has(sitemapUrl)) continue;
+    seenSitemaps.add(sitemapUrl);
+
+    try {
+      const xml = await fetchText(sitemapUrl);
+      const entries = parseSitemapUrls(xml);
+      if (entries.length) {
+        const candidate = entries[0];
+        if (!best || candidate.lastmod > best.lastmod) best = candidate;
+      }
+
+      const nested = parseSitemapIndex(xml);
+      for (const nestedUrl of nested) {
+        if (!seenSitemaps.has(nestedUrl)) queue.push(nestedUrl);
+      }
+    } catch (error) {
+      errors.push(`${new URL(sitemapUrl).pathname}: ${error?.message || error}`);
+    }
+  }
+
+  return best?.link || null;
 }
 
 async function discoverLatestNitradoArticleLink() {
@@ -194,6 +256,9 @@ async function discoverLatestNitradoArticleLink() {
       errors.push(`${new URL(sourceUrl).pathname}: ${error?.message || error}`);
     }
   }
+
+  const sitemapLink = await discoverFromSitemap(errors);
+  if (sitemapLink) return sitemapLink;
 
   throw new Error(`Could not find the latest Nitrado article link (${errors.join('; ')})`);
 }
