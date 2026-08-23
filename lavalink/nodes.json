@@ -19,12 +19,5 @@
     "password": "https://discord.gg/mjS5J2K3ep",
     "secure": true,
     "name": "MilloHost"
-  },
-  {
-    "host": "lavalink-v4.triniumhost.com",
-    "port": 443,
-    "password": "free",
-    "secure": true,
-    "name": "TriniumHost"
   }
 ]
