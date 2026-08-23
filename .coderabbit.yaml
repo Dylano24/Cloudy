@@ -2,9 +2,6 @@
 
 language: "en-US"
 
-# Let an in-progress review finish even if a PR is merged or closed quickly.
-abort_on_close: false
-
 reviews:
   # Use the stricter profile so review feedback is useful before changes land.
   profile: "assertive"
