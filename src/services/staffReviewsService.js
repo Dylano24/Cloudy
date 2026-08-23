@@ -71,8 +71,8 @@ export function buildStaffReviewModal() {
 }
 
 /**
- * Build the published community review embed with the selected yellow stars,
- * the clickable Staff role mention, and the review text in a compact layout.
+ * Build the published community review embed with yellow rating stars above
+ * the clickable Staff role mention and the review text on the same line.
  */
 export function buildPublishedReview(interaction, rating, comment, staffRole = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
@@ -92,7 +92,8 @@ export function buildPublishedReview(interaction, rating, comment, staffRole = n
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
-    .setDescription(`${stars}\n${staffMention}\n${comment}`)
+    .setTitle(stars)
+    .setDescription(`${staffMention} ${comment}`)
     .setFooter({ text: FOOTER })
     .setTimestamp();
 }
