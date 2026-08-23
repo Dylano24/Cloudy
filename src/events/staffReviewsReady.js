@@ -1,54 +1,66 @@
-import { EmbedBuilder, Events } from 'discord.js';
+import { Events } from 'discord.js';
 import {
-  COMMUNITY_REVIEWS_CHANNEL_ID,
   STAFF_REVIEWS_CHANNEL_ID,
+  STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_RATING_ID,
   buildStaffReviewsPanel,
+  getOwnerMembers,
 } from '../services/staffReviewsService.js';
 
-const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const PANEL_REFRESH_MS = 5 * 60 * 1000;
 
-async function reformatExistingReviews(client) {
-  const channel = await client.channels.fetch(COMMUNITY_REVIEWS_CHANNEL_ID).catch(() => null);
-  if (!channel?.isTextBased?.()) return;
+/** Return whether a bot message is the persistent staff-review panel. */
+function isStaffReviewsPanel(message, client) {
+  return Boolean(
+    message?.author?.id === client.user?.id
+    && message.components?.some(row => row.components?.some(component =>
+      component.customId === STAFF_REVIEW_MEMBER_ID
+      || component.customId === STAFF_REVIEW_RATING_ID
+      || component.customId?.startsWith(`${STAFF_REVIEW_RATING_ID}:`),
+    )),
+  );
+}
 
-  let before;
-  for (let batch = 0; batch < 10; batch += 1) {
-    const messages = await channel.messages.fetch({
-      limit: 100,
-      ...(before ? { before } : {}),
-    }).catch(() => null);
+/** Find the durable pinned panel, migrating a recent legacy panel if needed. */
+async function findStaffReviewsPanel(channel, client) {
+  const pins = await channel.messages.fetchPins().catch(() => null);
+  if (!pins) return { lookupSucceeded: false, message: null };
 
-    if (!messages?.size) break;
+  const pinnedPanel = pins.items
+    .map(pin => pin.message)
+    .find(message => isStaffReviewsPanel(message, client));
+  if (pinnedPanel) return { lookupSucceeded: true, message: pinnedPanel };
 
-    for (const message of messages.values()) {
-      if (message.author?.id !== client.user?.id) continue;
-      const source = message.embeds?.[0];
-      if (!source?.title?.endsWith('Staff review')) continue;
+  const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!recent) return { lookupSucceeded: false, message: null };
 
-      const ratingField = source.fields?.find(field => field.name === 'Rating');
-      if (!ratingField) continue;
+  return {
+    lookupSucceeded: true,
+    message: recent.find(message => isStaffReviewsPanel(message, client)) || null,
+  };
+}
 
-      let description = source.description || '';
-      description = description
-        .replace(`\n\n**${FOOTER}**`, '')
-        .replace(`\n\n${FOOTER}`, '')
-        .trim();
+/** Refresh the staff-review panel from the guild's current Owner membership. */
+async function refreshStaffReviewsPanel(client) {
+  const channel = await client.channels.fetch(STAFF_REVIEWS_CHANNEL_ID).catch(() => null);
+  if (!channel?.isSendable?.()) return;
 
-      const updated = EmbedBuilder.from(source)
-        .setDescription(description)
-        .setFields({
-          name: 'Rating',
-          value: ratingField.value,
-          inline: false,
-        })
-        .setFooter({ text: FOOTER });
+  const ownerMembers = await getOwnerMembers(channel.guild);
+  const lookup = await findStaffReviewsPanel(channel, client);
+  if (!lookup.lookupSucceeded) return;
 
-      await message.edit({ embeds: [updated] }).catch(() => {});
+  const payload = buildStaffReviewsPanel(ownerMembers);
+  if (lookup.message) {
+    await lookup.message.edit(payload).catch(() => {});
+    if (!lookup.message.pinned) {
+      await channel.messages.pin(lookup.message, 'Cloudy staff reviews panel').catch(() => {});
     }
+    return;
+  }
 
-    before = messages.last()?.id;
-    if (messages.size < 100 || !before) break;
+  const sent = await channel.send(payload).catch(() => null);
+  if (sent) {
+    await channel.messages.pin(sent, 'Cloudy staff reviews panel').catch(() => {});
   }
 }
 
@@ -56,25 +68,15 @@ export default {
   name: Events.ClientReady,
   once: true,
 
+  /** Build the panel after startup and refresh it as Owner membership changes. */
   async execute(client) {
     const timer = setTimeout(async () => {
-      const channel = await client.channels.fetch(STAFF_REVIEWS_CHANNEL_ID).catch(() => null);
-      if (channel?.isSendable?.()) {
-        const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-        const existing = recent?.find(message =>
-          message.author?.id === client.user?.id
-          && message.components?.some(row => row.components?.some(component => component.customId === STAFF_REVIEW_RATING_ID)),
-        );
+      await refreshStaffReviewsPanel(client);
 
-        const payload = buildStaffReviewsPanel();
-        if (existing) {
-          await existing.edit(payload).catch(() => {});
-        } else {
-          await channel.send(payload).catch(() => {});
-        }
-      }
-
-      await reformatExistingReviews(client);
+      const refreshInterval = setInterval(() => {
+        void refreshStaffReviewsPanel(client);
+      }, PANEL_REFRESH_MS);
+      refreshInterval.unref?.();
     }, 2500);
 
     timer.unref?.();
