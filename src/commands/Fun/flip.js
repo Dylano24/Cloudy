@@ -2,6 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
+import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 export default {
@@ -11,6 +12,7 @@ export default {
   category: 'Fun',
 
   async execute(interaction, config, client) {
+    await enforceDedicatedCommandChannel(interaction, 'gambling');
     const result = Math.random() < 0.5 ? "Heads" : "Tails";
     const emoji = result === "Heads" ? "🪙" : "🔮";
 
