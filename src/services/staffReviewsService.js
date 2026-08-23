@@ -76,10 +76,8 @@ export function buildStaffReviewModal() {
  */
 export function buildPublishedReview(interaction, rating, comment, staffRole = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  // Use the text star glyph instead of the emoji star. Discord iOS has shown
-  // inconsistent emoji rendering next to resolved mentions, while this glyph
-  // is plain text and stays visible in the same embed description line.
-  const stars = '★'.repeat(normalizedRating);
+  // Use Discord's yellow star emoji while preserving the existing Staff role mention.
+  const stars = '⭐'.repeat(normalizedRating);
   const staffMention = staffRole ? `<@&${staffRole.id}>` : '@Staff';
   const ratingColors = {
     1: 0xED4245,
