@@ -70,6 +70,10 @@ export function buildStaffReviewModal() {
     .addComponents(new ActionRowBuilder().addComponents(comment));
 }
 
+/**
+ * Build the published community review embed with a stable visible Staff label
+ * and the exact number of stars selected by the reviewer.
+ */
 export function buildPublishedReview(interaction, rating, comment, staffRole = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
   const stars = '⭐'.repeat(normalizedRating);
