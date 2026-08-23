@@ -36,7 +36,7 @@ export default {
     const [guildId, field] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
 
-    const canManage = interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels);
+    const canManage = interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
     if (!canManage) {
       await InteractionHelper.safeReply(interaction, {
         content: 'You need the `Manage Channels` permission to change ticket-system settings.',
@@ -53,8 +53,22 @@ export default {
       return;
     }
 
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
+    // Acknowledge immediately with visible progress instead of Discord's native
+    // "Cloudy Manager is thinking..." placeholder while PostgreSQL and the live
+    // panel message are updated.
+    try {
+      await interaction.reply({
+        content: 'Saving ticket setting…',
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (error) {
+      logger.error('Ticket dashboard modal could not be acknowledged', {
+        guildId,
+        field,
+        error: error.message,
+      });
+      return;
+    }
 
     try {
       const rawValue = interaction.fields.getTextInputValue('value');
