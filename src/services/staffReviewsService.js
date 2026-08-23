@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -25,17 +26,19 @@ const PENDING_REVIEW_TTL_MS = 15 * 60 * 1000;
 
 const pendingReviews = new Map();
 
-/** Return a pending review only while it is still fresh. */
-function readPendingReview(userId) {
-  const entry = pendingReviews.get(userId);
-  if (!entry) return null;
+/** Build the storage key for one reviewer's unique review flow. */
+function reviewContextKey(userId, reviewId) {
+  return `${userId}:${reviewId}`;
+}
 
-  if (Date.now() - entry.updatedAt > PENDING_REVIEW_TTL_MS) {
-    pendingReviews.delete(userId);
-    return null;
+/** Remove abandoned review flows after their TTL. */
+function pruneExpiredReviews() {
+  const now = Date.now();
+  for (const [key, entry] of pendingReviews) {
+    if (now - entry.updatedAt > PENDING_REVIEW_TTL_MS) {
+      pendingReviews.delete(key);
+    }
   }
-
-  return entry;
 }
 
 /** Build the star selector, optionally bound to one reviewed member. */
@@ -117,34 +120,29 @@ export function buildRatingPrompt(memberId) {
   };
 }
 
-/** Start or replace a review context for one reviewer. */
-export function rememberReviewMember(userId, memberId) {
-  pendingReviews.set(userId, {
+/** Store one completed member/rating choice and return its unique review ID. */
+export function createReviewContext(userId, memberId, rating) {
+  pruneExpiredReviews();
+  const reviewId = randomUUID();
+  pendingReviews.set(reviewContextKey(userId, reviewId), {
     memberId,
-    rating: null,
-    updatedAt: Date.now(),
-  });
-}
-
-/** Store the selected rating in the current review context. */
-export function rememberRating(userId, rating) {
-  const current = readPendingReview(userId) || {};
-  pendingReviews.set(userId, {
-    ...current,
     rating: Number(rating),
     updatedAt: Date.now(),
   });
+  return reviewId;
 }
 
-/** Consume and clear a review context when the modal is submitted. */
-export function takeReviewContext(userId) {
-  const context = readPendingReview(userId);
-  pendingReviews.delete(userId);
+/** Consume exactly the review context referenced by this modal submission. */
+export function takeReviewContext(userId, reviewId) {
+  pruneExpiredReviews();
+  const key = reviewContextKey(userId, reviewId);
+  const context = pendingReviews.get(key) || null;
+  pendingReviews.delete(key);
   return context;
 }
 
 /** Build the modal used to collect the written staff review. */
-export function buildStaffReviewModal() {
+export function buildStaffReviewModal(reviewId) {
   const comment = new TextInputBuilder()
     .setCustomId('staff_review_comment')
     .setLabel('Tell us about your experience')
@@ -155,7 +153,7 @@ export function buildStaffReviewModal() {
     .setRequired(true);
 
   return new ModalBuilder()
-    .setCustomId(STAFF_REVIEW_MODAL_ID)
+    .setCustomId(`${STAFF_REVIEW_MODAL_ID}:${reviewId}`)
     .setTitle('Staff review')
     .addComponents(new ActionRowBuilder().addComponents(comment));
 }
@@ -186,17 +184,14 @@ export async function getOwnerMembers(guild) {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-/** Confirm that the selected review target still exists and still has Owner. */
+/** Confirm from a forced Discord fetch that the target still has the Owner role. */
 export async function isOwnerReviewTarget(guild, memberId) {
   if (!guild || !memberId) return false;
 
   const ownerRole = await getOwnerRole(guild);
-  if (!ownerRole) return false;
+  if (!ownerRole || !guild.members?.fetch) return false;
 
-  const member = await guild.members?.fetch?.(memberId).catch(() => null)
-    || guild.members?.cache?.get(memberId)
-    || null;
-
+  const member = await guild.members.fetch({ user: memberId, force: true }).catch(() => null);
   return Boolean(member && !member.user?.bot && member.roles?.cache?.has(ownerRole.id));
 }
 
