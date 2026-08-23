@@ -9,8 +9,12 @@ import {
 import { logger } from '../utils/logger.js';
 
 const NITRADO_PATCH_CHANNEL_ID = '1539397467647377530';
+const NITRADO_RSS_SOURCES = [
+  'https://server.nitrado.net/eng/news/rss/eng.rss',
+];
 const NITRADO_NEWS_SOURCES = [
   'https://server.nitrado.net/en-US/news',
+  'https://server.nitrado.net/en-GB/news',
   'https://server.nitrado.net/usa/',
   'https://server.nitrado.net/eng/',
 ];
@@ -74,10 +78,12 @@ function toCanonicalArticleUrl(raw) {
     const pathname = url.pathname.replace(/\/{2,}/g, '/');
     const modernMatch = pathname.match(/^\/(?:en-US|en-GB)\/news\/([^/?#]+)\/?$/i);
     const legacyMatch = pathname.match(/^\/(?:usa|eng)\/news2\/view\/([^/?#]+)\/?$/i);
+    const numericLegacyMatch = pathname.match(/^\/eng\/news\/show\/(\d+)\/?$/i);
 
-    if (!modernMatch && !legacyMatch) return null;
+    if (!modernMatch && !legacyMatch && !numericLegacyMatch) return null;
 
-    const slug = (modernMatch?.[1] || legacyMatch?.[1] || '').replace(/^\/+|\/+$/g, '');
+    const slug = (modernMatch?.[1] || legacyMatch?.[1] || numericLegacyMatch?.[1] || '')
+      .replace(/^\/+|\/+$/g, '');
     if (!slug || ['page', 'category', 'tag', 'search', 'news-sitemap'].includes(slug.toLowerCase())) {
       return null;
     }
@@ -87,8 +93,10 @@ function toCanonicalArticleUrl(raw) {
 
     if (modernMatch) {
       url.pathname = `/en-US/news/${slug}`;
-    } else {
+    } else if (legacyMatch) {
       url.pathname = `/usa/news2/view/${slug}/`;
+    } else {
+      url.pathname = `/eng/news/show/${slug}`;
     }
 
     return url.toString();
@@ -116,6 +124,7 @@ function findLatestArticleLink(html) {
   const routePatterns = [
     /(?:https:\/\/server\.nitrado\.net)?\/(?:en-US|en-GB)\/news\/[a-z0-9][a-z0-9-_]*(?:\/)?/gi,
     /(?:https:\/\/server\.nitrado\.net)?\/(?:usa|eng)\/news2\/view\/[a-z0-9][a-z0-9-_]*(?:\/)?/gi,
+    /(?:https:\/\/server\.nitrado\.net)?\/eng\/news\/show\/\d+(?:\/)?/gi,
   ];
 
   for (const routePattern of routePatterns) {
@@ -127,11 +136,27 @@ function findLatestArticleLink(html) {
   return candidates[0] || null;
 }
 
+function findLatestArticleLinkFromRss(xml = '') {
+  const firstItem = String(xml).match(/<item\b[\s\S]*?<\/item>/i)?.[0] || String(xml);
+  const linkMatch = firstItem.match(/<link>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/link>/i);
+  if (linkMatch?.[1]) {
+    const canonical = toCanonicalArticleUrl(stripHtml(linkMatch[1]));
+    if (canonical) return canonical;
+  }
+
+  for (const match of firstItem.matchAll(/https:\/\/server\.nitrado\.net\/[^\s<"']+/gi)) {
+    const canonical = toCanonicalArticleUrl(match[0]);
+    if (canonical) return canonical;
+  }
+
+  return null;
+}
+
 async function fetchText(url) {
   const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}cloudy=${Date.now()}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; CloudyDiscordBot/2.1; +https://discord.com)',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      Accept: 'text/html,application/xhtml+xml,application/rss+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
       'Cache-Control': 'no-cache',
     },
@@ -147,6 +172,17 @@ async function fetchText(url) {
 
 async function discoverLatestNitradoArticleLink() {
   const errors = [];
+
+  for (const rssUrl of NITRADO_RSS_SOURCES) {
+    try {
+      const xml = await fetchText(rssUrl);
+      const link = findLatestArticleLinkFromRss(xml);
+      if (link) return link;
+      errors.push(`${new URL(rssUrl).pathname}: no article links`);
+    } catch (error) {
+      errors.push(`${new URL(rssUrl).pathname}: ${error?.message || error}`);
+    }
+  }
 
   for (const sourceUrl of NITRADO_NEWS_SOURCES) {
     try {
