@@ -71,15 +71,16 @@ export function buildStaffReviewModal() {
 }
 
 /**
- * Build the published community review embed with a stable visible Staff label
- * and the exact number of stars selected by the reviewer.
+ * Build the published community review embed with the actual clickable Staff
+ * role mention and the exact number of stars selected by the reviewer.
  */
 export function buildPublishedReview(interaction, rating, comment, staffRole = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  const stars = '⭐'.repeat(normalizedRating);
-  // Keep the real role ping in normal message content (handled by the interaction event),
-  // but render a stable visual label in the embed so Discord mobile cannot swallow the stars.
-  const staffLabel = `@${staffRole?.name || 'Staff'}`;
+  // Use the text star glyph instead of the emoji star. Discord iOS has shown
+  // inconsistent emoji rendering next to resolved mentions, while this glyph
+  // is plain text and stays visible in the same embed description line.
+  const stars = '★'.repeat(normalizedRating);
+  const staffMention = staffRole ? `<@&${staffRole.id}>` : '@Staff';
   const ratingColors = {
     1: 0xED4245,
     2: 0xFF7A00,
@@ -94,7 +95,7 @@ export function buildPublishedReview(interaction, rating, comment, staffRole = n
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
-    .setDescription(`${staffLabel} ${stars}\n\n${comment}`)
+    .setDescription(`${staffMention} ${stars}\n\n${comment}`)
     .addFields({ name: 'Rating', value: `${normalizedRating}/5`, inline: false })
     .setFooter({ text: FOOTER })
     .setTimestamp();
