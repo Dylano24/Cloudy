@@ -3,16 +3,28 @@ import {
   repostTicketPanel,
   updateLiveTicketPanel,
 } from '../../../services/ticketDashboardService.js';
-import { updateGuildConfig } from '../../../services/config/guildConfig.js';
+import { getGuildConfig, updateGuildConfig } from '../../../services/config/guildConfig.js';
 import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
-import {
-  buildCloudyTicketEmbed,
-  scheduleTicketReplyDeletion,
-} from '../../../utils/ticket/ticketBranding.js';
 import { logger } from '../../../utils/logger.js';
 
 const ALLOWED_TEXT_FIELDS = new Set(['ticketPanelMessage', 'ticketButtonLabel']);
+const FAST_CONFIG_TIMEOUT_MS = 350;
+
+async function getConfigForInstantRender(client, guildId) {
+  let timer;
+  try {
+    return await Promise.race([
+      getGuildConfig(client, guildId),
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve(null), FAST_CONFIG_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 async function ensureLivePanel(client, guild, config) {
   try {
@@ -30,26 +42,38 @@ async function ensureLivePanel(client, guild, config) {
   return recovered.config;
 }
 
-async function refreshDashboardMessage(interaction, dashboardMessageId, config) {
-  if (!dashboardMessageId) return false;
+async function persistTextSetting(client, interaction, guildId, field, rawValue) {
+  try {
+    const savedConfig = await updateGuildConfig(client, guildId, {
+      [field]: rawValue,
+      dmOnClose: false,
+    });
 
-  const channel = interaction.channel;
-  if (!channel?.messages?.fetch) return false;
+    await ensureLivePanel(client, interaction.guild, savedConfig);
+  } catch (error) {
+    logger.error('Background ticket dashboard text save failed', {
+      guildId,
+      field,
+      userId: interaction.user?.id,
+      error: error.message,
+      stack: error.stack,
+    });
 
-  const dashboardMessage = await channel.messages.fetch(dashboardMessageId).catch(() => null);
-  if (!dashboardMessage?.edit) return false;
-
-  await dashboardMessage.edit(
-    buildTicketDashboardPayload(interaction.guild, config),
-  );
-  return true;
+    // The dashboard was optimistically updated so the UI never blocks. If the
+    // persistent write fails, surface a separate error without replacing the
+    // dashboard itself.
+    await interaction.followUp({
+      content: error?.userMessage || 'Could not save that ticket setting permanently. Please try again.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  }
 }
 
 export default {
   name: 'ticket_dashboard_modal',
 
   async execute(interaction, client, args = []) {
-    const [guildId, field, dashboardMessageId] = args;
+    const [guildId, field] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
 
     const canManage = interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
@@ -69,82 +93,53 @@ export default {
       return;
     }
 
-    try {
-      await interaction.reply({
-        content: 'Saving ticket setting…',
+    const rawValue = interaction.fields.getTextInputValue('value');
+    if (rawValue === null || rawValue === undefined || rawValue.length === 0) {
+      await InteractionHelper.safeReply(interaction, {
+        content: 'Enter a value before saving.',
         flags: MessageFlags.Ephemeral,
-      });
-    } catch (error) {
-      logger.error('Ticket dashboard modal could not be acknowledged', {
-        guildId,
-        field,
-        error: error.message,
       });
       return;
     }
 
     try {
-      const rawValue = interaction.fields.getTextInputValue('value');
-      if (rawValue === null || rawValue === undefined || rawValue.length === 0) {
-        const error = new Error('Ticket dashboard text value is empty.');
-        error.userMessage = 'Enter a value before saving.';
-        throw error;
+      // This modal was opened from the ephemeral dashboard message. Discord
+      // allows a modal submit from a message component to update that source
+      // message directly. This is the only reliable way to refresh an ephemeral
+      // dashboard; channel.messages.fetch() cannot retrieve ephemeral messages.
+      const currentConfig = await getConfigForInstantRender(client, guildId);
+
+      if (currentConfig && interaction.isFromMessage?.()) {
+        const optimisticConfig = {
+          ...currentConfig,
+          [field]: rawValue,
+          dmOnClose: false,
+        };
+
+        // Acknowledge + redraw in one callback. No "Saving ticket setting..."
+        // message and no waiting for PostgreSQL or the public ticket panel.
+        await interaction.update(
+          buildTicketDashboardPayload(interaction.guild, optimisticConfig),
+        );
+      } else {
+        // Rare fallback: acknowledge instantly without creating a second loading
+        // message. The next dashboard open will read the persisted config.
+        await interaction.deferUpdate();
       }
-
-      // Persist first and return the fresh config immediately. Do not block the
-      // dashboard response on Discord message lookups/edits for the live panel.
-      const savedConfig = await updateGuildConfig(client, guildId, {
-        [field]: rawValue,
-        dmOnClose: false,
-      });
-
-      // A modal submit does not reliably expose interaction.message. The source
-      // dashboard message ID is encoded in the modal custom ID, so fetch and
-      // refresh that exact message instead. This makes the new value visible
-      // immediately without reopening the dashboard or restarting the bot.
-      await refreshDashboardMessage(interaction, dashboardMessageId, savedConfig).catch(error => {
-        logger.warn('Ticket dashboard source message refresh failed', {
-          guildId,
-          field,
-          dashboardMessageId,
-          error: error.message,
-        });
-      });
-
-      await InteractionHelper.safeEditReply(interaction, {
-        content: '',
-        embeds: [buildCloudyTicketEmbed({
-          title: 'Ticket Setting Updated',
-          description: field === 'ticketPanelMessage'
-            ? 'The ticket panel message has been saved.'
-            : 'The ticket button label has been saved.',
-        })],
-        components: [],
-      });
-      scheduleTicketReplyDeletion(interaction);
-
-      // Keep the live public ticket panel synchronized, but do that after the
-      // administrator already received the successful save response.
-      void ensureLivePanel(client, interaction.guild, savedConfig).catch(error => {
-        logger.error('Background live ticket panel sync failed', {
-          guildId,
-          field,
-          error: error.message,
-        });
-      });
     } catch (error) {
-      logger.error('Persistent ticket dashboard modal save failed', {
+      logger.error('Ticket dashboard instant modal update failed', {
         guildId,
         field,
-        userId: interaction.user?.id,
         error: error.message,
       });
 
-      await InteractionHelper.safeEditReply(interaction, {
-        content: error?.userMessage || 'Could not save that ticket setting. Please try again.',
-        embeds: [],
-        components: [],
-      }).catch(() => {});
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferUpdate().catch(() => {});
+      }
     }
+
+    // Persistence and live panel synchronization happen after Discord has
+    // already updated the administrator's dashboard.
+    void persistTextSetting(client, interaction, guildId, field, rawValue);
   },
 };
