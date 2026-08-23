@@ -3,6 +3,7 @@ import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '
 import { shopItems } from '../../config/shop/items.js';
 import { getEconomyData, setEconomyData } from '../../utils/economy.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
+import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
@@ -28,6 +29,7 @@ export default {
         ),
 
     execute: withErrorHandling(async (interaction, config, client) => {
+        await enforceDedicatedCommandChannel(interaction, 'shop');
         const deferred = await InteractionHelper.safeDefer(interaction);
         if (!deferred) return;
 
