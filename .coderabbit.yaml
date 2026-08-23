@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+
+# Let an in-progress review finish even if a PR is merged or closed quickly.
+abort_on_close: false
+
+reviews:
+  # Use the stricter profile so review feedback is useful before changes land.
+  profile: "assertive"
+  high_level_summary: true
+  review_status: true
+  request_changes_workflow: false
+
+  auto_review:
+    # Review every PR automatically, including draft PRs and PRs targeting any branch.
+    enabled: true
+    drafts: true
+    base_branches:
+      - ".*"
+
+    # Re-review every push and never auto-pause after a commit threshold.
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+
+chat:
+  # Allow @coderabbitai commands and follow-up questions in PR comments.
+  auto_reply: true
