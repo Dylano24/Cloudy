@@ -87,10 +87,7 @@ async function loadPayloads() {
         payload.default_member_permissions = '8';
       }
 
-      // These are guild commands. Discord does not consistently persist the
-      // deprecated dm_permission field for guild-scoped application commands.
       delete payload.dm_permission;
-
       payloads.push(payload);
     } catch (error) {
       console.error(`[COMMAND_SYNC] Failed loading ${file}: ${error.message}`);
@@ -104,6 +101,39 @@ function retryAfterSeconds(result) {
   const raw = result?.body?.retry_after ?? result?.response?.headers?.get?.('retry-after');
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function normalizeCommand(value) {
+  if (Array.isArray(value)) return value.map(normalizeCommand);
+  if (!value || typeof value !== 'object') return value;
+
+  const ignored = new Set([
+    'id',
+    'application_id',
+    'guild_id',
+    'version',
+    'dm_permission',
+    'integration_types',
+    'contexts',
+    'nsfw',
+  ]);
+  const result = {};
+  for (const key of Object.keys(value).sort()) {
+    if (ignored.has(key) || value[key] === undefined || value[key] === null) continue;
+    result[key] = normalizeCommand(value[key]);
+  }
+  return result;
+}
+
+function commandSetsMatch(current, desired) {
+  if (!Array.isArray(current) || current.length !== desired.length) return false;
+  const currentNormalized = current
+    .map(normalizeCommand)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  const desiredNormalized = desired
+    .map(normalizeCommand)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  return JSON.stringify(currentNormalized) === JSON.stringify(desiredNormalized);
 }
 
 async function main() {
@@ -123,6 +153,17 @@ async function main() {
   }
 
   const route = `/applications/${applicationId}/guilds/${guildId}/commands`;
+
+  try {
+    const existing = await discordFetch(route, { method: 'GET' });
+    if (existing.response.ok && commandSetsMatch(existing.body, payloads)) {
+      console.log(`[COMMAND_SYNC] SKIPPED: Discord already has the current ${payloads.length} Cloudy guild commands.`);
+      return;
+    }
+  } catch (error) {
+    console.warn(`[COMMAND_SYNC] Existing-command check unavailable: ${error.message}; continuing with sync.`);
+  }
+
   console.log(`[COMMAND_SYNC] Bulk guild sync started: app=${applicationId}, guild=${guildId}, commands=${payloads.length}.`);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
@@ -134,7 +175,7 @@ async function main() {
       });
     } catch (error) {
       if (attempt >= MAX_RETRIES) throw error;
-      console.warn(`[COMMAND_SYNC] Request failed: ${error.message}; retrying once shortly.`);
+      console.warn(`[COMMAND_SYNC] Request failed: ${error.message}; retrying shortly.`);
       await sleep(5_000);
       continue;
     }
@@ -147,7 +188,7 @@ async function main() {
     if (result.response.status === 429 && attempt < MAX_RETRIES) {
       const retryAfter = retryAfterSeconds(result);
       const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 5) + 1));
-      console.warn(`[COMMAND_SYNC] Rate-limited once; waiting ${waitSeconds}s before retry.`);
+      console.warn(`[COMMAND_SYNC] Rate-limited; waiting ${waitSeconds}s before retry.`);
       await sleep(waitSeconds * 1000);
       continue;
     }
