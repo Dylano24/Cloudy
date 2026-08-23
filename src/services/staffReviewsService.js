@@ -249,7 +249,7 @@ export function buildPublishedReview(interaction, rating, comment, memberId, sta
     })
     .setThumbnail(CLOUDY_C_LOGO_URL)
     .setDescription(
-      `**Staff review**\n<@${memberId}>\n\n${stars}\n\n`
+      `**Staff member**\n<@${memberId}>\n\n${stars}\n\n`
       + `**Review**\n${comment}`,
     )
     .setFooter({ text: FOOTER })
