@@ -205,7 +205,7 @@ export function buildPublishedReview(interaction, rating, comment, memberId) {
     .setThumbnail(CLOUDY_C_LOGO_URL)
     .setDescription(
       `**Staff member**\n<@${memberId}>\n\n`
-      + `**Rating**\n${stars}\n\n`
+      + `${stars}\n\n`
       + `**Review**\n${comment}`,
     )
     .setFooter({ text: FOOTER })
