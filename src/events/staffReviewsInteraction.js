@@ -10,6 +10,7 @@ import {
 } from '../services/staffReviewsService.js';
 
 const REVIEW_CONFIRMATION_TTL_MS = 10 * 1000;
+const STAFF_PING_VISIBLE_MS = 1200;
 
 export default {
   name: Events.InteractionCreate,
@@ -50,11 +51,21 @@ export default {
 
     const staffRole = interaction.guild?.roles?.cache?.find(role => role.name.toLowerCase() === 'staff');
 
-    await channel.send({
+    const publishedMessage = await channel.send({
       content: staffRole ? `<@&${staffRole.id}>` : undefined,
       embeds: [buildPublishedReview(interaction, rating, comment, staffRole)],
       allowedMentions: staffRole ? { roles: [staffRole.id] } : { parse: [] },
     });
+
+    // The role must exist in normal message content for Discord to send a real notification.
+    // Remove the visible content shortly afterwards so the final review stays clean and the
+    // resolved @Staff + stars remain inside the embed description.
+    if (staffRole) {
+      const hidePingTimer = setTimeout(() => {
+        void publishedMessage.edit({ content: null, allowedMentions: { parse: [] } }).catch(() => {});
+      }, STAFF_PING_VISIBLE_MS);
+      hidePingTimer.unref?.();
+    }
 
     await interaction.reply({
       content: 'Your staff review has been published. Thank you!',
