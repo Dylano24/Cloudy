@@ -73,7 +73,7 @@ export function buildStaffReviewModal() {
 export function buildPublishedReview(interaction, rating, comment, staffRole = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
   const stars = '⭐'.repeat(normalizedRating);
-  const staffLabel = staffRole ? `<@&${staffRole.id}>` : 'Staff';
+  const staffLabel = staffRole?.name || 'Staff';
   const ratingColors = {
     1: 0xED4245,
     2: 0xFF7A00,
@@ -88,7 +88,8 @@ export function buildPublishedReview(interaction, rating, comment, staffRole = n
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
-    .setDescription(`${staffLabel} ${stars}\n\n${comment}`)
+    .setTitle(`${staffLabel} ${stars}`)
+    .setDescription(comment)
     .addFields({ name: 'Rating', value: `${normalizedRating}/5`, inline: false })
     .setFooter({ text: FOOTER })
     .setTimestamp();
