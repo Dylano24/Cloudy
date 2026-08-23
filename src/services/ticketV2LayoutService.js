@@ -12,6 +12,7 @@ import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logger } from '../utils/logger.js';
 
 const PIN_EMOJI = '📌';
+const renderQueues = new Map();
 const RECEIVED_MESSAGE =
   'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details\n\nyou think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.\n\nOur team will be with you as soon as possible.';
 
@@ -32,6 +33,22 @@ function relativeTimestamp(value) {
   const ms = value ? new Date(value).getTime() : NaN;
   if (!Number.isFinite(ms)) return 'Unknown';
   return `<t:${Math.floor(ms / 1000)}:R>`;
+}
+
+function isLiveChannel(channel) {
+  if (!channel?.guild?.id || !channel?.id || channel.deleted === true) return false;
+  return channel.guild.channels.cache.has(channel.id);
+}
+
+function enqueueRender(channel, operation) {
+  const key = `${channel.guild.id}:${channel.id}`;
+  const previous = renderQueues.get(key) || Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  renderQueues.set(key, current);
+  current.finally(() => {
+    if (renderQueues.get(key) === current) renderQueues.delete(key);
+  }).catch(() => {});
+  return current;
 }
 
 function makeClaimButton(ticketData) {
@@ -133,18 +150,22 @@ function buildContainer(ticketData, number) {
 }
 
 async function findMainTicketMessage(channel, ticketData, preferredMessage = null) {
-  if (preferredMessage?.author?.id === channel.client.user?.id) return preferredMessage;
+  if (!isLiveChannel(channel)) return null;
+
+  if (preferredMessage?.author?.id === channel.client.user?.id && preferredMessage.editable) {
+    return preferredMessage;
+  }
 
   if (ticketData?.ticketMessageId) {
     const direct = await channel.messages.fetch(ticketData.ticketMessageId).catch(() => null);
-    if (direct) return direct;
+    if (direct?.editable) return direct;
   }
 
   const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
   if (!recent) return null;
 
   return recent.find(message => {
-    if (message.author?.id !== channel.client.user?.id) return false;
+    if (message.author?.id !== channel.client.user?.id || !message.editable) return false;
     if (message.embeds?.[0]?.title?.startsWith('Ticket #')) return true;
     try {
       const serialized = JSON.stringify(
@@ -158,42 +179,52 @@ async function findMainTicketMessage(channel, ticketData, preferredMessage = nul
 }
 
 export async function renderTicketV2(channel, preferredMessage = null) {
-  try {
-    if (!channel?.guild?.id) return false;
+  if (!isLiveChannel(channel)) return false;
 
-    const ticketData = await getTicketData(channel.guild.id, channel.id).catch(() => null);
-    if (!ticketData) return false;
+  return enqueueRender(channel, async () => {
+    try {
+      if (!isLiveChannel(channel)) return false;
 
-    const message = await findMainTicketMessage(channel, ticketData, preferredMessage);
-    if (!message) return false;
+      const ticketData = await getTicketData(channel.guild.id, channel.id).catch(() => null);
+      if (!ticketData || String(ticketData.status || '').toLowerCase() === 'deleted') return false;
 
-    const number = ticketNumber(ticketData, message.embeds?.[0]?.title || '');
-    if (!ticketData.ticketMessageId || ticketData.ticketMessageId !== message.id) {
-      ticketData.ticketMessageId = message.id;
-      if (number !== 'Unknown') ticketData.ticketNumber = number;
-      await saveTicketData(channel.guild.id, channel.id, ticketData).catch(() => {});
+      const message = await findMainTicketMessage(channel, ticketData, preferredMessage);
+      if (!message || !message.editable || !isLiveChannel(channel)) return false;
+
+      const number = ticketNumber(ticketData, message.embeds?.[0]?.title || '');
+      if (!ticketData.ticketMessageId || ticketData.ticketMessageId !== message.id) {
+        ticketData.ticketMessageId = message.id;
+        if (number !== 'Unknown') ticketData.ticketNumber = number;
+        await saveTicketData(channel.guild.id, channel.id, ticketData).catch(() => {});
+      }
+
+      const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
+      const container = buildContainer(ticketData, number);
+      const components = isClosed
+        ? [container]
+        : [container, makeTicketActionRow(ticketData)];
+
+      // Refetch immediately before the write so competing UI/recovery events do not
+      // edit a stale Message object.
+      const fresh = await channel.messages.fetch(message.id).catch(() => message);
+      if (!fresh?.editable || !isLiveChannel(channel)) return false;
+
+      await fresh.edit({
+        content: null,
+        embeds: [],
+        components,
+        flags: MessageFlags.IsComponentsV2,
+      });
+
+      return true;
+    } catch (error) {
+      if (isLiveChannel(channel)) {
+        logger.warn(`Could not render Cloudy ticket Components V2 layout: ${error.message}`, {
+          guildId: channel?.guild?.id,
+          channelId: channel?.id,
+        });
+      }
+      return false;
     }
-
-    const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
-    const container = buildContainer(ticketData, number);
-    const components = isClosed
-      ? [container]
-      : [container, makeTicketActionRow(ticketData)];
-
-    await message.edit({
-      content: null,
-      embeds: [],
-      components,
-      flags: MessageFlags.IsComponentsV2,
-    });
-
-    return true;
-  } catch (error) {
-    logger.warn('Could not render Cloudy ticket Components V2 layout', {
-      guildId: channel?.guild?.id,
-      channelId: channel?.id,
-      error: error.message,
-    });
-    return false;
-  }
+  });
 }
