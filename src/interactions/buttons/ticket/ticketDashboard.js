@@ -50,7 +50,7 @@ const TEXT_SETTINGS = new Set(['panel_message', 'button_label']);
 const CONFIG_READ_TIMEOUT_MS = 1500;
 
 function canManageTickets(interaction) {
-  return Boolean(interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels));
+  return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels));
 }
 
 async function rejectUnauthorized(interaction) {
