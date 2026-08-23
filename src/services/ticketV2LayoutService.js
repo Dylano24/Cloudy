@@ -6,6 +6,7 @@ import {
   MessageFlags,
   SectionBuilder,
   TextDisplayBuilder,
+  ThumbnailBuilder,
 } from 'discord.js';
 import { getTicketData, saveTicketData } from '../utils/database.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
@@ -69,6 +70,16 @@ function makeTicketActionRow(ticketData) {
   return new ActionRowBuilder().addComponents(
     makeClaimButton(ticketData),
     new ButtonBuilder()
+      .setCustomId('ticket_priority_menu')
+      .setLabel('Priority')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('🟡'),
+    new ButtonBuilder()
+      .setCustomId('ticket_pin')
+      .setLabel('Pin')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji(PIN_EMOJI),
+    new ButtonBuilder()
       .setCustomId('ticket_close')
       .setLabel('Close')
       .setStyle(ButtonStyle.Danger)
@@ -76,7 +87,7 @@ function makeTicketActionRow(ticketData) {
   );
 }
 
-function buildContainer(ticketData, number) {
+function buildContainer(ticketData, number, logoUrl = null) {
   const priorityKey = normalizePriority(ticketData.priority);
   const priorityInfo = PRIORITY_MAP[priorityKey] || PRIORITY_MAP.none;
   const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
@@ -90,61 +101,31 @@ function buildContainer(ticketData, number) {
     16,
   );
 
+  const headerText = new TextDisplayBuilder().setContent(
+    `## Ticket #${number}\n\n<@${ticketData.userId}>, ${RECEIVED_MESSAGE}`
+    + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
+    + priorityLine,
+  );
+
   const container = new ContainerBuilder()
-    .setAccentColor(Number.isFinite(accent) ? accent : 0xFFFFFF)
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `## Ticket #${number}\n\n<@${ticketData.userId}>, ${RECEIVED_MESSAGE}`
-        + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
-        + priorityLine,
-      ),
+    .setAccentColor(Number.isFinite(accent) ? accent : 0xFFFFFF);
+
+  if (logoUrl) {
+    container.addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(headerText)
+        .setThumbnailAccessory(new ThumbnailBuilder().setURL(logoUrl)),
     );
-
-  if (!isClosed) {
-    const priorityButton = new ButtonBuilder()
-      .setCustomId('ticket_priority_menu')
-      .setLabel('Priority')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('🟡');
-
-    const pinButton = new ButtonBuilder()
-      .setCustomId('ticket_pin')
-      .setLabel('Pin')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji(PIN_EMOJI);
-
-    const createdAndPriority = new SectionBuilder()
-      .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(
-          `**Created**\n${relativeTimestamp(ticketData.createdAt)}\n\u200B`,
-        ),
-      )
-      .setButtonAccessory(priorityButton);
-
-    const pinSection = new SectionBuilder()
-      .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('\u200B'),
-      )
-      .setButtonAccessory(pinButton);
-
-    container
-      .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(
-          `**Status**\n${isClosed ? 'Closed' : 'Open'}\n\n**Claimed By**\n${claimedBy}`,
-        ),
-      )
-      .addSectionComponents(createdAndPriority, pinSection)
-      .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
-      );
   } else {
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `**Status**\nClosed\n\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
-      ),
-      new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
-    );
+    container.addTextDisplayComponents(headerText);
   }
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `**Status**\n${isClosed ? 'Closed' : 'Open'}\n\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
+    ),
+    new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
+  );
 
   return container;
 }
@@ -199,13 +180,12 @@ export async function renderTicketV2(channel, preferredMessage = null) {
       }
 
       const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
-      const container = buildContainer(ticketData, number);
+      const logoUrl = channel.client.user?.displayAvatarURL?.({ extension: 'png', size: 256 }) || null;
+      const container = buildContainer(ticketData, number, logoUrl);
       const components = isClosed
         ? [container]
         : [container, makeTicketActionRow(ticketData)];
 
-      // Refetch immediately before the write so competing UI/recovery events do not
-      // edit a stale Message object.
       const fresh = await channel.messages.fetch(message.id).catch(() => message);
       if (!fresh?.editable || !isLiveChannel(channel)) return false;
 
