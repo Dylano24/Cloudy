@@ -51,8 +51,9 @@ export default {
     const staffRole = interaction.guild?.roles?.cache?.find(role => role.name.toLowerCase() === 'staff');
 
     await channel.send({
+      content: staffRole ? `<@&${staffRole.id}>` : undefined,
       embeds: [buildPublishedReview(interaction, rating, comment, staffRole)],
-      allowedMentions: { parse: [] },
+      allowedMentions: staffRole ? { roles: [staffRole.id] } : { parse: [] },
     });
 
     await interaction.reply({
