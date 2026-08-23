@@ -125,7 +125,7 @@ const manualHandler = {
       .setPlaceholder(isRole ? '123456789012345678' : '<#123456789012345678>');
 
     const modal = new ModalBuilder()
-      .setCustomId(`ticket_dashboard_manual_modal:${guildId}:${field}`)
+      .setCustomId(`ticket_dashboard_manual_modal:${guildId}:${field}:${interaction.message.id}`)
       .setTitle(isRole ? 'Set role by ID' : isCategory ? 'Set category by ID' : 'Set channel by ID')
       .addComponents(new ActionRowBuilder().addComponents(input));
 
