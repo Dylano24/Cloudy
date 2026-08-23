@@ -339,7 +339,7 @@ async function checkForNitradoUpdate(client) {
     if (previousLink === article.link) return true;
 
     const embed = new EmbedBuilder()
-      .setColor('#F28C28')
+      .setColor('#FFFFFF')
       .setAuthor({ name: 'NITRADO • OFFICIAL UPDATE' })
       .setTitle(article.title)
       .setURL(article.link)
@@ -351,8 +351,7 @@ async function checkForNitradoUpdate(client) {
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setLabel('Read Full Update')
-        .setEmoji('🛠️')
+        .setLabel('Read full patch notes')
         .setStyle(ButtonStyle.Link)
         .setURL(article.link)
     );
