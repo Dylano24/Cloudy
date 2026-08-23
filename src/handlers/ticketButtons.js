@@ -1,6 +1,15 @@
 import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
-import { createTicket, closeTicket, claimTicket, updateTicketPriority } from '../services/ticket.js';
+import {
+  createTicket,
+  closeTicket,
+  claimTicket,
+  updateTicketPriority,
+  toggleTicketPinned,
+  unclaimTicket,
+  reopenTicket,
+  deleteTicket,
+} from '../services/ticketReliabilityService.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { logger } from '../utils/logger.js';
@@ -15,7 +24,7 @@ function escapeHtml(text) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/\"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
 
@@ -115,16 +124,8 @@ const createTicketHandler = {
         return;
       }
 
-      const config = await getGuildConfig(client, interaction.guildId);
-      const maxTicketsPerUser = config.maxTicketsPerUser || 3;
-      
-      const { getUserTicketCount } = await import('../services/ticket.js');
-      const currentTicketCount = await getUserTicketCount(interaction.guildId, interaction.user.id);
-      
-      if (currentTicketCount >= maxTicketsPerUser) {
-        return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: `You have reached the maximum number of open tickets (${maxTicketsPerUser}).\n\nPlease close your existing tickets before creating a new one.\n\n**Current Tickets:** ${currentTicketCount}/${maxTicketsPerUser}` });
-      }
-      
+      // Open the form immediately. The authoritative max-ticket check happens
+      // inside the serialized createTicket reliability path on submit.
       const modal = new ModalBuilder()
         .setCustomId('create_ticket_modal')
         .setTitle('Create a Ticket');
@@ -308,75 +309,43 @@ const pinTicketHandler = {
       if (!deferSuccess) return;
 
       const channel = interaction.channel;
-      const category = channel.parent;
-
-      if (!category) {
+      if (!channel.parent) {
         await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'This ticket is not in a category.' });
         return;
       }
 
-      const hasPingEmoji = channel.name.startsWith('📌');
-      
-      if (hasPingEmoji) {
-        
-        const newName = channel.name.replace(/^📌\s*/, '');
-        await channel.edit({
-          name: newName,
-          position: 999 
-        });
+      const pinned = await toggleTicketPinned(channel);
 
-        await interaction.editReply({
-          embeds: [createEmbed({
-            title: '📌 Ticket Unpinned',
-            description: 'This ticket has been unpinned and moved back to normal position.',
-            color: 0x95A5A6
-          })],
-          flags: MessageFlags.Ephemeral
-        });
+      await interaction.editReply({
+        embeds: [createEmbed({
+          title: pinned ? '📌 Ticket Pinned' : '📌 Ticket Unpinned',
+          description: pinned
+            ? 'This ticket has been pinned to the top of the category.'
+            : 'This ticket has been unpinned and moved back to normal position.',
+          color: pinned ? 0x3498db : 0x95A5A6
+        })],
+        flags: MessageFlags.Ephemeral
+      });
 
-        logger.info('Ticket unpinned', {
-          guildId: interaction.guildId,
-          channelId: channel.id,
-          channelName: newName,
-          userId: interaction.user.id
-        });
-      } else {
-        
-        const pinnedName = `📌 ${channel.name}`;
-        await channel.edit({
-          name: pinnedName,
-          position: 0 
-        });
-
-        await interaction.editReply({
-          embeds: [createEmbed({
-            title: '📌 Ticket Pinned',
-            description: 'This ticket has been pinned to the top of the category.',
-            color: 0x3498db
-          })],
-          flags: MessageFlags.Ephemeral
-        });
-
-        logger.info('Ticket pinned', {
-          guildId: interaction.guildId,
-          channelId: channel.id,
-          channelName: pinnedName,
-          userId: interaction.user.id
-        });
-      }
+      logger.info(pinned ? 'Ticket pinned' : 'Ticket unpinned', {
+        guildId: interaction.guildId,
+        channelId: channel.id,
+        channelName: channel.name,
+        userId: interaction.user.id
+      });
 
       await logTicketEvent({
         client: interaction.client,
         guildId: interaction.guildId,
         event: {
-          type: hasPingEmoji ? 'unpin' : 'pin',
+          type: pinned ? 'pin' : 'unpin',
           ticketId: channel.id,
           ticketNumber: channel.name.replace(/[^0-9]/g, ''),
           userId: interaction.user.id,
           executorId: interaction.user.id,
           metadata: {
-            isPinned: !hasPingEmoji,
-            newChannelName: hasPingEmoji ? channel.name.replace(/^📌\s*/, '') : `📌 ${channel.name}`
+            isPinned: pinned,
+            newChannelName: channel.name
           }
         }
       });
@@ -403,7 +372,6 @@ const unclaimTicketHandler = {
       const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
       if (!deferSuccess) return;
       
-      const { unclaimTicket } = await import('../services/ticket.js');
       await unclaimTicket(interaction.channel, interaction.member);
       await interaction.editReply({ embeds: [successEmbed('Ticket Unclaimed', 'This ticket has been unclaimed.')] });
     } catch (error) {
@@ -428,7 +396,6 @@ const reopenTicketHandler = {
       const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
       if (!deferSuccess) return;
       
-      const { reopenTicket } = await import('../services/ticket.js');
       const { movedToOpenCategory, openCategoryMoveFailed } = await reopenTicket(interaction.channel, interaction.member);
       let reopenMessage = 'This ticket has been reopened.';
       if (openCategoryMoveFailed) {
@@ -457,7 +424,6 @@ const deleteTicketHandler = {
       const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
       if (!deferSuccess) return;
       
-      const { deleteTicket } = await import('../services/ticket.js');
       await deleteTicket(interaction.channel, interaction.member);
       await interaction.editReply({ embeds: [successEmbed('Ticket Deleted', 'This ticket will be deleted shortly.')] });
     } catch (error) {
