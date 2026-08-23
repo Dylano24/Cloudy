@@ -28,6 +28,7 @@ export function buildTicketPanelPayload(client, guildId, config = {}) {
   const panelMessage = typeof config.ticketPanelMessage === 'string' && config.ticketPanelMessage.trim()
     ? config.ticketPanelMessage
     : DEFAULT_TICKET_PANEL_MESSAGE;
+  const faqChannelId = String(config.ticketFaqChannelId || TICKET_FAQ_CHANNEL_ID);
 
   const embed = new EmbedBuilder()
     .setTitle('Contact the support')
@@ -43,7 +44,7 @@ export function buildTicketPanelPayload(client, guildId, config = {}) {
     new ButtonBuilder()
       .setLabel('❔FAQ')
       .setStyle(ButtonStyle.Link)
-      .setURL(`https://discord.com/channels/${resolvedGuildId}/${TICKET_FAQ_CHANNEL_ID}`),
+      .setURL(`https://discord.com/channels/${resolvedGuildId}/${faqChannelId}`),
   );
 
   return {
