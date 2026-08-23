@@ -1,3 +1,5 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ActionRowBuilder,
   EmbedBuilder,
@@ -8,21 +10,38 @@ import {
   TextInputStyle,
 } from 'discord.js';
 
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+
 export const STAFF_REVIEWS_CHANNEL_ID = '1533965979682476082';
 export const COMMUNITY_REVIEWS_CHANNEL_ID = '1540625438601379961';
 export const STAFF_REVIEW_MEMBER_ID = 'staff_review_member';
 export const STAFF_REVIEW_RATING_ID = 'staff_review_rating';
 export const STAFF_REVIEW_MODAL_ID = 'staff_review_modal';
 export const STAFF_REVIEW_LOGO_NAME = 'cloudy-c-logo.png';
-export const STAFF_REVIEW_LOGO_PATH = 'assets/cloudy-c-logo.png';
+export const STAFF_REVIEW_LOGO_PATH = join(MODULE_DIR, '../../assets/cloudy-c-logo.png');
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const OWNER_ROLE_NAME = 'owner';
+const PENDING_REVIEW_TTL_MS = 15 * 60 * 1000;
 
 const pendingReviews = new Map();
 
-function buildRatingMenu(disabled = false) {
+/** Return a pending review only while it is still fresh. */
+function readPendingReview(userId) {
+  const entry = pendingReviews.get(userId);
+  if (!entry) return null;
+
+  if (Date.now() - entry.updatedAt > PENDING_REVIEW_TTL_MS) {
+    pendingReviews.delete(userId);
+    return null;
+  }
+
+  return entry;
+}
+
+/** Build the star selector, optionally bound to one reviewed member. */
+function buildRatingMenu(disabled = false, memberId = '') {
   return new StringSelectMenuBuilder()
-    .setCustomId(STAFF_REVIEW_RATING_ID)
+    .setCustomId(memberId ? `${STAFF_REVIEW_RATING_ID}:${memberId}` : STAFF_REVIEW_RATING_ID)
     .setPlaceholder('Choose your rating')
     .setDisabled(disabled)
     .addOptions(
@@ -34,6 +53,7 @@ function buildRatingMenu(disabled = false) {
     );
 }
 
+/** Build the public Owner-member selector. */
 function buildMemberMenu(ownerMembers = []) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(STAFF_REVIEW_MEMBER_ID)
@@ -67,6 +87,7 @@ function buildMemberMenu(ownerMembers = []) {
   return menu;
 }
 
+/** Build the persistent staff-review panel shown in the staff reviews channel. */
 export function buildStaffReviewsPanel(ownerMembers = []) {
   const embed = new EmbedBuilder()
     .setColor(0xFFFFFF)
@@ -87,34 +108,42 @@ export function buildStaffReviewsPanel(ownerMembers = []) {
   };
 }
 
+/** Build the private rating step for the member selected by this reviewer. */
 export function buildRatingPrompt(memberId) {
   return {
     content: `Now choose your rating for <@${memberId}>.`,
-    components: [new ActionRowBuilder().addComponents(buildRatingMenu(false))],
+    components: [new ActionRowBuilder().addComponents(buildRatingMenu(false, memberId))],
     allowedMentions: { parse: [] },
   };
 }
 
+/** Start or replace a review context for one reviewer. */
 export function rememberReviewMember(userId, memberId) {
-  const current = pendingReviews.get(userId) || {};
-  pendingReviews.set(userId, { ...current, memberId, rating: null });
+  pendingReviews.set(userId, {
+    memberId,
+    rating: null,
+    updatedAt: Date.now(),
+  });
 }
 
-export function getReviewMember(userId) {
-  return pendingReviews.get(userId)?.memberId || null;
-}
-
+/** Store the selected rating in the current review context. */
 export function rememberRating(userId, rating) {
-  const current = pendingReviews.get(userId) || {};
-  pendingReviews.set(userId, { ...current, rating: Number(rating) });
+  const current = readPendingReview(userId) || {};
+  pendingReviews.set(userId, {
+    ...current,
+    rating: Number(rating),
+    updatedAt: Date.now(),
+  });
 }
 
+/** Consume and clear a review context when the modal is submitted. */
 export function takeReviewContext(userId) {
-  const context = pendingReviews.get(userId) || null;
+  const context = readPendingReview(userId);
   pendingReviews.delete(userId);
   return context;
 }
 
+/** Build the modal used to collect the written staff review. */
 export function buildStaffReviewModal() {
   const comment = new TextInputBuilder()
     .setCustomId('staff_review_comment')
@@ -131,6 +160,7 @@ export function buildStaffReviewModal() {
     .addComponents(new ActionRowBuilder().addComponents(comment));
 }
 
+/** Resolve the guild role whose name is exactly Owner, case-insensitively. */
 async function getOwnerRole(guild) {
   if (!guild) return null;
 
@@ -143,6 +173,7 @@ async function getOwnerRole(guild) {
   return ownerRole;
 }
 
+/** Return selectable, non-bot guild members who currently have the Owner role. */
 export async function getOwnerMembers(guild) {
   const ownerRole = await getOwnerRole(guild);
   if (!ownerRole || !guild?.members) return [];
@@ -155,6 +186,7 @@ export async function getOwnerMembers(guild) {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
+/** Confirm that the selected review target still exists and still has Owner. */
 export async function isOwnerReviewTarget(guild, memberId) {
   if (!guild || !memberId) return false;
 
