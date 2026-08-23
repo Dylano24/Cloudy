@@ -3,8 +3,9 @@ import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
-
+import { buildCloseButtonRow } from '../../utils/closableResponse.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+
 export default {
     data: new SlashCommandBuilder()
     .setName("roll")
@@ -77,7 +78,10 @@ export default {
       `${resultsDetail}**Total Roll:** ${totalRoll}${modifierText} = **${finalTotal}**`,
     );
 
-    await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+    await InteractionHelper.safeEditReply(interaction, {
+      embeds: [embed],
+      components: [buildCloseButtonRow(interaction.user.id)],
+    });
     logger.debug(`Roll command executed by user ${interaction.user.id} with notation ${notation} in guild ${interaction.guildId}`);
   },
 };
