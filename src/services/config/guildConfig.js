@@ -26,8 +26,13 @@ function normalizeCloudyGuildConfig(config) {
     normalized.dmOnClose = false;
 
     // Dashboard and slash-command validation both support 1-10 simultaneous
-    // open tickets. Keep persisted/stale values inside the exact same range.
-    const configuredTicketLimit = Number(normalized.maxTicketsPerUser);
+    // open tickets. Keep persisted/stale values inside the exact same range,
+    // while rejecting values that Number() would otherwise coerce unexpectedly.
+    const rawTicketLimit = normalized.maxTicketsPerUser;
+    const hasValidTicketLimitType =
+        typeof rawTicketLimit === 'number'
+        || (typeof rawTicketLimit === 'string' && rawTicketLimit.trim().length > 0);
+    const configuredTicketLimit = hasValidTicketLimitType ? Number(rawTicketLimit) : Number.NaN;
     normalized.maxTicketsPerUser = Number.isFinite(configuredTicketLimit)
         ? Math.min(10, Math.max(1, Math.trunc(configuredTicketLimit)))
         : 3;
