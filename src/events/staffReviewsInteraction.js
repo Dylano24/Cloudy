@@ -1,4 +1,4 @@
-import { Events, MessageFlags } from 'discord.js';
+import { Events, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import {
   COMMUNITY_REVIEWS_CHANNEL_ID,
   STAFF_REVIEW_MODAL_ID,
@@ -16,6 +16,9 @@ export default {
   name: Events.InteractionCreate,
   once: false,
 
+  /**
+   * Handle staff-review rating selections and publish submitted modal reviews.
+   */
   async execute(interaction) {
     if (interaction.isStringSelectMenu?.() && interaction.customId === STAFF_REVIEW_RATING_ID) {
       const rating = Number(interaction.values?.[0]);
@@ -40,11 +43,14 @@ export default {
     const comment = interaction.fields.getTextInputValue('staff_review_comment')?.trim();
     if (!comment) return;
 
+    // Acknowledge the modal immediately so Discord's three-second interaction deadline
+    // cannot expire while we fetch the channel/roles and publish the review.
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+
     const channel = await interaction.client.channels.fetch(COMMUNITY_REVIEWS_CHANNEL_ID).catch(() => null);
     if (!channel?.isSendable?.()) {
-      await interaction.reply({
+      await interaction.editReply({
         content: 'The community reviews channel is currently unavailable.',
-        flags: MessageFlags.Ephemeral,
       }).catch(() => {});
       return;
     }
@@ -55,25 +61,42 @@ export default {
       staffRole = roles?.find(role => role.name.toLowerCase() === 'staff') || null;
     }
 
+    const botMember = interaction.guild?.members?.me || null;
+    const canPingStaff = Boolean(
+      staffRole
+      && (
+        staffRole.mentionable
+        || channel.permissionsFor?.(botMember)?.has(PermissionFlagsBits.MentionEveryone)
+      ),
+    );
+
     const publishedMessage = await channel.send({
-      content: staffRole ? `<@&${staffRole.id}>` : undefined,
+      content: canPingStaff ? `<@&${staffRole.id}>` : undefined,
       embeds: [buildPublishedReview(interaction, rating, comment, staffRole)],
-      allowedMentions: staffRole ? { roles: [staffRole.id] } : { parse: [] },
-    });
+      allowedMentions: canPingStaff ? { roles: [staffRole.id] } : { parse: [] },
+    }).catch(() => null);
+
+    if (!publishedMessage) {
+      await interaction.editReply({
+        content: 'The staff review could not be published right now. Please try again.',
+      }).catch(() => {});
+      return;
+    }
 
     // Discord only notifies a role when the role mention exists in normal message content.
     // Keep that real ping briefly, then hide it; the embed itself keeps the clickable role
     // mention plus the visual star rating on the same line.
-    if (staffRole) {
+    if (canPingStaff) {
       const hidePingTimer = setTimeout(() => {
         void publishedMessage.edit({ content: null, allowedMentions: { parse: [] } }).catch(() => {});
       }, STAFF_PING_VISIBLE_MS);
       hidePingTimer.unref?.();
     }
 
-    await interaction.reply({
-      content: 'Your staff review has been published. Thank you!',
-      flags: MessageFlags.Ephemeral,
+    await interaction.editReply({
+      content: canPingStaff
+        ? 'Your staff review has been published. Thank you!'
+        : 'Your staff review has been published. Staff could not be pinged because the bot cannot mention that role.',
     }).catch(() => {});
 
     const timer = setTimeout(async () => {
