@@ -112,6 +112,7 @@ function normalizeCommand(value) {
     'application_id',
     'guild_id',
     'version',
+    'type',
     'dm_permission',
     'integration_types',
     'contexts',
