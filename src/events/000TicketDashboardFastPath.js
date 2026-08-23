@@ -3,14 +3,22 @@ import { getGuildConfig } from '../services/config/guildConfig.js';
 import { buildTicketDashboardPayload } from '../services/ticketDashboardViewService.js';
 import { logger } from '../utils/logger.js';
 
-const DASHBOARD_TIMEOUT_MS = 5000;
+const DASHBOARD_CONFIG_TIMEOUT_MS = 5000;
 
-function withTimeout(promise, timeoutMs, label) {
+/**
+ * Bound a side-effect-free configuration read so the dashboard can fail visibly
+ * instead of waiting forever. The underlying read may finish later, but it does
+ * not mutate the Discord interaction.
+ */
+function withConfigReadTimeout(promise, timeoutMs = DASHBOARD_CONFIG_TIMEOUT_MS) {
   let timer;
   return Promise.race([
     Promise.resolve(promise),
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      timer = setTimeout(
+        () => reject(new Error(`Ticket dashboard configuration load timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
       timer.unref?.();
     }),
   ]).finally(() => {
@@ -22,6 +30,10 @@ export default {
   name: Events.InteractionCreate,
   once: false,
 
+  /**
+   * Acknowledge and render /ticket dashboard before the general command router
+   * performs slower policy/configuration checks.
+   */
   async execute(interaction, client) {
     if (!interaction.isChatInputCommand?.()) return;
     if (interaction.commandName !== 'ticket') return;
@@ -35,15 +47,10 @@ export default {
 
     if (subcommand !== 'dashboard') return;
 
-    // The normal command router performs several async checks before the ticket
-    // command itself gets a chance to acknowledge Discord. If any dependency is
-    // slow, Discord leaves the admin staring at "Cloudy Manager is thinking".
-    // Handle dashboard opening immediately and mark the interaction so the
-    // regular ticket command does not render it a second time later.
     interaction.__ticketDashboardFastPathHandled = true;
 
     try {
-      if (!interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels)) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) {
         if (!interaction.replied && !interaction.deferred) {
           await interaction.reply({
             content: 'You need the `Manage Channels` permission to change ticket-system settings.',
@@ -57,17 +64,13 @@ export default {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       }
 
-      const config = await withTimeout(
+      const config = await withConfigReadTimeout(
         getGuildConfig(client, interaction.guildId),
-        DASHBOARD_TIMEOUT_MS,
-        'Ticket dashboard configuration load',
       );
 
-      await withTimeout(
-        interaction.editReply(buildTicketDashboardPayload(interaction.guild, config || {})),
-        DASHBOARD_TIMEOUT_MS,
-        'Ticket dashboard Discord response',
-      );
+      // Do not race Discord writes against a timer. A timed-out REST write cannot
+      // be cancelled and could otherwise complete after the fallback and replace it.
+      await interaction.editReply(buildTicketDashboardPayload(interaction.guild, config || {}));
 
       logger.info('Ticket dashboard fast path rendered', {
         guildId: interaction.guildId,
@@ -82,7 +85,7 @@ export default {
       });
 
       const payload = {
-        content: `The ticket dashboard could not load: ${String(error?.message || error).slice(0, 500)}`,
+        content: 'The ticket dashboard could not load. Please try again. If it keeps failing, contact support.',
         embeds: [],
         components: [],
       };
