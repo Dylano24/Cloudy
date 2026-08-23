@@ -34,7 +34,7 @@ export default {
     const [guildId, field] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
 
-    if (!interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels)) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) {
       await InteractionHelper.safeReply(interaction, {
         content: 'You need the `Manage Channels` permission to change ticket-system settings.',
         flags: MessageFlags.Ephemeral,
@@ -50,8 +50,19 @@ export default {
       return;
     }
 
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
+    try {
+      await interaction.reply({
+        content: 'Saving ticket setting…',
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (error) {
+      logger.error('Manual ticket dashboard modal could not be acknowledged', {
+        guildId,
+        field,
+        error: error.message,
+      });
+      return;
+    }
 
     try {
       const rawValue = interaction.fields.getTextInputValue('value');
