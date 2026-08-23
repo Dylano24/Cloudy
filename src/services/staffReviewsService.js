@@ -20,18 +20,17 @@ export const STAFF_REVIEW_RATING_ID = 'staff_review_rating';
 export const STAFF_REVIEW_MODAL_ID = 'staff_review_modal';
 export const STAFF_REVIEW_LOGO_NAME = 'cloudy-c-logo.png';
 export const STAFF_REVIEW_LOGO_PATH = join(MODULE_DIR, '../../assets/cloudy-c-logo.png');
+const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const OWNER_ROLE_NAME = 'owner';
 const PENDING_REVIEW_TTL_MS = 15 * 60 * 1000;
 
 const pendingReviews = new Map();
 
-/** Build the storage key for one reviewer's unique review flow. */
 function reviewContextKey(userId, reviewId) {
   return `${userId}:${reviewId}`;
 }
 
-/** Remove abandoned review flows after their TTL. */
 function pruneExpiredReviews() {
   const now = Date.now();
   for (const [key, entry] of pendingReviews) {
@@ -41,7 +40,6 @@ function pruneExpiredReviews() {
   }
 }
 
-/** Build the star selector, optionally bound to one reviewed member. */
 function buildRatingMenu(disabled = false, memberId = '') {
   return new StringSelectMenuBuilder()
     .setCustomId(memberId ? `${STAFF_REVIEW_RATING_ID}:${memberId}` : STAFF_REVIEW_RATING_ID)
@@ -56,7 +54,6 @@ function buildRatingMenu(disabled = false, memberId = '') {
     );
 }
 
-/** Build the public Owner-member selector. */
 function buildMemberMenu(ownerMembers = []) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(STAFF_REVIEW_MEMBER_ID)
@@ -90,7 +87,6 @@ function buildMemberMenu(ownerMembers = []) {
   return menu;
 }
 
-/** Build the persistent staff-review panel shown in the staff reviews channel. */
 export function buildStaffReviewsPanel(ownerMembers = []) {
   const embed = new EmbedBuilder()
     .setColor(0xFFFFFF)
@@ -111,7 +107,6 @@ export function buildStaffReviewsPanel(ownerMembers = []) {
   };
 }
 
-/** Build the private rating step for the member selected by this reviewer. */
 export function buildRatingPrompt(memberId) {
   return {
     content: `Now choose your rating for <@${memberId}>.`,
@@ -120,7 +115,6 @@ export function buildRatingPrompt(memberId) {
   };
 }
 
-/** Store one completed member/rating choice and return its unique review ID. */
 export function createReviewContext(userId, memberId, rating) {
   pruneExpiredReviews();
   const reviewId = randomUUID();
@@ -132,7 +126,6 @@ export function createReviewContext(userId, memberId, rating) {
   return reviewId;
 }
 
-/** Consume exactly the review context referenced by this modal submission. */
 export function takeReviewContext(userId, reviewId) {
   pruneExpiredReviews();
   const key = reviewContextKey(userId, reviewId);
@@ -141,7 +134,6 @@ export function takeReviewContext(userId, reviewId) {
   return context;
 }
 
-/** Build the modal used to collect the written staff review. */
 export function buildStaffReviewModal(reviewId) {
   const comment = new TextInputBuilder()
     .setCustomId('staff_review_comment')
@@ -158,7 +150,6 @@ export function buildStaffReviewModal(reviewId) {
     .addComponents(new ActionRowBuilder().addComponents(comment));
 }
 
-/** Resolve the guild role whose name is exactly Owner, case-insensitively. */
 async function getOwnerRole(guild) {
   if (!guild) return null;
 
@@ -171,7 +162,6 @@ async function getOwnerRole(guild) {
   return ownerRole;
 }
 
-/** Return selectable, non-bot guild members who currently have the Owner role. */
 export async function getOwnerMembers(guild) {
   const ownerRole = await getOwnerRole(guild);
   if (!ownerRole || !guild?.members) return [];
@@ -184,7 +174,6 @@ export async function getOwnerMembers(guild) {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-/** Confirm from a forced Discord fetch that the target still has the Owner role. */
 export async function isOwnerReviewTarget(guild, memberId) {
   if (!guild || !memberId) return false;
 
@@ -195,11 +184,6 @@ export async function isOwnerReviewTarget(guild, memberId) {
   return Boolean(member && !member.user?.bot && member.roles?.cache?.has(ownerRole.id));
 }
 
-/**
- * Build the published review exactly as displayed in the community channel:
- * Staff review title, reviewed member, yellow stars, written comment, and the
- * existing Cloudy footer. The Cloudy C is attached as the top-right thumbnail.
- */
 export function buildPublishedReview(interaction, rating, comment, memberId) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
   const stars = '⭐'.repeat(normalizedRating);
@@ -218,8 +202,12 @@ export function buildPublishedReview(interaction, rating, comment, memberId) {
       iconURL: interaction.user.displayAvatarURL(),
     })
     .setTitle('Staff review')
-    .setThumbnail(`attachment://${STAFF_REVIEW_LOGO_NAME}`)
-    .setDescription(`<@${memberId}>\n${stars}\n${comment}`)
+    .setThumbnail(CLOUDY_C_LOGO_URL)
+    .setDescription(
+      `**Staff member**\n<@${memberId}>\n\n`
+      + `**Rating**\n${stars}\n\n`
+      + `**Review**\n${comment}`,
+    )
     .setFooter({ text: FOOTER })
     .setTimestamp();
 }
