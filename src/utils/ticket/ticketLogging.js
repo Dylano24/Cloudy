@@ -22,6 +22,22 @@ function getMissingPermissions(channel, botMember, { attachments = false } = {})
   return required.filter(([permission]) => !permissions.has(permission)).map(([, label]) => label);
 }
 
+async function resolveTicketMemberAuthor(guild, event) {
+  if (!event?.userId) return null;
+
+  const member = guild.members.cache.get(event.userId)
+    || await guild.members.fetch(event.userId).catch(() => null);
+  const user = member?.user
+    || await guild.client.users.fetch(event.userId).catch(() => null);
+
+  if (!user) return null;
+
+  return {
+    name: member?.displayName || user.globalName || user.username || user.tag || `User ${event.userId}`,
+    iconURL: user.displayAvatarURL({ extension: 'png', size: 64 }),
+  };
+}
+
 export async function logTicketEvent({ client, guildId, event }) {
   try {
     const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
@@ -118,7 +134,8 @@ async function createTicketLogEmbed(guild, event) {
       if (event.reason) fields.push({ name:'Details',value:String(event.reason).slice(0,1024),inline:false });
   }
   const titlePrefix = event.type === 'feedback' ? '⭐ ' : '';
-  const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author:null,footer });
+  const author = await resolveTicketMemberAuthor(guild, event);
+  const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author,footer });
   embed.setFooter({ text: CLOUDY_FOOTER });
   embed.setThumbnail(CLOUDY_C_LOGO_URL);
   return embed;
