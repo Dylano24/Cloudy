@@ -3,27 +3,29 @@ import {
   repostTicketPanel,
   updateLiveTicketPanel,
 } from '../../../services/ticketDashboardService.js';
-import { getGuildConfig, updateGuildConfig } from '../../../services/config/guildConfig.js';
-import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
+import { updateGuildConfig } from '../../../services/config/guildConfig.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
 const ALLOWED_TEXT_FIELDS = new Set(['ticketPanelMessage', 'ticketButtonLabel']);
-const FAST_CONFIG_TIMEOUT_MS = 350;
 
-async function getConfigForInstantRender(client, guildId) {
-  let timer;
-  try {
-    return await Promise.race([
-      getGuildConfig(client, guildId),
-      new Promise(resolve => {
-        timer = setTimeout(() => resolve(null), FAST_CONFIG_TIMEOUT_MS);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
+function buildInstantSourceUpdate(interaction, field, rawValue) {
+  const embeds = interaction.message?.embeds?.map(embed => embed.toJSON()) || [];
+  const components = interaction.message?.components?.map(row => row.toJSON()) || [];
+
+  if (field === 'ticketButtonLabel' && embeds[0]?.fields) {
+    embeds[0].fields = embeds[0].fields.map(item => (
+      item.name === 'Button Label'
+        ? { ...item, value: `\`${rawValue}\`` }
+        : item
+    ));
   }
+
+  return {
+    content: interaction.message?.content || '',
+    embeds,
+    components,
+  };
 }
 
 async function ensureLivePanel(client, guild, config) {
@@ -59,9 +61,6 @@ async function persistTextSetting(client, interaction, guildId, field, rawValue)
       stack: error.stack,
     });
 
-    // The dashboard was optimistically updated so the UI never blocks. If the
-    // persistent write fails, surface a separate error without replacing the
-    // dashboard itself.
     await interaction.followUp({
       content: error?.userMessage || 'Could not save that ticket setting permanently. Please try again.',
       flags: MessageFlags.Ephemeral,
@@ -103,27 +102,11 @@ export default {
     }
 
     try {
-      // This modal was opened from the ephemeral dashboard message. Discord
-      // allows a modal submit from a message component to update that source
-      // message directly. This is the only reliable way to refresh an ephemeral
-      // dashboard; channel.messages.fetch() cannot retrieve ephemeral messages.
-      const currentConfig = await getConfigForInstantRender(client, guildId);
-
-      if (currentConfig && interaction.isFromMessage?.()) {
-        const optimisticConfig = {
-          ...currentConfig,
-          [field]: rawValue,
-          dmOnClose: false,
-        };
-
-        // Acknowledge + redraw in one callback. No "Saving ticket setting..."
-        // message and no waiting for PostgreSQL or the public ticket panel.
-        await interaction.update(
-          buildTicketDashboardPayload(interaction.guild, optimisticConfig),
-        );
+      // Acknowledge the modal immediately using only data Discord already sent
+      // with the interaction. No config/database read is allowed before this.
+      if (interaction.isFromMessage?.()) {
+        await interaction.update(buildInstantSourceUpdate(interaction, field, rawValue));
       } else {
-        // Rare fallback: acknowledge instantly without creating a second loading
-        // message. The next dashboard open will read the persisted config.
         await interaction.deferUpdate();
       }
     } catch (error) {
@@ -138,8 +121,7 @@ export default {
       }
     }
 
-    // Persistence and live panel synchronization happen after Discord has
-    // already updated the administrator's dashboard.
+    // PostgreSQL + live panel synchronization never block the UI.
     void persistTextSetting(client, interaction, guildId, field, rawValue);
   },
 };
