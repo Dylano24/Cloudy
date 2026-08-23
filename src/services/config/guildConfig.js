@@ -7,7 +7,11 @@ import { createError, ErrorTypes, wrapServiceBoundary } from '../../utils/errorH
 
 export { GUILD_CONFIG_DEFAULTS };
 
-const CONFIG_CACHE_TTL_MS = 15_000;
+// Keep active guild settings hot for dashboard/admin interactions. The service
+// runs one production replica, and every successful write refreshes this cache,
+// so repeatedly re-reading PostgreSQL during one dashboard session only adds
+// avoidable latency.
+const CONFIG_CACHE_TTL_MS = 5 * 60_000;
 const guildConfigCache = new Map();
 const guildWriteQueues = new Map();
 
@@ -20,14 +24,8 @@ function cloneConfig(value) {
 function normalizeCloudyGuildConfig(config) {
     const normalized = normalizeGuildConfig(config, GUILD_CONFIG_DEFAULTS);
 
-    // Ticket-close DMs are intentionally disabled for Cloudy. Keeping this at
-    // the config boundary makes every close path consistent, including older
-    // handlers that still read dmOnClose from guild configuration.
     normalized.dmOnClose = false;
 
-    // Dashboard and slash-command validation both support 1-10 simultaneous
-    // open tickets. Keep persisted/stale values inside the exact same range,
-    // while rejecting values that Number() would otherwise coerce unexpectedly.
     const rawTicketLimit = normalized.maxTicketsPerUser;
     const hasValidTicketLimitType =
         typeof rawTicketLimit === 'number'
@@ -58,6 +56,10 @@ function getCachedGuildConfig(guildId) {
         return null;
     }
     return cloneConfig(cached.value);
+}
+
+export function peekGuildConfigCache(guildId) {
+    return getCachedGuildConfig(guildId);
 }
 
 function enqueueGuildWrite(guildId, operation) {
@@ -110,9 +112,10 @@ export const setGuildConfig = wrapServiceBoundary(async function setGuildConfig(
 
 export const updateGuildConfig = wrapServiceBoundary(async function updateGuildConfig(client, guildId, updates, context = {}) {
     return await enqueueGuildWrite(guildId, async () => {
-        // Always read the latest persistent value inside the per-guild queue.
-        // This prevents two fast dashboard changes from overwriting each other.
-        const currentConfig = await readLatestGuildConfig(client, guildId, context);
+        // Writes are serialized per guild. Reuse the hot config when available
+        // instead of doing a PostgreSQL read before every PostgreSQL write.
+        const currentConfig = getCachedGuildConfig(guildId)
+            || await readLatestGuildConfig(client, guildId, context);
         const merged = { ...currentConfig, ...updates };
         const normalized = normalizeCloudyGuildConfig(merged);
         const saved = await writeGuildConfig(client, guildId, normalized, context);
@@ -145,9 +148,6 @@ export const setConfigValue = wrapServiceBoundary(async function setConfigValue(
     userMessage: 'Failed to update a server setting. Please try again.',
 });
 
-/**
- * Merge partial updates into a nested config object (e.g. verification, logging).
- */
 export const patchGuildConfig = wrapServiceBoundary(async function patchGuildConfig(client, guildId, patch, context = {}) {
     if (!patch || typeof patch !== 'object') {
         throw createError(
@@ -159,7 +159,8 @@ export const patchGuildConfig = wrapServiceBoundary(async function patchGuildCon
     }
 
     return await enqueueGuildWrite(guildId, async () => {
-        const currentConfig = await readLatestGuildConfig(client, guildId, context);
+        const currentConfig = getCachedGuildConfig(guildId)
+            || await readLatestGuildConfig(client, guildId, context);
         const merged = deepMergeGuildConfig(currentConfig, patch);
         const normalized = normalizeCloudyGuildConfig(merged);
         validateGuildConfigOrThrow(normalized, { guildId, ...context });
