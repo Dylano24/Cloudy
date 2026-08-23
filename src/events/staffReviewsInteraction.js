@@ -50,6 +50,18 @@ function clearSelectedOwner(interaction) {
   selectedOwners.delete(selectionKey(interaction));
 }
 
+function buildSelectedOwnerRow(interaction, memberId) {
+  const existingMemberMenu = interaction.message?.components?.[0]?.components?.[0];
+  if (!existingMemberMenu) return null;
+
+  const memberMenu = StringSelectMenuBuilder.from(existingMemberMenu);
+  for (const option of memberMenu.options) {
+    option.setDefault(option.data?.value === memberId);
+  }
+
+  return new ActionRowBuilder().addComponents(memberMenu);
+}
+
 function buildEnabledRatingRow(interaction) {
   const existingRating = interaction.message?.components?.[1]?.components?.[0];
   if (!existingRating) return null;
@@ -86,20 +98,18 @@ export default {
 
       rememberSelectedOwner(interaction, memberId);
 
+      const selectedOwnerRow = buildSelectedOwnerRow(interaction, memberId);
       const enabledRatingRow = buildEnabledRatingRow(interaction);
-      if (!enabledRatingRow) {
+      if (!selectedOwnerRow || !enabledRatingRow) {
         await interaction.reply({
-          content: 'The rating selector could not be enabled. Please try again.',
+          content: 'The review selectors could not be updated. Please try again.',
           flags: MessageFlags.Ephemeral,
         }).catch(() => {});
         return;
       }
 
       await interaction.update({
-        components: [
-          interaction.message.components[0],
-          enabledRatingRow,
-        ],
+        components: [selectedOwnerRow, enabledRatingRow],
       }).catch(() => {});
       return;
     }
