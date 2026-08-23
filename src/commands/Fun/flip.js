@@ -3,8 +3,9 @@ import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
-
+import { buildCloseButtonRow } from '../../utils/closableResponse.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+
 export default {
     data: new SlashCommandBuilder()
     .setName("flip")
@@ -21,7 +22,10 @@ export default {
       `The coin landed on... **${result}** ${emoji}!`,
     );
 
-    await InteractionHelper.safeReply(interaction, { embeds: [embed] });
+    await InteractionHelper.safeReply(interaction, {
+      embeds: [embed],
+      components: [buildCloseButtonRow(interaction.user.id)],
+    });
     logger.debug(`Flip command executed by user ${interaction.user.id} in guild ${interaction.guildId}`);
   },
 };
