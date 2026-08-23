@@ -72,7 +72,10 @@ export function buildStaffReviewModal() {
 
 export function buildPublishedReview(interaction, rating, comment, staffRole = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  const stars = '⭐'.repeat(normalizedRating);
+  // Discord mobile can mis-render Unicode emoji placed directly after a resolved role mention.
+  // Force emoji presentation and separate the mention/emoji runs with zero-width spaces while
+  // keeping the result visually identical: @Staff ⭐⭐⭐⭐⭐.
+  const stars = Array.from({ length: normalizedRating }, () => '⭐️').join('\u200B');
   const staffMention = staffRole ? `<@&${staffRole.id}>` : 'Staff';
   const ratingColors = {
     1: 0xED4245,
@@ -88,7 +91,7 @@ export function buildPublishedReview(interaction, rating, comment, staffRole = n
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
-    .setDescription(`${staffMention} ${stars}\n\n${comment}`)
+    .setDescription(`${staffMention}\u200B ${stars}\n\n${comment}`)
     .addFields({ name: 'Rating', value: `${normalizedRating}/5`, inline: false })
     .setFooter({ text: FOOTER })
     .setTimestamp();
