@@ -9,9 +9,8 @@ import {
   buildPublishedReview,
   buildRatingPrompt,
   buildStaffReviewModal,
+  createReviewContext,
   isOwnerReviewTarget,
-  rememberRating,
-  rememberReviewMember,
   takeReviewContext,
 } from '../services/staffReviewsService.js';
 
@@ -62,18 +61,21 @@ export default {
       const rating = Number(interaction.values?.[0]);
       if (!rating || rating < 1 || rating > 5) return;
 
-      rememberReviewMember(interaction.user.id, memberId);
-      rememberRating(interaction.user.id, rating);
-      await interaction.showModal(buildStaffReviewModal());
+      const reviewId = createReviewContext(interaction.user.id, memberId, rating);
+      await interaction.showModal(buildStaffReviewModal(reviewId));
       return;
     }
 
-    if (!interaction.isModalSubmit?.() || interaction.customId !== STAFF_REVIEW_MODAL_ID) return;
+    const modalPrefix = `${STAFF_REVIEW_MODAL_ID}:`;
+    if (!interaction.isModalSubmit?.() || !interaction.customId.startsWith(modalPrefix)) return;
 
-    const reviewContext = takeReviewContext(interaction.user.id);
+    const reviewId = interaction.customId.slice(modalPrefix.length);
+    if (!reviewId) return;
+
+    const reviewContext = takeReviewContext(interaction.user.id, reviewId);
     if (!reviewContext?.memberId || !reviewContext?.rating) {
       await interaction.reply({
-        content: 'Please choose the staff member and star rating again before submitting a review.',
+        content: 'This review session expired. Please choose the staff member and star rating again.',
         flags: MessageFlags.Ephemeral,
       }).catch(() => {});
       return;
