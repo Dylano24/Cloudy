@@ -134,7 +134,17 @@ export function takeReviewContext(userId, reviewId) {
   return context;
 }
 
-export function buildStaffReviewModal(reviewId) {
+export function buildStaffReviewModal(memberOrReviewId, rating = null) {
+  const normalizedRating = Number(rating);
+  const hasEmbeddedContext = /^\d{16,22}$/.test(String(memberOrReviewId || ''))
+    && Number.isInteger(normalizedRating)
+    && normalizedRating >= 1
+    && normalizedRating <= 5;
+
+  const customId = hasEmbeddedContext
+    ? `${STAFF_REVIEW_MODAL_ID}:${memberOrReviewId}:${normalizedRating}`
+    : `${STAFF_REVIEW_MODAL_ID}:${memberOrReviewId}`;
+
   const comment = new TextInputBuilder()
     .setCustomId('staff_review_comment')
     .setLabel('Tell us about your experience')
@@ -145,7 +155,7 @@ export function buildStaffReviewModal(reviewId) {
     .setRequired(true);
 
   return new ModalBuilder()
-    .setCustomId(`${STAFF_REVIEW_MODAL_ID}:${reviewId}`)
+    .setCustomId(customId)
     .setTitle('Staff review')
     .addComponents(new ActionRowBuilder().addComponents(comment));
 }
@@ -203,7 +213,7 @@ export function buildPublishedReview(interaction, rating, comment, memberId) {
     })
     .setThumbnail(CLOUDY_C_LOGO_URL)
     .setDescription(
-      `**Staff review**\n<@${memberId}>\n${stars}\n\n`
+      `**Staff review**\n<@${memberId}>\n\n${stars}\n\n`
       + `**Review**\n${comment}`,
     )
     .setFooter({ text: FOOTER })
