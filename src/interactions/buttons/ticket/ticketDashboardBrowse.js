@@ -33,7 +33,7 @@ const MANUAL_FIELDS = new Set([
 ]);
 
 function canManageTickets(interaction) {
-  return Boolean(interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels));
+  return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels));
 }
 
 async function rejectUnauthorized(interaction) {
