@@ -6,8 +6,6 @@ import {
 } from 'discord.js';
 import {
   COMMUNITY_REVIEWS_CHANNEL_ID,
-  STAFF_REVIEW_LOGO_NAME,
-  STAFF_REVIEW_LOGO_PATH,
   STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_MODAL_ID,
   STAFF_REVIEW_RATING_ID,
@@ -184,10 +182,6 @@ export default {
         comment,
         reviewContext.memberId,
       )],
-      files: [{
-        attachment: STAFF_REVIEW_LOGO_PATH,
-        name: STAFF_REVIEW_LOGO_NAME,
-      }],
       allowedMentions: { parse: [] },
     }).catch(() => null);
 
