@@ -25,10 +25,13 @@ function resolveGuildId(client, guildId = null) {
 
 export function buildTicketPanelPayload(client, guildId, config = {}) {
   const resolvedGuildId = resolveGuildId(client, guildId);
+  const panelMessage = typeof config.ticketPanelMessage === 'string' && config.ticketPanelMessage.trim()
+    ? config.ticketPanelMessage
+    : DEFAULT_TICKET_PANEL_MESSAGE;
 
   const embed = new EmbedBuilder()
     .setTitle('Contact the support')
-    .setDescription(DEFAULT_TICKET_PANEL_MESSAGE)
+    .setDescription(panelMessage)
     .setColor('#FFFFFF');
 
   const row = new ActionRowBuilder().addComponents(
