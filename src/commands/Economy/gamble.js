@@ -4,6 +4,7 @@ import { getEconomyData, setEconomyData } from '../../utils/economy.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { buildCloseButtonRow } from '../../utils/closableResponse.js';
 
 const BASE_WIN_CHANCE = 0.4;
 const CLOVER_WIN_BONUS = 0.1;
@@ -71,7 +72,6 @@ export default {
                 cloverMessage = `\n🍀 **Lucky Clover Consumed:** Your win chance was boosted!`;
                 usedClover = true;
             }
-            
             else if (charmCount > 0) {
                 winChance += CHARM_WIN_BONUS;
                 userData.inventory["lucky_charm"] -= 1;
@@ -127,6 +127,9 @@ export default {
                 });
             }
 
-            await InteractionHelper.safeEditReply(interaction, { embeds: [resultEmbed] });
+            await InteractionHelper.safeEditReply(interaction, {
+                embeds: [resultEmbed],
+                components: [buildCloseButtonRow(userId)],
+            });
     }, { command: 'gamble' })
 };
