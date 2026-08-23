@@ -21,10 +21,13 @@ import { buildUserErrorEmbed } from './embeds.js';
 import { MessageFlags } from 'discord.js';
 import { getErrorMetadata, getDefaultErrorCodeByType, resolveErrorCode, ErrorCodes } from './errorRegistry.js';
 import { InteractionHelper } from './interactionHelper.js';
+import { buildCloseButtonRow } from './closableResponse.js';
 
 // Re-export so consumers only ever need to import from errorHandler.js
 export { ErrorCodes, getErrorMetadata, resolveErrorCode, getDefaultErrorCodeByType } from './errorRegistry.js';
 export { ensureTypedServiceError, wrapServiceBoundary, wrapServiceClassMethods } from './serviceErrorBoundary.js';
+
+const ERROR_RESPONSE_TTL_MS = 15_000;
 
 export const ErrorTypes = {
     VALIDATION: 'validation',
@@ -237,6 +240,46 @@ function logInteractionError(error, errorType, logData) {
     }
 }
 
+function scheduleErrorResponseDeletion(interaction, responseMessage = null, { followUp = false, coordinator = null } = {}) {
+    const timer = setTimeout(async () => {
+        try {
+            if (coordinator) {
+                const prefixMessage = coordinator.getReplyMessage?.();
+                if (prefixMessage?.deletable) {
+                    await prefixMessage.delete().catch(() => {});
+                }
+                return;
+            }
+
+            if (responseMessage?.id && interaction.webhook?.deleteMessage) {
+                const deleted = await interaction.webhook.deleteMessage(responseMessage.id)
+                    .then(() => true)
+                    .catch(() => false);
+                if (deleted) return;
+            }
+
+            if (responseMessage?.delete) {
+                const deleted = await responseMessage.delete()
+                    .then(() => true)
+                    .catch(() => false);
+                if (deleted) return;
+            }
+
+            if (!followUp && interaction.deleteReply) {
+                await interaction.deleteReply().catch(() => {});
+            }
+        } catch (error) {
+            logger.debug('Could not auto-delete interaction error response', {
+                error: error?.message,
+                interactionId: interaction?.id,
+                command: interaction?.commandName,
+            });
+        }
+    }, ERROR_RESPONSE_TTL_MS);
+
+    timer.unref?.();
+}
+
 async function sendErrorResponse(interaction, embed, context = {}) {
     try {
         if (!interaction || !interaction.id) {
@@ -267,7 +310,10 @@ async function sendErrorResponse(interaction, embed, context = {}) {
             return false;
         }
 
-        const errorMessage = { embeds: [embed] };
+        const errorMessage = {
+            embeds: [embed],
+            components: interaction.user?.id ? [buildCloseButtonRow(interaction.user.id)] : [],
+        };
 
         if (interaction._isPrefixCommand) {
             if (coordinator?.hasResponded()) {
@@ -275,23 +321,29 @@ async function sendErrorResponse(interaction, embed, context = {}) {
             } else {
                 await coordinator?.respond(errorMessage);
             }
+            scheduleErrorResponseDeletion(interaction, null, { coordinator });
             return true;
         }
 
         const useEphemeral = context.ephemeral !== false;
+        let responseMessage = null;
+        let followUp = false;
 
         if (interaction.replied) {
             // A visible reply already exists; don't overwrite it — follow up ephemerally.
-            await interaction.followUp({ ...errorMessage, flags: MessageFlags.Ephemeral });
+            responseMessage = await interaction.followUp({ ...errorMessage, flags: MessageFlags.Ephemeral });
+            followUp = true;
         } else if (interaction.deferred) {
-            await interaction.editReply(errorMessage);
+            responseMessage = await interaction.editReply(errorMessage);
         } else {
             if (useEphemeral) {
                 errorMessage.flags = MessageFlags.Ephemeral;
             }
             await interaction.reply(errorMessage);
+            responseMessage = await interaction.fetchReply?.().catch(() => null);
         }
 
+        scheduleErrorResponseDeletion(interaction, responseMessage, { followUp });
         return true;
     } catch (replyError) {
         if (replyError.code === 40060 || replyError.code === 10062 || replyError.code === 50027) {
@@ -368,7 +420,7 @@ export async function handleInteractionError(interaction, error, context = {}) {
 
     logInteractionError(error, errorType, logData);
 
-    // System errors get a reference code so users can report them and we can grep logs.
+    // System errors still include a reference code, but every error response auto-deletes after 15 seconds.
     const isUserError = USER_ERROR_TYPES.has(errorType) || error?.context?.expected === true;
     const description = isUserError
         ? userMessage
