@@ -9,7 +9,9 @@ const __dirname = dirname(__filename);
 
 export default async function loadEvents(client) {
     const eventsPath = join(__dirname, '../../events');
-    const eventFiles = await readdir(eventsPath).then(files => files.filter(file => file.endsWith('.js')));
+    const eventFiles = await readdir(eventsPath).then(files =>
+        files.filter(file => file.endsWith('.js')).sort((a, b) => a.localeCompare(b))
+    );
 
     logger.info(`Found ${eventFiles.length} event files to load`);
 
