@@ -1,6 +1,6 @@
-import { SlashCommandBuilder } from 'discord.js';
-import shopBrowse from './modules/shop_browse.js';
-import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { warningEmbed } from '../../utils/embeds.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 export default {
     slashOnly: true,
@@ -8,8 +8,13 @@ export default {
         .setName('shop')
         .setDescription('Browse the economy shop.'),
 
-    async execute(interaction, config, client) {
-        await enforceDedicatedCommandChannel(interaction, 'shop');
-        return shopBrowse.execute(interaction, config, client);
+    async execute(interaction) {
+        return InteractionHelper.safeReply(interaction, {
+            embeds: [warningEmbed(
+                'Shop unavailable',
+                'The Cloudy shop is not available yet. It will be enabled when the store is ready.',
+            )],
+            flags: MessageFlags.Ephemeral,
+        });
     },
 };
