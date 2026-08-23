@@ -13,7 +13,7 @@ const CHANNEL_RULES = {
   },
   gambling: {
     slug: 'gambling',
-    guideTitle: 'Gambling & games',
+    guideTitle: 'Gambling & Games',
     guideDescription: 'All Cloudy gambling and game commands must be used in this channel. Use `/gamble`, `/fight`, `/flip`, or `/roll` here. These commands will not work in other channels.',
     wrongChannelMessage: 'Gambling and game commands can only be used in the dedicated gambling channel.',
   },
@@ -85,7 +85,10 @@ async function ensureGuideMessage(guild, key) {
   const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
   const existing = recent?.find(message =>
     message.author?.id === guild.client.user?.id
-    && message.embeds?.some(embed => embed.title === rule.guideTitle)
+    && message.embeds?.some(embed =>
+      embed.title === rule.guideTitle
+      || (key === 'gambling' && embed.title === 'Gambling & games')
+    )
   ) || null;
 
   const payload = { embeds: [buildGuideEmbed(rule)] };
