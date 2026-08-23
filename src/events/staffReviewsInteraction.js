@@ -48,15 +48,11 @@ export default {
       return;
     }
 
-    const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-    const stars = '⭐'.repeat(normalizedRating);
     const staffRole = interaction.guild?.roles?.cache?.find(role => role.name.toLowerCase() === 'staff');
-    const heading = staffRole ? `${staffRole} ${stars}` : `Staff ${stars}`;
 
     await channel.send({
-      content: heading,
-      embeds: [buildPublishedReview(interaction, rating, comment)],
-      allowedMentions: staffRole ? { roles: [staffRole.id] } : { parse: [] },
+      embeds: [buildPublishedReview(interaction, rating, comment, staffRole)],
+      allowedMentions: { parse: [] },
     });
 
     await interaction.reply({
