@@ -54,10 +54,17 @@ function buildSelectedOwnerRow(interaction, memberId) {
   const existingMemberMenu = interaction.message?.components?.[0]?.components?.[0];
   if (!existingMemberMenu) return null;
 
-  const memberMenu = StringSelectMenuBuilder.from(existingMemberMenu);
-  for (const option of memberMenu.options) {
-    option.setDefault(option.data?.value === memberId);
-  }
+  const data = typeof existingMemberMenu.toJSON === 'function'
+    ? existingMemberMenu.toJSON()
+    : existingMemberMenu;
+
+  const memberMenu = new StringSelectMenuBuilder({
+    ...data,
+    options: (data.options || []).map(option => ({
+      ...option,
+      default: option.value === memberId,
+    })),
+  });
 
   return new ActionRowBuilder().addComponents(memberMenu);
 }
@@ -77,22 +84,14 @@ export default {
   name: Events.InteractionCreate,
   once: false,
 
-  /**
-   * Enforce the staff-review flow: Owner member -> rating -> written review.
-   * The selected Owner is kept per reviewer so multiple members can use the
-   * public panel without sharing each other's review target.
-   */
   async execute(interaction) {
     if (interaction.isStringSelectMenu?.() && interaction.customId === STAFF_REVIEW_MEMBER_ID) {
       const memberId = interaction.values?.[0];
       if (!memberId || memberId === 'none') return;
 
-      const validTarget = await isOwnerReviewTarget(interaction.guild, memberId);
-      if (!validTarget) {
-        await interaction.reply({
-          content: 'That member is no longer available for staff reviews. Please choose another member.',
-          flags: MessageFlags.Ephemeral,
-        }).catch(() => {});
+      try {
+        await interaction.deferUpdate();
+      } catch {
         return;
       }
 
@@ -101,14 +100,14 @@ export default {
       const selectedOwnerRow = buildSelectedOwnerRow(interaction, memberId);
       const enabledRatingRow = buildEnabledRatingRow(interaction);
       if (!selectedOwnerRow || !enabledRatingRow) {
-        await interaction.reply({
+        await interaction.followUp({
           content: 'The review selectors could not be updated. Please try again.',
           flags: MessageFlags.Ephemeral,
         }).catch(() => {});
         return;
       }
 
-      await interaction.update({
+      await interaction.editReply({
         components: [selectedOwnerRow, enabledRatingRow],
       }).catch(() => {});
       return;
@@ -124,22 +123,17 @@ export default {
         return;
       }
 
-      const validTarget = await isOwnerReviewTarget(interaction.guild, memberId);
-      if (!validTarget) {
-        clearSelectedOwner(interaction);
-        await interaction.reply({
-          content: 'That member is no longer available for staff reviews. Please choose another member.',
-          flags: MessageFlags.Ephemeral,
-        }).catch(() => {});
-        return;
-      }
-
       const rating = Number(interaction.values?.[0]);
       if (!rating || rating < 1 || rating > 5) return;
 
       const reviewId = createReviewContext(interaction.user.id, memberId, rating);
       clearSelectedOwner(interaction);
-      await interaction.showModal(buildStaffReviewModal(reviewId));
+
+      try {
+        await interaction.showModal(buildStaffReviewModal(reviewId));
+      } catch {
+        return;
+      }
       return;
     }
 
