@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
+import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -19,6 +20,7 @@ export default {
   category: 'Fun',
 
   async execute(interaction, config, client) {
+    await enforceDedicatedCommandChannel(interaction, 'gambling');
     await InteractionHelper.safeDefer(interaction);
 
     const challenger = interaction.user;
