@@ -165,7 +165,7 @@ export default {
         const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
         if (!deferred) return;
 
-        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) {
             return await replyUserError(interaction, {
                 type: ErrorTypes.PERMISSION,
                 message: 'You need the `Manage Channels` permission for this action.',
