@@ -3,22 +3,26 @@ import { createEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
+function getGatewayPing(client) {
+    const ping = Number(client?.ws?.ping);
+    return Number.isFinite(ping) && ping > 0 ? Math.round(ping) : null;
+}
+
 export default {
     data: new SlashCommandBuilder()
-        .setName("ping")
+        .setName('ping')
         .setDescription("Checks the bot's latency and API speed"),
 
     async prefixExecute(interaction) {
         try {
             const startTime = Date.now();
             const pingingMessage = await interaction.reply({ content: 'Pinging...' });
-
-            const latency = Date.now() - startTime;
-            const apiLatency = Math.max(0, Math.round(interaction.client.ws.ping));
+            const responseLatency = Math.max(0, Date.now() - startTime);
+            const gatewayPing = getGatewayPing(interaction.client);
 
             const embed = createEmbed({ title: 'Pong!', description: null }).addFields(
-                { name: 'Bot Latency', value: `${latency}ms`, inline: true },
-                { name: 'API Latency', value: `${apiLatency}ms`, inline: true },
+                { name: 'Bot Latency', value: `${responseLatency}ms`, inline: true },
+                { name: 'API Latency', value: gatewayPing === null ? 'N/A' : `${gatewayPing}ms`, inline: true },
             );
 
             await pingingMessage.edit({ content: null, embeds: [embed] });
@@ -33,42 +37,29 @@ export default {
     },
 
     async execute(interaction) {
-        logger.info('execute called - checking if slash command or prefix command');
-        logger.info(`execute - has _commandStartTime: ${!!interaction._commandStartTime}, createdTimestamp: ${interaction.createdTimestamp}`);
-        
-        const deferSuccess = await InteractionHelper.safeDefer(interaction);
-        if (!deferSuccess) {
-            logger.warn(`Ping interaction defer failed`, {
-                userId: interaction.user.id,
-                guildId: interaction.guildId,
-                commandName: 'ping'
-            });
-            return;
-        }
-
         try {
-            await InteractionHelper.safeEditReply(interaction, {
-                content: "Pinging...",
-            });
+            // Measure immediately, before any defer/reply/edit. The previous
+            // implementation included Discord REST reply/edit time in this number,
+            // which made the displayed bot latency look much higher than reality.
+            const interactionLatency = Math.max(0, Date.now() - interaction.createdTimestamp);
+            const gatewayPing = getGatewayPing(interaction.client);
 
-            const startTime = interaction._commandStartTime || interaction.createdTimestamp;
-            logger.info(`execute - using startTime: ${startTime}, type: ${interaction._commandStartTime ? 'prefix' : 'slash'}`);
-            const latency = Math.max(0, Date.now() - startTime);
-            const apiLatency = Math.max(0, Math.round(interaction.client.ws.ping));
-            logger.info(`execute - calculated latency: ${latency}ms, apiLatency: ${apiLatency}ms`);
-
-            const embed = createEmbed({ title: "Pong!", description: null }).addFields(
-                { name: "Bot Latency", value: `${latency}ms`, inline: true },
-                { name: "API Latency", value: `${apiLatency}ms`, inline: true },
+            const embed = createEmbed({ title: 'Pong!', description: null }).addFields(
+                { name: 'Bot Latency', value: `${interactionLatency}ms`, inline: true },
+                { name: 'API Latency', value: gatewayPing === null ? 'N/A' : `${gatewayPing}ms`, inline: true },
             );
 
-            await InteractionHelper.safeEditReply(interaction, {
-                content: null,
-                embeds: [embed],
-            });
+            // One response only: no defer + "Pinging..." + second edit round-trip.
+            await interaction.reply({ embeds: [embed] });
         } catch (error) {
             logger.error('Ping command error:', error);
             try {
+                if (interaction.deferred || interaction.replied) {
+                    return await InteractionHelper.safeEditReply(interaction, {
+                        embeds: [createEmbed({ title: 'System Error', description: 'Could not determine latency at this time.', color: 'error' })],
+                    });
+                }
+
                 return await InteractionHelper.safeReply(interaction, {
                     embeds: [createEmbed({ title: 'System Error', description: 'Could not determine latency at this time.', color: 'error' })],
                     flags: MessageFlags.Ephemeral,
