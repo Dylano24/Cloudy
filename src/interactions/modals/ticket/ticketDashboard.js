@@ -1,9 +1,9 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import {
   repostTicketPanel,
-  saveTicketDashboardSetting,
   updateLiveTicketPanel,
 } from '../../../services/ticketDashboardService.js';
+import { updateGuildConfig } from '../../../services/config/guildConfig.js';
 import { buildTicketDashboardPayload } from '../../../services/ticketDashboardViewService.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import {
@@ -25,15 +25,31 @@ async function ensureLivePanel(client, guild, config) {
     });
   }
 
+  if (!config.ticketPanelChannelId) return config;
   const recovered = await repostTicketPanel(client, guild);
   return recovered.config;
+}
+
+async function refreshDashboardMessage(interaction, dashboardMessageId, config) {
+  if (!dashboardMessageId) return false;
+
+  const channel = interaction.channel;
+  if (!channel?.messages?.fetch) return false;
+
+  const dashboardMessage = await channel.messages.fetch(dashboardMessageId).catch(() => null);
+  if (!dashboardMessage?.edit) return false;
+
+  await dashboardMessage.edit(
+    buildTicketDashboardPayload(interaction.guild, config),
+  );
+  return true;
 }
 
 export default {
   name: 'ticket_dashboard_modal',
 
   async execute(interaction, client, args = []) {
-    const [guildId, field] = args;
+    const [guildId, field, dashboardMessageId] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
 
     const canManage = interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
@@ -53,9 +69,6 @@ export default {
       return;
     }
 
-    // Acknowledge immediately with visible progress instead of Discord's native
-    // "Cloudy Manager is thinking..." placeholder while PostgreSQL and the live
-    // panel message are updated.
     try {
       await interaction.reply({
         content: 'Saving ticket setting…',
@@ -78,32 +91,47 @@ export default {
         throw error;
       }
 
-      let savedConfig = await saveTicketDashboardSetting(
-        client,
-        interaction.guild,
-        field,
-        rawValue,
-      );
+      // Persist first and return the fresh config immediately. Do not block the
+      // dashboard response on Discord message lookups/edits for the live panel.
+      const savedConfig = await updateGuildConfig(client, guildId, {
+        [field]: rawValue,
+        dmOnClose: false,
+      });
 
-      savedConfig = await ensureLivePanel(client, interaction.guild, savedConfig);
+      // A modal submit does not reliably expose interaction.message. The source
+      // dashboard message ID is encoded in the modal custom ID, so fetch and
+      // refresh that exact message instead. This makes the new value visible
+      // immediately without reopening the dashboard or restarting the bot.
+      await refreshDashboardMessage(interaction, dashboardMessageId, savedConfig).catch(error => {
+        logger.warn('Ticket dashboard source message refresh failed', {
+          guildId,
+          field,
+          dashboardMessageId,
+          error: error.message,
+        });
+      });
 
       await InteractionHelper.safeEditReply(interaction, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
           title: 'Ticket Setting Updated',
           description: field === 'ticketPanelMessage'
-            ? 'The ticket panel message has been saved and updated.'
-            : 'The ticket button label has been saved and updated.',
+            ? 'The ticket panel message has been saved.'
+            : 'The ticket button label has been saved.',
         })],
         components: [],
       });
       scheduleTicketReplyDeletion(interaction);
 
-      if (interaction.message?.edit) {
-        await interaction.message.edit(
-          buildTicketDashboardPayload(interaction.guild, savedConfig),
-        ).catch(() => {});
-      }
+      // Keep the live public ticket panel synchronized, but do that after the
+      // administrator already received the successful save response.
+      void ensureLivePanel(client, interaction.guild, savedConfig).catch(error => {
+        logger.error('Background live ticket panel sync failed', {
+          guildId,
+          field,
+          error: error.message,
+        });
+      });
     } catch (error) {
       logger.error('Persistent ticket dashboard modal save failed', {
         guildId,
@@ -113,7 +141,7 @@ export default {
       });
 
       await InteractionHelper.safeEditReply(interaction, {
-        content: error?.userMessage || 'Could not save and update that ticket setting. Please try again.',
+        content: error?.userMessage || 'Could not save that ticket setting. Please try again.',
         embeds: [],
         components: [],
       }).catch(() => {});
