@@ -5,21 +5,23 @@ import staffReviewsInteraction from '../src/events/staffReviewsInteraction.js';
 import {
   STAFF_REVIEW_MODAL_ID,
   STAFF_REVIEW_RATING_ID,
-  rememberRating,
-  rememberReviewMember,
+  createReviewContext,
+  takeReviewContext,
 } from '../src/services/staffReviewsService.js';
 
-function buildGuild({ memberHasOwner }) {
+function buildGuild({ cachedHasOwner = false, freshHasOwner }) {
   const ownerRole = { id: 'owner-role-id', name: 'Owner' };
-  const member = {
+  const buildMember = hasOwner => ({
     id: 'owner-member-id',
     user: { bot: false },
     roles: {
       cache: {
-        has: roleId => roleId === ownerRole.id && memberHasOwner,
+        has: roleId => roleId === ownerRole.id && hasOwner,
       },
     },
-  };
+  });
+  const cachedMember = buildMember(cachedHasOwner);
+  const freshMember = buildMember(freshHasOwner);
 
   return {
     roles: {
@@ -28,8 +30,12 @@ function buildGuild({ memberHasOwner }) {
       },
     },
     members: {
-      fetch: async memberId => (memberId === member.id ? member : null),
-      cache: new Map([[member.id, member]]),
+      fetch: async options => {
+        const memberId = typeof options === 'string' ? options : options?.user;
+        if (memberId !== freshMember.id) return null;
+        return options?.force ? freshMember : cachedMember;
+      },
+      cache: new Map([[cachedMember.id, cachedMember]]),
     },
   };
 }
@@ -37,14 +43,12 @@ function buildGuild({ memberHasOwner }) {
 test('staff review is not published when deferReply rejects', async () => {
   let channelFetches = 0;
   const user = { id: 'defer-failure-user' };
-
-  rememberReviewMember(user.id, 'owner-member-id');
-  rememberRating(user.id, 5);
+  const reviewId = createReviewContext(user.id, 'owner-member-id', 5);
 
   const interaction = {
     isStringSelectMenu: () => false,
     isModalSubmit: () => true,
-    customId: STAFF_REVIEW_MODAL_ID,
+    customId: `${STAFF_REVIEW_MODAL_ID}:${reviewId}`,
     user,
     fields: {
       getTextInputValue: () => 'Great staff',
@@ -67,7 +71,7 @@ test('staff review is not published when deferReply rejects', async () => {
   assert.equal(channelFetches, 0);
 });
 
-test('rating selection rejects a member who no longer has Owner', async () => {
+test('rating selection rejects stale cached Owner membership', async () => {
   let replyContent = null;
   let modalShown = false;
 
@@ -77,7 +81,7 @@ test('rating selection rejects a member who no longer has Owner', async () => {
     customId: `${STAFF_REVIEW_RATING_ID}:owner-member-id`,
     values: ['5'],
     user: { id: 'lost-owner-rating-user' },
-    guild: buildGuild({ memberHasOwner: false }),
+    guild: buildGuild({ cachedHasOwner: true, freshHasOwner: false }),
     reply: async payload => {
       replyContent = payload.content;
     },
@@ -92,20 +96,18 @@ test('rating selection rejects a member who no longer has Owner', async () => {
   assert.equal(modalShown, false);
 });
 
-test('modal submission revalidates Owner before publishing', async () => {
+test('modal submission revalidates fresh Owner membership before publishing', async () => {
   let channelFetches = 0;
   let editReplyContent = null;
   const user = { id: 'lost-owner-modal-user' };
-
-  rememberReviewMember(user.id, 'owner-member-id');
-  rememberRating(user.id, 4);
+  const reviewId = createReviewContext(user.id, 'owner-member-id', 4);
 
   const interaction = {
     isStringSelectMenu: () => false,
     isModalSubmit: () => true,
-    customId: STAFF_REVIEW_MODAL_ID,
+    customId: `${STAFF_REVIEW_MODAL_ID}:${reviewId}`,
     user,
-    guild: buildGuild({ memberHasOwner: false }),
+    guild: buildGuild({ cachedHasOwner: true, freshHasOwner: false }),
     fields: {
       getTextInputValue: () => 'Helpful owner',
     },
@@ -127,4 +129,14 @@ test('modal submission revalidates Owner before publishing', async () => {
 
   assert.match(editReplyContent, /no longer available/i);
   assert.equal(channelFetches, 0);
+});
+
+test('two review contexts from one reviewer stay bound to their own modals', () => {
+  const userId = 'multi-review-user';
+  const firstReviewId = createReviewContext(userId, 'owner-a', 1);
+  const secondReviewId = createReviewContext(userId, 'owner-b', 5);
+
+  assert.notEqual(firstReviewId, secondReviewId);
+  assert.deepEqual(takeReviewContext(userId, firstReviewId)?.memberId, 'owner-a');
+  assert.deepEqual(takeReviewContext(userId, secondReviewId)?.memberId, 'owner-b');
 });
