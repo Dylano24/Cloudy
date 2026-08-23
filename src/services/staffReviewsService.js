@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -20,12 +21,15 @@ export const STAFF_REVIEW_RATING_ID = 'staff_review_rating';
 export const STAFF_REVIEW_MODAL_ID = 'staff_review_modal';
 export const STAFF_REVIEW_LOGO_NAME = 'cloudy-c-logo.png';
 export const STAFF_REVIEW_LOGO_PATH = join(MODULE_DIR, '../../assets/cloudy-c-logo.png');
+export const STAFF_REVIEW_STAR_EMOJI_NAME = 'cloudy_review_star';
 const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const OWNER_ROLE_NAME = 'owner';
 const PENDING_REVIEW_TTL_MS = 15 * 60 * 1000;
+const STAFF_REVIEW_STAR_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAADZklEQVR42u2dQW6rQBBEB4SUG2SfY/g2OZpvk2N4nxuwIps4cWwzsaEHqrvfkyJF+hvsrq4q+EBKAQAAAAAAAAAAAAAACMx0LFPmz98jgdz06bf/7SW1C+AAOEDu7UcAUDLHAALAAbB/BABpYwAB4ADJ7f/1kNoFcAAcgO3/4wIIgDKYKQbyCiDx1qcUwL/n/kkFQQQkj4GcApjb9oQukEIAXPrFAZ7f8iQx0LP9uWOAEkgEYP+ZYyC0ABaXv0Qx0LP9RADbXxNM8Bjo2X4cABKXwZACMLvyl8A54jsA9k8EEAOJBPDH/i22P7iD4ABEAOUv8zWBQWZwjsqf1fF276VzKwDToXm6WcPwWKfjaPYdLhVTt3oTFIfXavs/P/Q+62lc5ST9atWdxlJOI21qh8GvHf5qB2juBlFOwaydw2Dw5gKYFQFX4mzFYzh889PAn0hQz02G38YBbs4Q5h7DhueG/71ULU4bm56HEgmaW98sAogEX8NvLgBEoD385hFAL9DK+10FQC/Q2fpNI4BI0B3+Lg5AJOxr+TICmI2E6CK4Gv7e/yW8+w0hN5EQOQ7Ehi/hACnKoUjeSwsgbC8Qynt5AYTrBYKWL9cBwvYCB8OXdQDXvUA4790JwF0vEM97lwJw0wucWL6LDvBQL1DF0fBdCQCSI8D8oU9rnD4+hgPgAIAAAAGQ/zl7AA6AAwACAHucxIC8ANzk/3UPwAEAAQACMLP/Fnx+/P4k7QF+HMA6W6+HbikCRz1gKNmoDfr8b/zFkKCDvzf8e/cYJHpUTVYApvk/N/jzzRv33nRm1Q3Ee4CPCFhqyXMDvLpr5/z7dBxvRbc0Fl4PLpwkZgTU7L5yy1b1vYdBYyHegyEPbv2qCHr0eHgwRH/rZzcjiRvod4D/tq2y8Zf5vsge13YDBz1gcL/1Bnb/iBB+3uxtVRLpACvyv+HWm3cD8R4whNj4Db/caG6gXQIvv8ja1m+8Wd176apPKl0eq7gYBrZ+Qzd4eynTcZx4QcSSfN0461seu9Jx+zsLEL2gUnUDIsBm8Gpb/9R1A04DF1qokxct3P08c24g5GKD+tZ7G7w3N+hVB+95+DdCEP7LagNbn9sNJL7oyztmog0/82dd9KXwmQEAAAAAAAAAAAAAAAAAAAAAAAAAAJ7kC4il+uSTtzJoAAAAAElFTkSuQmCC';
 
 const pendingReviews = new Map();
+const reviewStarEmojiCache = new Map();
 
 function reviewContextKey(userId, reviewId) {
   return `${userId}:${reviewId}`;
@@ -194,9 +198,41 @@ export async function isOwnerReviewTarget(guild, memberId) {
   return Boolean(member && !member.user?.bot && member.roles?.cache?.has(ownerRole.id));
 }
 
-export function buildPublishedReview(interaction, rating, comment, memberId) {
+export async function ensureStaffReviewStarEmoji(guild) {
+  if (!guild?.emojis) return null;
+
+  const cachedEmojiId = reviewStarEmojiCache.get(guild.id);
+  if (cachedEmojiId) {
+    const cachedEmoji = guild.emojis.cache.get(cachedEmojiId);
+    if (cachedEmoji) return cachedEmoji.toString();
+  }
+
+  let emoji = guild.emojis.cache.find(entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME) || null;
+
+  if (!emoji && guild.emojis.fetch) {
+    const emojis = await guild.emojis.fetch().catch(() => null);
+    emoji = emojis?.find(entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME) || null;
+  }
+
+  if (!emoji) {
+    emoji = await guild.emojis.create({
+      attachment: Buffer.from(STAFF_REVIEW_STAR_PNG_BASE64, 'base64'),
+      name: STAFF_REVIEW_STAR_EMOJI_NAME,
+      reason: 'Cloudy staff review rating star',
+    }).catch(() => null);
+  }
+
+  if (!emoji) return null;
+
+  reviewStarEmojiCache.set(guild.id, emoji.id);
+  return emoji.toString();
+}
+
+export function buildPublishedReview(interaction, rating, comment, memberId, starEmoji = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  const stars = '★'.repeat(normalizedRating);
+  const stars = starEmoji
+    ? Array.from({ length: normalizedRating }, () => starEmoji).join('')
+    : '★'.repeat(normalizedRating);
   const ratingColors = {
     1: 0xED4245,
     2: 0xFF7A00,
