@@ -186,7 +186,7 @@ export async function isOwnerReviewTarget(guild, memberId) {
 
 export function buildPublishedReview(interaction, rating, comment, memberId) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  const stars = '⭐'.repeat(normalizedRating);
+  const stars = '★'.repeat(normalizedRating);
   const ratingColors = {
     1: 0xED4245,
     2: 0xFF7A00,
