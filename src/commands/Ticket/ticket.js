@@ -160,6 +160,8 @@ export default {
     category: 'ticket',
 
     async execute(interaction, routerConfig, client) {
+        if (interaction.__ticketDashboardFastPathHandled) return;
+
         const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
         if (!deferred) return;
 
