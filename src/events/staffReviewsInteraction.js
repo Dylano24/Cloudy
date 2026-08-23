@@ -11,7 +11,6 @@ import {
   STAFF_REVIEW_RATING_ID,
   buildPublishedReview,
   buildStaffReviewModal,
-  createReviewContext,
   isOwnerReviewTarget,
   takeReviewContext,
 } from '../services/staffReviewsService.js';
@@ -78,6 +77,23 @@ function buildEnabledRatingRow(interaction) {
   return new ActionRowBuilder().addComponents(ratingMenu);
 }
 
+function resolveModalContext(interaction) {
+  const modalPrefix = `${STAFF_REVIEW_MODAL_ID}:`;
+  if (!interaction.customId.startsWith(modalPrefix)) return null;
+
+  const parts = interaction.customId.slice(modalPrefix.length).split(':');
+  const memberId = parts[0];
+  const rating = Number(parts[1]);
+
+  if (/^\d{16,22}$/.test(memberId || '') && Number.isInteger(rating) && rating >= 1 && rating <= 5) {
+    return { memberId, rating };
+  }
+
+  const legacyReviewId = parts[0];
+  if (!legacyReviewId) return null;
+  return takeReviewContext(interaction.user.id, legacyReviewId);
+}
+
 export default {
   name: Events.InteractionCreate,
   once: false,
@@ -124,11 +140,10 @@ export default {
       const rating = Number(interaction.values?.[0]);
       if (!rating || rating < 1 || rating > 5) return;
 
-      const reviewId = createReviewContext(interaction.user.id, memberId, rating);
       clearSelectedOwner(interaction);
 
       try {
-        await interaction.showModal(buildStaffReviewModal(reviewId));
+        await interaction.showModal(buildStaffReviewModal(memberId, rating));
       } catch {
         return;
       }
@@ -138,10 +153,7 @@ export default {
     const modalPrefix = `${STAFF_REVIEW_MODAL_ID}:`;
     if (!interaction.isModalSubmit?.() || !interaction.customId.startsWith(modalPrefix)) return;
 
-    const reviewId = interaction.customId.slice(modalPrefix.length);
-    if (!reviewId) return;
-
-    const reviewContext = takeReviewContext(interaction.user.id, reviewId);
+    const reviewContext = resolveModalContext(interaction);
     if (!reviewContext?.memberId || !reviewContext?.rating) {
       await interaction.reply({
         content: 'This review session expired. Please choose the staff member and star rating again.',
