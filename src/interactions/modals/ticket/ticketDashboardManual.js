@@ -27,11 +27,23 @@ function extractDiscordId(value) {
   return match?.[0] || null;
 }
 
+async function refreshDashboardMessage(interaction, dashboardMessageId, config) {
+  if (!dashboardMessageId) return false;
+  const channel = interaction.channel;
+  if (!channel?.messages?.fetch) return false;
+
+  const dashboardMessage = await channel.messages.fetch(dashboardMessageId).catch(() => null);
+  if (!dashboardMessage?.edit) return false;
+
+  await dashboardMessage.edit(buildTicketDashboardPayload(interaction.guild, config));
+  return true;
+}
+
 export default {
   name: 'ticket_dashboard_manual_modal',
 
   async execute(interaction, client, args = []) {
-    const [guildId, field] = args;
+    const [guildId, field, dashboardMessageId] = args;
     if (!interaction.inGuild() || guildId !== interaction.guildId) return;
 
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) {
@@ -92,6 +104,15 @@ export default {
         );
       }
 
+      await refreshDashboardMessage(interaction, dashboardMessageId, savedConfig).catch(error => {
+        logger.warn('Manual ticket dashboard source message refresh failed', {
+          guildId,
+          field,
+          dashboardMessageId,
+          error: error.message,
+        });
+      });
+
       await InteractionHelper.safeEditReply(interaction, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
@@ -101,12 +122,6 @@ export default {
         components: [],
       });
       scheduleTicketReplyDeletion(interaction);
-
-      if (interaction.message?.edit) {
-        await interaction.message.edit(
-          buildTicketDashboardPayload(interaction.guild, savedConfig),
-        ).catch(() => {});
-      }
     } catch (error) {
       logger.error('Manual ticket dashboard value save failed', {
         guildId,
