@@ -31,11 +31,11 @@ export function buildStaffReviewsPanel() {
     .setCustomId(STAFF_REVIEW_RATING_ID)
     .setPlaceholder('Choose your rating')
     .addOptions(
-      new StringSelectMenuOptionBuilder().setLabel('1 star').setValue('1').setEmoji('⭐'),
-      new StringSelectMenuOptionBuilder().setLabel('2 stars').setValue('2').setEmoji('⭐'),
-      new StringSelectMenuOptionBuilder().setLabel('3 stars').setValue('3').setEmoji('⭐'),
-      new StringSelectMenuOptionBuilder().setLabel('4 stars').setValue('4').setEmoji('⭐'),
-      new StringSelectMenuOptionBuilder().setLabel('5 stars').setValue('5').setEmoji('⭐'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐').setValue('1'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐⭐').setValue('2'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐').setValue('3'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐⭐').setValue('4'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐⭐⭐').setValue('5'),
     );
 
   return {
@@ -89,7 +89,7 @@ export function buildPublishedReview(interaction, rating, comment) {
     })
     .setTitle(`${stars} Staff review`)
     .setDescription(comment)
-    .addFields({ name: 'Rating', value: `${stars} ${normalizedRating}/5`, inline: false })
+    .addFields({ name: 'Rating', value: `${normalizedRating}/5`, inline: false })
     .setFooter({ text: FOOTER })
     .setTimestamp();
 }
