@@ -3,7 +3,6 @@ import {
   claimTicket as claimTicketBase,
   closeTicket as closeTicketBase,
   createTicket as createTicketBase,
-  deleteTicket as deleteTicketBase,
   reopenTicket as reopenTicketBase,
   setTicketPinned as setTicketPinnedBase,
   syncCloudyTicketChannelName,
@@ -11,9 +10,9 @@ import {
   unclaimTicket as unclaimTicketBase,
   updateTicketPriority as updateTicketPriorityBase,
 } from './ticketUiService.js';
+import { deleteTicketSafely } from './ticketDeleteService.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import {
-  deleteTicketData,
   getTicketData,
   saveTicketData,
 } from '../utils/database.js';
@@ -38,6 +37,23 @@ function enqueue(queue, key, operation) {
     if (queue.get(key) === current) queue.delete(key);
   }).catch(() => {});
   return current;
+}
+
+function clearTicketReconcileTimers(channel) {
+  const guildId = channel?.guild?.id;
+  const channelId = channel?.id;
+  if (!guildId || !channelId) return;
+
+  const key = `${guildId}:${channelId}`;
+  const timers = reconcileTimers.get(key) || [];
+  for (const timer of timers) clearTimeout(timer);
+  reconcileTimers.delete(key);
+}
+
+function isLiveGuildChannel(channel) {
+  if (!channel?.guild?.id || !channel?.id) return false;
+  if (channel.deleted === true) return false;
+  return channel.guild.channels.cache.has(channel.id);
 }
 
 export function requirePersistentTicketDatabase(client) {
@@ -110,7 +126,7 @@ function extractTicketNumber(message, channel) {
 }
 
 async function findMainTicketMessage(channel) {
-  if (!channel?.messages?.fetch) return null;
+  if (!channel?.messages?.fetch || !isLiveGuildChannel(channel)) return null;
 
   const isMain = message => {
     if (message?.author?.id !== channel.client.user?.id) return false;
@@ -365,42 +381,17 @@ export async function reopenTicket(channel, reopener) {
 
 export async function deleteTicket(channel, deleter) {
   return mutate(channel, async () => {
-    const ticketData = await getTicketData(channel.guild.id, channel.id);
-    if (!ticketData) {
-      throw ticketError('Ticket data not found', 'This is not a valid ticket channel.', 'TICKET_NOT_FOUND');
-    }
-
-    const previousSchedule = ticketData.deletionScheduledAt
-      ? new Date(ticketData.deletionScheduledAt).getTime()
-      : 0;
-    if (Number.isFinite(previousSchedule) && previousSchedule > Date.now() - 30_000) {
-      throw ticketError(
-        'Ticket deletion is already scheduled',
-        'This ticket is already scheduled for deletion.',
-        'TICKET_DELETE_ALREADY_SCHEDULED',
-      );
-    }
-
-    ticketData.deletionScheduledAt = new Date().toISOString();
-    ticketData.deletionScheduledBy = deleter.id;
-    await saveTicketData(channel.guild.id, channel.id, ticketData);
-
-    try {
-      return await deleteTicketBase(channel, deleter);
-    } catch (error) {
-      ticketData.deletionScheduledAt = null;
-      ticketData.deletionScheduledBy = null;
-      await saveTicketData(channel.guild.id, channel.id, ticketData).catch(() => {});
-      throw error;
-    }
+    clearTicketReconcileTimers(channel);
+    return deleteTicketSafely(channel, deleter);
   });
 }
 
 export async function reconcileTicketChannelState(channel) {
+  if (!isLiveGuildChannel(channel)) return false;
   requirePersistentTicketDatabase(channel.client);
 
   const ticketData = await getTicketData(channel.guild.id, channel.id);
-  if (!ticketData) return false;
+  if (!ticketData || String(ticketData.status || '').toLowerCase() === 'deleted') return false;
 
   const config = await getGuildConfig(channel.client, channel.guild.id);
   const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
@@ -422,17 +413,20 @@ export async function reconcileTicketChannelState(channel) {
   if (targetCategoryId && channel.parentId !== targetCategoryId) {
     const targetCategory = channel.guild.channels.cache.get(targetCategoryId)
       || await channel.guild.channels.fetch(targetCategoryId).catch(() => null);
-    if (targetCategory?.type === ChannelType.GuildCategory) {
+    if (targetCategory?.type === ChannelType.GuildCategory && isLiveGuildChannel(channel)) {
       await channel.setParent(targetCategoryId, { lockPermissions: false }).catch(error => {
-        logger.warn('Ticket category reconciliation failed', {
-          guildId: channel.guild.id,
-          channelId: channel.id,
-          targetCategoryId,
-          error: error.message,
-        });
+        if (isLiveGuildChannel(channel)) {
+          logger.warn(`Ticket category reconciliation failed: ${error.message}`, {
+            guildId: channel.guild.id,
+            channelId: channel.id,
+            targetCategoryId,
+          });
+        }
       });
     }
   }
+
+  if (!isLiveGuildChannel(channel)) return false;
 
   const ownerPermissions = isClosed
     ? {
@@ -447,15 +441,16 @@ export async function reconcileTicketChannelState(channel) {
     };
 
   await channel.permissionOverwrites.edit(ticketData.userId, ownerPermissions).catch(error => {
-    logger.warn('Ticket owner permission reconciliation failed', {
-      guildId: channel.guild.id,
-      channelId: channel.id,
-      userId: ticketData.userId,
-      error: error.message,
-    });
+    if (isLiveGuildChannel(channel)) {
+      logger.warn(`Ticket owner permission reconciliation failed: ${error.message}`, {
+        guildId: channel.guild.id,
+        channelId: channel.id,
+        userId: ticketData.userId,
+      });
+    }
   });
 
-  if (config.ticketStaffRoleId) {
+  if (config.ticketStaffRoleId && isLiveGuildChannel(channel)) {
     const staffRole = channel.guild.roles.cache.get(config.ticketStaffRoleId)
       || await channel.guild.roles.fetch(config.ticketStaffRoleId).catch(() => null);
     if (staffRole) {
@@ -465,16 +460,18 @@ export async function reconcileTicketChannelState(channel) {
         AttachFiles: true,
         ReadMessageHistory: true,
       }).catch(error => {
-        logger.warn('Ticket staff permission reconciliation failed', {
-          guildId: channel.guild.id,
-          channelId: channel.id,
-          roleId: staffRole.id,
-          error: error.message,
-        });
+        if (isLiveGuildChannel(channel)) {
+          logger.warn(`Ticket staff permission reconciliation failed: ${error.message}`, {
+            guildId: channel.guild.id,
+            channelId: channel.id,
+            roleId: staffRole.id,
+          });
+        }
       });
     }
   }
 
+  if (!isLiveGuildChannel(channel)) return false;
   await syncCloudyTicketMessage(channel);
   await setTicketPinnedBase(channel, Boolean(ticketData.pinned)).catch(() => {});
   await syncCloudyTicketChannelName(channel);
@@ -482,19 +479,25 @@ export async function reconcileTicketChannelState(channel) {
 }
 
 export function scheduleTicketReconcile(channel, delays = [1000, 5000, 20000]) {
+  if (!isLiveGuildChannel(channel)) return;
+
   const key = `${channel.guild.id}:${channel.id}`;
   const existing = reconcileTimers.get(key) || [];
   for (const timer of existing) clearTimeout(timer);
 
   const timers = delays.map(delay => {
     const timer = setTimeout(() => {
+      if (!isLiveGuildChannel(channel)) {
+        clearTicketReconcileTimers(channel);
+        return;
+      }
+
       reconcileTicketChannelState(channel).catch(error => {
-        if (![10003, 10008].includes(error?.code)) {
-          logger.warn('Scheduled ticket reconciliation failed', {
+        if (![10003, 10008].includes(error?.code) && isLiveGuildChannel(channel)) {
+          logger.warn(`Scheduled ticket reconciliation failed: ${error.message}`, {
             guildId: channel.guild.id,
             channelId: channel.id,
             delay,
-            error: error.message,
           });
         }
       });
@@ -511,19 +514,20 @@ export function scheduleTicketReconcile(channel, delays = [1000, 5000, 20000]) {
 export async function recoverGuildTickets(guild) {
   requirePersistentTicketDatabase(guild.client);
 
+  // Do not rely on the channel name: a manually renamed ticket is still a ticket
+  // when its persistent database record exists.
   const channels = [...guild.channels.cache.values()]
-    .filter(channel => channel.type === ChannelType.GuildText && /ticket-\d+/i.test(String(channel.name || '')));
+    .filter(channel => channel.type === ChannelType.GuildText);
 
   let recovered = 0;
   for (const channel of channels) {
     const ticketData = await getTicketData(guild.id, channel.id).catch(() => null);
-    if (!ticketData) continue;
+    if (!ticketData || String(ticketData.status || '').toLowerCase() === 'deleted') continue;
 
     await reconcileTicketChannelState(channel).catch(error => {
-      logger.warn('Ticket startup reconciliation failed', {
+      logger.warn(`Ticket startup reconciliation failed: ${error.message}`, {
         guildId: guild.id,
         channelId: channel.id,
-        error: error.message,
       });
     });
     recovered += 1;
