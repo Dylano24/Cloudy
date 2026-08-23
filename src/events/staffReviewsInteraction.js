@@ -9,7 +9,6 @@ import {
   buildPublishedReview,
   buildRatingPrompt,
   buildStaffReviewModal,
-  getReviewMember,
   isOwnerReviewTarget,
   rememberRating,
   rememberReviewMember,
@@ -39,7 +38,6 @@ export default {
         return;
       }
 
-      rememberReviewMember(interaction.user.id, memberId);
       await interaction.reply({
         ...buildRatingPrompt(memberId),
         flags: MessageFlags.Ephemeral,
@@ -47,15 +45,10 @@ export default {
       return;
     }
 
-    if (interaction.isStringSelectMenu?.() && interaction.customId === STAFF_REVIEW_RATING_ID) {
-      const memberId = getReviewMember(interaction.user.id);
-      if (!memberId) {
-        await interaction.reply({
-          content: 'Please choose the staff member first.',
-          flags: MessageFlags.Ephemeral,
-        }).catch(() => {});
-        return;
-      }
+    const ratingPrefix = `${STAFF_REVIEW_RATING_ID}:`;
+    if (interaction.isStringSelectMenu?.() && interaction.customId.startsWith(ratingPrefix)) {
+      const memberId = interaction.customId.slice(ratingPrefix.length);
+      if (!memberId) return;
 
       const validTarget = await isOwnerReviewTarget(interaction.guild, memberId);
       if (!validTarget) {
@@ -69,6 +62,7 @@ export default {
       const rating = Number(interaction.values?.[0]);
       if (!rating || rating < 1 || rating > 5) return;
 
+      rememberReviewMember(interaction.user.id, memberId);
       rememberRating(interaction.user.id, rating);
       await interaction.showModal(buildStaffReviewModal());
       return;
