@@ -40,7 +40,7 @@ const FIELD_TO_SETTING = new Map([
 const CONFIG_READ_TIMEOUT_MS = 1500;
 
 function canManageTickets(interaction) {
-  return Boolean(interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels));
+  return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels));
 }
 
 async function rejectUnauthorized(interaction) {
