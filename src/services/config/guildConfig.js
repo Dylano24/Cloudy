@@ -25,11 +25,11 @@ function normalizeCloudyGuildConfig(config) {
     // handlers that still read dmOnClose from guild configuration.
     normalized.dmOnClose = false;
 
-    // Never let an old/stale dashboard value lock members to a single ticket.
-    // Cloudy supports at least 3 simultaneous open tickets per member.
+    // Dashboard and slash-command validation both support 1-10 simultaneous
+    // open tickets. Keep persisted/stale values inside the exact same range.
     const configuredTicketLimit = Number(normalized.maxTicketsPerUser);
     normalized.maxTicketsPerUser = Number.isFinite(configuredTicketLimit)
-        ? Math.max(3, configuredTicketLimit)
+        ? Math.min(10, Math.max(1, Math.trunc(configuredTicketLimit)))
         : 3;
 
     return normalized;
