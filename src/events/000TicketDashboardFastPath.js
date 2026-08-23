@@ -60,16 +60,20 @@ export default {
         return;
       }
 
+      // Reply immediately instead of deferring. Discord then removes its native
+      // "Cloudy Manager is thinking..." state straight away while the saved
+      // dashboard configuration is loaded in the background of this response.
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          content: 'Loading ticket dashboard…',
+          flags: MessageFlags.Ephemeral,
+        });
       }
 
       const config = await withConfigReadTimeout(
         getGuildConfig(client, interaction.guildId),
       );
 
-      // Do not race Discord writes against a timer. A timed-out REST write cannot
-      // be cancelled and could otherwise complete after the fallback and replace it.
       await interaction.editReply(buildTicketDashboardPayload(interaction.guild, config || {}));
 
       logger.info('Ticket dashboard fast path rendered', {
