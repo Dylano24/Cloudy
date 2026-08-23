@@ -163,8 +163,6 @@ async function checkForRustPatch(client) {
 
         const previousLink = await client.db.get(LAST_PATCH_KEY);
 
-        // Always check Discord itself, including after a restart or when the
-        // database temporarily falls back to in-memory storage.
         try {
             const recentMessages = await channel.messages.fetch({ limit: 100 });
             const isAlreadyPosted = recentMessages.some(message =>
@@ -182,8 +180,6 @@ async function checkForRustPatch(client) {
             logger.warn('Could not verify recent Rust patch messages; using stored state.', historyError);
         }
 
-        // Never repost a patch that is already recorded, even when message
-        // history cannot be fetched.
         if (previousLink === patch.link) {
             return true;
         }
@@ -194,7 +190,7 @@ async function checkForRustPatch(client) {
             'A new official Rust update is available.';
 
         const embed = new EmbedBuilder()
-            .setColor('#CE422B')
+            .setColor('#FFFFFF')
             .setAuthor({ name: 'RUST • OFFICIAL UPDATE' })
             .setTitle(patch.title)
             .setURL(patch.link)
@@ -206,8 +202,7 @@ async function checkForRustPatch(client) {
 
         const linkRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-                .setLabel('Read Full Patch Notes')
-                .setEmoji('🛠️')
+                .setLabel('Read full patch notes')
                 .setStyle(ButtonStyle.Link)
                 .setURL(patch.link)
         );
