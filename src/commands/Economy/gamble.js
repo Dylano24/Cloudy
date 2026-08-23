@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { createEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getEconomyData, setEconomyData } from '../../utils/economy.js';
+import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
@@ -23,6 +24,7 @@ export default {
         ),
 
     execute: withErrorHandling(async (interaction, config, client) => {
+        await enforceDedicatedCommandChannel(interaction, 'gambling');
         const deferred = await InteractionHelper.safeDefer(interaction);
         if (!deferred) return;
             
@@ -83,7 +85,6 @@ export default {
 
             if (win) {
                 const amountWon = Math.floor(betAmount * PAYOUT_MULTIPLIER);
-                // Net change: the bet is replaced by the payout (bet was at stake, not pre-deducted)
                 cashChange = amountWon - betAmount;
 
                 resultEmbed = successEmbed(
@@ -91,7 +92,7 @@ export default {
                     `You successfully gambled and turned your **$${betAmount.toLocaleString()}** bet into **$${amountWon.toLocaleString()}**!${cloverMessage}`,
                 );
             } else {
-cashChange = -betAmount;
+                cashChange = -betAmount;
 
                 resultEmbed = warningEmbed(
                     "💔 You Lost...",
@@ -100,7 +101,7 @@ cashChange = -betAmount;
             }
 
             userData.wallet = (userData.wallet || 0) + cashChange;
-userData.lastGamble = now;
+            userData.lastGamble = now;
 
             await setEconomyData(client, guildId, userId, userData);
 
