@@ -192,6 +192,10 @@ export default {
       return;
     }
 
+    if (publishedMessage.attachments?.size) {
+      await publishedMessage.edit({ attachments: [] }).catch(() => {});
+    }
+
     await interaction.editReply({
       content: 'Your staff review has been published. Thank you!',
     }).catch(() => {});
