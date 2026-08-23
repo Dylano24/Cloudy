@@ -2,8 +2,9 @@ import { SlashCommandBuilder } from 'discord.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
-
+import { buildCloseButtonRow } from '../../utils/closableResponse.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const EMBED_DESCRIPTION_LIMIT = 4096;
 
@@ -25,13 +26,14 @@ export default {
 
     const challenger = interaction.user;
     const opponent = interaction.options.getUser("opponent");
+    const components = [buildCloseButtonRow(challenger.id)];
 
     if (challenger.id === opponent.id) {
       const embed = warningEmbed(
         "⚔️ Invalid Challenge",
         `**${challenger.username}**, you can't fight yourself! That's a draw before it even starts.`
       );
-      return await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+      return await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components });
     }
 
     if (opponent.bot) {
@@ -39,7 +41,7 @@ export default {
         "⚔️ Invalid Opponent",
         "You can't fight bots! Challenge a real person instead."
       );
-      return await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+      return await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components });
     }
 
     const winner = rand(0, 1) === 0 ? challenger : opponent;
@@ -79,7 +81,7 @@ export default {
       description
     );
 
-    await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+    await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components });
     logger.debug(`Fight command executed between ${challenger.id} and ${opponent.id} in guild ${interaction.guildId}`);
   },
 };
