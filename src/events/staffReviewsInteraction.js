@@ -49,7 +49,11 @@ export default {
       return;
     }
 
-    const staffRole = interaction.guild?.roles?.cache?.find(role => role.name.toLowerCase() === 'staff');
+    let staffRole = interaction.guild?.roles?.cache?.find(role => role.name.toLowerCase() === 'staff') || null;
+    if (!staffRole && interaction.guild?.roles?.fetch) {
+      const roles = await interaction.guild.roles.fetch().catch(() => null);
+      staffRole = roles?.find(role => role.name.toLowerCase() === 'staff') || null;
+    }
 
     const publishedMessage = await channel.send({
       content: staffRole ? `<@&${staffRole.id}>` : undefined,
@@ -57,9 +61,9 @@ export default {
       allowedMentions: staffRole ? { roles: [staffRole.id] } : { parse: [] },
     });
 
-    // The role must exist in normal message content for Discord to send a real notification.
-    // Remove the visible content shortly afterwards so the final review stays clean and the
-    // resolved @Staff + stars remain inside the embed description.
+    // Discord only notifies a role when the role mention exists in normal message content.
+    // Keep that real ping briefly, then hide it; the embed itself keeps the clickable role
+    // mention plus the visual star rating on the same line.
     if (staffRole) {
       const hidePingTimer = setTimeout(() => {
         void publishedMessage.edit({ content: null, allowedMentions: { parse: [] } }).catch(() => {});
