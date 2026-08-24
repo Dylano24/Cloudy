@@ -1,5 +1,4 @@
-import { MessageFlags, SlashCommandBuilder } from 'discord.js';
-import { warningEmbed } from '../../utils/embeds.js';
+import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 export default {
@@ -22,11 +21,13 @@ export default {
         ),
 
     async execute(interaction) {
+        const embed = new EmbedBuilder()
+            .setColor(0xFFFFFF)
+            .setTitle('Shop unavailable')
+            .setDescription('Purchases are not available yet. The `/buy` command will be enabled when the Cloudy store is ready.');
+
         return InteractionHelper.safeReply(interaction, {
-            embeds: [warningEmbed(
-                'Shop unavailable',
-                'Purchases are not available yet. The `/buy` command will be enabled when the Cloudy store is ready.',
-            )],
+            embeds: [embed],
             flags: MessageFlags.Ephemeral,
         });
     },
