@@ -17,21 +17,6 @@ const CHANNEL_RULES = {
     guideDescription: 'All Cloudy gambling and game commands must be used in this channel. Use `/gamble`, `/fight`, `/flip`, or `/roll` here. These commands will not work in other channels.',
     wrongChannelMessage: 'Gambling and game commands can only be used in the dedicated gambling channel.',
   },
-  youtube: {
-    slug: 'youtube',
-    guideTitle: 'YouTube Content',
-    guideDescription: 'Share your YouTube videos and YouTube content in this channel only. Please do not post YouTube content in other channels.',
-  },
-  twitch: {
-    slug: 'twitch',
-    guideTitle: 'Twitch Content',
-    guideDescription: 'Share your Twitch streams, clips, and Twitch content in this channel only. Please do not post Twitch content in other channels.',
-  },
-  tiktok: {
-    slug: 'tiktok',
-    guideTitle: 'TikTok Content',
-    guideDescription: 'Share your TikTok videos and TikTok content in this channel only. Please do not post TikTok content in other channels.',
-  },
 };
 
 function isUsableTextChannel(channel) {
@@ -119,7 +104,7 @@ export async function ensureDedicatedChannelGuides(client) {
   const results = [];
 
   for (const guild of client.guilds.cache.values()) {
-    for (const key of ['shop', 'gambling', 'youtube', 'twitch', 'tiktok']) {
+    for (const key of ['shop', 'gambling']) {
       const ok = await ensureGuideMessage(guild, key);
       results.push({ guildId: guild.id, key, ok });
     }
