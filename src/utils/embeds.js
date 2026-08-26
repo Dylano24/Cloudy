@@ -14,10 +14,10 @@ function sanitizeEmbedText(text = '') {
 
   return text
     .replace(EMOJI_REGEX, '')
-    .replace(/[ \t]+/g, ' ')  // Replace consecutive spaces/tabs with single space
-    .replace(/[ \t]\n/g, '\n')  // Remove spaces before newlines
-    .replace(/\n[ \t]/g, '\n')  // Remove spaces after newlines
-    .replace(/\n{3,}/g, '\n\n')  // Limit consecutive newlines to 2
+    .replace(/[ \t]+/g, ' ')
+    .replace(/[ \t]\n/g, '\n')
+    .replace(/\n[ \t]/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -38,7 +38,13 @@ const originalSetAuthor = EmbedBuilder.prototype.setAuthor;
 const originalAddFields = EmbedBuilder.prototype.addFields;
 
 EmbedBuilder.prototype.setTitle = function setSanitizedTitle(title) {
-  return originalSetTitle.call(this, sanitizeEmbedText(title));
+  if (typeof title !== 'string') {
+    return originalSetTitle.call(this, title);
+  }
+
+  const sanitized = sanitizeEmbedText(title);
+  const fallback = title.trim().slice(0, 256);
+  return originalSetTitle.call(this, sanitized || fallback);
 };
 
 EmbedBuilder.prototype.setAuthor = function setSanitizedAuthor(author) {
@@ -143,7 +149,7 @@ export function createEmbed({
   if (Array.isArray(fields) && fields.length > 0) {
     const validFields = fields.filter(f => f && f.name && f.value);
     if (validFields.length > 0) {
-      embed.addFields(validFields.slice(0, 25)); 
+      embed.addFields(validFields.slice(0, 25));
     }
   }
 
@@ -154,9 +160,7 @@ export function createEmbed({
       } else if (author && typeof author.name === 'string') {
         embed.setAuthor(author);
       }
-    } catch (error) {
-      
-    }
+    } catch (error) {}
   } else if (botConfig.embeds?.author?.name) {
     embed.setAuthor({
       name: botConfig.embeds.author.name,
@@ -172,9 +176,7 @@ export function createEmbed({
       } else if (footer && typeof footer.text === 'string') {
         embed.setFooter(footer);
       }
-    } catch (error) {
-      
-    }
+    } catch (error) {}
   } else if (botConfig.embeds?.footer?.text) {
     const defaultFooter = {
       text: botConfig.embeds.footer.text,
@@ -190,9 +192,7 @@ export function createEmbed({
       } else if (thumbnail && typeof thumbnail.url === 'string') {
         embed.setThumbnail(thumbnail.url);
       }
-    } catch (error) {
-      
-    }
+    } catch (error) {}
   } else if (botConfig.embeds?.thumbnail) {
     embed.setThumbnail(botConfig.embeds.thumbnail);
   }
@@ -204,9 +204,7 @@ export function createEmbed({
       } else if (image && typeof image.url === 'string') {
         embed.setImage(image.url);
       }
-    } catch (error) {
-      
-    }
+    } catch (error) {}
   }
 
   if (timestamp === true) {
@@ -218,9 +216,7 @@ export function createEmbed({
   if (url && typeof url === 'string' && url.length > 0) {
     try {
       embed.setURL(url);
-    } catch (error) {
-      
-    }
+    } catch (error) {}
   }
 
   return embed;
@@ -250,12 +246,6 @@ const USER_ERROR_COLORS = {
   rate_limit: 'warning',
 };
 
-/**
- * Build a consistent user-facing error embed.
- * @param {string} errorType - Error category key (e.g. validation, permission)
- * @param {string} [description] - Specific, actionable message for the user
- * @param {{ titleOverride?: string }} [options]
- */
 export function buildUserErrorEmbed(errorType, description = '', options = {}) {
   const type = errorType || 'unknown';
   const title = options.titleOverride || USER_ERROR_TITLES[type] || USER_ERROR_TITLES.unknown;
@@ -290,9 +280,6 @@ function buildNotificationEmbed(title, body = '', color = 'primary') {
   });
 }
 
-/**
- * @deprecated Prefer buildUserErrorEmbed or replyUserError from errorHandler.js.
- */
 export function errorEmbed(title, detail = null, options = {}) {
   const { showDetails = process.env.NODE_ENV !== 'production' } = options;
   let body = detail;
@@ -308,7 +295,6 @@ export function errorEmbed(title, detail = null, options = {}) {
   return buildUserErrorEmbed('unknown', description, { titleOverride });
 }
 
-/** @param {string} titleOrBody - With one arg: body text. With two args: title and body. */
 export function successEmbed(title, body = '') {
   if (arguments.length === 1) {
     return buildNotificationEmbed('Success', title, 'success');
@@ -317,7 +303,6 @@ export function successEmbed(title, body = '') {
   return buildNotificationEmbed(title || 'Success', body, 'success');
 }
 
-/** @param {string} titleOrBody - With one arg: body text. With two args: title and body. */
 export function infoEmbed(title, body = '') {
   if (arguments.length === 1) {
     return buildNotificationEmbed('Information', title, 'info');
@@ -326,7 +311,6 @@ export function infoEmbed(title, body = '') {
   return buildNotificationEmbed(title || 'Information', body, 'info');
 }
 
-/** @param {string} titleOrBody - With one arg: body text. With two args: title and body. */
 export function warningEmbed(title, body = '') {
   if (arguments.length === 1) {
     return buildNotificationEmbed('Warning', title, 'warning');
@@ -404,7 +388,7 @@ export function formatDuration(ms) {
 
 export function formatProgressBar(current, max, size = 10) {
   const progress = Math.min(Math.max(0, current / max), 1);
-  const filled = Math.round(size * progress);
+  const filled = Math.round(progress * size);
   const empty = size - filled;
   return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${Math.round(progress * 100)}%`;
 }
