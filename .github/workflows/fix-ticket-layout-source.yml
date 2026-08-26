@@ -57,7 +57,7 @@ jobs:
           block_end_marker = '    await ticketMessage.pin().catch(() => {});'
           block_start = ticket.index(block_start_marker)
           block_end = ticket.index(block_end_marker, block_start) + len(block_end_marker)
-          new_block = '''    const embed = forceCloudyTicketFooter(createEmbed({
+          new_block = r'''    const embed = forceCloudyTicketFooter(createEmbed({
               title: `Ticket #${ticketNumber}`,
               description:
                 `${member.toString()}, we’ve received your request!\n\n`
