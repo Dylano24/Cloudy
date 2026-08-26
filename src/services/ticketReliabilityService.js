@@ -448,7 +448,7 @@ export async function reconcileTicketChannelState(channel) {
 
   const ownerPermissions = isClosed
     ? {
-      ViewChannel: false,
+      ViewChannel: true,
       SendMessages: false,
     }
     : {
