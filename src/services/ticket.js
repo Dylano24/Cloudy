@@ -182,10 +182,11 @@ export async function createTicket(
 
     if (config.ticketStaffRoleId) {
       await channel.send({
-        content: `<@&${config.ticketStaffRoleId}>`,
+        content: `<@&${config.ticketStaffRoleId}> <@${member.id}>`,
         allowedMentions: {
           parse: [],
           roles: [String(config.ticketStaffRoleId)],
+          users: [String(member.id)],
         },
       });
     }
