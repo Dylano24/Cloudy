@@ -11,6 +11,7 @@ import { CLOUDY_TICKET_FOOTER } from '../utils/ticket/ticketBranding.js';
 
 const PIN_EMOJI = '📌';
 const renderQueues = new Map();
+const stabilizeJobs = new Map();
 const RECEIVED_INTRO = 'we’ve received your request!';
 const RECEIVED_DETAILS =
   'To help us process your ticket as quickly as possible, please provide any additional details you believe may be useful, along with any screenshots or files that could help us better understand your situation.';
@@ -47,6 +48,27 @@ function enqueueRender(channel, operation) {
     if (renderQueues.get(key) === current) renderQueues.delete(key);
   }).catch(() => {});
   return current;
+}
+
+function scheduleLayoutStabilization(channel) {
+  if (!channel?.guild?.id || !channel?.id || stabilizeJobs.has(channel.id)) return;
+
+  const timers = [2300, 5000].map(delay => {
+    const timer = setTimeout(() => {
+      if (isLiveChannel(channel)) {
+        renderTicketV2(channel, null, false).catch(() => {});
+      }
+    }, delay);
+    timer.unref?.();
+    return timer;
+  });
+
+  stabilizeJobs.set(channel.id, timers);
+
+  const cleanup = setTimeout(() => {
+    stabilizeJobs.delete(channel.id);
+  }, 6500);
+  cleanup.unref?.();
 }
 
 function makeClaimButton(ticketData) {
@@ -152,7 +174,7 @@ async function replaceComponentsV2TicketMessage(channel, message, ticketData, em
   return replacement;
 }
 
-export async function renderTicketV2(channel, preferredMessage = null) {
+export async function renderTicketV2(channel, preferredMessage = null, stabilize = true) {
   if (!isLiveChannel(channel)) return false;
 
   return enqueueRender(channel, async () => {
@@ -175,6 +197,7 @@ export async function renderTicketV2(channel, preferredMessage = null) {
 
       if (message.flags?.has?.(MessageFlags.IsComponentsV2)) {
         await replaceComponentsV2TicketMessage(channel, message, ticketData, embed, components);
+        if (stabilize) scheduleLayoutStabilization(channel);
         return true;
       }
 
@@ -191,6 +214,7 @@ export async function renderTicketV2(channel, preferredMessage = null) {
         components,
       });
 
+      if (stabilize) scheduleLayoutStabilization(channel);
       return true;
     } catch (error) {
       if (isLiveChannel(channel)) {
