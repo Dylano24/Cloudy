@@ -94,11 +94,13 @@ function buildMemberMenu(ownerMembers = []) {
 export function buildStaffReviewsPanel(ownerMembers = []) {
   const embed = new EmbedBuilder()
     .setColor(0xFFFFFF)
-    .setTitle('Staff reviews')
+    .setTitle('Staff Reviews')
     .setDescription(
-      'Share your experience with the Cloudy staff team.\n\n'
-      + 'First choose the staff member you want to review. Then choose a rating and leave a short comment about your experience.\n\n'
-      + `Your review will be published in <#${COMMUNITY_REVIEWS_CHANNEL_ID}> for everyone to see.`,
+      'We want to hear about your experience with our staff team!\n\n'
+      + 'Share your feedback by selecting the staff member you would like to review, giving them a rating, and then writing a comment describing your experience.\n\n'
+      + 'Please keep your feedback respectful and constructive. Any inappropriate, offensive, insulting, or irrelevant submissions may be removed.\n\n'
+      + `Once submitted, your review will be published in <#${COMMUNITY_REVIEWS_CHANNEL_ID}>.\n\n`
+      + 'Your reviews not only help us improve, but also encourage and support our staff team. We truly appreciate you taking the time to share your experience and show your support!',
     )
     .setFooter({ text: FOOTER });
 
