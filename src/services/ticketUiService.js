@@ -384,9 +384,9 @@ async function findMainTicketMessage(channel, ticketData) {
   return recent?.find(message => isMainTicketMessage(message, channel)) || null;
 }
 
-export async function syncCloudyTicketMessage(channel) {
+export async function syncCloudyTicketMessage(channel, preferredMessage = null) {
   try {
-    return await renderTicketV2(channel);
+    return await renderTicketV2(channel, preferredMessage);
   } catch (error) {
     logger.warn('Could not sync Cloudy ticket UI', {
       guildId: channel?.guild?.id,
@@ -429,15 +429,11 @@ export async function setTicketPinned(channel, pinned) {
 }
 
 export async function createTicket(...args) {
-  const result = await withTimeout(
+  return await withTimeout(
     createTicketBase(...args),
     10_000,
     'Ticket creation',
   );
-
-  await syncCloudyTicketMessage(result.channel);
-  await syncCloudyTicketChannelName(result.channel);
-  return result;
 }
 
 export async function claimTicket(channel, claimer) {
