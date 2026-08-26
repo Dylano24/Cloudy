@@ -81,7 +81,7 @@ function buildContainer(ticketData, number, logoUrl = null) {
 
   const headerText = new TextDisplayBuilder().setContent(
     `## Ticket #${number}\n<@${ticketData.userId}>, ${RECEIVED_MESSAGE}`
-    + `\n**Reason:** ${ticketData.reason || 'No reason provided'}`,
+    + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`,
   );
 
   const container = new ContainerBuilder()
@@ -99,7 +99,7 @@ function buildContainer(ticketData, number, logoUrl = null) {
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `**Status**\n${isClosed ? 'Closed' : 'Open'}\n**Claimed By**\n${claimedBy}\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
+      `**Status**\n${isClosed ? 'Closed' : 'Open'}\n\n**Claimed By**\n${claimedBy}\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
     ),
     new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
   );
