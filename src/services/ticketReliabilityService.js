@@ -11,7 +11,7 @@ import {
   updateTicketPriority as updateTicketPriorityBase,
 } from './ticketUiService.js';
 import { deleteTicketSafely } from './ticketDeleteService.js';
-import { getGuildConfig } from './config/guildConfig.js';
+import { getGuildConfig, updateGuildConfig } from './config/guildConfig.js';
 import {
   getTicketData,
   saveTicketData,
@@ -221,7 +221,16 @@ export async function createTicket(guild, member, categoryId, reason, priority =
   return enqueue(creationQueues, queueKey, async () => {
     requirePersistentTicketDatabase(guild.client);
 
-    const config = await getGuildConfig(guild.client, guild.id);
+    let config = await getGuildConfig(guild.client, guild.id);
+    const namedStaffRole = guild.roles.cache.find(
+      role => role.name.trim().toLowerCase() === 'staff',
+    );
+    if (namedStaffRole && String(config.ticketStaffRoleId || '') !== String(namedStaffRole.id)) {
+      config = await updateGuildConfig(guild.client, guild.id, {
+        ticketStaffRoleId: namedStaffRole.id,
+      });
+    }
+
     const maxTickets = Number(config.maxTicketsPerUser ?? 3);
     const currentCount = await getStrictOpenTicketCount(guild.client, guild.id, member.id);
 
@@ -468,9 +477,15 @@ export async function reconcileTicketChannelState(channel) {
     }
   });
 
-  if (config.ticketStaffRoleId && isLiveGuildChannel(channel)) {
-    const staffRole = channel.guild.roles.cache.get(config.ticketStaffRoleId)
-      || await channel.guild.roles.fetch(config.ticketStaffRoleId).catch(() => null);
+  if (isLiveGuildChannel(channel)) {
+    const namedStaffRole = channel.guild.roles.cache.find(
+      role => role.name.trim().toLowerCase() === 'staff',
+    );
+    const staffRoleId = namedStaffRole?.id || config.ticketStaffRoleId || null;
+    const staffRole = staffRoleId
+      ? channel.guild.roles.cache.get(staffRoleId)
+        || await channel.guild.roles.fetch(staffRoleId).catch(() => null)
+      : null;
     if (staffRole) {
       await channel.permissionOverwrites.edit(staffRole.id, {
         ViewChannel: true,

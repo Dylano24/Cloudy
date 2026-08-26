@@ -190,7 +190,10 @@ export async function getTicketPermissionContext({ client, interaction }) {
   const hasManageChannels = Boolean(
     interaction.member?.permissions?.has?.(PermissionFlagsBits.ManageChannels),
   );
-  const staffRoleId = config?.ticketStaffRoleId || null;
+  const namedStaffRole = interaction.guild?.roles?.cache?.find(
+    role => role.name.trim().toLowerCase() === 'staff',
+  );
+  const staffRoleId = namedStaffRole?.id || config?.ticketStaffRoleId || null;
   const hasTicketStaffRole = Boolean(
     staffRoleId && interaction.member?.roles?.cache?.has?.(staffRoleId),
   );
