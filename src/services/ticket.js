@@ -383,7 +383,7 @@ components: []
     }
     
     const closeEmbed = createEmbed({
-      title: 'Ticket Closed',
+      title: 'Ticket closed',
       description: `This ticket has been closed by ${closer}.\n**Reason:** ${reason}${dmOnClose ? '\n\n📩 A DM has been sent to the ticket creator.' : ''}`,
       color: '#e74c3c',
       footer: { text: `Ticket ID: ${ticketData.id}` }
@@ -470,7 +470,7 @@ export async function claimTicket(channel, claimer) {
     }
     
     const claimEmbed = createEmbed({
-      title: 'Ticket Claimed',
+      title: 'Ticket claimed',
       description: `🎉 ${claimer} has claimed this ticket!`,
       color: '#2ecc71'
     });
@@ -485,7 +485,7 @@ export async function claimTicket(channel, claimer) {
 
     const claimStatusMessage = messages.find(m =>
       m.embeds.length > 0 &&
-      (m.embeds[0].title === 'Ticket Claimed' || m.embeds[0].title === 'Ticket Unclaimed')
+      (m.embeds[0].title === 'Ticket claimed' || m.embeds[0].title === 'Ticket unclaimed')
     );
 
     if (claimStatusMessage) {
@@ -596,14 +596,14 @@ export async function reopenTicket(channel, reopener) {
     }
     
     const reopenEmbed = createEmbed({
-      title: 'Ticket Reopened',
+      title: 'Ticket reopened',
       description: `🔓 ${reopener} has reopened this ticket!`,
       color: '#2ecc71'
     });
 
     const closeStatusMessage = messages.find(m =>
       m.embeds.length > 0 &&
-      m.embeds[0].title === 'Ticket Closed' &&
+      m.embeds[0].title === 'Ticket closed' &&
       m.components.length > 0 &&
       m.components[0].components.some(c => c.customId === 'ticket_reopen')
     );
@@ -721,7 +721,7 @@ export async function deleteTicket(channel, deleter) {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
     
     const deleteEmbed = createEmbed({
-      title: 'Ticket Deleted',
+      title: 'Ticket deleted',
       description: `🗑️ This ticket will be permanently deleted in ${TICKET_DELETE_DELAY_SECONDS} seconds.`,
       color: '#e74c3c',
       footer: { text: `Ticket ID: ${ticketData.id}` }
@@ -798,7 +798,7 @@ export async function deleteTicket(channel, deleter) {
                 
                 const transcriptEmbed = buildStandardLogEmbed({
                   color: 0x3498db,
-                  title: 'Ticket Transcript',
+                  title: 'Ticket transcript',
                   description: [
                     formatLogLine('Ticket', `#${ticketData.id}`),
                     formatLogLine('Channel', `#${channel.name}`),
@@ -919,12 +919,12 @@ export async function unclaimTicket(channel, unclaimer) {
     
     const claimMessage = messages.find(m => 
       m.embeds.length > 0 && 
-      (m.embeds[0].title === 'Ticket Claimed' || m.embeds[0].title === 'Ticket Unclaimed')
+      (m.embeds[0].title === 'Ticket claimed' || m.embeds[0].title === 'Ticket unclaimed')
     );
     
     if (claimMessage) {
       const unclaimEmbed = createEmbed({
-        title: 'Ticket Unclaimed',
+        title: 'Ticket unclaimed',
         description: `🔓 ${unclaimer} has unclaimed this ticket!`,
         color: '#f39c12'
       });
@@ -935,7 +935,7 @@ export async function unclaimTicket(channel, unclaimer) {
       });
     } else {
       const unclaimEmbed = createEmbed({
-        title: 'Ticket Unclaimed',
+        title: 'Ticket unclaimed',
         description: `🔓 ${unclaimer} has unclaimed this ticket!`,
         color: '#f39c12'
       });

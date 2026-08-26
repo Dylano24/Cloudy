@@ -5,12 +5,12 @@ import {
 import { getGuildConfig } from './config/guildConfig.js';
 
 const AUTO_DELETE_TITLES = new Set([
-  'Ticket Reopened',
-  'Ticket Claimed',
-  'Ticket Unclaimed',
+  'Ticket reopened',
+  'Ticket claimed',
+  'Ticket unclaimed',
   'Priority Updated',
-  'Ticket Pinned',
-  'Ticket Unpinned',
+  'Ticket pinned',
+  'Ticket unpinned',
 ]);
 
 const deleteTimers = new Map();

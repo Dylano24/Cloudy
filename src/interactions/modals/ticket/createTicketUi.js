@@ -99,7 +99,7 @@ const createTicketModal = {
       await InteractionHelper.safeEditReply(interaction, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
-          title: 'Ticket Created',
+          title: 'Ticket created',
           description: `Your ticket has been created in ${channelLink}!`,
         })],
         components: [],

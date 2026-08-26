@@ -154,7 +154,7 @@ const claimTicketHandler = {
       if (!context) return;
 
       await claimTicket(interaction.channel, interaction.user);
-      await editBasicTicketReply(interaction, 'Ticket Claimed', 'You have claimed this ticket.');
+      await editBasicTicketReply(interaction, 'Ticket claimed', 'You have claimed this ticket.');
     } catch (error) {
       logger.error('Ticket claim button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {
@@ -186,7 +186,7 @@ const pinTicketHandler = {
 
       await editBasicTicketReply(
         interaction,
-        willBePinned ? 'Ticket Pinned' : 'Ticket Unpinned',
+        willBePinned ? 'Ticket pinned' : 'Ticket unpinned',
         willBePinned
           ? 'This ticket has been pinned to the top of the category.'
           : 'This ticket has been moved back to its normal position.',
@@ -241,7 +241,7 @@ const priorityMenuHandler = {
       await InteractionHelper.safeEditReply(interaction, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
-          title: 'Ticket Priority',
+          title: 'Ticket priority',
           description: `Current priority: **${currentInfo.emoji} ${currentInfo.label}**\nSelect a new priority below.`,
         })],
         components: [new ActionRowBuilder().addComponents(menu)],
@@ -342,7 +342,7 @@ const unclaimTicketHandler = {
       if (!context) return;
 
       await unclaimTicket(interaction.channel, interaction.member);
-      await editBasicTicketReply(interaction, 'Ticket Unclaimed', 'This ticket has been unclaimed.');
+      await editBasicTicketReply(interaction, 'Ticket unclaimed', 'This ticket has been unclaimed.');
     } catch (error) {
       logger.error('Ticket unclaim button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {
@@ -368,7 +368,7 @@ const reopenTicketHandler = {
         ? ' The ticket was reopened, but the channel could not be moved back to the open category yet. Cloudy will retry automatically.'
         : '';
 
-      await editBasicTicketReply(interaction, 'Ticket Reopened', `This ticket has been reopened.${note}`);
+      await editBasicTicketReply(interaction, 'Ticket reopened', `This ticket has been reopened.${note}`);
     } catch (error) {
       logger.error('Ticket reopen button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {
@@ -392,7 +392,7 @@ const deleteTicketHandler = {
       await deleteTicket(interaction.channel, interaction.user);
       await editBasicTicketReply(
         interaction,
-        'Ticket Deleted',
+        'Ticket deleted',
         'The transcript was archived. This ticket will be deleted shortly.',
       );
     } catch (error) {
