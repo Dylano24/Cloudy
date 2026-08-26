@@ -18,6 +18,7 @@ import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { ensureTypedServiceError, wrapServiceBoundary } from '../utils/serviceErrorBoundary.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
+import { deleteTicketCreationConfirmation } from './ticketCreationConfirmationService.js';
 const TICKET_DELETE_DELAY_MS = 3000;
 const TICKET_DELETE_DELAY_SECONDS = Math.floor(TICKET_DELETE_DELAY_MS / 1000);
 const TICKET_SERVICE = 'ticketService';
@@ -844,6 +845,7 @@ export async function deleteTicket(channel, deleter) {
 
         try {
           await channel.delete('Ticket deleted permanently');
+          await deleteTicketCreationConfirmation(channel).catch(() => false);
           logger.info('✅ Channel deleted', {
             channelId: channel.id,
             channelName: channel.name,

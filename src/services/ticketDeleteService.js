@@ -5,6 +5,7 @@ import { requirePersistentTicketDatabase } from './ticketReliabilityService.js';
 import { archiveTicketTranscript } from './ticketTranscriptService.js';
 import { ensureTicketDestinationConfig } from './ticketDestinationAutoConfig.js';
 import { logger } from '../utils/logger.js';
+import { deleteTicketCreationConfirmation } from './ticketCreationConfirmationService.js';
 
 const DELETE_DELAY_MS = 3000;
 const deleteQueues = new Map();
@@ -124,6 +125,7 @@ export async function deleteTicketSafely(channel, deleter) {
       const timer = setTimeout(async () => {
         try {
           await channel.delete(`Ticket deleted by ${deleter.username || deleter.id}`);
+          await deleteTicketCreationConfirmation(channel).catch(() => false);
           logger.info('Ticket channel permanently deleted after transcript archive', {
             guildId: channel.guild.id,
             channelId: channel.id,
