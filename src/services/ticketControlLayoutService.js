@@ -20,9 +20,8 @@ function alreadyUsesCloudyLayout(message) {
   const ids = currentLayoutIds(message);
   return ids.length === 1
     && ['ticket_claim', 'ticket_unclaim'].includes(ids[0]?.[0])
-    && ids[0]?.[1] === 'ticket_priority_menu'
-    && ids[0]?.[2] === 'ticket_pin'
-    && ids[0]?.[3] === 'ticket_close';
+    && ids[0]?.[1] === 'ticket_pin'
+    && ids[0]?.[2] === 'ticket_close';
 }
 
 export async function enforceTicketControlLayout(message) {
@@ -38,17 +37,15 @@ export async function enforceTicketControlLayout(message) {
 
   const claim = buttons.get('ticket_claim') || buttons.get('ticket_unclaim');
   const close = buttons.get('ticket_close');
-  const priority = buttons.get('ticket_priority_menu');
   const pin = buttons.get('ticket_pin');
 
-  if (!claim || !close || !priority || !pin) return false;
+  if (!claim || !close || !pin) return false;
 
   try {
     await message.edit({
       components: [
         new ActionRowBuilder().addComponents(
           ButtonBuilder.from(claim),
-          ButtonBuilder.from(priority),
           ButtonBuilder.from(pin),
           ButtonBuilder.from(close),
         ),
