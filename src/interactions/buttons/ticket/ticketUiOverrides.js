@@ -356,17 +356,12 @@ const unclaimTicketHandler = {
 const reopenTicketHandler = {
   name: 'ticket_reopen',
   async execute(interaction, client) {
+    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+    if (!deferred) return;
+
     try {
       const context = await requireStaff(interaction, client, 'reopen tickets');
       if (!context) return;
-
-      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-      if (!deferred) {
-        return await replyUserError(interaction, {
-          type: ErrorTypes.UNKNOWN,
-          message: 'Could not process the reopen request. Please try again.',
-        });
-      }
 
       const result = await reopenTicket(interaction.channel, interaction.member);
       const note = result?.openCategoryMoveFailed
@@ -387,17 +382,12 @@ const reopenTicketHandler = {
 const deleteTicketHandler = {
   name: 'ticket_delete',
   async execute(interaction, client) {
+    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+    if (!deferred) return;
+
     try {
       const context = await requireStaff(interaction, client, 'delete tickets');
       if (!context) return;
-
-      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-      if (!deferred) {
-        return await replyUserError(interaction, {
-          type: ErrorTypes.UNKNOWN,
-          message: 'Could not process the delete request. Please try again.',
-        });
-      }
 
       await deleteTicket(interaction.channel, interaction.user);
       await editBasicTicketReply(
