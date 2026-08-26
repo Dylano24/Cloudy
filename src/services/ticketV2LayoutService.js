@@ -12,11 +12,13 @@ import { CLOUDY_TICKET_FOOTER } from '../utils/ticket/ticketBranding.js';
 const PIN_EMOJI = '📌';
 const renderQueues = new Map();
 const RECEIVED_INTRO = 'we’ve received your request!';
-const RECEIVED_DETAILS_START =
-  'To help us process it as quickly as possible, feel free to provide any additional details';
-const RECEIVED_DETAILS_END =
-  'you think may be useful, as well as any screenshots or files that could help us better understand your situation.';
-const RECEIVED_CLOSING = 'Our team will be with you as soon as possible.';
+const RECEIVED_DETAILS =
+  'To help us process your ticket as quickly as possible, please provide any additional details you believe may be useful, along with any screenshots or files that could help us better understand your situation.';
+const STAFF_NOTICE =
+  '**Please do not tag or spam our staff members for updates.** We can see your messages and have received all the information you’ve provided. If you don’t receive an immediate response, it simply means that we may be busy elsewhere or handling other requests.';
+const PATIENCE_NOTICE =
+  'Please be patient and allow us some time to review your ticket and get back to you.';
+const UNDERSTANDING_NOTICE = 'We appreciate your understanding!';
 
 function ticketNumber(ticketData, fallbackTitle = '') {
   const titleMatch = String(fallbackTitle).match(/Ticket\s*#\s*0*(\d+)/i);
@@ -87,8 +89,10 @@ function buildTicketEmbed(ticketData, number, logoUrl = null) {
     .setTitle(`Ticket #${number}`)
     .setDescription(
       `<@${ticketData.userId}>, ${RECEIVED_INTRO}`
-      + `\n\n${RECEIVED_DETAILS_START} ${RECEIVED_DETAILS_END}`
-      + `\n\n${RECEIVED_CLOSING}`
+      + `\n\n${RECEIVED_DETAILS}`
+      + `\n\n${STAFF_NOTICE}`
+      + `\n\n${PATIENCE_NOTICE}`
+      + `\n\n${UNDERSTANDING_NOTICE}`
       + `\n\n**Reason:** ${reason}`
       + `\n\n**Status**\n${isClosed ? 'Closed' : 'Open'}`
       + `\n\n**Claimed By**\n${claimedBy}`
