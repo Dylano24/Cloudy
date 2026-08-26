@@ -15,7 +15,7 @@ const RECEIVED_INTRO = 'we’ve received your request!';
 const RECEIVED_DETAILS_START =
   'To help us process it as quickly as possible, feel free to provide any additional details';
 const RECEIVED_DETAILS_END =
-  'you think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.';
+  'you think may be useful, as well as any screenshots or files that could help us better understand your situation.';
 const RECEIVED_CLOSING = 'Our team will be with you as soon as possible.';
 
 function ticketNumber(ticketData, fallbackTitle = '') {
