@@ -27,12 +27,6 @@ function ticketNumber(ticketData, fallbackTitle = '') {
   return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : 'Unknown';
 }
 
-function relativeTimestamp(value) {
-  const ms = value ? new Date(value).getTime() : NaN;
-  if (!Number.isFinite(ms)) return 'Unknown';
-  return `<t:${Math.floor(ms / 1000)}:R>`;
-}
-
 function isLiveChannel(channel) {
   if (!channel?.guild?.id || !channel?.id || channel.deleted === true) return false;
   return channel.guild.channels.cache.has(channel.id);
@@ -80,8 +74,6 @@ function makeTicketActionRow(ticketData) {
 }
 
 function buildTicketEmbed(ticketData, number) {
-  const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
-  const claimedBy = ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed';
   const reason = String(ticketData.reason || 'No reason provided').slice(0, 1024);
 
   return new EmbedBuilder()
@@ -93,10 +85,7 @@ function buildTicketEmbed(ticketData, number) {
       + `\n\n${STAFF_NOTICE}`
       + `\n\n${PATIENCE_NOTICE}`
       + `\n\n${UNDERSTANDING_NOTICE}`
-      + `\n\n**Reason:** ${reason}`
-      + `\n\n**Status**\n${isClosed ? 'Closed' : 'Open'}`
-      + `\n\n**Claimed By**\n${claimedBy}`
-      + `\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
+      + `\n\n**Reason:** ${reason}`,
     )
     .setFooter({ text: CLOUDY_TICKET_FOOTER });
 }
