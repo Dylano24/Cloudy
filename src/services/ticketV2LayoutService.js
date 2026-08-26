@@ -20,6 +20,7 @@ const RECEIVED_DETAILS_START =
 const RECEIVED_DETAILS_END =
   'you think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.';
 const RECEIVED_CLOSING = 'Our team will be with you as soon as possible.';
+const SINGLE_LINE_CLOUDY_FOOTER = CLOUDY_TICKET_FOOTER.replaceAll(' ', '\u202F');
 
 function ticketNumber(ticketData, fallbackTitle = '') {
   const titleMatch = String(fallbackTitle).match(/Ticket\s*#\s*0*(\d+)/i);
@@ -120,7 +121,7 @@ function buildContainer(ticketData, number, logoUrl = null) {
     new TextDisplayBuilder().setContent(
       `**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
     ),
-    new TextDisplayBuilder().setContent(CLOUDY_TICKET_FOOTER),
+    new TextDisplayBuilder().setContent(SINGLE_LINE_CLOUDY_FOOTER),
   );
 
   return container;
