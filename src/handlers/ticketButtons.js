@@ -192,7 +192,7 @@ const closeTicketHandler = {
 
       const modal = new ModalBuilder()
         .setCustomId('ticket_close_modal')
-        .setTitle('Close Ticket');
+        .setTitle('Close ticket');
 
       const reasonInput = new TextInputBuilder()
         .setCustomId('reason')
