@@ -33,7 +33,7 @@ async function resolveTicketMemberAuthor(guild, event) {
   if (!user) return null;
 
   return {
-    name: member?.displayName || user.globalName || user.username || user.tag || `User ${event.userId}`,
+    name: user.username || user.tag || `User ${event.userId}`,
     iconURL: user.displayAvatarURL({ extension: 'png', size: 64 }),
   };
 }
