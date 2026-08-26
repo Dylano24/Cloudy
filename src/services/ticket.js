@@ -340,12 +340,12 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
         const overwrite = channel.permissionOverwrites.cache.get(ticketData.userId);
         if (overwrite) {
           await overwrite.edit({
-            ViewChannel: false,
+            ViewChannel: true,
             SendMessages: false,
           });
         } else {
           await channel.permissionOverwrites.create(targetUser, {
-            ViewChannel: false,
+            ViewChannel: true,
             SendMessages: false,
           });
         }
