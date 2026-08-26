@@ -8,7 +8,6 @@ import {
 
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const APPEAL_FORM_CHANNEL_ID = '1539407865318477844';
-const BAN_APPEAL_CHANNEL_ID = '1539372283418910810';
 
 function getAppealUrl() {
   const raw = String(process.env.CORS_ORIGIN || '').trim();
@@ -31,7 +30,6 @@ function buildAppealEmbed(appealUrl) {
       + 'We will review your case and may restore your access if deemed appropriate. However, submitting an appeal does not guarantee that the punishment will be removed or your access restored.\n\n'
       + 'The appeal form is available directly on our official website. The link can also be copied and shared with members who no longer have access to the server, allowing them to submit an appeal.\n\n'
       + `**Appeal here:** ${appealLink}\n\n`
-      + `Submitted appeals are sent directly to <#${BAN_APPEAL_CHANNEL_ID}>.\n\n`
       + FOOTER,
     )
     .setColor(0xFFFFFF);
