@@ -436,6 +436,34 @@ export async function createTicket(...args) {
   );
 }
 
+async function sendPublicClaimStatus(channel, claimer) {
+  const claimerName = String(
+    claimer?.displayName
+    || claimer?.globalName
+    || claimer?.user?.globalName
+    || claimer?.username
+    || claimer?.user?.username
+    || 'A staff member'
+  ).trim();
+
+  await withTimeout(
+    channel.send({
+      embeds: [forceCloudyTicketFooter(createEmbed({
+        title: 'Ticket claimed',
+        description: `**${claimerName}** has claimed this ticket.`,
+        color: '#2ecc71',
+      }))],
+    }),
+    DISCORD_TIMEOUT_MS,
+    'Claim ticket status message',
+  ).catch(error => {
+    logger.warn('Could not send the public claim status message', {
+      channelId: channel.id,
+      error: error.message,
+    });
+  });
+}
+
 export async function claimTicket(channel, claimer) {
   const ticketData = await getTicketDataFast(channel);
   if (!ticketData) {
@@ -452,6 +480,7 @@ export async function claimTicket(channel, claimer) {
   }
   if (String(ticketData.claimedBy || '') === String(claimer.id)) {
     await syncCloudyTicketMessage(channel);
+    await sendPublicClaimStatus(channel, claimer);
     return ticketData;
   }
 
@@ -460,22 +489,7 @@ export async function claimTicket(channel, claimer) {
   await saveTicketDataFast(channel, ticketData);
   await syncCloudyTicketMessage(channel);
 
-  await withTimeout(
-    channel.send({
-      embeds: [forceCloudyTicketFooter(createEmbed({
-        title: 'Ticket claimed',
-        description: `${claimer} has claimed this ticket.`,
-        color: '#2ecc71',
-      }))],
-    }),
-    DISCORD_TIMEOUT_MS,
-    'Claim ticket status message',
-  ).catch(error => {
-    logger.warn('Could not send the public claim status message', {
-      channelId: channel.id,
-      error: error.message,
-    });
-  });
+  await sendPublicClaimStatus(channel, claimer);
 
   void logTicketEvent({
     client: channel.client,
