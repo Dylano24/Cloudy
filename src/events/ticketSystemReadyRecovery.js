@@ -95,9 +95,25 @@ async function recoverGuildTicketSystem(client, guild) {
     pendingDeletionRecovered: 0,
     pendingDeletionReset: 0,
     ticketsRecovered: 0,
+    staffRoleUpdated: false,
   };
 
-  const config = await getGuildConfig(client, guild.id);
+  let config = await getGuildConfig(client, guild.id);
+
+  const staffRole = guild.roles.cache.find(
+    role => role.name.trim().toLowerCase() === 'staff',
+  );
+  if (staffRole && String(config.ticketStaffRoleId || '') !== String(staffRole.id)) {
+    config = await updateGuildConfig(client, guild.id, {
+      ticketStaffRoleId: staffRole.id,
+    });
+    summary.staffRoleUpdated = true;
+
+    logger.info('Ticket Staff Role updated to the Staff role', {
+      guildId: guild.id,
+      roleId: staffRole.id,
+    });
+  }
 
   if (config?.ticketSystemDisabled === true) {
     await reconcileDisabledTicketPanel(client, guild, config, summary);
