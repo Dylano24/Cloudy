@@ -10,6 +10,7 @@ import {
 } from 'discord.js';
 import { getTicketData, saveTicketData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { CLOUDY_TICKET_FOOTER } from '../utils/ticket/ticketBranding.js';
 
 const PIN_EMOJI = '📌';
 const renderQueues = new Map();
@@ -88,7 +89,7 @@ function buildContainer(ticketData, number, logoUrl = null) {
       `## Ticket #${number}\n<@${ticketData.userId}>, ${RECEIVED_INTRO}`,
     ),
     new TextDisplayBuilder().setContent(
-      `${RECEIVED_DETAILS_START}\n${RECEIVED_DETAILS_END}`,
+      `${RECEIVED_DETAILS_START} ${RECEIVED_DETAILS_END}`,
     ),
   ];
 
@@ -119,7 +120,7 @@ function buildContainer(ticketData, number, logoUrl = null) {
     new TextDisplayBuilder().setContent(
       `**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
     ),
-    new TextDisplayBuilder().setContent('-# © Cloudy Inc. • Quality. Innovation. Performance.'),
+    new TextDisplayBuilder().setContent(`-# **${CLOUDY_TICKET_FOOTER}**`),
   );
 
   return container;
