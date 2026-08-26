@@ -38,24 +38,56 @@ function reviewContextKey(userId, reviewId) {
 function pruneExpiredReviews() {
   const now = Date.now();
   for (const [key, entry] of pendingReviews) {
-    if (now - entry.updatedAt > PENDING_REVIEW_TTL_MS) pendingReviews.delete(key);
+    if (now - entry.updatedAt > PENDING_REVIEW_TTL_MS) {
+      pendingReviews.delete(key);
+    }
   }
 }
 
 function buildRatingMenu(disabled = false, memberId = '') {
-  return new StringSelectMenuBuilder().setCustomId(memberId ? `${STAFF_REVIEW_RATING_ID}:${memberId}` : STAFF_REVIEW_RATING_ID).setPlaceholder('Choose your rating').setDisabled(disabled).addOptions(
-    new StringSelectMenuOptionBuilder().setLabel('⭐').setValue('1'), new StringSelectMenuOptionBuilder().setLabel('⭐⭐').setValue('2'), new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐').setValue('3'), new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐⭐').setValue('4'), new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐⭐⭐').setValue('5'));
+  return new StringSelectMenuBuilder()
+    .setCustomId(memberId ? `${STAFF_REVIEW_RATING_ID}:${memberId}` : STAFF_REVIEW_RATING_ID)
+    .setPlaceholder('Choose your rating')
+    .setDisabled(disabled)
+    .addOptions(
+      new StringSelectMenuOptionBuilder().setLabel('⭐').setValue('1'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐⭐').setValue('2'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐').setValue('3'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐⭐').setValue('4'),
+      new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐⭐⭐').setValue('5'),
+    );
 }
 
 function buildMemberMenu(ownerMembers = []) {
-  const menu = new StringSelectMenuBuilder().setCustomId(STAFF_REVIEW_MEMBER_ID).setPlaceholder('Choose the staff member');
-  if (!ownerMembers.length) return menu.setDisabled(true).addOptions(new StringSelectMenuOptionBuilder().setLabel('No Owner members available').setValue('none'));
-  menu.addOptions(ownerMembers.slice(0, 25).map(member => {
-    const username = member.user?.username || member.displayName;
-    const option = new StringSelectMenuOptionBuilder().setLabel(member.displayName.slice(0, 100)).setValue(member.id);
-    if (username) option.setDescription(`@${username}`.slice(0, 100));
-    return option;
-  }));
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(STAFF_REVIEW_MEMBER_ID)
+    .setPlaceholder('Choose the staff member');
+
+  if (!ownerMembers.length) {
+    return menu
+      .setDisabled(true)
+      .addOptions(
+        new StringSelectMenuOptionBuilder()
+          .setLabel('No Owner members available')
+          .setValue('none'),
+      );
+  }
+
+  menu.addOptions(
+    ownerMembers.slice(0, 25).map(member => {
+      const username = member.user?.username || member.displayName;
+      const option = new StringSelectMenuOptionBuilder()
+        .setLabel(member.displayName.slice(0, 100))
+        .setValue(member.id);
+
+      if (username) {
+        option.setDescription(`@${username}`.slice(0, 100));
+      }
+
+      return option;
+    }),
+  );
+
   return menu;
 }
 
@@ -67,47 +99,161 @@ export function buildStaffReviewsPanel(ownerMembers = []) {
       'We want to hear about your experience with our staff team!\n\n'
       + 'Share your feedback by selecting the staff member you would like to review, giving them a rating, and then writing a comment describing your experience.\n\n'
       + 'Please keep your feedback respectful and constructive. Any inappropriate, offensive, insulting, or irrelevant submissions may be removed.\n\n'
-      + `Once submitted, your review will be published in the posted reviews section. (<#${COMMUNITY_REVIEWS_CHANNEL_ID}>)\n\n`
+      + `Once submitted, your review will be published in the <#${COMMUNITY_REVIEWS_CHANNEL_ID}> section.\n\n`
       + 'Your reviews not only help us improve, but also encourage and support our staff team. We truly appreciate you taking the time to share your experience and show your support!',
     )
     .setFooter({ text: FOOTER });
-  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(buildMemberMenu(ownerMembers)), new ActionRowBuilder().addComponents(buildRatingMenu(true))] };
+
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(buildMemberMenu(ownerMembers)),
+      new ActionRowBuilder().addComponents(buildRatingMenu(true)),
+    ],
+  };
 }
 
-export function buildRatingPrompt(memberId) { return { content: `Now choose your rating for <@${memberId}>.`, components: [new ActionRowBuilder().addComponents(buildRatingMenu(false, memberId))], allowedMentions: { parse: [] } }; }
-export function createReviewContext(userId, memberId, rating) { pruneExpiredReviews(); const reviewId = randomUUID(); pendingReviews.set(reviewContextKey(userId, reviewId), { memberId, rating: Number(rating), updatedAt: Date.now() }); return reviewId; }
-export function takeReviewContext(userId, reviewId) { pruneExpiredReviews(); const key = reviewContextKey(userId, reviewId); const context = pendingReviews.get(key) || null; pendingReviews.delete(key); return context; }
+export function buildRatingPrompt(memberId) {
+  return {
+    content: `Now choose your rating for <@${memberId}>.`,
+    components: [new ActionRowBuilder().addComponents(buildRatingMenu(false, memberId))],
+    allowedMentions: { parse: [] },
+  };
+}
+
+export function createReviewContext(userId, memberId, rating) {
+  pruneExpiredReviews();
+  const reviewId = randomUUID();
+  pendingReviews.set(reviewContextKey(userId, reviewId), {
+    memberId,
+    rating: Number(rating),
+    updatedAt: Date.now(),
+  });
+  return reviewId;
+}
+
+export function takeReviewContext(userId, reviewId) {
+  pruneExpiredReviews();
+  const key = reviewContextKey(userId, reviewId);
+  const context = pendingReviews.get(key) || null;
+  pendingReviews.delete(key);
+  return context;
+}
 
 export function buildStaffReviewModal(memberOrReviewId, rating = null) {
   const normalizedRating = Number(rating);
-  const hasEmbeddedContext = /^\d{16,22}$/.test(String(memberOrReviewId || '')) && Number.isInteger(normalizedRating) && normalizedRating >= 1 && normalizedRating <= 5;
-  const customId = hasEmbeddedContext ? `${STAFF_REVIEW_MODAL_ID}:${memberOrReviewId}:${normalizedRating}` : `${STAFF_REVIEW_MODAL_ID}:${memberOrReviewId}`;
-  const comment = new TextInputBuilder().setCustomId('staff_review_comment').setLabel('Tell us about your experience').setPlaceholder('Write your review here...').setStyle(TextInputStyle.Paragraph).setMinLength(3).setMaxLength(1000).setRequired(true);
-  return new ModalBuilder().setCustomId(customId).setTitle('Staff review').addComponents(new ActionRowBuilder().addComponents(comment));
+  const hasEmbeddedContext = /^\d{16,22}$/.test(String(memberOrReviewId || ''))
+    && Number.isInteger(normalizedRating)
+    && normalizedRating >= 1
+    && normalizedRating <= 5;
+
+  const customId = hasEmbeddedContext
+    ? `${STAFF_REVIEW_MODAL_ID}:${memberOrReviewId}:${normalizedRating}`
+    : `${STAFF_REVIEW_MODAL_ID}:${memberOrReviewId}`;
+
+  const comment = new TextInputBuilder()
+    .setCustomId('staff_review_comment')
+    .setLabel('Tell us about your experience')
+    .setPlaceholder('Write your review here...')
+    .setStyle(TextInputStyle.Paragraph)
+    .setMinLength(3)
+    .setMaxLength(1000)
+    .setRequired(true);
+
+  return new ModalBuilder()
+    .setCustomId(customId)
+    .setTitle('Staff review')
+    .addComponents(new ActionRowBuilder().addComponents(comment));
 }
 
 async function getOwnerRole(guild) {
   if (!guild) return null;
+
   let ownerRole = guild.roles?.cache?.find(role => role.name.toLowerCase() === OWNER_ROLE_NAME) || null;
-  if (!ownerRole && guild.roles?.fetch) { const roles = await guild.roles.fetch().catch(() => null); ownerRole = roles?.find(role => role.name.toLowerCase() === OWNER_ROLE_NAME) || null; }
+  if (!ownerRole && guild.roles?.fetch) {
+    const roles = await guild.roles.fetch().catch(() => null);
+    ownerRole = roles?.find(role => role.name.toLowerCase() === OWNER_ROLE_NAME) || null;
+  }
+
   return ownerRole;
 }
 
-export async function getOwnerMembers(guild) { const ownerRole = await getOwnerRole(guild); if (!ownerRole || !guild?.members) return []; const members = await guild.members.fetch().catch(() => guild.members.cache); if (!members) return []; return [...members.values()].filter(member => !member.user?.bot && member.roles?.cache?.has(ownerRole.id)).sort((a,b) => a.displayName.localeCompare(b.displayName)); }
-export async function isOwnerReviewTarget(guild, memberId) { if (!guild || !memberId) return false; const ownerRole = await getOwnerRole(guild); if (!ownerRole || !guild.members?.fetch) return false; const member = await guild.members.fetch({ user: memberId, force: true }).catch(() => null); return Boolean(member && !member.user?.bot && member.roles?.cache?.has(ownerRole.id)); }
+export async function getOwnerMembers(guild) {
+  const ownerRole = await getOwnerRole(guild);
+  if (!ownerRole || !guild?.members) return [];
+
+  const members = await guild.members.fetch().catch(() => guild.members.cache);
+  if (!members) return [];
+
+  return [...members.values()]
+    .filter(member => !member.user?.bot && member.roles?.cache?.has(ownerRole.id))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+export async function isOwnerReviewTarget(guild, memberId) {
+  if (!guild || !memberId) return false;
+
+  const ownerRole = await getOwnerRole(guild);
+  if (!ownerRole || !guild.members?.fetch) return false;
+
+  const member = await guild.members.fetch({ user: memberId, force: true }).catch(() => null);
+  return Boolean(member && !member.user?.bot && member.roles?.cache?.has(ownerRole.id));
+}
 
 export async function ensureStaffReviewStarEmoji(guild) {
   if (!guild?.emojis) return null;
-  const cachedEmojiId = reviewStarEmojiCache.get(guild.id); if (cachedEmojiId) { const cachedEmoji = guild.emojis.cache.get(cachedEmojiId); if (cachedEmoji) return cachedEmoji.toString(); }
+
+  const cachedEmojiId = reviewStarEmojiCache.get(guild.id);
+  if (cachedEmojiId) {
+    const cachedEmoji = guild.emojis.cache.get(cachedEmojiId);
+    if (cachedEmoji) return cachedEmoji.toString();
+  }
+
   let emoji = guild.emojis.cache.find(entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME) || null;
-  if (!emoji && guild.emojis.fetch) { const emojis = await guild.emojis.fetch().catch(() => null); emoji = emojis?.find(entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME) || null; }
-  if (!emoji) emoji = await guild.emojis.create({ attachment: Buffer.from(STAFF_REVIEW_STAR_PNG_BASE64, 'base64'), name: STAFF_REVIEW_STAR_EMOJI_NAME, reason: 'Cloudy staff review rating star' }).catch(() => null);
-  if (!emoji) return null; reviewStarEmojiCache.set(guild.id, emoji.id); return emoji.toString();
+
+  if (!emoji && guild.emojis.fetch) {
+    const emojis = await guild.emojis.fetch().catch(() => null);
+    emoji = emojis?.find(entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME) || null;
+  }
+
+  if (!emoji) {
+    emoji = await guild.emojis.create({
+      attachment: Buffer.from(STAFF_REVIEW_STAR_PNG_BASE64, 'base64'),
+      name: STAFF_REVIEW_STAR_EMOJI_NAME,
+      reason: 'Cloudy staff review rating star',
+    }).catch(() => null);
+  }
+
+  if (!emoji) return null;
+
+  reviewStarEmojiCache.set(guild.id, emoji.id);
+  return emoji.toString();
 }
 
 export function buildPublishedReview(interaction, rating, comment, memberId, starEmoji = null) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  const stars = starEmoji ? Array.from({ length: normalizedRating }, () => starEmoji).join('') : '★'.repeat(normalizedRating);
-  const ratingColors = { 1: 0xED4245, 2: 0xFF7A00, 3: 0xF1C40F, 4: 0x3498DB, 5: 0x57F287 };
-  return new EmbedBuilder().setColor(ratingColors[normalizedRating]).setAuthor({ name: interaction.user.globalName || interaction.user.username, iconURL: interaction.user.displayAvatarURL() }).setThumbnail(CLOUDY_C_LOGO_URL).setDescription(`**Staff member**\n<@${memberId}>\n\n${stars}\n\n` + `**Review**\n${comment}`).setFooter({ text: FOOTER }).setTimestamp();
+  const stars = starEmoji
+    ? Array.from({ length: normalizedRating }, () => starEmoji).join('')
+    : '★'.repeat(normalizedRating);
+  const ratingColors = {
+    1: 0xED4245,
+    2: 0xFF7A00,
+    3: 0xF1C40F,
+    4: 0x3498DB,
+    5: 0x57F287,
+  };
+
+  return new EmbedBuilder()
+    .setColor(ratingColors[normalizedRating])
+    .setAuthor({
+      name: interaction.user.globalName || interaction.user.username,
+      iconURL: interaction.user.displayAvatarURL(),
+    })
+    .setThumbnail(CLOUDY_C_LOGO_URL)
+    .setDescription(
+      `**Staff member**\n<@${memberId}>\n\n${stars}\n\n`
+      + `**Review**\n${comment}`,
+    )
+    .setFooter({ text: FOOTER })
+    .setTimestamp();
 }
