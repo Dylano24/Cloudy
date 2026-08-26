@@ -87,12 +87,30 @@ function buildTicketEmbed(ticketData, number, logoUrl = null) {
     .setTitle(`Ticket #${number}`)
     .setDescription(
       `<@${ticketData.userId}>, ${RECEIVED_INTRO}`
-      + `\n${RECEIVED_DETAILS_START} ${RECEIVED_DETAILS_END}`
-      + `\n${RECEIVED_CLOSING}`
-      + `\n**Reason:** ${reason}`
-      + `\n**Status**\n${isClosed ? 'Closed' : 'Open'}`
-      + `\n**Claimed By**\n${claimedBy}`
-      + `\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
+      + `\n\n${RECEIVED_DETAILS_START} ${RECEIVED_DETAILS_END}`
+      + `\n\n${RECEIVED_CLOSING}`,
+    )
+    .addFields(
+      {
+        name: 'Reason',
+        value: reason,
+        inline: false,
+      },
+      {
+        name: 'Status',
+        value: isClosed ? 'Closed' : 'Open',
+        inline: false,
+      },
+      {
+        name: 'Claimed By',
+        value: claimedBy,
+        inline: false,
+      },
+      {
+        name: 'Created',
+        value: relativeTimestamp(ticketData.createdAt),
+        inline: false,
+      },
     )
     .setFooter({ text: CLOUDY_TICKET_FOOTER });
 
