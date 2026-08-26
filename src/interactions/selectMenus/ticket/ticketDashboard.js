@@ -87,25 +87,30 @@ function getDashboardFieldValue(interaction, fieldName) {
 }
 
 function buildTextSettingModal(interaction, guildId, setting) {
+  const isPanelTitle = setting === 'panel_title';
   const isPanelMessage = setting === 'panel_message';
-  const field = isPanelMessage ? 'ticketPanelMessage' : 'ticketButtonLabel';
+  const field = isPanelTitle ? 'ticketPanelTitle' : isPanelMessage ? 'ticketPanelMessage' : 'ticketButtonLabel';
   const modal = new ModalBuilder()
     .setCustomId(`ticket_dashboard_modal:${guildId}:${field}:${interaction.message.id}`)
-    .setTitle(isPanelMessage ? 'Edit Panel Message' : 'Edit Button Label');
+    .setTitle(isPanelTitle ? 'Change Panel Title' : isPanelMessage ? 'Edit Panel Message' : 'Edit Button Label');
 
   const input = new TextInputBuilder()
     .setCustomId('value')
-    .setLabel(isPanelMessage ? 'Panel message' : 'Button label')
+    .setLabel(isPanelTitle ? 'Panel title' : isPanelMessage ? 'Panel message' : 'Button label')
     .setStyle(isPanelMessage ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(true)
-    .setMaxLength(isPanelMessage ? 2000 : 80);
+    .setMaxLength(isPanelTitle ? 256 : isPanelMessage ? 2000 : 80);
 
-  if (!isPanelMessage) {
+  if (isPanelTitle) {
+    const currentPanelTitle = getDashboardFieldValue(interaction, 'Panel Title');
+    if (currentPanelTitle) input.setValue(currentPanelTitle.slice(0, 256));
+  } else if (!isPanelMessage) {
     const currentButtonLabel = getDashboardFieldValue(interaction, 'Button Label');
     if (currentButtonLabel) input.setValue(currentButtonLabel.slice(0, 80));
   }
 
-  if (isPanelMessage) input.setPlaceholder('Enter the exact support panel message...');
+  if (isPanelTitle) input.setPlaceholder('Contact the support');
+  else if (isPanelMessage) input.setPlaceholder('Enter the exact support panel message...');
   else input.setPlaceholder('Start Chat');
 
   modal.addComponents(new ActionRowBuilder().addComponents(input));
@@ -198,7 +203,7 @@ const dashboardSelectHandler = {
     });
 
     try {
-      if (setting === 'panel_message' || setting === 'button_label') {
+      if (setting === 'panel_title' || setting === 'panel_message' || setting === 'button_label') {
         if (interaction.deferred || interaction.replied) {
           throw new Error('Ticket dashboard text interaction was acknowledged before the modal could open.');
         }
@@ -274,8 +279,6 @@ const dashboardValueHandler = {
     };
 
     try {
-      // Return to the dashboard immediately. Persistence, Discord permission
-      // validation and panel movement happen afterwards in the background.
       await interaction.update(buildTicketDashboardPayload(interaction.guild, optimisticConfig));
     } catch (error) {
       logger.error('Ticket dashboard optimistic value update failed', {
