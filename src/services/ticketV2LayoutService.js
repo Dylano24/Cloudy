@@ -87,8 +87,9 @@ function buildContainer(ticketData, number, logoUrl = null) {
     new TextDisplayBuilder().setContent(
       `## Ticket #${number}\n<@${ticketData.userId}>, ${RECEIVED_INTRO}`,
     ),
-    new TextDisplayBuilder().setContent(RECEIVED_DETAILS_START),
-    new TextDisplayBuilder().setContent(RECEIVED_DETAILS_END),
+    new TextDisplayBuilder().setContent(
+      `${RECEIVED_DETAILS_START}\n${RECEIVED_DETAILS_END}`,
+    ),
   ];
 
   const container = new ContainerBuilder()
@@ -118,7 +119,7 @@ function buildContainer(ticketData, number, logoUrl = null) {
     new TextDisplayBuilder().setContent(
       `**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
     ),
-    new TextDisplayBuilder().setContent('© Cloudy Inc. • Quality. Innovation. Performance.'),
+    new TextDisplayBuilder().setContent('-# © Cloudy Inc. • Quality. Innovation. Performance.'),
   );
 
   return container;
