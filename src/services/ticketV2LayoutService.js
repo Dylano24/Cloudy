@@ -86,8 +86,8 @@ function buildTicketEmbed(ticketData, number, logoUrl = null) {
     .setTitle(`Ticket #${number}`)
     .setDescription(
       `<@${ticketData.userId}>, ${RECEIVED_INTRO}`
-      + `\n\n${RECEIVED_DETAILS_START} ${RECEIVED_DETAILS_END}`
-      + `\n\n${RECEIVED_CLOSING}`,
+      + `\n${RECEIVED_DETAILS_START} ${RECEIVED_DETAILS_END}`
+      + `\n${RECEIVED_CLOSING}`,
     )
     .addFields(
       {
