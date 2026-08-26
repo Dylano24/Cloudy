@@ -11,7 +11,6 @@ import { CLOUDY_TICKET_FOOTER } from '../utils/ticket/ticketBranding.js';
 
 const PIN_EMOJI = '📌';
 const renderQueues = new Map();
-const stabilizeJobs = new Map();
 const RECEIVED_INTRO = 'we’ve received your request!';
 const RECEIVED_DETAILS =
   'To help us process your ticket as quickly as possible, please provide any additional details you believe may be useful, along with any screenshots or files that could help us better understand your situation.';
@@ -50,27 +49,6 @@ function enqueueRender(channel, operation) {
   return current;
 }
 
-function scheduleLayoutStabilization(channel) {
-  if (!channel?.guild?.id || !channel?.id || stabilizeJobs.has(channel.id)) return;
-
-  const timers = [2300, 5000].map(delay => {
-    const timer = setTimeout(() => {
-      if (isLiveChannel(channel)) {
-        renderTicketV2(channel, null, false).catch(() => {});
-      }
-    }, delay);
-    timer.unref?.();
-    return timer;
-  });
-
-  stabilizeJobs.set(channel.id, timers);
-
-  const cleanup = setTimeout(() => {
-    stabilizeJobs.delete(channel.id);
-  }, 6500);
-  cleanup.unref?.();
-}
-
 function makeClaimButton(ticketData) {
   return ticketData.claimedBy
     ? new ButtonBuilder()
@@ -101,12 +79,12 @@ function makeTicketActionRow(ticketData) {
   );
 }
 
-function buildTicketEmbed(ticketData, number, logoUrl = null) {
+function buildTicketEmbed(ticketData, number) {
   const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
   const claimedBy = ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed';
   const reason = String(ticketData.reason || 'No reason provided').slice(0, 1024);
 
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(0xFFFFFF)
     .setTitle(`Ticket #${number}`)
     .setDescription(
@@ -121,9 +99,6 @@ function buildTicketEmbed(ticketData, number, logoUrl = null) {
       + `\n\n**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
     )
     .setFooter({ text: CLOUDY_TICKET_FOOTER });
-
-  if (logoUrl) embed.setThumbnail(logoUrl);
-  return embed;
 }
 
 async function findMainTicketMessage(channel, ticketData, preferredMessage = null) {
@@ -174,7 +149,7 @@ async function replaceComponentsV2TicketMessage(channel, message, ticketData, em
   return replacement;
 }
 
-export async function renderTicketV2(channel, preferredMessage = null, stabilize = true) {
+export async function renderTicketV2(channel, preferredMessage = null) {
   if (!isLiveChannel(channel)) return false;
 
   return enqueueRender(channel, async () => {
@@ -191,13 +166,11 @@ export async function renderTicketV2(channel, preferredMessage = null, stabilize
       if (number !== 'Unknown') ticketData.ticketNumber = number;
 
       const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
-      const logoUrl = channel.client.user?.displayAvatarURL?.({ extension: 'png', size: 256 }) || null;
-      const embed = buildTicketEmbed(ticketData, number, logoUrl);
+      const embed = buildTicketEmbed(ticketData, number);
       const components = isClosed ? [] : [makeTicketActionRow(ticketData)];
 
       if (message.flags?.has?.(MessageFlags.IsComponentsV2)) {
         await replaceComponentsV2TicketMessage(channel, message, ticketData, embed, components);
-        if (stabilize) scheduleLayoutStabilization(channel);
         return true;
       }
 
@@ -214,7 +187,6 @@ export async function renderTicketV2(channel, preferredMessage = null, stabilize
         components,
       });
 
-      if (stabilize) scheduleLayoutStabilization(channel);
       return true;
     } catch (error) {
       if (isLiveChannel(channel)) {
