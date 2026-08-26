@@ -3,14 +3,12 @@ import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { handleInteractionError } from '../../../utils/errorHandler.js';
 import { getGuildConfig } from '../../../services/config/guildConfig.js';
 import { getTicketPermissionContext } from '../../../utils/ticket/ticketPermissions.js';
-import {
-  buildCloudyTicketEmbed,
-  scheduleTicketReplyDeletion,
-} from '../../../utils/ticket/ticketBranding.js';
+import { buildCloudyTicketEmbed } from '../../../utils/ticket/ticketBranding.js';
 import {
   closeTicket,
   createTicket,
 } from '../../../services/ticketReliabilityService.js';
+import { registerTicketCreationConfirmation } from '../../../services/ticketCreationConfirmationService.js';
 import { logger } from '../../../utils/logger.js';
 
 async function ensureTicketCreatorAccess(channel, userId) {
@@ -104,7 +102,7 @@ const createTicketModal = {
         })],
         components: [],
       });
-      scheduleTicketReplyDeletion(interaction);
+      registerTicketCreationConfirmation(channel, interaction);
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
         await InteractionHelper.safeEditReply(interaction, {
