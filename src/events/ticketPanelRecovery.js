@@ -1,9 +1,6 @@
 import { Events } from 'discord.js';
-import { getGuildConfig } from '../services/config/guildConfig.js';
-import { repostTicketPanel } from '../services/ticketDashboardService.js';
+import { getGuildConfig, updateGuildConfig } from '../services/config/guildConfig.js';
 import { logger } from '../utils/logger.js';
-
-const RECOVERY_DELAY_MS = 750;
 
 export default {
   name: Events.MessageDelete,
@@ -15,33 +12,21 @@ export default {
 
     try {
       const config = await getGuildConfig(client, message.guild.id);
-      if (config?.ticketSystemDisabled === true) return;
       if (!config?.ticketPanelChannelId || config.ticketPanelMessageId !== message.id) return;
 
-      const timer = setTimeout(async () => {
-        try {
-          const latest = await getGuildConfig(client, message.guild.id);
-          if (latest?.ticketSystemDisabled === true) return;
-          if (!latest?.ticketPanelChannelId || latest.ticketPanelMessageId !== message.id) return;
+      // Never recreate a deleted ticket panel automatically. The saved ticket
+      // settings remain intact and the panel is only created again when an
+      // administrator explicitly presses Repost Panel in the dashboard.
+      await updateGuildConfig(client, message.guild.id, {
+        ticketPanelMessageId: null,
+      });
 
-          const { panel } = await repostTicketPanel(client, message.guild);
-          logger.info('Recovered deleted ticket panel automatically', {
-            guildId: message.guild.id,
-            deletedMessageId: message.id,
-            newMessageId: panel.id,
-          });
-        } catch (error) {
-          logger.warn('Could not recover deleted ticket panel automatically', {
-            guildId: message.guild.id,
-            deletedMessageId: message.id,
-            error: error.message,
-          });
-        }
-      }, RECOVERY_DELAY_MS);
-
-      timer.unref?.();
+      logger.info('Ticket panel deletion recorded; waiting for explicit Repost Panel', {
+        guildId: message.guild.id,
+        deletedMessageId: message.id,
+      });
     } catch (error) {
-      logger.warn('Ticket panel deletion recovery check failed', {
+      logger.warn('Ticket panel deletion state update failed', {
         guildId: message.guild.id,
         messageId: message.id,
         error: error.message,
