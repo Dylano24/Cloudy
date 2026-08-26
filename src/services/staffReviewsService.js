@@ -94,7 +94,7 @@ function buildMemberMenu(ownerMembers = []) {
 export function buildStaffReviewsPanel(ownerMembers = []) {
   const embed = new EmbedBuilder()
     .setColor(0xFFFFFF)
-    .setTitle('Staff Reviews')
+    .setTitle('Staff reviews')
     .setDescription(
       'We want to hear about your experience with our staff team!\n\n'
       + 'Share your feedback by selecting the staff member you would like to review, giving them a rating, and then writing a comment describing your experience.\n\n'
