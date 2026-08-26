@@ -386,70 +386,7 @@ async function findMainTicketMessage(channel, ticketData) {
 
 export async function syncCloudyTicketMessage(channel) {
   try {
-    const ticketData = await getTicketDataFast(channel);
-    if (!ticketData) return false;
-
-    const ticketMessage = await findMainTicketMessage(channel, ticketData);
-    if (!ticketMessage) {
-      logger.warn('Could not locate main ticket message', {
-        guildId: channel.guild.id,
-        channelId: channel.id,
-      });
-      return false;
-    }
-
-    if (!ticketMessage.embeds?.length) {
-      return await renderTicketV2(channel, ticketMessage);
-    }
-
-    const currentEmbed = ticketMessage.embeds[0];
-    const normalizedTicketNumber = ticketNumberFromTitle(currentEmbed?.title);
-    const priorityKey = normalizePriorityKey(ticketData.priority);
-    let stateChanged = false;
-
-    if (!ticketData.ticketMessageId) {
-      ticketData.ticketMessageId = ticketMessage.id;
-      stateChanged = true;
-    }
-    if (normalizedTicketNumber && ticketData.ticketNumber !== normalizedTicketNumber) {
-      ticketData.ticketNumber = normalizedTicketNumber;
-      stateChanged = true;
-    }
-    if (String(ticketData.priority || 'none').toLowerCase() !== priorityKey) {
-      ticketData.priority = priorityKey;
-      stateChanged = true;
-    }
-    if (stateChanged) {
-      await saveTicketDataFast(channel, ticketData).catch(() => {});
-    }
-
-    const priorityInfo = PRIORITY_MAP[priorityKey] || PRIORITY_MAP.none;
-    const ticketOwner = `<@${ticketData.userId}>`;
-    const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
-    const priorityLine = priorityKey !== 'none'
-      ? `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`
-      : '';
-
-    const updatedEmbed = createEmbed({
-      title: normalizedTicketNumber ? `Ticket #${normalizedTicketNumber}` : (currentEmbed.title || 'Ticket'),
-      description:
-        `${ticketOwner}, ${TICKET_RECEIVED_MESSAGE}`
-        + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
-        + priorityLine,
-      color: isClosed ? '#FFFFFF' : priorityInfo.color,
-      fields: buildTicketFields(ticketData),
-    });
-
-    await withTimeout(
-      ticketMessage.edit({
-        embeds: [forceCloudyTicketFooter(updatedEmbed)],
-        components: isClosed ? [] : [buildCloudyTicketControls({ claimedBy: ticketData.claimedBy })],
-      }),
-      DISCORD_TIMEOUT_MS,
-      'Ticket message edit',
-    );
-
-    return true;
+    return await renderTicketV2(channel);
   } catch (error) {
     logger.warn('Could not sync Cloudy ticket UI', {
       guildId: channel?.guild?.id,
