@@ -28,7 +28,7 @@ function buildAppealEmbed(appealUrl) {
     .setDescription(
       'If you believe you received a ban or timeout unfairly, believe it was issued by mistake, or simply wish to provide an explanation regarding the situation, you are always welcome to contact our staff team and submit an appeal.\n\n'
       + 'We will review your case and may restore your access if deemed appropriate. However, submitting an appeal does not guarantee that the punishment will be removed or your access restored.\n\n'
-      + '*The appeal form is also available directly on our website.*\n\n'
+      + '*The appeal form is also available directly on our official website.*\n\n'
       + `**Appeal here:** ${appealLink}\n\n`
       + FOOTER,
     )
