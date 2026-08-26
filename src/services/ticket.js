@@ -179,6 +179,16 @@ export async function createTicket(
     };
     
     await saveTicketData(guild.id, channel.id, ticketData);
+
+    if (config.ticketStaffRoleId) {
+      await channel.send({
+        content: `<@&${config.ticketStaffRoleId}>`,
+        allowedMentions: {
+          parse: [],
+          roles: [String(config.ticketStaffRoleId)],
+        },
+      });
+    }
     
     const embed = forceCloudyTicketFooter(createEmbed({
     title: `Ticket #${ticketNumber}`,

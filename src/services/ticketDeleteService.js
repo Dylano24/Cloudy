@@ -108,20 +108,17 @@ export async function deleteTicketSafely(channel, deleter) {
         });
       }
 
-      const deleterName = String(
-        deleter?.displayName
-        || deleter?.globalName
-        || deleter?.user?.globalName
-        || deleter?.username
-        || deleter?.user?.username
-        || 'A staff member'
-      ).trim();
+      const deleterId = String(deleter?.id || deleter?.user?.id || '').trim();
+      const deleterMention = deleterId ? `<@${deleterId}>` : 'A staff member';
 
       await channel.send({
         embeds: [buildCloudyTicketEmbed({
           title: 'Ticket deleted',
-          description: `**${deleterName}** has deleted this ticket.\n\nThis ticket will be permanently deleted in ${Math.ceil(DELETE_DELAY_MS / 1000)} seconds.`,
+          description: `${deleterMention} has deleted this ticket.\n\nThis ticket will be permanently deleted in ${Math.ceil(DELETE_DELAY_MS / 1000)} seconds.`,
         })],
+        allowedMentions: deleterId
+          ? { parse: [], users: [deleterId] }
+          : { parse: [] },
       }).catch(() => {});
 
       const timer = setTimeout(async () => {
