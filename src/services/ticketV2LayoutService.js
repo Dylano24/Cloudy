@@ -14,7 +14,7 @@ import { logger } from '../utils/logger.js';
 const PIN_EMOJI = '📌';
 const renderQueues = new Map();
 const RECEIVED_MESSAGE =
-  'we’ve received your request. Please add any details, screenshots, or files that may help us understand the issue. A member of our team will respond as soon as possible.';
+  'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details\n\nyou think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.\n\nOur team will be with you as soon as possible.';
 
 function ticketNumber(ticketData, fallbackTitle = '') {
   const titleMatch = String(fallbackTitle).match(/Ticket\s*#\s*0*(\d+)/i);
