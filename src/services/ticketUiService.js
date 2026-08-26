@@ -527,10 +527,10 @@ async function finishCloseSideEffects(channel, ticketData) {
 
     const overwrite = channel.permissionOverwrites.cache.get(ticketData.userId);
     if (overwrite) {
-      await overwrite.edit({ ViewChannel: false, SendMessages: false }).catch(() => {});
+      await overwrite.edit({ ViewChannel: true, SendMessages: false }).catch(() => {});
     } else {
       await channel.permissionOverwrites.create(ticketData.userId, {
-        ViewChannel: false,
+        ViewChannel: true,
         SendMessages: false,
       }).catch(() => {});
     }
