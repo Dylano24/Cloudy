@@ -115,7 +115,7 @@ const createTicketHandler = {
 
       const modal = new ModalBuilder()
         .setCustomId('create_ticket_modal')
-        .setTitle('Create a Ticket');
+        .setTitle('Create a ticket');
 
       const reasonInput = new TextInputBuilder()
         .setCustomId('reason')
