@@ -181,6 +181,7 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       + 'We appreciate your understanding!\n\n'
       + `**Reason:** ${reason}`,
     color: '#FFFFFF',
+    thumbnail: {},
   }));
 
   const row = new ActionRowBuilder().addComponents(
