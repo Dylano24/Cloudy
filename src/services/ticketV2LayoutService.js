@@ -9,19 +9,12 @@ import {
   ThumbnailBuilder,
 } from 'discord.js';
 import { getTicketData, saveTicketData } from '../utils/database.js';
-import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logger } from '../utils/logger.js';
 
 const PIN_EMOJI = '📌';
 const renderQueues = new Map();
 const RECEIVED_MESSAGE =
-  'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details\n\nyou think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.\n\nOur team will be with you as soon as possible.';
-
-function normalizePriority(value) {
-  const key = String(value || 'none').toLowerCase();
-  if (key === 'urgent') return 'high';
-  return PRIORITY_MAP[key] ? key : 'none';
-}
+  'we’ve received your request. Please add any details, screenshots, or files that may help us understand the issue. A member of our team will respond as soon as possible.';
 
 function ticketNumber(ticketData, fallbackTitle = '') {
   const titleMatch = String(fallbackTitle).match(/Ticket\s*#\s*0*(\d+)/i);
@@ -70,11 +63,6 @@ function makeTicketActionRow(ticketData) {
   return new ActionRowBuilder().addComponents(
     makeClaimButton(ticketData),
     new ButtonBuilder()
-      .setCustomId('ticket_priority_menu')
-      .setLabel('Priority')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('🟡'),
-    new ButtonBuilder()
       .setCustomId('ticket_pin')
       .setLabel('Pin')
       .setStyle(ButtonStyle.Secondary)
@@ -88,27 +76,16 @@ function makeTicketActionRow(ticketData) {
 }
 
 function buildContainer(ticketData, number, logoUrl = null) {
-  const priorityKey = normalizePriority(ticketData.priority);
-  const priorityInfo = PRIORITY_MAP[priorityKey] || PRIORITY_MAP.none;
   const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
   const claimedBy = ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed';
-  const priorityLine = priorityKey !== 'none'
-    ? `\n\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`
-    : '';
-
-  const accent = Number.parseInt(
-    String(isClosed ? '#FFFFFF' : (priorityInfo.color || '#FFFFFF')).replace('#', ''),
-    16,
-  );
 
   const headerText = new TextDisplayBuilder().setContent(
     `## Ticket #${number}\n\n<@${ticketData.userId}>, ${RECEIVED_MESSAGE}`
-    + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`
-    + priorityLine,
+    + `\n\n**Reason:** ${ticketData.reason || 'No reason provided'}`,
   );
 
   const container = new ContainerBuilder()
-    .setAccentColor(Number.isFinite(accent) ? accent : 0xFFFFFF);
+    .setAccentColor(0xFFFFFF);
 
   if (logoUrl) {
     container.addSectionComponents(
