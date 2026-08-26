@@ -120,7 +120,7 @@ function buildContainer(ticketData, number, logoUrl = null) {
     new TextDisplayBuilder().setContent(
       `**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
     ),
-    new TextDisplayBuilder().setContent(`-# **${CLOUDY_TICKET_FOOTER}**`),
+    new TextDisplayBuilder().setContent(CLOUDY_TICKET_FOOTER),
   );
 
   return container;
