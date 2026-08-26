@@ -7,16 +7,17 @@ import { updateGuildConfig } from '../../../services/config/guildConfig.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
-const ALLOWED_TEXT_FIELDS = new Set(['ticketPanelMessage', 'ticketButtonLabel']);
+const ALLOWED_TEXT_FIELDS = new Set(['ticketPanelTitle', 'ticketPanelMessage', 'ticketButtonLabel']);
 
 function buildInstantSourceUpdate(interaction, field, rawValue) {
   const embeds = interaction.message?.embeds?.map(embed => embed.toJSON()) || [];
   const components = interaction.message?.components?.map(row => row.toJSON()) || [];
 
-  if (field === 'ticketButtonLabel' && embeds[0]?.fields) {
+  if ((field === 'ticketPanelTitle' || field === 'ticketButtonLabel') && embeds[0]?.fields) {
+    const fieldName = field === 'ticketPanelTitle' ? 'Panel Title' : 'Button Label';
     embeds[0].fields = embeds[0].fields.map(item => (
-      item.name === 'Button Label'
-        ? { ...item, value: `\`${rawValue}\`` }
+      item.name === fieldName
+        ? { ...item, value: `\`${rawValue.replace(/`/g, "'")}\`` }
         : item
     ));
   }
@@ -102,8 +103,6 @@ export default {
     }
 
     try {
-      // Acknowledge the modal immediately using only data Discord already sent
-      // with the interaction. No config/database read is allowed before this.
       if (interaction.isFromMessage?.()) {
         await interaction.update(buildInstantSourceUpdate(interaction, field, rawValue));
       } else {
@@ -121,7 +120,6 @@ export default {
       }
     }
 
-    // PostgreSQL + live panel synchronization never block the UI.
     void persistTextSetting(client, interaction, guildId, field, rawValue);
   },
 };
