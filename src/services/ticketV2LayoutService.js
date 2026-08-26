@@ -2,11 +2,8 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ContainerBuilder,
+  EmbedBuilder,
   MessageFlags,
-  SectionBuilder,
-  TextDisplayBuilder,
-  ThumbnailBuilder,
 } from 'discord.js';
 import { getTicketData, saveTicketData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
@@ -20,7 +17,6 @@ const RECEIVED_DETAILS_START =
 const RECEIVED_DETAILS_END =
   'you think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.';
 const RECEIVED_CLOSING = 'Our team will be with you as soon as possible.';
-const SINGLE_LINE_CLOUDY_FOOTER = CLOUDY_TICKET_FOOTER.replaceAll(' ', '\u00A0');
 
 function ticketNumber(ticketData, fallbackTitle = '') {
   const titleMatch = String(fallbackTitle).match(/Ticket\s*#\s*0*(\d+)/i);
@@ -81,50 +77,44 @@ function makeTicketActionRow(ticketData) {
   );
 }
 
-function buildContainer(ticketData, number, logoUrl = null) {
+function buildTicketEmbed(ticketData, number, logoUrl = null) {
   const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
   const claimedBy = ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed';
 
-  const headerParts = [
-    new TextDisplayBuilder().setContent(
-      `## Ticket #${number}\n<@${ticketData.userId}>, ${RECEIVED_INTRO}`,
-    ),
-    new TextDisplayBuilder().setContent(
-      `${RECEIVED_DETAILS_START} ${RECEIVED_DETAILS_END}`,
-    ),
-  ];
+  const embed = new EmbedBuilder()
+    .setColor(0xFFFFFF)
+    .setTitle(`Ticket #${number}`)
+    .setDescription(
+      `<@${ticketData.userId}>, ${RECEIVED_INTRO}`
+      + `\n\n${RECEIVED_DETAILS_START} ${RECEIVED_DETAILS_END}`
+      + `\n\n${RECEIVED_CLOSING}`,
+    )
+    .addFields(
+      {
+        name: 'Reason',
+        value: String(ticketData.reason || 'No reason provided').slice(0, 1024),
+        inline: false,
+      },
+      {
+        name: 'Status',
+        value: isClosed ? 'Closed' : 'Open',
+        inline: false,
+      },
+      {
+        name: 'Claimed By',
+        value: claimedBy,
+        inline: false,
+      },
+      {
+        name: 'Created',
+        value: relativeTimestamp(ticketData.createdAt),
+        inline: false,
+      },
+    )
+    .setFooter({ text: CLOUDY_TICKET_FOOTER });
 
-  const container = new ContainerBuilder()
-    .setAccentColor(0xFFFFFF);
-
-  if (logoUrl) {
-    container.addSectionComponents(
-      new SectionBuilder()
-        .addTextDisplayComponents(...headerParts)
-        .setThumbnailAccessory(new ThumbnailBuilder().setURL(logoUrl)),
-    );
-  } else {
-    container.addTextDisplayComponents(...headerParts);
-  }
-
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(RECEIVED_CLOSING),
-    new TextDisplayBuilder().setContent(
-      `**Reason:** ${ticketData.reason || 'No reason provided'}`,
-    ),
-    new TextDisplayBuilder().setContent(
-      `**Status**\n${isClosed ? 'Closed' : 'Open'}`,
-    ),
-    new TextDisplayBuilder().setContent(
-      `**Claimed By**\n${claimedBy}`,
-    ),
-    new TextDisplayBuilder().setContent(
-      `**Created**\n${relativeTimestamp(ticketData.createdAt)}`,
-    ),
-    new TextDisplayBuilder().setContent(SINGLE_LINE_CLOUDY_FOOTER),
-  );
-
-  return container;
+  if (logoUrl) embed.setThumbnail(logoUrl);
+  return embed;
 }
 
 async function findMainTicketMessage(channel, ticketData, preferredMessage = null) {
@@ -136,14 +126,14 @@ async function findMainTicketMessage(channel, ticketData, preferredMessage = nul
 
   if (ticketData?.ticketMessageId) {
     const direct = await channel.messages.fetch(ticketData.ticketMessageId).catch(() => null);
-    if (direct?.editable) return direct;
+    if (direct?.author?.id === channel.client.user?.id) return direct;
   }
 
   const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
   if (!recent) return null;
 
   return recent.find(message => {
-    if (message.author?.id !== channel.client.user?.id || !message.editable) return false;
+    if (message.author?.id !== channel.client.user?.id) return false;
     if (message.embeds?.[0]?.title?.startsWith('Ticket #')) return true;
     try {
       const serialized = JSON.stringify(
@@ -154,6 +144,25 @@ async function findMainTicketMessage(channel, ticketData, preferredMessage = nul
       return false;
     }
   }) || null;
+}
+
+async function replaceComponentsV2TicketMessage(channel, message, ticketData, embed, components) {
+  const wasPinned = message.pinned === true;
+  const replacement = await channel.send({
+    embeds: [embed],
+    components,
+    allowedMentions: { parse: [] },
+  });
+
+  if (wasPinned) {
+    await replacement.pin().catch(() => {});
+  }
+
+  ticketData.ticketMessageId = replacement.id;
+  await saveTicketData(channel.guild.id, channel.id, ticketData);
+  await message.delete().catch(() => {});
+
+  return replacement;
 }
 
 export async function renderTicketV2(channel, preferredMessage = null) {
@@ -167,36 +176,38 @@ export async function renderTicketV2(channel, preferredMessage = null) {
       if (!ticketData || String(ticketData.status || '').toLowerCase() === 'deleted') return false;
 
       const message = await findMainTicketMessage(channel, ticketData, preferredMessage);
-      if (!message || !message.editable || !isLiveChannel(channel)) return false;
+      if (!message || !isLiveChannel(channel)) return false;
 
       const number = ticketNumber(ticketData, message.embeds?.[0]?.title || '');
-      if (!ticketData.ticketMessageId || ticketData.ticketMessageId !== message.id) {
-        ticketData.ticketMessageId = message.id;
-        if (number !== 'Unknown') ticketData.ticketNumber = number;
-        await saveTicketData(channel.guild.id, channel.id, ticketData).catch(() => {});
-      }
+      if (number !== 'Unknown') ticketData.ticketNumber = number;
 
       const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
       const logoUrl = channel.client.user?.displayAvatarURL?.({ extension: 'png', size: 256 }) || null;
-      const container = buildContainer(ticketData, number, logoUrl);
-      const components = isClosed
-        ? [container]
-        : [container, makeTicketActionRow(ticketData)];
+      const embed = buildTicketEmbed(ticketData, number, logoUrl);
+      const components = isClosed ? [] : [makeTicketActionRow(ticketData)];
 
-      const fresh = await channel.messages.fetch(message.id).catch(() => message);
-      if (!fresh?.editable || !isLiveChannel(channel)) return false;
+      if (message.flags?.has?.(MessageFlags.IsComponentsV2)) {
+        await replaceComponentsV2TicketMessage(channel, message, ticketData, embed, components);
+        return true;
+      }
 
-      await fresh.edit({
+      if (!message.editable) return false;
+
+      if (!ticketData.ticketMessageId || ticketData.ticketMessageId !== message.id) {
+        ticketData.ticketMessageId = message.id;
+        await saveTicketData(channel.guild.id, channel.id, ticketData).catch(() => {});
+      }
+
+      await message.edit({
         content: null,
-        embeds: [],
+        embeds: [embed],
         components,
-        flags: MessageFlags.IsComponentsV2,
       });
 
       return true;
     } catch (error) {
       if (isLiveChannel(channel)) {
-        logger.warn(`Could not render Cloudy ticket Components V2 layout: ${error.message}`, {
+        logger.warn(`Could not render Cloudy ticket layout: ${error.message}`, {
           guildId: channel?.guild?.id,
           channelId: channel?.id,
         });
