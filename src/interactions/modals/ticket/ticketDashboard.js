@@ -1,8 +1,4 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
-import {
-  repostTicketPanel,
-  updateLiveTicketPanel,
-} from '../../../services/ticketDashboardService.js';
 import { updateGuildConfig } from '../../../services/config/guildConfig.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
@@ -29,30 +25,12 @@ function buildInstantSourceUpdate(interaction, field, rawValue) {
   };
 }
 
-async function ensureLivePanel(client, guild, config) {
-  try {
-    const updated = await updateLiveTicketPanel(client, guild, config);
-    if (updated) return config;
-  } catch (error) {
-    logger.warn('Live ticket panel edit failed; recreating panel', {
-      guildId: guild.id,
-      error: error.message,
-    });
-  }
-
-  if (!config.ticketPanelChannelId) return config;
-  const recovered = await repostTicketPanel(client, guild);
-  return recovered.config;
-}
-
 async function persistTextSetting(client, interaction, guildId, field, rawValue) {
   try {
-    const savedConfig = await updateGuildConfig(client, guildId, {
+    await updateGuildConfig(client, guildId, {
       [field]: rawValue,
       dmOnClose: false,
     });
-
-    await ensureLivePanel(client, interaction.guild, savedConfig);
   } catch (error) {
     logger.error('Background ticket dashboard text save failed', {
       guildId,
