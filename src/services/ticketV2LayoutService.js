@@ -13,8 +13,12 @@ import { logger } from '../utils/logger.js';
 
 const PIN_EMOJI = '📌';
 const renderQueues = new Map();
-const RECEIVED_MESSAGE =
-  'we’ve received your request!\n\nTo help us process it as quickly as possible, feel free to provide any additional details\n\nyou think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.\n\nOur team will be with you as soon as possible.';
+const RECEIVED_INTRO = 'we’ve received your request!';
+const RECEIVED_DETAILS_START =
+  'To help us process it as quickly as possible, feel free to provide any additional details';
+const RECEIVED_DETAILS_END =
+  'you think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.';
+const RECEIVED_CLOSING = 'Our team will be with you as soon as possible.';
 
 function ticketNumber(ticketData, fallbackTitle = '') {
   const titleMatch = String(fallbackTitle).match(/Ticket\s*#\s*0*(\d+)/i);
@@ -79,9 +83,13 @@ function buildContainer(ticketData, number, logoUrl = null) {
   const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
   const claimedBy = ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed';
 
-  const headerText = new TextDisplayBuilder().setContent(
-    `## Ticket #${number}\n<@${ticketData.userId}>, ${RECEIVED_MESSAGE}`,
-  );
+  const headerParts = [
+    new TextDisplayBuilder().setContent(
+      `## Ticket #${number}\n<@${ticketData.userId}>, ${RECEIVED_INTRO}`,
+    ),
+    new TextDisplayBuilder().setContent(RECEIVED_DETAILS_START),
+    new TextDisplayBuilder().setContent(RECEIVED_DETAILS_END),
+  ];
 
   const container = new ContainerBuilder()
     .setAccentColor(0xFFFFFF);
@@ -89,14 +97,15 @@ function buildContainer(ticketData, number, logoUrl = null) {
   if (logoUrl) {
     container.addSectionComponents(
       new SectionBuilder()
-        .addTextDisplayComponents(headerText)
+        .addTextDisplayComponents(...headerParts)
         .setThumbnailAccessory(new ThumbnailBuilder().setURL(logoUrl)),
     );
   } else {
-    container.addTextDisplayComponents(headerText);
+    container.addTextDisplayComponents(...headerParts);
   }
 
   container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(RECEIVED_CLOSING),
     new TextDisplayBuilder().setContent(
       `**Reason:** ${ticketData.reason || 'No reason provided'}`,
     ),
