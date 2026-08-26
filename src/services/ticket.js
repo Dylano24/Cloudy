@@ -14,6 +14,7 @@ import { getTicketData, saveTicketData, deleteTicketData, getOpenTicketCountForU
 import { logger } from '../utils/logger.js';
 import { createEmbed, errorEmbed } from '../utils/embeds.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
+import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { ensureTypedServiceError, wrapServiceBoundary } from '../utils/serviceErrorBoundary.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
@@ -170,46 +171,46 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
     
     await saveTicketData(guild.id, channel.id, ticketData);
     
-    const priorityInfo = PRIORITY_MAP[priority] || PRIORITY_MAP.none;
-    
-    const embed = createEmbed({
-      title: `Ticket #${ticketNumber}`,
-      description: `${member.toString()}, thanks for creating a ticket!\n\n**Reason:** ${reason}\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`,
-      color: priorityInfo.color,
-      fields: [
-        { name: 'Status', value: '🟢 Open', inline: true },
-        { name: 'Claimed By', value: 'Not claimed', inline: true },
-        { name: 'Created', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
-      ],
-    });
-    
-    const row = buildTicketControlRow();
-    
-    if (ticketConfig.enablePriority) {
-      row.addComponents(
-        new ButtonBuilder()
-          .setCustomId('ticket_priority:low')
-          .setLabel('Low')
-          .setStyle(ButtonStyle.Secondary)
-          .setEmoji('🔵'),
-        new ButtonBuilder()
-          .setCustomId('ticket_priority:high')
-          .setLabel('High')
-          .setStyle(ButtonStyle.Danger)
-          .setEmoji('🔴')
-      );
-    }
-    
-    const staffMention = config.ticketStaffRoleId ? ` <@&${config.ticketStaffRoleId}>` : '';
-    const messageContent = `${member.toString()}${staffMention}`;
-    
-    const ticketMessage = await channel.send({ 
-      content: messageContent,
-      embeds: [embed],
-      components: [row] 
-    });
+    const embed = forceCloudyTicketFooter(createEmbed({
+    title: `Ticket #${ticketNumber}`,
+    description:
+      `${member.toString()}, we’ve received your request!\n\n`
+      + 'To help us process your ticket as quickly as possible, please provide any additional details you believe may be useful, along with any screenshots or files that could help us better understand your situation.\n\n'
+      + '**Please do not tag or spam our staff members for updates.** We can see your messages and have received all the information you’ve provided. If you don’t receive an immediate response, it simply means that we may be busy elsewhere or handling other requests.\n\n'
+      + 'Please be patient and allow us some time to review your ticket and get back to you.\n\n'
+      + 'We appreciate your understanding!\n\n'
+      + `**Reason:** ${reason}`,
+    color: '#FFFFFF',
+  }));
 
-    await ticketMessage.pin().catch(() => {});
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('ticket_claim')
+      .setLabel('Claim')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('✋🏽'),
+    new ButtonBuilder()
+      .setCustomId('ticket_pin')
+      .setLabel('Pin')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('📌'),
+    new ButtonBuilder()
+      .setCustomId('ticket_close')
+      .setLabel('Close')
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('🔒'),
+  );
+
+  const ticketMessage = await channel.send({
+    embeds: [embed],
+    components: [row],
+    allowedMentions: { parse: [] },
+  });
+
+  ticketData.ticketNumber = String(ticketNumber);
+  ticketData.ticketMessageId = ticketMessage.id;
+  await saveTicketData(guild.id, channel.id, ticketData);
+  await ticketMessage.pin().catch(() => {});
     
     await logTicketEvent({
       client: guild.client,
