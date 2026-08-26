@@ -437,22 +437,19 @@ export async function createTicket(...args) {
 }
 
 async function sendPublicClaimStatus(channel, claimer) {
-  const claimerName = String(
-    claimer?.displayName
-    || claimer?.globalName
-    || claimer?.user?.globalName
-    || claimer?.username
-    || claimer?.user?.username
-    || 'A staff member'
-  ).trim();
+  const claimerId = String(claimer?.id || claimer?.user?.id || '').trim();
+  const claimerMention = claimerId ? `<@${claimerId}>` : 'A staff member';
 
   await withTimeout(
     channel.send({
       embeds: [forceCloudyTicketFooter(createEmbed({
         title: 'Ticket claimed',
-        description: `**${claimerName}** has claimed this ticket.`,
+        description: `${claimerMention} has claimed this ticket.`,
         color: '#2ecc71',
       }))],
+      allowedMentions: claimerId
+        ? { parse: [], users: [claimerId] }
+        : { parse: [] },
     }),
     DISCORD_TIMEOUT_MS,
     'Claim ticket status message',
