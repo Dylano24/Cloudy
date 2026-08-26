@@ -235,24 +235,19 @@ export function buildPublishedReview(interaction, rating, comment, memberId, sta
   const stars = starEmoji
     ? Array.from({ length: normalizedRating }, () => starEmoji).join('')
     : '★'.repeat(normalizedRating);
-  const ratingColors = {
-    1: 0xED4245,
-    2: 0xFF7A00,
-    3: 0xF1C40F,
-    4: 0x3498DB,
-    5: 0x57F287,
-  };
+  const randomSideColor = Math.floor(Math.random() * 0x1000000);
 
   return new EmbedBuilder()
-    .setColor(ratingColors[normalizedRating])
+    .setColor(randomSideColor)
     .setAuthor({
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
     })
     .setThumbnail(CLOUDY_C_LOGO_URL)
     .setDescription(
-      `**Staff member**\n<@${memberId}>\n\n${stars}\n\n`
-      + `**Review**\n${comment}`,
+      `**Staff member**\n<@${memberId}>\n\n`
+      + `**Rating**\n${stars}\n\n`
+      + `**Experience**\n${comment}`,
     )
     .setFooter({ text: FOOTER })
     .setTimestamp();
