@@ -125,7 +125,7 @@ function extractTicketNumber(message, channel) {
   return channelMatch?.[1] || null;
 }
 
-async function findMainTicketMessage(channel) {
+async function findMainTicketMessage(channel, ticketData = null, preferredMessage = null) {
   if (!channel?.messages?.fetch || !isLiveGuildChannel(channel)) return null;
 
   const isMain = message => {
@@ -141,6 +141,13 @@ async function findMainTicketMessage(channel) {
     }
   };
 
+  if (isMain(preferredMessage)) return preferredMessage;
+
+  if (ticketData?.ticketMessageId) {
+    const direct = await channel.messages.fetch(ticketData.ticketMessageId).catch(() => null);
+    if (isMain(direct)) return direct;
+  }
+
   if (typeof channel.messages.fetchPins === 'function') {
     const pinned = await channel.messages.fetchPins().catch(() => null);
     const found = pinned?.items?.find?.(isMain);
@@ -155,12 +162,12 @@ async function findMainTicketMessage(channel) {
   return recent?.find?.(isMain) || null;
 }
 
-async function stabilizeCreatedTicket(channel, fallbackTicketData = null) {
+async function stabilizeCreatedTicket(channel, fallbackTicketData = null, preferredMessage = null) {
   const ticketData = fallbackTicketData
     || await getTicketData(channel.guild.id, channel.id).catch(() => null);
   if (!ticketData) return null;
 
-  const mainMessage = await findMainTicketMessage(channel);
+  const mainMessage = await findMainTicketMessage(channel, ticketData, preferredMessage);
   if (!mainMessage) return null;
 
   let changed = false;
@@ -184,7 +191,7 @@ async function stabilizeCreatedTicket(channel, fallbackTicketData = null) {
     await saveTicketData(channel.guild.id, channel.id, ticketData);
   }
 
-  await syncCloudyTicketMessage(channel);
+  await syncCloudyTicketMessage(channel, mainMessage);
   await syncCloudyTicketChannelName(channel);
   return { channel, ticketData };
 }
@@ -253,8 +260,19 @@ export async function createTicket(guild, member, categoryId, reason, priority =
     const beforeIds = new Set(guild.channels.cache.keys());
 
     try {
-      const result = await createTicketBase(guild, member, categoryId, reason, priority);
-      const stabilized = await stabilizeCreatedTicket(result.channel, result.ticketData);
+      const result = await createTicketBase(
+        guild,
+        member,
+        categoryId,
+        reason,
+        priority,
+        { config, skipLimitCheck: true },
+      );
+      const stabilized = await stabilizeCreatedTicket(
+        result.channel,
+        result.ticketData,
+        result.ticketMessage,
+      );
       if (!stabilized) {
         throw ticketError(
           'Ticket was created without complete persistent state',

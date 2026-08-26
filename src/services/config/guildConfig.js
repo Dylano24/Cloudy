@@ -13,6 +13,7 @@ export { GUILD_CONFIG_DEFAULTS };
 // avoidable latency.
 const CONFIG_CACHE_TTL_MS = 5 * 60_000;
 const guildConfigCache = new Map();
+const guildConfigReads = new Map();
 const guildWriteQueues = new Map();
 
 function cloneConfig(value) {
@@ -86,8 +87,20 @@ export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(
     const cached = getCachedGuildConfig(guildId);
     if (cached) return cached;
 
-    const config = await readLatestGuildConfig(client, guildId, context);
-    cacheGuildConfig(guildId, config);
+    const key = String(guildId);
+    let pendingRead = guildConfigReads.get(key);
+    if (!pendingRead) {
+        pendingRead = readLatestGuildConfig(client, guildId, context)
+            .then(config => getCachedGuildConfig(guildId) || cacheGuildConfig(guildId, config))
+            .finally(() => {
+                if (guildConfigReads.get(key) === pendingRead) {
+                    guildConfigReads.delete(key);
+                }
+            });
+        guildConfigReads.set(key, pendingRead);
+    }
+
+    const config = await pendingRead;
     return cloneConfig(config);
 }, {
     service: 'guildConfigService',

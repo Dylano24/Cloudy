@@ -80,21 +80,30 @@ export const getUserTicketCount = wrapServiceBoundary(async function getUserTick
   context: {},
 });
 
-export async function createTicket(guild, member, categoryId, reason = 'No reason provided', priority = 'none') {
+export async function createTicket(
+  guild,
+  member,
+  categoryId,
+  reason = 'No reason provided',
+  priority = 'none',
+  options = {},
+) {
   try {
-    const config = await getGuildConfig(guild.client, guild.id);
+    const config = options.config || await getGuildConfig(guild.client, guild.id);
     const ticketConfig = config.tickets || {};
-    
-    const maxTicketsPerUser = config.maxTicketsPerUser ?? 3;
-    const currentTicketCount = await getUserTicketCount(guild.id, member.id);
-    
-    if (currentTicketCount >= maxTicketsPerUser) {
-      ticketUserError(
-        `Max open tickets reached for ${member.id}`,
-        `You have reached the maximum number of open tickets (${maxTicketsPerUser}). Please close your existing tickets before creating a new one.`,
-        ErrorTypes.VALIDATION,
-        { guildId: guild.id, userId: member.id, operation: 'createTicket' }
-      );
+
+    if (!options.skipLimitCheck) {
+      const maxTicketsPerUser = config.maxTicketsPerUser ?? 3;
+      const currentTicketCount = await getUserTicketCount(guild.id, member.id);
+
+      if (currentTicketCount >= maxTicketsPerUser) {
+        ticketUserError(
+          `Max open tickets reached for ${member.id}`,
+          `You have reached the maximum number of open tickets (${maxTicketsPerUser}). Please close your existing tickets before creating a new one.`,
+          ErrorTypes.VALIDATION,
+          { guildId: guild.id, userId: member.id, operation: 'createTicket' }
+        );
+      }
     }
     
     let category = categoryId ? 
@@ -231,7 +240,7 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       }
     });
     
-    return { channel, ticketData };
+    return { channel, ticketData, ticketMessage };
     
   } catch (error) {
     rethrowTicketError(error, 'createTicket', 'Failed to create ticket. Please try again in a moment.', { guildId: guild?.id, userId: member?.id });

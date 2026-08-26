@@ -53,7 +53,6 @@ class TitanBot extends Client {
   async start() {
     try {
       startupLog('Starting TitanBot...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
       
       startupLog('Initializing database...');
       const dbInstance = await initializeDatabase();
