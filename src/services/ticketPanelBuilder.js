@@ -9,6 +9,7 @@ import {
   forceCloudyTicketFooter,
 } from '../utils/ticket/ticketBranding.js';
 
+export const DEFAULT_TICKET_PANEL_TITLE = 'Contact the support';
 export const DEFAULT_TICKET_PANEL_MESSAGE = `If you need assistance or have something to report, simply hit the **Start Chat** button below and our team will get back to you as soon as possible.
 
 Before submitting a request, please make sure the answer to your question cannot already be found in our **FAQ** section using the button at the bottom right.`;
@@ -25,13 +26,16 @@ function resolveGuildId(client, guildId = null) {
 
 export function buildTicketPanelPayload(client, guildId, config = {}) {
   const resolvedGuildId = resolveGuildId(client, guildId);
+  const panelTitle = typeof config.ticketPanelTitle === 'string' && config.ticketPanelTitle.trim()
+    ? config.ticketPanelTitle.trim()
+    : DEFAULT_TICKET_PANEL_TITLE;
   const panelMessage = typeof config.ticketPanelMessage === 'string' && config.ticketPanelMessage.trim()
     ? config.ticketPanelMessage
     : DEFAULT_TICKET_PANEL_MESSAGE;
   const faqChannelId = String(config.ticketFaqChannelId || TICKET_FAQ_CHANNEL_ID);
 
   const embed = new EmbedBuilder()
-    .setTitle('Contact the support')
+    .setTitle(panelTitle)
     .setDescription(panelMessage)
     .setColor('#FFFFFF');
 
