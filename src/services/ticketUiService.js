@@ -460,6 +460,23 @@ export async function claimTicket(channel, claimer) {
   await saveTicketDataFast(channel, ticketData);
   await syncCloudyTicketMessage(channel);
 
+  await withTimeout(
+    channel.send({
+      embeds: [forceCloudyTicketFooter(createEmbed({
+        title: 'Ticket claimed',
+        description: `${claimer} has claimed this ticket.`,
+        color: '#2ecc71',
+      }))],
+    }),
+    DISCORD_TIMEOUT_MS,
+    'Claim ticket status message',
+  ).catch(error => {
+    logger.warn('Could not send the public claim status message', {
+      channelId: channel.id,
+      error: error.message,
+    });
+  });
+
   void logTicketEvent({
     client: channel.client,
     guildId: channel.guild.id,
