@@ -20,7 +20,7 @@ const RECEIVED_DETAILS_START =
 const RECEIVED_DETAILS_END =
   'you think may be useful, as well as any screenshots or files that could help us better\nunderstand your situation.';
 const RECEIVED_CLOSING = 'Our team will be with you as soon as possible.';
-const SINGLE_LINE_CLOUDY_FOOTER = CLOUDY_TICKET_FOOTER.replaceAll(' ', '\u202F');
+const SINGLE_LINE_CLOUDY_FOOTER = CLOUDY_TICKET_FOOTER.replaceAll(' ', '\u00A0');
 
 function ticketNumber(ticketData, fallbackTitle = '') {
   const titleMatch = String(fallbackTitle).match(/Ticket\s*#\s*0*(\d+)/i);
