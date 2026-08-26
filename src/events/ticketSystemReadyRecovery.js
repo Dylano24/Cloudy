@@ -1,10 +1,5 @@
 import { ChannelType, Events } from 'discord.js';
-import {
-  findTicketPanelMessage,
-  repostTicketPanel,
-  updateLiveTicketPanel,
-} from '../services/ticketDashboardService.js';
-import { applyTicketPanelPresentation } from '../services/ticketPanelPresentation.js';
+import { findTicketPanelMessage } from '../services/ticketDashboardService.js';
 import { getGuildConfig, updateGuildConfig } from '../services/config/guildConfig.js';
 import { recoverGuildTickets } from '../services/ticketReliabilityService.js';
 import { getTicketData, saveTicketData } from '../utils/database.js';
@@ -74,9 +69,6 @@ async function reconcilePendingTicketDeletions(guild, summary) {
         channelId: channel.id,
       });
     } catch (error) {
-      // A record may already have been marked deleted before Railway restarted.
-      // Keep any surviving Discord channel locked/closed instead of allowing the
-      // normal ticket reconciliation pass to accidentally treat it as open.
       if (String(ticketData.status || '').toLowerCase() === 'deleted') {
         ticketData.status = 'closed';
       }
@@ -99,6 +91,7 @@ async function recoverGuildTicketSystem(client, guild) {
     panelReposted: false,
     panelStyled: false,
     panelDisabled: false,
+    panelManagedByRepostOnly: true,
     pendingDeletionRecovered: 0,
     pendingDeletionReset: 0,
     ticketsRecovered: 0,
@@ -108,26 +101,10 @@ async function recoverGuildTicketSystem(client, guild) {
 
   if (config?.ticketSystemDisabled === true) {
     await reconcileDisabledTicketPanel(client, guild, config, summary);
-  } else if (config?.ticketPanelChannelId) {
-    try {
-      summary.panelUpdated = await updateLiveTicketPanel(client, guild, config);
-
-      if (!summary.panelUpdated) {
-        const recovered = await repostTicketPanel(client, guild);
-        summary.panelReposted = Boolean(recovered?.panel);
-      }
-
-      const latestConfig = await getGuildConfig(client, guild.id);
-      const panel = await findTicketPanelMessage(client, guild, latestConfig).catch(() => null);
-      if (panel) {
-        summary.panelStyled = await applyTicketPanelPresentation(panel);
-      }
-    } catch (error) {
-      logger.warn('Ticket panel startup recovery failed', {
-        guildId: guild.id,
-        error: error.message,
-      });
-    }
+  } else {
+    // Do not edit, recreate, style, or publish the ticket panel during startup.
+    // The saved dashboard settings are applied only when an administrator
+    // explicitly presses Repost Panel.
   }
 
   try {
