@@ -94,10 +94,6 @@ const createTicketHandler = {
         });
       }
 
-      // Modal interactions must be acknowledged quickly. Do a best-effort
-      // stale-panel precheck, but never let a slow database call cause Discord's
-      // "Unknown Interaction" error. The modal submit handler performs the hard
-      // server-side disabled-state check after safely deferring the interaction.
       const config = await getPanelStateFast(client, interaction.guildId);
       if (config?.ticketSystemDisabled === true) {
         return await replyUserError(interaction, {
@@ -360,12 +356,17 @@ const unclaimTicketHandler = {
 const reopenTicketHandler = {
   name: 'ticket_reopen',
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
-
     try {
       const context = await requireStaff(interaction, client, 'reopen tickets');
       if (!context) return;
+
+      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+      if (!deferred) {
+        return await replyUserError(interaction, {
+          type: ErrorTypes.UNKNOWN,
+          message: 'Could not process the reopen request. Please try again.',
+        });
+      }
 
       const result = await reopenTicket(interaction.channel, interaction.member);
       const note = result?.openCategoryMoveFailed
@@ -386,12 +387,17 @@ const reopenTicketHandler = {
 const deleteTicketHandler = {
   name: 'ticket_delete',
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
-
     try {
       const context = await requireStaff(interaction, client, 'delete tickets');
       if (!context) return;
+
+      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+      if (!deferred) {
+        return await replyUserError(interaction, {
+          type: ErrorTypes.UNKNOWN,
+          message: 'Could not process the delete request. Please try again.',
+        });
+      }
 
       await deleteTicket(interaction.channel, interaction.user);
       await editBasicTicketReply(
