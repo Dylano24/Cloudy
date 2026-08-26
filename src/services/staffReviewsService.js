@@ -99,7 +99,7 @@ export function buildStaffReviewsPanel(ownerMembers = []) {
       'We want to hear about your experience with our staff team!\n\n'
       + 'Share your feedback by selecting the staff member you would like to review, giving them a rating, and then writing a comment describing your experience.\n\n'
       + 'Please keep your feedback respectful and constructive. Any inappropriate, offensive, insulting, or irrelevant submissions may be removed.\n\n'
-      + `Once submitted, your review will be published in the <#${COMMUNITY_REVIEWS_CHANNEL_ID}> section.\n\n`
+      + `Once submitted, your review will be published in the [posted-reviews](https://discord.com/channels/@me/${COMMUNITY_REVIEWS_CHANNEL_ID}) section.\n\n`
       + 'Your reviews not only help us improve, but also encourage and support our staff team. We truly appreciate you taking the time to share your experience and show your support!',
     )
     .setFooter({ text: FOOTER });
