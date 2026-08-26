@@ -29,14 +29,24 @@ export function buildTicketDashboardPayload(guild, config = {}) {
   }
 
   const dashboardSelect = payload.components?.[1]?.components?.[0];
-  if (dashboardSelect?.addOptions) {
-    dashboardSelect.addOptions(
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Change Panel Title')
-        .setDescription('Change the title shown above the panel message')
-        .setValue('panel_title')
-        .setEmoji('✏️'),
-    );
+  if (dashboardSelect) {
+    const panelTitleOption = new StringSelectMenuOptionBuilder()
+      .setLabel('Change Panel Title')
+      .setDescription('Change the title shown above the panel message')
+      .setValue('panel_title')
+      .setEmoji('✏️');
+
+    const options = Array.isArray(dashboardSelect.options) ? dashboardSelect.options : [];
+    const alreadyPresent = options.some(option => option?.data?.value === 'panel_title');
+
+    if (!alreadyPresent) {
+      const panelMessageIndex = options.findIndex(option => option?.data?.value === 'panel_message');
+      if (typeof dashboardSelect.spliceOptions === 'function') {
+        dashboardSelect.spliceOptions(panelMessageIndex >= 0 ? panelMessageIndex : 0, 0, panelTitleOption);
+      } else if (typeof dashboardSelect.addOptions === 'function') {
+        dashboardSelect.addOptions(panelTitleOption);
+      }
+    }
   }
 
   return brandTicketDashboardPayload(payload);
