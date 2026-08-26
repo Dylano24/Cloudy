@@ -110,7 +110,7 @@ export async function deleteTicketSafely(channel, deleter) {
 
       await channel.send({
         embeds: [buildCloudyTicketEmbed({
-          title: 'Ticket Deleted',
+          title: 'Ticket deleted',
           description: `This ticket will be permanently deleted in ${Math.ceil(DELETE_DELAY_MS / 1000)} seconds.`,
         })],
       }).catch(() => {});

@@ -39,7 +39,7 @@ export default {
         await InteractionHelper.safeEditReply(interaction, {
             content: '',
             embeds: [buildCloudyTicketEmbed({
-                title: 'Ticket Claimed',
+                title: 'Ticket claimed',
                 description: 'You have successfully claimed this ticket.',
             })],
             components: [],

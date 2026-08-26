@@ -7,7 +7,7 @@ export default {
   once: false,
 
   async execute(interaction) {
-    // Only target the ephemeral "Ticket Created" reply from the ticket modal.
+    // Only target the ephemeral "Ticket created" reply from the ticket modal.
     // This never touches the created ticket channel or its messages.
     if (interaction?.customId !== 'create_ticket_modal') return;
 

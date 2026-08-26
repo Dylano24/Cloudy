@@ -562,7 +562,7 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
   await syncCloudyTicketMessage(channel);
 
   const closeEmbed = createEmbed({
-    title: 'Ticket Closed',
+    title: 'Ticket closed',
     description:
       `This ticket has been closed by ${closer}.\n` +
       `**Reason:** ${reason}\n` +

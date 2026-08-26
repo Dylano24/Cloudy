@@ -46,7 +46,7 @@ export default {
         await InteractionHelper.safeEditReply(interaction, {
             content: '',
             embeds: [buildCloudyTicketEmbed({
-                title: 'Ticket Closed',
+                title: 'Ticket closed',
                 description: 'This ticket has been closed successfully.',
             })],
             components: [],

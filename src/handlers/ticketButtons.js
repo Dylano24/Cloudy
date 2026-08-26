@@ -172,7 +172,7 @@ const createTicketModalHandler = {
       );
       await interaction.editReply({
         embeds: [successEmbed(
-          'Ticket Created',
+          'Ticket created',
           `Your ticket has been created in ${channel}!`
         )]
       });
@@ -231,7 +231,7 @@ const closeTicketModalHandler = {
       const reason = providedReason || 'Closed via ticket button without a specific reason.';
 
       await closeTicket(interaction.channel, interaction.user, reason);
-      await interaction.editReply({ embeds: [successEmbed('Ticket Closed', 'This ticket has been closed.')] });
+      await interaction.editReply({ embeds: [successEmbed('Ticket closed', 'This ticket has been closed.')] });
     } catch (error) {
       logger.error('Error submitting close ticket modal:', error);
       if (!interaction.replied && !interaction.deferred) {
@@ -255,7 +255,7 @@ const claimTicketHandler = {
       if (!deferSuccess) return;
       
       await claimTicket(interaction.channel, interaction.user);
-      await interaction.editReply({ embeds: [successEmbed('Ticket Claimed', 'You have claimed this ticket.')] });
+      await interaction.editReply({ embeds: [successEmbed('Ticket claimed', 'You have claimed this ticket.')] });
     } catch (error) {
       logger.error('Error claiming ticket:', error);
       if (!interaction.replied && !interaction.deferred) {
@@ -318,7 +318,7 @@ const pinTicketHandler = {
 
       await interaction.editReply({
         embeds: [createEmbed({
-          title: pinned ? '📌 Ticket Pinned' : '📌 Ticket Unpinned',
+          title: pinned ? '📌 Ticket pinned' : '📌 Ticket unpinned',
           description: pinned
             ? 'This ticket has been pinned to the top of the category.'
             : 'This ticket has been unpinned and moved back to normal position.',
@@ -373,7 +373,7 @@ const unclaimTicketHandler = {
       if (!deferSuccess) return;
       
       await unclaimTicket(interaction.channel, interaction.member);
-      await interaction.editReply({ embeds: [successEmbed('Ticket Unclaimed', 'This ticket has been unclaimed.')] });
+      await interaction.editReply({ embeds: [successEmbed('Ticket unclaimed', 'This ticket has been unclaimed.')] });
     } catch (error) {
       logger.error('Error unclaiming ticket:', error);
       if (!interaction.replied && !interaction.deferred) {
@@ -401,7 +401,7 @@ const reopenTicketHandler = {
       if (openCategoryMoveFailed) {
         reopenMessage += ' Note: Could not move the channel back to the open tickets category.';
       }
-      await interaction.editReply({ embeds: [successEmbed('Ticket Reopened', reopenMessage)] });
+      await interaction.editReply({ embeds: [successEmbed('Ticket reopened', reopenMessage)] });
     } catch (error) {
       logger.error('Error reopening ticket:', error);
       if (!interaction.replied && !interaction.deferred) {
@@ -425,7 +425,7 @@ const deleteTicketHandler = {
       if (!deferSuccess) return;
       
       await deleteTicket(interaction.channel, interaction.member);
-      await interaction.editReply({ embeds: [successEmbed('Ticket Deleted', 'This ticket will be deleted shortly.')] });
+      await interaction.editReply({ embeds: [successEmbed('Ticket deleted', 'This ticket will be deleted shortly.')] });
     } catch (error) {
       logger.error('Error deleting ticket:', error);
       if (!interaction.replied && !interaction.deferred) {
