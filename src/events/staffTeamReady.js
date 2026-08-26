@@ -20,7 +20,8 @@ function buildStaffEmbed(guild) {
     .setDescription(
       `Here are the people currently managing the server: ${staffMention}\n\n`
       + 'Our staff team can be contacted directly through the **contact us** section, which has been specifically created for this purpose.\n\n'
-      + 'Before contacting the staff team, please make sure that the answer to your question cannot already be found in our **FAQ** section.',
+      + 'Before contacting the staff team, please make sure that the answer to your question cannot already be found in our **FAQ** section.\n\n'
+      + 'Please note that staff members will not handle support requests through private messages. Friend requests may also not be accepted.',
     )
     .setColor(0xFFFFFF)
     .setFooter({ text: FOOTER });
