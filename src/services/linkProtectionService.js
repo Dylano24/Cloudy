@@ -8,7 +8,6 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
 
-const INVITE_TIMEOUT_MS = 1 * 60 * 1000;
 const MALICIOUS_TIMEOUT_MS = 30 * 60 * 1000;
 const LINK_SPAM_TIMEOUT_MS = 60 * 60 * 1000;
 const SPAM_WINDOW_MS = 15 * 1000;
@@ -21,7 +20,6 @@ const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/mai
 const linkActivity = new Map();
 
 const URL_PATTERN = /\b(?:https?:\/\/|www\.|discord\.gg\/|(?:[a-z0-9-]+\.)+[a-z]{2,}\/)[^\s<>()]*/gi;
-const DISCORD_INVITE_PATTERN = /(?:https?:\/\/)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com\/invite)\/[a-z0-9-]+/i;
 const SHORTENER_HOSTS = new Set([
     'bit.ly',
     'cutt.ly',
@@ -82,25 +80,6 @@ function getContentChannels(guild) {
         .map(channel => channel);
 }
 
-function getAllowedLinkChannels(guild) {
-    const allowedChannels = new Set(
-        String(process.env.ALLOWED_LINK_CHANNEL_IDS || '')
-            .split(',')
-            .map(id => id.trim())
-            .filter(Boolean)
-    );
-
-    if (process.env.LINK_CHANNEL_ID) {
-        allowedChannels.add(process.env.LINK_CHANNEL_ID);
-    }
-
-    for (const channel of getContentChannels(guild)) {
-        allowedChannels.add(channel.id);
-    }
-
-    return allowedChannels;
-}
-
 function formatChannelButtonLabel(channel) {
     const normalized = normalizeChannelName(channel.name);
     if (normalized === 'youtube') return 'YouTube';
@@ -113,12 +92,10 @@ function formatChannelButtonLabel(channel) {
         .slice(0, 80);
 }
 
-function buildContentChannelRows(message, allowedChannelIds) {
-    const channels = [...allowedChannelIds]
-        .map(channelId => message.guild.channels.cache.get(channelId))
-        .filter(channel => isContentDestinationChannel(channel));
-
+function buildContentChannelRows(message) {
+    const channels = getContentChannels(message.guild);
     const rows = [];
+
     for (let index = 0; index < Math.min(channels.length, 25); index += 5) {
         const buttons = channels.slice(index, index + 5).map(channel =>
             new ButtonBuilder()
@@ -167,10 +144,6 @@ function getContentPlatform(url) {
     } catch {
         return null;
     }
-}
-
-function isDiscordInvite(url) {
-    return DISCORD_INVITE_PATTERN.test(url);
 }
 
 function isLikelyMalicious(url) {
@@ -284,27 +257,21 @@ export async function enforceLinkProtection(message) {
     const urls = extractUrls(message.content);
     if (urls.length === 0 || isExempt(message)) return false;
 
-    const containsInvite = urls.some(isDiscordInvite);
     const containsMaliciousLink = urls.some(isLikelyMalicious);
     const isLinkSpam = urls.length >= 4 || recordLinkActivity(message, urls.length);
-    const allowedChannels = getAllowedLinkChannels(message.guild);
-    const isAllowedChannel = allowedChannels.has(message.channel.id);
     const currentContentChannel = isContentDestinationChannel(message.channel)
         ? normalizeChannelName(message.channel.name)
         : null;
     const contentPlatforms = urls.map(getContentPlatform).filter(Boolean);
-    const wrongContentChannel = Boolean(
-        currentContentChannel
-        && contentPlatforms.some(platform => platform !== currentContentChannel)
+    const hasContentPlatformLink = contentPlatforms.length > 0;
+    const wrongContentChannel = hasContentPlatformLink && (
+        !currentContentChannel
+        || contentPlatforms.some(platform => platform !== currentContentChannel)
     );
 
-    if (
-        !containsInvite
-        && !containsMaliciousLink
-        && !isLinkSpam
-        && isAllowedChannel
-        && !wrongContentChannel
-    ) {
+    // Normal links are allowed everywhere. Only malicious links, link spam,
+    // and YouTube/TikTok/Twitch links posted outside their matching channel are blocked.
+    if (!containsMaliciousLink && !isLinkSpam && !wrongContentChannel) {
         return false;
     }
 
@@ -322,16 +289,6 @@ export async function enforceLinkProtection(message) {
         return true;
     }
 
-    if (containsInvite) {
-        await applyTimeout(message, INVITE_TIMEOUT_MS, 'Automatic protection: unauthorized Discord invite');
-        await sendTemporaryAlert(
-            message,
-            'Discord invite blocked',
-            'Discord invite links are not allowed here. Your message was removed and you have been timed out for **1 minute**.'
-        );
-        return true;
-    }
-
     if (isLinkSpam) {
         await applyTimeout(message, LINK_SPAM_TIMEOUT_MS, 'Automatic protection: link spam');
         await sendTemporaryAlert(
@@ -342,23 +299,15 @@ export async function enforceLinkProtection(message) {
         return true;
     }
 
-    const contentChannelRows = buildContentChannelRows(message, allowedChannels);
-
     if (wrongContentChannel) {
         await sendTemporaryAlert(
             message,
             'Wrong channel',
             'please make sure to post your content in the correct channel using the buttons below.',
-            contentChannelRows
+            buildContentChannelRows(message)
         );
         return true;
     }
 
-    await sendTemporaryAlert(
-        message,
-        'Links are not allowed here',
-        'please use the appropriate channel to share your content. Links may only be posted by members with the **Content creator** role in the dedicated channels below.',
-        contentChannelRows
-    );
-    return true;
+    return false;
 }
