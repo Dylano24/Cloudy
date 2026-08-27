@@ -2,8 +2,9 @@ import { EmbedBuilder, Events } from 'discord.js';
 import { getGuildGiveaways } from '../utils/giveaways.js';
 
 const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+const CLOUDY_EMBED_COLOR = 0xFFFFFF;
 
-async function restoreGiveawayLogo(client, guild, giveaway) {
+async function restoreGiveawayBranding(client, guild, giveaway) {
   if (!giveaway?.channelId || !giveaway?.messageId) return;
 
   const channel = await guild.channels.fetch(giveaway.channelId).catch(() => null);
@@ -11,11 +12,16 @@ async function restoreGiveawayLogo(client, guild, giveaway) {
 
   const message = await channel.messages.fetch(giveaway.messageId).catch(() => null);
   if (!message?.editable || message.author?.id !== client.user?.id || !message.embeds?.length) return;
-  if (message.embeds[0].thumbnail?.url === CLOUDY_C_LOGO_URL) return;
+  if (
+    message.embeds[0].thumbnail?.url === CLOUDY_C_LOGO_URL
+    && message.embeds[0].color === CLOUDY_EMBED_COLOR
+  ) return;
 
   const embeds = message.embeds.map((embed, index) => {
     const rebuilt = new EmbedBuilder(embed.toJSON());
-    return index === 0 ? rebuilt.setThumbnail(CLOUDY_C_LOGO_URL) : rebuilt;
+    return index === 0
+      ? rebuilt.setThumbnail(CLOUDY_C_LOGO_URL).setColor(CLOUDY_EMBED_COLOR)
+      : rebuilt;
   });
 
   await message.edit({ embeds }).catch(() => null);
@@ -31,7 +37,7 @@ export default {
         for (const guild of client.guilds.cache.values()) {
           const giveaways = await getGuildGiveaways(client, guild.id);
           await Promise.allSettled(
-            giveaways.map(giveaway => restoreGiveawayLogo(client, guild, giveaway)),
+            giveaways.map(giveaway => restoreGiveawayBranding(client, guild, giveaway)),
           );
         }
       })();
