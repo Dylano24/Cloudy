@@ -128,8 +128,15 @@ export default {
       return;
     }
 
-    if (interaction.isStringSelectMenu?.() && interaction.customId === STAFF_REVIEW_RATING_ID) {
-      const memberId = getSelectedOwner(interaction);
+    const ratingPrefix = `${STAFF_REVIEW_RATING_ID}:`;
+    if (
+      interaction.isStringSelectMenu?.()
+      && (interaction.customId === STAFF_REVIEW_RATING_ID || interaction.customId.startsWith(ratingPrefix))
+    ) {
+      const embeddedMemberId = interaction.customId.startsWith(ratingPrefix)
+        ? interaction.customId.slice(ratingPrefix.length)
+        : null;
+      const memberId = embeddedMemberId || getSelectedOwner(interaction);
       if (!memberId) {
         await interaction.reply({
           content: 'Choose one of the Owners first, then select your rating.',
@@ -140,6 +147,16 @@ export default {
 
       const rating = Number(interaction.values?.[0]);
       if (!rating || rating < 1 || rating > 5) return;
+
+      const validTarget = await isOwnerReviewTarget(interaction.guild, memberId);
+      if (!validTarget) {
+        clearSelectedOwner(interaction);
+        await interaction.reply({
+          content: 'That member is no longer available for staff reviews. Please start again.',
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+        return;
+      }
 
       clearSelectedOwner(interaction);
 

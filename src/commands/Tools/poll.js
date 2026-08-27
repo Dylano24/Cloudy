@@ -102,7 +102,6 @@ export default {
 
         for (let i = 0; i < options.length; i++) {
             await message.react(EMOJIS[i]);
-            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
         await InteractionHelper.safeEditReply(interaction, {

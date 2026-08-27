@@ -15,6 +15,10 @@ const configuredClientId = String(
 const API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 2;
+const START_DELAY_MS = Math.max(
+  0,
+  Number.parseInt(process.env.COMMAND_SYNC_START_DELAY_MS || '3000', 10) || 0,
+);
 
 if (!token) {
   console.error('[COMMAND_SYNC] DISCORD_TOKEN is missing.');
@@ -138,6 +142,13 @@ function commandSetsMatch(current, desired) {
 }
 
 async function main() {
+  // Railway starts this recovery sync beside the bot. Let the gateway login use
+  // the initial CPU/network burst first; slash commands remain available while
+  // this background consistency check waits briefly.
+  if (START_DELAY_MS > 0) {
+    await sleep(START_DELAY_MS);
+  }
+
   const me = await discordFetch('/users/@me');
   if (!me.response.ok || !me.body?.id) {
     throw new Error(`Discord token check failed (${me.response.status}): ${JSON.stringify(me.body)}`);

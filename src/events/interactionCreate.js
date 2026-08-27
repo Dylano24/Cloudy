@@ -14,7 +14,7 @@ import { InteractionHelper } from '../utils/interactionHelper.js';
 import { createInteractionTraceContext, runWithTraceContext } from '../utils/logger.js';
 import { validateChatInputPayloadOrThrow } from '../utils/commandInputValidation.js';
 import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abuseProtection.js';
-import { isCommandEnabled } from '../services/commandAccessService.js';
+import { isCommandEnabledInConfig } from '../services/commandAccessService.js';
 import { resolveSlashAccessKey } from '../utils/messageAdapter.js';
 import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
@@ -144,7 +144,7 @@ export default {
             if (interaction.guild) {
               guildConfig = await getGuildConfig(client, interaction.guild.id, interactionTraceContext);
               const accessKey = resolveSlashAccessKey(interaction);
-              if (!(await isCommandEnabled(client, interaction.guild.id, accessKey, command.category))) {
+              if (!isCommandEnabledInConfig(guildConfig, accessKey, command.category)) {
                 throw createError(
                   `Command ${accessKey} is disabled in this guild`,
                   ErrorTypes.CONFIGURATION,
@@ -250,55 +250,46 @@ export default {
                 return;
               }
 
-              const validPanels = [];
-              for (const panel of panels) {
-                if (!panel.messageId || !panel.channelId) {
-                  continue;
-                }
-                
-                const channel = guild.channels.cache.get(panel.channelId);
-                if (!channel) {
-                  await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
-                  continue;
-                }
-                
-                const msg = await channel.messages.fetch(panel.messageId).catch(() => null);
-                if (!msg) {
-                  await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
-                  continue;
-                }
-                validPanels.push(panel);
-              }
+              const panelResults = await Promise.all(
+                panels.map(async panel => {
+                  if (!panel.messageId || !panel.channelId) {
+                    return null;
+                  }
+
+                  const channel = guild.channels.cache.get(panel.channelId);
+                  if (!channel) {
+                    await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
+                    return null;
+                  }
+
+                  const message = await channel.messages.fetch(panel.messageId).catch(() => null);
+                  if (!message) {
+                    await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
+                    return null;
+                  }
+
+                  return { panel, channel, message };
+                }),
+              );
+
+              const validPanels = panelResults.filter(Boolean);
               
               if (validPanels.length === 0) {
                 await interaction.respond([]);
                 return;
               }
               
-              const choices = await Promise.all(
-                validPanels.slice(0, 25).map(async panel => {
-                  try {
-                    const channel = guild.channels.cache.get(panel.channelId);
-                    if (!channel) return null;
-                    
-                    const msg = await channel.messages.fetch(panel.messageId).catch(() => null);
-                    if (!msg) return null;
-                    
-                    const title = msg?.embeds?.[0]?.title ?? 'Untitled Panel';
-                    const channelName = channel?.name ?? 'unknown';
-                    
-                    return {
-                      name: `${title} (${channelName})`.substring(0, 100),
-                      value: panel.messageId
-                    };
-                  } catch (e) {
-                    return null;
-                  }
-                })
-              );
-              
-              const validChoices = choices.filter(c => c !== null);
-              await interaction.respond(validChoices);
+              const choices = validPanels.slice(0, 25).map(({ panel, channel, message }) => {
+                const title = message.embeds?.[0]?.title ?? 'Untitled Panel';
+                const channelName = channel.name ?? 'unknown';
+
+                return {
+                  name: `${title} (${channelName})`.substring(0, 100),
+                  value: panel.messageId,
+                };
+              });
+
+              await interaction.respond(choices);
             } catch (error) {
               logger.error('Error handling reactroles autocomplete:', {
                 error: error.message,
