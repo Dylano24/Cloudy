@@ -1,8 +1,9 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
+import { createEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
-import { getColor } from '../../config/bot.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+
+const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 const MAX_OPTIONS = 10;
 export default {
@@ -93,10 +94,12 @@ export default {
             description += '\n*React with the emoji to vote!*';
         }
 
-        const embed = successEmbed(
-            `📊 ${isAnonymous ? 'Anonymous ' : ''}Poll`,
-            description
-        );
+        const embed = createEmbed({
+            title: `📊 ${isAnonymous ? 'Anonymous ' : ''}Poll`,
+            description,
+            color: 'light',
+            thumbnail: CLOUDY_C_LOGO_URL,
+        });
 
         const message = await interaction.channel.send({ embeds: [embed] });
 
