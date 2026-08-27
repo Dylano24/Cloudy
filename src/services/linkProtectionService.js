@@ -250,12 +250,24 @@ function buildAlertPayload(message, title, description, components = []) {
 async function sendTemporaryAlert(message, title, description, components = []) {
     const alert = await message.channel.send(
         buildAlertPayload(message, title, description, components)
-    ).catch(() => null);
+    ).catch(error => {
+        logger.warn(`Could not send temporary link warning in ${message.channel?.id || 'unknown channel'}:`, error);
+        return null;
+    });
 
-    if (alert) {
-        const timer = setTimeout(() => alert.delete().catch(() => {}), ALERT_DELETE_MS);
-        timer.unref?.();
-    }
+    if (!alert) return;
+
+    setTimeout(async () => {
+        try {
+            if (alert.deletable) {
+                await alert.delete();
+            } else {
+                logger.warn(`Temporary link warning ${alert.id} could not be deleted because it is not deletable.`);
+            }
+        } catch (error) {
+            logger.warn(`Could not delete temporary link warning ${alert.id}:`, error);
+        }
+    }, ALERT_DELETE_MS);
 }
 
 async function applyTimeout(message, durationMs, reason) {
