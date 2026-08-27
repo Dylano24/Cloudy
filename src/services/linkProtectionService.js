@@ -136,7 +136,7 @@ function buildContentChannelRows(message, allowedChannelIds) {
 }
 
 function normalizeUrl(rawUrl) {
-    const cleaned = rawUrl.replace(/[.,!?;:'")\]}]+$/, '');
+    const cleaned = rawUrl.replace(/[.,!?;:'\")\]}]+$/, '');
     return /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
 }
 
@@ -258,14 +258,6 @@ async function sendTemporaryAlert(message, title, description, components = []) 
     }
 }
 
-async function sendPrivateAlert(message, title, description, components = []) {
-    await message.author.send(
-        buildAlertPayload(message, title, description, components)
-    ).catch(error => {
-        logger.warn(`Could not DM private link warning to ${message.author.tag}:`, error);
-    });
-}
-
 async function applyTimeout(message, durationMs, reason) {
     if (!message.member?.moderatable) {
         logger.warn(`Could not timeout ${message.author.tag}: bot role is too low or member is exempt`);
@@ -341,7 +333,7 @@ export async function enforceLinkProtection(message) {
     const contentChannelRows = buildContentChannelRows(message, allowedChannels);
 
     if (wrongContentChannel) {
-        await sendPrivateAlert(
+        await sendTemporaryAlert(
             message,
             'Wrong channel',
             'please make sure to post your content in the correct channel using the buttons below.',
@@ -350,7 +342,7 @@ export async function enforceLinkProtection(message) {
         return true;
     }
 
-    await sendPrivateAlert(
+    await sendTemporaryAlert(
         message,
         'Links are not allowed here',
         'please use the appropriate channel to share your content. Links may only be posted by members with the **Content creator** role in the dedicated channels below.',
