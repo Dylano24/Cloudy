@@ -3,7 +3,7 @@
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../utils/errorHandler.js';
-import { getColor, botConfig } from '../config/bot.js';
+import { botConfig } from '../config/bot.js';
 import { getEndedGiveaways, markGiveawayEnded } from '../utils/database.js';
 import { checkRateLimit, getRateLimitStatus } from '../utils/rateLimiter.js';
 import { logEvent, EVENT_TYPES } from './loggingService.js';
@@ -137,13 +137,11 @@ export function createGiveawayEmbed(giveaway, status, winners = []) {
     try {
         const statusEmoji = status === 'ended' ? '🎉' : status === 'reroll' ? '🔄' : '🎉';
         const isEnded = status === 'ended' || status === 'reroll';
-        const color = isEnded ? getColor('giveaway.ended') : getColor('giveaway.active');
-        
         const embed = new EmbedBuilder()
             .setTitle(`${statusEmoji} ${giveaway.prize}`)
             .setDescription('React with the button below to enter!')
             .setThumbnail(CLOUDY_C_LOGO_URL)
-            .setColor(color)
+            .setColor(0xFFFFFF)
             .addFields(
                 { name: '👤 Hosted by', value: `<@${giveaway.hostId}>`, inline: true },
                 { name: '🏆 Winners', value: giveaway.winnerCount.toString(), inline: true },
