@@ -289,8 +289,8 @@ export async function enforceLinkProtection(message) {
 
     const contentChannelRows = buildContentChannelRows(message, allowedChannels);
     const destination = contentChannelRows.length > 0
-        ? 'Please use the buttons below to post your content in the appropriate channels.'
-        : 'Please send links only in the appropriate links channel.';
+        ? 'Please send your content only in the appropriate channels.'
+        : 'Please send links only in the appropriate channels.';
 
     await sendTemporaryAlert(
         message,
