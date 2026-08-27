@@ -285,7 +285,7 @@ export async function enforceLinkProtection(message) {
     if (urls.length === 0 || isExempt(message)) return false;
 
     const containsMaliciousLink = urls.some(isLikelyMalicious);
-    const isLinkSpam = urls.length >= 4 || recordLinkActivity(message, urls.length);
+    const isLinkSpam = urls.length >= 3 || recordLinkActivity(message, urls.length);
     const currentContentChannel = isContentDestinationChannel(message.channel)
         ? normalizeChannelName(message.channel.name)
         : null;
