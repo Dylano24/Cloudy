@@ -205,6 +205,33 @@ function recordLinkActivity(message, urlCount) {
     return recent.length >= SPAM_MESSAGE_LIMIT;
 }
 
+async function deleteRecentLinkMessagesFromUser(message) {
+    const cutoff = Date.now() - SPAM_WINDOW_MS;
+    const channels = message.guild.channels.cache.filter(channel =>
+        channel?.isTextBased?.()
+        && channel.messages?.fetch
+        && channel.viewable
+    );
+
+    await Promise.allSettled(
+        channels.map(async channel => {
+            const recentMessages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+            if (!recentMessages) return;
+
+            const matchingMessages = recentMessages.filter(candidate =>
+                candidate.author?.id === message.author.id
+                && candidate.createdTimestamp >= cutoff
+                && extractUrls(candidate.content).length > 0
+                && candidate.deletable
+            );
+
+            await Promise.allSettled(
+                matchingMessages.map(candidate => candidate.delete())
+            );
+        })
+    );
+}
+
 function buildAlertPayload(message, title, description, components = []) {
     return {
         embeds: [
@@ -291,9 +318,10 @@ export async function enforceLinkProtection(message) {
 
     if (isLinkSpam) {
         await applyTimeout(message, LINK_SPAM_TIMEOUT_MS, 'Automatic protection: link spam');
+        await deleteRecentLinkMessagesFromUser(message);
         await sendTemporaryAlert(
             message,
-            'Link Spam Detected',
+            'Link spam detected',
             'repeated or excessive links are not allowed. Your messages were removed and you have been timed out for **1 hour**.'
         );
         return true;
