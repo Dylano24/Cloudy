@@ -292,7 +292,7 @@ export async function enforceLinkProtection(message) {
     await sendTemporaryAlert(
         message,
         'Links are not allowed here',
-        'Please use the appropriate channel to share your content. Links may only be posted by members with the **Content creator** role in the dedicated channels below.',
+        'please use the appropriate channel to share your content. Links may only be posted by members with the **Content creator** role in the dedicated channels below.',
         contentChannelRows
     );
     return true;
