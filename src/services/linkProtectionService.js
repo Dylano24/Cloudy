@@ -16,7 +16,6 @@ const SPAM_MESSAGE_LIMIT = 3;
 const ALERT_DELETE_MS = 30 * 1000;
 const CONTENT_CATEGORY_NAME = 'postyourcontent';
 const CONTENT_CHANNEL_NAMES = new Set(['youtube', 'tiktok', 'twitch']);
-const EXCLUDED_CONTENT_CHANNEL_NAMES = new Set(['information']);
 
 const linkActivity = new Map();
 
@@ -55,7 +54,7 @@ function normalizeChannelName(name = '') {
 function isContentDestinationChannel(channel) {
     return (
         channel?.isTextBased?.()
-        && !EXCLUDED_CONTENT_CHANNEL_NAMES.has(normalizeChannelName(channel.name))
+        && CONTENT_CHANNEL_NAMES.has(normalizeChannelName(channel.name))
     );
 }
 
@@ -79,7 +78,6 @@ function getContentChannels(guild) {
     return guild.channels.cache
         .filter(channel =>
             isContentDestinationChannel(channel)
-            && CONTENT_CHANNEL_NAMES.has(normalizeChannelName(channel.name))
         )
         .sort((left, right) => left.rawPosition - right.rawPosition)
         .map(channel => channel);
@@ -119,7 +117,7 @@ function formatChannelButtonLabel(channel) {
 function buildContentChannelRows(message, allowedChannelIds) {
     const channels = [...allowedChannelIds]
         .map(channelId => message.guild.channels.cache.get(channelId))
-        .filter(channel => channel?.isTextBased?.());
+        .filter(channel => isContentDestinationChannel(channel));
 
     const rows = [];
     for (let index = 0; index < Math.min(channels.length, 25); index += 5) {
