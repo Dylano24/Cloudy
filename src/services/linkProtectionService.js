@@ -16,6 +16,7 @@ const SPAM_MESSAGE_LIMIT = 3;
 const ALERT_DELETE_MS = 30 * 1000;
 const CONTENT_CATEGORY_NAME = 'postyourcontent';
 const CONTENT_CHANNEL_NAMES = new Set(['youtube', 'tiktok', 'twitch']);
+const EXCLUDED_CONTENT_CHANNEL_NAMES = new Set(['information']);
 
 const linkActivity = new Map();
 
@@ -51,6 +52,13 @@ function normalizeChannelName(name = '') {
     return String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function isContentDestinationChannel(channel) {
+    return (
+        channel?.isTextBased?.()
+        && !EXCLUDED_CONTENT_CHANNEL_NAMES.has(normalizeChannelName(channel.name))
+    );
+}
+
 function getContentChannels(guild) {
     if (!guild?.channels?.cache) return [];
 
@@ -61,7 +69,7 @@ function getContentChannels(guild) {
 
     const categoryChannels = category
         ? guild.channels.cache
-            .filter(channel => channel.parentId === category.id && channel.isTextBased?.())
+            .filter(channel => channel.parentId === category.id && isContentDestinationChannel(channel))
             .sort((left, right) => left.rawPosition - right.rawPosition)
             .map(channel => channel)
         : [];
@@ -70,7 +78,7 @@ function getContentChannels(guild) {
 
     return guild.channels.cache
         .filter(channel =>
-            channel.isTextBased?.()
+            isContentDestinationChannel(channel)
             && CONTENT_CHANNEL_NAMES.has(normalizeChannelName(channel.name))
         )
         .sort((left, right) => left.rawPosition - right.rawPosition)
@@ -281,12 +289,12 @@ export async function enforceLinkProtection(message) {
 
     const contentChannelRows = buildContentChannelRows(message, allowedChannels);
     const destination = contentChannelRows.length > 0
-        ? 'Please use one of the buttons below to post your content in the appropriate channel.'
+        ? 'Please use the buttons below to post your content in the appropriate channels.'
         : 'Please send links only in the appropriate links channel.';
 
     await sendTemporaryAlert(
         message,
-        'Links Are Not Allowed Here',
+        'Links are not allowed here',
         `your message was removed because links cannot be posted in this channel. ${destination}`,
         contentChannelRows
     );
