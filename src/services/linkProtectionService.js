@@ -288,14 +288,11 @@ export async function enforceLinkProtection(message) {
     }
 
     const contentChannelRows = buildContentChannelRows(message, allowedChannels);
-    const destination = contentChannelRows.length > 0
-        ? 'Please send your content only in the appropriate channels.'
-        : 'Please send links only in the appropriate channels.';
 
     await sendTemporaryAlert(
         message,
         'Links are not allowed here',
-        `your message was removed because links cannot be posted in this channel. ${destination}`,
+        'Please use the appropriate channel to share your content. Links may only be posted by members with the **Content creator** role in the dedicated channels below.',
         contentChannelRows
     );
     return true;
