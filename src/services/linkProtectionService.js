@@ -1,4 +1,11 @@
-import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ChannelType,
+    EmbedBuilder,
+    PermissionFlagsBits,
+} from 'discord.js';
 import { logger } from '../utils/logger.js';
 
 const INVITE_TIMEOUT_MS = 1 * 60 * 1000;
@@ -7,6 +14,8 @@ const LINK_SPAM_TIMEOUT_MS = 60 * 60 * 1000;
 const SPAM_WINDOW_MS = 15 * 1000;
 const SPAM_MESSAGE_LIMIT = 3;
 const ALERT_DELETE_MS = 30 * 1000;
+const CONTENT_CATEGORY_NAME = 'postyourcontent';
+const CONTENT_CHANNEL_NAMES = new Set(['youtube', 'tiktok', 'twitch']);
 
 const linkActivity = new Map();
 
@@ -38,13 +47,87 @@ const DANGEROUS_TLDS = new Set([
 ]);
 const SUSPICIOUS_FILE_PATTERN = /\.(?:apk|bat|cmd|com|exe|hta|jar|js|msi|ps1|scr|vbs)(?:[?#].*)?$/i;
 
-function getAllowedLinkChannels() {
-    return new Set(
+function normalizeChannelName(name = '') {
+    return String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getContentChannels(guild) {
+    if (!guild?.channels?.cache) return [];
+
+    const category = guild.channels.cache.find(channel =>
+        channel.type === ChannelType.GuildCategory
+        && normalizeChannelName(channel.name).includes(CONTENT_CATEGORY_NAME)
+    );
+
+    const categoryChannels = category
+        ? guild.channels.cache
+            .filter(channel => channel.parentId === category.id && channel.isTextBased?.())
+            .sort((left, right) => left.rawPosition - right.rawPosition)
+            .map(channel => channel)
+        : [];
+
+    if (categoryChannels.length > 0) return categoryChannels;
+
+    return guild.channels.cache
+        .filter(channel =>
+            channel.isTextBased?.()
+            && CONTENT_CHANNEL_NAMES.has(normalizeChannelName(channel.name))
+        )
+        .sort((left, right) => left.rawPosition - right.rawPosition)
+        .map(channel => channel);
+}
+
+function getAllowedLinkChannels(guild) {
+    const allowedChannels = new Set(
         String(process.env.ALLOWED_LINK_CHANNEL_IDS || '')
             .split(',')
             .map(id => id.trim())
             .filter(Boolean)
     );
+
+    if (process.env.LINK_CHANNEL_ID) {
+        allowedChannels.add(process.env.LINK_CHANNEL_ID);
+    }
+
+    for (const channel of getContentChannels(guild)) {
+        allowedChannels.add(channel.id);
+    }
+
+    return allowedChannels;
+}
+
+function formatChannelButtonLabel(channel) {
+    const normalized = normalizeChannelName(channel.name);
+    if (normalized === 'youtube') return 'YouTube';
+    if (normalized === 'tiktok') return 'TikTok';
+    if (normalized === 'twitch') return 'Twitch';
+
+    return channel.name
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, character => character.toUpperCase())
+        .slice(0, 80);
+}
+
+function buildContentChannelRows(message, allowedChannelIds) {
+    const channels = [...allowedChannelIds]
+        .map(channelId => message.guild.channels.cache.get(channelId))
+        .filter(channel => channel?.isTextBased?.());
+
+    const rows = [];
+    for (let index = 0; index < Math.min(channels.length, 25); index += 5) {
+        const buttons = channels.slice(index, index + 5).map(channel =>
+            new ButtonBuilder()
+                .setLabel(formatChannelButtonLabel(channel))
+                .setStyle(ButtonStyle.Link)
+                .setURL(`https://discord.com/channels/${message.guild.id}/${channel.id}`)
+        );
+
+        if (buttons.length > 0) {
+            rows.push(new ActionRowBuilder().addComponents(buttons));
+        }
+    }
+
+    return rows;
 }
 
 function normalizeUrl(rawUrl) {
@@ -119,7 +202,7 @@ function recordLinkActivity(message, urlCount) {
     return recent.length >= SPAM_MESSAGE_LIMIT;
 }
 
-async function sendTemporaryAlert(message, title, description) {
+async function sendTemporaryAlert(message, title, description, components = []) {
     const alert = await message.channel.send({
         embeds: [
             new EmbedBuilder()
@@ -128,6 +211,7 @@ async function sendTemporaryAlert(message, title, description) {
                 .setDescription(`<@${message.author.id}>, ${description}`)
                 .setFooter({ text: 'This notice will be removed automatically.' }),
         ],
+        components,
         allowedMentions: { users: [message.author.id] },
     }).catch(() => null);
 
@@ -154,7 +238,7 @@ export async function enforceLinkProtection(message) {
     const containsInvite = urls.some(isDiscordInvite);
     const containsMaliciousLink = urls.some(isLikelyMalicious);
     const isLinkSpam = urls.length >= 4 || recordLinkActivity(message, urls.length);
-    const allowedChannels = getAllowedLinkChannels();
+    const allowedChannels = getAllowedLinkChannels(message.guild);
     const isAllowedChannel = allowedChannels.has(message.channel.id);
 
     if (!containsInvite && !containsMaliciousLink && !isLinkSpam && isAllowedChannel) {
@@ -195,14 +279,16 @@ export async function enforceLinkProtection(message) {
         return true;
     }
 
-    const destination = process.env.LINK_CHANNEL_ID
-        ? `Please use <#${process.env.LINK_CHANNEL_ID}> for links.`
+    const contentChannelRows = buildContentChannelRows(message, allowedChannels);
+    const destination = contentChannelRows.length > 0
+        ? 'Please use one of the buttons below to post your content in the appropriate channel.'
         : 'Please send links only in the appropriate links channel.';
 
     await sendTemporaryAlert(
         message,
         'Links Are Not Allowed Here',
-        `your message was removed because links cannot be posted in this channel. ${destination}`
+        `your message was removed because links cannot be posted in this channel. ${destination}`,
+        contentChannelRows
     );
     return true;
 }
