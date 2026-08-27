@@ -11,7 +11,7 @@ import { getGuildConfig } from '../services/config/guildConfig.js';
 import { getCommandPrefix, getBotMessage, isBotOwner, isCommandCategoryEnabled, isMaintenanceMode } from '../config/bot.js';
 import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abuseProtection.js';
 import { createEmbed } from '../utils/embeds.js';
-import { isCommandEnabled } from '../services/commandAccessService.js';
+import { isCommandEnabledInConfig } from '../services/commandAccessService.js';
 import { enforceLinkProtection } from '../services/linkProtectionService.js';
 import { enforceProtectedIdentityMessage } from '../services/protectedIdentityService.js';
 import {
@@ -146,7 +146,7 @@ async function handlePrefixCommand(message, client) {
       return;
     }
 
-    if (!(await isCommandEnabled(client, message.guild.id, resolvePrefixAccessKey(command.data, args), command.category))) {
+    if (!isCommandEnabledInConfig(guildConfig, resolvePrefixAccessKey(command.data, args), command.category)) {
       const embed = createEmbed({
         title: 'Command Disabled',
         description: 'This command has been disabled for this server.',

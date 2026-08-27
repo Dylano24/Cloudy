@@ -71,50 +71,58 @@ async function preflightDiscord() {
   assertSnowflake(guildId, 'GUILD_ID');
   process.env.GUILD_ID = guildId;
 
-  try {
-    const guild = await rest.get(`/guilds/${guildId}`);
-    console.log(
-      `[PREFLIGHT] Discord token valid for bot ${authenticatedClientId}; guild access confirmed for ${guild?.id || guildId}.`,
-    );
-  } catch (error) {
-    const code = error?.code ?? error?.status ?? 'unknown';
-    throw new Error(
-      `The configured bot token cannot access GUILD_ID ${guildId} (code ${code}). ` +
-      'Check that Cloudy is actually added to that server and that GUILD_ID is correct.',
-    );
-  }
+  const verifyGuildAccess = async () => {
+    try {
+      const guild = await rest.get(`/guilds/${guildId}`);
+      console.log(
+        `[PREFLIGHT] Discord token valid for bot ${authenticatedClientId}; guild access confirmed for ${guild?.id || guildId}.`,
+      );
+    } catch (error) {
+      const code = error?.code ?? error?.status ?? 'unknown';
+      throw new Error(
+        `The configured bot token cannot access GUILD_ID ${guildId} (code ${code}). ` +
+        'Check that Cloudy is actually added to that server and that GUILD_ID is correct.',
+      );
+    }
+  };
 
   // app.js requests GuildMembers and MessageContent. If Discord says either
   // privileged intent is unavailable, the gateway connection can be closed and
   // the bot will appear offline even though Railway's HTTP server started.
-  try {
-    const application = await rest.get('/oauth2/applications/@me');
-    const flags = BigInt(application?.flags || 0);
-    const guildMembersBits = 16384n | 32768n;
-    const messageContentBits = 262144n | 524288n;
-    const missing = [];
+  const verifyPrivilegedIntents = async () => {
+    try {
+      const application = await rest.get('/oauth2/applications/@me');
+      const flags = BigInt(application?.flags || 0);
+      const guildMembersBits = 16384n | 32768n;
+      const messageContentBits = 262144n | 524288n;
+      const missing = [];
 
-    if ((flags & guildMembersBits) === 0n) {
-      missing.push('Server Members Intent');
-    }
-    if ((flags & messageContentBits) === 0n) {
-      missing.push('Message Content Intent');
-    }
+      if ((flags & guildMembersBits) === 0n) {
+        missing.push('Server Members Intent');
+      }
+      if ((flags & messageContentBits) === 0n) {
+        missing.push('Message Content Intent');
+      }
 
-    if (missing.length > 0) {
-      throw new Error(
-        `Discord privileged intents missing: ${missing.join(', ')}. ` +
-        'Enable them in Discord Developer Portal > Bot > Privileged Gateway Intents and save changes.',
-      );
-    }
+      if (missing.length > 0) {
+        throw new Error(
+          `Discord privileged intents missing: ${missing.join(', ')}. ` +
+          'Enable them in Discord Developer Portal > Bot > Privileged Gateway Intents and save changes.',
+        );
+      }
 
-    console.log('[PREFLIGHT] Required Discord privileged intents are available.');
-  } catch (error) {
-    if (String(error?.message || '').startsWith('Discord privileged intents missing:')) {
-      throw error;
+      console.log('[PREFLIGHT] Required Discord privileged intents are available.');
+    } catch (error) {
+      if (String(error?.message || '').startsWith('Discord privileged intents missing:')) {
+        throw error;
+      }
+      console.warn(`[PREFLIGHT] Could not inspect application intent flags: ${error?.message || error}`);
     }
-    console.warn(`[PREFLIGHT] Could not inspect application intent flags: ${error?.message || error}`);
-  }
+  };
+
+  // These checks use independent Discord REST routes, so there is no reason to
+  // make bot startup wait for them one after the other.
+  await Promise.all([verifyGuildAccess(), verifyPrivilegedIntents()]);
 }
 
 try {

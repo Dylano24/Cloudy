@@ -20,26 +20,27 @@ export default {
             });
         }
 
-        let displayIndex = 0;
-        for (const birthday of next5) {
-            const member = await interaction.guild.members.fetch(birthday.userId).catch(() => null);
-            if (!member) {
-                deleteBirthday(client, interaction.guildId, birthday.userId).catch(() => null);
-                continue;
-            }
-            displayIndex++;
+        const userIds = next5.map(birthday => birthday.userId);
+        const fetchedMembers = await interaction.guild.members.fetch({ user: userIds }).catch(() => null);
+        const birthdaysWithMembers = fetchedMembers
+            ? next5.map(birthday => ({
+                birthday,
+                member: fetchedMembers.get(birthday.userId) || null,
+            }))
+            : await Promise.all(
+                next5.map(async birthday => ({
+                    birthday,
+                    member: await interaction.guild.members.fetch(birthday.userId).catch(() => null),
+                })),
+            );
 
-            let timeUntil = '';
-            if (birthday.daysUntil === 0) {
-                timeUntil = '🎉 **Today!**';
-            } else if (birthday.daysUntil === 1) {
-                timeUntil = '📅 **Tomorrow!**';
-            } else {
-                timeUntil = `In ${birthday.daysUntil} day${birthday.daysUntil > 1 ? 's' : ''}`;
-            }
-        }
+        const currentBirthdays = birthdaysWithMembers.filter(({ birthday, member }) => {
+            if (member) return true;
+            deleteBirthday(client, interaction.guildId, birthday.userId).catch(() => null);
+            return false;
+        });
 
-        if (displayIndex === 0) {
+        if (currentBirthdays.length === 0) {
             const embed = new EmbedBuilder()
                 .setColor(0xFF0000)
                 .setTitle('No Upcoming Birthdays')
@@ -50,13 +51,9 @@ export default {
         }
 
         let birthdayList = `🎂 **Next 5 Upcoming Birthdays**\n\nHere are the next 5 birthdays in ${interaction.guild.name}:\n\n`;
-        displayIndex = 0;
-        for (const birthday of next5) {
-            const member = await interaction.guild.members.fetch(birthday.userId).catch(() => null);
-            if (!member) {
-                continue;
-            }
-            displayIndex++;
+        let displayIndex = 0;
+        for (const { birthday, member } of currentBirthdays) {
+            displayIndex += 1;
 
             let timeUntil = '';
             if (birthday.daysUntil === 0) {

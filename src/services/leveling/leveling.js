@@ -82,21 +82,21 @@ export async function getLeaderboard(client, guildId, limit = 10) {
       return new Map();
     });
 
-    const leaderboard = [];
-    
-    for (const [userId, member] of members) {
-      if (member.user.bot) continue;
-      
+    const leaderboard = (await Promise.all([...members].map(async ([userId, member]) => {
+      if (member.user.bot) return null;
+
       const data = await getUserLevelData(client, guildId, userId);
       if (data && (data.totalXp > 0 || data.level > 0)) {
-        leaderboard.push({
+        return {
           userId,
           username: member.user.username,
           discriminator: member.user.discriminator,
           ...data
-        });
+        };
       }
-    }
+
+      return null;
+    }))).filter(Boolean);
     
     leaderboard.sort((a, b) => b.totalXp - a.totalXp);
     

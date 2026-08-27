@@ -332,9 +332,7 @@ export async function getAllReactionRoleMessages(client, guildId) {
             return [];
         }
 
-        const messages = [];
-        
-        for (const key of keys) {
+        const messages = (await Promise.all(keys.map(async key => {
             try {
                 const data = await client.db.get(key);
                 
@@ -349,16 +347,17 @@ export async function getAllReactionRoleMessages(client, guildId) {
                     }
                     
                     if (actualData && actualData.messageId && actualData.channelId) {
-                        messages.push(actualData);
+                        return actualData;
                     } else if (actualData) {
                         logger.warn(`Skipping malformed reaction role data for guild ${guildId}:`, actualData);
                     }
                 }
             } catch (dataError) {
                 logger.warn(`Error getting data for reaction role key ${key}:`, dataError);
-                
             }
-        }
+
+            return null;
+        }))).filter(Boolean);
 
         return messages;
     } catch (error) {

@@ -29,7 +29,11 @@ const MAX_MESSAGES_PER_CHANNEL = 150;
 const MAX_KNOWLEDGE_CHARS = 50000;
 const MAX_ANSWER_CHARS = 1800;
 const QUESTION_COOLDOWN_MS = 20_000;
+const KNOWLEDGE_CACHE_TTL_MS = 60_000;
 const recentQuestions = new Map();
+const knowledgeCache = new WeakMap();
+const knowledgeReads = new WeakMap();
+let lastQuestionSweepAt = 0;
 
 function buildPanelPayload() {
   const footerText = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -40,7 +44,7 @@ function buildPanelPayload() {
       'Have a question or need help with something?\n\n' +
       'Our AI Assistant can help you find answers to common questions, server information, features, commands, and more.\n\n' +
       'You can ask your question in any language, and you’ll receive a response in the same language.\n\n' +
-      'Click Ask a question below and let Cloudy Inc. assist you.'
+      'Click **Ask a question** below and let Cloudy Inc. assist you.'
     )
     .setFooter({ text: footerText });
 
@@ -172,38 +176,72 @@ async function fetchChannelKnowledge(client, source) {
 }
 
 async function fetchCloudyKnowledge(client) {
-  const sourceEntries = await Promise.all(
-    KNOWLEDGE_CHANNELS.map(source => fetchChannelKnowledge(client, source))
-  );
-
-  const entries = sourceEntries
-    .flat()
-    .sort((a, b) => b.createdTimestamp - a.createdTimestamp);
-
-  const selected = [];
-  let totalChars = 0;
-
-  for (const entry of entries) {
-    const formatted = `[Source: ${entry.source}]\n${entry.text}`;
-
-    if (totalChars + formatted.length > MAX_KNOWLEDGE_CHARS && selected.length > 0) {
-      continue;
-    }
-
-    selected.push({ ...entry, formatted });
-    totalChars += formatted.length + 4;
-
-    if (totalChars >= MAX_KNOWLEDGE_CHARS) break;
+  const cached = knowledgeCache.get(client);
+  if (cached?.expiresAt > Date.now()) {
+    return cached.value;
   }
 
-  return selected
-    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-    .map(entry => entry.formatted)
-    .join('\n\n---\n\n');
+  const pendingRead = knowledgeReads.get(client);
+  if (pendingRead) {
+    return pendingRead;
+  }
+
+  const read = (async () => {
+    const sourceEntries = await Promise.all(
+      KNOWLEDGE_CHANNELS.map(source => fetchChannelKnowledge(client, source))
+    );
+
+    const entries = sourceEntries
+      .flat()
+      .sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+
+    const selected = [];
+    let totalChars = 0;
+
+    for (const entry of entries) {
+      const formatted = `[Source: ${entry.source}]\n${entry.text}`;
+
+      if (totalChars + formatted.length > MAX_KNOWLEDGE_CHARS && selected.length > 0) {
+        continue;
+      }
+
+      selected.push({ ...entry, formatted });
+      totalChars += formatted.length + 4;
+
+      if (totalChars >= MAX_KNOWLEDGE_CHARS) break;
+    }
+
+    const value = selected
+      .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+      .map(entry => entry.formatted)
+      .join('\n\n---\n\n');
+
+    knowledgeCache.set(client, {
+      value,
+      expiresAt: Date.now() + KNOWLEDGE_CACHE_TTL_MS,
+    });
+    return value;
+  })().finally(() => {
+    if (knowledgeReads.get(client) === read) {
+      knowledgeReads.delete(client);
+    }
+  });
+
+  knowledgeReads.set(client, read);
+  return read;
 }
 
 export function getFaqQuestionCooldown(userId) {
   const now = Date.now();
+  if (now - lastQuestionSweepAt >= KNOWLEDGE_CACHE_TTL_MS) {
+    lastQuestionSweepAt = now;
+    for (const [storedUserId, askedAt] of recentQuestions) {
+      if (now - askedAt >= QUESTION_COOLDOWN_MS) {
+        recentQuestions.delete(storedUserId);
+      }
+    }
+  }
+
   const previous = recentQuestions.get(userId) || 0;
   const remaining = QUESTION_COOLDOWN_MS - (now - previous);
 

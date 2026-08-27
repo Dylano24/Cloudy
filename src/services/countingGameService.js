@@ -1,6 +1,9 @@
 import { logger } from '../utils/logger.js';
 
 const COUNTING_GAME_KEY_PREFIX = 'countingGame:';
+const COUNTING_GAME_CACHE_TTL_MS = 5 * 60 * 1000;
+const countingGameCache = new Map();
+const countingGameReads = new Map();
 
 const COUNTING_SYSTEMS = {
   decimal: {
@@ -198,10 +201,45 @@ function getStorageKey(guildId) {
   return `${COUNTING_GAME_KEY_PREFIX}${guildId}`;
 }
 
+function cacheCountingGame(guildId, state) {
+  const normalized = normalizeCountingGame(state);
+  countingGameCache.set(String(guildId), {
+    value: normalized,
+    expiresAt: Date.now() + COUNTING_GAME_CACHE_TTL_MS,
+  });
+  return normalizeCountingGame(normalized);
+}
+
+function getCachedCountingGame(guildId) {
+  const key = String(guildId);
+  const cached = countingGameCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    countingGameCache.delete(key);
+    return null;
+  }
+  return normalizeCountingGame(cached.value);
+}
+
 export async function getCountingGameConfig(client, guildId) {
   try {
-    const rawState = await client.db.get(getStorageKey(guildId));
-    return normalizeCountingGame(rawState);
+    const cached = getCachedCountingGame(guildId);
+    if (cached) return cached;
+
+    const key = String(guildId);
+    let pendingRead = countingGameReads.get(key);
+    if (!pendingRead) {
+      pendingRead = client.db.get(getStorageKey(guildId))
+        .then(state => getCachedCountingGame(guildId) || cacheCountingGame(guildId, state))
+        .finally(() => {
+          if (countingGameReads.get(key) === pendingRead) {
+            countingGameReads.delete(key);
+          }
+        });
+      countingGameReads.set(key, pendingRead);
+    }
+
+    return normalizeCountingGame(await pendingRead);
   } catch (error) {
     logger.error('Failed to load counting game config:', { guildId, error });
     return normalizeCountingGame();
@@ -211,7 +249,7 @@ export async function getCountingGameConfig(client, guildId) {
 export async function saveCountingGameConfig(client, guildId, state) {
   const normalized = normalizeCountingGame(state);
   await client.db.set(getStorageKey(guildId), normalized);
-  return normalized;
+  return cacheCountingGame(guildId, normalized);
 }
 
 export async function disableCountingGame(client, guildId) {

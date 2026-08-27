@@ -19,6 +19,8 @@ const CATEGORY_SELECT_ID = "help-category-select";
 const FOOTER_TEXT = "Made with ❤️";
 const SUBCOMMAND_TYPE = 1;
 const SUBCOMMAND_GROUP_TYPE = 2;
+const REGISTERED_COMMAND_CACHE_TTL_MS = 5 * 60 * 1000;
+const registeredCommandCache = new WeakMap();
 
 const CATEGORY_ICONS = {
     Core: "ℹ️",
@@ -129,6 +131,31 @@ function normalizeCommandData(command) {
     };
 }
 
+async function getRegisteredCommands(client) {
+    const cached = registeredCommandCache.get(client);
+    if (cached?.expiresAt > Date.now()) {
+        return cached.commands;
+    }
+
+    const registeredCommands = new Collection();
+    try {
+        if (client?.application?.commands?.fetch) {
+            const commands = await client.application.commands.fetch();
+            for (const cmd of commands.values()) {
+                registeredCommands.set(cmd.name, cmd);
+            }
+        }
+        registeredCommandCache.set(client, {
+            commands: registeredCommands,
+            expiresAt: Date.now() + REGISTERED_COMMAND_CACHE_TTL_MS,
+        });
+    } catch (error) {
+        logger.error('Error fetching registered commands:', error);
+    }
+
+    return registeredCommands;
+}
+
 async function createCategoryCommandsMenu(category, client, interaction = null) {
     const categoryName = formatCategoryName(category);
     const icon = CATEGORY_ICONS[categoryName] || "🔍";
@@ -166,17 +193,7 @@ async function createCategoryCommandsMenu(category, client, interaction = null) 
 
     categoryCommands.sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-    let registeredCommands = new Collection();
-    try {
-        if (client?.application?.commands?.fetch) {
-            const commands = await client.application.commands.fetch();
-            for (const cmd of commands.values()) {
-                registeredCommands.set(cmd.name, cmd);
-            }
-        }
-    } catch (error) {
-        logger.error('Error fetching registered commands:', error);
-    }
+    const registeredCommands = await getRegisteredCommands(client);
 
     const embed = createEmbed({
         title: `${icon} ${categoryName} Commands`,
@@ -298,17 +315,7 @@ export async function createAllCommandsMenu(page = 1, client, interaction = null
 
     allCommands.sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-    let registeredCommands = new Collection();
-    try {
-        if (client?.application?.commands?.fetch) {
-            const commands = await client.application.commands.fetch();
-            for (const cmd of commands.values()) {
-                registeredCommands.set(cmd.name, cmd);
-            }
-        }
-    } catch (error) {
-        logger.error('Error fetching registered commands:', error);
-    }
+    const registeredCommands = await getRegisteredCommands(client);
 
     const totalPages = Math.ceil(allCommands.length / commandsPerPage);
     const startIndex = (page - 1) * commandsPerPage;
