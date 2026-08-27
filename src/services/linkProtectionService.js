@@ -77,9 +77,7 @@ function getContentChannels(guild) {
     if (categoryChannels.length > 0) return categoryChannels;
 
     return guild.channels.cache
-        .filter(channel =>
-            isContentDestinationChannel(channel)
-        )
+        .filter(channel => isContentDestinationChannel(channel))
         .sort((left, right) => left.rawPosition - right.rawPosition)
         .map(channel => channel);
 }
@@ -144,6 +142,31 @@ function normalizeUrl(rawUrl) {
 
 function extractUrls(content = '') {
     return [...content.matchAll(URL_PATTERN)].map(match => normalizeUrl(match[0]));
+}
+
+function hostnameMatches(hostname, domain) {
+    return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function getContentPlatform(url) {
+    try {
+        const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+
+        if (
+            hostnameMatches(hostname, 'youtube.com')
+            || hostnameMatches(hostname, 'youtu.be')
+            || hostnameMatches(hostname, 'youtube-nocookie.com')
+        ) {
+            return 'youtube';
+        }
+
+        if (hostnameMatches(hostname, 'tiktok.com')) return 'tiktok';
+        if (hostnameMatches(hostname, 'twitch.tv')) return 'twitch';
+
+        return null;
+    } catch {
+        return null;
+    }
 }
 
 function isDiscordInvite(url) {
@@ -248,8 +271,22 @@ export async function enforceLinkProtection(message) {
     const isLinkSpam = urls.length >= 4 || recordLinkActivity(message, urls.length);
     const allowedChannels = getAllowedLinkChannels(message.guild);
     const isAllowedChannel = allowedChannels.has(message.channel.id);
+    const currentContentChannel = isContentDestinationChannel(message.channel)
+        ? normalizeChannelName(message.channel.name)
+        : null;
+    const contentPlatforms = urls.map(getContentPlatform).filter(Boolean);
+    const wrongContentChannel = Boolean(
+        currentContentChannel
+        && contentPlatforms.some(platform => platform !== currentContentChannel)
+    );
 
-    if (!containsInvite && !containsMaliciousLink && !isLinkSpam && isAllowedChannel) {
+    if (
+        !containsInvite
+        && !containsMaliciousLink
+        && !isLinkSpam
+        && isAllowedChannel
+        && !wrongContentChannel
+    ) {
         return false;
     }
 
@@ -288,6 +325,16 @@ export async function enforceLinkProtection(message) {
     }
 
     const contentChannelRows = buildContentChannelRows(message, allowedChannels);
+
+    if (wrongContentChannel) {
+        await sendTemporaryAlert(
+            message,
+            'Wrong channel',
+            'please make sure to post your content in the correct channel using the buttons below.',
+            contentChannelRows
+        );
+        return true;
+    }
 
     await sendTemporaryAlert(
         message,
