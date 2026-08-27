@@ -9,7 +9,8 @@ import {
 import { logger } from '../utils/logger.js';
 
 const MALICIOUS_TIMEOUT_MS = 30 * 60 * 1000;
-const LINK_SPAM_TIMEOUT_MS = 60 * 60 * 1000;
+const FIRST_LINK_SPAM_TIMEOUT_MS = 60 * 60 * 1000;
+const REPEAT_LINK_SPAM_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 const SPAM_WINDOW_MS = 15 * 1000;
 const SPAM_MESSAGE_LIMIT = 3;
 const ALERT_DELETE_MS = 15 * 1000;
@@ -18,6 +19,7 @@ const CONTENT_CHANNEL_NAMES = new Set(['youtube', 'tiktok', 'twitch']);
 const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 
 const linkActivity = new Map();
+const linkSpamOffenses = new Map();
 
 const URL_PATTERN = /\b(?:https?:\/\/|www\.|discord\.gg\/|(?:[a-z0-9-]+\.)+[a-z]{2,}\/)[^\s<>()]*/gi;
 const SHORTENER_HOSTS = new Set([
@@ -205,6 +207,16 @@ function recordLinkActivity(message, urlCount) {
     return recent.length >= SPAM_MESSAGE_LIMIT;
 }
 
+function getNextLinkSpamTimeout(message) {
+    const key = `${message.guild.id}:${message.author.id}`;
+    const offenseCount = (linkSpamOffenses.get(key) || 0) + 1;
+    linkSpamOffenses.set(key, offenseCount);
+
+    return offenseCount === 1
+        ? { durationMs: FIRST_LINK_SPAM_TIMEOUT_MS, label: '1 hour' }
+        : { durationMs: REPEAT_LINK_SPAM_TIMEOUT_MS, label: '6 hours' };
+}
+
 async function deleteRecentLinkMessagesFromUser(message) {
     const cutoff = Date.now() - SPAM_WINDOW_MS;
     const channels = message.guild.channels.cache.filter(channel =>
@@ -317,12 +329,13 @@ export async function enforceLinkProtection(message) {
     }
 
     if (isLinkSpam) {
-        await applyTimeout(message, LINK_SPAM_TIMEOUT_MS, 'Automatic protection: link spam');
+        const timeout = getNextLinkSpamTimeout(message);
+        await applyTimeout(message, timeout.durationMs, 'Automatic protection: link spam');
         await deleteRecentLinkMessagesFromUser(message);
         await sendTemporaryAlert(
             message,
             'Link spam detected',
-            'repeated or excessive links are not allowed. Your messages were removed and you have been timed out for **1 hour**.'
+            `repeated or excessive links are not allowed. Your messages were removed and you have been timed out for **${timeout.label}**.`
         );
         return true;
     }
