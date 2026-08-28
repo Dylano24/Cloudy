@@ -28,17 +28,17 @@ const IDLE_TIMEOUT_MINUTES = 15;
 const IDLE_TIMEOUT = IDLE_TIMEOUT_MINUTES * 60_000;
 
 const COLOR_PRESETS = [
-    { label: 'Primary (Blue)',        value: '#336699', emoji: '' },
-    { label: 'Success (Green)',       value: '#57F287', emoji: '' },
-    { label: 'Error (Red)',           value: '#ED4245', emoji: '' },
-    { label: 'Warning (Yellow)',      value: '#FEE75C', emoji: '' },
-    { label: 'Info (Bright Blue)',    value: '#3498DB', emoji: '' },
+    { label: 'Primary (blue)',        value: '#336699', emoji: '' },
+    { label: 'Success (green)',       value: '#57F287', emoji: '' },
+    { label: 'Error (red)',           value: '#ED4245', emoji: '' },
+    { label: 'Warning (yellow)',      value: '#FEE75C', emoji: '' },
+    { label: 'Info (bright blue)',    value: '#3498DB', emoji: '' },
     { label: 'Blurple (Discord)',     value: '#5865F2', emoji: '' },
     { label: 'Fuchsia',              value: '#EB459E', emoji: '' },
     { label: 'Gold',                  value: '#F1C40F', emoji: '' },
     { label: 'White',                 value: '#FFFFFF', emoji: '' },
     { label: 'Dark',                  value: '#202225', emoji: '' },
-    { label: 'Custom Hex...',         value: '__custom__', emoji: '' },
+    { label: 'Custom hex...',         value: '__custom__', emoji: '' },
 ];
 
 function isValidUrl(str) {
@@ -122,7 +122,7 @@ function buildDashboardEmbed(state) {
     ];
 
     return new EmbedBuilder()
-        .setTitle('Embed Builder — Control Panel')
+        .setTitle('Embed builder — control panel')
         .setDescription(lines.join('\n'))
         .setColor(getColor('info'))
         .setFooter({
@@ -134,22 +134,22 @@ function buildMainMenu(state) {
     const primaryRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('eb_main_edit_content')
-            .setLabel('Edit Content')
+            .setLabel('Edit content')
             .setStyle(ButtonStyle.Primary)
             .setEmoji('✏️'),
         new ButtonBuilder()
             .setCustomId('eb_main_set_color')
-            .setLabel('Set Color')
+            .setLabel('Set color')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🎨'),
         new ButtonBuilder()
             .setCustomId('eb_main_set_images')
-            .setLabel('Set Images')
+            .setLabel('Set images')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🖼️'),
         new ButtonBuilder()
             .setCustomId('eb_main_post_embed')
-            .setLabel('Post Embed')
+            .setLabel('Post embed')
             .setStyle(ButtonStyle.Success)
             .setEmoji('📤'),
     );
@@ -157,24 +157,24 @@ function buildMainMenu(state) {
     const secondaryRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('eb_main_add_field')
-            .setLabel(`Add Field (${state.fields.length}/${MAX_FIELDS})`)
+            .setLabel(`Add field (${state.fields.length}/${MAX_FIELDS})`)
             .setStyle(ButtonStyle.Primary)
             .setEmoji('➕'),
         new ButtonBuilder()
             .setCustomId('eb_main_edit_field')
-            .setLabel('Edit Field')
+            .setLabel('Edit field')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📝')
             .setDisabled(state.fields.length === 0),
         new ButtonBuilder()
             .setCustomId('eb_main_remove_field')
-            .setLabel('Remove Field')
+            .setLabel('Remove field')
             .setStyle(ButtonStyle.Danger)
             .setEmoji('➖')
             .setDisabled(state.fields.length === 0),
         new ButtonBuilder()
             .setCustomId('eb_main_toggle_timestamp')
-            .setLabel(state.timestamp ? 'Disable Timestamp' : 'Enable Timestamp')
+            .setLabel(state.timestamp ? 'Disable timestamp' : 'Enable timestamp')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🕐'),
     );
@@ -182,28 +182,23 @@ function buildMainMenu(state) {
     const tertiaryRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('eb_main_reorder_fields')
-            .setLabel('Reorder Fields')
+            .setLabel('Reorder fields')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('↕️')
             .setDisabled(state.fields.length < 2),
         new ButtonBuilder()
             .setCustomId('eb_main_set_author')
-            .setLabel('Set Author')
+            .setLabel('Set author')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('👤'),
         new ButtonBuilder()
             .setCustomId('eb_main_set_footer')
-            .setLabel('Set Footer')
+            .setLabel('Set footer')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🧾'),
         new ButtonBuilder()
-            .setCustomId('eb_main_json_export')
-            .setLabel('JSON / Raw Data')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📋'),
-        new ButtonBuilder()
             .setCustomId('eb_main_reset_all')
-            .setLabel('Reset Everything')
+            .setLabel('Reset everything')
             .setStyle(ButtonStyle.Danger)
             .setEmoji('🗑️'),
     );
@@ -221,7 +216,7 @@ async function refreshDashboard(interaction, state) {
 async function handleEditContent(selectInteraction, rootInteraction, state) {
     const modal = new ModalBuilder()
         .setCustomId('eb_content')
-        .setTitle('Edit Content')
+        .setTitle('Edit content')
         .addComponents(
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
@@ -231,7 +226,7 @@ async function handleEditContent(selectInteraction, rootInteraction, state) {
                     .setValue(state.title || '')
                     .setMaxLength(256)
                     .setRequired(false)
-                    .setPlaceholder('My Embed Title'),
+                    .setPlaceholder('My embed title'),
             ),
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
@@ -284,9 +279,9 @@ async function handleSetColor(selectInteraction, rootInteraction, state) {
     await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
-                .setTitle('Set Color')
+                .setTitle('Set color')
                 .setDescription(
-                    'Select a preset color or choose **Custom Hex** to enter your own `#RRGGBB` value.',
+                    'Select a preset color or choose **Custom hex** to enter your own `#RRGGBB` value.',
                 )
                 .setColor(getColor('info')),
         ],
@@ -309,12 +304,12 @@ async function handleSetColor(selectInteraction, rootInteraction, state) {
         if (picked === '__custom__') {
             const hexModal = new ModalBuilder()
                 .setCustomId('eb_custom_hex')
-                .setTitle('Custom Color')
+                .setTitle('Custom color')
                 .addComponents(
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId('hex_value')
-                            .setLabel('Hex Color Code')
+                            .setLabel('Hex color code')
                             .setStyle(TextInputStyle.Short)
                             .setPlaceholder('#5865F2')
                             .setMaxLength(7)
@@ -362,22 +357,22 @@ async function handleSetColor(selectInteraction, rootInteraction, state) {
 async function handleSetAuthor(selectInteraction, rootInteraction, state) {
     const modal = new ModalBuilder()
         .setCustomId('eb_author')
-        .setTitle('Set Author')
+        .setTitle('Set author')
         .addComponents(
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                     .setCustomId('author_name')
-                    .setLabel('Author Name (leave blank to remove)')
+                    .setLabel('Author name (leave blank to remove)')
                     .setStyle(TextInputStyle.Short)
                     .setValue(state.author?.name || '')
                     .setMaxLength(256)
                     .setRequired(false)
-                    .setPlaceholder('Your Name'),
+                    .setPlaceholder('Your name'),
             ),
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                     .setCustomId('author_icon')
-                    .setLabel('Author Icon URL (optional)')
+                    .setLabel('Author icon URL (optional)')
                     .setStyle(TextInputStyle.Short)
                     .setValue(state.author?.iconUrl || '')
                     .setRequired(false)
@@ -386,7 +381,7 @@ async function handleSetAuthor(selectInteraction, rootInteraction, state) {
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                     .setCustomId('author_url')
-                    .setLabel('Author Link URL (optional)')
+                    .setLabel('Author link URL (optional)')
                     .setStyle(TextInputStyle.Short)
                     .setValue(state.author?.url || '')
                     .setRequired(false)
@@ -434,22 +429,22 @@ async function handleSetAuthor(selectInteraction, rootInteraction, state) {
 async function handleSetFooter(selectInteraction, rootInteraction, state) {
     const modal = new ModalBuilder()
         .setCustomId('eb_footer')
-        .setTitle('Set Footer')
+        .setTitle('Set footer')
         .addComponents(
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                     .setCustomId('footer_text')
-                    .setLabel('Footer Text (leave blank to remove)')
+                    .setLabel('Footer text (leave blank to remove)')
                     .setStyle(TextInputStyle.Short)
                     .setValue(state.footer?.text || '')
                     .setMaxLength(2048)
                     .setRequired(false)
-                    .setPlaceholder('Built with TitanBot'),
+                    .setPlaceholder('Cloudy'),
             ),
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                     .setCustomId('footer_icon')
-                    .setLabel('Footer Icon URL (optional)')
+                    .setLabel('Footer icon URL (optional)')
                     .setStyle(TextInputStyle.Short)
                     .setValue(state.footer?.iconUrl || '')
                     .setRequired(false)
@@ -494,22 +489,22 @@ async function handleSetImages(selectInteraction, rootInteraction, state) {
         .setPlaceholder('What would you like to change?')
         .addOptions(
             new StringSelectMenuOptionBuilder()
-                .setLabel('Set Thumbnail')
+                .setLabel('Set thumbnail')
                 .setDescription('Small image displayed in the top-right corner')
                 .setValue('set_thumbnail')
                 .setEmoji('🖼️'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Set Large Image')
+                .setLabel('Set large image')
                 .setDescription('Full-width banner image at the bottom')
                 .setValue('set_image')
                 .setEmoji('📸'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Clear Thumbnail')
+                .setLabel('Clear thumbnail')
                 .setDescription('Remove the current thumbnail')
                 .setValue('clear_thumbnail')
                 .setEmoji('🗑️'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Clear Large Image')
+                .setLabel('Clear large image')
                 .setDescription('Remove the current large image')
                 .setValue('clear_image')
                 .setEmoji('🗑️'),
@@ -518,11 +513,11 @@ async function handleSetImages(selectInteraction, rootInteraction, state) {
     await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
-                .setTitle('Set Images')
+                .setTitle('Set images')
                 .setDescription('Choose which image to set or remove.')
                 .addFields(
                     { name: 'Thumbnail',    value: state.thumbnail ? `[View](${state.thumbnail})` : '`Not set`', inline: true },
-                    { name: 'Large Image',  value: state.image     ? `[View](${state.image})`     : '`Not set`', inline: true },
+                    { name: 'Large image',  value: state.image     ? `[View](${state.image})`     : '`Not set`', inline: true },
                 )
                 .setColor(getColor('info')),
         ],
@@ -559,7 +554,7 @@ async function handleSetImages(selectInteraction, rootInteraction, state) {
 
         const urlModal = new ModalBuilder()
             .setCustomId('eb_image_url')
-            .setTitle(isThumb ? 'Set Thumbnail' : 'Set Large Image')
+            .setTitle(isThumb ? 'Set thumbnail' : 'Set large image')
             .addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
@@ -617,21 +612,21 @@ async function handleAddField(selectInteraction, rootInteraction, state) {
 
     const modal = new ModalBuilder()
         .setCustomId('eb_add_field')
-        .setTitle('Add Field');
+        .setTitle('Add field');
 
     const fieldNameLabel = new LabelBuilder()
-        .setLabel('Field Name (max 256 characters)')
+        .setLabel('Field name (max 256 characters)')
         .setTextInputComponent(
             new TextInputBuilder()
                 .setCustomId('field_name')
                 .setStyle(TextInputStyle.Short)
                 .setMaxLength(256)
                 .setRequired(true)
-                .setPlaceholder('Field Title'),
+                .setPlaceholder('Field title'),
         );
 
     const fieldValueLabel = new LabelBuilder()
-        .setLabel('Field Value (max 1024 characters)')
+        .setLabel('Field value (max 1024 characters)')
         .setTextInputComponent(
             new TextInputBuilder()
                 .setCustomId('field_value')
@@ -698,7 +693,7 @@ async function handleEditField(selectInteraction, rootInteraction, state) {
     await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
-                .setTitle('Edit Field')
+                .setTitle('Edit field')
                 .setDescription('Select the field you want to modify.')
                 .setColor(getColor('info')),
         ],
@@ -722,10 +717,10 @@ async function handleEditField(selectInteraction, rootInteraction, state) {
 
         const modal = new ModalBuilder()
             .setCustomId('eb_edit_field_modal')
-            .setTitle(`Edit Field ${idx + 1}`);
+            .setTitle(`Edit field ${idx + 1}`);
 
         const editNameLabel = new LabelBuilder()
-            .setLabel('Field Name')
+            .setLabel('Field name')
             .setTextInputComponent(
                 new TextInputBuilder()
                     .setCustomId('field_name')
@@ -736,7 +731,7 @@ async function handleEditField(selectInteraction, rootInteraction, state) {
             );
 
         const editValueLabel = new LabelBuilder()
-            .setLabel('Field Value')
+            .setLabel('Field value')
             .setTextInputComponent(
                 new TextInputBuilder()
                     .setCustomId('field_value')
@@ -815,7 +810,7 @@ async function handleRemoveField(selectInteraction, rootInteraction, state) {
     await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
-                .setTitle('Remove Field')
+                .setTitle('Remove field')
                 .setDescription('Select the field you want to delete.')
                 .setColor(getColor('warning')),
         ],
@@ -860,7 +855,7 @@ async function handleReorderFields(selectInteraction, rootInteraction, state) {
     await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
-                .setTitle('Reorder Fields')
+                .setTitle('Reorder fields')
                 .setDescription('Select a field, then use the arrows to move it up or down.')
                 .setColor(getColor('info')),
         ],
@@ -882,14 +877,14 @@ async function handleReorderFields(selectInteraction, rootInteraction, state) {
 
         const upBtn = new ButtonBuilder()
             .setCustomId('eb_reorder_up')
-            .setLabel('Move Up')
+            .setLabel('Move up')
             .setStyle(ButtonStyle.Primary)
             .setEmoji('⬆️')
             .setDisabled(sourceIdx === 0);
 
         const downBtn = new ButtonBuilder()
             .setCustomId('eb_reorder_down')
-            .setLabel('Move Down')
+            .setLabel('Move down')
             .setStyle(ButtonStyle.Primary)
             .setEmoji('⬇️')
             .setDisabled(sourceIdx === state.fields.length - 1);
@@ -902,7 +897,7 @@ async function handleReorderFields(selectInteraction, rootInteraction, state) {
         await pickInter.followUp({
             embeds: [
                 new EmbedBuilder()
-                    .setTitle('Move Field')
+                    .setTitle('Move field')
                     .setDescription(
                         `Moving **${state.fields[sourceIdx].name}** — currently at position **${sourceIdx + 1}** of **${state.fields.length}**.`,
                     )
@@ -964,7 +959,7 @@ async function handlePostEmbed(selectInteraction, rootInteraction, state, guild)
     await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
-                .setTitle('Post Embed')
+                .setTitle('Post embed')
                 .setDescription('Select the channel where this embed will be sent.')
                 .setColor(getColor('info')),
         ],
@@ -996,7 +991,7 @@ async function handlePostEmbed(selectInteraction, rootInteraction, state, guild)
         if (!perms?.has([PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks])) {
             await replyUserError(chanInter, {
                 type: ErrorTypes.PERMISSION,
-                message: `I need **Send Messages** and **Embed Links** permissions in ${channel} to post there.`,
+                message: `I need **Send messages** and **Embed links** permissions in ${channel} to post there.`,
             });
             return;
         }
@@ -1010,45 +1005,10 @@ async function handlePostEmbed(selectInteraction, rootInteraction, state, guild)
         await channel.send({ embeds: [finalEmbed] });
 
         await chanInter.followUp({
-            embeds: [successEmbed('Embed Sent', `Your embed has been posted to ${channel}.`)],
+            embeds: [successEmbed('Embed sent', `Your embed has been posted to ${channel}.`)],
             flags: MessageFlags.Ephemeral,
         });
     });
-}
-
-async function handleJsonExport(selectInteraction, rootInteraction, state) {
-    await selectInteraction.deferUpdate();
-
-    const previewEmbed = buildPreviewEmbed(state);
-    const json = JSON.stringify(previewEmbed.toJSON(), null, 2);
-
-    if (json.length <= 3980) {
-        await selectInteraction.followUp({
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle('Embed JSON')
-                    .setDescription(`\`\`\`json\n${json}\n\`\`\``)
-                    .setColor(getColor('info')),
-            ],
-            flags: MessageFlags.Ephemeral,
-        });
-    } else {
-        await selectInteraction.followUp({
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle('Embed JSON')
-                    .setDescription('The JSON is too long to display inline — see the attached file.')
-                    .setColor(getColor('info')),
-            ],
-            files: [
-                {
-                    attachment: Buffer.from(json, 'utf-8'),
-                    name: 'embed.json',
-                },
-            ],
-            flags: MessageFlags.Ephemeral,
-        });
-    }
 }
 
 export default {
@@ -1125,9 +1085,6 @@ export default {
                             state.timestamp = !state.timestamp;
                             await ci.deferUpdate();
                             await refreshDashboard(interaction, state);
-                            break;
-                        case 'eb_main_json_export':
-                            await handleJsonExport(ci, interaction, state);
                             break;
                         case 'eb_main_reset_all':
                             state.title       = null;
