@@ -5,7 +5,6 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import axios from 'axios';
 
-const MIN_VIDEO_SECONDS = 5;
 const MAX_DOWNLOAD_BYTES = 40 * 1024 * 1024;
 const MAX_GIF_BYTES = 9 * 1024 * 1024;
 
@@ -50,7 +49,7 @@ async function getDurationSeconds(inputPath) {
     ]);
 
     const duration = Number.parseFloat(stdout.trim());
-    if (!Number.isFinite(duration)) throw new Error('Could not read video duration.');
+    if (!Number.isFinite(duration) || duration <= 0) throw new Error('Could not read video duration.');
     return duration;
 }
 
@@ -74,17 +73,12 @@ export async function convertVideoUrlToGif(videoUrl) {
         await downloadToFile(videoUrl, inputPath);
         const duration = await getDurationSeconds(inputPath);
 
-        if (duration < MIN_VIDEO_SECONDS) {
-            const error = new Error(`Video must be at least ${MIN_VIDEO_SECONDS} seconds long.`);
-            error.code = 'VIDEO_TOO_SHORT';
-            throw error;
-        }
-
         const attempts = [
             { width: 640, fps: 12 },
             { width: 540, fps: 10 },
             { width: 480, fps: 8 },
             { width: 400, fps: 7 },
+            { width: 320, fps: 6 },
         ];
 
         let gifBuffer = null;
@@ -95,7 +89,7 @@ export async function convertVideoUrlToGif(videoUrl) {
         }
 
         if (!gifBuffer || gifBuffer.length > MAX_GIF_BYTES) {
-            const error = new Error('Converted GIF is too large for the embed. Try a shorter video.');
+            const error = new Error('Converted GIF is too large for the embed. Try a shorter or lower-resolution video.');
             error.code = 'GIF_TOO_LARGE';
             throw error;
         }
