@@ -1,5 +1,7 @@
 import { logger } from '../utils/logger.js';
 
+const CLOUDY_RED = "#A82719";
+
 export const botConfig = {
   // =========================
   // BOT PRESENCE (what users see under the bot name)
@@ -70,7 +72,7 @@ export const botConfig = {
     statusColors: {
       pending: "#FFA500",
       approved: "#00FF00",
-      denied: "#8B0000",
+      denied: CLOUDY_RED,
     },
 
     // How long users must wait before submitting another application (hours).
@@ -98,7 +100,7 @@ export const botConfig = {
 
       // Standard status colors for success/error/warning/info messages.
       success: "#57F287",
-      error: "#8B0000",
+      error: CLOUDY_RED,
       warning: "#FEE75C",
       info: "#3498DB",
 
@@ -112,18 +114,18 @@ export const botConfig = {
       green: "#57F287",
       yellow: "#FEE75C",
       fuchsia: "#EB459E",
-      red: "#8B0000",
+      red: CLOUDY_RED,
       black: "#000000",
 
       // Feature-specific colors.
       giveaway: {
         active: "#57F287",
-        ended: "#8B0000",
+        ended: CLOUDY_RED,
       },
       ticket: {
         open: "#57F287",
         claimed: "#FAA61A",
-        closed: "#8B0000",
+        closed: CLOUDY_RED,
         pending: "#99AAB5",
       },
       economy: "#F1C40F",
@@ -136,7 +138,7 @@ export const botConfig = {
         low: "#3498db",
         medium: "#2ecc71",
         high: "#f1c40f",
-        urgent: "#8B0000",
+        urgent: CLOUDY_RED,
       },
     },
     footer: {
@@ -238,7 +240,7 @@ export const botConfig = {
       },
       high: {
         emoji: "🔴",
-        color: "#8B0000",
+        color: CLOUDY_RED,
         label: "High",
       },
       urgent: {
