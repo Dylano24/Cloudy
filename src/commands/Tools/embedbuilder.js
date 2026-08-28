@@ -511,10 +511,12 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
         } catch (error) {
             logger.error('Video to GIF conversion failed:', error);
             const message = error?.code === 'VIDEO_TOO_SHORT'
-                ? 'The video must be at least 5 seconds long.'
-                : error?.code === 'GIF_TOO_LARGE'
-                    ? 'The converted GIF is too large. Try a shorter video.'
-                    : 'Cloudy could not convert that video to a GIF.';
+                ? 'The video must be at least 1 second long.'
+                : error?.code === 'VIDEO_TOO_LONG'
+                    ? 'The video must be no longer than 6 seconds.'
+                    : error?.code === 'GIF_TOO_LARGE'
+                        ? 'The converted GIF is too large. Try a shorter video.'
+                        : 'Cloudy could not convert that video to a GIF.';
 
             const failedMessage = await submitted.followUp({
                 embeds: [
