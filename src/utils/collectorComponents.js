@@ -5,6 +5,7 @@ const COLLECTOR_MANAGED_PREFIXES = [
   'cmdaccess_',
   'simple_embed_post_channel',
   'simple_embed_channel_page',
+  'simple_embed_gif_result',
 ];
 
 export function isCollectorManagedComponent(customId = '') {
