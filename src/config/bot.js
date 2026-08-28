@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger.js';
 
-const CLOUDY_RED = "#A82719";
+const CLOUDY_RED = "#7A1712";
 
 export const botConfig = {
   // =========================
