@@ -530,3 +530,5 @@ export function getColor(colorName) {
 
   return value || colors.primary;
 }
+
+export default botConfig;
