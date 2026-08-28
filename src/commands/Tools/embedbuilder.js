@@ -30,7 +30,6 @@ import {
     refreshAllTicketChannels,
 } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
-import { searchDiscordGifs } from '../../services/discordGifSearchService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -307,12 +306,25 @@ function buildControlEmbed(state) {
 }
 
 function buildControls(state) {
-    const contentRow = new ActionRowBuilder().addComponents(
+    const contentButtons = [
         new ButtonBuilder()
             .setCustomId('simple_embed_content')
             .setLabel('Edit title and message')
             .setStyle(ButtonStyle.Primary)
             .setEmoji('✍🏼'),
+    ];
+
+    if (state.isOwner) {
+        contentButtons.push(
+            new ButtonBuilder()
+                .setCustomId('simple_embed_owner_servers')
+                .setLabel('Emoji')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('😀'),
+        );
+    }
+
+    contentButtons.push(
         new ButtonBuilder()
             .setCustomId('simple_embed_logo')
             .setLabel(state.showLogo ? 'Remove logo' : 'Add logo')
@@ -329,6 +341,8 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Link)
             .setEmoji('🎨'),
     );
+
+    const contentRow = new ActionRowBuilder().addComponents(...contentButtons);
 
     const actionRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -354,20 +368,7 @@ function buildControls(state) {
             .setEmoji('♻️'),
     );
 
-    const rows = [contentRow, actionRow];
-    if (state.isOwner) {
-        rows.push(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('simple_embed_owner_servers')
-                    .setLabel('Browse server emojis')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('😀'),
-            ),
-        );
-    }
-
-    return rows;
+    return [contentRow, actionRow];
 }
 
 async function refreshBuilder(interaction, state) {
@@ -555,117 +556,6 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
 
     await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
-}
-
-async function editMediaLink(buttonInteraction, rootInteraction, state) {
-    const modal = new ModalBuilder()
-        .setCustomId('simple_embed_gif_search_modal')
-        .setTitle('Search GIF')
-        .addComponents(
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId('simple_embed_gif_search_query')
-                    .setLabel('Search GIFs')
-                    .setStyle(TextInputStyle.Short)
-                    .setMaxLength(100)
-                    .setRequired(true)
-                    .setPlaceholder('Example: funny, hello, celebration'),
-            ),
-        );
-
-    const shown = await InteractionHelper.safeShowModal(buttonInteraction, modal);
-    if (!shown) return;
-
-    const submitted = await buttonInteraction.awaitModalSubmit({
-        filter: interaction =>
-            interaction.customId === 'simple_embed_gif_search_modal' &&
-            interaction.user.id === buttonInteraction.user.id,
-        time: 120_000,
-    }).catch(() => null);
-
-    if (!submitted) return;
-
-    const query = submitted.fields.getTextInputValue('simple_embed_gif_search_query').trim();
-    await submitted.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
-
-    const results = await searchDiscordGifs(submitted.client, query, {
-        preferredGuildId: submitted.guildId,
-    }).catch((error) => {
-        logger.error('Discord GIF search failed:', error);
-        return [];
-    });
-
-    if (!results.length) {
-        const noResultsMessage = await submitted.editReply({
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle('No GIFs found')
-                    .setDescription(`No matching GIFs were found in Discord channels Cloudy can read for **${query.slice(0, 100)}**.`)
-                    .setColor(getColor('error')),
-            ],
-            components: [],
-        }).catch(() => null);
-        if (noResultsMessage) removeTransientMessage(submitted, noResultsMessage);
-        return;
-    }
-
-    const select = new StringSelectMenuBuilder()
-        .setCustomId('simple_embed_gif_result')
-        .setPlaceholder(`Choose a GIF • ${results.length} found`)
-        .setMinValues(1)
-        .setMaxValues(1)
-        .addOptions(...results.map((result, index) =>
-            new StringSelectMenuOptionBuilder()
-                .setLabel(`${index + 1}. ${result.guildName}`.slice(0, 100))
-                .setDescription(`#${result.channelName} • ${result.authorName}`.slice(0, 100))
-                .setValue(String(index)),
-        ));
-
-    const previewEmbeds = results.slice(0, 4).map((result, index) =>
-        new EmbedBuilder()
-            .setTitle(`${index + 1}. ${result.guildName} • #${result.channelName}`.slice(0, 256))
-            .setImage(result.url)
-            .setColor(getColor('info')),
-    );
-
-    const pickerMessage = await submitted.editReply({
-        embeds: [
-            new EmbedBuilder()
-                .setTitle('Search GIF')
-                .setDescription(`Found **${results.length}** GIF(s) for **${query.slice(0, 100)}**. Select one below to add it to your embed.`)
-                .setColor(getColor('info')),
-            ...previewEmbeds,
-        ],
-        components: [new ActionRowBuilder().addComponents(select)],
-    }).catch(() => null);
-
-    if (!pickerMessage) return;
-    removeTransientMessage(submitted, pickerMessage);
-
-    const selection = await pickerMessage.awaitMessageComponent({
-        filter: interaction =>
-            interaction.isStringSelectMenu() &&
-            interaction.customId === 'simple_embed_gif_result' &&
-            interaction.user.id === buttonInteraction.user.id,
-        time: TRANSIENT_RESPONSE_TIMEOUT,
-    }).catch(() => null);
-
-    if (!selection) return;
-
-    const selected = results[Number(selection.values?.[0])];
-    if (!selected) {
-        await selection.deferUpdate().catch(() => {});
-        return;
-    }
-
-    state.mediaUrl = selected.url;
-    state.mediaBuffer = null;
-    state.mediaName = selected.name || 'discord-gif.gif';
-    state.mediaConvertedFromVideo = false;
-
-    await selection.deferUpdate().catch(() => {});
-    await refreshBuilder(rootInteraction, state);
-    await pickerMessage.delete().catch(() => {});
 }
 
 async function getSharedOwnerGuilds(client, userId) {
@@ -993,9 +883,6 @@ export default {
                             break;
                         case 'simple_embed_media':
                             await editMedia(buttonInteraction, interaction, state);
-                            break;
-                        case 'simple_embed_media_link':
-                            await editMediaLink(buttonInteraction, interaction, state);
                             break;
                         case 'simple_embed_owner_servers':
                             await browseOwnerServers(buttonInteraction, interaction, state);
