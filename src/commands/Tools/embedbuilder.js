@@ -119,8 +119,17 @@ function colorToHex(color) {
     return `#${numericColor.toString(16).padStart(6, '0').slice(-6).toUpperCase()}`;
 }
 
-function removeTransientMessage(message) {
-    setTimeout(() => message?.delete?.().catch(() => {}), TRANSIENT_RESPONSE_TIMEOUT);
+function removeTransientMessage(interaction, message) {
+    const timer = setTimeout(async () => {
+        if (message?.id && interaction.webhook?.deleteMessage) {
+            const deleted = await interaction.webhook.deleteMessage(message.id)
+                .then(() => true)
+                .catch(() => false);
+            if (deleted) return;
+        }
+        await message?.delete?.().catch(() => {});
+    }, TRANSIENT_RESPONSE_TIMEOUT);
+    timer.unref?.();
 }
 
 function buildMessageEmbed(state, preview = true) {
@@ -202,11 +211,6 @@ function buildControls(state) {
             .setLabel('Reset everything')
             .setStyle(ButtonStyle.Danger)
             .setEmoji('♻️'),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_close')
-            .setLabel('Close builder')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('✖️'),
     );
 
     return [contentRow, actionRow];
@@ -343,7 +347,7 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
             ],
             flags: MessageFlags.Ephemeral,
         });
-        removeTransientMessage(invalidMediaMessage);
+        removeTransientMessage(submitted, invalidMediaMessage);
         return;
     }
 
@@ -378,6 +382,7 @@ async function postMessage(buttonInteraction, state, guild) {
         components: [new ActionRowBuilder().addComponents(channelSelect)],
         flags: MessageFlags.Ephemeral,
     });
+    removeTransientMessage(buttonInteraction, channelPickerMessage);
 
     const collector = channelPickerMessage.createMessageComponentCollector({
         componentType: ComponentType.ChannelSelect,
@@ -414,7 +419,7 @@ async function postMessage(buttonInteraction, state, guild) {
             embeds: [successEmbed('Message sent', `Your message has been posted to ${channel}.`)],
             flags: MessageFlags.Ephemeral,
         });
-        removeTransientMessage(sentMessage);
+        removeTransientMessage(channelInteraction, sentMessage);
     });
 }
 
@@ -509,11 +514,6 @@ export default {
                             state.mediaUrl = null;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
-                            break;
-                        case 'simple_embed_close':
-                            await buttonInteraction.deferUpdate();
-                            collector.stop('closed');
-                            await interaction.deleteReply().catch(() => {});
                             break;
                         default:
                             await buttonInteraction.deferUpdate();
