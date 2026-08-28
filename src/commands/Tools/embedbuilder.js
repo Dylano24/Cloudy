@@ -22,6 +22,7 @@ import {
     createEmbedColorPickerSession,
     deleteEmbedColorPickerSession,
 } from '../../services/embedColorPickerSessionService.js';
+import { MESSAGE_BUILDER_FOOTER_MARKER } from '../../services/cloudyBrandingService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -152,7 +153,7 @@ function buildPostedMessagePayload(state) {
     const embed = buildMessageEmbed(state, false).toJSON();
 
     if (state.bottomLine) {
-        embed.footer = { text: state.bottomLine.slice(0, 2048) };
+        embed.footer = { text: `${state.bottomLine.slice(0, 2047)}${MESSAGE_BUILDER_FOOTER_MARKER}` };
     } else {
         delete embed.footer;
     }

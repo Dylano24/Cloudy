@@ -1,6 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 
 export const CLOUDY_BRANDING = '© Cloudy Inc. • Quality. Innovation. Performance.';
+export const MESSAGE_BUILDER_FOOTER_MARKER = '\u200B';
 
 const CLOUDY_BRANDING_LINE_PATTERN = /(?:^|\n)[ \t]*(?:-#[ \t]*)?(?:\*\*|__|\*|_)?[ \t]*(?:©[ \t]*)?Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?[ \t]*(?=\n|$)/gi;
 const CLOUDY_BRANDING_INLINE_PATTERN = /(?:\*\*|__|\*|_)?[ \t]*(?:©[ \t]*)?Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?/gi;
@@ -26,6 +27,12 @@ export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
   const source = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...embed };
 
   if (source.type && source.type !== 'rich') {
+    return { embed, changed: false };
+  }
+
+  // A message posted by /embedbuilder carries an invisible marker in its footer.
+  // Its custom footer must never be replaced by the global Cloudy branding rule.
+  if (source.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)) {
     return { embed, changed: false };
   }
 
