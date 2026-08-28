@@ -25,8 +25,7 @@ import {
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
-const SESSION_TIMEOUT_MINUTES = 15;
-const SESSION_TIMEOUT = SESSION_TIMEOUT_MINUTES * 60_000;
+const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
 const MEDIA_PAGE_HOSTS = new Set([
     'tenor.com',
     'www.tenor.com',
@@ -119,6 +118,10 @@ function colorToHex(color) {
     return `#${numericColor.toString(16).padStart(6, '0').slice(-6).toUpperCase()}`;
 }
 
+function removeTransientMessage(message) {
+    setTimeout(() => message?.delete?.().catch(() => {}), TRANSIENT_RESPONSE_TIMEOUT);
+}
+
 function buildMessageEmbed(state, preview = true) {
     const data = { color: state.sideColor };
 
@@ -137,7 +140,7 @@ function buildMessageEmbed(state, preview = true) {
 
 function buildControlEmbed(state) {
     return new EmbedBuilder()
-        .setTitle('Message builder — control panel')
+        .setTitle('Message builder')
         .setDescription([
             `**Title** › ${shortValue(state.title, 40)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
@@ -148,7 +151,7 @@ function buildControlEmbed(state) {
         ].join('\n'))
         .setColor(getColor('info'))
         .setFooter({
-            text: `The preview above updates live · Closes after ${SESSION_TIMEOUT_MINUTES} min of inactivity`,
+            text: 'Preview the embed above live',
         });
 }
 
@@ -198,6 +201,11 @@ function buildControls(state) {
             .setLabel('Reset everything')
             .setStyle(ButtonStyle.Danger)
             .setEmoji('♻️'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_close')
+            .setLabel('Close builder')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('✖️'),
     );
 
     return [contentRow, actionRow];
@@ -324,7 +332,7 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
 
     const resolvedMediaUrl = await resolveMediaUrl(mediaUrl);
     if (!resolvedMediaUrl) {
-        await submitted.followUp({
+        const invalidMediaMessage = await submitted.followUp({
             embeds: [
                 new EmbedBuilder({
                     title: 'Invalid picture or GIF link',
@@ -334,6 +342,7 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
             ],
             flags: MessageFlags.Ephemeral,
         });
+        removeTransientMessage(invalidMediaMessage);
         return;
     }
 
@@ -400,10 +409,11 @@ async function postMessage(buttonInteraction, state, guild) {
         }
 
         await channel.send({ embeds: [buildMessageEmbed(state, false)] });
-        await channelInteraction.followUp({
+        const sentMessage = await channelInteraction.followUp({
             embeds: [successEmbed('Message sent', `Your message has been posted to ${channel}.`)],
             flags: MessageFlags.Ephemeral,
         });
+        removeTransientMessage(sentMessage);
     });
 }
 
@@ -462,7 +472,6 @@ export default {
                 filter: buttonInteraction =>
                     buttonInteraction.user.id === interaction.user.id &&
                     buttonInteraction.customId.startsWith('simple_embed_'),
-                time: SESSION_TIMEOUT,
             });
 
             collector.on('collect', async buttonInteraction => {
@@ -500,6 +509,11 @@ export default {
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
                             break;
+                        case 'simple_embed_close':
+                            await buttonInteraction.deferUpdate();
+                            collector.stop('closed');
+                            await interaction.deleteReply().catch(() => {});
+                            break;
                         default:
                             await buttonInteraction.deferUpdate();
                     }
@@ -515,11 +529,8 @@ export default {
                 }
             });
 
-            collector.on('end', async (_, reason) => {
+            collector.on('end', async () => {
                 deleteEmbedColorPickerSession(colorSessionToken);
-                if (reason === 'time') {
-                    await InteractionHelper.safeEditReply(interaction, { components: [] }).catch(() => {});
-                }
             });
         } catch (error) {
             if (error instanceof TitanBotError) throw error;
