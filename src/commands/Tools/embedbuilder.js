@@ -66,7 +66,7 @@ function buildControlEmbed(state) {
             `**Title** › ${shortValue(state.title, 40)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
             `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
-            `**Bottom line** › ${shortValue(state.bottomLine, 40)}`,
+            `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Picture / GIF** › ${state.mediaUrl ? 'Set' : '`Not set`'}`,
         ].join('\n'))
         .setColor(getColor('info'))
@@ -89,7 +89,7 @@ function buildControls(state) {
             .setEmoji('☁️'),
         new ButtonBuilder()
             .setCustomId('simple_embed_footer')
-            .setLabel('Edit bottom line')
+            .setLabel('Edit footer')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📝'),
     );
@@ -177,12 +177,12 @@ async function editContent(buttonInteraction, rootInteraction, state) {
 async function editBottomLine(buttonInteraction, rootInteraction, state) {
     const modal = new ModalBuilder()
         .setCustomId('simple_embed_footer_modal')
-        .setTitle('Edit bottom line')
+        .setTitle('Edit footer')
         .addComponents(
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                     .setCustomId('simple_embed_footer_text')
-                    .setLabel('Bottom line (leave blank to remove)')
+                    .setLabel('Footer (leave blank to remove)')
                     .setStyle(TextInputStyle.Short)
                     .setValue(state.bottomLine || '')
                     .setMaxLength(2048)
