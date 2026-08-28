@@ -26,6 +26,7 @@ import {
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
 const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
+const DEFAULT_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const MEDIA_PAGE_HOSTS = new Set([
     'tenor.com',
     'www.tenor.com',
@@ -277,7 +278,7 @@ async function editBottomLine(buttonInteraction, rootInteraction, state) {
                     .setValue(state.bottomLine || '')
                     .setMaxLength(2048)
                     .setRequired(false)
-                    .setPlaceholder('Cloudy'),
+                    .setPlaceholder(DEFAULT_FOOTER_TEXT),
             ),
         );
 
@@ -451,7 +452,7 @@ export default {
                 message: null,
                 sideColor: getColor('primary'),
                 showLogo: true,
-                bottomLine: 'Cloudy',
+                bottomLine: DEFAULT_FOOTER_TEXT,
                 mediaUrl: uploadedMedia?.url || null,
             };
 
@@ -504,7 +505,7 @@ export default {
                             state.message = null;
                             state.sideColor = getColor('primary');
                             state.showLogo = true;
-                            state.bottomLine = 'Cloudy';
+                            state.bottomLine = DEFAULT_FOOTER_TEXT;
                             state.mediaUrl = null;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
