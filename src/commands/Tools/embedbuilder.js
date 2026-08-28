@@ -313,11 +313,6 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Primary)
             .setEmoji('✍🏼'),
         new ButtonBuilder()
-            .setCustomId('simple_embed_owner_servers')
-            .setLabel('Emoji')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('😀'),
-        new ButtonBuilder()
             .setCustomId('simple_embed_logo')
             .setLabel(state.showLogo ? 'Remove logo' : 'Add logo')
             .setStyle(ButtonStyle.Secondary)
@@ -418,6 +413,7 @@ async function editContent(buttonInteraction, rootInteraction, state) {
 
     await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
+    await browseOwnerServers(submitted, rootInteraction, state);
 }
 
 async function editBottomLine(buttonInteraction, rootInteraction, state) {
@@ -628,7 +624,9 @@ function buildOwnerEmojiPayload(guild, emojis) {
 }
 
 async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
-    await buttonInteraction.deferUpdate().catch(() => {});
+    if (!buttonInteraction.deferred && !buttonInteraction.replied) {
+        await buttonInteraction.deferUpdate().catch(() => {});
+    }
     const sharedGuilds = await getSharedOwnerGuilds(buttonInteraction.client, buttonInteraction.user.id);
 
     if (!sharedGuilds.length) {
@@ -867,9 +865,6 @@ export default {
                             break;
                         case 'simple_embed_media':
                             await editMedia(buttonInteraction, interaction, state);
-                            break;
-                        case 'simple_embed_owner_servers':
-                            await browseOwnerServers(buttonInteraction, interaction, state);
                             break;
                         case 'simple_embed_clear_media':
                             state.mediaUrl = null;
