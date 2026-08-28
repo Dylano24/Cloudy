@@ -197,11 +197,6 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Primary)
             .setEmoji('✏️'),
         new ButtonBuilder()
-            .setCustomId('simple_embed_append')
-            .setLabel('Add more text')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('➕'),
-        new ButtonBuilder()
             .setCustomId('simple_embed_logo')
             .setLabel(state.showLogo ? 'Remove logo' : 'Add logo')
             .setStyle(ButtonStyle.Secondary)
@@ -292,42 +287,6 @@ async function editContent(buttonInteraction, rootInteraction, state) {
 
     state.title = submitted.fields.getTextInputValue('simple_embed_title').trim() || null;
     state.message = submitted.fields.getTextInputValue('simple_embed_message').trim() || null;
-
-    await submitted.deferUpdate().catch(() => {});
-    await refreshBuilder(rootInteraction, state);
-}
-
-async function appendMessage(buttonInteraction, rootInteraction, state) {
-    const modal = new ModalBuilder()
-        .setCustomId('simple_embed_append_modal')
-        .setTitle('Add more text')
-        .addComponents(
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId('simple_embed_append_text')
-                    .setLabel('Continue message')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setRequired(true)
-                    .setPlaceholder('Continue your message here'),
-            ),
-        );
-
-    const shown = await InteractionHelper.safeShowModal(buttonInteraction, modal);
-    if (!shown) return;
-
-    const submitted = await buttonInteraction.awaitModalSubmit({
-        filter: interaction =>
-            interaction.customId === 'simple_embed_append_modal' &&
-            interaction.user.id === buttonInteraction.user.id,
-        time: 120_000,
-    }).catch(() => null);
-
-    if (!submitted) return;
-
-    const extraText = submitted.fields.getTextInputValue('simple_embed_append_text').trim();
-    if (extraText) {
-        state.message = state.message ? `${state.message}\n${extraText}` : extraText;
-    }
 
     await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
@@ -536,9 +495,6 @@ export default {
                     switch (buttonInteraction.customId) {
                         case 'simple_embed_content':
                             await editContent(buttonInteraction, interaction, state);
-                            break;
-                        case 'simple_embed_append':
-                            await appendMessage(buttonInteraction, interaction, state);
                             break;
                         case 'simple_embed_logo':
                             state.showLogo = !state.showLogo;
