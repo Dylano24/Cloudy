@@ -39,10 +39,21 @@ const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
 const CHANNEL_PAGE_SIZE = 100;
 const CHANNEL_SELECT_SIZE = 25;
 
-function isImageAttachment(attachment) {
-    if (!attachment) return false;
-    if (attachment.contentType?.startsWith('image/')) return true;
-    return /\.(?:png|jpe?g|webp|gif)(?:\?.*)?$/i.test(attachment.url || attachment.name || '');
+function getMediaKind(attachment) {
+    if (!attachment) return null;
+
+    const contentType = String(attachment.contentType || '').toLowerCase();
+    const source = String(attachment.url || attachment.name || '').toLowerCase();
+
+    if (contentType.startsWith('image/') || /\.(?:png|jpe?g|webp|gif)(?:\?.*)?$/i.test(source)) {
+        return 'image';
+    }
+
+    if (contentType.startsWith('video/') || /\.(?:mp4|mov|m4v|webm|mkv|avi)(?:\?.*)?$/i.test(source)) {
+        return 'video';
+    }
+
+    return null;
 }
 
 function shortValue(value, maxLength) {
@@ -189,7 +200,9 @@ function buildSingleEmbed(state, description = null, options = {}) {
         const marker = posted ? MESSAGE_BUILDER_FOOTER_MARKER : '';
         data.footer = { text: `${state.bottomLine.slice(0, footerLimit)}${marker}` };
     }
-    if (includeMedia && state.mediaUrl) data.image = { url: state.mediaUrl };
+    if (includeMedia && state.mediaUrl && state.mediaKind !== 'video') {
+        data.image = { url: state.mediaUrl };
+    }
 
     if (preview && !state.title && !description && !state.mediaUrl) {
         data.description = '*(Use the buttons below to create your message)*';
@@ -206,6 +219,13 @@ function buildPreviewEmbed(state) {
         includeFooter: chunks.length <= 1,
         includeMedia: chunks.length <= 1,
     });
+
+    if (state.mediaKind === 'video' && state.mediaUrl) {
+        embed.addFields({
+            name: 'Video',
+            value: 'Video selected. It will be posted with Discord’s native video player.',
+        });
+    }
 
     if (chunks.length > 1) {
         embed.addFields({
@@ -242,19 +262,39 @@ async function postBuiltMessage(channel, state, guild) {
         PermissionFlagsBits.SendMessages,
     ];
 
+    if (state.mediaKind === 'video') {
+        requiredPermissions.push(PermissionFlagsBits.AttachFiles);
+    }
+
     if (!permissions?.has(requiredPermissions)) {
         return { ok: false };
     }
 
     const embeds = buildPostedEmbeds(state);
-    for (const embed of embeds) {
-        await channel.send({ embeds: [embed] });
+    for (let index = 0; index < embeds.length; index += 1) {
+        const isLast = index === embeds.length - 1;
+        const payload = { embeds: [embeds[index]] };
+
+        if (isLast && state.mediaKind === 'video' && state.mediaUrl) {
+            payload.files = [{
+                attachment: state.mediaUrl,
+                name: state.mediaName || 'video.mp4',
+            }];
+        }
+
+        await channel.send(payload);
     }
 
     return { ok: true, destination: channel };
 }
 
 function buildControlEmbed(state) {
+    const mediaLabel = state.mediaKind === 'video'
+        ? 'Video set'
+        : state.mediaUrl
+            ? 'Picture / GIF set'
+            : '`Not set`';
+
     return new EmbedBuilder()
         .setTitle('Message builder')
         .setDescription([
@@ -263,7 +303,7 @@ function buildControlEmbed(state) {
             `**Side color** › \`${colorToHex(state.sideColor)}\``,
             `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
-            `**Picture / GIF** › ${state.mediaUrl ? 'Set' : '`Not set`'}`,
+            `**Media** › ${mediaLabel}`,
         ].join('\n'))
         .setColor(getColor('info'))
         .setFooter({ text: 'Preview the embed above live' });
@@ -296,12 +336,12 @@ function buildControls(state) {
     const actionRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('simple_embed_media')
-            .setLabel('Set picture or GIF')
+            .setLabel('Set picture/video GIF')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📷'),
         new ButtonBuilder()
             .setCustomId('simple_embed_clear_media')
-            .setLabel('Remove picture or GIF')
+            .setLabel('Remove media')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🗑️')
             .setDisabled(!state.mediaUrl),
@@ -416,11 +456,11 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
 
     const modal = new ModalBuilder()
         .setCustomId('simple_embed_media_modal')
-        .setTitle('Set picture or GIF')
+        .setTitle('Set picture/video GIF')
         .addLabelComponents(
             new LabelBuilder()
-                .setLabel('Upload picture or GIF')
-                .setDescription('Choose a picture or GIF from your device')
+                .setLabel('Upload picture, video or GIF')
+                .setDescription('Choose media from your device')
                 .setFileUploadComponent(upload),
         );
 
@@ -438,13 +478,14 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
 
     const uploadedFiles = submitted.fields.getUploadedFiles('simple_embed_media_file', true);
     const uploadedMedia = uploadedFiles?.first?.() || null;
+    const mediaKind = getMediaKind(uploadedMedia);
 
-    if (!isImageAttachment(uploadedMedia)) {
+    if (!mediaKind) {
         const invalidMediaMessage = await submitted.reply({
             embeds: [
                 new EmbedBuilder({
                     title: 'Invalid media file',
-                    description: 'Upload a picture or GIF file.',
+                    description: 'Upload a picture, GIF, or video file.',
                     color: getColor('error'),
                 }),
             ],
@@ -456,6 +497,8 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
     }
 
     state.mediaUrl = uploadedMedia.url;
+    state.mediaKind = mediaKind;
+    state.mediaName = uploadedMedia.name || null;
 
     await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
@@ -466,7 +509,7 @@ async function postMessage(buttonInteraction, state, guild) {
         await buttonInteraction.deferUpdate().catch(() => {});
         await replyUserError(buttonInteraction, {
             type: ErrorTypes.VALIDATION,
-            message: 'Add a title, message, picture, or GIF before posting.',
+            message: 'Add a title, message, picture, GIF, or video before posting.',
         });
         return;
     }
@@ -558,6 +601,8 @@ export default {
                 showLogo: true,
                 bottomLine: DEFAULT_FOOTER_TEXT,
                 mediaUrl: null,
+                mediaKind: null,
+                mediaName: null,
             };
 
             const colorSessionToken = createEmbedColorPickerSession({
@@ -598,6 +643,8 @@ export default {
                             break;
                         case 'simple_embed_clear_media':
                             state.mediaUrl = null;
+                            state.mediaKind = null;
+                            state.mediaName = null;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
                             break;
@@ -611,6 +658,8 @@ export default {
                             state.showLogo = true;
                             state.bottomLine = DEFAULT_FOOTER_TEXT;
                             state.mediaUrl = null;
+                            state.mediaKind = null;
+                            state.mediaName = null;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
                             break;
