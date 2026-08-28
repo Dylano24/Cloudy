@@ -7,7 +7,7 @@ const COLLECTOR_MANAGED_PREFIXES = [
   'simple_embed_channel_page',
   'simple_embed_gif_result',
   'simple_embed_owner_server',
-  'simple_embed_owner_media',
+  'simple_embed_owner_emoji',
 ];
 
 export function isCollectorManagedComponent(customId = '') {
