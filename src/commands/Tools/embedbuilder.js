@@ -28,11 +28,12 @@ const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
 const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
 const DEFAULT_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const DISCORD_TEXT_INPUT_LIMIT = 4000;
+const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
 const POSTABLE_CHANNEL_TYPES = [
     ChannelType.GuildText,
     ChannelType.GuildAnnouncement,
 ];
-const THREAD_CONTAINER_TYPES = new Set([ChannelType.GuildForum, ChannelType.GuildMedia]);
 const MEDIA_PAGE_HOSTS = new Set([
     'tenor.com',
     'www.tenor.com',
@@ -125,6 +126,30 @@ function colorToHex(color) {
     return `#${numericColor.toString(16).padStart(6, '0').slice(-6).toUpperCase()}`;
 }
 
+function splitLongText(value, maxLength = DISCORD_EMBED_DESCRIPTION_LIMIT) {
+    if (!value) return [];
+
+    const chunks = [];
+    let remaining = value;
+
+    while (remaining.length > maxLength) {
+        let splitAt = remaining.lastIndexOf('\n', maxLength);
+        if (splitAt < Math.floor(maxLength * 0.5)) {
+            splitAt = remaining.lastIndexOf(' ', maxLength);
+        }
+        if (splitAt < Math.floor(maxLength * 0.5)) {
+            splitAt = maxLength;
+        }
+
+        const chunk = remaining.slice(0, splitAt).trimEnd();
+        if (chunk) chunks.push(chunk);
+        remaining = remaining.slice(splitAt).trimStart();
+    }
+
+    if (remaining) chunks.push(remaining);
+    return chunks;
+}
+
 function removeTransientMessage(interaction, message) {
     const timer = setTimeout(async () => {
         if (message?.id && interaction.webhook?.deleteMessage) {
@@ -138,65 +163,87 @@ function removeTransientMessage(interaction, message) {
     timer.unref?.();
 }
 
-function buildMessageEmbed(state, preview = true) {
+function buildSingleEmbed(state, description = null, options = {}) {
+    const {
+        preview = false,
+        includeTitle = true,
+        includeLogo = true,
+        includeFooter = true,
+        includeMedia = true,
+        posted = false,
+    } = options;
     const data = { color: state.sideColor };
 
-    if (state.title) data.title = state.title.slice(0, 256);
-    if (state.message) data.description = state.message.slice(0, 4096);
-    if (state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
-    if (state.bottomLine) data.footer = { text: state.bottomLine.slice(0, 2048) };
-    if (state.mediaUrl) data.image = { url: state.mediaUrl };
+    if (includeTitle && state.title) data.title = state.title.slice(0, 256);
+    if (description) data.description = description.slice(0, DISCORD_EMBED_DESCRIPTION_LIMIT);
+    if (includeLogo && state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
+    if (includeFooter && state.bottomLine) {
+        const footerLimit = posted ? 2047 : 2048;
+        const marker = posted ? MESSAGE_BUILDER_FOOTER_MARKER : '';
+        data.footer = { text: `${state.bottomLine.slice(0, footerLimit)}${marker}` };
+    }
+    if (includeMedia && state.mediaUrl) data.image = { url: state.mediaUrl };
 
-    if (preview && !state.title && !state.message && !state.mediaUrl) {
+    if (preview && !state.title && !description && !state.mediaUrl) {
         data.description = '*(Use the buttons below to create your message)*';
     }
 
     return new EmbedBuilder(data);
 }
 
-function buildPostedMessagePayload(state) {
-    const embed = buildMessageEmbed(state, false).toJSON();
+function buildPreviewEmbed(state) {
+    const chunks = splitLongText(state.message);
+    const firstChunk = chunks[0] || null;
+    const embed = buildSingleEmbed(state, firstChunk, {
+        preview: true,
+        includeFooter: chunks.length <= 1,
+        includeMedia: chunks.length <= 1,
+    });
 
-    if (state.bottomLine) {
-        embed.footer = { text: `${state.bottomLine.slice(0, 2047)}${MESSAGE_BUILDER_FOOTER_MARKER}` };
-    } else {
-        delete embed.footer;
+    if (chunks.length > 1) {
+        embed.addFields({
+            name: 'Long message',
+            value: `This message continues for ${chunks.length - 1} more part(s) when posted.`,
+        });
     }
 
-    return { embeds: [embed] };
+    return embed;
+}
+
+function buildPostedEmbeds(state) {
+    const chunks = splitLongText(state.message);
+    const descriptions = chunks.length > 0 ? chunks : [null];
+
+    return descriptions.map((description, index) => {
+        const isFirst = index === 0;
+        const isLast = index === descriptions.length - 1;
+        return buildSingleEmbed(state, description, {
+            includeTitle: isFirst,
+            includeLogo: isFirst,
+            includeFooter: isLast,
+            includeMedia: isLast,
+            posted: true,
+        });
+    });
 }
 
 async function postBuiltMessage(channel, state, guild) {
     const permissions = channel.permissionsFor(guild.members.me);
-    const requiredPermissions = THREAD_CONTAINER_TYPES.has(channel.type)
-        ? [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.EmbedLinks,
-            PermissionFlagsBits.CreatePublicThreads,
-            PermissionFlagsBits.SendMessagesInThreads,
-        ]
-        : [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.EmbedLinks,
-            channel.isThread?.()
-                ? PermissionFlagsBits.SendMessagesInThreads
-                : PermissionFlagsBits.SendMessages,
-        ];
+    const requiredPermissions = [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.EmbedLinks,
+        PermissionFlagsBits.SendMessages,
+    ];
 
     if (!permissions?.has(requiredPermissions)) {
         return { ok: false };
     }
 
-    const payload = buildPostedMessagePayload(state);
-    if (THREAD_CONTAINER_TYPES.has(channel.type)) {
-        const thread = await channel.threads.create({
-            name: (state.title || 'Cloudy message').slice(0, 100),
-            message: payload,
-        });
-        return { ok: true, destination: thread };
+    const embeds = buildPostedEmbeds(state);
+    for (const embed of embeds) {
+        await channel.send({ embeds: [embed] });
     }
 
-    await channel.send(payload);
     return { ok: true, destination: channel };
 }
 
@@ -224,6 +271,11 @@ function buildControls(state) {
             .setLabel('Edit title and message')
             .setStyle(ButtonStyle.Primary)
             .setEmoji('✏️'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_append')
+            .setLabel('Add more text')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('➕'),
         new ButtonBuilder()
             .setCustomId('simple_embed_logo')
             .setLabel(state.showLogo ? 'Remove logo' : 'Add logo')
@@ -270,7 +322,7 @@ function buildControls(state) {
 
 async function refreshBuilder(interaction, state) {
     return InteractionHelper.safeEditReply(interaction, {
-        embeds: [buildMessageEmbed(state), buildControlEmbed(state)],
+        embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],
         components: buildControls(state),
     });
 }
@@ -295,8 +347,7 @@ async function editContent(buttonInteraction, rootInteraction, state) {
                     .setCustomId('simple_embed_message')
                     .setLabel('Message')
                     .setStyle(TextInputStyle.Paragraph)
-                    .setValue(state.message ? state.message.slice(0, 4000) : '')
-                    .setMaxLength(4000)
+                    .setValue(state.message ? state.message.slice(0, DISCORD_TEXT_INPUT_LIMIT) : '')
                     .setRequired(false)
                     .setPlaceholder('Write your message here'),
             ),
@@ -316,6 +367,42 @@ async function editContent(buttonInteraction, rootInteraction, state) {
 
     state.title = submitted.fields.getTextInputValue('simple_embed_title').trim() || null;
     state.message = submitted.fields.getTextInputValue('simple_embed_message').trim() || null;
+
+    await submitted.deferUpdate().catch(() => {});
+    await refreshBuilder(rootInteraction, state);
+}
+
+async function appendMessage(buttonInteraction, rootInteraction, state) {
+    const modal = new ModalBuilder()
+        .setCustomId('simple_embed_append_modal')
+        .setTitle('Add more text')
+        .addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('simple_embed_append_text')
+                    .setLabel('Continue message')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+                    .setPlaceholder('Continue your message here'),
+            ),
+        );
+
+    const shown = await InteractionHelper.safeShowModal(buttonInteraction, modal);
+    if (!shown) return;
+
+    const submitted = await buttonInteraction.awaitModalSubmit({
+        filter: interaction =>
+            interaction.customId === 'simple_embed_append_modal' &&
+            interaction.user.id === buttonInteraction.user.id,
+        time: 120_000,
+    }).catch(() => null);
+
+    if (!submitted) return;
+
+    const extraText = submitted.fields.getTextInputValue('simple_embed_append_text').trim();
+    if (extraText) {
+        state.message = state.message ? `${state.message}\n${extraText}` : extraText;
+    }
 
     await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
@@ -536,6 +623,9 @@ export default {
                     switch (buttonInteraction.customId) {
                         case 'simple_embed_content':
                             await editContent(buttonInteraction, interaction, state);
+                            break;
+                        case 'simple_embed_append':
+                            await appendMessage(buttonInteraction, interaction, state);
                             break;
                         case 'simple_embed_logo':
                             state.showLogo = !state.showLogo;
