@@ -3,6 +3,8 @@ const COLLECTOR_MANAGED_PREFIXES = [
   'config_select',
   'config_wizard',
   'cmdaccess_',
+  'simple_embed_post_channel',
+  'simple_embed_channel_page',
 ];
 
 export function isCollectorManagedComponent(customId = '') {
