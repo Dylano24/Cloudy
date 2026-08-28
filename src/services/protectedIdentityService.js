@@ -1,4 +1,5 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 
 const TARGET_GUILD_ID = '1532882647838228723';
@@ -58,7 +59,7 @@ async function sendPermanentLog(member, detection, source, banned, error = null)
     }
 
     const embed = new EmbedBuilder()
-        .setColor(banned ? '#ED4245' : '#FEE75C')
+        .setColor(banned ? getColor('red') : '#FEE75C')
         .setTitle(banned ? 'Automod account banned' : 'Automod account ban failed')
         .setDescription(
             banned
