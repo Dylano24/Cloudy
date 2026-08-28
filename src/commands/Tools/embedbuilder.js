@@ -18,8 +18,13 @@ import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { getColor } from '../../config/bot.js';
+import {
+    createEmbedColorPickerSession,
+    deleteEmbedColorPickerSession,
+} from '../../services/embedColorPickerSessionService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
 const SESSION_TIMEOUT_MINUTES = 15;
 const SESSION_TIMEOUT = SESSION_TIMEOUT_MINUTES * 60_000;
 const MEDIA_PAGE_HOSTS = new Set([
@@ -114,11 +119,6 @@ function colorToHex(color) {
     return `#${numericColor.toString(16).padStart(6, '0').slice(-6).toUpperCase()}`;
 }
 
-function parseHexColor(value) {
-    const match = value.trim().match(/^#?([0-9a-f]{6})$/i);
-    return match ? Number.parseInt(match[1], 16) : null;
-}
-
 function buildMessageEmbed(state, preview = true) {
     const data = { color: state.sideColor };
 
@@ -170,9 +170,9 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📝'),
         new ButtonBuilder()
-            .setCustomId('simple_embed_color')
+            .setURL(state.colorPickerUrl)
             .setLabel('Set side color')
-            .setStyle(ButtonStyle.Secondary)
+            .setStyle(ButtonStyle.Link)
             .setEmoji('🎨'),
     );
 
@@ -287,50 +287,6 @@ async function editBottomLine(buttonInteraction, rootInteraction, state) {
 
     state.bottomLine = submitted.fields.getTextInputValue('simple_embed_footer_text').trim() || null;
 
-    await submitted.deferUpdate().catch(() => {});
-    await refreshBuilder(rootInteraction, state);
-}
-
-async function editSideColor(buttonInteraction, rootInteraction, state) {
-    const modal = new ModalBuilder()
-        .setCustomId('simple_embed_color_modal')
-        .setTitle('Set side color')
-        .addComponents(
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId('simple_embed_color_hex')
-                    .setLabel('Hex color code')
-                    .setStyle(TextInputStyle.Short)
-                    .setValue(colorToHex(state.sideColor))
-                    .setMinLength(6)
-                    .setMaxLength(7)
-                    .setRequired(true)
-                    .setPlaceholder('#336699'),
-            ),
-        );
-
-    const shown = await InteractionHelper.safeShowModal(buttonInteraction, modal);
-    if (!shown) return;
-
-    const submitted = await buttonInteraction.awaitModalSubmit({
-        filter: interaction =>
-            interaction.customId === 'simple_embed_color_modal' &&
-            interaction.user.id === buttonInteraction.user.id,
-        time: 120_000,
-    }).catch(() => null);
-
-    if (!submitted) return;
-
-    const color = parseHexColor(submitted.fields.getTextInputValue('simple_embed_color_hex'));
-    if (color === null) {
-        await replyUserError(submitted, {
-            type: ErrorTypes.USER_INPUT,
-            message: 'Enter a valid HEX color such as `#336699`, `FF0000`, or `00FF88`.',
-        });
-        return;
-    }
-
-    state.sideColor = color;
     await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
 }
@@ -489,6 +445,15 @@ export default {
                 mediaUrl: uploadedMedia?.url || null,
             };
 
+            const colorSessionToken = createEmbedColorPickerSession({
+                userId: interaction.user.id,
+                onColor: async color => {
+                    state.sideColor = color;
+                    await refreshBuilder(interaction, state);
+                },
+            });
+            state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
+
             await refreshBuilder(interaction, state);
 
             const dashboardMessage = await interaction.fetchReply();
@@ -513,9 +478,6 @@ export default {
                             break;
                         case 'simple_embed_footer':
                             await editBottomLine(buttonInteraction, interaction, state);
-                            break;
-                        case 'simple_embed_color':
-                            await editSideColor(buttonInteraction, interaction, state);
                             break;
                         case 'simple_embed_media':
                             await editMedia(buttonInteraction, interaction, state);
@@ -554,6 +516,7 @@ export default {
             });
 
             collector.on('end', async (_, reason) => {
+                deleteEmbedColorPickerSession(colorSessionToken);
                 if (reason === 'time') {
                     await InteractionHelper.safeEditReply(interaction, { components: [] }).catch(() => {});
                 }
