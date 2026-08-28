@@ -6,6 +6,7 @@ import {
     ButtonStyle,
     ChannelSelectMenuBuilder,
     ModalBuilder,
+    FileUploadBuilder,
     TextInputBuilder,
     TextInputStyle,
     MessageFlags,
@@ -34,86 +35,11 @@ const POSTABLE_CHANNEL_TYPES = [
     ChannelType.GuildText,
     ChannelType.GuildAnnouncement,
 ];
-const MEDIA_PAGE_HOSTS = new Set([
-    'tenor.com',
-    'www.tenor.com',
-    'giphy.com',
-    'www.giphy.com',
-    'imgur.com',
-    'www.imgur.com',
-]);
-
-function isValidUrl(value) {
-    try {
-        const url = new URL(value);
-        return url.protocol === 'http:' || url.protocol === 'https:';
-    } catch {
-        return false;
-    }
-}
 
 function isImageAttachment(attachment) {
-    if (!attachment) return true;
+    if (!attachment) return false;
     if (attachment.contentType?.startsWith('image/')) return true;
     return /\.(?:png|jpe?g|webp|gif)(?:\?.*)?$/i.test(attachment.url || attachment.name || '');
-}
-
-function isDirectImageUrl(url) {
-    return /\.(?:png|jpe?g|webp|gif)$/i.test(url.pathname);
-}
-
-function decodeHtmlUrl(value) {
-    return value
-        .replace(/&amp;/gi, '&')
-        .replace(/&#x2f;/gi, '/')
-        .replace(/&#47;/g, '/')
-        .replace(/&quot;/gi, '"');
-}
-
-function findPageImage(html) {
-    const propertyFirst = html.match(
-        /<meta[^>]+(?:property|name)=["'](?:og:image(?::secure_url)?|twitter:image)["'][^>]+content=["']([^"']+)["']/i,
-    );
-    if (propertyFirst?.[1]) return propertyFirst[1];
-
-    const contentFirst = html.match(
-        /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image(?::secure_url)?|twitter:image)["']/i,
-    );
-    return contentFirst?.[1] || null;
-}
-
-async function resolveMediaUrl(value) {
-    if (!isValidUrl(value)) return null;
-
-    const url = new URL(value);
-    if (isDirectImageUrl(url)) return url.toString();
-    if (!MEDIA_PAGE_HOSTS.has(url.hostname.toLowerCase())) return null;
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6_000);
-
-    try {
-        const response = await fetch(url, {
-            redirect: 'follow',
-            signal: controller.signal,
-            headers: { 'user-agent': 'Cloudy Discord bot' },
-        });
-        if (!response.ok) return null;
-
-        const contentType = response.headers.get('content-type') || '';
-        if (contentType.startsWith('image/')) return response.url;
-        if (!contentType.includes('text/html')) return null;
-
-        const pageImage = findPageImage((await response.text()).slice(0, 1_000_000));
-        if (!pageImage) return null;
-
-        const resolved = new URL(decodeHtmlUrl(pageImage), response.url);
-        return isValidUrl(resolved.toString()) ? resolved.toString() : null;
-    } catch {
-        return null;
-    } finally {
-        clearTimeout(timeout);
-    }
 }
 
 function shortValue(value, maxLength) {
@@ -448,15 +374,11 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
         .setCustomId('simple_embed_media_modal')
         .setTitle('Set picture or GIF')
         .addComponents(
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId('simple_embed_media_url')
-                    .setLabel('Picture or GIF link')
-                    .setStyle(TextInputStyle.Short)
-                    .setValue(state.mediaUrl || '')
-                    .setRequired(true)
-                    .setPlaceholder('https://example.com/picture.gif'),
-            ),
+            new FileUploadBuilder()
+                .setCustomId('simple_embed_media_file')
+                .setMinValues(1)
+                .setMaxValues(1)
+                .setRequired(true),
         );
 
     const shown = await InteractionHelper.safeShowModal(buttonInteraction, modal);
@@ -471,26 +393,28 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
 
     if (!submitted) return;
 
-    const mediaUrl = submitted.fields.getTextInputValue('simple_embed_media_url').trim();
-    await submitted.deferUpdate().catch(() => {});
+    const uploadedFiles = submitted.fields.getUploadedFiles('simple_embed_media_file', true);
+    const uploadedMedia = uploadedFiles?.first?.() || null;
 
-    const resolvedMediaUrl = await resolveMediaUrl(mediaUrl);
-    if (!resolvedMediaUrl) {
-        const invalidMediaMessage = await submitted.followUp({
+    if (!isImageAttachment(uploadedMedia)) {
+        const invalidMediaMessage = await submitted.reply({
             embeds: [
                 new EmbedBuilder({
-                    title: 'Invalid picture or GIF link',
-                    description: 'Use a direct `.png`, `.jpg`, `.webp`, or `.gif` link, a Tenor/Giphy/Imgur link, or upload the file with `/embedbuilder media:`.',
+                    title: 'Invalid media file',
+                    description: 'Upload a picture or GIF file.',
                     color: getColor('error'),
                 }),
             ],
             flags: MessageFlags.Ephemeral,
-        });
-        removeTransientMessage(submitted, invalidMediaMessage);
+            fetchReply: true,
+        }).catch(() => null);
+        if (invalidMediaMessage) removeTransientMessage(submitted, invalidMediaMessage);
         return;
     }
 
-    state.mediaUrl = resolvedMediaUrl;
+    state.mediaUrl = uploadedMedia.url;
+
+    await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
 }
 
@@ -566,12 +490,6 @@ export default {
     data: new SlashCommandBuilder()
         .setName('embedbuilder')
         .setDescription('Build and post a custom Cloudy message')
-        .addAttachmentOption(option =>
-            option
-                .setName('media')
-                .setDescription('Optional picture or GIF shown under the message')
-                .setRequired(false),
-        )
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
     async execute(interaction) {
@@ -581,22 +499,13 @@ export default {
             });
             if (!deferred) return;
 
-            const uploadedMedia = interaction.options.getAttachment('media');
-            if (!isImageAttachment(uploadedMedia)) {
-                await replyUserError(interaction, {
-                    type: ErrorTypes.USER_INPUT,
-                    message: 'The uploaded file must be a picture or GIF.',
-                });
-                return;
-            }
-
             const state = {
                 title: null,
                 message: null,
                 sideColor: getColor('primary'),
                 showLogo: true,
                 bottomLine: DEFAULT_FOOTER_TEXT,
-                mediaUrl: uploadedMedia?.url || null,
+                mediaUrl: null,
             };
 
             const colorSessionToken = createEmbedColorPickerSession({
