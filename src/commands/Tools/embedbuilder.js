@@ -7,6 +7,7 @@ import {
     ChannelSelectMenuBuilder,
     ModalBuilder,
     FileUploadBuilder,
+    LabelBuilder,
     TextInputBuilder,
     TextInputStyle,
     MessageFlags,
@@ -185,9 +186,7 @@ function buildControlEmbed(state) {
             `**Picture / GIF** › ${state.mediaUrl ? 'Set' : '`Not set`'}`,
         ].join('\n'))
         .setColor(getColor('info'))
-        .setFooter({
-            text: 'Preview the embed above live',
-        });
+        .setFooter({ text: 'Preview the embed above live' });
 }
 
 function buildControls(state) {
@@ -224,7 +223,7 @@ function buildControls(state) {
             .setCustomId('simple_embed_media')
             .setLabel('Set picture or GIF')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🖼️'),
+            .setEmoji('📷'),
         new ButtonBuilder()
             .setCustomId('simple_embed_clear_media')
             .setLabel('Remove picture or GIF')
@@ -370,15 +369,20 @@ async function editBottomLine(buttonInteraction, rootInteraction, state) {
 }
 
 async function editMedia(buttonInteraction, rootInteraction, state) {
+    const upload = new FileUploadBuilder()
+        .setCustomId('simple_embed_media_file')
+        .setMinValues(1)
+        .setMaxValues(1)
+        .setRequired(true);
+
     const modal = new ModalBuilder()
         .setCustomId('simple_embed_media_modal')
         .setTitle('Set picture or GIF')
-        .addComponents(
-            new FileUploadBuilder()
-                .setCustomId('simple_embed_media_file')
-                .setMinValues(1)
-                .setMaxValues(1)
-                .setRequired(true),
+        .addLabelComponents(
+            new LabelBuilder()
+                .setLabel('Upload picture or GIF')
+                .setDescription('Choose a picture or GIF from your device')
+                .setFileUploadComponent(upload),
         );
 
     const shown = await InteractionHelper.safeShowModal(buttonInteraction, modal);
