@@ -24,7 +24,8 @@ import { TitanBotError, replyUserError, ErrorTypes } from '../../utils/errorHand
 import { getColor } from '../../config/bot.js';
 
 const MAX_FIELDS = 25;
-const IDLE_TIMEOUT = 900_000; 
+const IDLE_TIMEOUT_MINUTES = 15;
+const IDLE_TIMEOUT = IDLE_TIMEOUT_MINUTES * 60_000;
 
 const COLOR_PRESETS = [
     { label: 'Primary (Blue)',        value: '#336699', emoji: '' },
@@ -124,7 +125,9 @@ function buildDashboardEmbed(state) {
         .setTitle('Embed Builder — Control Panel')
         .setDescription(lines.join('\n'))
         .setColor(getColor('info'))
-        .setFooter({ text: 'The preview above updates live · Closes after 5 min of inactivity' });
+        .setFooter({
+            text: `The preview above updates live · Closes after ${IDLE_TIMEOUT_MINUTES} min of inactivity`,
+        });
 }
 
 function buildMainMenu(state) {
@@ -183,6 +186,16 @@ function buildMainMenu(state) {
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('↕️')
             .setDisabled(state.fields.length < 2),
+        new ButtonBuilder()
+            .setCustomId('eb_main_set_author')
+            .setLabel('Set Author')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('👤'),
+        new ButtonBuilder()
+            .setCustomId('eb_main_set_footer')
+            .setLabel('Set Footer')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🧾'),
         new ButtonBuilder()
             .setCustomId('eb_main_json_export')
             .setLabel('JSON / Raw Data')
@@ -1086,6 +1099,12 @@ export default {
                             break;
                         case 'eb_main_set_images':
                             await handleSetImages(ci, interaction, state);
+                            break;
+                        case 'eb_main_set_author':
+                            await handleSetAuthor(ci, interaction, state);
+                            break;
+                        case 'eb_main_set_footer':
+                            await handleSetFooter(ci, interaction, state);
                             break;
                         case 'eb_main_post_embed':
                             await handlePostEmbed(ci, interaction, state, guild);
