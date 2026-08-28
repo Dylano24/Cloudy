@@ -337,11 +337,6 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📷'),
         new ButtonBuilder()
-            .setCustomId('simple_embed_media_link')
-            .setLabel('Search GIF')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🔎'),
-        new ButtonBuilder()
             .setCustomId('simple_embed_clear_media')
             .setLabel('Remove media')
             .setStyle(ButtonStyle.Secondary)
