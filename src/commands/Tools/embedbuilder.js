@@ -109,8 +109,18 @@ function shortValue(value, maxLength) {
     return `\`${value.length > maxLength ? `${value.slice(0, maxLength)}…` : value}\``;
 }
 
+function colorToHex(color) {
+    const numericColor = Number(color);
+    return `#${numericColor.toString(16).padStart(6, '0').slice(-6).toUpperCase()}`;
+}
+
+function parseHexColor(value) {
+    const match = value.trim().match(/^#?([0-9a-f]{6})$/i);
+    return match ? Number.parseInt(match[1], 16) : null;
+}
+
 function buildMessageEmbed(state, preview = true) {
-    const data = { color: getColor('primary') };
+    const data = { color: state.sideColor };
 
     if (state.title) data.title = state.title.slice(0, 256);
     if (state.message) data.description = state.message.slice(0, 4096);
@@ -131,6 +141,7 @@ function buildControlEmbed(state) {
         .setDescription([
             `**Title** › ${shortValue(state.title, 40)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
+            `**Side color** › \`${colorToHex(state.sideColor)}\``,
             `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Picture / GIF** › ${state.mediaUrl ? 'Set' : '`Not set`'}`,
@@ -158,6 +169,11 @@ function buildControls(state) {
             .setLabel('Edit footer')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📝'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_color')
+            .setLabel('Set side color')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🎨'),
     );
 
     const actionRow = new ActionRowBuilder().addComponents(
@@ -271,6 +287,50 @@ async function editBottomLine(buttonInteraction, rootInteraction, state) {
 
     state.bottomLine = submitted.fields.getTextInputValue('simple_embed_footer_text').trim() || null;
 
+    await submitted.deferUpdate().catch(() => {});
+    await refreshBuilder(rootInteraction, state);
+}
+
+async function editSideColor(buttonInteraction, rootInteraction, state) {
+    const modal = new ModalBuilder()
+        .setCustomId('simple_embed_color_modal')
+        .setTitle('Set side color')
+        .addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('simple_embed_color_hex')
+                    .setLabel('Hex color code')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(colorToHex(state.sideColor))
+                    .setMinLength(6)
+                    .setMaxLength(7)
+                    .setRequired(true)
+                    .setPlaceholder('#336699'),
+            ),
+        );
+
+    const shown = await InteractionHelper.safeShowModal(buttonInteraction, modal);
+    if (!shown) return;
+
+    const submitted = await buttonInteraction.awaitModalSubmit({
+        filter: interaction =>
+            interaction.customId === 'simple_embed_color_modal' &&
+            interaction.user.id === buttonInteraction.user.id,
+        time: 120_000,
+    }).catch(() => null);
+
+    if (!submitted) return;
+
+    const color = parseHexColor(submitted.fields.getTextInputValue('simple_embed_color_hex'));
+    if (color === null) {
+        await replyUserError(submitted, {
+            type: ErrorTypes.USER_INPUT,
+            message: 'Enter a valid HEX color such as `#336699`, `FF0000`, or `00FF88`.',
+        });
+        return;
+    }
+
+    state.sideColor = color;
     await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
 }
@@ -423,6 +483,7 @@ export default {
             const state = {
                 title: null,
                 message: null,
+                sideColor: getColor('primary'),
                 showLogo: true,
                 bottomLine: 'Cloudy',
                 mediaUrl: uploadedMedia?.url || null,
@@ -453,6 +514,9 @@ export default {
                         case 'simple_embed_footer':
                             await editBottomLine(buttonInteraction, interaction, state);
                             break;
+                        case 'simple_embed_color':
+                            await editSideColor(buttonInteraction, interaction, state);
+                            break;
                         case 'simple_embed_media':
                             await editMedia(buttonInteraction, interaction, state);
                             break;
@@ -467,6 +531,7 @@ export default {
                         case 'simple_embed_reset':
                             state.title = null;
                             state.message = null;
+                            state.sideColor = getColor('primary');
                             state.showLogo = true;
                             state.bottomLine = 'Cloudy';
                             state.mediaUrl = null;
