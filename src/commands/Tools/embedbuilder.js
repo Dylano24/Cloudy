@@ -28,6 +28,18 @@ const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
 const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
 const DEFAULT_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const POSTABLE_CHANNEL_TYPES = [
+    ChannelType.GuildText,
+    ChannelType.GuildAnnouncement,
+    ChannelType.GuildVoice,
+    ChannelType.GuildStageVoice,
+    ChannelType.PublicThread,
+    ChannelType.PrivateThread,
+    ChannelType.AnnouncementThread,
+    ChannelType.GuildForum,
+    ChannelType.GuildMedia,
+];
+const THREAD_CONTAINER_TYPES = new Set([ChannelType.GuildForum, ChannelType.GuildMedia]);
 const MEDIA_PAGE_HOSTS = new Set([
     'tenor.com',
     'www.tenor.com',
@@ -159,6 +171,40 @@ function buildPostedMessagePayload(state) {
     }
 
     return { embeds: [embed] };
+}
+
+async function postBuiltMessage(channel, state, guild) {
+    const permissions = channel.permissionsFor(guild.members.me);
+    const requiredPermissions = THREAD_CONTAINER_TYPES.has(channel.type)
+        ? [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.EmbedLinks,
+            PermissionFlagsBits.CreatePublicThreads,
+            PermissionFlagsBits.SendMessagesInThreads,
+        ]
+        : [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.EmbedLinks,
+            channel.isThread?.()
+                ? PermissionFlagsBits.SendMessagesInThreads
+                : PermissionFlagsBits.SendMessages,
+        ];
+
+    if (!permissions?.has(requiredPermissions)) {
+        return { ok: false };
+    }
+
+    const payload = buildPostedMessagePayload(state);
+    if (THREAD_CONTAINER_TYPES.has(channel.type)) {
+        const thread = await channel.threads.create({
+            name: (state.title || 'Cloudy message').slice(0, 100),
+            message: payload,
+        });
+        return { ok: true, destination: thread };
+    }
+
+    await channel.send(payload);
+    return { ok: true, destination: channel };
 }
 
 function buildControlEmbed(state) {
@@ -383,7 +429,7 @@ async function postMessage(buttonInteraction, state, guild) {
     const channelSelect = new ChannelSelectMenuBuilder()
         .setCustomId('simple_embed_post_channel')
         .setPlaceholder('Select a channel...')
-        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
+        .addChannelTypes(...POSTABLE_CHANNEL_TYPES);
 
     const channelPickerMessage = await buttonInteraction.followUp({
         embeds: [
@@ -418,18 +464,17 @@ async function postMessage(buttonInteraction, state, guild) {
             return;
         }
 
-        const permissions = channel.permissionsFor(guild.members.me);
-        if (!permissions?.has([PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks])) {
+        const posted = await postBuiltMessage(channel, state, guild).catch(() => ({ ok: false }));
+        if (!posted.ok) {
             await replyUserError(channelInteraction, {
                 type: ErrorTypes.PERMISSION,
-                message: `I need **Send messages** and **Embed links** permissions in ${channel}.`,
+                message: `I need permission to post embeds in ${channel}.`,
             });
             return;
         }
 
-        await channel.send(buildPostedMessagePayload(state));
         const sentMessage = await channelInteraction.followUp({
-            embeds: [successEmbed('Message sent', `Your message has been posted to ${channel}.`)],
+            embeds: [successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
             flags: MessageFlags.Ephemeral,
         });
         removeTransientMessage(channelInteraction, sentMessage);
