@@ -19,7 +19,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
-import { getColor } from '../../config/bot.js';
+import { getColor, isBotOwner } from '../../config/bot.js';
 import {
     createEmbedColorPickerSession,
     deleteEmbedColorPickerSession,
@@ -30,7 +30,7 @@ import {
     refreshAllTicketChannels,
 } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
-import { searchDiscordGifs } from '../../services/discordGifSearchService.js';
+import { searchDiscordGifs, searchDiscordMedia } from '../../services/discordGifSearchService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -40,6 +40,7 @@ const DISCORD_TEXT_INPUT_LIMIT = 4000;
 const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
 const CHANNEL_PAGE_SIZE = 100;
 const CHANNEL_SELECT_SIZE = 25;
+const OWNER_SERVER_LIMIT = 125;
 
 function getMediaKind(attachment) {
     if (!attachment) return null;
@@ -358,7 +359,20 @@ function buildControls(state) {
             .setEmoji('♻️'),
     );
 
-    return [contentRow, actionRow];
+    const rows = [contentRow, actionRow];
+    if (state.isOwner) {
+        rows.push(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('simple_embed_owner_servers')
+                    .setLabel('Browse shared servers')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji('🌐'),
+            ),
+        );
+    }
+
+    return rows;
 }
 
 async function refreshBuilder(interaction, state) {
@@ -659,6 +673,343 @@ async function editMediaLink(buttonInteraction, rootInteraction, state) {
     await pickerMessage.delete().catch(() => {});
 }
 
+async function getSharedOwnerGuilds(client, userId) {
+    const shared = [];
+
+    for (const guild of client.guilds.cache.values()) {
+        const member = guild.members.cache.get(userId)
+            || await guild.members.fetch(userId).catch(() => null);
+        if (member) shared.push(guild);
+    }
+
+    return shared.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function buildEmojiEmbeds(guild, emojis) {
+    const values = [...emojis.values()];
+    if (!values.length) {
+        return [
+            new EmbedBuilder()
+                .setTitle(`${guild.name} • Emojis`.slice(0, 256))
+                .setDescription('This server has no custom emojis available to Cloudy.')
+                .setColor(getColor('info')),
+        ];
+    }
+
+    const embeds = [];
+    for (let offset = 0; offset < values.length && embeds.length < 4; offset += 100) {
+        const segment = values.slice(offset, offset + 100);
+        embeds.push(
+            new EmbedBuilder()
+                .setTitle(offset === 0 ? `${guild.name} • Emojis (${values.length})`.slice(0, 256) : `Emojis ${offset + 1}-${offset + segment.length}`)
+                .setDescription(segment.map(emoji => `${emoji} \`${emoji.name}\``).join('  ').slice(0, 4096))
+                .setColor(getColor('info')),
+        );
+    }
+
+    if (values.length > 400) {
+        embeds[embeds.length - 1].setFooter({ text: `Showing 400 of ${values.length} emojis` });
+    }
+
+    return embeds;
+}
+
+function addServerArtwork(guild, results) {
+    const extras = [];
+    const banner = guild.bannerURL({ extension: 'png', size: 4096 });
+    const splash = guild.splashURL({ extension: 'png', size: 4096 });
+
+    if (banner) {
+        extras.push({
+            url: banner,
+            name: `${guild.name}-banner.png`,
+            kind: 'image',
+            guildId: guild.id,
+            guildName: guild.name,
+            channelId: null,
+            channelName: 'Server banner',
+            authorName: 'Discord server',
+            createdTimestamp: Number.MAX_SAFE_INTEGER,
+        });
+    }
+    if (splash && splash !== banner) {
+        extras.push({
+            url: splash,
+            name: `${guild.name}-splash.png`,
+            kind: 'image',
+            guildId: guild.id,
+            guildName: guild.name,
+            channelId: null,
+            channelName: 'Server splash',
+            authorName: 'Discord server',
+            createdTimestamp: Number.MAX_SAFE_INTEGER - 1,
+        });
+    }
+
+    const seen = new Set();
+    return [...extras, ...results].filter(entry => {
+        if (!entry?.url || seen.has(entry.url)) return false;
+        seen.add(entry.url);
+        return true;
+    }).slice(0, 25);
+}
+
+function buildOwnerServerPayload(guild, emojis, mediaResults, query = '') {
+    const emojiEmbeds = buildEmojiEmbeds(guild, emojis);
+    const components = [];
+
+    if (mediaResults.length) {
+        const mediaSelect = new StringSelectMenuBuilder()
+            .setCustomId(`simple_embed_owner_media:${guild.id}`)
+            .setPlaceholder(`Choose banner / GIF / video • ${mediaResults.length} found`)
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(...mediaResults.map((result, index) =>
+                new StringSelectMenuOptionBuilder()
+                    .setLabel(`${index + 1}. ${result.kind.toUpperCase()} • ${result.channelName}`.slice(0, 100))
+                    .setDescription(`${result.authorName}${result.name ? ` • ${result.name}` : ''}`.slice(0, 100))
+                    .setValue(String(index)),
+            ));
+        components.push(new ActionRowBuilder().addComponents(mediaSelect));
+    }
+
+    components.push(
+        new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`simple_embed_owner_media_search:${guild.id}`)
+                .setLabel('Search banner / media / video')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🔎'),
+        ),
+    );
+
+    const infoEmbed = new EmbedBuilder()
+        .setTitle(`Shared server • ${guild.name}`.slice(0, 256))
+        .setDescription([
+            `**Emojis:** ${emojis.size}`,
+            `**Media results:** ${mediaResults.length}`,
+            query ? `**Search:** ${query.slice(0, 100)}` : '**Search:** Recent media + server artwork',
+            '',
+            'Choose media below to add it directly to your embed.',
+        ].join('\n'))
+        .setColor(getColor('info'));
+
+    const previews = mediaResults
+        .filter(result => result.kind !== 'video')
+        .slice(0, 3)
+        .map((result, index) =>
+            new EmbedBuilder()
+                .setTitle(`${index + 1}. ${result.kind.toUpperCase()} • ${result.channelName}`.slice(0, 256))
+                .setImage(result.url)
+                .setColor(getColor('info')),
+        );
+
+    return {
+        embeds: [infoEmbed, ...emojiEmbeds, ...previews].slice(0, 10),
+        components: components.slice(0, 5),
+    };
+}
+
+async function applyOwnerMedia(selection, selected, rootInteraction, state) {
+    if (selected.kind === 'video') {
+        await selection.deferUpdate().catch(() => {});
+        try {
+            const converted = await convertVideoUrlToGif(selected.url);
+            state.mediaUrl = null;
+            state.mediaBuffer = converted.buffer;
+            state.mediaName = converted.filename;
+            state.mediaConvertedFromVideo = true;
+            await refreshBuilder(rootInteraction, state);
+            return true;
+        } catch (error) {
+            logger.error('Owner server video conversion failed:', error);
+            const message = error?.code === 'VIDEO_TOO_SHORT'
+                ? 'The video must be at least 1 second long.'
+                : error?.code === 'VIDEO_TOO_LONG'
+                    ? 'The video must be no longer than 6 seconds.'
+                    : error?.code === 'GIF_TOO_LARGE'
+                        ? 'The converted GIF is too large. Try a shorter video.'
+                        : 'Cloudy could not convert that video to a GIF.';
+            const failedMessage = await selection.followUp({
+                embeds: [new EmbedBuilder().setTitle('Video conversion failed').setDescription(message).setColor(getColor('error'))],
+                flags: MessageFlags.Ephemeral,
+                fetchReply: true,
+            }).catch(() => null);
+            if (failedMessage) removeTransientMessage(selection, failedMessage);
+            return false;
+        }
+    }
+
+    state.mediaUrl = selected.url;
+    state.mediaBuffer = null;
+    state.mediaName = selected.name || null;
+    state.mediaConvertedFromVideo = false;
+    await selection.deferUpdate().catch(() => {});
+    await refreshBuilder(rootInteraction, state);
+    return true;
+}
+
+async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
+    if (!state.isOwner || !isBotOwner(buttonInteraction.user.id)) {
+        await buttonInteraction.deferUpdate().catch(() => {});
+        return;
+    }
+
+    await buttonInteraction.deferUpdate().catch(() => {});
+    const sharedGuilds = await getSharedOwnerGuilds(buttonInteraction.client, buttonInteraction.user.id);
+
+    if (!sharedGuilds.length) {
+        const noServersMessage = await buttonInteraction.followUp({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('No shared servers found')
+                    .setDescription('Cloudy can only browse servers where both you and Cloudy are members.')
+                    .setColor(getColor('error')),
+            ],
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
+        if (noServersMessage) removeTransientMessage(buttonInteraction, noServersMessage);
+        return;
+    }
+
+    const visibleGuilds = sharedGuilds.slice(0, OWNER_SERVER_LIMIT);
+    const rows = [];
+    for (let offset = 0; offset < visibleGuilds.length && rows.length < 5; offset += 25) {
+        const segment = visibleGuilds.slice(offset, offset + 25);
+        rows.push(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId(`simple_embed_owner_server:${Math.floor(offset / 25)}`)
+                    .setPlaceholder(`Servers ${offset + 1}-${offset + segment.length} of ${sharedGuilds.length}`)
+                    .setMinValues(1)
+                    .setMaxValues(1)
+                    .addOptions(...segment.map(guild =>
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel(guild.name.slice(0, 100))
+                            .setDescription(`${guild.memberCount || 0} members • ${guild.id}`.slice(0, 100))
+                            .setValue(guild.id),
+                    )),
+            ),
+        );
+    }
+
+    const browserMessage = await buttonInteraction.followUp({
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Owner server browser')
+                .setDescription([
+                    'Choose a Discord server that both you and Cloudy are in.',
+                    '',
+                    `**Shared servers:** ${sharedGuilds.length}`,
+                    'After selecting a server you can see its custom emojis and browse/search banners, GIFs, images and videos Cloudy can access.',
+                ].join('\n'))
+                .setColor(getColor('info')),
+        ],
+        components: rows,
+        flags: MessageFlags.Ephemeral,
+        fetchReply: true,
+    }).catch(() => null);
+
+    if (!browserMessage) return;
+
+    let currentGuild = null;
+    let currentEmojis = null;
+    let currentMedia = [];
+
+    const collector = browserMessage.createMessageComponentCollector({
+        filter: interaction => interaction.user.id === buttonInteraction.user.id,
+        time: 120_000,
+    });
+
+    collector.on('collect', async componentInteraction => {
+        try {
+            if (componentInteraction.isStringSelectMenu() && componentInteraction.customId.startsWith('simple_embed_owner_server:')) {
+                const guildId = componentInteraction.values?.[0];
+                const guild = guildId ? buttonInteraction.client.guilds.cache.get(guildId) : null;
+                if (!guild) {
+                    await componentInteraction.deferUpdate().catch(() => {});
+                    return;
+                }
+
+                currentGuild = guild;
+                currentEmojis = await guild.emojis.fetch().catch(() => guild.emojis.cache);
+                const found = await searchDiscordMedia(buttonInteraction.client, '', { guildId: guild.id }).catch(() => []);
+                currentMedia = addServerArtwork(guild, found);
+
+                await componentInteraction.update(buildOwnerServerPayload(guild, currentEmojis, currentMedia));
+                return;
+            }
+
+            if (componentInteraction.isButton() && componentInteraction.customId.startsWith('simple_embed_owner_media_search:')) {
+                const guildId = componentInteraction.customId.split(':')[1];
+                const guild = buttonInteraction.client.guilds.cache.get(guildId);
+                if (!guild) {
+                    await componentInteraction.deferUpdate().catch(() => {});
+                    return;
+                }
+
+                const modal = new ModalBuilder()
+                    .setCustomId(`simple_embed_owner_media_search_modal:${guild.id}`)
+                    .setTitle('Search server media')
+                    .addComponents(
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
+                                .setCustomId('simple_embed_owner_media_query')
+                                .setLabel('Search banner, GIF, image or video')
+                                .setStyle(TextInputStyle.Short)
+                                .setMaxLength(100)
+                                .setRequired(false)
+                                .setPlaceholder('Leave empty for recent media'),
+                        ),
+                    );
+
+                const shown = await InteractionHelper.safeShowModal(componentInteraction, modal);
+                if (!shown) return;
+
+                const submitted = await componentInteraction.awaitModalSubmit({
+                    filter: interaction =>
+                        interaction.customId === `simple_embed_owner_media_search_modal:${guild.id}` &&
+                        interaction.user.id === buttonInteraction.user.id,
+                    time: 120_000,
+                }).catch(() => null);
+                if (!submitted) return;
+
+                const query = submitted.fields.getTextInputValue('simple_embed_owner_media_query').trim();
+                await submitted.deferUpdate().catch(() => {});
+                currentGuild = guild;
+                currentEmojis = currentEmojis || await guild.emojis.fetch().catch(() => guild.emojis.cache);
+                const found = await searchDiscordMedia(buttonInteraction.client, query, { guildId: guild.id }).catch((error) => {
+                    logger.error('Owner server media search failed:', error);
+                    return [];
+                });
+                currentMedia = addServerArtwork(guild, found);
+                await browserMessage.edit(buildOwnerServerPayload(guild, currentEmojis, currentMedia, query)).catch(() => {});
+                return;
+            }
+
+            if (componentInteraction.isStringSelectMenu() && componentInteraction.customId.startsWith('simple_embed_owner_media:')) {
+                const selected = currentMedia[Number(componentInteraction.values?.[0])];
+                if (!selected) {
+                    await componentInteraction.deferUpdate().catch(() => {});
+                    return;
+                }
+
+                const applied = await applyOwnerMedia(componentInteraction, selected, rootInteraction, state);
+                if (applied) {
+                    collector.stop('selected');
+                    await browserMessage.delete().catch(() => {});
+                }
+            }
+        } catch (error) {
+            logger.error('Owner server browser failed:', error);
+            if (!componentInteraction.replied && !componentInteraction.deferred) {
+                await componentInteraction.deferUpdate().catch(() => {});
+            }
+        }
+    });
+}
+
 async function postMessage(buttonInteraction, state, guild) {
     if (!state.title && !state.message && !hasMedia(state)) {
         await buttonInteraction.deferUpdate().catch(() => {});
@@ -759,6 +1110,7 @@ export default {
                 mediaBuffer: null,
                 mediaName: null,
                 mediaConvertedFromVideo: false,
+                isOwner: isBotOwner(interaction.user.id),
             };
 
             const colorSessionToken = createEmbedColorPickerSession({
@@ -799,6 +1151,9 @@ export default {
                             break;
                         case 'simple_embed_media_link':
                             await editMediaLink(buttonInteraction, interaction, state);
+                            break;
+                        case 'simple_embed_owner_servers':
+                            await browseOwnerServers(buttonInteraction, interaction, state);
                             break;
                         case 'simple_embed_clear_media':
                             state.mediaUrl = null;
