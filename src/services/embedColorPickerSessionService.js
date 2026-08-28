@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 
-const SESSION_LIFETIME_MS = 15 * 60_000;
 const sessions = new Map();
 
 function parseColor(value) {
@@ -13,14 +12,13 @@ export function createEmbedColorPickerSession({ userId, onColor }) {
     sessions.set(token, {
         userId,
         onColor,
-        expiresAt: Date.now() + SESSION_LIFETIME_MS,
     });
     return token;
 }
 
 export async function applyEmbedColorPickerSession(token, value) {
     const session = sessions.get(token);
-    if (!session || session.expiresAt < Date.now()) {
+    if (!session) {
         sessions.delete(token);
         return { ok: false, reason: 'expired' };
     }
