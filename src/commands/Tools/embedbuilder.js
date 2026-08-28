@@ -31,13 +31,6 @@ const DEFAULT_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance
 const POSTABLE_CHANNEL_TYPES = [
     ChannelType.GuildText,
     ChannelType.GuildAnnouncement,
-    ChannelType.GuildVoice,
-    ChannelType.GuildStageVoice,
-    ChannelType.PublicThread,
-    ChannelType.PrivateThread,
-    ChannelType.AnnouncementThread,
-    ChannelType.GuildForum,
-    ChannelType.GuildMedia,
 ];
 const THREAD_CONTAINER_TYPES = new Set([ChannelType.GuildForum, ChannelType.GuildMedia]);
 const MEDIA_PAGE_HOSTS = new Set([
