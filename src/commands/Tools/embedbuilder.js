@@ -19,7 +19,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
-import { getColor, isBotOwner } from '../../config/bot.js';
+import { getColor } from '../../config/bot.js';
 import {
     createEmbedColorPickerSession,
     deleteEmbedColorPickerSession,
@@ -306,25 +306,17 @@ function buildControlEmbed(state) {
 }
 
 function buildControls(state) {
-    const contentButtons = [
+    const contentRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('simple_embed_content')
             .setLabel('Edit title and message')
             .setStyle(ButtonStyle.Primary)
             .setEmoji('✍🏼'),
-    ];
-
-    if (state.isOwner) {
-        contentButtons.push(
-            new ButtonBuilder()
-                .setCustomId('simple_embed_owner_servers')
-                .setLabel('Emoji')
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('😀'),
-        );
-    }
-
-    contentButtons.push(
+        new ButtonBuilder()
+            .setCustomId('simple_embed_owner_servers')
+            .setLabel('Emoji')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('😀'),
         new ButtonBuilder()
             .setCustomId('simple_embed_logo')
             .setLabel(state.showLogo ? 'Remove logo' : 'Add logo')
@@ -341,8 +333,6 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Link)
             .setEmoji('🎨'),
     );
-
-    const contentRow = new ActionRowBuilder().addComponents(...contentButtons);
 
     const actionRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -620,7 +610,7 @@ function buildOwnerEmojiPayload(guild, emojis) {
     }
 
     const infoEmbed = new EmbedBuilder()
-        .setTitle(`Owner emojis • ${guild.name}`.slice(0, 256))
+        .setTitle(`Discord emojis • ${guild.name}`.slice(0, 256))
         .setDescription([
             `**Custom emojis:** ${values.length}`,
             '',
@@ -638,11 +628,6 @@ function buildOwnerEmojiPayload(guild, emojis) {
 }
 
 async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
-    if (!state.isOwner || !isBotOwner(buttonInteraction.user.id)) {
-        await buttonInteraction.deferUpdate().catch(() => {});
-        return;
-    }
-
     await buttonInteraction.deferUpdate().catch(() => {});
     const sharedGuilds = await getSharedOwnerGuilds(buttonInteraction.client, buttonInteraction.user.id);
 
@@ -651,7 +636,7 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
             embeds: [
                 new EmbedBuilder()
                     .setTitle('No shared servers found')
-                    .setDescription('Cloudy can only show emojis from servers where both you and Cloudy are members.')
+                    .setDescription('Cloudy can only show custom emojis from servers where both you and Cloudy are members.')
                     .setColor(getColor('error')),
             ],
             flags: MessageFlags.Ephemeral,
@@ -685,12 +670,12 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
     const browserMessage = await buttonInteraction.followUp({
         embeds: [
             new EmbedBuilder()
-                .setTitle('Owner emoji browser')
+                .setTitle('Discord emoji browser')
                 .setDescription([
                     'Choose a Discord server that both you and Cloudy are in.',
                     '',
                     `**Shared servers:** ${sharedGuilds.length}`,
-                    'After selecting a server, its custom emojis will be shown.',
+                    'After selecting a server, its custom Discord emojis will be shown.',
                 ].join('\n'))
                 .setColor(getColor('info')),
         ],
@@ -737,7 +722,7 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
                 await refreshBuilder(rootInteraction, state);
             }
         } catch (error) {
-            logger.error('Owner emoji browser failed:', error);
+            logger.error('Discord emoji browser failed:', error);
             if (!componentInteraction.replied && !componentInteraction.deferred) {
                 await componentInteraction.deferUpdate().catch(() => {});
             }
@@ -845,7 +830,6 @@ export default {
                 mediaBuffer: null,
                 mediaName: null,
                 mediaConvertedFromVideo: false,
-                isOwner: isBotOwner(interaction.user.id),
             };
 
             const colorSessionToken = createEmbedColorPickerSession({
