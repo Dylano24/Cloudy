@@ -29,6 +29,7 @@ import {
     getEveryGuildChannel,
     refreshAllTicketChannels,
 } from '../../services/ticketChannelBrowserService.js';
+import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -49,11 +50,15 @@ function getMediaKind(attachment) {
         return 'image';
     }
 
-    if (contentType.startsWith('video/') || /\.(?:mp4|mov|m4v|webm|mkv|avi)(?:\?.*)?$/i.test(source)) {
+    if (contentType.startsWith('video/') || /\.(?:mp4|mov|m4v|webm|mkv|avi|3gp|3g2|mts|m2ts|hevc)(?:\?.*)?$/i.test(source)) {
         return 'video';
     }
 
     return null;
+}
+
+function hasMedia(state) {
+    return Boolean(state.mediaUrl || state.mediaBuffer);
 }
 
 function shortValue(value, maxLength) {
@@ -200,11 +205,13 @@ function buildSingleEmbed(state, description = null, options = {}) {
         const marker = posted ? MESSAGE_BUILDER_FOOTER_MARKER : '';
         data.footer = { text: `${state.bottomLine.slice(0, footerLimit)}${marker}` };
     }
-    if (includeMedia && state.mediaUrl && state.mediaKind !== 'video') {
+    if (includeMedia && state.mediaBuffer && state.mediaName) {
+        data.image = { url: `attachment://${state.mediaName}` };
+    } else if (includeMedia && state.mediaUrl) {
         data.image = { url: state.mediaUrl };
     }
 
-    if (preview && !state.title && !description && !state.mediaUrl) {
+    if (preview && !state.title && !description && !hasMedia(state)) {
         data.description = '*(Use the buttons below to create your message)*';
     }
 
@@ -217,15 +224,8 @@ function buildPreviewEmbed(state) {
     const embed = buildSingleEmbed(state, firstChunk, {
         preview: true,
         includeFooter: chunks.length <= 1,
-        includeMedia: chunks.length <= 1,
+        includeMedia: true,
     });
-
-    if (state.mediaKind === 'video' && state.mediaUrl) {
-        embed.addFields({
-            name: 'Video',
-            value: 'Video selected. It will be posted with Discord’s native video player.',
-        });
-    }
 
     if (chunks.length > 1) {
         embed.addFields({
@@ -262,9 +262,7 @@ async function postBuiltMessage(channel, state, guild) {
         PermissionFlagsBits.SendMessages,
     ];
 
-    if (state.mediaKind === 'video') {
-        requiredPermissions.push(PermissionFlagsBits.AttachFiles);
-    }
+    if (state.mediaBuffer) requiredPermissions.push(PermissionFlagsBits.AttachFiles);
 
     if (!permissions?.has(requiredPermissions)) {
         return { ok: false };
@@ -275,11 +273,8 @@ async function postBuiltMessage(channel, state, guild) {
         const isLast = index === embeds.length - 1;
         const payload = { embeds: [embeds[index]] };
 
-        if (isLast && state.mediaKind === 'video' && state.mediaUrl) {
-            payload.files = [{
-                attachment: state.mediaUrl,
-                name: state.mediaName || 'video.mp4',
-            }];
+        if (isLast && state.mediaBuffer && state.mediaName) {
+            payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
         }
 
         await channel.send(payload);
@@ -289,9 +284,9 @@ async function postBuiltMessage(channel, state, guild) {
 }
 
 function buildControlEmbed(state) {
-    const mediaLabel = state.mediaKind === 'video'
-        ? 'Video set'
-        : state.mediaUrl
+    const mediaLabel = state.mediaConvertedFromVideo
+        ? 'Video converted to GIF'
+        : hasMedia(state)
             ? 'Picture / GIF set'
             : '`Not set`';
 
@@ -344,7 +339,7 @@ function buildControls(state) {
             .setLabel('Remove media')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🗑️')
-            .setDisabled(!state.mediaUrl),
+            .setDisabled(!hasMedia(state)),
         new ButtonBuilder()
             .setCustomId('simple_embed_post')
             .setLabel('Post message')
@@ -361,10 +356,17 @@ function buildControls(state) {
 }
 
 async function refreshBuilder(interaction, state) {
-    return InteractionHelper.safeEditReply(interaction, {
+    const payload = {
         embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],
         components: buildControls(state),
-    });
+        attachments: [],
+    };
+
+    if (state.mediaBuffer && state.mediaName) {
+        payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
+    }
+
+    return InteractionHelper.safeEditReply(interaction, payload);
 }
 
 async function editContent(buttonInteraction, rootInteraction, state) {
@@ -460,7 +462,7 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
         .addLabelComponents(
             new LabelBuilder()
                 .setLabel('Upload picture, video or GIF')
-                .setDescription('Choose media from your device')
+                .setDescription('Videos are converted to GIF and shown inside the embed')
                 .setFileUploadComponent(upload),
         );
 
@@ -496,16 +498,50 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
         return;
     }
 
+    if (mediaKind === 'video') {
+        await submitted.deferUpdate().catch(() => {});
+
+        try {
+            const converted = await convertVideoUrlToGif(uploadedMedia.url);
+            state.mediaUrl = null;
+            state.mediaBuffer = converted.buffer;
+            state.mediaName = converted.filename;
+            state.mediaConvertedFromVideo = true;
+            await refreshBuilder(rootInteraction, state);
+        } catch (error) {
+            logger.error('Video to GIF conversion failed:', error);
+            const message = error?.code === 'VIDEO_TOO_SHORT'
+                ? 'The video must be at least 5 seconds long.'
+                : error?.code === 'GIF_TOO_LARGE'
+                    ? 'The converted GIF is too large. Try a shorter video.'
+                    : 'Cloudy could not convert that video to a GIF.';
+
+            const failedMessage = await submitted.followUp({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('Video conversion failed')
+                        .setDescription(message)
+                        .setColor(getColor('error')),
+                ],
+                flags: MessageFlags.Ephemeral,
+                fetchReply: true,
+            }).catch(() => null);
+            if (failedMessage) removeTransientMessage(submitted, failedMessage);
+        }
+        return;
+    }
+
     state.mediaUrl = uploadedMedia.url;
-    state.mediaKind = mediaKind;
+    state.mediaBuffer = null;
     state.mediaName = uploadedMedia.name || null;
+    state.mediaConvertedFromVideo = false;
 
     await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(rootInteraction, state);
 }
 
 async function postMessage(buttonInteraction, state, guild) {
-    if (!state.title && !state.message && !state.mediaUrl) {
+    if (!state.title && !state.message && !hasMedia(state)) {
         await buttonInteraction.deferUpdate().catch(() => {});
         await replyUserError(buttonInteraction, {
             type: ErrorTypes.VALIDATION,
@@ -601,8 +637,9 @@ export default {
                 showLogo: true,
                 bottomLine: DEFAULT_FOOTER_TEXT,
                 mediaUrl: null,
-                mediaKind: null,
+                mediaBuffer: null,
                 mediaName: null,
+                mediaConvertedFromVideo: false,
             };
 
             const colorSessionToken = createEmbedColorPickerSession({
@@ -643,8 +680,9 @@ export default {
                             break;
                         case 'simple_embed_clear_media':
                             state.mediaUrl = null;
-                            state.mediaKind = null;
+                            state.mediaBuffer = null;
                             state.mediaName = null;
+                            state.mediaConvertedFromVideo = false;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
                             break;
@@ -658,8 +696,9 @@ export default {
                             state.showLogo = true;
                             state.bottomLine = DEFAULT_FOOTER_TEXT;
                             state.mediaUrl = null;
-                            state.mediaKind = null;
+                            state.mediaBuffer = null;
                             state.mediaName = null;
+                            state.mediaConvertedFromVideo = false;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
                             break;
