@@ -28,17 +28,17 @@ const IDLE_TIMEOUT_MINUTES = 15;
 const IDLE_TIMEOUT = IDLE_TIMEOUT_MINUTES * 60_000;
 
 const COLOR_PRESETS = [
-    { label: 'Primary (blue)',        value: '#336699', emoji: '' },
-    { label: 'Success (green)',       value: '#57F287', emoji: '' },
-    { label: 'Error (red)',           value: '#ED4245', emoji: '' },
-    { label: 'Warning (yellow)',      value: '#FEE75C', emoji: '' },
-    { label: 'Info (bright blue)',    value: '#3498DB', emoji: '' },
-    { label: 'Blurple (Discord)',     value: '#5865F2', emoji: '' },
-    { label: 'Fuchsia',              value: '#EB459E', emoji: '' },
-    { label: 'Gold',                  value: '#F1C40F', emoji: '' },
-    { label: 'White',                 value: '#FFFFFF', emoji: '' },
-    { label: 'Dark',                  value: '#202225', emoji: '' },
-    { label: 'Custom hex...',         value: '__custom__', emoji: '' },
+    { label: 'Primary (blue)',        value: '#336699' },
+    { label: 'Success (green)',       value: '#57F287' },
+    { label: 'Error (red)',           value: '#ED4245' },
+    { label: 'Warning (yellow)',      value: '#FEE75C' },
+    { label: 'Info (bright blue)',    value: '#3498DB' },
+    { label: 'Blurple (Discord)',     value: '#5865F2' },
+    { label: 'Fuchsia',              value: '#EB459E' },
+    { label: 'Gold',                  value: '#F1C40F' },
+    { label: 'White',                 value: '#FFFFFF' },
+    { label: 'Dark',                  value: '#202225' },
+    { label: 'Custom hex...',         value: '__custom__' },
 ];
 
 function isValidUrl(str) {
@@ -271,12 +271,11 @@ async function handleSetColor(selectInteraction, rootInteraction, state) {
                 new StringSelectMenuOptionBuilder()
                     .setLabel(c.label)
                     .setValue(c.value)
-                    .setEmoji(c.emoji)
                     .setDescription(c.value !== '__custom__' ? c.value : 'Enter your own #RRGGBB value'),
             ),
         );
 
-    await selectInteraction.followUp({
+    const colorPickerMessage = await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
                 .setTitle('Set color')
@@ -289,7 +288,7 @@ async function handleSetColor(selectInteraction, rootInteraction, state) {
         flags: MessageFlags.Ephemeral,
     });
 
-    const colorCollector = rootInteraction.channel.createMessageComponentCollector({
+    const colorCollector = colorPickerMessage.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         filter: i =>
             i.user.id === selectInteraction.user.id && i.customId === 'eb_color_pick',
@@ -510,7 +509,7 @@ async function handleSetImages(selectInteraction, rootInteraction, state) {
                 .setEmoji('🗑️'),
         );
 
-    await selectInteraction.followUp({
+    const imagePickerMessage = await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
                 .setTitle('Set images')
@@ -525,7 +524,7 @@ async function handleSetImages(selectInteraction, rootInteraction, state) {
         flags: MessageFlags.Ephemeral,
     });
 
-    const imgMenuCollector = rootInteraction.channel.createMessageComponentCollector({
+    const imgMenuCollector = imagePickerMessage.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         filter: i =>
             i.user.id === selectInteraction.user.id && i.customId === 'eb_image_pick',
@@ -690,7 +689,7 @@ async function handleEditField(selectInteraction, rootInteraction, state) {
             ),
         );
 
-    await selectInteraction.followUp({
+    const fieldPickerMessage = await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
                 .setTitle('Edit field')
@@ -701,7 +700,7 @@ async function handleEditField(selectInteraction, rootInteraction, state) {
         flags: MessageFlags.Ephemeral,
     });
 
-    const pickCollector = rootInteraction.channel.createMessageComponentCollector({
+    const pickCollector = fieldPickerMessage.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         filter: i =>
             i.user.id === selectInteraction.user.id && i.customId === 'eb_edit_field_pick',
@@ -807,7 +806,7 @@ async function handleRemoveField(selectInteraction, rootInteraction, state) {
             ),
         );
 
-    await selectInteraction.followUp({
+    const removePickerMessage = await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
                 .setTitle('Remove field')
@@ -818,7 +817,7 @@ async function handleRemoveField(selectInteraction, rootInteraction, state) {
         flags: MessageFlags.Ephemeral,
     });
 
-    const removeCollector = rootInteraction.channel.createMessageComponentCollector({
+    const removeCollector = removePickerMessage.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         filter: i =>
             i.user.id === selectInteraction.user.id && i.customId === 'eb_remove_field_pick',
@@ -852,7 +851,7 @@ async function handleReorderFields(selectInteraction, rootInteraction, state) {
             ),
         );
 
-    await selectInteraction.followUp({
+    const reorderPickerMessage = await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
                 .setTitle('Reorder fields')
@@ -863,7 +862,7 @@ async function handleReorderFields(selectInteraction, rootInteraction, state) {
         flags: MessageFlags.Ephemeral,
     });
 
-    const pickCollector = rootInteraction.channel.createMessageComponentCollector({
+    const pickCollector = reorderPickerMessage.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         filter: i =>
             i.user.id === selectInteraction.user.id && i.customId === 'eb_reorder_pick',
@@ -894,7 +893,7 @@ async function handleReorderFields(selectInteraction, rootInteraction, state) {
             .setLabel('Cancel')
             .setStyle(ButtonStyle.Secondary);
 
-        await pickInter.followUp({
+        const directionMessage = await pickInter.followUp({
             embeds: [
                 new EmbedBuilder()
                     .setTitle('Move field')
@@ -907,7 +906,7 @@ async function handleReorderFields(selectInteraction, rootInteraction, state) {
             flags: MessageFlags.Ephemeral,
         });
 
-        const dirCollector = rootInteraction.channel.createMessageComponentCollector({
+        const dirCollector = directionMessage.createMessageComponentCollector({
             componentType: ComponentType.Button,
             filter: i =>
                 i.user.id === selectInteraction.user.id &&
@@ -956,7 +955,7 @@ async function handlePostEmbed(selectInteraction, rootInteraction, state, guild)
         .setPlaceholder('Select a channel...')
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
 
-    await selectInteraction.followUp({
+    const channelPickerMessage = await selectInteraction.followUp({
         embeds: [
             new EmbedBuilder()
                 .setTitle('Post embed')
@@ -967,7 +966,7 @@ async function handlePostEmbed(selectInteraction, rootInteraction, state, guild)
         flags: MessageFlags.Ephemeral,
     });
 
-    const chanCollector = rootInteraction.channel.createMessageComponentCollector({
+    const chanCollector = channelPickerMessage.createMessageComponentCollector({
         componentType: ComponentType.ChannelSelect,
         filter: i =>
             i.user.id === selectInteraction.user.id && i.customId === 'eb_post_channel',
@@ -1041,7 +1040,8 @@ export default {
 
             await refreshDashboard(interaction, state);
 
-            const collector = interaction.channel.createMessageComponentCollector({
+            const dashboardMessage = await interaction.fetchReply();
+            const collector = dashboardMessage.createMessageComponentCollector({
                 componentType: ComponentType.Button,
                 filter: i =>
                     i.user.id === interaction.user.id && i.customId.startsWith('eb_main_'),
