@@ -1,5 +1,6 @@
 import { Events, AuditLogEvent } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
+import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 
 export default {
@@ -38,7 +39,7 @@ export default {
         eventType: EVENT_TYPES.MODERATION_BAN,
         data: {
           title: 'Ban log',
-          color: 0xED4245,
+          color: getColor('red'),
           lines: [
             `**User:** ${user.toString()} (${user.tag})`,
             `**Banned by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
