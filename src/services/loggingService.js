@@ -17,6 +17,7 @@ const PERMANENT_TIMEOUT_LOG_CHANNEL_ID = '1539371111240831078';
 const PERMANENT_UNBAN_LOG_CHANNEL_ID = '1539259457404412036';
 const PERMANENT_REPORT_LOG_CHANNEL_ID = '1539372511089926244';
 const RECENT_KICK_LOG_TTL_MS = 15_000;
+const CLOUDY_DARK_RED = 0x520808;
 const recentBanLogs = new Map();
 const recentKickLogs = new Map();
 const recentUnbanLogs = new Map();
@@ -72,7 +73,7 @@ const EVENT_TYPES = {
 };
 
 const EVENT_COLORS = {
-  'moderation.ban': 0x721919,
+  'moderation.ban': CLOUDY_DARK_RED,
   'moderation.kick': 0xFFA500,
   'moderation.mute': 0xF1C40F,
   'moderation.warn': 0xFEE75C,
@@ -86,29 +87,29 @@ const EVENT_COLORS = {
   'moderation.config': 0x5865F2,
   'leveling.levelup': 0x00ff00,
   'leveling.milestone': 0xFFD700,
-  'message.delete': 0x8b0000,
+  'message.delete': CLOUDY_DARK_RED,
   'message.edit': 0xFFA500,
-  'message.bulkdelete': 0xFF0000,
+  'message.bulkdelete': CLOUDY_DARK_RED,
   'role.create': 0x2ecc71,
-  'role.delete': 0xe74c3c,
+  'role.delete': CLOUDY_DARK_RED,
   'role.update': 0x3498db,
   'member.join': 0x2ecc71,
-  'member.leave': 0xe74c3c,
+  'member.leave': CLOUDY_DARK_RED,
   'member.namechange': 0x3498db,
   'reactionrole.add': 0x2ecc71,
-  'reactionrole.remove': 0xe74c3c,
+  'reactionrole.remove': CLOUDY_DARK_RED,
   'reactionrole.create': 0x3498db,
-  'reactionrole.delete': 0x8b0000,
+  'reactionrole.delete': CLOUDY_DARK_RED,
   'reactionrole.update': 0xFFA500,
   'giveaway.create': 0x57F287,
   'giveaway.winner': 0xFEE75C,
   'giveaway.reroll': 0x3498DB,
-  'giveaway.delete': 0xE74C3C,
+  'giveaway.delete': CLOUDY_DARK_RED,
   'counter.update': 0x0099ff,
   'counter.config': 0x5865F2,
   'application.submit': 0x5865F2,
   'application.review': 0x57F287,
-  'report.file': 0xED4245,
+  'report.file': CLOUDY_DARK_RED,
 };
 
 const EVENT_ICONS = {
@@ -471,7 +472,7 @@ export async function getLoggingStatus(client, guildId) {
 export async function toggleEventLogging(client, guildId, eventTypes, enabled) {
   try {
     const config = await getGuildConfig(client, guildId);
-    const logging = { ...config.logging, enabledEvents: { ...(config.logging?.enabledEvents || {}) } };
+    const logging = { ...config.logging, enabledEvents: { ...(config.logging?.enabledEvents || {}) };
     const types = Array.isArray(eventTypes) ? eventTypes : [eventTypes];
 
     types.forEach((type) => {
