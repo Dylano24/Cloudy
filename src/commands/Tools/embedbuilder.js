@@ -148,6 +148,18 @@ function buildMessageEmbed(state, preview = true) {
     return new EmbedBuilder(data);
 }
 
+function buildPostedMessagePayload(state) {
+    const embed = buildMessageEmbed(state, false).toJSON();
+
+    if (state.bottomLine) {
+        embed.footer = { text: state.bottomLine.slice(0, 2048) };
+    } else {
+        delete embed.footer;
+    }
+
+    return { embeds: [embed] };
+}
+
 function buildControlEmbed(state) {
     return new EmbedBuilder()
         .setTitle('Message builder')
@@ -414,7 +426,7 @@ async function postMessage(buttonInteraction, state, guild) {
             return;
         }
 
-        await channel.send({ embeds: [buildMessageEmbed(state, false)] });
+        await channel.send(buildPostedMessagePayload(state));
         const sentMessage = await channelInteraction.followUp({
             embeds: [successEmbed('Message sent', `Your message has been posted to ${channel}.`)],
             flags: MessageFlags.Ephemeral,
