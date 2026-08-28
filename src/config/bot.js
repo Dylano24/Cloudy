@@ -190,7 +190,7 @@ export const botConfig = {
     // Command cooldowns (milliseconds).
     cooldowns: {
       daily: 24 * 60 * 60 * 1000,
-      work: 60 * 60 * 1000,
+      work: 60 * 60 * 60 * 1000,
       crime: 2 * 60 * 60 * 1000,
       rob: 4 * 60 * 60 * 1000,
     },
@@ -492,43 +492,147 @@ export function validateConfig(config) {
     logger.debug('NODE_ENV:', process.env.NODE_ENV);
   }
 
-  // Validate required environment variables
-  const requiredVars = ['DISCORD_TOKEN', 'CLIENT_ID'];
-  for (const varName of requiredVars) {
-    if (!process.env[varName]) {
-      errors.push(`Missing required environment variable: ${varName}`);
-    }
+  if (!process.env.DISCORD_TOKEN && !process.env.TOKEN && !process.env.BOT_TOKEN && !process.env.DISCORD_BOT_TOKEN) {
+    errors.push("Bot token is required (DISCORD_TOKEN, TOKEN, BOT_TOKEN, or DISCORD_BOT_TOKEN)");
   }
 
-  return {
-    valid: errors.length === 0,
-    errors,
-  };
+  // The Discord application ID is optional here. After login the bot can
+  // safely use client.user.id, preventing Railway from crashing when a
+  // separate CLIENT_ID variable was not configured.
+
+  // PostgreSQL is optional. initializeDatabase() automatically falls back to
+  // in-memory storage when no database connection is configured.
+
+  return errors;
 }
 
-export function getColor(colorName) {
-  const colors = botConfig.embeds.colors;
+const configErrors = validateConfig(botConfig);
+if (configErrors.length > 0) {
+  logger.error(`Bot configuration errors:\n${configErrors.join("\n")}`);
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
+}
 
-  if (typeof colorName === 'number') {
-    return colorName;
+export const BotConfig = botConfig;
+
+const COMMAND_CATEGORY_FEATURE_MAP = {
+  birthday: "birthday",
+  community: "community",
+  economy: "economy",
+  fun: "fun",
+  giveaway: "giveaways",
+  jointocreate: "joinToCreate",
+  leveling: "leveling",
+  logging: "logging",
+  moderation: "moderation",
+  music: "music",
+  reaction_roles: "reactionRoles",
+  search: "search",
+  serverstats: "counter",
+  ticket: "tickets",
+  tools: "tools",
+  utility: "utility",
+  verification: "verification",
+  welcome: "welcome",
+};
+
+function normalizeCategoryKey(category) {
+  return String(category || "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+export function getCommandPrefix() {
+  return botConfig.commands?.prefix ?? "!";
+}
+
+export function getBotOwners() {
+  return (botConfig.commands?.owners ?? [])
+    .map((id) => String(id).trim())
+    .filter(Boolean);
+}
+
+export function isBotOwner(userId) {
+  if (!userId) {
+    return false;
   }
 
-  if (typeof colorName === 'string' && colorName.startsWith('#')) {
-    return colorName;
+  return getBotOwners().includes(String(userId));
+}
+
+export function isMaintenanceMode() {
+  return botConfig.commands?.maintenanceMode === true;
+}
+
+export function getBotMessage(key, replacements = {}) {
+  let message = botConfig.messages?.[key] || key;
+
+  for (const [placeholder, value] of Object.entries(replacements)) {
+    message = message.replace(new RegExp(`\\{${placeholder}\\}`, "g"), String(value));
   }
 
-  if (!colorName) {
-    return colors.primary;
+  return message;
+}
+
+export function isFeatureEnabled(featureKey) {
+  if (!featureKey) {
+    return true;
   }
 
-  const path = String(colorName).split('.');
-  let value = colors;
+  return botConfig.features?.[featureKey] !== false;
+}
 
-  for (const segment of path) {
-    value = value?.[segment];
+export function isCommandCategoryEnabled(category) {
+  const normalized = normalizeCategoryKey(category);
+
+  if (!normalized || normalized === "core") {
+    return true;
   }
 
-  return value || colors.primary;
+  const featureKey = COMMAND_CATEGORY_FEATURE_MAP[normalized];
+  if (!featureKey) {
+    return true;
+  }
+
+  return isFeatureEnabled(featureKey);
+}
+
+export function getApplicationStatusColor(status) {
+  const colors = botConfig.applications?.statusColors || {};
+  const hex = colors[status];
+  return hex ? getColor(hex) : getColor(status === "approved" ? "success" : status === "denied" ? "error" : "warning");
+}
+
+export function getDefaultApplicationQuestions() {
+  return (botConfig.applications?.defaultQuestions || []).map((entry) =>
+    typeof entry === "string" ? entry : entry.question,
+  ).filter(Boolean);
+}
+
+export function getColor(path, fallback = "#99AAB5") {
+  
+  if (typeof path === "number") return path;
+  if (typeof path === "string" && path.startsWith("#")) {
+    
+    return parseInt(path.replace("#", ""), 16);
+  }
+  const result = path
+    .split(".")
+    .reduce(
+      (obj, key) => (obj && obj[key] !== undefined ? obj[key] : fallback),
+      botConfig.embeds.colors,
+    );
+  
+  if (typeof result === "string" && result.startsWith("#")) {
+    return parseInt(result.replace("#", ""), 16);
+  }
+  return result;
+}
+
+export function getRandomColor() {
+  const colors = Object.values(botConfig.embeds.colors).flatMap((color) =>
+    typeof color === "string" ? color : Object.values(color),
+  );
+  return colors[Math.floor(Math.random() * colors.length)];
 }
 
 export default botConfig;
