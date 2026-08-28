@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import axios from 'axios';
 
+const MIN_VIDEO_SECONDS = 1;
+const MAX_VIDEO_SECONDS = 6;
 const MAX_DOWNLOAD_BYTES = 40 * 1024 * 1024;
 const MAX_GIF_BYTES = 9 * 1024 * 1024;
 
@@ -73,6 +75,12 @@ export async function convertVideoUrlToGif(videoUrl) {
         await downloadToFile(videoUrl, inputPath);
         const duration = await getDurationSeconds(inputPath);
 
+        if (duration < MIN_VIDEO_SECONDS || duration > MAX_VIDEO_SECONDS) {
+            const error = new Error(`Video must be between ${MIN_VIDEO_SECONDS} and ${MAX_VIDEO_SECONDS} seconds long.`);
+            error.code = 'VIDEO_DURATION_OUT_OF_RANGE';
+            throw error;
+        }
+
         const attempts = [
             { width: 640, fps: 12 },
             { width: 540, fps: 10 },
@@ -89,7 +97,7 @@ export async function convertVideoUrlToGif(videoUrl) {
         }
 
         if (!gifBuffer || gifBuffer.length > MAX_GIF_BYTES) {
-            const error = new Error('Converted GIF is too large for the embed. Try a shorter or lower-resolution video.');
+            const error = new Error('Converted GIF is too large for the embed. Try a lower-resolution video.');
             error.code = 'GIF_TOO_LARGE';
             throw error;
         }
