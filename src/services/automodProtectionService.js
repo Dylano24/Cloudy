@@ -1,4 +1,5 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 
 const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
@@ -138,7 +139,7 @@ async function sendWarning(message, title, description) {
   const warning = await message.channel.send({
     embeds: [
       new EmbedBuilder()
-        .setColor('#ED4245')
+        .setColor(getColor('red'))
         .setTitle(title)
         .setDescription(`<@${message.author.id}>, ${description}`)
         .setThumbnail(CLOUDY_C_LOGO_URL)
