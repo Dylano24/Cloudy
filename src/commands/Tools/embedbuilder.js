@@ -335,6 +335,11 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📷'),
         new ButtonBuilder()
+            .setCustomId('simple_embed_media_link')
+            .setLabel('Discord GIF / link')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🔗'),
+        new ButtonBuilder()
             .setCustomId('simple_embed_clear_media')
             .setLabel('Remove media')
             .setStyle(ButtonStyle.Secondary)
@@ -542,6 +547,156 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
     await refreshBuilder(rootInteraction, state);
 }
 
+function parseDiscordMessageLink(value) {
+    const match = String(value || '').match(/^https?:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/channels\/(\d+)\/(\d+)\/(\d+)(?:\?.*)?$/i);
+    if (!match) return null;
+    return { guildId: match[1], channelId: match[2], messageId: match[3] };
+}
+
+async function resolveLinkedMedia(client, value) {
+    const trimmed = String(value || '').trim();
+    const messageRef = parseDiscordMessageLink(trimmed);
+
+    if (messageRef) {
+        const guild = client.guilds.cache.get(messageRef.guildId)
+            || await client.guilds.fetch(messageRef.guildId).catch(() => null);
+        if (!guild) return { error: 'Cloudy does not have access to that Discord server.' };
+
+        const channel = guild.channels.cache.get(messageRef.channelId)
+            || await guild.channels.fetch(messageRef.channelId).catch(() => null);
+        if (!channel?.messages?.fetch) return { error: 'Cloudy cannot read that Discord channel.' };
+
+        const message = await channel.messages.fetch(messageRef.messageId).catch(() => null);
+        if (!message) return { error: 'Cloudy could not read that Discord message.' };
+
+        const attachment = message.attachments.find(item => getMediaKind(item));
+        if (attachment) return { media: attachment };
+
+        const embedMediaUrl = message.embeds
+            .map(embed => embed.image?.url || embed.thumbnail?.url || null)
+            .find(Boolean);
+        if (embedMediaUrl) {
+            return {
+                media: {
+                    url: embedMediaUrl,
+                    name: embedMediaUrl.split('/').pop()?.split('?')[0] || 'discord-media.gif',
+                },
+            };
+        }
+
+        return { error: 'That Discord message does not contain a picture, GIF, or video.' };
+    }
+
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(trimmed);
+    } catch {
+        return { error: 'Paste a valid Discord message link or direct media URL.' };
+    }
+
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        return { error: 'Paste a valid http or https media URL.' };
+    }
+
+    return {
+        media: {
+            url: parsedUrl.toString(),
+            name: parsedUrl.pathname.split('/').pop() || 'linked-media.gif',
+        },
+    };
+}
+
+async function editMediaLink(buttonInteraction, rootInteraction, state) {
+    const modal = new ModalBuilder()
+        .setCustomId('simple_embed_media_link_modal')
+        .setTitle('Use Discord GIF / link')
+        .addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('simple_embed_media_link_value')
+                    .setLabel('Discord message or media link')
+                    .setStyle(TextInputStyle.Short)
+                    .setMaxLength(2000)
+                    .setRequired(true)
+                    .setPlaceholder('Paste a Discord message, GIF, image or video link'),
+            ),
+        );
+
+    const shown = await InteractionHelper.safeShowModal(buttonInteraction, modal);
+    if (!shown) return;
+
+    const submitted = await buttonInteraction.awaitModalSubmit({
+        filter: interaction =>
+            interaction.customId === 'simple_embed_media_link_modal' &&
+            interaction.user.id === buttonInteraction.user.id,
+        time: 120_000,
+    }).catch(() => null);
+
+    if (!submitted) return;
+
+    const value = submitted.fields.getTextInputValue('simple_embed_media_link_value');
+    const resolved = await resolveLinkedMedia(submitted.client, value);
+
+    if (!resolved.media) {
+        const invalidLinkMessage = await submitted.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('Could not use media')
+                    .setDescription(resolved.error || 'Cloudy could not use that media link.')
+                    .setColor(getColor('error')),
+            ],
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
+        if (invalidLinkMessage) removeTransientMessage(submitted, invalidLinkMessage);
+        return;
+    }
+
+    const linkedMedia = resolved.media;
+    const mediaKind = getMediaKind(linkedMedia);
+
+    if (mediaKind === 'video') {
+        await submitted.deferUpdate().catch(() => {});
+        try {
+            const converted = await convertVideoUrlToGif(linkedMedia.url);
+            state.mediaUrl = null;
+            state.mediaBuffer = converted.buffer;
+            state.mediaName = converted.filename;
+            state.mediaConvertedFromVideo = true;
+            await refreshBuilder(rootInteraction, state);
+        } catch (error) {
+            logger.error('Linked video to GIF conversion failed:', error);
+            const message = error?.code === 'VIDEO_TOO_SHORT'
+                ? 'The video must be at least 1 second long.'
+                : error?.code === 'VIDEO_TOO_LONG'
+                    ? 'The video must be no longer than 6 seconds.'
+                    : error?.code === 'GIF_TOO_LARGE'
+                        ? 'The converted GIF is too large. Try a shorter video.'
+                        : 'Cloudy could not convert that linked video to a GIF.';
+            const failedMessage = await submitted.followUp({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('Video conversion failed')
+                        .setDescription(message)
+                        .setColor(getColor('error')),
+                ],
+                flags: MessageFlags.Ephemeral,
+                fetchReply: true,
+            }).catch(() => null);
+            if (failedMessage) removeTransientMessage(submitted, failedMessage);
+        }
+        return;
+    }
+
+    state.mediaUrl = linkedMedia.url;
+    state.mediaBuffer = null;
+    state.mediaName = linkedMedia.name || null;
+    state.mediaConvertedFromVideo = false;
+
+    await submitted.deferUpdate().catch(() => {});
+    await refreshBuilder(rootInteraction, state);
+}
+
 async function postMessage(buttonInteraction, state, guild) {
     if (!state.title && !state.message && !hasMedia(state)) {
         await buttonInteraction.deferUpdate().catch(() => {});
@@ -679,6 +834,9 @@ export default {
                             break;
                         case 'simple_embed_media':
                             await editMedia(buttonInteraction, interaction, state);
+                            break;
+                        case 'simple_embed_media_link':
+                            await editMediaLink(buttonInteraction, interaction, state);
                             break;
                         case 'simple_embed_clear_media':
                             state.mediaUrl = null;
