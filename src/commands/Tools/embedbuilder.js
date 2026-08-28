@@ -4,14 +4,14 @@ import {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
-    ChannelSelectMenuBuilder,
+    StringSelectMenuBuilder,
+    StringSelectMenuOptionBuilder,
     ModalBuilder,
     FileUploadBuilder,
     LabelBuilder,
     TextInputBuilder,
     TextInputStyle,
     MessageFlags,
-    ComponentType,
     ChannelType,
     EmbedBuilder,
 } from 'discord.js';
@@ -25,6 +25,10 @@ import {
     deleteEmbedColorPickerSession,
 } from '../../services/embedColorPickerSessionService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from '../../services/cloudyBrandingService.js';
+import {
+    getEveryGuildChannel,
+    refreshAllTicketChannels,
+} from '../../services/ticketChannelBrowserService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -32,10 +36,8 @@ const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
 const DEFAULT_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const DISCORD_TEXT_INPUT_LIMIT = 4000;
 const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
-const POSTABLE_CHANNEL_TYPES = [
-    ChannelType.GuildText,
-    ChannelType.GuildAnnouncement,
-];
+const CHANNEL_PAGE_SIZE = 100;
+const CHANNEL_SELECT_SIZE = 25;
 
 function isImageAttachment(attachment) {
     if (!attachment) return false;
@@ -46,6 +48,84 @@ function isImageAttachment(attachment) {
 function shortValue(value, maxLength) {
     if (!value) return '`Not set`';
     return `\`${value.length > maxLength ? `${value.slice(0, maxLength)}…` : value}\``;
+}
+
+function isPublicToEveryone(guild, channel) {
+    try {
+        return Boolean(channel.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel));
+    } catch {
+        return false;
+    }
+}
+
+function buildChannelOption(guild, channel) {
+    const visibility = isPublicToEveryone(guild, channel) ? 'Public' : 'Private';
+    const typeLabel = channel.type === ChannelType.GuildAnnouncement ? 'Announcement' : 'Text';
+    const parent = channel.parent?.name ? ` • ${channel.parent.name}` : '';
+
+    return new StringSelectMenuOptionBuilder()
+        .setLabel(`${channel.type === ChannelType.GuildAnnouncement ? '📢' : '#'} ${String(channel.name || channel.id)}`.slice(0, 100))
+        .setDescription(`${visibility} • ${typeLabel}${parent} • ${channel.id}`.slice(0, 100))
+        .setValue(channel.id);
+}
+
+function buildChannelPicker(guild, page = 0) {
+    const channels = getEveryGuildChannel(guild);
+    const pageCount = Math.max(1, Math.ceil(channels.length / CHANNEL_PAGE_SIZE));
+    const safePage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
+    const pageStart = safePage * CHANNEL_PAGE_SIZE;
+    const pageChannels = channels.slice(pageStart, pageStart + CHANNEL_PAGE_SIZE);
+    const pageEnd = pageStart + pageChannels.length;
+    const components = [];
+
+    for (let offset = 0; offset < pageChannels.length; offset += CHANNEL_SELECT_SIZE) {
+        const segment = pageChannels.slice(offset, offset + CHANNEL_SELECT_SIZE);
+        const first = pageStart + offset + 1;
+        const last = first + segment.length - 1;
+        const select = new StringSelectMenuBuilder()
+            .setCustomId(`simple_embed_post_channel:${safePage}:${Math.floor(offset / CHANNEL_SELECT_SIZE)}`)
+            .setPlaceholder(`Channels ${first}-${last} of ${channels.length}`)
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(...segment.map(channel => buildChannelOption(guild, channel)));
+        components.push(new ActionRowBuilder().addComponents(select));
+    }
+
+    if (pageCount > 1) {
+        components.push(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`simple_embed_channel_page:${Math.max(0, safePage - 1)}`)
+                    .setLabel('Previous')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setDisabled(safePage <= 0),
+                new ButtonBuilder()
+                    .setCustomId(`simple_embed_channel_page:${Math.min(pageCount - 1, safePage + 1)}`)
+                    .setLabel('Next')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setDisabled(safePage >= pageCount - 1),
+            ),
+        );
+    }
+
+    return {
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Post message')
+                .setDescription([
+                    'Select the channel where the message should be posted.',
+                    '',
+                    `**Text channels loaded:** ${channels.length}`,
+                    `**Showing:** ${channels.length ? `${pageStart + 1}-${pageEnd}` : '0'} of ${channels.length} • Page ${safePage + 1}/${pageCount}`,
+                    '',
+                    'All public and private text/announcement channels available to Cloudy are included.',
+                ].join('\n'))
+                .setColor(getColor('info')),
+        ],
+        components,
+        channels,
+        page: safePage,
+    };
 }
 
 function colorToHex(color) {
@@ -392,36 +472,44 @@ async function postMessage(buttonInteraction, state, guild) {
     }
 
     await buttonInteraction.deferUpdate();
+    await refreshAllTicketChannels(guild, true);
 
-    const channelSelect = new ChannelSelectMenuBuilder()
-        .setCustomId('simple_embed_post_channel')
-        .setPlaceholder('Select a channel...')
-        .addChannelTypes(...POSTABLE_CHANNEL_TYPES);
-
+    const initialPicker = buildChannelPicker(guild, 0);
     const channelPickerMessage = await buttonInteraction.followUp({
-        embeds: [
-            new EmbedBuilder()
-                .setTitle('Post message')
-                .setDescription('Select the channel where the message should be posted.')
-                .setColor(getColor('info')),
-        ],
-        components: [new ActionRowBuilder().addComponents(channelSelect)],
+        embeds: initialPicker.embeds,
+        components: initialPicker.components,
         flags: MessageFlags.Ephemeral,
     });
     removeTransientMessage(buttonInteraction, channelPickerMessage);
 
+    if (!initialPicker.channels.length) return;
+
     const collector = channelPickerMessage.createMessageComponentCollector({
-        componentType: ComponentType.ChannelSelect,
         filter: interaction =>
             interaction.user.id === buttonInteraction.user.id &&
-            interaction.customId === 'simple_embed_post_channel',
+            (
+                interaction.customId.startsWith('simple_embed_post_channel:') ||
+                interaction.customId.startsWith('simple_embed_channel_page:')
+            ),
         time: 60_000,
-        max: 1,
     });
 
     collector.on('collect', async channelInteraction => {
+        if (channelInteraction.customId.startsWith('simple_embed_channel_page:')) {
+            const page = Number(channelInteraction.customId.split(':')[1]) || 0;
+            const picker = buildChannelPicker(guild, page);
+            await channelInteraction.update({
+                embeds: picker.embeds,
+                components: picker.components,
+            });
+            return;
+        }
+
         await channelInteraction.deferUpdate();
-        const channel = channelInteraction.channels.first();
+        const channelId = channelInteraction.values?.[0];
+        const channel = channelId
+            ? guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null)
+            : null;
 
         if (!channel) {
             await replyUserError(channelInteraction, {
@@ -440,6 +528,7 @@ async function postMessage(buttonInteraction, state, guild) {
             return;
         }
 
+        collector.stop('posted');
         const sentMessage = await channelInteraction.followUp({
             embeds: [successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
             flags: MessageFlags.Ephemeral,
@@ -484,8 +573,8 @@ export default {
 
             const dashboardMessage = await interaction.fetchReply();
             const collector = dashboardMessage.createMessageComponentCollector({
-                componentType: ComponentType.Button,
                 filter: buttonInteraction =>
+                    buttonInteraction.isButton() &&
                     buttonInteraction.user.id === interaction.user.id &&
                     buttonInteraction.customId.startsWith('simple_embed_'),
             });
