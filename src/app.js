@@ -18,6 +18,8 @@ import { shutdownMusic } from './services/music/playerHandler.js';
 import { startRustPatchNotes } from './services/rustPatchNotesService.js';
 import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
+import { applyEmbedColorPickerSession } from './services/embedColorPickerSessionService.js';
+import { embedColorPickerPage } from './web/embedColorPickerPage.js';
 
 class TitanBot extends Client {
   constructor() {
@@ -135,6 +137,8 @@ class TitanBot extends Client {
       next();
     });
 
+    app.use(express.json({ limit: '8kb' }));
+
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
     const maxRequests = this.config.api?.rateLimit?.max || 100;
@@ -207,10 +211,32 @@ class TitanBot extends Client {
 
     app.get('/', (req, res) => {
       res.status(200).json({ 
-        message: 'TitanBot System Online',
+        message: 'Cloudy system online',
         version: pkg.version,
         timestamp: new Date().toISOString()
       });
+    });
+
+    app.get('/embed-color', (req, res) => {
+      res.type('html').send(embedColorPickerPage());
+    });
+
+    app.post('/api/embed-color/:token', async (req, res) => {
+      try {
+        const result = await applyEmbedColorPickerSession(req.params.token, req.body?.color);
+        if (!result.ok) {
+          const status = result.reason === 'invalid_color' ? 400 : 410;
+          return res.status(status).json({
+            error: result.reason === 'invalid_color'
+              ? 'Enter a valid six-digit HEX color.'
+              : 'This color session has expired. Reopen it from Discord.',
+          });
+        }
+        return res.status(200).json({ ok: true, color: result.color });
+      } catch (error) {
+        logger.error('Embed color picker error:', error);
+        return res.status(500).json({ error: 'Could not update the color.' });
+      }
     });
 
     const startServer = (port, attempt = 0) => {
