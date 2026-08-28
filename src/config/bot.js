@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger.js';
 
-const CLOUDY_RED = "#520808";
+const CLOUDY_RED = "#7A1712";
 
 export const botConfig = {
   // =========================
@@ -190,7 +190,7 @@ export const botConfig = {
     // Command cooldowns (milliseconds).
     cooldowns: {
       daily: 24 * 60 * 60 * 1000,
-      work: 60 * 60 * 60 * 1000,
+      work: 60 * 60 * 1000,
       crime: 2 * 60 * 60 * 1000,
       rob: 4 * 60 * 60 * 1000,
     },
