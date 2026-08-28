@@ -15,33 +15,47 @@ function isGifUrl(value) {
   return /\.gif(?:\?|$)/i.test(url) || /media\.tenor\.com\//i.test(url) || /media\d*\.giphy\.com\//i.test(url);
 }
 
-function getMessageGifUrls(message) {
-  const urls = [];
+function getUrlKind(value, contentType = '') {
+  const url = String(value || '').toLowerCase();
+  const type = normalize(contentType);
+
+  if (type.startsWith('video/') || /\.(?:mp4|mov|m4v|webm|mkv|avi|3gp|3g2|mts|m2ts|hevc)(?:\?|$)/i.test(url)) {
+    return 'video';
+  }
+  if (type.startsWith('image/') || /\.(?:png|jpe?g|webp|gif)(?:\?|$)/i.test(url) || isGifUrl(url)) {
+    return isGifUrl(url) || type === 'image/gif' ? 'gif' : 'image';
+  }
+  return null;
+}
+
+function getMessageMedia(message, allowedKinds) {
+  const media = [];
 
   for (const attachment of message.attachments?.values?.() || []) {
-    const contentType = normalize(attachment.contentType);
-    if (contentType === 'image/gif' || isGifUrl(attachment.url)) {
-      urls.push({
-        url: attachment.url,
-        name: attachment.name || 'discord-gif.gif',
-        sourceText: `${attachment.name || ''} ${message.content || ''}`,
-      });
-    }
+    const kind = getUrlKind(attachment.url, attachment.contentType);
+    if (!kind || !allowedKinds.has(kind)) continue;
+    media.push({
+      url: attachment.url,
+      name: attachment.name || `discord-${kind}`,
+      kind,
+      sourceText: `${attachment.name || ''} ${message.content || ''}`,
+    });
   }
 
   for (const embed of message.embeds || []) {
     const candidates = [
-      embed.image?.url,
-      embed.thumbnail?.url,
-      embed.video?.url,
-      embed.url,
-    ].filter(Boolean);
+      { url: embed.image?.url, kind: getUrlKind(embed.image?.url) },
+      { url: embed.thumbnail?.url, kind: getUrlKind(embed.thumbnail?.url) },
+      { url: embed.video?.url, kind: 'video' },
+      { url: embed.url, kind: getUrlKind(embed.url) },
+    ];
 
-    for (const url of candidates) {
-      if (!isGifUrl(url)) continue;
-      urls.push({
-        url,
-        name: 'discord-gif.gif',
+    for (const candidate of candidates) {
+      if (!candidate.url || !candidate.kind || !allowedKinds.has(candidate.kind)) continue;
+      media.push({
+        url: candidate.url,
+        name: `discord-${candidate.kind}`,
+        kind: candidate.kind,
         sourceText: `${embed.title || ''} ${embed.description || ''} ${message.content || ''}`,
       });
     }
@@ -50,15 +64,17 @@ function getMessageGifUrls(message) {
   const contentUrls = String(message.content || '').match(/https?:\/\/\S+/g) || [];
   for (const rawUrl of contentUrls) {
     const url = rawUrl.replace(/[)>.,]+$/, '');
-    if (!isGifUrl(url)) continue;
-    urls.push({
+    const kind = getUrlKind(url);
+    if (!kind || !allowedKinds.has(kind)) continue;
+    media.push({
       url,
-      name: 'discord-gif.gif',
+      name: `discord-${kind}`,
+      kind,
       sourceText: message.content || '',
     });
   }
 
-  return urls;
+  return media;
 }
 
 function canReadChannel(guild, channel) {
@@ -92,14 +108,19 @@ async function mapWithConcurrency(items, limit, worker) {
   return results;
 }
 
-export async function searchDiscordGifs(client, query, options = {}) {
+export async function searchDiscordMedia(client, query, options = {}) {
   const wanted = normalize(query).trim();
   const preferredGuildId = options.preferredGuildId || null;
-  const guilds = [...client.guilds.cache.values()].sort((a, b) => {
-    if (a.id === preferredGuildId) return -1;
-    if (b.id === preferredGuildId) return 1;
-    return a.name.localeCompare(b.name);
-  });
+  const guildId = options.guildId || null;
+  const allowedKinds = new Set(options.kinds?.length ? options.kinds : ['image', 'gif', 'video']);
+
+  const guilds = [...client.guilds.cache.values()]
+    .filter(guild => !guildId || guild.id === guildId)
+    .sort((a, b) => {
+      if (a.id === preferredGuildId) return -1;
+      if (b.id === preferredGuildId) return 1;
+      return a.name.localeCompare(b.name);
+    });
 
   const channels = [];
   for (const guild of guilds) {
@@ -119,9 +140,9 @@ export async function searchDiscordGifs(client, query, options = {}) {
 
     const matches = [];
     for (const message of messages.values()) {
-      for (const gif of getMessageGifUrls(message)) {
+      for (const entry of getMessageMedia(message, allowedKinds)) {
         const haystack = normalize([
-          gif.sourceText,
+          entry.sourceText,
           guild.name,
           channel.name,
           message.author?.username,
@@ -131,8 +152,9 @@ export async function searchDiscordGifs(client, query, options = {}) {
         if (wanted && !haystack.includes(wanted)) continue;
 
         matches.push({
-          url: gif.url,
-          name: gif.name,
+          url: entry.url,
+          name: entry.name,
+          kind: entry.kind,
           guildId: guild.id,
           guildName: guild.name,
           channelId: channel.id,
@@ -156,4 +178,11 @@ export async function searchDiscordGifs(client, query, options = {}) {
       return true;
     })
     .slice(0, MAX_RESULTS);
+}
+
+export async function searchDiscordGifs(client, query, options = {}) {
+  return searchDiscordMedia(client, query, {
+    ...options,
+    kinds: ['gif'],
+  });
 }
