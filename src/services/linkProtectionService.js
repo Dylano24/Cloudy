@@ -6,6 +6,7 @@ import {
     EmbedBuilder,
     PermissionFlagsBits,
 } from 'discord.js';
+import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 
 const MALICIOUS_TIMEOUT_MS = 30 * 60 * 1000;
@@ -248,7 +249,7 @@ function buildAlertPayload(message, title, description, components = []) {
     return {
         embeds: [
             new EmbedBuilder()
-                .setColor('#ED4245')
+                .setColor(getColor('red'))
                 .setTitle(title)
                 .setDescription(`<@${message.author.id}>, ${description}`)
                 .setThumbnail(CLOUDY_C_LOGO_URL)
