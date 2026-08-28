@@ -472,7 +472,7 @@ export async function getLoggingStatus(client, guildId) {
 export async function toggleEventLogging(client, guildId, eventTypes, enabled) {
   try {
     const config = await getGuildConfig(client, guildId);
-    const logging = { ...config.logging, enabledEvents: { ...(config.logging?.enabledEvents || {}) };
+    const logging = { ...config.logging, enabledEvents: { ...(config.logging?.enabledEvents || {}) } };
     const types = Array.isArray(eventTypes) ? eventTypes : [eventTypes];
 
     types.forEach((type) => {
