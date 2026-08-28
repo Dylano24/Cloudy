@@ -310,7 +310,7 @@ function buildControls(state) {
             .setCustomId('simple_embed_content')
             .setLabel('Edit title and message')
             .setStyle(ButtonStyle.Primary)
-            .setEmoji('✏️'),
+            .setEmoji('✍🏼'),
         new ButtonBuilder()
             .setCustomId('simple_embed_logo')
             .setLabel(state.showLogo ? 'Remove logo' : 'Add logo')
