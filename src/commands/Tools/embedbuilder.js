@@ -22,6 +22,14 @@ import { getColor } from '../../config/bot.js';
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const SESSION_TIMEOUT_MINUTES = 15;
 const SESSION_TIMEOUT = SESSION_TIMEOUT_MINUTES * 60_000;
+const MEDIA_PAGE_HOSTS = new Set([
+    'tenor.com',
+    'www.tenor.com',
+    'giphy.com',
+    'www.giphy.com',
+    'imgur.com',
+    'www.imgur.com',
+]);
 
 function isValidUrl(value) {
     try {
@@ -38,25 +46,83 @@ function isImageAttachment(attachment) {
     return /\.(?:png|jpe?g|webp|gif)(?:\?.*)?$/i.test(attachment.url || attachment.name || '');
 }
 
+function isDirectImageUrl(url) {
+    return /\.(?:png|jpe?g|webp|gif)$/i.test(url.pathname);
+}
+
+function decodeHtmlUrl(value) {
+    return value
+        .replace(/&amp;/gi, '&')
+        .replace(/&#x2f;/gi, '/')
+        .replace(/&#47;/g, '/')
+        .replace(/&quot;/gi, '"');
+}
+
+function findPageImage(html) {
+    const propertyFirst = html.match(
+        /<meta[^>]+(?:property|name)=["'](?:og:image(?::secure_url)?|twitter:image)["'][^>]+content=["']([^"']+)["']/i,
+    );
+    if (propertyFirst?.[1]) return propertyFirst[1];
+
+    const contentFirst = html.match(
+        /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image(?::secure_url)?|twitter:image)["']/i,
+    );
+    return contentFirst?.[1] || null;
+}
+
+async function resolveMediaUrl(value) {
+    if (!isValidUrl(value)) return null;
+
+    const url = new URL(value);
+    if (isDirectImageUrl(url)) return url.toString();
+    if (!MEDIA_PAGE_HOSTS.has(url.hostname.toLowerCase())) return null;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6_000);
+
+    try {
+        const response = await fetch(url, {
+            redirect: 'follow',
+            signal: controller.signal,
+            headers: { 'user-agent': 'Cloudy Discord bot' },
+        });
+        if (!response.ok) return null;
+
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.startsWith('image/')) return response.url;
+        if (!contentType.includes('text/html')) return null;
+
+        const pageImage = findPageImage((await response.text()).slice(0, 1_000_000));
+        if (!pageImage) return null;
+
+        const resolved = new URL(decodeHtmlUrl(pageImage), response.url);
+        return isValidUrl(resolved.toString()) ? resolved.toString() : null;
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 function shortValue(value, maxLength) {
     if (!value) return '`Not set`';
     return `\`${value.length > maxLength ? `${value.slice(0, maxLength)}…` : value}\``;
 }
 
 function buildMessageEmbed(state, preview = true) {
-    const embed = new EmbedBuilder().setColor(getColor('primary'));
+    const data = { color: getColor('primary') };
 
-    if (state.title) embed.setTitle(state.title.slice(0, 256));
-    if (state.message) embed.setDescription(state.message.slice(0, 4096));
-    if (state.showLogo) embed.setThumbnail(CLOUDY_LOGO_URL);
-    if (state.bottomLine) embed.setFooter({ text: state.bottomLine.slice(0, 2048) });
-    if (state.mediaUrl) embed.setImage(state.mediaUrl);
+    if (state.title) data.title = state.title.slice(0, 256);
+    if (state.message) data.description = state.message.slice(0, 4096);
+    if (state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
+    if (state.bottomLine) data.footer = { text: state.bottomLine.slice(0, 2048) };
+    if (state.mediaUrl) data.image = { url: state.mediaUrl };
 
     if (preview && !state.title && !state.message && !state.mediaUrl) {
-        embed.setDescription('*(Use the buttons below to create your message)*');
+        data.description = '*(Use the buttons below to create your message)*';
     }
 
-    return embed;
+    return new EmbedBuilder(data);
 }
 
 function buildControlEmbed(state) {
@@ -238,16 +304,24 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
     if (!submitted) return;
 
     const mediaUrl = submitted.fields.getTextInputValue('simple_embed_media_url').trim();
-    if (!isValidUrl(mediaUrl)) {
-        await replyUserError(submitted, {
-            type: ErrorTypes.USER_INPUT,
-            message: 'Enter a valid public `http://` or `https://` picture or GIF link.',
+    await submitted.deferUpdate().catch(() => {});
+
+    const resolvedMediaUrl = await resolveMediaUrl(mediaUrl);
+    if (!resolvedMediaUrl) {
+        await submitted.followUp({
+            embeds: [
+                new EmbedBuilder({
+                    title: 'Invalid picture or GIF link',
+                    description: 'Use a direct `.png`, `.jpg`, `.webp`, or `.gif` link, a Tenor/Giphy/Imgur link, or upload the file with `/embedbuilder media:`.',
+                    color: getColor('error'),
+                }),
+            ],
+            flags: MessageFlags.Ephemeral,
         });
         return;
     }
 
-    state.mediaUrl = mediaUrl;
-    await submitted.deferUpdate().catch(() => {});
+    state.mediaUrl = resolvedMediaUrl;
     await refreshBuilder(rootInteraction, state);
 }
 
