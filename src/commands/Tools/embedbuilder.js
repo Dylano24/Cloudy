@@ -232,7 +232,19 @@ function buildPreviewEmbed(state) {
         if (firstChunk) data.description = firstChunk.slice(0, DISCORD_EMBED_DESCRIPTION_LIMIT);
         else delete data.description;
 
-        if (state.showLogo) {
+        if (Array.isArray(state.embedFields) && state.embedFields.length) {
+            data.fields = state.embedFields.slice(0, 25).map(field => ({
+                name: String(field.name || '\u200B').slice(0, 256),
+                value: String(field.value || '\u200B').slice(0, 1024),
+                inline: Boolean(field.inline),
+            }));
+        } else {
+            delete data.fields;
+        }
+
+        if (state.removeExistingLogo) {
+            delete data.thumbnail;
+        } else if (state.showLogo) {
             data.thumbnail = { url: CLOUDY_LOGO_URL };
         } else if (data.thumbnail?.url === CLOUDY_LOGO_URL) {
             delete data.thumbnail;
@@ -343,6 +355,8 @@ function buildControlEmbed(state) {
 }
 
 function buildControls(state) {
+    const sourceHasLogo = Boolean(state.modifyTarget?.sourceEmbedData?.thumbnail?.url);
+    const hasLogo = !state.removeExistingLogo && (state.showLogo || sourceHasLogo);
     const contentRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setURL(state.contentEditorUrl)
@@ -351,9 +365,16 @@ function buildControls(state) {
             .setEmoji('✍🏼'),
         new ButtonBuilder()
             .setCustomId('simple_embed_logo')
-            .setLabel(state.showLogo ? 'Remove logo' : 'Add logo')
+            .setLabel('Add Cloudy logo')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('☁️'),
+            .setEmoji('☁️')
+            .setDisabled(state.showLogo && !state.removeExistingLogo),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_remove_logo')
+            .setLabel('Remove logo')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🗑️')
+            .setDisabled(!hasLogo),
         new ButtonBuilder()
             .setCustomId('simple_embed_footer')
             .setLabel('Edit footer')
@@ -888,8 +909,10 @@ export default {
             const state = {
                 title: null,
                 message: null,
+                embedFields: [],
                 sideColor: 0xFFFFFF,
                 showLogo: true,
+                removeExistingLogo: false,
                 bottomLine: DEFAULT_FOOTER_TEXT,
                 mediaUrl: null,
                 mediaBuffer: null,
@@ -915,11 +938,16 @@ export default {
                     title: state.title || '',
                     message: state.message || '',
                     footer: state.bottomLine || '',
+                    fields: Array.isArray(state.embedFields) ? state.embedFields : [],
                 }),
                 onEditorUpdate: async (field, value) => {
                     if (field === 'title') state.title = value.trim() || null;
                     if (field === 'message') state.message = value || null;
                     if (field === 'footer') state.bottomLine = value.trim() || null;
+                    const fieldMatch = String(field).match(/^embed_field_(name|value):(\d{1,2})$/);
+                    if (fieldMatch && Number(fieldMatch[2]) < (state.embedFields?.length || 0)) {
+                        state.embedFields[Number(fieldMatch[2])][fieldMatch[1]] = value;
+                    }
                     const refreshed = await refreshBuilder(interaction, state);
                     if (!refreshed) {
                         const error = new Error('The message builder session has expired.');
@@ -959,7 +987,14 @@ export default {
                             await editContent(buttonInteraction, state);
                             break;
                         case 'simple_embed_logo':
-                            state.showLogo = !state.showLogo;
+                            state.showLogo = true;
+                            state.removeExistingLogo = false;
+                            await buttonInteraction.deferUpdate();
+                            await refreshBuilder(buttonInteraction, state);
+                            break;
+                        case 'simple_embed_remove_logo':
+                            state.showLogo = false;
+                            state.removeExistingLogo = true;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
                             break;
@@ -1008,8 +1043,10 @@ export default {
                         case 'simple_embed_reset':
                             state.title = null;
                             state.message = null;
+                            state.embedFields = [];
                             state.sideColor = 0xFFFFFF;
                             state.showLogo = true;
+                            state.removeExistingLogo = false;
                             state.bottomLine = DEFAULT_FOOTER_TEXT;
                             state.mediaUrl = null;
                             state.mediaBuffer = null;

@@ -18,8 +18,11 @@ export function embedColorPickerPage() {
     input[type=text]:focus, textarea:focus, #titleEditor:focus, #messageEditor:focus { border-color: #5865f2; }
     #titleEditor { min-height: 43px; line-height: 1.2; white-space: nowrap; overflow-x: auto; overflow-y: hidden; cursor: text; }
     #titleEditor:empty::before, #messageEditor:empty::before { content: attr(data-placeholder); color: #949ba4; pointer-events: none; }
-    #titleEditor .title-emoji, #messageEditor .message-emoji { width: 24px; height: 24px; object-fit: contain; vertical-align: -6px; margin: 0 1px; user-select: all; }
+    #titleEditor .title-emoji, #messageEditor .message-emoji { width: 24px; height: 24px; object-fit: contain; vertical-align: -6px; margin: 0 1px; user-select: all; cursor: pointer; }
     #messageEditor { min-height: 170px; max-height: 520px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }
+    #embedFields:empty { display: none; }
+    .embed-field { margin-top: 18px; padding-top: 2px; border-top: 1px solid #35363e; }
+    .embed-field textarea { min-height: 110px; }
     .row { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
     .count { color: #949ba4; font-size: 12px; }
     #emojiSection { margin-top: 18px; }
@@ -61,9 +64,10 @@ export function embedColorPickerPage() {
         <div class="row"><label for="titleEditor">Title</label><span id="titleCount" class="count">0 / 256</span></div>
         <input id="titleInput" type="text" maxlength="256" class="hidden" aria-hidden="true">
         <div id="titleEditor" contenteditable="true" role="textbox" aria-multiline="false" data-placeholder="Write your title here"></div>
-        <div class="row"><label for="messageEditor">Message</label><span id="messageCount" class="count">0 / 4000</span></div>
-        <textarea id="messageInput" maxlength="4000" class="hidden" aria-hidden="true"></textarea>
+        <div class="row"><label for="messageEditor">Message</label><span id="messageCount" class="count">0 / 4096</span></div>
+        <textarea id="messageInput" maxlength="4096" class="hidden" aria-hidden="true"></textarea>
         <div id="messageEditor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Write your message here"></div>
+        <div id="embedFields"></div>
       </div>
       <div id="footerFields" class="hidden">
         <div class="row"><label for="footerInput">Footer</label><span id="footerCount" class="count">0 / 2048</span></div>
@@ -118,6 +122,7 @@ export function embedColorPickerPage() {
       const titleEditor = document.getElementById('titleEditor');
       const messageInput = document.getElementById('messageInput');
       const messageEditor = document.getElementById('messageEditor');
+      const embedFields = document.getElementById('embedFields');
       const footerInput = document.getElementById('footerInput');
       const contentFields = document.getElementById('contentFields');
       const footerFields = document.getElementById('footerFields');
@@ -156,6 +161,7 @@ export function embedColorPickerPage() {
       }
 
       function fieldName(input) {
+        if (input?.dataset?.sessionField) return input.dataset.sessionField;
         if (input === titleInput || input === titleEditor) return 'title';
         if (input === messageInput || input === messageEditor) return 'message';
         return 'footer';
@@ -168,10 +174,14 @@ export function embedColorPickerPage() {
           return;
         }
         if (field === 'message') {
-          counts.message.textContent = messageInput.value.length + ' / 4000';
+          counts.message.textContent = messageInput.value.length + ' / 4096';
           return;
         }
-        counts[field].textContent = input.value.length + ' / ' + input.maxLength;
+        if (counts[field]) counts[field].textContent = input.value.length + ' / ' + input.maxLength;
+        if (input.dataset?.countId) {
+          const counter = document.getElementById(input.dataset.countId);
+          if (counter) counter.textContent = input.value.length + ' / ' + input.maxLength;
+        }
       }
 
       async function save(input) {
@@ -214,6 +224,12 @@ export function embedColorPickerPage() {
         img.title = ':' + emoji.name + ':';
         img.dataset.markup = markup;
         img.contentEditable = 'false';
+        img.setAttribute('aria-label', ':' + emoji.name + ': — tap to remove');
+        img.addEventListener('click', event => {
+          event.preventDefault();
+          img.remove();
+          onError();
+        });
         img.addEventListener('error', () => {
           img.replaceWith(document.createTextNode(markup));
           onError();
@@ -329,12 +345,12 @@ export function embedColorPickerPage() {
 
       function syncMessageFromEditor() {
         const value = serializeMessageEditor();
-        if (value.length > 4000) {
+        if (value.length > 4096) {
           renderMessageEditor(lastValidMessage);
           messageInput.value = lastValidMessage;
           focusEditorEnd(messageEditor, 'message');
           updateCount(messageEditor);
-          setStatus('Message cannot exceed 4000 characters.', 'error');
+          setStatus('Message cannot exceed 4096 characters.', 'error');
           return false;
         }
         lastValidMessage = value;
@@ -436,7 +452,7 @@ export function embedColorPickerPage() {
 
       function insertEmojiIntoRichEditor(editor, type, emoji, markup) {
         const current = type === 'title' ? serializeTitleEditor() : serializeMessageEditor();
-        const limit = type === 'title' ? 256 : 4000;
+        const limit = type === 'title' ? 256 : 4096;
         if (current.length + markup.length > limit) {
           setStatus('That emoji would exceed the field limit.', 'error');
           return;
@@ -528,6 +544,40 @@ export function embedColorPickerPage() {
 
       search.addEventListener('input', renderEmojis);
 
+      function renderExistingFields(fields) {
+        embedFields.replaceChildren();
+        (Array.isArray(fields) ? fields : []).slice(0, 25).forEach((field, index) => {
+          const section = document.createElement('section');
+          section.className = 'embed-field';
+
+          const nameCountId = 'embedFieldNameCount' + index;
+          const valueCountId = 'embedFieldValueCount' + index;
+          section.innerHTML =
+            '<div class="row"><label>Field ' + (index + 1) + ' name</label><span id="' + nameCountId + '" class="count"></span></div>' +
+            '<input type="text" maxlength="256">' +
+            '<div class="row"><label>Field ' + (index + 1) + ' value</label><span id="' + valueCountId + '" class="count"></span></div>' +
+            '<textarea maxlength="1024"></textarea>';
+
+          const nameInput = section.querySelector('input');
+          const valueInput = section.querySelector('textarea');
+          nameInput.value = field?.name || '';
+          valueInput.value = field?.value || '';
+          nameInput.dataset.sessionField = 'embed_field_name:' + index;
+          valueInput.dataset.sessionField = 'embed_field_value:' + index;
+          nameInput.dataset.countId = nameCountId;
+          valueInput.dataset.countId = valueCountId;
+          embedFields.appendChild(section);
+
+          [nameInput, valueInput].forEach(input => {
+            input.addEventListener('focus', () => { activeField = input; });
+            input.addEventListener('click', () => { activeField = input; });
+            input.addEventListener('keyup', () => { activeField = input; });
+            input.addEventListener('input', () => scheduleSave(input));
+            updateCount(input);
+          });
+        });
+      }
+
       (async () => {
         if (!token) {
           setStatus('This editor session has expired. Reopen it from Discord.', 'error');
@@ -544,6 +594,7 @@ export function embedColorPickerPage() {
           lastValidMessage = messageInput.value;
           renderTitleEditor(lastValidTitle);
           renderMessageEditor(lastValidMessage);
+          renderExistingFields(data.fields);
           updateCount(titleEditor); updateCount(messageEditor); updateCount(footerInput);
           setStatus(mode === 'footer' ? 'Footer editor ready.' : 'Emoji editor ready.');
         } catch (error) {
