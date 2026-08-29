@@ -11,6 +11,7 @@ import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 import {
     getEmbedRegistry,
+    reconcileEmbedRegistry,
     registerCloudyEmbedMessage,
     resolveEmbedRegistryRecord,
     scanGuildForCloudyEmbeds,
@@ -20,6 +21,11 @@ import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const PAGE_SIZE = 25;
+const MANAGER_IDLE_TIMEOUT = 30 * 60_000;
+const HISTORY_SCAN_TTL = 5 * 60_000;
+const CLOSED_MANAGER_ERROR_CODES = new Set([10008, 10062, 50027]);
+const historyScanTimes = new Map();
+const historyScanJobs = new Map();
 const TEMPLATE_CHANNEL_IDS = new Set([
     '1539375620885323826',
     '1539371111240831078',
@@ -305,6 +311,61 @@ function isEmbedManagerComponent(interaction) {
         || customId.startsWith('simple_embed_modify_embed_page:');
 }
 
+function closeEmbedManagerSession(state, session, reason = 'closed') {
+    if (!session || session.closed) return;
+    session.closed = true;
+    if (session.collector && !session.collector.ended) session.collector.stop(reason);
+    if (state.activeEmbedManager === session) state.activeEmbedManager = null;
+}
+
+async function updateEmbedManager(interaction, payload, state, session) {
+    if (session.closed || state.activeEmbedManager !== session) return false;
+
+    try {
+        await interaction.editReply(payload);
+        return true;
+    } catch (error) {
+        if (CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+            closeEmbedManagerSession(state, session, 'message-unavailable');
+            logger.debug(`Embed manager message ${session.messageId} is no longer available.`);
+            return false;
+        }
+        throw error;
+    }
+}
+
+async function loadCurrentRegistry(guild, botUserId) {
+    let result = await reconcileEmbedRegistry(guild);
+    if (result.records.length) {
+        void refreshRecentEmbedHistory(guild, botUserId)
+            .catch(error => logger.error('Background embed history sync failed:', error));
+        return result.records;
+    }
+
+    await refreshRecentEmbedHistory(guild, botUserId, true);
+    result = await reconcileEmbedRegistry(guild);
+    return result.records;
+}
+
+async function refreshRecentEmbedHistory(guild, botUserId, force = false) {
+    if (historyScanJobs.has(guild.id)) return historyScanJobs.get(guild.id);
+    if (!force && Date.now() - (historyScanTimes.get(guild.id) || 0) < HISTORY_SCAN_TTL) return null;
+
+    const job = (async () => {
+        try {
+            const scan = await scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPerChannel: 100 });
+            await reconcileEmbedRegistry(guild);
+            historyScanTimes.set(guild.id, Date.now());
+            return scan;
+        } finally {
+            historyScanJobs.delete(guild.id);
+        }
+    })();
+
+    historyScanJobs.set(guild.id, job);
+    return job;
+}
+
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
@@ -312,41 +373,70 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     await buttonInteraction.deferUpdate().catch(() => {});
 
     try {
-        if (state.activeEmbedManager?.collector) {
-            state.activeEmbedManager.collector.stop('replaced');
+        const previousSession = state.activeEmbedManager;
+        if (previousSession) {
+            closeEmbedManagerSession(state, previousSession, 'replaced');
+            if (previousSession.messageId) {
+                await buttonInteraction.webhook.deleteMessage(previousSession.messageId).catch(() => {});
+            }
         }
-        if (state.activeEmbedManager?.messageId) {
-            await buttonInteraction.webhook.deleteMessage(state.activeEmbedManager.messageId).catch(() => {});
-        }
-        state.activeEmbedManager = null;
 
-        let records = await getEmbedRegistry(guild.id);
         const managerMessage = await buttonInteraction.followUp({
-            ...(records.length
-                ? buildChannelPayload(guild, records, 0)
-                : {
-                    embeds: [new EmbedBuilder()
-                        .setTitle('Modify embed')
-                        .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
-                        .setColor(getColor('info'))],
-                    components: [],
-                }),
+            embeds: [new EmbedBuilder()
+                .setTitle('Modify embed')
+                .setDescription('Checking the saved embeds and removing deleted entries…')
+                .setColor(getColor('info'))],
+            components: [],
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
         }).catch(() => null);
         if (!managerMessage) return;
 
-        void scanGuildForCloudyEmbeds(guild, buttonInteraction.client.user.id, { maxMessagesPerChannel: 100 })
-            .catch(error => logger.error('Background embed history import failed:', error));
+        const session = {
+            messageId: managerMessage.id,
+            collector: null,
+            closed: false,
+            queue: Promise.resolve(),
+        };
+        state.activeEmbedManager = session;
 
-        if (!records.length) return;
+        let records = await loadCurrentRegistry(guild, buttonInteraction.client.user.id);
+        if (session.closed || state.activeEmbedManager !== session) return;
+
+        const initialPayload = records.length
+            ? buildChannelPayload(guild, records, 0)
+            : {
+                embeds: [new EmbedBuilder()
+                    .setTitle('Modify embed')
+                    .setDescription('No existing Cloudy embeds were found in this server.')
+                    .setColor(getColor('info'))],
+                components: [],
+            };
+
+        const initialized = await buttonInteraction.webhook.editMessage(managerMessage.id, initialPayload)
+            .then(() => true)
+            .catch(error => {
+                if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+                    logger.error('Failed to initialize the embed manager:', error);
+                }
+                return false;
+            });
+        if (!initialized) {
+            closeEmbedManagerSession(state, session, 'initialization-failed');
+            return;
+        }
+
+        if (!records.length) {
+            return;
+        }
 
         const collector = managerMessage.createMessageComponentCollector({
             filter: interaction =>
                 interaction.user.id === buttonInteraction.user.id &&
                 isEmbedManagerComponent(interaction),
+            idle: MANAGER_IDLE_TIMEOUT,
         });
-        state.activeEmbedManager = { messageId: managerMessage.id, collector };
+        session.collector = collector;
 
         collector.on('collect', async interaction => {
             const acknowledged = await interaction.deferUpdate()
@@ -357,24 +447,26 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 });
             if (!acknowledged) return;
 
-            try {
+            session.queue = session.queue.then(async () => {
+                if (session.closed || state.activeEmbedManager !== session) return;
+
                 if (interaction.customId === 'simple_embed_modify_back') {
                     records = await getEmbedRegistry(guild.id);
-                    await managerMessage.edit(buildChannelPayload(guild, records, 0));
+                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, 0), state, session);
                     return;
                 }
 
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
                     records = await getEmbedRegistry(guild.id);
-                    await managerMessage.edit(buildChannelPayload(guild, records, page));
+                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, page), state, session);
                     return;
                 }
 
                 if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
                     records = await getEmbedRegistry(guild.id);
-                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, 0));
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
                     return;
                 }
 
@@ -383,7 +475,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     const channelId = parts[1];
                     const page = Number(parts[2]) || 0;
                     records = await getEmbedRegistry(guild.id);
-                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, page));
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
                     return;
                 }
 
@@ -415,7 +507,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                 if (!resolved) {
                     records = await getEmbedRegistry(guild.id);
-                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, page));
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
                     return;
                 }
 
@@ -426,16 +518,16 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 }
 
                 records = await getEmbedRegistry(guild.id);
-                await managerMessage.edit(buildEmbedPayload(guild, records, channelId, page));
-            } catch (error) {
+                await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
+            }).catch(error => {
                 logger.error('Embed manager selection failed:', error);
-            }
+            });
+
+            await session.queue;
         });
 
         collector.on('end', () => {
-            if (state.activeEmbedManager?.collector === collector) {
-                state.activeEmbedManager = null;
-            }
+            closeEmbedManagerSession(state, session, 'collector-ended');
         });
     } catch (error) {
         logger.error('Embed manager failed:', error);

@@ -31,6 +31,7 @@ import {
 } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
+import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -41,6 +42,7 @@ const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
 const CHANNEL_PAGE_SIZE = 100;
 const CHANNEL_SELECT_SIZE = 25;
 const OWNER_SERVER_LIMIT = 125;
+const BUILDER_IDLE_TIMEOUT = 30 * 60_000;
 
 function getMediaKind(attachment) {
     if (!attachment) return null;
@@ -311,7 +313,8 @@ async function postBuiltMessage(channel, state, guild) {
             payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
         }
 
-        await channel.send(payload);
+        const sent = await channel.send(payload);
+        await registerCloudyEmbedMessage(sent, 'embed-builder');
     }
 
     return { ok: true, destination: channel };
@@ -413,7 +416,7 @@ async function refreshBuilder(interaction, state) {
     return InteractionHelper.safeEditReply(interaction, payload);
 }
 
-async function editContent(buttonInteraction, rootInteraction, state) {
+async function editContent(buttonInteraction, state) {
     const modal = new ModalBuilder()
         .setCustomId('simple_embed_content_modal')
         .setTitle('Edit title and message')
@@ -455,11 +458,11 @@ async function editContent(buttonInteraction, rootInteraction, state) {
     state.message = submitted.fields.getTextInputValue('simple_embed_message').trim() || null;
 
     await submitted.deferUpdate().catch(() => {});
-    await refreshBuilder(rootInteraction, state);
-    await browseOwnerServers(submitted, rootInteraction, state);
+    await refreshBuilder(submitted, state);
+    await browseOwnerServers(submitted, submitted, state);
 }
 
-async function editBottomLine(buttonInteraction, rootInteraction, state) {
+async function editBottomLine(buttonInteraction, state) {
     const modal = new ModalBuilder()
         .setCustomId('simple_embed_footer_modal')
         .setTitle('Edit footer')
@@ -491,10 +494,10 @@ async function editBottomLine(buttonInteraction, rootInteraction, state) {
     state.bottomLine = submitted.fields.getTextInputValue('simple_embed_footer_text').trim() || null;
 
     await submitted.deferUpdate().catch(() => {});
-    await refreshBuilder(rootInteraction, state);
+    await refreshBuilder(submitted, state);
 }
 
-async function editMedia(buttonInteraction, rootInteraction, state) {
+async function editMedia(buttonInteraction, state) {
     const upload = new FileUploadBuilder()
         .setCustomId('simple_embed_media_file')
         .setMinValues(1)
@@ -552,7 +555,7 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
             state.mediaBuffer = converted.buffer;
             state.mediaName = converted.filename;
             state.mediaConvertedFromVideo = true;
-            await refreshBuilder(rootInteraction, state);
+            await refreshBuilder(submitted, state);
         } catch (error) {
             logger.error('Video to GIF conversion failed:', error);
             const message = error?.code === 'VIDEO_TOO_SHORT'
@@ -584,7 +587,7 @@ async function editMedia(buttonInteraction, rootInteraction, state) {
     state.mediaConvertedFromVideo = false;
 
     await submitted.deferUpdate().catch(() => {});
-    await refreshBuilder(rootInteraction, state);
+    await refreshBuilder(submitted, state);
 }
 
 async function getSharedOwnerGuilds(client, userId) {
@@ -917,11 +920,21 @@ export default {
                     if (field === 'title') state.title = value.trim() || null;
                     if (field === 'message') state.message = value || null;
                     if (field === 'footer') state.bottomLine = value.trim() || null;
-                    await refreshBuilder(interaction, state);
+                    const refreshed = await refreshBuilder(interaction, state);
+                    if (!refreshed) {
+                        const error = new Error('The message builder session has expired.');
+                        error.code = 'EMBED_BUILDER_EXPIRED';
+                        throw error;
+                    }
                 },
                 onColor: async color => {
                     state.sideColor = color;
-                    await refreshBuilder(interaction, state);
+                    const refreshed = await refreshBuilder(interaction, state);
+                    if (!refreshed) {
+                        const error = new Error('The message builder session has expired.');
+                        error.code = 'EMBED_BUILDER_EXPIRED';
+                        throw error;
+                    }
                 },
             });
             state.colorSessionToken = colorSessionToken;
@@ -936,24 +949,25 @@ export default {
                     buttonInteraction.isButton() &&
                     buttonInteraction.user.id === interaction.user.id &&
                     buttonInteraction.customId.startsWith('simple_embed_'),
+                idle: BUILDER_IDLE_TIMEOUT,
             });
 
             collector.on('collect', async buttonInteraction => {
                 try {
                     switch (buttonInteraction.customId) {
                         case 'simple_embed_content':
-                            await editContent(buttonInteraction, interaction, state);
+                            await editContent(buttonInteraction, state);
                             break;
                         case 'simple_embed_logo':
                             state.showLogo = !state.showLogo;
                             await buttonInteraction.deferUpdate();
-                            await refreshBuilder(interaction, state);
+                            await refreshBuilder(buttonInteraction, state);
                             break;
                         case 'simple_embed_footer':
-                            await editBottomLine(buttonInteraction, interaction, state);
+                            await editBottomLine(buttonInteraction, state);
                             break;
                         case 'simple_embed_media':
-                            await editMedia(buttonInteraction, interaction, state);
+                            await editMedia(buttonInteraction, state);
                             break;
                         case 'simple_embed_clear_media':
                             state.mediaUrl = null;
@@ -961,13 +975,13 @@ export default {
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
                             await buttonInteraction.deferUpdate();
-                            await refreshBuilder(interaction, state);
+                            await refreshBuilder(buttonInteraction, state);
                             break;
                         case 'simple_embed_modify':
                             await openEmbedManager(
                                 buttonInteraction,
                                 state,
-                                () => refreshBuilder(interaction, state),
+                                () => refreshBuilder(buttonInteraction, state),
                             );
                             break;
                         case 'simple_embed_post':
@@ -981,7 +995,7 @@ export default {
                                     });
                                     break;
                                 }
-                                await refreshBuilder(interaction, state);
+                                await refreshBuilder(buttonInteraction, state);
                                 const savedMessage = await buttonInteraction.followUp({
                                     embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
                                     flags: MessageFlags.Ephemeral,
@@ -1003,7 +1017,7 @@ export default {
                             state.mediaConvertedFromVideo = false;
                             state.modifyTarget = null;
                             await buttonInteraction.deferUpdate();
-                            await refreshBuilder(interaction, state);
+                            await refreshBuilder(buttonInteraction, state);
                             break;
                         default:
                             await buttonInteraction.deferUpdate();
@@ -1021,6 +1035,11 @@ export default {
             });
 
             collector.on('end', async () => {
+                if (state.activeEmbedManager) {
+                    state.activeEmbedManager.closed = true;
+                    state.activeEmbedManager.collector?.stop('builder-ended');
+                    state.activeEmbedManager = null;
+                }
                 deleteEmbedColorPickerSession(colorSessionToken);
             });
         } catch (error) {

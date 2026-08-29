@@ -134,6 +134,8 @@ export function embedColorPickerPage() {
       let emojis = [];
       let activeField = mode === 'footer' ? footerInput : messageEditor;
       let saveTimer = null;
+      let saveQueue = Promise.resolve();
+      let saveSequence = 0;
       let titleRange = null;
       let messageRange = null;
       let lastValidTitle = '';
@@ -175,19 +177,23 @@ export function embedColorPickerPage() {
       async function save(input) {
         const field = fieldName(input);
         const value = field === 'title' ? titleInput.value : field === 'message' ? messageInput.value : input.value;
+        const sequence = ++saveSequence;
         setStatus('Updating Discord preview…');
         try {
-          await callSession('__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field, value }));
-          setStatus('Live preview updated.', 'ok');
+          saveQueue = saveQueue
+            .catch(() => {})
+            .then(() => callSession('__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field, value })));
+          await saveQueue;
+          if (sequence === saveSequence) setStatus('Live preview updated.', 'ok');
         } catch (error) {
-          setStatus(error.message || 'Could not update the preview.', 'error');
+          if (sequence === saveSequence) setStatus(error.message || 'Could not update the preview.', 'error');
         }
       }
 
       function scheduleSave(input) {
         updateCount(input);
         clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => save(input), 350);
+        saveTimer = setTimeout(() => save(input), 200);
       }
 
       footerInput.addEventListener('focus', () => { activeField = footerInput; });
