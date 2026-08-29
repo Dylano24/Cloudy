@@ -308,9 +308,9 @@ function buildControlEmbed(state) {
 function buildControls(state) {
     const contentRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId('simple_embed_content')
+            .setURL(state.contentEditorUrl)
             .setLabel('Edit title and message')
-            .setStyle(ButtonStyle.Primary)
+            .setStyle(ButtonStyle.Link)
             .setEmoji('✍🏼'),
         new ButtonBuilder()
             .setCustomId('simple_embed_logo')
@@ -318,9 +318,9 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('☁️'),
         new ButtonBuilder()
-            .setCustomId('simple_embed_footer')
+            .setURL(state.footerEditorUrl)
             .setLabel('Edit footer')
-            .setStyle(ButtonStyle.Secondary)
+            .setStyle(ButtonStyle.Link)
             .setEmoji('📝'),
         new ButtonBuilder()
             .setURL(state.colorPickerUrl)
@@ -830,14 +830,37 @@ export default {
                 mediaConvertedFromVideo: false,
             };
 
+            const guildEmojis = interaction.guild
+                ? await interaction.guild.emojis.fetch().catch(() => interaction.guild.emojis.cache)
+                : new Map();
+            const editorEmojis = [...guildEmojis.values()].map(emoji => ({
+                id: emoji.id,
+                name: emoji.name || 'emoji',
+                animated: Boolean(emoji.animated),
+            }));
+
             const colorSessionToken = createEmbedColorPickerSession({
                 userId: interaction.user.id,
+                emojis: editorEmojis,
+                getEditorState: () => ({
+                    title: state.title || '',
+                    message: state.message || '',
+                    footer: state.bottomLine || '',
+                }),
+                onEditorUpdate: async (field, value) => {
+                    if (field === 'title') state.title = value.trim() || null;
+                    if (field === 'message') state.message = value || null;
+                    if (field === 'footer') state.bottomLine = value.trim() || null;
+                    await refreshBuilder(interaction, state);
+                },
                 onColor: async color => {
                     state.sideColor = color;
                     await refreshBuilder(interaction, state);
                 },
             });
             state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
+            state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
+            state.footerEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=footer`;
 
             await refreshBuilder(interaction, state);
 
