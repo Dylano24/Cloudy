@@ -282,8 +282,16 @@ function loadEmbedIntoState(state, resolved) {
 
     state.title = data.title || null;
     state.message = data.description || null;
+    state.embedFields = Array.isArray(data.fields)
+        ? data.fields.map(field => ({
+            name: String(field.name || '').slice(0, 256),
+            value: String(field.value || '').slice(0, 1024),
+            inline: Boolean(field.inline),
+        }))
+        : [];
     state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
     state.showLogo = data.thumbnail?.url === CLOUDY_LOGO_URL;
+    state.removeExistingLogo = false;
     state.bottomLine = footerText || null;
     state.mediaUrl = data.image?.url || null;
     state.mediaBuffer = null;
@@ -549,9 +557,19 @@ function applyStateToExistingEmbed(state) {
     else delete data.title;
     if (state.message) data.description = state.message.slice(0, 4096);
     else delete data.description;
+    if (Array.isArray(state.embedFields) && state.embedFields.length) {
+        data.fields = state.embedFields.slice(0, 25).map(field => ({
+            name: String(field.name || '\u200B').slice(0, 256),
+            value: String(field.value || '\u200B').slice(0, 1024),
+            inline: Boolean(field.inline),
+        }));
+    } else {
+        delete data.fields;
+    }
     data.color = state.sideColor;
 
-    if (state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
+    if (state.removeExistingLogo) delete data.thumbnail;
+    else if (state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
     else if (data.thumbnail?.url === CLOUDY_LOGO_URL) delete data.thumbnail;
 
     if (state.bottomLine) {
