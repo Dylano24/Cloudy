@@ -20,12 +20,26 @@ import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const PAGE_SIZE = 25;
 const MANAGER_TIMEOUT = 120_000;
+const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
 const TEMPLATE_CHANNEL_IDS = new Set([
     '1539375620885323826', // kick-logs
     '1539371111240831078', // timeout-logs
     '1539259457404412036', // ban/unban logs
     '1539372511089926244', // reports
 ]);
+
+function removeTransientMessage(interaction, message) {
+    const timer = setTimeout(async () => {
+        if (message?.id && interaction.webhook?.deleteMessage) {
+            const deleted = await interaction.webhook.deleteMessage(message.id)
+                .then(() => true)
+                .catch(() => false);
+            if (deleted) return;
+        }
+        await message?.delete?.().catch(() => {});
+    }, TRANSIENT_RESPONSE_TIMEOUT);
+    timer.unref?.();
+}
 
 function cleanFooter(text) {
     const value = String(text || '');
@@ -263,7 +277,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         void scanGuildForCloudyEmbeds(guild, buttonInteraction.client.user.id, { maxMessagesPerChannel: 100 })
             .catch(error => logger.error('Background embed history import failed:', error));
 
-        if (!records.length) return;
+        if (!records.length) {
+            removeTransientMessage(buttonInteraction, managerMessage);
+            return;
+        }
 
         const collector = managerMessage.createMessageComponentCollector({
             filter: interaction => interaction.user.id === buttonInteraction.user.id,
@@ -279,15 +296,17 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
+                    await interaction.deferUpdate().catch(() => {});
                     records = await getEmbedRegistry(guild.id);
-                    await interaction.update(buildChannelPayload(guild, records, page));
+                    await managerMessage.edit(buildChannelPayload(guild, records, page));
                     return;
                 }
 
                 if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
+                    await interaction.deferUpdate().catch(() => {});
                     records = await getEmbedRegistry(guild.id);
-                    await interaction.update(buildEmbedPayload(guild, records, channelId, 0));
+                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, 0));
                     return;
                 }
 
@@ -295,8 +314,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     const parts = interaction.customId.split(':');
                     const channelId = parts[1];
                     const page = Number(parts[2]) || 0;
+                    await interaction.deferUpdate().catch(() => {});
                     records = await getEmbedRegistry(guild.id);
-                    await interaction.update(buildEmbedPayload(guild, records, channelId, page));
+                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, page));
                     return;
                 }
 
@@ -335,6 +355,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         .setColor(getColor('success'))],
                     components: [],
                 }).catch(() => {});
+                removeTransientMessage(buttonInteraction, managerMessage);
             } catch (error) {
                 logger.error('Embed manager selection failed:', error);
                 if (!interaction.replied && !interaction.deferred) await interaction.deferUpdate().catch(() => {});
@@ -342,13 +363,15 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         });
     } catch (error) {
         logger.error('Embed manager failed:', error);
-        await buttonInteraction.followUp({
+        const failedMessage = await buttonInteraction.followUp({
             embeds: [new EmbedBuilder()
                 .setTitle('Could not load embeds')
                 .setDescription('The embeds could not be loaded right now.')
                 .setColor(getColor('error'))],
             flags: MessageFlags.Ephemeral,
-        }).catch(() => {});
+            fetchReply: true,
+        }).catch(() => null);
+        if (failedMessage) removeTransientMessage(buttonInteraction, failedMessage);
     }
 }
 
