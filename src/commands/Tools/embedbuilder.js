@@ -338,7 +338,7 @@ function buildControlEmbed(state) {
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Media** › ${mediaLabel}`,
         ].join('\n'))
-        .setColor(getColor('info'))
+        .setColor(0xFFFFFF)
         .setFooter({ text: 'Preview the embed above live' });
 }
 
