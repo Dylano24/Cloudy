@@ -20,8 +20,7 @@ export default {
   execute(interaction) {
     if (!isEmbedManagerNavigation(interaction)) return;
 
-    // Start Discord's acknowledgement immediately, before any registry/database work.
-    // The embed-manager collector may continue doing its normal async work afterwards.
+    // Acknowledge the component immediately, before registry/database work starts.
     const originalUpdate = interaction.update.bind(interaction);
     const acknowledgement = interaction.deferUpdate().catch((error) => {
       if (!interaction.deferred && !interaction.replied) {
@@ -30,14 +29,19 @@ export default {
       return null;
     });
 
-    // Existing collector branches call interaction.update(...) after loading their data.
-    // Once we have deferred the component, update() is no longer valid; transparently
-    // route that render to editReply() so every navigation click stays acknowledged.
+    // The manager itself is an ephemeral follow-up message. After deferUpdate(),
+    // editReply() can target the original interaction response instead of the
+    // follow-up that owns this component. Always edit the exact component message.
     interaction.update = async (payload) => {
       await acknowledgement;
 
       if (interaction.deferred || interaction.replied) {
-        return interaction.editReply(payload);
+        const messageId = interaction.message?.id;
+        if (!messageId) {
+          throw new Error('Embed manager navigation is missing its component message id.');
+        }
+
+        return interaction.webhook.editMessage(messageId, payload);
       }
 
       return originalUpdate(payload);
