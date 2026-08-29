@@ -1,6 +1,7 @@
 import { Events, AuditLogEvent } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
+import { fetchRecentAuditEntry } from '../services/recentAuditLogService.js';
 
 export default {
   name: Events.GuildBanRemove,
@@ -10,17 +11,7 @@ export default {
     const { guild, user } = ban;
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 750));
-
-      const auditLogs = await guild.fetchAuditLogs({
-        type: AuditLogEvent.MemberBanRemove,
-        limit: 6,
-      });
-      const now = Date.now();
-      const unbanEntry = auditLogs.entries.find(entry =>
-        entry.target?.id === user.id &&
-        now - entry.createdTimestamp < 15_000
-      );
+      const unbanEntry = await fetchRecentAuditEntry(guild, AuditLogEvent.MemberBanRemove, user.id);
       const executor = unbanEntry?.executor;
       const reason = unbanEntry?.reason || 'No reason provided';
 

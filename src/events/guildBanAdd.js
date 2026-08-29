@@ -2,6 +2,7 @@ import { Events, AuditLogEvent } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
+import { fetchRecentAuditEntry } from '../services/recentAuditLogService.js';
 
 export default {
   name: Events.GuildBanAdd,
@@ -11,17 +12,7 @@ export default {
     const { guild, user } = ban;
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 750));
-
-      const auditLogs = await guild.fetchAuditLogs({
-        type: AuditLogEvent.MemberBanAdd,
-        limit: 6,
-      });
-      const now = Date.now();
-      const banEntry = auditLogs.entries.find(entry =>
-        entry.target?.id === user.id &&
-        now - entry.createdTimestamp < 15_000
-      );
+      const banEntry = await fetchRecentAuditEntry(guild, AuditLogEvent.MemberBanAdd, user.id);
       const executor = banEntry?.executor;
       const reason = banEntry?.reason || 'No reason provided';
 

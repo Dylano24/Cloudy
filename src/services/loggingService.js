@@ -10,6 +10,7 @@ import {
   fieldsToLines,
   splitComparisonFields,
 } from '../utils/logging/logEmbeds.js';
+import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
 const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
@@ -353,8 +354,9 @@ export async function logEvent({
     }
 
     const embed = createLogEmbed(guild, eventType, data);
+    const decorated = await decorateEmbedWithSavedTemplate(guildId, channel.id, embed);
 
-    const messageOptions = { embeds: [embed] };
+    const messageOptions = { embeds: [decorated.embed] };
     if (content) {
       messageOptions.content = content;
     }

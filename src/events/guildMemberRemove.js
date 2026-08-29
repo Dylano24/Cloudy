@@ -7,6 +7,7 @@ import { getServerCounters, updateCounter } from '../services/serverstatsService
 import { getGuildBirthdays, deleteBirthday } from '../utils/database.js';
 import { deleteUserLevelData } from '../services/leveling/leveling.js';
 import { logger } from '../utils/logger.js';
+import { fetchRecentAuditEntry } from '../services/recentAuditLogService.js';
 
 export default {
   name: Events.GuildMemberRemove,
@@ -20,16 +21,7 @@ export default {
         // Kicks executed by Cloudy are already logged by the moderation service,
         // so never create a second Kick log from GuildMemberRemove for those.
         try {
-            await new Promise(resolve => setTimeout(resolve, 750));
-            const auditLogs = await guild.fetchAuditLogs({
-                type: AuditLogEvent.MemberKick,
-                limit: 6,
-            });
-            const now = Date.now();
-            const kickEntry = auditLogs.entries.find(entry =>
-                entry.target?.id === user.id &&
-                now - entry.createdTimestamp < 15_000
-            );
+            const kickEntry = await fetchRecentAuditEntry(guild, AuditLogEvent.MemberKick, user.id);
 
             if (kickEntry && kickEntry.executor?.id !== member.client.user?.id) {
                 const executor = kickEntry.executor;
