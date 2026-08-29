@@ -9,6 +9,18 @@ function registryKey(guildId) {
     return `${REGISTRY_PREFIX}${guildId}`;
 }
 
+function embedName(embed) {
+    const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
+    if (title) return title.slice(0, 256);
+
+    const firstLine = String(embed?.description || '')
+        .split('\n')
+        .map(line => line.replace(/^[>\s#*_`~|\-]+/, '').replace(/[*_`~]/g, '').trim())
+        .find(Boolean);
+
+    return (firstLine || 'Untitled embed').slice(0, 256);
+}
+
 function normalizeRecord(record) {
     if (!record?.guildId || !record?.channelId || !record?.messageId) return null;
     return {
@@ -18,6 +30,7 @@ function normalizeRecord(record) {
         embedIndex: Math.max(0, Number(record.embedIndex) || 0),
         source: String(record.source || 'cloudy'),
         title: String(record.title || '').slice(0, 256),
+        name: String(record.name || record.title || '').slice(0, 256),
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
@@ -61,6 +74,7 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
             embedIndex,
             source,
             title: embed?.title || '',
+            name: embedName(embed),
             createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
         }));
         return await saveRecords(message.guildId, additions);
@@ -146,6 +160,7 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
                         embedIndex,
                         source: 'history',
                         title: embed?.title || '',
+                        name: embedName(embed),
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     });
                     found += 1;
