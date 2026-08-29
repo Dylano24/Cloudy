@@ -311,6 +311,16 @@ function isEmbedManagerComponent(interaction) {
         || customId.startsWith('simple_embed_modify_embed_page:');
 }
 
+function buildEmptyManagerPayload() {
+    return {
+        embeds: [new EmbedBuilder()
+            .setTitle('Modify embed')
+            .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
+            .setColor(getColor('info'))],
+        components: [],
+    };
+}
+
 function closeEmbedManagerSession(state, session, reason = 'closed') {
     if (!session || session.closed) return;
     session.closed = true;
@@ -381,19 +391,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             }
         }
 
-        // Keep the original manager presentation: validate first, then open
-        // directly on the channel picker without showing an intermediate screen.
-        let records = await loadCurrentRegistry(guild, buttonInteraction.client.user.id);
+        // Render the original channel picker immediately. Discord history checks
+        // must never block the Modify button from opening its menu.
+        let records = await getEmbedRegistry(guild.id);
         const managerMessage = await buttonInteraction.followUp({
             ...(records.length
                 ? buildChannelPayload(guild, records, 0)
-                : {
-                    embeds: [new EmbedBuilder()
-                        .setTitle('Modify embed')
-                        .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
-                        .setColor(getColor('info'))],
-                    components: [],
-                }),
+                : buildEmptyManagerPayload()),
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
         }).catch(() => null);
@@ -404,12 +408,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             collector: null,
             closed: false,
             queue: Promise.resolve(),
+            hasInteracted: false,
         };
         state.activeEmbedManager = session;
-
-        if (!records.length) {
-            return;
-        }
 
         const collector = managerMessage.createMessageComponentCollector({
             filter: interaction =>
@@ -419,7 +420,25 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         });
         session.collector = collector;
 
+        void loadCurrentRegistry(guild, buttonInteraction.client.user.id)
+            .then(async refreshedRecords => {
+                if (session.closed || state.activeEmbedManager !== session) return;
+                records = refreshedRecords;
+                if (session.hasInteracted) return;
+
+                const payload = records.length
+                    ? buildChannelPayload(guild, records, 0)
+                    : buildEmptyManagerPayload();
+                await buttonInteraction.webhook.editMessage(managerMessage.id, payload).catch(error => {
+                    if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+                        logger.error('Failed to refresh the embed manager registry:', error);
+                    }
+                });
+            })
+            .catch(error => logger.error('Embed manager registry refresh failed:', error));
+
         collector.on('collect', async interaction => {
+            session.hasInteracted = true;
             const acknowledged = await interaction.deferUpdate()
                 .then(() => true)
                 .catch(error => {
