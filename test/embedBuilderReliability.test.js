@@ -182,7 +182,12 @@ test('emoji editor preserves animated emoji data and applies live field updates'
   const token = createEmbedColorPickerSession({
     userId: 'owner-user',
     emojis: [{ id: '400000000000000001', name: 'cloudy_wave', animated: true }],
-    getEditorState: () => ({ title: 'Hello', message: 'World', footer: 'Footer' }),
+    getEditorState: () => ({
+      title: 'Hello',
+      message: 'World',
+      footer: 'Footer',
+      fields: [{ name: 'Rule', value: 'Be respectful', inline: false }],
+    }),
     onEditorUpdate: async (field, value) => updates.push({ field, value }),
     onColor: async () => {},
   });
@@ -191,6 +196,9 @@ test('emoji editor preserves animated emoji data and applies live field updates'
   const statePayload = JSON.parse(state.color);
   assert.deepEqual(statePayload.emojis, [
     { id: '400000000000000001', name: 'cloudy_wave', animated: true },
+  ]);
+  assert.deepEqual(statePayload.fields, [
+    { name: 'Rule', value: 'Be respectful', inline: false },
   ]);
 
   const markup = '<a:cloudy_wave:400000000000000001>';
@@ -201,6 +209,13 @@ test('emoji editor preserves animated emoji data and applies live field updates'
 
   assert.equal(update.ok, true);
   assert.deepEqual(updates, [{ field: 'message', value: `Hi ${markup}` }]);
+
+  const fieldUpdate = await applyEmbedColorPickerSession(
+    token,
+    `__CLOUDY_EMBED_EDIT__:${JSON.stringify({ field: 'embed_field_value:0', value: `Updated ${markup}` })}`,
+  );
+  assert.equal(fieldUpdate.ok, true);
+  assert.deepEqual(updates.at(-1), { field: 'embed_field_value:0', value: `Updated ${markup}` });
   deleteEmbedColorPickerSession(token);
   assert.equal((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__')).reason, 'expired');
 });
