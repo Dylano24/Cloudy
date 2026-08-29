@@ -5,7 +5,10 @@ import { EmbedBuilder } from 'discord.js';
 
 import { db, getFromDb, setInDb } from '../src/utils/database.js';
 import {
+  getEmbedRegistry,
+  isRegistrableCloudyEmbedMessage,
   reconcileEmbedRegistry,
+  registerCloudyEmbedMessage,
   removeEmbedRegistryMessage,
 } from '../src/services/embedRegistryService.js';
 import {
@@ -142,6 +145,36 @@ test('message deletion removes every embed index for that message', async () => 
   const remaining = await getFromDb(registryKey, []);
 
   assert.deepEqual(remaining.map(item => item.messageId), [otherMessageId]);
+});
+
+test('private builder previews and command replies never enter the editable embed registry', async () => {
+  installTestStorage();
+  const guildId = '100000000000000009';
+  const channelId = '200000000000000009';
+  const base = {
+    id: '300000000000000009',
+    guildId,
+    channelId,
+    embeds: [{ title: 'User preview' }],
+    createdAt: new Date('2026-08-29T20:00:00.000Z'),
+  };
+
+  const ephemeralPreview = {
+    ...base,
+    flags: { has: flag => flag === 64 },
+  };
+  const publicCommandReply = {
+    ...base,
+    id: '300000000000000010',
+    flags: { has: () => false },
+    interactionMetadata: { id: '400000000000000009' },
+  };
+
+  assert.equal(isRegistrableCloudyEmbedMessage(ephemeralPreview), false);
+  assert.equal(isRegistrableCloudyEmbedMessage(publicCommandReply), false);
+  assert.equal(await registerCloudyEmbedMessage(ephemeralPreview, 'automatic'), false);
+  assert.equal(await registerCloudyEmbedMessage(publicCommandReply, 'automatic'), false);
+  assert.deepEqual(await getEmbedRegistry(guildId), []);
 });
 
 test('emoji editor preserves animated emoji data and applies live field updates', async () => {
