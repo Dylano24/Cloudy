@@ -28,24 +28,20 @@ function cleanFooter(text) {
         : value;
 }
 
-function shortLabel(value, fallback = 'Untitled embed') {
+function shortLabel(value, fallback = 'Cloudy embed') {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return (text || fallback).slice(0, 100);
 }
 
-async function resolveRegistryPage(guild, records, page) {
+function getRegistryPage(guild, records, page) {
     const pageCount = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
     const safePage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
     const start = safePage * PAGE_SIZE;
-    const slice = records.slice(start, start + PAGE_SIZE);
-    const resolved = [];
-
-    for (const record of slice) {
-        const item = await resolveEmbedRegistryRecord(guild, record);
-        if (item) resolved.push(item);
-    }
-
-    return { resolved, safePage, pageCount, start };
+    const items = records.slice(start, start + PAGE_SIZE).map(record => ({
+        record,
+        channel: guild.channels.cache.get(record.channelId) || null,
+    }));
+    return { items, safePage, pageCount };
 }
 
 function buildManagerPayload(items, page, pageCount, total) {
@@ -57,12 +53,13 @@ function buildManagerPayload(items, page, pageCount, total) {
             .setPlaceholder(`Embeds ${page * PAGE_SIZE + 1}-${page * PAGE_SIZE + items.length} of ${total}`)
             .setMinValues(1)
             .setMaxValues(1)
-            .addOptions(...items.map(({ record, channel, embed }) =>
-                new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(embed.title || embed.description))
-                    .setDescription(`#${channel.name} • ${record.source || 'Cloudy'} • ${record.messageId}`.slice(0, 100))
-                    .setValue(`${record.channelId}:${record.messageId}:${record.embedIndex || 0}`),
-            ));
+            .addOptions(...items.map(({ record, channel }) => {
+                const channelName = channel?.name ? `#${channel.name}` : 'Unknown channel';
+                return new StringSelectMenuOptionBuilder()
+                    .setLabel(shortLabel(`${channelName} • ${record.source || 'Cloudy'}`))
+                    .setDescription(`Message ${record.messageId}`.slice(0, 100))
+                    .setValue(`${record.channelId}:${record.messageId}:${record.embedIndex || 0}`);
+            }));
         components.push(new ActionRowBuilder().addComponents(select));
     }
 
@@ -128,46 +125,35 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
     await buttonInteraction.deferUpdate().catch(() => {});
 
-    const loading = await buttonInteraction.followUp({
-        embeds: [new EmbedBuilder()
-            .setTitle('Modify embed')
-            .setDescription('Loading embeds…')
-            .setColor(getColor('info'))],
-        flags: MessageFlags.Ephemeral,
-        fetchReply: true,
-    }).catch(() => null);
-    if (!loading) return;
-
     try {
-        // Never block the manager UI on a full server history scan. New Cloudy embeds
-        // are registered when they are posted, and a small background import keeps
-        // older messages discoverable without making this button feel stuck.
         let records = await getEmbedRegistry(guild.id);
+        const firstPage = getRegistryPage(guild, records, 0);
 
-        async function showPage(page) {
-            records = await getEmbedRegistry(guild.id);
-            const result = await resolveRegistryPage(guild, records, page);
-            await loading.edit(buildManagerPayload(result.resolved, result.safePage, result.pageCount, records.length));
-        }
-
-        if (!records.length) {
-            await loading.edit({
-                embeds: [new EmbedBuilder()
-                    .setTitle('Modify embed')
-                    .setDescription('No registered Cloudy embeds were found yet. Older embeds are being imported in the background; reopen this menu in a moment.')
-                    .setColor(getColor('info'))],
-                components: [],
-            });
-
-            void scanGuildForCloudyEmbeds(guild, buttonInteraction.client.user.id, { maxMessagesPerChannel: 100 })
-                .catch(error => logger.error('Background embed history import failed:', error));
-            return;
-        }
-
-        await showPage(0);
+        const loading = await buttonInteraction.followUp({
+            ...(records.length
+                ? buildManagerPayload(firstPage.items, firstPage.safePage, firstPage.pageCount, records.length)
+                : {
+                    embeds: [new EmbedBuilder()
+                        .setTitle('Modify embed')
+                        .setDescription('No registered Cloudy embeds were found yet. Older embeds are being imported in the background; reopen this menu in a moment.')
+                        .setColor(getColor('info'))],
+                    components: [],
+                }),
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
+        if (!loading) return;
 
         void scanGuildForCloudyEmbeds(guild, buttonInteraction.client.user.id, { maxMessagesPerChannel: 100 })
             .catch(error => logger.error('Background embed history import failed:', error));
+
+        if (!records.length) return;
+
+        async function showPage(page) {
+            records = await getEmbedRegistry(guild.id);
+            const result = getRegistryPage(guild, records, page);
+            await loading.edit(buildManagerPayload(result.items, result.safePage, result.pageCount, records.length));
+        }
 
         const collector = loading.createMessageComponentCollector({
             filter: interaction => interaction.user.id === buttonInteraction.user.id,
@@ -195,16 +181,16 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     String(item.messageId) === messageId &&
                     Number(item.embedIndex || 0) === embedIndex,
                 );
+
+                await interaction.deferUpdate().catch(() => {});
                 const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
 
                 if (!resolved) {
-                    await interaction.deferUpdate().catch(() => {});
                     await showPage(Number(interaction.customId.split(':')[1]) || 0);
                     return;
                 }
 
                 loadEmbedIntoState(state, resolved);
-                await interaction.deferUpdate().catch(() => {});
                 await refreshBuilder();
                 collector.stop('selected');
 
@@ -222,12 +208,12 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         });
     } catch (error) {
         logger.error('Embed manager failed:', error);
-        await loading.edit({
+        await buttonInteraction.followUp({
             embeds: [new EmbedBuilder()
                 .setTitle('Could not load embeds')
                 .setDescription('Cloudy could not load the existing embeds right now.')
                 .setColor(getColor('error'))],
-            components: [],
+            flags: MessageFlags.Ephemeral,
         }).catch(() => {});
     }
 }
