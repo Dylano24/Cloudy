@@ -1,6 +1,7 @@
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const SCAN_BATCH_SIZE = 100;
@@ -67,6 +68,10 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
 
     try {
+        const previousRecords = source === 'modified-template'
+            ? await getEmbedRegistry(message.guildId)
+            : [];
+
         const additions = message.embeds.map((embed, embedIndex) => ({
             guildId: message.guildId,
             channelId: message.channelId,
@@ -77,6 +82,21 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
             name: embedName(embed),
             createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
         }));
+
+        if (source === 'modified-template') {
+            for (const addition of additions) {
+                const previous = previousRecords.find(item =>
+                    String(item.channelId) === String(addition.channelId) &&
+                    String(item.messageId) === String(addition.messageId) &&
+                    Number(item.embedIndex || 0) === Number(addition.embedIndex || 0),
+                );
+                const embed = message.embeds[addition.embedIndex];
+                const data = embed?.toJSON?.() || {};
+                const aliases = [previous?.title, previous?.name, addition.title, addition.name];
+                await saveEmbedTemplateDecoration(message.guildId, message.channelId, aliases, data);
+            }
+        }
+
         return await saveRecords(message.guildId, additions);
     } catch (error) {
         logger.error('Failed to register Cloudy embed message:', error);
