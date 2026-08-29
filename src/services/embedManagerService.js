@@ -21,10 +21,10 @@ import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const PAGE_SIZE = 25;
 const TEMPLATE_CHANNEL_IDS = new Set([
-    '1539375620885323826', // kick-logs
-    '1539371111240831078', // timeout-logs
-    '1539259457404412036', // ban/unban logs
-    '1539372511089926244', // reports
+    '1539375620885323826',
+    '1539371111240831078',
+    '1539259457404412036',
+    '1539372511089926244',
 ]);
 
 const TEMPLATE_RULES = new Map([
@@ -113,6 +113,23 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
     });
 }
 
+function channelOrderTuple(channel) {
+    if (!channel) return [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, ''];
+    const parentPosition = channel.parent
+        ? (Number.isFinite(channel.parent.rawPosition) ? channel.parent.rawPosition : (channel.parent.position ?? 0))
+        : -1;
+    const channelPosition = Number.isFinite(channel.rawPosition) ? channel.rawPosition : (channel.position ?? 0);
+    return [parentPosition, channelPosition, String(channel.id)];
+}
+
+function compareChannelsByDiscordOrder(a, b) {
+    const aKey = channelOrderTuple(a.channel);
+    const bKey = channelOrderTuple(b.channel);
+    if (aKey[0] !== bKey[0]) return aKey[0] - bKey[0];
+    if (aKey[1] !== bKey[1]) return aKey[1] - bKey[1];
+    return aKey[2].localeCompare(bKey[2]);
+}
+
 function buildChannelGroups(guild, records) {
     const groups = new Map();
     for (const record of records) {
@@ -128,11 +145,7 @@ function buildChannelGroups(guild, records) {
             records: channelRecords.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)),
         }))
         .filter(group => collapseDisplayRecords(group.records, group.channelId).length > 0)
-        .sort((a, b) => {
-            const aName = a.channel?.name || a.channelId;
-            const bName = b.channel?.name || b.channelId;
-            return aName.localeCompare(bName);
-        });
+        .sort(compareChannelsByDiscordOrder);
 }
 
 function pageItems(items, page) {
@@ -158,7 +171,7 @@ function navigationRow(prefix, page, pageCount) {
     );
 }
 
-function buildChannelPayload(guild, records, page = 0) {
+export function buildChannelPayload(guild, records, page = 0) {
     const groups = buildChannelGroups(guild, records);
     const result = pageItems(groups, page);
     const components = [];
@@ -311,16 +324,11 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         if (!records.length) return;
 
         const collector = managerMessage.createMessageComponentCollector({
-            filter: interaction => interaction.user.id === buttonInteraction.user.id,
+            filter: interaction => interaction.user.id === buttonInteraction.user.id && interaction.customId !== 'simple_embed_modify_back',
         });
 
         collector.on('collect', async interaction => {
             try {
-                if (interaction.customId === 'simple_embed_modify_back') {
-                    await interaction.update(buildChannelPayload(guild, records, 0));
-                    return;
-                }
-
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
                     records = await getEmbedRegistry(guild.id);
@@ -464,11 +472,8 @@ function applyStateToTemplatePeer(state, peerData, savedData, mediaChanges) {
     if (state.title) data.title = state.title.slice(0, 256);
     else delete data.title;
 
-    if (state.message) {
-        data.description = mergeTemplateDescription(source.description, state.message, peerData.description);
-    } else {
-        delete data.description;
-    }
+    if (state.message) data.description = mergeTemplateDescription(source.description, state.message, peerData.description);
+    else delete data.description;
 
     data.color = state.sideColor;
 
@@ -539,11 +544,7 @@ export async function saveModifiedEmbed(guild, state) {
 
     if (target.templateMode) {
         const sourceRule = getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
-        const aliases = [
-            sourceData.title,
-            current.title,
-            sourceRule?.label,
-        ].filter(Boolean);
+        const aliases = [sourceData.title, current.title, sourceRule?.label].filter(Boolean);
 
         await saveEmbedTemplateDecoration(
             guild.id,
