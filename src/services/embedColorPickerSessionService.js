@@ -3,8 +3,12 @@ import { randomBytes } from 'node:crypto';
 const sessions = new Map();
 const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
-const CURATED_EMOJIS = [
-    { id: '1504663141697716244', name: 'arrow_white', animated: true },
+const PERSISTENT_EMOJIS = [
+    {
+        id: '1504663141697716244',
+        name: 'arrow_white',
+        animated: true,
+    },
 ];
 
 function parseColor(value) {
@@ -20,21 +24,22 @@ function sanitizeEditorState(value = {}) {
     };
 }
 
-function sanitizeEmojiList(emojis = []) {
-    const merged = [...CURATED_EMOJIS, ...(Array.isArray(emojis) ? emojis : [])];
-    const byId = new Map();
+function sanitizeEmojis(emojis = []) {
+    const merged = [...PERSISTENT_EMOJIS, ...(Array.isArray(emojis) ? emojis : [])];
+    const unique = new Map();
 
     for (const emoji of merged) {
-        const normalized = {
+        const clean = {
             id: String(emoji?.id || ''),
             name: String(emoji?.name || 'emoji').slice(0, 100),
             animated: Boolean(emoji?.animated),
         };
-        if (!/^\d+$/.test(normalized.id)) continue;
-        byId.set(normalized.id, normalized);
+        if (/^\d+$/.test(clean.id) && !unique.has(clean.id)) {
+            unique.set(clean.id, clean);
+        }
     }
 
-    return [...byId.values()];
+    return [...unique.values()].slice(0, 500);
 }
 
 export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, emojis = [] }) {
@@ -44,7 +49,7 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         onColor,
         getEditorState,
         onEditorUpdate,
-        emojis: sanitizeEmojiList(emojis),
+        emojis: sanitizeEmojis(emojis),
     });
     return token;
 }
