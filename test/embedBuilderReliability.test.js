@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { EmbedBuilder } from 'discord.js';
 
 import { db, getFromDb, setInDb } from '../src/utils/database.js';
 import {
@@ -16,6 +17,12 @@ import {
   createEmbedColorPickerSession,
   deleteEmbedColorPickerSession,
 } from '../src/services/embedColorPickerSessionService.js';
+import {
+  applySavedEmbedTemplates,
+  decorateEmbedWithSavedTemplate,
+  saveEmbedTemplateDecoration,
+} from '../src/services/embedTemplateService.js';
+import { fetchRecentAuditEntry } from '../src/services/recentAuditLogService.js';
 
 function installTestStorage() {
   const values = new Map();
@@ -299,4 +306,68 @@ test('embed manager opens before Discord history reconciliation finishes', async
     createdAt: new Date('2026-08-29T20:00:00.000Z'),
   });
   collector.stop('test-complete');
+});
+
+test('saved template is applied before send and does not cause a second edit', async () => {
+  installTestStorage();
+  const guildId = '100000000000000005';
+  const channelId = '200000000000000005';
+  const dynamicThumbnail = 'https://cdn.discordapp.com/avatars/dynamic.png';
+
+  await saveEmbedTemplateDecoration(
+    guildId,
+    channelId,
+    ['Ban log'],
+    {
+      title: 'Ban log',
+      color: 0x123456,
+      footer: { text: 'Saved footer' },
+    },
+  );
+
+  const source = new EmbedBuilder()
+    .setTitle('Ban log')
+    .setDescription('**User:** Dynamic user')
+    .setColor(0xED4245)
+    .setThumbnail(dynamicThumbnail)
+    .setTimestamp();
+  const decorated = await decorateEmbedWithSavedTemplate(guildId, channelId, source);
+
+  assert.equal(decorated.matched, true);
+  assert.equal(decorated.changed, true);
+  assert.equal(decorated.embed.toJSON().color, 0x123456);
+  assert.equal(decorated.embed.toJSON().footer.text, 'Saved footer');
+  assert.equal(decorated.embed.toJSON().description, '**User:** Dynamic user');
+  assert.equal(decorated.embed.toJSON().thumbnail.url, dynamicThumbnail);
+
+  let editCount = 0;
+  const alreadyDecoratedMessage = {
+    guildId,
+    channelId,
+    editable: true,
+    embeds: [decorated.embed],
+    edit: async () => {
+      editCount += 1;
+    },
+  };
+  assert.equal(await applySavedEmbedTemplates(alreadyDecoratedMessage), true);
+  assert.equal(editCount, 0);
+});
+
+test('audit log lookup returns immediately when Discord already has the entry', async () => {
+  const expected = {
+    target: { id: 'target-user' },
+    createdTimestamp: Date.now(),
+  };
+  let fetchCount = 0;
+  const guild = {
+    fetchAuditLogs: async () => {
+      fetchCount += 1;
+      return { entries: { find: predicate => predicate(expected) ? expected : null } };
+    },
+  };
+
+  const result = await fetchRecentAuditEntry(guild, 20, 'target-user');
+  assert.equal(result, expected);
+  assert.equal(fetchCount, 1);
 });
