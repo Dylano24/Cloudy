@@ -3,13 +3,6 @@ import { randomBytes } from 'node:crypto';
 const sessions = new Map();
 const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
-const PERSISTENT_EMOJIS = [
-    {
-        id: '1504663141697716244',
-        name: 'arrow_white',
-        animated: true,
-    },
-];
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -25,10 +18,9 @@ function sanitizeEditorState(value = {}) {
 }
 
 function sanitizeEmojis(emojis = []) {
-    const merged = [...PERSISTENT_EMOJIS, ...(Array.isArray(emojis) ? emojis : [])];
     const unique = new Map();
 
-    for (const emoji of merged) {
+    for (const emoji of Array.isArray(emojis) ? emojis : []) {
         const clean = {
             id: String(emoji?.id || ''),
             name: String(emoji?.name || 'emoji').slice(0, 100),
