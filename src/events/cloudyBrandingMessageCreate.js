@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { normalizeCloudyMessage } from '../services/cloudyBrandingService.js';
 import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
+import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
 
 export default {
   name: Events.MessageCreate,
@@ -11,10 +12,10 @@ export default {
     if (message.author?.id !== message.client.user.id) return;
     if (!message.embeds?.length) return;
 
-    void registerCloudyEmbedMessage(message, 'automatic');
-
-    const timer = setTimeout(() => {
-      void normalizeCloudyMessage(message, { ensureFooter: true });
+    const timer = setTimeout(async () => {
+      await normalizeCloudyMessage(message, { ensureFooter: true });
+      await applySavedEmbedTemplates(message);
+      await registerCloudyEmbedMessage(message, 'automatic');
     }, 500);
 
     timer.unref?.();
