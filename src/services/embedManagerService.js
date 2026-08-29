@@ -213,7 +213,7 @@ export function buildChannelPayload(guild, records, page = 0) {
                 `**Channels:** ${groups.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
             ].join('\n'))
-            .setColor(getColor('info'))],
+            .setColor(0xFFFFFF)],
         components,
     };
 }
@@ -270,7 +270,7 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
                     ? 'Only real log templates for this channel are shown. Old unrelated embeds and duplicates are ignored.'
                     : 'Only unique embeds are shown. Duplicate and old blank registry entries are hidden.',
             ].join('\n'))
-            .setColor(getColor('info'))],
+            .setColor(0xFFFFFF)],
         components,
     };
 }
@@ -316,7 +316,7 @@ function buildEmptyManagerPayload() {
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
             .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
-            .setColor(getColor('info'))],
+            .setColor(0xFFFFFF)],
         components: [],
     };
 }
