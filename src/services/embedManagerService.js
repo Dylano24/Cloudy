@@ -33,61 +33,135 @@ function shortLabel(value, fallback = 'Embed') {
     return (text || fallback).slice(0, 100);
 }
 
-function getRegistryPage(guild, records, page) {
-    const pageCount = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
-    const safePage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
-    const start = safePage * PAGE_SIZE;
-    const items = records.slice(start, start + PAGE_SIZE).map(record => ({
-        record,
-        channel: guild.channels.cache.get(record.channelId) || null,
-    }));
-    return { items, safePage, pageCount };
+function buildChannelGroups(guild, records) {
+    const groups = new Map();
+    for (const record of records) {
+        const channelId = String(record.channelId);
+        if (!groups.has(channelId)) groups.set(channelId, []);
+        groups.get(channelId).push(record);
+    }
+
+    return [...groups.entries()]
+        .map(([channelId, channelRecords]) => ({
+            channelId,
+            channel: guild.channels.cache.get(channelId) || null,
+            records: channelRecords.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)),
+        }))
+        .sort((a, b) => {
+            const aName = a.channel?.name || a.channelId;
+            const bName = b.channel?.name || b.channelId;
+            return aName.localeCompare(bName);
+        });
 }
 
-function buildManagerPayload(items, page, pageCount, total) {
+function pageItems(items, page) {
+    const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    const safePage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
+    const start = safePage * PAGE_SIZE;
+    return { items: items.slice(start, start + PAGE_SIZE), safePage, pageCount, start };
+}
+
+function navigationRow(prefix, page, pageCount) {
+    if (pageCount <= 1) return null;
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`${prefix}:${Math.max(0, page - 1)}`)
+            .setLabel('Previous')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page <= 0),
+        new ButtonBuilder()
+            .setCustomId(`${prefix}:${Math.min(pageCount - 1, page + 1)}`)
+            .setLabel('Next')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page >= pageCount - 1),
+    );
+}
+
+function buildChannelPayload(guild, records, page = 0) {
+    const groups = buildChannelGroups(guild, records);
+    const result = pageItems(groups, page);
     const components = [];
 
-    if (items.length) {
+    if (result.items.length) {
         const select = new StringSelectMenuBuilder()
-            .setCustomId(`simple_embed_modify_select:${page}`)
-            .setPlaceholder(`Embeds ${page * PAGE_SIZE + 1}-${page * PAGE_SIZE + items.length} of ${total}`)
+            .setCustomId(`simple_embed_modify_channel:${result.safePage}`)
+            .setPlaceholder('Choose a channel')
             .setMinValues(1)
             .setMaxValues(1)
-            .addOptions(...items.map(({ record, channel }) => {
-                const channelName = channel?.name ? `#${channel.name}` : 'Unknown channel';
+            .addOptions(...result.items.map(group => {
+                const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
+                const count = group.records.length;
                 return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(`${channelName} • ${record.source || 'Embed'}`))
-                    .setDescription(`Message ${record.messageId}`.slice(0, 100))
-                    .setValue(`${record.channelId}:${record.messageId}:${record.embedIndex || 0}`);
+                    .setLabel(shortLabel(`${name} • ${count} ${count === 1 ? 'embed' : 'embeds'}`))
+                    .setDescription('Open the embeds in this channel')
+                    .setValue(group.channelId);
             }));
         components.push(new ActionRowBuilder().addComponents(select));
     }
 
-    if (pageCount > 1) {
-        components.push(new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`simple_embed_modify_page:${Math.max(0, page - 1)}`)
-                .setLabel('Previous')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(page <= 0),
-            new ButtonBuilder()
-                .setCustomId(`simple_embed_modify_page:${Math.min(pageCount - 1, page + 1)}`)
-                .setLabel('Next')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(page >= pageCount - 1),
-        ));
-    }
+    const nav = navigationRow('simple_embed_modify_channel_page', result.safePage, result.pageCount);
+    if (nav) components.push(nav);
 
     return {
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
             .setDescription([
-                'Choose an existing embed to load into the message builder.',
+                'Choose a channel first, then choose the embed you want to edit.',
                 '',
-                `**Embeds found:** ${total}`,
-                `**Page:** ${page + 1}/${pageCount}`,
+                `**Embeds found:** ${records.length}`,
+                `**Channels:** ${groups.length}`,
+                `**Page:** ${result.safePage + 1}/${result.pageCount}`,
+            ].join('\n'))
+            .setColor(getColor('info'))],
+        components,
+    };
+}
+
+function buildEmbedPayload(guild, records, channelId, page = 0) {
+    const channel = guild.channels.cache.get(channelId) || null;
+    const channelRecords = records
+        .filter(record => String(record.channelId) === String(channelId))
+        .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    const result = pageItems(channelRecords, page);
+    const components = [];
+
+    if (result.items.length) {
+        const select = new StringSelectMenuBuilder()
+            .setCustomId(`simple_embed_modify_embed:${channelId}:${result.safePage}`)
+            .setPlaceholder('Choose an embed')
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(...result.items.map((record, index) => {
+                const embedNumber = result.start + index + 1;
+                const title = String(record.title || '').trim();
+                const label = title ? `Embed ${embedNumber} • ${title}` : `Embed ${embedNumber}`;
+                return new StringSelectMenuOptionBuilder()
+                    .setLabel(shortLabel(label))
+                    .setDescription(title ? 'Edit this embed' : `Posted ${record.createdAt ? new Date(record.createdAt).toLocaleDateString('en-GB') : 'earlier'}`)
+                    .setValue(`${record.messageId}:${record.embedIndex || 0}`);
+            }));
+        components.push(new ActionRowBuilder().addComponents(select));
+    }
+
+    const nav = navigationRow(`simple_embed_modify_embed_page:${channelId}`, result.safePage, result.pageCount);
+    if (nav) components.push(nav);
+
+    components.push(new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('simple_embed_modify_back')
+            .setLabel('Back to channels')
+            .setStyle(ButtonStyle.Secondary),
+    ));
+
+    return {
+        embeds: [new EmbedBuilder()
+            .setTitle('Modify embed')
+            .setDescription([
+                `**Channel:** ${channel ? `${channel}` : `#${channelId}`}`,
+                `**Embeds:** ${channelRecords.length}`,
+                `**Page:** ${result.safePage + 1}/${result.pageCount}`,
                 '',
-                'The original Discord message will be updated when you press **save changes**.',
+                'Choose an embed below. It will open in the existing message builder exactly as it is now.',
             ].join('\n'))
             .setColor(getColor('info'))],
         components,
@@ -127,58 +201,74 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
     try {
         let records = await getEmbedRegistry(guild.id);
-        const firstPage = getRegistryPage(guild, records, 0);
-
-        const loading = await buttonInteraction.followUp({
+        const managerMessage = await buttonInteraction.followUp({
             ...(records.length
-                ? buildManagerPayload(firstPage.items, firstPage.safePage, firstPage.pageCount, records.length)
+                ? buildChannelPayload(guild, records, 0)
                 : {
                     embeds: [new EmbedBuilder()
                         .setTitle('Modify embed')
-                        .setDescription('No registered embeds were found yet. Older embeds are being imported in the background; reopen this menu in a moment.')
+                        .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
                         .setColor(getColor('info'))],
                     components: [],
                 }),
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
         }).catch(() => null);
-        if (!loading) return;
+        if (!managerMessage) return;
 
         void scanGuildForCloudyEmbeds(guild, buttonInteraction.client.user.id, { maxMessagesPerChannel: 100 })
             .catch(error => logger.error('Background embed history import failed:', error));
 
         if (!records.length) return;
 
-        async function showPage(page) {
-            records = await getEmbedRegistry(guild.id);
-            const result = getRegistryPage(guild, records, page);
-            await loading.edit(buildManagerPayload(result.items, result.safePage, result.pageCount, records.length));
-        }
-
-        const collector = loading.createMessageComponentCollector({
+        const collector = managerMessage.createMessageComponentCollector({
             filter: interaction => interaction.user.id === buttonInteraction.user.id,
             time: MANAGER_TIMEOUT,
         });
 
         collector.on('collect', async interaction => {
             try {
-                if (interaction.customId.startsWith('simple_embed_modify_page:')) {
-                    await interaction.deferUpdate().catch(() => {});
-                    const page = Number(interaction.customId.split(':')[1]) || 0;
-                    await showPage(page);
+                if (interaction.customId === 'simple_embed_modify_back') {
+                    records = await getEmbedRegistry(guild.id);
+                    await interaction.update(buildChannelPayload(guild, records, 0));
                     return;
                 }
 
-                if (!interaction.isStringSelectMenu() || !interaction.customId.startsWith('simple_embed_modify_select:')) {
+                if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
+                    const page = Number(interaction.customId.split(':').at(-1)) || 0;
+                    records = await getEmbedRegistry(guild.id);
+                    await interaction.update(buildChannelPayload(guild, records, page));
+                    return;
+                }
+
+                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
+                    const channelId = interaction.values?.[0];
+                    records = await getEmbedRegistry(guild.id);
+                    await interaction.update(buildEmbedPayload(guild, records, channelId, 0));
+                    return;
+                }
+
+                if (interaction.customId.startsWith('simple_embed_modify_embed_page:')) {
+                    const parts = interaction.customId.split(':');
+                    const channelId = parts[1];
+                    const page = Number(parts[2]) || 0;
+                    records = await getEmbedRegistry(guild.id);
+                    await interaction.update(buildEmbedPayload(guild, records, channelId, page));
+                    return;
+                }
+
+                if (!interaction.isStringSelectMenu() || !interaction.customId.startsWith('simple_embed_modify_embed:')) {
                     await interaction.deferUpdate().catch(() => {});
                     return;
                 }
 
-                const [channelId, messageId, embedIndexRaw] = String(interaction.values?.[0] || '').split(':');
+                const parts = interaction.customId.split(':');
+                const channelId = parts[1];
+                const [messageId, embedIndexRaw] = String(interaction.values?.[0] || '').split(':');
                 const embedIndex = Number(embedIndexRaw) || 0;
                 const record = records.find(item =>
-                    String(item.channelId) === channelId &&
-                    String(item.messageId) === messageId &&
+                    String(item.channelId) === String(channelId) &&
+                    String(item.messageId) === String(messageId) &&
                     Number(item.embedIndex || 0) === embedIndex,
                 );
 
@@ -186,7 +276,8 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
 
                 if (!resolved) {
-                    await showPage(Number(interaction.customId.split(':')[1]) || 0);
+                    records = await getEmbedRegistry(guild.id);
+                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, 0));
                     return;
                 }
 
@@ -194,10 +285,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 await refreshBuilder();
                 collector.stop('selected');
 
-                await loading.edit({
+                await managerMessage.edit({
                     embeds: [new EmbedBuilder()
                         .setTitle('Embed loaded')
-                        .setDescription(`Loaded the embed from ${resolved.channel}. Use the existing builder controls, then press **save changes**.`)
+                        .setDescription(`The embed from ${resolved.channel} is now open in the message builder. Edit it normally, then press **save changes**.`)
                         .setColor(getColor('success'))],
                     components: [],
                 }).catch(() => {});
@@ -211,7 +302,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         await buttonInteraction.followUp({
             embeds: [new EmbedBuilder()
                 .setTitle('Could not load embeds')
-                .setDescription('Cloudy could not load the existing embeds right now.')
+                .setDescription('The embeds could not be loaded right now.')
                 .setColor(getColor('error'))],
             flags: MessageFlags.Ephemeral,
         }).catch(() => {});
@@ -224,10 +315,8 @@ function applyStateToExistingEmbed(state) {
 
     if (state.title) data.title = state.title.slice(0, 256);
     else delete data.title;
-
     if (state.message) data.description = state.message.slice(0, 4096);
     else delete data.description;
-
     data.color = state.sideColor;
 
     if (state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
@@ -241,13 +330,9 @@ function applyStateToExistingEmbed(state) {
         delete data.footer;
     }
 
-    if (state.mediaBuffer && state.mediaName) {
-        data.image = { url: `attachment://${state.mediaName}` };
-    } else if (state.mediaUrl) {
-        data.image = { url: state.mediaUrl };
-    } else {
-        delete data.image;
-    }
+    if (state.mediaBuffer && state.mediaName) data.image = { url: `attachment://${state.mediaName}` };
+    else if (state.mediaUrl) data.image = { url: state.mediaUrl };
+    else delete data.image;
 
     return data;
 }
@@ -267,15 +352,11 @@ export async function saveModifiedEmbed(guild, state) {
     if (!message.embeds?.[index]) return { ok: false, reason: 'embed-missing' };
 
     const embeds = message.embeds.map((embed, embedIndex) =>
-        embedIndex === index
-            ? new EmbedBuilder(applyStateToExistingEmbed(state))
-            : new EmbedBuilder(embed.toJSON()),
+        embedIndex === index ? new EmbedBuilder(applyStateToExistingEmbed(state)) : new EmbedBuilder(embed.toJSON()),
     );
 
     const payload = { embeds };
-    if (state.mediaBuffer && state.mediaName) {
-        payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
-    }
+    if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
 
     const edited = await message.edit(payload).catch(error => {
         logger.error('Failed to save modified embed:', error);
