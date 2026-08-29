@@ -16,9 +16,9 @@ export default {
     try {
         const { guild, user } = member;
 
-        // Detect kicks performed directly through Discord as well as bot commands.
-        // Discord can publish GuildMemberRemove slightly before the audit entry,
-        // so wait briefly and match the newest entry by target and timestamp.
+        // Detect kicks performed directly through Discord.
+        // Kicks executed by Cloudy are already logged by the moderation service,
+        // so never create a second Kick log from GuildMemberRemove for those.
         try {
             await new Promise(resolve => setTimeout(resolve, 750));
             const auditLogs = await guild.fetchAuditLogs({
@@ -31,7 +31,7 @@ export default {
                 now - entry.createdTimestamp < 15_000
             );
 
-            if (kickEntry) {
+            if (kickEntry && kickEntry.executor?.id !== member.client.user?.id) {
                 const executor = kickEntry.executor;
                 const reason = kickEntry.reason || 'No reason provided';
 
