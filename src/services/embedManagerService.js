@@ -43,6 +43,33 @@ function titleKey(value) {
     return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+function recordName(record) {
+    return String(record?.name || record?.title || '').replace(/\s+/g, ' ').trim();
+}
+
+function collapseDisplayRecords(channelRecords) {
+    const namedRecords = channelRecords.filter(record => recordName(record));
+    const sourceRecords = namedRecords.length ? namedRecords : channelRecords;
+    const groups = new Map();
+
+    for (const record of sourceRecords) {
+        const name = recordName(record) || 'Untitled embed';
+        const key = titleKey(name);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(record);
+    }
+
+    return [...groups.values()].map(group => {
+        group.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+        return {
+            ...group[0],
+            name: recordName(group[0]) || 'Untitled embed',
+            duplicateCount: group.length,
+            templateCount: group.length,
+        };
+    });
+}
+
 function buildChannelGroups(guild, records) {
     const groups = new Map();
     for (const record of records) {
@@ -100,7 +127,7 @@ function buildChannelPayload(guild, records, page = 0) {
             .setMaxValues(1)
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
-                const count = group.records.length;
+                const count = collapseDisplayRecords(group.records).length;
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(`${name} • ${count} ${count === 1 ? 'embed' : 'embeds'}`))
                     .setDescription('Open the embeds in this channel')
@@ -127,27 +154,13 @@ function buildChannelPayload(guild, records, page = 0) {
     };
 }
 
-function collapseTemplateRecords(channelRecords) {
-    const groups = new Map();
-    for (const record of channelRecords) {
-        const key = titleKey(record.title) || '__untitled__';
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(record);
-    }
-
-    return [...groups.values()].map(group => {
-        group.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-        return { ...group[0], templateCount: group.length };
-    });
-}
-
 function buildEmbedPayload(guild, records, channelId, page = 0) {
     const channel = guild.channels.cache.get(channelId) || null;
     const channelRecords = records
         .filter(record => String(record.channelId) === String(channelId))
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     const templateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
-    const displayRecords = templateMode ? collapseTemplateRecords(channelRecords) : channelRecords;
+    const displayRecords = collapseDisplayRecords(channelRecords);
     const result = pageItems(displayRecords, page);
     const components = [];
 
@@ -157,17 +170,13 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setPlaceholder('Choose an embed')
             .setMinValues(1)
             .setMaxValues(1)
-            .addOptions(...result.items.map((record, index) => {
-                const embedNumber = result.start + index + 1;
-                const title = String(record.title || '').trim();
-                const label = templateMode
-                    ? (title || `Embed ${embedNumber}`)
-                    : (title ? `Embed ${embedNumber} • ${title}` : `Embed ${embedNumber}`);
+            .addOptions(...result.items.map(record => {
+                const name = recordName(record) || 'Untitled embed';
                 const description = templateMode
                     ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
-                    : (title ? 'Edit this embed' : `Posted ${record.createdAt ? new Date(record.createdAt).toLocaleDateString('en-GB') : 'earlier'}`);
+                    : (record.duplicateCount > 1 ? `${record.duplicateCount} duplicate entries grouped` : 'Edit this embed');
                 return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(label))
+                    .setLabel(shortLabel(name, 'Untitled embed'))
                     .setDescription(description.slice(0, 100))
                     .setValue(`${record.messageId}:${record.embedIndex || 0}`);
             }));
@@ -189,12 +198,12 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setTitle('Modify embed')
             .setDescription([
                 `**Channel:** ${channel ? `${channel}` : `#${channelId}`}`,
-                templateMode ? `**Templates:** ${displayRecords.length}` : `**Embeds:** ${channelRecords.length}`,
+                templateMode ? `**Templates:** ${displayRecords.length}` : `**Embeds:** ${displayRecords.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
                 '',
                 templateMode
                     ? 'Repeated log embeds are grouped. Edit one template and all matching logs keep their own user, reason and date while the template styling is updated.'
-                    : 'Choose an embed below. It will open in the existing message builder exactly as it is now.',
+                    : 'Only unique embeds are shown. Duplicate and old blank registry entries are hidden.',
             ].join('\n'))
             .setColor(getColor('info'))],
         components,
