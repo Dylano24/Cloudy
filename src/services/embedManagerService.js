@@ -381,12 +381,19 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             }
         }
 
+        // Keep the original manager presentation: validate first, then open
+        // directly on the channel picker without showing an intermediate screen.
+        let records = await loadCurrentRegistry(guild, buttonInteraction.client.user.id);
         const managerMessage = await buttonInteraction.followUp({
-            embeds: [new EmbedBuilder()
-                .setTitle('Modify embed')
-                .setDescription('Checking the saved embeds and removing deleted entries…')
-                .setColor(getColor('info'))],
-            components: [],
+            ...(records.length
+                ? buildChannelPayload(guild, records, 0)
+                : {
+                    embeds: [new EmbedBuilder()
+                        .setTitle('Modify embed')
+                        .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
+                        .setColor(getColor('info'))],
+                    components: [],
+                }),
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
         }).catch(() => null);
@@ -399,32 +406,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             queue: Promise.resolve(),
         };
         state.activeEmbedManager = session;
-
-        let records = await loadCurrentRegistry(guild, buttonInteraction.client.user.id);
-        if (session.closed || state.activeEmbedManager !== session) return;
-
-        const initialPayload = records.length
-            ? buildChannelPayload(guild, records, 0)
-            : {
-                embeds: [new EmbedBuilder()
-                    .setTitle('Modify embed')
-                    .setDescription('No existing Cloudy embeds were found in this server.')
-                    .setColor(getColor('info'))],
-                components: [],
-            };
-
-        const initialized = await buttonInteraction.webhook.editMessage(managerMessage.id, initialPayload)
-            .then(() => true)
-            .catch(error => {
-                if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
-                    logger.error('Failed to initialize the embed manager:', error);
-                }
-                return false;
-            });
-        if (!initialized) {
-            closeEmbedManagerSession(state, session, 'initialization-failed');
-            return;
-        }
 
         if (!records.length) {
             return;
