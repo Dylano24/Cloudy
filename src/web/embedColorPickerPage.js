@@ -18,9 +18,13 @@ export function embedColorPickerPage() {
     input[type=text]:focus, textarea:focus { border-color: #5865f2; }
     .row { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
     .count { color: #949ba4; font-size: 12px; }
-    #emojiSection { margin-top: 20px; }
+    #emojiSection { margin-top: 18px; }
+    #emojiToggle { width: 100%; border: 1px solid #3d3f48; background: #1e1f22; color: #f2f3f5; border-radius: 8px; padding: 12px 14px; font: 700 15px inherit; cursor: pointer; text-align: left; }
+    #emojiToggle:hover, #emojiToggle:focus-visible { border-color: #5865f2; background: #2b2d31; outline: 0; }
+    #emojiPanel { margin-top: 10px; border: 1px solid #35363e; border-radius: 10px; background: #1b1c1f; padding: 12px; }
+    #emojiPanel label { margin-top: 0; }
     #search { margin-bottom: 12px; }
-    #emojis { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 8px; max-height: 280px; overflow: auto; padding: 2px; }
+    #emojis { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 8px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 2px; }
     .emoji { min-height: 52px; border: 1px solid #3d3f48; background: #1e1f22; border-radius: 8px; cursor: pointer; display: grid; place-items: center; padding: 6px; }
     .emoji:hover { border-color: #5865f2; background: #2b2d31; }
     .emoji img { width: 32px; height: 32px; object-fit: contain; }
@@ -49,7 +53,7 @@ export function embedColorPickerPage() {
   <main>
     <section id="editorMode" class="hidden">
       <h1 id="editorTitle">Edit title and message</h1>
-      <p id="editorDescription">Click inside a field, then click a Cloudy server emoji. It is inserted exactly at your cursor and the Discord preview updates automatically.</p>
+      <p id="editorDescription">Click inside a field, then choose an emoji. It is inserted exactly at your cursor and the Discord preview updates automatically.</p>
       <div id="contentFields">
         <div class="row"><label for="titleInput">Title</label><span id="titleCount" class="count">0 / 256</span></div>
         <input id="titleInput" type="text" maxlength="256" placeholder="Write your title here">
@@ -62,9 +66,12 @@ export function embedColorPickerPage() {
         <p style="margin-top:10px">Discord does not render custom server emojis inside embed footer text, so the server emoji picker is disabled for the footer.</p>
       </div>
       <section id="emojiSection">
-        <label for="search">Cloudy server emojis</label>
-        <input id="search" type="text" placeholder="Search emojis">
-        <div id="emojis"></div>
+        <button id="emojiToggle" type="button" aria-expanded="false" aria-controls="emojiPanel">😀 Emojis</button>
+        <div id="emojiPanel" class="hidden">
+          <label for="search">Cloudy server emojis</label>
+          <input id="search" type="text" placeholder="Search emojis" autocomplete="off">
+          <div id="emojis"></div>
+        </div>
       </section>
       <div id="status" role="status"></div>
     </section>
@@ -108,6 +115,8 @@ export function embedColorPickerPage() {
       const contentFields = document.getElementById('contentFields');
       const footerFields = document.getElementById('footerFields');
       const emojiSection = document.getElementById('emojiSection');
+      const emojiToggle = document.getElementById('emojiToggle');
+      const emojiPanel = document.getElementById('emojiPanel');
       const emojiGrid = document.getElementById('emojis');
       const search = document.getElementById('search');
       const counts = {
@@ -208,6 +217,17 @@ export function embedColorPickerPage() {
         });
       }
 
+      emojiToggle.addEventListener('click', () => {
+        const isOpen = !emojiPanel.classList.contains('hidden');
+        emojiPanel.classList.toggle('hidden', isOpen);
+        emojiToggle.setAttribute('aria-expanded', String(!isOpen));
+        emojiToggle.textContent = isOpen ? '😀 Emojis' : '😀 Emojis ▲';
+        if (!isOpen) {
+          renderEmojis();
+          requestAnimationFrame(() => search.focus({ preventScroll: true }));
+        }
+      });
+
       search.addEventListener('input', renderEmojis);
 
       (async () => {
@@ -223,7 +243,6 @@ export function embedColorPickerPage() {
           footerInput.value = data.footer || '';
           emojis = Array.isArray(data.emojis) ? data.emojis : [];
           updateCount(titleInput); updateCount(messageInput); updateCount(footerInput);
-          renderEmojis();
           setStatus(mode === 'footer' ? 'Footer editor ready.' : 'Emoji editor ready.');
         } catch (error) {
           setStatus(error.message || 'Could not load the editor.', 'error');
