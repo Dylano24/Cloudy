@@ -28,7 +28,7 @@ function cleanFooter(text) {
         : value;
 }
 
-function shortLabel(value, fallback = 'Cloudy embed') {
+function shortLabel(value, fallback = 'Embed') {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return (text || fallback).slice(0, 100);
 }
@@ -56,7 +56,7 @@ function buildManagerPayload(items, page, pageCount, total) {
             .addOptions(...items.map(({ record, channel }) => {
                 const channelName = channel?.name ? `#${channel.name}` : 'Unknown channel';
                 return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(`${channelName} • ${record.source || 'Cloudy'}`))
+                    .setLabel(shortLabel(`${channelName} • ${record.source || 'Embed'}`))
                     .setDescription(`Message ${record.messageId}`.slice(0, 100))
                     .setValue(`${record.channelId}:${record.messageId}:${record.embedIndex || 0}`);
             }));
@@ -82,12 +82,12 @@ function buildManagerPayload(items, page, pageCount, total) {
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
             .setDescription([
-                'Choose an existing Cloudy embed to load into the Message Builder.',
+                'Choose an existing embed to load into the message builder.',
                 '',
                 `**Embeds found:** ${total}`,
                 `**Page:** ${page + 1}/${pageCount}`,
                 '',
-                'The original Discord message will be updated when you press **Save changes**.',
+                'The original Discord message will be updated when you press **save changes**.',
             ].join('\n'))
             .setColor(getColor('info'))],
         components,
@@ -135,7 +135,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 : {
                     embeds: [new EmbedBuilder()
                         .setTitle('Modify embed')
-                        .setDescription('No registered Cloudy embeds were found yet. Older embeds are being imported in the background; reopen this menu in a moment.')
+                        .setDescription('No registered embeds were found yet. Older embeds are being imported in the background; reopen this menu in a moment.')
                         .setColor(getColor('info'))],
                     components: [],
                 }),
@@ -197,7 +197,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 await loading.edit({
                     embeds: [new EmbedBuilder()
                         .setTitle('Embed loaded')
-                        .setDescription(`Loaded the embed from ${resolved.channel}. Use the existing builder controls, then press **Save changes**.`)
+                        .setDescription(`Loaded the embed from ${resolved.channel}. Use the existing builder controls, then press **save changes**.`)
                         .setColor(getColor('success'))],
                     components: [],
                 }).catch(() => {});
