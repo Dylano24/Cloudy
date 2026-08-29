@@ -3,6 +3,7 @@ import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { getReactionRoleMessage, deleteReactionRoleMessage } from '../services/reactionRoleService.js';
 import { formatLogLine } from '../utils/logging/logEmbeds.js';
+import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js';
 
 const MAX_LOGGED_MESSAGE_CONTENT_LENGTH = 1024;
 
@@ -13,6 +14,14 @@ export default {
   async execute(message) {
     try {
       if (!message.guild) return;
+
+      const mayBeRegisteredEmbed = message.partial
+        || !message.author
+        || message.author.id === message.client.user?.id;
+      if (mayBeRegisteredEmbed) {
+        await removeEmbedRegistryMessage(message.guild.id, message.channelId, message.id)
+          .catch(error => logger.warn(`Failed to remove deleted message ${message.id} from the embed registry:`, error));
+      }
 
       try {
         const reactionRoleData = await getReactionRoleMessage(message.client, message.guild.id, message.id);

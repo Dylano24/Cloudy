@@ -4,6 +4,9 @@ import { logger } from '../utils/logger.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const SCAN_BATCH_SIZE = 100;
+const RECONCILE_CONCURRENCY = 6;
+const DEFINITIVE_MISSING_CODES = new Set([10003, 10008, 50001, 50013]);
+const registryMutationQueues = new Map();
 const INTERNAL_EMBED_NAMES = new Set([
     'message builder',
     'modify embed',
@@ -18,6 +21,71 @@ const INTERNAL_EMBED_NAMES = new Set([
 
 function registryKey(guildId) {
     return `${REGISTRY_PREFIX}${guildId}`;
+}
+
+function recordKey(record) {
+    return `${String(record?.channelId || '')}:${String(record?.messageId || '')}:${Math.max(0, Number(record?.embedIndex) || 0)}`;
+}
+
+function messageKey(record) {
+    return `${String(record?.channelId || '')}:${String(record?.messageId || '')}`;
+}
+
+function sortRecords(records) {
+    return records.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+function cleanStoredRecords(records) {
+    const unique = new Map();
+
+    for (const record of Array.isArray(records) ? records : []) {
+        if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record)) continue;
+        unique.set(recordKey(record), record);
+    }
+
+    return sortRecords([...unique.values()]);
+}
+
+async function mutateRegistry(guildId, operation) {
+    const queueKey = String(guildId);
+    const previous = registryMutationQueues.get(queueKey) || Promise.resolve();
+    const current = previous
+        .catch(() => {})
+        .then(operation);
+
+    registryMutationQueues.set(queueKey, current);
+    try {
+        return await current;
+    } finally {
+        if (registryMutationQueues.get(queueKey) === current) {
+            registryMutationQueues.delete(queueKey);
+        }
+    }
+}
+
+async function readStoredRecords(guildId) {
+    const stored = await getFromDb(registryKey(guildId), []);
+    return Array.isArray(stored) ? stored : [];
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+    const results = new Array(items.length);
+    let cursor = 0;
+
+    async function run() {
+        while (cursor < items.length) {
+            const index = cursor;
+            cursor += 1;
+            results[index] = await worker(items[index], index);
+        }
+    }
+
+    const workers = Array.from(
+        { length: Math.min(Math.max(1, concurrency), Math.max(1, items.length)) },
+        () => run(),
+    );
+    await Promise.all(workers);
+    return results;
 }
 
 function cleanName(value) {
@@ -62,36 +130,34 @@ function normalizeRecord(record) {
 }
 
 export async function getEmbedRegistry(guildId) {
-    const stored = await getFromDb(registryKey(guildId), []);
-    if (!Array.isArray(stored)) return [];
-
-    const cleaned = stored.filter(record => !isInternalEmbedRecord(record));
+    const stored = await readStoredRecords(guildId);
+    const cleaned = cleanStoredRecords(stored);
     if (cleaned.length !== stored.length) {
-        await setInDb(registryKey(guildId), cleaned);
+        await mutateRegistry(guildId, async () => {
+            const latest = await readStoredRecords(guildId);
+            const latestCleaned = cleanStoredRecords(latest);
+            if (latestCleaned.length !== latest.length) {
+                await setInDb(registryKey(guildId), latestCleaned);
+            }
+        });
     }
     return cleaned;
 }
 
 async function saveRecords(guildId, additions) {
-    const records = await getEmbedRegistry(guildId);
-    const next = [...records];
+    return mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        const next = new Map(records.map(record => [recordKey(record), record]));
 
-    for (const addition of additions) {
-        const record = normalizeRecord(addition);
-        if (!record) continue;
-        const existingIndex = next.findIndex(item =>
-            String(item.channelId) === record.channelId &&
-            String(item.messageId) === record.messageId &&
-            Number(item.embedIndex || 0) === record.embedIndex,
-        );
+        for (const addition of additions) {
+            const record = normalizeRecord(addition);
+            if (!record) continue;
+            const key = recordKey(record);
+            next.set(key, { ...(next.get(key) || {}), ...record });
+        }
 
-        if (existingIndex >= 0) next[existingIndex] = { ...next[existingIndex], ...record };
-        else next.push(record);
-    }
-
-    next.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-    await setInDb(registryKey(guildId), next);
-    return true;
+        return setInDb(registryKey(guildId), sortRecords([...next.values()]));
+    });
 }
 
 export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
@@ -120,13 +186,37 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
 }
 
 export async function removeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
-    const records = await getEmbedRegistry(guildId);
-    const next = records.filter(item => !(
-        String(item.channelId) === String(channelId) &&
-        String(item.messageId) === String(messageId) &&
-        Number(item.embedIndex || 0) === Number(embedIndex || 0)
-    ));
-    if (next.length !== records.length) await setInDb(registryKey(guildId), next);
+    return mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        const next = records.filter(item => !(
+            String(item.channelId) === String(channelId) &&
+            String(item.messageId) === String(messageId) &&
+            Number(item.embedIndex || 0) === Number(embedIndex || 0)
+        ));
+        if (next.length === records.length) return false;
+        return setInDb(registryKey(guildId), next);
+    });
+}
+
+export async function removeEmbedRegistryMessage(guildId, channelId, messageId) {
+    return mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        const next = records.filter(item => !(
+            String(item.channelId) === String(channelId) &&
+            String(item.messageId) === String(messageId)
+        ));
+        if (next.length === records.length) return false;
+        return setInDb(registryKey(guildId), next);
+    });
+}
+
+export async function removeEmbedRegistryChannel(guildId, channelId) {
+    return mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        const next = records.filter(item => String(item.channelId) !== String(channelId));
+        if (next.length === records.length) return false;
+        return setInDb(registryKey(guildId), next);
+    });
 }
 
 export async function resolveEmbedRegistryRecord(guild, record) {
@@ -148,6 +238,111 @@ export async function resolveEmbedRegistryRecord(guild, record) {
     }
 
     return { channel, message, embed, record };
+}
+
+function recordsFromMessage(message, priorRecords = []) {
+    if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return [];
+    const priorByIndex = new Map(priorRecords.map(record => [Number(record.embedIndex || 0), record]));
+
+    return message.embeds
+        .map((embed, embedIndex) => {
+            const prior = priorByIndex.get(embedIndex);
+            return normalizeRecord({
+                guildId: message.guildId,
+                channelId: message.channelId,
+                messageId: message.id,
+                embedIndex,
+                source: prior?.source || 'reconciled',
+                title: embed?.title || '',
+                name: embedName(embed),
+                createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
+            });
+        })
+        .filter(Boolean);
+}
+
+async function resolveRegistryMessage(guild, records) {
+    const first = records[0];
+    let channel = guild.channels.cache.get(first.channelId) || null;
+
+    if (!channel) {
+        try {
+            channel = await guild.channels.fetch(first.channelId);
+        } catch (error) {
+            return DEFINITIVE_MISSING_CODES.has(error?.code)
+                ? { status: 'missing', records: [] }
+                : { status: 'unknown', records };
+        }
+    }
+
+    if (!channel?.messages?.fetch) return { status: 'missing', records: [] };
+
+    let message;
+    try {
+        message = await channel.messages.fetch(first.messageId);
+    } catch (error) {
+        return DEFINITIVE_MISSING_CODES.has(error?.code)
+            ? { status: 'missing', records: [] }
+            : { status: 'unknown', records };
+    }
+
+    if (!message || message.author?.id !== guild.client.user?.id || !message.embeds?.length) {
+        return { status: 'missing', records: [] };
+    }
+
+    return { status: 'resolved', records: recordsFromMessage(message, records) };
+}
+
+export async function reconcileEmbedRegistry(guild) {
+    if (!guild?.id || !guild.client?.user?.id) {
+        return { records: [], checkedMessages: 0, removedRecords: 0 };
+    }
+
+    const snapshot = await getEmbedRegistry(guild.id);
+    if (!snapshot.length) {
+        return { records: [], checkedMessages: 0, removedRecords: 0 };
+    }
+
+    const groups = new Map();
+    for (const record of snapshot) {
+        const key = messageKey(record);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(record);
+    }
+
+    const entries = [...groups.entries()];
+    const resolved = await mapWithConcurrency(entries, RECONCILE_CONCURRENCY, async ([key, records]) => [
+        key,
+        await resolveRegistryMessage(guild, records),
+    ]);
+    const results = new Map(resolved);
+
+    const records = await mutateRegistry(guild.id, async () => {
+        const latest = cleanStoredRecords(await readStoredRecords(guild.id));
+        const next = [];
+        const replacedMessages = new Set(results.keys());
+
+        for (const record of latest) {
+            if (!replacedMessages.has(messageKey(record))) next.push(record);
+        }
+
+        for (const [key, result] of results) {
+            if (result.status === 'resolved') next.push(...result.records);
+            if (result.status === 'unknown') {
+                next.push(...latest.filter(record => messageKey(record) === key));
+            }
+        }
+
+        const cleaned = cleanStoredRecords(next);
+        await setInDb(registryKey(guild.id), cleaned);
+        return cleaned;
+    });
+
+    return {
+        records,
+        checkedMessages: entries.length,
+        removedRecords: Math.max(0, snapshot.length - records.filter(record => results.has(messageKey(record))).length),
+    };
 }
 
 function readableTextChannels(guild) {
