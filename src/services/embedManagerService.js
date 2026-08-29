@@ -20,6 +20,12 @@ import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const PAGE_SIZE = 25;
 const MANAGER_TIMEOUT = 120_000;
+const TEMPLATE_CHANNEL_IDS = new Set([
+    '1539375620885323826', // kick-logs
+    '1539371111240831078', // timeout-logs
+    '1539259457404412036', // ban/unban logs
+    '1539372511089926244', // reports
+]);
 
 function cleanFooter(text) {
     const value = String(text || '');
@@ -31,6 +37,10 @@ function cleanFooter(text) {
 function shortLabel(value, fallback = 'Embed') {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return (text || fallback).slice(0, 100);
+}
+
+function titleKey(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function buildChannelGroups(guild, records) {
@@ -117,12 +127,28 @@ function buildChannelPayload(guild, records, page = 0) {
     };
 }
 
+function collapseTemplateRecords(channelRecords) {
+    const groups = new Map();
+    for (const record of channelRecords) {
+        const key = titleKey(record.title) || '__untitled__';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(record);
+    }
+
+    return [...groups.values()].map(group => {
+        group.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+        return { ...group[0], templateCount: group.length };
+    });
+}
+
 function buildEmbedPayload(guild, records, channelId, page = 0) {
     const channel = guild.channels.cache.get(channelId) || null;
     const channelRecords = records
         .filter(record => String(record.channelId) === String(channelId))
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-    const result = pageItems(channelRecords, page);
+    const templateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
+    const displayRecords = templateMode ? collapseTemplateRecords(channelRecords) : channelRecords;
+    const result = pageItems(displayRecords, page);
     const components = [];
 
     if (result.items.length) {
@@ -134,10 +160,15 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
             .addOptions(...result.items.map((record, index) => {
                 const embedNumber = result.start + index + 1;
                 const title = String(record.title || '').trim();
-                const label = title ? `Embed ${embedNumber} • ${title}` : `Embed ${embedNumber}`;
+                const label = templateMode
+                    ? (title || `Embed ${embedNumber}`)
+                    : (title ? `Embed ${embedNumber} • ${title}` : `Embed ${embedNumber}`);
+                const description = templateMode
+                    ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
+                    : (title ? 'Edit this embed' : `Posted ${record.createdAt ? new Date(record.createdAt).toLocaleDateString('en-GB') : 'earlier'}`);
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(label))
-                    .setDescription(title ? 'Edit this embed' : `Posted ${record.createdAt ? new Date(record.createdAt).toLocaleDateString('en-GB') : 'earlier'}`)
+                    .setDescription(description.slice(0, 100))
                     .setValue(`${record.messageId}:${record.embedIndex || 0}`);
             }));
         components.push(new ActionRowBuilder().addComponents(select));
@@ -158,10 +189,12 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setTitle('Modify embed')
             .setDescription([
                 `**Channel:** ${channel ? `${channel}` : `#${channelId}`}`,
-                `**Embeds:** ${channelRecords.length}`,
+                templateMode ? `**Templates:** ${displayRecords.length}` : `**Embeds:** ${channelRecords.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
                 '',
-                'Choose an embed below. It will open in the existing message builder exactly as it is now.',
+                templateMode
+                    ? 'Repeated log embeds are grouped. Edit one template and all matching logs keep their own user, reason and date while the template styling is updated.'
+                    : 'Choose an embed below. It will open in the existing message builder exactly as it is now.',
             ].join('\n'))
             .setColor(getColor('info'))],
         components,
@@ -190,6 +223,8 @@ function loadEmbedIntoState(state, resolved) {
         source: record.source || 'cloudy',
         sourceEmbedData: data,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
+        templateMode: TEMPLATE_CHANNEL_IDS.has(String(channel.id)),
+        templateTitle: titleKey(data.title),
     };
 }
 
@@ -336,6 +371,74 @@ function applyStateToExistingEmbed(state) {
     return data;
 }
 
+function splitDynamicLogLine(line) {
+    const match = String(line || '').match(/^(\s*(?:>\s*)?\*\*[^*]+:\*\*\s*)(.*)$/);
+    return match ? { prefix: match[1], value: match[2] } : null;
+}
+
+function mergeTemplateDescription(sourceDescription, editedDescription, peerDescription) {
+    const sourceLines = String(sourceDescription || '').split('\n');
+    const editedLines = String(editedDescription || '').split('\n');
+    const peerLines = String(peerDescription || '').split('\n');
+    const maxLength = Math.max(sourceLines.length, editedLines.length, peerLines.length);
+    const result = [];
+
+    for (let index = 0; index < maxLength; index += 1) {
+        const source = sourceLines[index] ?? '';
+        const edited = editedLines[index] ?? source;
+        const peer = peerLines[index] ?? source;
+        const sourceDynamic = splitDynamicLogLine(source);
+        const editedDynamic = splitDynamicLogLine(edited);
+        const peerDynamic = splitDynamicLogLine(peer);
+
+        if (sourceDynamic && editedDynamic && peerDynamic) {
+            result.push(`${editedDynamic.prefix}${peerDynamic.value}`);
+        } else if (peer === source || index >= peerLines.length) {
+            result.push(edited);
+        } else {
+            result.push(peer);
+        }
+    }
+
+    return result.join('\n').slice(0, 4096);
+}
+
+function applyStateToTemplatePeer(state, peerData) {
+    const target = state.modifyTarget;
+    const source = target?.sourceEmbedData || {};
+    const data = { ...peerData };
+
+    if (state.title) data.title = state.title.slice(0, 256);
+    else delete data.title;
+
+    if (state.message) {
+        data.description = mergeTemplateDescription(source.description, state.message, peerData.description);
+    } else {
+        delete data.description;
+    }
+
+    data.color = state.sideColor;
+
+    if (state.showLogo) {
+        data.thumbnail = { url: CLOUDY_LOGO_URL };
+    } else if (source.thumbnail?.url === CLOUDY_LOGO_URL && data.thumbnail?.url === CLOUDY_LOGO_URL) {
+        delete data.thumbnail;
+    }
+
+    if (state.bottomLine) {
+        const marker = peerData.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER) ? MESSAGE_BUILDER_FOOTER_MARKER : '';
+        const limit = marker ? 2047 : 2048;
+        data.footer = { ...(data.footer || {}), text: `${state.bottomLine.slice(0, limit)}${marker}` };
+    } else {
+        delete data.footer;
+    }
+
+    if (state.mediaUrl) data.image = { url: state.mediaUrl };
+    else if (source.image?.url && !state.mediaBuffer) delete data.image;
+
+    return data;
+}
+
 export async function saveModifiedEmbed(guild, state) {
     const target = state.modifyTarget;
     if (!guild || !target) return { ok: false, reason: 'missing-target' };
@@ -363,9 +466,42 @@ export async function saveModifiedEmbed(guild, state) {
     });
     if (!edited) return { ok: false, reason: 'edit-failed' };
 
+    let updatedCount = 1;
+
+    if (target.templateMode) {
+        const records = await getEmbedRegistry(guild.id);
+        const peers = records.filter(record =>
+            String(record.channelId) === String(target.channelId) &&
+            !(String(record.messageId) === String(target.messageId) && Number(record.embedIndex || 0) === index),
+        );
+
+        for (const record of peers) {
+            const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
+            if (!resolved) continue;
+            const peerData = resolved.embed.toJSON();
+            if (titleKey(peerData.title) !== target.templateTitle) continue;
+
+            const peerIndex = Number(record.embedIndex || 0);
+            const peerEmbeds = resolved.message.embeds.map((embed, embedIndex) =>
+                embedIndex === peerIndex
+                    ? new EmbedBuilder(applyStateToTemplatePeer(state, peerData))
+                    : new EmbedBuilder(embed.toJSON()),
+            );
+            const peerEdited = await resolved.message.edit({ embeds: peerEmbeds }).catch(error => {
+                logger.error('Failed to update matching log template embed:', error);
+                return null;
+            });
+            if (peerEdited) {
+                updatedCount += 1;
+                await registerCloudyEmbedMessage(peerEdited, 'modified-template');
+            }
+        }
+    }
+
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
     state.modifyTarget.sourceEmbedData = current;
-    await registerCloudyEmbedMessage(edited, 'modified');
+    state.modifyTarget.templateTitle = titleKey(current.title);
+    await registerCloudyEmbedMessage(edited, target.templateMode ? 'modified-template' : 'modified');
 
-    return { ok: true, channel, message: edited };
+    return { ok: true, channel, message: edited, updatedCount };
 }
