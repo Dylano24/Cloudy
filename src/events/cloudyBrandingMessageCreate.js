@@ -12,8 +12,8 @@ export default {
     if (message.author?.id !== message.client.user.id) return;
     if (!message.embeds?.length) return;
 
-    await normalizeCloudyMessage(message, { ensureFooter: true });
-    await applySavedEmbedTemplates(message);
+    const matchedTemplate = await applySavedEmbedTemplates(message);
+    if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
     await registerCloudyEmbedMessage(message, 'automatic');
   },
 };
