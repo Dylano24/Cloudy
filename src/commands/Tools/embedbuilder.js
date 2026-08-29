@@ -318,9 +318,9 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('☁️'),
         new ButtonBuilder()
-            .setURL(state.footerEditorUrl)
+            .setCustomId('simple_embed_footer')
             .setLabel('Edit footer')
-            .setStyle(ButtonStyle.Link)
+            .setStyle(ButtonStyle.Secondary)
             .setEmoji('📝'),
         new ButtonBuilder()
             .setURL(state.colorPickerUrl)
@@ -860,7 +860,6 @@ export default {
             });
             state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
             state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
-            state.footerEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=footer`;
 
             await refreshBuilder(interaction, state);
 
