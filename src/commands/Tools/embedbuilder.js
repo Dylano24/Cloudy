@@ -219,6 +219,42 @@ function buildSingleEmbed(state, description = null, options = {}) {
 function buildPreviewEmbed(state) {
     const chunks = splitLongText(state.message);
     const firstChunk = chunks[0] || null;
+
+    if (state.modifyTarget?.sourceEmbedData) {
+        const source = state.modifyTarget.sourceEmbedData;
+        const data = { ...source, color: state.sideColor };
+
+        if (state.title) data.title = state.title.slice(0, 256);
+        else delete data.title;
+
+        if (firstChunk) data.description = firstChunk.slice(0, DISCORD_EMBED_DESCRIPTION_LIMIT);
+        else delete data.description;
+
+        if (state.showLogo) {
+            data.thumbnail = { url: CLOUDY_LOGO_URL };
+        } else if (data.thumbnail?.url === CLOUDY_LOGO_URL) {
+            delete data.thumbnail;
+        }
+
+        if (chunks.length <= 1) {
+            if (state.bottomLine) {
+                data.footer = { ...(data.footer || {}), text: state.bottomLine.slice(0, 2048) };
+            } else {
+                delete data.footer;
+            }
+        }
+
+        if (state.mediaBuffer && state.mediaName) {
+            data.image = { url: `attachment://${state.mediaName}` };
+        } else if (state.mediaUrl) {
+            data.image = { url: state.mediaUrl };
+        } else {
+            delete data.image;
+        }
+
+        return new EmbedBuilder(data);
+    }
+
     const embed = buildSingleEmbed(state, firstChunk, {
         preview: true,
         includeFooter: chunks.length <= 1,
