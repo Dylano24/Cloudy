@@ -6,12 +6,17 @@ import {
     saveTicketData
 } from '../utils/database.js';
 import { getServerCounters, saveServerCounters } from '../services/serverstatsService.js';
+import { removeEmbedRegistryChannel } from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
 
 export default {
     name: 'channelDelete',
     async execute(channel, client) {
-        
+        if (channel.guild) {
+            await removeEmbedRegistryChannel(channel.guild.id, channel.id)
+                .catch(error => logger.warn(`Failed to remove deleted channel ${channel.id} from the embed registry:`, error));
+        }
+
         if (channel.type === 0 && channel.guild) {
             try {
                 const ticketData = await getTicketData(channel.guild.id, channel.id);

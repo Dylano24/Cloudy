@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 const sessions = new Map();
 const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
+const SESSION_TTL_MS = 14 * 60_000;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -36,20 +37,25 @@ function sanitizeEmojis(emojis = []) {
 
 export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, emojis = [] }) {
     const token = randomBytes(32).toString('hex');
+    const expiresAt = Date.now() + SESSION_TTL_MS;
+    const expiryTimer = setTimeout(() => sessions.delete(token), SESSION_TTL_MS);
+    expiryTimer.unref?.();
     sessions.set(token, {
         userId,
         onColor,
         getEditorState,
         onEditorUpdate,
         emojis: sanitizeEmojis(emojis),
+        expiresAt,
+        expiryTimer,
     });
     return token;
 }
 
 export async function applyEmbedColorPickerSession(token, value) {
     const session = sessions.get(token);
-    if (!session) {
-        sessions.delete(token);
+    if (!session || Date.now() >= session.expiresAt) {
+        deleteEmbedColorPickerSession(token);
         return { ok: false, reason: 'expired' };
     }
 
@@ -84,17 +90,35 @@ export async function applyEmbedColorPickerSession(token, value) {
         }
 
         const nextValue = payload.value.slice(0, limits[field]);
-        await session.onEditorUpdate(field, nextValue);
+        try {
+            await session.onEditorUpdate(field, nextValue);
+        } catch (error) {
+            if (error?.code === 'EMBED_BUILDER_EXPIRED') {
+                deleteEmbedColorPickerSession(token);
+                return { ok: false, reason: 'expired' };
+            }
+            throw error;
+        }
         return { ok: true, color: JSON.stringify({ type: 'editor_saved', field, value: nextValue }) };
     }
 
     const color = parseColor(value);
     if (color === null) return { ok: false, reason: 'invalid_color' };
 
-    await session.onColor(color);
+    try {
+        await session.onColor(color);
+    } catch (error) {
+        if (error?.code === 'EMBED_BUILDER_EXPIRED') {
+            deleteEmbedColorPickerSession(token);
+            return { ok: false, reason: 'expired' };
+        }
+        throw error;
+    }
     return { ok: true, color: `#${color.toString(16).padStart(6, '0').toUpperCase()}` };
 }
 
 export function deleteEmbedColorPickerSession(token) {
+    const session = sessions.get(token);
+    if (session?.expiryTimer) clearTimeout(session.expiryTimer);
     sessions.delete(token);
 }

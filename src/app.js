@@ -229,7 +229,7 @@ class TitanBot extends Client {
           return res.status(status).json({
             error: result.reason === 'invalid_color'
               ? 'Enter a valid six-digit HEX color.'
-              : 'This color session has expired. Reopen it from Discord.',
+              : 'This editor session has expired. Reopen /embedbuilder in Discord.',
           });
         }
         return res.status(200).json({ ok: true, color: result.color });
