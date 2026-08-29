@@ -213,10 +213,6 @@ function buildSingleEmbed(state, description = null, options = {}) {
         data.image = { url: state.mediaUrl };
     }
 
-    if (preview && !state.title && !description && !hasMedia(state)) {
-        data.description = '*(Use the buttons below to create your message)*';
-    }
-
     return new EmbedBuilder(data);
 }
 
