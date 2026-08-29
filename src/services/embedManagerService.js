@@ -484,11 +484,12 @@ export async function saveModifiedEmbed(guild, state) {
             !(String(record.messageId) === String(target.messageId) && Number(record.embedIndex || 0) === index),
         );
 
-        for (const record of peers) {
+        const results = await Promise.all(peers.map(async record => {
             const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
-            if (!resolved) continue;
+            if (!resolved) return false;
+
             const peerData = resolved.embed.toJSON();
-            if (titleKey(peerData.title) !== target.templateTitle) continue;
+            if (titleKey(peerData.title) !== target.templateTitle) return false;
 
             const peerIndex = Number(record.embedIndex || 0);
             const peerEmbeds = resolved.message.embeds.map((embed, embedIndex) =>
@@ -496,21 +497,26 @@ export async function saveModifiedEmbed(guild, state) {
                     ? new EmbedBuilder(applyStateToTemplatePeer(state, peerData))
                     : new EmbedBuilder(embed.toJSON()),
             );
+
             const peerEdited = await resolved.message.edit({ embeds: peerEmbeds }).catch(error => {
                 logger.error('Failed to update matching log template embed:', error);
                 return null;
             });
-            if (peerEdited) {
-                updatedCount += 1;
-                await registerCloudyEmbedMessage(peerEdited, 'modified-template');
-            }
-        }
+            if (!peerEdited) return false;
+
+            void registerCloudyEmbedMessage(peerEdited, 'modified-template')
+                .catch(error => logger.error('Failed to refresh modified template registry:', error));
+            return true;
+        }));
+
+        updatedCount += results.filter(Boolean).length;
     }
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
     state.modifyTarget.sourceEmbedData = current;
     state.modifyTarget.templateTitle = titleKey(current.title);
-    await registerCloudyEmbedMessage(edited, target.templateMode ? 'modified-template' : 'modified');
+    void registerCloudyEmbedMessage(edited, target.templateMode ? 'modified-template' : 'modified')
+        .catch(error => logger.error('Failed to refresh modified embed registry:', error));
 
     return { ok: true, channel, message: edited, updatedCount };
 }
