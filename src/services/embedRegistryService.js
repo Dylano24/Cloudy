@@ -5,9 +5,26 @@ import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const SCAN_BATCH_SIZE = 100;
+const INTERNAL_EMBED_NAMES = new Set([
+    'message builder',
+    'modify embed',
+    'embed loaded',
+    'changes saved',
+    'could not load embeds',
+    'configuration error',
+]);
 
 function registryKey(guildId) {
     return `${REGISTRY_PREFIX}${guildId}`;
+}
+
+function cleanName(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function isInternalEmbedRecord(record) {
+    return INTERNAL_EMBED_NAMES.has(cleanName(record?.title))
+        || INTERNAL_EMBED_NAMES.has(cleanName(record?.name));
 }
 
 function embedName(embed) {
@@ -24,7 +41,7 @@ function embedName(embed) {
 
 function normalizeRecord(record) {
     if (!record?.guildId || !record?.channelId || !record?.messageId) return null;
-    return {
+    const normalized = {
         guildId: String(record.guildId),
         channelId: String(record.channelId),
         messageId: String(record.messageId),
@@ -35,11 +52,18 @@ function normalizeRecord(record) {
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
+    return isInternalEmbedRecord(normalized) ? null : normalized;
 }
 
 export async function getEmbedRegistry(guildId) {
     const stored = await getFromDb(registryKey(guildId), []);
-    return Array.isArray(stored) ? stored : [];
+    if (!Array.isArray(stored)) return [];
+
+    const cleaned = stored.filter(record => !isInternalEmbedRecord(record));
+    if (cleaned.length !== stored.length) {
+        await setInDb(registryKey(guildId), cleaned);
+    }
+    return cleaned;
 }
 
 async function saveRecords(guildId, additions) {
@@ -72,16 +96,20 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
             ? await getEmbedRegistry(message.guildId)
             : [];
 
-        const additions = message.embeds.map((embed, embedIndex) => ({
-            guildId: message.guildId,
-            channelId: message.channelId,
-            messageId: message.id,
-            embedIndex,
-            source,
-            title: embed?.title || '',
-            name: embedName(embed),
-            createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
-        }));
+        const additions = message.embeds
+            .map((embed, embedIndex) => ({
+                guildId: message.guildId,
+                channelId: message.channelId,
+                messageId: message.id,
+                embedIndex,
+                source,
+                title: embed?.title || '',
+                name: embedName(embed),
+                createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
+            }))
+            .filter(addition => !isInternalEmbedRecord(addition));
+
+        if (!additions.length) return false;
 
         if (source === 'modified-template') {
             for (const addition of additions) {
@@ -173,7 +201,7 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
 
                 for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
                     const embed = message.embeds[embedIndex];
-                    additions.push({
+                    const addition = {
                         guildId: guild.id,
                         channelId: channel.id,
                         messageId: message.id,
@@ -182,7 +210,9 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
                         title: embed?.title || '',
                         name: embedName(embed),
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
-                    });
+                    };
+                    if (isInternalEmbedRecord(addition)) continue;
+                    additions.push(addition);
                     found += 1;
                 }
             }
