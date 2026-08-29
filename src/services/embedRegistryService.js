@@ -17,6 +17,7 @@ function normalizeRecord(record) {
         messageId: String(record.messageId),
         embedIndex: Math.max(0, Number(record.embedIndex) || 0),
         source: String(record.source || 'cloudy'),
+        title: String(record.title || '').slice(0, 256),
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
@@ -53,12 +54,13 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
 
     try {
-        const additions = message.embeds.map((_, embedIndex) => ({
+        const additions = message.embeds.map((embed, embedIndex) => ({
             guildId: message.guildId,
             channelId: message.channelId,
             messageId: message.id,
             embedIndex,
             source,
+            title: embed?.title || '',
             createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
         }));
         return await saveRecords(message.guildId, additions);
@@ -136,12 +138,14 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
                 if (message.author?.id !== botUserId || !message.embeds?.length) continue;
 
                 for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
+                    const embed = message.embeds[embedIndex];
                     additions.push({
                         guildId: guild.id,
                         channelId: channel.id,
                         messageId: message.id,
                         embedIndex,
                         source: 'history',
+                        title: embed?.title || '',
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     });
                     found += 1;
