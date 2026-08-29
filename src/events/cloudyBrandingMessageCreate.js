@@ -12,12 +12,8 @@ export default {
     if (message.author?.id !== message.client.user.id) return;
     if (!message.embeds?.length) return;
 
-    const timer = setTimeout(async () => {
-      await normalizeCloudyMessage(message, { ensureFooter: true });
-      await applySavedEmbedTemplates(message);
-      await registerCloudyEmbedMessage(message, 'automatic');
-    }, 500);
-
-    timer.unref?.();
+    await normalizeCloudyMessage(message, { ensureFooter: true });
+    await applySavedEmbedTemplates(message);
+    await registerCloudyEmbedMessage(message, 'automatic');
   },
 };
