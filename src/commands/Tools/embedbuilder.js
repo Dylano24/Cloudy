@@ -888,7 +888,7 @@ export default {
             const state = {
                 title: null,
                 message: null,
-                sideColor: getColor('primary'),
+                sideColor: 0xFFFFFF,
                 showLogo: true,
                 bottomLine: DEFAULT_FOOTER_TEXT,
                 mediaUrl: null,
@@ -1008,7 +1008,7 @@ export default {
                         case 'simple_embed_reset':
                             state.title = null;
                             state.message = null;
-                            state.sideColor = getColor('primary');
+                            state.sideColor = 0xFFFFFF;
                             state.showLogo = true;
                             state.bottomLine = DEFAULT_FOOTER_TEXT;
                             state.mediaUrl = null;
