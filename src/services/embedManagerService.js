@@ -16,6 +16,7 @@ import {
     scanGuildForCloudyEmbeds,
 } from './embedRegistryService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
+import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const PAGE_SIZE = 25;
@@ -455,7 +456,7 @@ function mergeTemplateDescription(sourceDescription, editedDescription, peerDesc
     return result.join('\n').slice(0, 4096);
 }
 
-function applyStateToTemplatePeer(state, peerData) {
+function applyStateToTemplatePeer(state, peerData, savedData, mediaChanges) {
     const target = state.modifyTarget;
     const source = target?.sourceEmbedData || {};
     const data = { ...peerData };
@@ -471,10 +472,9 @@ function applyStateToTemplatePeer(state, peerData) {
 
     data.color = state.sideColor;
 
-    if (state.showLogo) {
-        data.thumbnail = { url: CLOUDY_LOGO_URL };
-    } else if (source.thumbnail?.url === CLOUDY_LOGO_URL && data.thumbnail?.url === CLOUDY_LOGO_URL) {
-        delete data.thumbnail;
+    if (mediaChanges.thumbnailChanged) {
+        if (savedData.thumbnail?.url) data.thumbnail = { ...savedData.thumbnail };
+        else delete data.thumbnail;
     }
 
     if (state.bottomLine) {
@@ -485,10 +485,24 @@ function applyStateToTemplatePeer(state, peerData) {
         delete data.footer;
     }
 
-    if (state.mediaUrl) data.image = { url: state.mediaUrl };
-    else if (source.image?.url && !state.mediaBuffer) delete data.image;
+    if (mediaChanges.imageChanged) {
+        if (savedData.image?.url) data.image = { ...savedData.image };
+        else delete data.image;
+    }
 
     return data;
+}
+
+function mediaChangeState(sourceData, savedData) {
+    const sourceThumbnail = sourceData?.thumbnail?.url || null;
+    const savedThumbnail = savedData?.thumbnail?.url || null;
+    const sourceImage = sourceData?.image?.url || null;
+    const savedImage = savedData?.image?.url || null;
+
+    return {
+        thumbnailChanged: sourceThumbnail !== savedThumbnail,
+        imageChanged: sourceImage !== savedImage,
+    };
 }
 
 export async function saveModifiedEmbed(guild, state) {
@@ -505,6 +519,7 @@ export async function saveModifiedEmbed(guild, state) {
     const index = Number(target.embedIndex || 0);
     if (!message.embeds?.[index]) return { ok: false, reason: 'embed-missing' };
 
+    const sourceData = { ...(target.sourceEmbedData || {}) };
     const embeds = message.embeds.map((embed, embedIndex) =>
         embedIndex === index ? new EmbedBuilder(applyStateToExistingEmbed(state)) : new EmbedBuilder(embed.toJSON()),
     );
@@ -518,9 +533,29 @@ export async function saveModifiedEmbed(guild, state) {
     });
     if (!edited) return { ok: false, reason: 'edit-failed' };
 
+    const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
+    const mediaChanges = mediaChangeState(sourceData, current);
     let updatedCount = 1;
 
     if (target.templateMode) {
+        const sourceRule = getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
+        const aliases = [
+            sourceData.title,
+            current.title,
+            sourceRule?.label,
+        ].filter(Boolean);
+
+        await saveEmbedTemplateDecoration(
+            guild.id,
+            target.channelId,
+            aliases,
+            current,
+            {
+                applyThumbnail: mediaChanges.thumbnailChanged,
+                applyImage: mediaChanges.imageChanged,
+            },
+        );
+
         const records = await getEmbedRegistry(guild.id);
         const peers = records.filter(record =>
             String(record.channelId) === String(target.channelId) &&
@@ -538,7 +573,7 @@ export async function saveModifiedEmbed(guild, state) {
             const peerIndex = Number(record.embedIndex || 0);
             const peerEmbeds = resolved.message.embeds.map((embed, embedIndex) =>
                 embedIndex === peerIndex
-                    ? new EmbedBuilder(applyStateToTemplatePeer(state, peerData))
+                    ? new EmbedBuilder(applyStateToTemplatePeer(state, peerData, current, mediaChanges))
                     : new EmbedBuilder(embed.toJSON()),
             );
 
@@ -556,7 +591,6 @@ export async function saveModifiedEmbed(guild, state) {
         updatedCount += results.filter(Boolean).length;
     }
 
-    const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
     state.modifyTarget.sourceEmbedData = current;
     state.modifyTarget.templateTitle = templateIdentity(target.channelId, current.title || target.templateTitle);
     void registerCloudyEmbedMessage(edited, target.templateMode ? 'modified-template' : 'modified')
