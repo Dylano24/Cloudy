@@ -201,24 +201,25 @@ test('embed manager navigation edits through the fresh component interaction', a
     id: 'manager-message',
     createMessageComponentCollector: () => collector,
   };
-  let initialEdit = null;
+  let initialPayload = null;
   const buttonInteraction = {
     guild,
     client: guild.client,
     user: { id: 'owner-user' },
     deferUpdate: async () => {},
-    followUp: async () => managerMessage,
+    followUp: async payload => {
+      initialPayload = payload;
+      return managerMessage;
+    },
     webhook: {
       deleteMessage: async () => {},
-      editMessage: async (_id, payload) => {
-        initialEdit = payload;
-      },
     },
   };
   const state = {};
 
   await openEmbedManager(buttonInteraction, state, async () => true);
-  assert.ok(initialEdit);
+  assert.match(initialPayload.embeds[0].toJSON().description, /Choose a channel first/);
+  assert.equal(initialPayload.components.length, 1);
   assert.ok(state.activeEmbedManager);
 
   let navigationPayload = null;
