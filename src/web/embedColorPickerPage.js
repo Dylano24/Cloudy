@@ -13,9 +13,12 @@ export function embedColorPickerPage() {
     h1 { margin: 0 0 7px; font-size: 23px; }
     p { margin: 0 0 18px; color: #b5bac1; font-size: 14px; line-height: 1.45; }
     label { display: block; margin: 16px 0 8px; font-size: 13px; font-weight: 700; color: #dbdee1; }
-    input[type=text], textarea { width: 100%; border: 1px solid #3d3f48; outline: 0; color: #f2f3f5; background: #1e1f22; border-radius: 8px; padding: 12px 13px; font: 15px inherit; resize: vertical; }
-    textarea { min-height: 170px; line-height: 1.45; }
-    input[type=text]:focus, textarea:focus { border-color: #5865f2; }
+    input[type=text], textarea, #messageEditor { width: 100%; border: 1px solid #3d3f48; outline: 0; color: #f2f3f5; background: #1e1f22; border-radius: 8px; padding: 12px 13px; font: 15px inherit; }
+    textarea { min-height: 170px; line-height: 1.45; resize: vertical; }
+    input[type=text]:focus, textarea:focus, #messageEditor:focus { border-color: #5865f2; }
+    #messageEditor { min-height: 170px; max-height: 520px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }
+    #messageEditor:empty::before { content: attr(data-placeholder); color: #949ba4; pointer-events: none; }
+    #messageEditor .message-emoji { width: 24px; height: 24px; object-fit: contain; vertical-align: -6px; margin: 0 1px; user-select: all; }
     .row { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
     .count { color: #949ba4; font-size: 12px; }
     #emojiSection { margin-top: 18px; }
@@ -56,8 +59,9 @@ export function embedColorPickerPage() {
       <div id="contentFields">
         <div class="row"><label for="titleInput">Title</label><span id="titleCount" class="count">0 / 256</span></div>
         <input id="titleInput" type="text" maxlength="256" placeholder="Write your title here">
-        <div class="row"><label for="messageInput">Message</label><span id="messageCount" class="count">0 / 4000</span></div>
-        <textarea id="messageInput" maxlength="4000" placeholder="Write your message here"></textarea>
+        <div class="row"><label for="messageEditor">Message</label><span id="messageCount" class="count">0 / 4000</span></div>
+        <textarea id="messageInput" maxlength="4000" class="hidden" aria-hidden="true"></textarea>
+        <div id="messageEditor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Write your message here"></div>
       </div>
       <div id="footerFields" class="hidden">
         <div class="row"><label for="footerInput">Footer</label><span id="footerCount" class="count">0 / 2048</span></div>
@@ -110,6 +114,7 @@ export function embedColorPickerPage() {
       const status = document.getElementById('status');
       const titleInput = document.getElementById('titleInput');
       const messageInput = document.getElementById('messageInput');
+      const messageEditor = document.getElementById('messageEditor');
       const footerInput = document.getElementById('footerInput');
       const contentFields = document.getElementById('contentFields');
       const footerFields = document.getElementById('footerFields');
@@ -124,8 +129,10 @@ export function embedColorPickerPage() {
         footer: document.getElementById('footerCount'),
       };
       let emojis = [];
-      let activeField = mode === 'footer' ? footerInput : messageInput;
+      let activeField = mode === 'footer' ? footerInput : messageEditor;
       let saveTimer = null;
+      let messageRange = null;
+      let lastValidMessage = '';
 
       editorMode.classList.remove('hidden');
       if (mode === 'footer') {
@@ -143,18 +150,22 @@ export function embedColorPickerPage() {
 
       function fieldName(input) {
         if (input === titleInput) return 'title';
-        if (input === messageInput) return 'message';
+        if (input === messageInput || input === messageEditor) return 'message';
         return 'footer';
       }
 
       function updateCount(input) {
         const field = fieldName(input);
+        if (field === 'message') {
+          counts.message.textContent = messageInput.value.length + ' / 4000';
+          return;
+        }
         counts[field].textContent = input.value.length + ' / ' + input.maxLength;
       }
 
       async function save(input) {
         const field = fieldName(input);
-        const value = input.value;
+        const value = field === 'message' ? messageInput.value : input.value;
         setStatus('Updating Discord preview…');
         try {
           await callSession('__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field, value }));
@@ -170,7 +181,7 @@ export function embedColorPickerPage() {
         saveTimer = setTimeout(() => save(input), 350);
       }
 
-      [titleInput, messageInput, footerInput].forEach(input => {
+      [titleInput, footerInput].forEach(input => {
         input.addEventListener('focus', () => { activeField = input; });
         input.addEventListener('click', () => { activeField = input; });
         input.addEventListener('keyup', () => { activeField = input; });
@@ -182,12 +193,184 @@ export function embedColorPickerPage() {
         return 'https://cdn.discordapp.com/emojis/' + emoji.id + '.' + ext + '?size=64&quality=lossless';
       }
 
+      function createMessageEmoji(emoji, markup) {
+        const img = document.createElement('img');
+        img.className = 'message-emoji';
+        img.src = emojiUrl(emoji);
+        img.alt = ':' + emoji.name + ':';
+        img.title = ':' + emoji.name + ':';
+        img.dataset.markup = markup;
+        img.contentEditable = 'false';
+        img.addEventListener('error', () => {
+          img.replaceWith(document.createTextNode(markup));
+          syncMessageFromEditor();
+        }, { once: true });
+        return img;
+      }
+
+      function renderMessageEditor(raw) {
+        messageEditor.replaceChildren();
+        const value = String(raw || '');
+        const pattern = /<(a?):([A-Za-z0-9_]+):([0-9]+)>/g;
+        let cursor = 0;
+        let match;
+        while ((match = pattern.exec(value))) {
+          if (match.index > cursor) messageEditor.appendChild(document.createTextNode(value.slice(cursor, match.index)));
+          const markup = match[0];
+          messageEditor.appendChild(createMessageEmoji({ id: match[3], name: match[2], animated: match[1] === 'a' }, markup));
+          cursor = match.index + markup.length;
+        }
+        if (cursor < value.length) messageEditor.appendChild(document.createTextNode(value.slice(cursor)));
+      }
+
+      function serializeMessageEditor() {
+        let output = '';
+        const newline = String.fromCharCode(10);
+        function walk(node) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            output += node.nodeValue || '';
+            return;
+          }
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          if (node.matches('img.message-emoji[data-markup]')) {
+            output += node.dataset.markup || '';
+            return;
+          }
+          if (node.tagName === 'BR') {
+            output += newline;
+            return;
+          }
+          const isBlock = node !== messageEditor && (node.tagName === 'DIV' || node.tagName === 'P');
+          const before = output.length;
+          Array.from(node.childNodes).forEach(walk);
+          if (isBlock && output.length > before && !output.endsWith(newline)) output += newline;
+        }
+        Array.from(messageEditor.childNodes).forEach(walk);
+        while (output.endsWith(newline)) output = output.slice(0, -1);
+        return output;
+      }
+
+      function selectionIsInsideMessage(range) {
+        if (!range) return false;
+        const container = range.commonAncestorContainer;
+        const element = container.nodeType === Node.TEXT_NODE ? container.parentNode : container;
+        return element === messageEditor || messageEditor.contains(element);
+      }
+
+      function rememberMessageRange() {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) return;
+        const range = selection.getRangeAt(0);
+        if (selectionIsInsideMessage(range)) messageRange = range.cloneRange();
+      }
+
+      function focusMessageEnd() {
+        messageEditor.focus();
+        const range = document.createRange();
+        range.selectNodeContents(messageEditor);
+        range.collapse(false);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        messageRange = range.cloneRange();
+      }
+
+      function syncMessageFromEditor() {
+        const value = serializeMessageEditor();
+        if (value.length > 4000) {
+          renderMessageEditor(lastValidMessage);
+          messageInput.value = lastValidMessage;
+          focusMessageEnd();
+          updateCount(messageEditor);
+          setStatus('Message cannot exceed 4000 characters.', 'error');
+          return false;
+        }
+        lastValidMessage = value;
+        messageInput.value = value;
+        scheduleSave(messageInput);
+        return true;
+      }
+
+      messageEditor.addEventListener('focus', () => { activeField = messageEditor; rememberMessageRange(); });
+      messageEditor.addEventListener('click', () => { activeField = messageEditor; rememberMessageRange(); });
+      messageEditor.addEventListener('keyup', rememberMessageRange);
+      messageEditor.addEventListener('mouseup', rememberMessageRange);
+      messageEditor.addEventListener('input', () => {
+        activeField = messageEditor;
+        if (syncMessageFromEditor()) rememberMessageRange();
+      });
+      messageEditor.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const selection = window.getSelection();
+        const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+        if (!range || !selectionIsInsideMessage(range)) return;
+        range.deleteContents();
+        const newlineNode = document.createTextNode(String.fromCharCode(10));
+        range.insertNode(newlineNode);
+        range.setStartAfter(newlineNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        messageRange = range.cloneRange();
+        syncMessageFromEditor();
+      });
+      messageEditor.addEventListener('paste', event => {
+        event.preventDefault();
+        const text = (event.clipboardData || window.clipboardData).getData('text/plain');
+        const selection = window.getSelection();
+        let range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+        if (!range || !selectionIsInsideMessage(range)) {
+          range = document.createRange();
+          range.selectNodeContents(messageEditor);
+          range.collapse(false);
+        }
+        range.deleteContents();
+        const node = document.createTextNode(text);
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        messageRange = range.cloneRange();
+        syncMessageFromEditor();
+      });
+      document.addEventListener('selectionchange', () => {
+        if (document.activeElement === messageEditor) rememberMessageRange();
+      });
+
       function emojiSearchText(emoji) {
         return String(emoji.name || '')
           .toLowerCase()
           .replace(/^cloudy[_-]*/, '')
           .replace(/[_-]+/g, ' ')
           .replace(/([a-z])([A-Z])/g, '$1 $2');
+      }
+
+      function insertEmojiIntoMessage(emoji, markup) {
+        const current = serializeMessageEditor();
+        if (current.length + markup.length > 4000) {
+          setStatus('That emoji would exceed the field limit.', 'error');
+          return;
+        }
+        messageEditor.focus();
+        const selection = window.getSelection();
+        let range = messageRange && selectionIsInsideMessage(messageRange) ? messageRange.cloneRange() : null;
+        if (!range) {
+          range = document.createRange();
+          range.selectNodeContents(messageEditor);
+          range.collapse(false);
+        }
+        range.deleteContents();
+        const image = createMessageEmoji(emoji, markup);
+        range.insertNode(image);
+        range.setStartAfter(image);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        messageRange = range.cloneRange();
+        activeField = messageEditor;
+        syncMessageFromEditor();
       }
 
       function renderEmojis() {
@@ -210,8 +393,12 @@ export function embedColorPickerPage() {
           img.addEventListener('error', () => button.remove(), { once: true });
           button.appendChild(img);
           button.addEventListener('click', () => {
-            const input = activeField || messageInput;
             const markup = '<' + (emoji.animated ? 'a' : '') + ':' + emoji.name + ':' + emoji.id + '>';
+            if (activeField === messageEditor || activeField === messageInput) {
+              insertEmojiIntoMessage(emoji, markup);
+              return;
+            }
+            const input = activeField || titleInput;
             const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
             const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
             const next = input.value.slice(0, start) + markup + input.value.slice(end);
@@ -254,7 +441,9 @@ export function embedColorPickerPage() {
           messageInput.value = data.message || '';
           footerInput.value = data.footer || '';
           emojis = Array.isArray(data.emojis) ? data.emojis : [];
-          updateCount(titleInput); updateCount(messageInput); updateCount(footerInput);
+          lastValidMessage = messageInput.value;
+          renderMessageEditor(lastValidMessage);
+          updateCount(titleInput); updateCount(messageEditor); updateCount(footerInput);
           setStatus(mode === 'footer' ? 'Footer editor ready.' : 'Emoji editor ready.');
         } catch (error) {
           setStatus(error.message || 'Could not load the editor.', 'error');
