@@ -13,8 +13,15 @@ function parseColor(value) {
 function sanitizeEditorState(value = {}) {
     return {
         title: typeof value.title === 'string' ? value.title.slice(0, 256) : '',
-        message: typeof value.message === 'string' ? value.message.slice(0, 4000) : '',
+        message: typeof value.message === 'string' ? value.message.slice(0, 4096) : '',
         footer: typeof value.footer === 'string' ? value.footer.slice(0, 2048) : '',
+        fields: Array.isArray(value.fields)
+            ? value.fields.slice(0, 25).map(field => ({
+                name: typeof field?.name === 'string' ? field.name.slice(0, 256) : '',
+                value: typeof field?.value === 'string' ? field.value.slice(0, 1024) : '',
+                inline: Boolean(field?.inline),
+            }))
+            : [],
     };
 }
 
@@ -84,12 +91,17 @@ export async function applyEmbedColorPickerSession(token, value) {
         }
 
         const field = payload?.field;
-        const limits = { title: 256, message: 4000, footer: 2048 };
-        if (!Object.hasOwn(limits, field) || typeof payload?.value !== 'string') {
+        const fieldMatch = typeof field === 'string' && field.match(/^embed_field_(name|value):(\d{1,2})$/);
+        const fieldIndex = fieldMatch ? Number(fieldMatch[2]) : -1;
+        const limits = { title: 256, message: 4096, footer: 2048 };
+        const limit = fieldMatch
+            ? (fieldMatch[1] === 'name' ? 256 : 1024)
+            : limits[field];
+        if ((!Number.isInteger(limit) || fieldIndex > 24) || typeof payload?.value !== 'string') {
             return { ok: false, reason: 'invalid_editor_payload' };
         }
 
-        const nextValue = payload.value.slice(0, limits[field]);
+        const nextValue = payload.value.slice(0, limit);
         try {
             await session.onEditorUpdate(field, nextValue);
         } catch (error) {
