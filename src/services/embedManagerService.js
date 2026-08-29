@@ -657,6 +657,9 @@ export async function saveModifiedEmbed(guild, state) {
 
     const message = await channel.messages.fetch(target.messageId).catch(() => null);
     if (!message || message.author?.id !== guild.client.user?.id) return { ok: false, reason: 'message-missing' };
+    if (message.flags?.has?.(MessageFlags.Ephemeral) || message.interaction || message.interactionMetadata) {
+        return { ok: false, reason: 'control-message' };
+    }
 
     const index = Number(target.embedIndex || 0);
     if (!message.embeds?.[index]) return { ok: false, reason: 'embed-missing' };

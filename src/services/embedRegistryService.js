@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 
@@ -101,6 +101,17 @@ function isInternalEmbedRecord(record) {
         || name.includes('use the buttons below to create your message');
 }
 
+export function isRegistrableCloudyEmbedMessage(message) {
+    if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
+
+    // Slash-command replies (including ephemeral builder previews and menus) are
+    // controls, not embeds that exist as normal editable channel messages.
+    if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
+    if (message.interaction || message.interactionMetadata) return false;
+
+    return true;
+}
+
 function embedName(embed) {
     const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
     if (title) return title.slice(0, 256);
@@ -161,7 +172,7 @@ async function saveRecords(guildId, additions) {
 }
 
 export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
-    if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
+    if (!isRegistrableCloudyEmbedMessage(message)) return false;
 
     try {
         const additions = message.embeds
@@ -286,7 +297,11 @@ async function resolveRegistryMessage(guild, records) {
             : { status: 'unknown', records };
     }
 
-    if (!message || message.author?.id !== guild.client.user?.id || !message.embeds?.length) {
+    if (
+        !message ||
+        message.author?.id !== guild.client.user?.id ||
+        !isRegistrableCloudyEmbedMessage(message)
+    ) {
         return { status: 'missing', records: [] };
     }
 
@@ -379,7 +394,7 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
             for (const message of batch.values()) {
                 scanned += 1;
                 channelScanned += 1;
-                if (message.author?.id !== botUserId || !message.embeds?.length) continue;
+                if (message.author?.id !== botUserId || !isRegistrableCloudyEmbedMessage(message)) continue;
 
                 for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
                     const embed = message.embeds[embedIndex];
