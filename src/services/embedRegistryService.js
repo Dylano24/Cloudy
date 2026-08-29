@@ -3,7 +3,6 @@ import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
-const MAX_RECORDS_PER_GUILD = 5000;
 const SCAN_BATCH_SIZE = 100;
 
 function registryKey(guildId) {
@@ -28,41 +27,41 @@ export async function getEmbedRegistry(guildId) {
     return Array.isArray(stored) ? stored : [];
 }
 
+async function saveRecords(guildId, additions) {
+    const records = await getEmbedRegistry(guildId);
+    const next = [...records];
+
+    for (const addition of additions) {
+        const record = normalizeRecord(addition);
+        if (!record) continue;
+        const existingIndex = next.findIndex(item =>
+            String(item.channelId) === record.channelId &&
+            String(item.messageId) === record.messageId &&
+            Number(item.embedIndex || 0) === record.embedIndex,
+        );
+
+        if (existingIndex >= 0) next[existingIndex] = { ...next[existingIndex], ...record };
+        else next.push(record);
+    }
+
+    next.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    await setInDb(registryKey(guildId), next);
+    return true;
+}
+
 export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
 
     try {
-        const records = await getEmbedRegistry(message.guildId);
-        const next = [...records];
-
-        for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
-            const record = normalizeRecord({
-                guildId: message.guildId,
-                channelId: message.channelId,
-                messageId: message.id,
-                embedIndex,
-                source,
-                createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
-            });
-            if (!record) continue;
-
-            const existingIndex = next.findIndex(item =>
-                String(item.channelId) === record.channelId &&
-                String(item.messageId) === record.messageId &&
-                Number(item.embedIndex || 0) === record.embedIndex,
-            );
-
-            if (existingIndex >= 0) {
-                next[existingIndex] = { ...next[existingIndex], ...record };
-            } else {
-                next.push(record);
-            }
-        }
-
-        next.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-        if (next.length > MAX_RECORDS_PER_GUILD) next.length = MAX_RECORDS_PER_GUILD;
-        await setInDb(registryKey(message.guildId), next);
-        return true;
+        const additions = message.embeds.map((_, embedIndex) => ({
+            guildId: message.guildId,
+            channelId: message.channelId,
+            messageId: message.id,
+            embedIndex,
+            source,
+            createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
+        }));
+        return await saveRecords(message.guildId, additions);
     } catch (error) {
         logger.error('Failed to register Cloudy embed message:', error);
         return false;
@@ -114,18 +113,20 @@ function readableTextChannels(guild) {
         .sort((a, b) => a.position - b.position || String(a.name).localeCompare(String(b.name)));
 }
 
-export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPerChannel = 2500 } = {}) {
+export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPerChannel = Infinity } = {}) {
     if (!guild || !botUserId) return { scanned: 0, found: 0 };
 
     let scanned = 0;
     let found = 0;
+    const additions = [];
 
     for (const channel of readableTextChannels(guild)) {
         let before;
         let channelScanned = 0;
 
         while (channelScanned < maxMessagesPerChannel) {
-            const limit = Math.min(SCAN_BATCH_SIZE, maxMessagesPerChannel - channelScanned);
+            const remaining = maxMessagesPerChannel - channelScanned;
+            const limit = Number.isFinite(remaining) ? Math.min(SCAN_BATCH_SIZE, remaining) : SCAN_BATCH_SIZE;
             const batch = await channel.messages.fetch({ limit, before }).catch(() => null);
             if (!batch?.size) break;
 
@@ -133,7 +134,18 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
                 scanned += 1;
                 channelScanned += 1;
                 if (message.author?.id !== botUserId || !message.embeds?.length) continue;
-                if (await registerCloudyEmbedMessage(message, 'history')) found += message.embeds.length;
+
+                for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
+                    additions.push({
+                        guildId: guild.id,
+                        channelId: channel.id,
+                        messageId: message.id,
+                        embedIndex,
+                        source: 'history',
+                        createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
+                    });
+                    found += 1;
+                }
             }
 
             const oldest = batch.last();
@@ -142,5 +154,6 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
         }
     }
 
+    if (additions.length) await saveRecords(guild.id, additions);
     return { scanned, found };
 }
