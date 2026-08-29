@@ -12,6 +12,9 @@ const INTERNAL_EMBED_NAMES = new Set([
     'changes saved',
     'could not load embeds',
     'configuration error',
+    '(use the buttons below to create your message)',
+    'use the buttons below to create your message',
+    'untitled embed',
 ]);
 
 function registryKey(guildId) {
@@ -23,8 +26,12 @@ function cleanName(value) {
 }
 
 function isInternalEmbedRecord(record) {
-    return INTERNAL_EMBED_NAMES.has(cleanName(record?.title))
-        || INTERNAL_EMBED_NAMES.has(cleanName(record?.name));
+    const title = cleanName(record?.title);
+    const name = cleanName(record?.name);
+    return INTERNAL_EMBED_NAMES.has(title)
+        || INTERNAL_EMBED_NAMES.has(name)
+        || title.includes('use the buttons below to create your message')
+        || name.includes('use the buttons below to create your message');
 }
 
 function embedName(embed) {
