@@ -186,8 +186,7 @@ export async function getModerationCases(guildId, filters = {}) {
 
 export async function logModerationAction({ client, guild, event, skipChannelLog = false }) {
   const caseId = await generateCaseId(client, guild.id);
-  
-  await storeModerationCase({
+  const storePromise = storeModerationCase({
     guildId: guild.id,
     caseId,
     caseData: {
@@ -212,16 +211,21 @@ export async function logModerationAction({ client, guild, event, skipChannelLog
     }
   }
 
-  if (!skipChannelLog && !commandUnbanSuppressed) {
-    await logEvent({
+  const logPromise = !skipChannelLog && !commandUnbanSuppressed
+    ? logEvent({
       client,
       guild,
       event: {
         ...event,
         caseId
       }
-    });
-  }
+    })
+    : Promise.resolve();
+
+  // Persisting the case list and sending the visible moderation embed are
+  // independent after the case ID exists. Run them together so database writes
+  // never hold back the Discord log message.
+  await Promise.all([storePromise, logPromise]);
   
   return caseId;
 }
