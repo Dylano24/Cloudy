@@ -247,3 +247,56 @@ test('embed manager navigation edits through the fresh component interaction', a
   assert.match(navigationPayload.embeds[0].toJSON().description, /\*\*Embeds:\*\* 1/);
   collector.stop('test-complete');
 });
+
+test('embed manager opens before Discord history reconciliation finishes', async () => {
+  installTestStorage();
+  const guildId = '100000000000000004';
+  const channelId = '200000000000000004';
+  const messageId = '300000000000000006';
+  await setInDb(`cloudy:embed-registry:${guildId}`, [
+    record(guildId, channelId, messageId, 0, 'Immediate embed'),
+  ]);
+
+  let finishFetch;
+  const pendingFetch = new Promise(resolve => {
+    finishFetch = resolve;
+  });
+  const guild = buildGuild({ guildId, channelId, messages: new Map() });
+  guild.channels.cache.get(channelId).messages.fetch = async () => pendingFetch;
+
+  const collector = new FakeCollector();
+  const managerMessage = {
+    id: 'immediate-manager-message',
+    createMessageComponentCollector: () => collector,
+  };
+  let initialPayload = null;
+  const buttonInteraction = {
+    guild,
+    client: guild.client,
+    user: { id: 'owner-user' },
+    deferUpdate: async () => {},
+    followUp: async payload => {
+      initialPayload = payload;
+      return managerMessage;
+    },
+    webhook: {
+      deleteMessage: async () => {},
+      editMessage: async () => {},
+    },
+  };
+  const state = {};
+
+  await openEmbedManager(buttonInteraction, state, async () => true);
+  assert.match(initialPayload.embeds[0].toJSON().description, /Choose a channel first/);
+  assert.ok(state.activeEmbedManager);
+
+  finishFetch({
+    id: messageId,
+    guildId,
+    channelId,
+    author: { id: 'cloudy-bot' },
+    embeds: [{ title: 'Immediate embed' }],
+    createdAt: new Date('2026-08-29T20:00:00.000Z'),
+  });
+  collector.stop('test-complete');
+});
