@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { normalizeCloudyMessage } from '../services/cloudyBrandingService.js';
 import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
+import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 
 export default {
   name: Events.MessageUpdate,
@@ -20,6 +21,7 @@ export default {
     const timer = setTimeout(async () => {
       await normalizeCloudyMessage(message, { ensureFooter: true });
       await applySavedEmbedTemplates(message);
+      await registerCloudyEmbedMessage(message, 'automatic-update');
     }, 250);
 
     timer.unref?.();
