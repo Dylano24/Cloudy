@@ -104,8 +104,9 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
 
     return [...groups.values()].map(group => {
         group.records.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+        const representative = group.records[group.records.length - 1];
         return {
-            ...group.records[0],
+            ...representative,
             name: group.label,
             duplicateCount: group.records.length,
             templateCount: group.records.length,
@@ -295,6 +296,15 @@ function loadEmbedIntoState(state, resolved) {
     };
 }
 
+function isEmbedManagerComponent(interaction) {
+    const customId = String(interaction?.customId || '');
+    return customId === 'simple_embed_modify_back'
+        || customId.startsWith('simple_embed_modify_channel:')
+        || customId.startsWith('simple_embed_modify_channel_page:')
+        || customId.startsWith('simple_embed_modify_embed:')
+        || customId.startsWith('simple_embed_modify_embed_page:');
+}
+
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
@@ -302,6 +312,14 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     await buttonInteraction.deferUpdate().catch(() => {});
 
     try {
+        if (state.activeEmbedManager?.collector) {
+            state.activeEmbedManager.collector.stop('replaced');
+        }
+        if (state.activeEmbedManager?.messageId) {
+            await buttonInteraction.webhook.deleteMessage(state.activeEmbedManager.messageId).catch(() => {});
+        }
+        state.activeEmbedManager = null;
+
         let records = await getEmbedRegistry(guild.id);
         const managerMessage = await buttonInteraction.followUp({
             ...(records.length
@@ -324,22 +342,39 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         if (!records.length) return;
 
         const collector = managerMessage.createMessageComponentCollector({
-            filter: interaction => interaction.user.id === buttonInteraction.user.id && interaction.customId !== 'simple_embed_modify_back',
+            filter: interaction =>
+                interaction.user.id === buttonInteraction.user.id &&
+                isEmbedManagerComponent(interaction),
         });
+        state.activeEmbedManager = { messageId: managerMessage.id, collector };
 
         collector.on('collect', async interaction => {
+            const acknowledged = await interaction.deferUpdate()
+                .then(() => true)
+                .catch(error => {
+                    logger.error('Embed manager acknowledgement failed:', error);
+                    return interaction.deferred || interaction.replied;
+                });
+            if (!acknowledged) return;
+
             try {
+                if (interaction.customId === 'simple_embed_modify_back') {
+                    records = await getEmbedRegistry(guild.id);
+                    await managerMessage.edit(buildChannelPayload(guild, records, 0));
+                    return;
+                }
+
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
                     records = await getEmbedRegistry(guild.id);
-                    await interaction.update(buildChannelPayload(guild, records, page));
+                    await managerMessage.edit(buildChannelPayload(guild, records, page));
                     return;
                 }
 
                 if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
                     records = await getEmbedRegistry(guild.id);
-                    await interaction.update(buildEmbedPayload(guild, records, channelId, 0));
+                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, 0));
                     return;
                 }
 
@@ -348,48 +383,58 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     const channelId = parts[1];
                     const page = Number(parts[2]) || 0;
                     records = await getEmbedRegistry(guild.id);
-                    await interaction.update(buildEmbedPayload(guild, records, channelId, page));
+                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, page));
                     return;
                 }
 
                 if (!interaction.isStringSelectMenu() || !interaction.customId.startsWith('simple_embed_modify_embed:')) {
-                    await interaction.deferUpdate().catch(() => {});
                     return;
                 }
 
                 const parts = interaction.customId.split(':');
                 const channelId = parts[1];
+                const page = Number(parts[2]) || 0;
                 const [messageId, embedIndexRaw] = String(interaction.values?.[0] || '').split(':');
                 const embedIndex = Number(embedIndexRaw) || 0;
-                const record = records.find(item =>
+
+                let record = records.find(item =>
                     String(item.channelId) === String(channelId) &&
                     String(item.messageId) === String(messageId) &&
                     Number(item.embedIndex || 0) === embedIndex,
                 );
 
-                await interaction.deferUpdate().catch(() => {});
-                const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
+                if (!record) {
+                    records = await getEmbedRegistry(guild.id);
+                    record = records.find(item =>
+                        String(item.channelId) === String(channelId) &&
+                        String(item.messageId) === String(messageId) &&
+                        Number(item.embedIndex || 0) === embedIndex,
+                    );
+                }
 
+                const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                 if (!resolved) {
                     records = await getEmbedRegistry(guild.id);
-                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, 0));
+                    await managerMessage.edit(buildEmbedPayload(guild, records, channelId, page));
                     return;
                 }
 
                 loadEmbedIntoState(state, resolved);
-                await refreshBuilder();
-                collector.stop('selected');
+                const refreshed = await refreshBuilder();
+                if (refreshed === false) {
+                    throw new Error('The message builder could not refresh after loading the selected embed.');
+                }
 
-                await managerMessage.edit({
-                    embeds: [new EmbedBuilder()
-                        .setTitle('Embed loaded')
-                        .setDescription(`The embed from ${resolved.channel} is now open in the message builder. Links, fields, author data, timestamps and other existing embed data are preserved when you save.`)
-                        .setColor(getColor('success'))],
-                    components: [],
-                }).catch(() => {});
+                records = await getEmbedRegistry(guild.id);
+                await managerMessage.edit(buildEmbedPayload(guild, records, channelId, page));
             } catch (error) {
                 logger.error('Embed manager selection failed:', error);
-                if (!interaction.replied && !interaction.deferred) await interaction.deferUpdate().catch(() => {});
+            }
+        });
+
+        collector.on('end', () => {
+            if (state.activeEmbedManager?.collector === collector) {
+                state.activeEmbedManager = null;
             }
         });
     } catch (error) {
