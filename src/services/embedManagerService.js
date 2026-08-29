@@ -282,7 +282,7 @@ function loadEmbedIntoState(state, resolved) {
 
     state.title = data.title || null;
     state.message = data.description || null;
-    state.sideColor = Number.isInteger(data.color) ? data.color : getColor('primary');
+    state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
     state.showLogo = data.thumbnail?.url === CLOUDY_LOGO_URL;
     state.bottomLine = footerText || null;
     state.mediaUrl = data.image?.url || null;
