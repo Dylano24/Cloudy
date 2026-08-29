@@ -19,12 +19,28 @@ import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const PAGE_SIZE = 25;
-const MANAGER_TIMEOUT = 120_000;
 const TEMPLATE_CHANNEL_IDS = new Set([
     '1539375620885323826', // kick-logs
     '1539371111240831078', // timeout-logs
     '1539259457404412036', // ban/unban logs
     '1539372511089926244', // reports
+]);
+
+const TEMPLATE_RULES = new Map([
+    ['1539375620885323826', [
+        { key: 'kick-log', label: 'Kick log', match: /\bkick\s+log\b/i },
+    ]],
+    ['1539371111240831078', [
+        { key: 'untimeout-log', label: 'Untimeout log', match: /\bun[-\s]?time[-\s]?out\s+log\b|\buntimeout\s+log\b/i },
+        { key: 'timeout-log', label: 'Timeout log', match: /\btime[-\s]?out\s+log\b|\btimeout\s+log\b/i },
+    ]],
+    ['1539259457404412036', [
+        { key: 'unban-log', label: 'Unban log', match: /\bunban\s+log\b/i },
+        { key: 'ban-log', label: 'Ban log', match: /\bban\s+log\b/i },
+    ]],
+    ['1539372511089926244', [
+        { key: 'report-log', label: 'Report log', match: /\breport(?:s)?\s+log\b|\breport\b/i },
+    ]],
 ]);
 
 function cleanFooter(text) {
@@ -47,25 +63,51 @@ function recordName(record) {
     return String(record?.name || record?.title || '').replace(/\s+/g, ' ').trim();
 }
 
-function collapseDisplayRecords(channelRecords) {
-    const namedRecords = channelRecords.filter(record => recordName(record));
-    const sourceRecords = namedRecords.length ? namedRecords : channelRecords;
+function stripCustomEmojiMarkup(value) {
+    return String(value || '')
+        .replace(/<a?:[^:>]+:\d+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getTemplateRule(channelId, value) {
+    const rules = TEMPLATE_RULES.get(String(channelId)) || [];
+    const cleaned = stripCustomEmojiMarkup(value);
+    return rules.find(rule => rule.match.test(cleaned)) || null;
+}
+
+function templateIdentity(channelId, value) {
+    const rule = getTemplateRule(channelId, value);
+    return rule?.key || titleKey(stripCustomEmojiMarkup(value));
+}
+
+function collapseDisplayRecords(channelRecords, channelId = null) {
+    const templateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
     const groups = new Map();
 
-    for (const record of sourceRecords) {
-        const name = recordName(record) || 'Untitled embed';
+    for (const record of channelRecords) {
+        const rawName = recordName(record);
+        if (templateMode) {
+            const rule = getTemplateRule(channelId, rawName);
+            if (!rule) continue;
+            if (!groups.has(rule.key)) groups.set(rule.key, { label: rule.label, records: [] });
+            groups.get(rule.key).records.push(record);
+            continue;
+        }
+
+        const name = rawName || 'Untitled embed';
         const key = titleKey(name);
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(record);
+        if (!groups.has(key)) groups.set(key, { label: name, records: [] });
+        groups.get(key).records.push(record);
     }
 
     return [...groups.values()].map(group => {
-        group.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+        group.records.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
         return {
-            ...group[0],
-            name: recordName(group[0]) || 'Untitled embed',
-            duplicateCount: group.length,
-            templateCount: group.length,
+            ...group.records[0],
+            name: group.label,
+            duplicateCount: group.records.length,
+            templateCount: group.records.length,
         };
     });
 }
@@ -84,6 +126,7 @@ function buildChannelGroups(guild, records) {
             channel: guild.channels.cache.get(channelId) || null,
             records: channelRecords.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)),
         }))
+        .filter(group => collapseDisplayRecords(group.records, group.channelId).length > 0)
         .sort((a, b) => {
             const aName = a.channel?.name || a.channelId;
             const bName = b.channel?.name || b.channelId;
@@ -127,7 +170,7 @@ function buildChannelPayload(guild, records, page = 0) {
             .setMaxValues(1)
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
-                const count = collapseDisplayRecords(group.records).length;
+                const count = collapseDisplayRecords(group.records, group.channelId).length;
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(`${name} • ${count} ${count === 1 ? 'embed' : 'embeds'}`))
                     .setDescription('Open the embeds in this channel')
@@ -145,7 +188,7 @@ function buildChannelPayload(guild, records, page = 0) {
             .setDescription([
                 'Choose a channel first, then choose the embed you want to edit.',
                 '',
-                `**Embeds found:** ${records.length}`,
+                `**Embeds found:** ${groups.reduce((sum, group) => sum + collapseDisplayRecords(group.records, group.channelId).length, 0)}`,
                 `**Channels:** ${groups.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
             ].join('\n'))
@@ -160,7 +203,7 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
         .filter(record => String(record.channelId) === String(channelId))
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     const templateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
-    const displayRecords = collapseDisplayRecords(channelRecords);
+    const displayRecords = collapseDisplayRecords(channelRecords, channelId);
     const result = pageItems(displayRecords, page);
     const components = [];
 
@@ -171,12 +214,13 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setMinValues(1)
             .setMaxValues(1)
             .addOptions(...result.items.map(record => {
-                const name = recordName(record) || 'Untitled embed';
+                const name = recordName(record) || record.name || 'Untitled embed';
+                const displayName = templateMode ? record.name : name;
                 const description = templateMode
                     ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
                     : (record.duplicateCount > 1 ? `${record.duplicateCount} duplicate entries grouped` : 'Edit this embed');
                 return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(name, 'Untitled embed'))
+                    .setLabel(shortLabel(displayName, 'Untitled embed'))
                     .setDescription(description.slice(0, 100))
                     .setValue(`${record.messageId}:${record.embedIndex || 0}`);
             }));
@@ -202,7 +246,7 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
                 '',
                 templateMode
-                    ? 'Repeated log embeds are grouped. Edit one template and all matching logs keep their own user, reason and date while the template styling is updated.'
+                    ? 'Only real log templates for this channel are shown. Old unrelated embeds and duplicates are ignored.'
                     : 'Only unique embeds are shown. Duplicate and old blank registry entries are hidden.',
             ].join('\n'))
             .setColor(getColor('info'))],
@@ -233,7 +277,7 @@ function loadEmbedIntoState(state, resolved) {
         sourceEmbedData: data,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: TEMPLATE_CHANNEL_IDS.has(String(channel.id)),
-        templateTitle: titleKey(data.title),
+        templateTitle: templateIdentity(channel.id, data.title || recordName(record)),
     };
 }
 
@@ -267,7 +311,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
         const collector = managerMessage.createMessageComponentCollector({
             filter: interaction => interaction.user.id === buttonInteraction.user.id,
-            time: MANAGER_TIMEOUT,
         });
 
         collector.on('collect', async interaction => {
@@ -331,7 +374,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 await managerMessage.edit({
                     embeds: [new EmbedBuilder()
                         .setTitle('Embed loaded')
-                        .setDescription(`The embed from ${resolved.channel} is now open in the message builder. Edit it normally, then press **save changes**.`)
+                        .setDescription(`The embed from ${resolved.channel} is now open in the message builder. Links, fields, author data, timestamps and other existing embed data are preserved when you save.`)
                         .setColor(getColor('success'))],
                     components: [],
                 }).catch(() => {});
@@ -489,7 +532,8 @@ export async function saveModifiedEmbed(guild, state) {
             if (!resolved) return false;
 
             const peerData = resolved.embed.toJSON();
-            if (titleKey(peerData.title) !== target.templateTitle) return false;
+            const peerIdentity = templateIdentity(target.channelId, peerData.title || recordName(record));
+            if (peerIdentity !== target.templateTitle) return false;
 
             const peerIndex = Number(record.embedIndex || 0);
             const peerEmbeds = resolved.message.embeds.map((embed, embedIndex) =>
@@ -514,7 +558,7 @@ export async function saveModifiedEmbed(guild, state) {
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
     state.modifyTarget.sourceEmbedData = current;
-    state.modifyTarget.templateTitle = titleKey(current.title);
+    state.modifyTarget.templateTitle = templateIdentity(target.channelId, current.title || target.templateTitle);
     void registerCloudyEmbedMessage(edited, target.templateMode ? 'modified-template' : 'modified')
         .catch(error => logger.error('Failed to refresh modified embed registry:', error));
 
