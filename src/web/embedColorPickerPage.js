@@ -25,10 +25,9 @@ export function embedColorPickerPage() {
     #emojiPanel label { margin-top: 0; }
     #search { margin-bottom: 12px; }
     #emojis { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 8px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 2px; }
-    .emoji { min-height: 52px; border: 1px solid #3d3f48; background: #1e1f22; border-radius: 8px; cursor: pointer; display: grid; place-items: center; padding: 6px; }
+    .emoji { min-height: 54px; border: 1px solid #3d3f48; background: #1e1f22; border-radius: 8px; cursor: pointer; display: grid; place-items: center; padding: 8px; }
     .emoji:hover { border-color: #5865f2; background: #2b2d31; }
-    .emoji img { width: 32px; height: 32px; object-fit: contain; }
-    .emoji small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: #b5bac1; font-size: 9px; white-space: nowrap; }
+    .emoji img { width: 36px; height: 36px; object-fit: contain; }
     #status { min-height: 19px; margin: 14px 0 0; text-align: center; font-size: 13px; color: #b5bac1; }
     #status.ok { color: #57f287; } #status.error { color: #ed4245; }
     #colorMode { display: none; }
@@ -183,20 +182,33 @@ export function embedColorPickerPage() {
         return 'https://cdn.discordapp.com/emojis/' + emoji.id + '.' + ext + '?size=64&quality=lossless';
       }
 
+      function emojiSearchText(emoji) {
+        return String(emoji.name || '')
+          .toLowerCase()
+          .replace(/^cloudy[_-]*/, '')
+          .replace(/[_-]+/g, ' ')
+          .replace(/([a-z])([A-Z])/g, '$1 $2');
+      }
+
       function renderEmojis() {
         const needle = search.value.trim().toLowerCase();
         emojiGrid.innerHTML = '';
-        emojis.filter(emoji => !needle || emoji.name.toLowerCase().includes(needle)).forEach(emoji => {
+        emojis.filter(emoji => {
+          if (!needle) return true;
+          const rawName = String(emoji.name || '').toLowerCase();
+          const searchable = emojiSearchText(emoji);
+          return rawName.includes(needle) || searchable.includes(needle);
+        }).forEach(emoji => {
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'emoji';
           button.title = ':' + emoji.name + ':';
+          button.setAttribute('aria-label', emojiSearchText(emoji) || 'emoji');
           const img = document.createElement('img');
           img.src = emojiUrl(emoji);
-          img.alt = ':' + emoji.name + ':';
-          const name = document.createElement('small');
-          name.textContent = emoji.name;
-          button.append(img, name);
+          img.alt = '';
+          img.addEventListener('error', () => button.remove(), { once: true });
+          button.appendChild(img);
           button.addEventListener('click', () => {
             const input = activeField || messageInput;
             const markup = '<' + (emoji.animated ? 'a' : '') + ':' + emoji.name + ':' + emoji.id + '>';
