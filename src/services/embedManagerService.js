@@ -131,7 +131,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     const loading = await buttonInteraction.followUp({
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
-            .setDescription('Scanning Cloudy messages and loading the embed registry…')
+            .setDescription('Loading embeds…')
             .setColor(getColor('info'))],
         flags: MessageFlags.Ephemeral,
         fetchReply: true,
@@ -139,20 +139,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     if (!loading) return;
 
     try {
-        // Import older existing Cloudy embeds. Future Cloudy embeds are registered automatically.
-        await scanGuildForCloudyEmbeds(guild, buttonInteraction.client.user.id);
+        // Never block the manager UI on a full server history scan. New Cloudy embeds
+        // are registered when they are posted, and a small background import keeps
+        // older messages discoverable without making this button feel stuck.
         let records = await getEmbedRegistry(guild.id);
-
-        if (!records.length) {
-            await loading.edit({
-                embeds: [new EmbedBuilder()
-                    .setTitle('Modify embed')
-                    .setDescription('No existing Cloudy embeds could be found in channels Cloudy can read.')
-                    .setColor(getColor('info'))],
-                components: [],
-            });
-            return;
-        }
 
         async function showPage(page) {
             records = await getEmbedRegistry(guild.id);
@@ -160,7 +150,24 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             await loading.edit(buildManagerPayload(result.resolved, result.safePage, result.pageCount, records.length));
         }
 
+        if (!records.length) {
+            await loading.edit({
+                embeds: [new EmbedBuilder()
+                    .setTitle('Modify embed')
+                    .setDescription('No registered Cloudy embeds were found yet. Older embeds are being imported in the background; reopen this menu in a moment.')
+                    .setColor(getColor('info'))],
+                components: [],
+            });
+
+            void scanGuildForCloudyEmbeds(guild, buttonInteraction.client.user.id, { maxMessagesPerChannel: 100 })
+                .catch(error => logger.error('Background embed history import failed:', error));
+            return;
+        }
+
         await showPage(0);
+
+        void scanGuildForCloudyEmbeds(guild, buttonInteraction.client.user.id, { maxMessagesPerChannel: 100 })
+            .catch(error => logger.error('Background embed history import failed:', error));
 
         const collector = loading.createMessageComponentCollector({
             filter: interaction => interaction.user.id === buttonInteraction.user.id,
@@ -218,7 +225,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         await loading.edit({
             embeds: [new EmbedBuilder()
                 .setTitle('Could not load embeds')
-                .setDescription('Cloudy could not scan or load the existing embeds right now.')
+                .setDescription('Cloudy could not load the existing embeds right now.')
                 .setColor(getColor('error'))],
             components: [],
         }).catch(() => {});
