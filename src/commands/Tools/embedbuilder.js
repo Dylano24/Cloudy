@@ -30,6 +30,7 @@ import {
     refreshAllTicketChannels,
 } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
+import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -294,6 +295,7 @@ function buildControlEmbed(state) {
     return new EmbedBuilder()
         .setTitle('Message builder')
         .setDescription([
+            `**Mode** › ${state.modifyTarget ? 'Editing existing embed' : 'New embed'}`,
             `**Title** › ${shortValue(state.title, 40)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
             `**Side color** › \`${colorToHex(state.sideColor)}\``,
@@ -343,20 +345,29 @@ function buildControls(state) {
             .setDisabled(!hasMedia(state)),
         new ButtonBuilder()
             .setCustomId('simple_embed_post')
-            .setLabel('Post message')
+            .setLabel(state.modifyTarget ? 'Save changes' : 'Post message')
             .setStyle(ButtonStyle.Success)
-            .setEmoji('📤'),
+            .setEmoji(state.modifyTarget ? '💾' : '📤'),
         new ButtonBuilder()
             .setCustomId('simple_embed_reset')
             .setLabel('Reset everything')
             .setStyle(ButtonStyle.Danger)
             .setEmoji('♻️'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_modify')
+            .setLabel('Modify embed')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🛠️'),
     );
 
     return [contentRow, actionRow];
 }
 
 async function refreshBuilder(interaction, state) {
+    if (state.colorSessionToken) {
+        state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${state.colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
+    }
+
     const payload = {
         embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],
         components: buildControls(state),
@@ -729,6 +740,27 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
 }
 
 async function postMessage(buttonInteraction, state, guild) {
+    if (state.modifyTarget) {
+        await buttonInteraction.deferUpdate().catch(() => {});
+        const saved = await saveModifiedEmbed(guild, state);
+
+        if (!saved.ok) {
+            await replyUserError(buttonInteraction, {
+                type: ErrorTypes.UNKNOWN,
+                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
+            });
+            return;
+        }
+
+        await refreshBuilder(buttonInteraction.message?.interaction ? buttonInteraction : buttonInteraction, state).catch(() => {});
+        const savedMessage = await buttonInteraction.followUp({
+            embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
+            flags: MessageFlags.Ephemeral,
+        }).catch(() => null);
+        if (savedMessage) removeTransientMessage(buttonInteraction, savedMessage);
+        return;
+    }
+
     if (!state.title && !state.message && !hasMedia(state)) {
         await buttonInteraction.deferUpdate().catch(() => {});
         await replyUserError(buttonInteraction, {
@@ -828,6 +860,8 @@ export default {
                 mediaBuffer: null,
                 mediaName: null,
                 mediaConvertedFromVideo: false,
+                modifyTarget: null,
+                colorSessionToken: null,
             };
 
             const guildEmojis = interaction.guild
@@ -858,6 +892,7 @@ export default {
                     await refreshBuilder(interaction, state);
                 },
             });
+            state.colorSessionToken = colorSessionToken;
             state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
             state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
 
@@ -896,7 +931,32 @@ export default {
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
                             break;
+                        case 'simple_embed_modify':
+                            await openEmbedManager(
+                                buttonInteraction,
+                                state,
+                                () => refreshBuilder(interaction, state),
+                            );
+                            break;
                         case 'simple_embed_post':
+                            if (state.modifyTarget) {
+                                await buttonInteraction.deferUpdate().catch(() => {});
+                                const saved = await saveModifiedEmbed(interaction.guild, state);
+                                if (!saved.ok) {
+                                    await replyUserError(buttonInteraction, {
+                                        type: ErrorTypes.UNKNOWN,
+                                        message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
+                                    });
+                                    break;
+                                }
+                                await refreshBuilder(interaction, state);
+                                const savedMessage = await buttonInteraction.followUp({
+                                    embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
+                                    flags: MessageFlags.Ephemeral,
+                                }).catch(() => null);
+                                if (savedMessage) removeTransientMessage(buttonInteraction, savedMessage);
+                                break;
+                            }
                             await postMessage(buttonInteraction, state, interaction.guild);
                             break;
                         case 'simple_embed_reset':
@@ -909,6 +969,7 @@ export default {
                             state.mediaBuffer = null;
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
+                            state.modifyTarget = null;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(interaction, state);
                             break;
