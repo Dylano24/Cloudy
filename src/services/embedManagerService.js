@@ -229,7 +229,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         collector.on('collect', async interaction => {
             try {
                 if (interaction.customId === 'simple_embed_modify_back') {
-                    records = await getEmbedRegistry(guild.id);
                     await interaction.update(buildChannelPayload(guild, records, 0));
                     return;
                 }
