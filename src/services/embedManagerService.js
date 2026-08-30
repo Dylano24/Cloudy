@@ -671,6 +671,73 @@ function mediaChangeState(sourceData, savedData) {
     };
 }
 
+const templatePeerUpdateJobs = new Map();
+
+function snapshotTemplatePeerState(state, target, sourceData) {
+    return {
+        title: state.title,
+        message: state.message,
+        sideColor: state.sideColor,
+        bottomLine: state.bottomLine,
+        modifyTarget: {
+            ...target,
+            sourceEmbedData: sourceData,
+        },
+    };
+}
+
+async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot, current, mediaChanges) {
+    const records = await getEmbedRegistry(guild.id);
+    const peers = records.filter(record =>
+        String(record.channelId) === String(targetSnapshot.channelId) &&
+        !(String(record.messageId) === String(targetSnapshot.messageId) && Number(record.embedIndex || 0) === Number(targetSnapshot.embedIndex || 0)),
+    );
+
+    const results = await Promise.all(peers.map(async record => {
+        const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
+        if (!resolved) return false;
+
+        const peerData = resolved.embed.toJSON();
+        const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData.title || recordName(record));
+        if (peerIdentity !== targetSnapshot.templateTitle) return false;
+
+        const peerIndex = Number(record.embedIndex || 0);
+        const peerEmbeds = resolved.message.embeds.map((embed, embedIndex) =>
+            embedIndex === peerIndex
+                ? new EmbedBuilder(applyStateToTemplatePeer(stateSnapshot, peerData, current, mediaChanges))
+                : new EmbedBuilder(embed.toJSON()),
+        );
+
+        const peerEdited = await resolved.message.edit({ embeds: peerEmbeds }).catch(error => {
+            logger.error('Failed to update matching log template embed:', error);
+            return null;
+        });
+        if (!peerEdited) return false;
+
+        void registerCloudyEmbedMessage(peerEdited, 'modified-template')
+            .catch(error => logger.error('Failed to refresh modified template registry:', error));
+        return true;
+    }));
+
+    return results.filter(Boolean).length;
+}
+
+function queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, current, mediaChanges) {
+    const key = `${guild.id}:${targetSnapshot.channelId}:${targetSnapshot.templateTitle || ''}`;
+    const previous = templatePeerUpdateJobs.get(key) || Promise.resolve();
+    const job = previous
+        .catch(() => {})
+        .then(() => updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot, current, mediaChanges));
+    templatePeerUpdateJobs.set(key, job);
+
+    void job
+        .then(updatedCount => logger.debug(`Updated ${updatedCount} matching historical log embed(s) in background.`))
+        .catch(error => logger.error('Failed to update matching historical log embeds in background:', error))
+        .finally(() => {
+            if (templatePeerUpdateJobs.get(key) === job) templatePeerUpdateJobs.delete(key);
+        });
+}
+
 export async function saveModifiedEmbed(guild, state) {
     const target = state.modifyTarget;
     if (!guild || !target) return { ok: false, reason: 'missing-target' };
@@ -721,39 +788,13 @@ export async function saveModifiedEmbed(guild, state) {
             },
         );
 
-        const records = await getEmbedRegistry(guild.id);
-        const peers = records.filter(record =>
-            String(record.channelId) === String(target.channelId) &&
-            !(String(record.messageId) === String(target.messageId) && Number(record.embedIndex || 0) === index),
-        );
-
-        const results = await Promise.all(peers.map(async record => {
-            const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
-            if (!resolved) return false;
-
-            const peerData = resolved.embed.toJSON();
-            const peerIdentity = templateIdentity(target.channelId, peerData.title || recordName(record));
-            if (peerIdentity !== target.templateTitle) return false;
-
-            const peerIndex = Number(record.embedIndex || 0);
-            const peerEmbeds = resolved.message.embeds.map((embed, embedIndex) =>
-                embedIndex === peerIndex
-                    ? new EmbedBuilder(applyStateToTemplatePeer(state, peerData, current, mediaChanges))
-                    : new EmbedBuilder(embed.toJSON()),
-            );
-
-            const peerEdited = await resolved.message.edit({ embeds: peerEmbeds }).catch(error => {
-                logger.error('Failed to update matching log template embed:', error);
-                return null;
-            });
-            if (!peerEdited) return false;
-
-            void registerCloudyEmbedMessage(peerEdited, 'modified-template')
-                .catch(error => logger.error('Failed to refresh modified template registry:', error));
-            return true;
-        }));
-
-        updatedCount += results.filter(Boolean).length;
+        const targetSnapshot = {
+            ...target,
+            sourceEmbedData: sourceData,
+            templateTitle: target.templateTitle,
+        };
+        const stateSnapshot = snapshotTemplatePeerState(state, targetSnapshot, sourceData);
+        queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, current, mediaChanges);
     }
 
     state.modifyTarget.sourceEmbedData = current;
