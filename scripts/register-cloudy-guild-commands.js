@@ -14,10 +14,11 @@ const configuredClientId = String(
 
 const API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 20_000;
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 3;
+const RATE_LIMIT_RETRIES = 10;
 const START_DELAY_MS = Math.max(
   0,
-  Number.parseInt(process.env.COMMAND_SYNC_START_DELAY_MS || '3000', 10) || 0,
+  Number.parseInt(process.env.COMMAND_SYNC_START_DELAY_MS || '10000', 10) || 0,
 );
 
 if (!token) {
@@ -107,6 +108,25 @@ function retryAfterSeconds(result) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+function rateLimitWaitSeconds(result, attempt) {
+  const retryAfter = retryAfterSeconds(result);
+  const fallback = Math.min(60, 15 * (2 ** attempt));
+  return Math.max(5, Math.ceil((retryAfter ?? fallback) + 1));
+}
+
+async function discordFetchWithRateLimitRetry(endpoint, options = {}, label = 'Discord request') {
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRIES; attempt += 1) {
+    const result = await discordFetch(endpoint, options);
+    if (result.response.status !== 429) return result;
+    if (attempt >= RATE_LIMIT_RETRIES) return result;
+
+    const waitSeconds = rateLimitWaitSeconds(result, attempt);
+    console.warn(`[COMMAND_SYNC] ${label} rate-limited; waiting ${waitSeconds}s before retry.`);
+    await sleep(waitSeconds * 1000);
+  }
+  return null;
+}
+
 function normalizeCommand(value) {
   if (Array.isArray(value)) return value.map(normalizeCommand);
   if (!value || typeof value !== 'object') return value;
@@ -149,9 +169,13 @@ async function main() {
     await sleep(START_DELAY_MS);
   }
 
-  const me = await discordFetch('/users/@me');
-  if (!me.response.ok || !me.body?.id) {
-    throw new Error(`Discord token check failed (${me.response.status}): ${JSON.stringify(me.body)}`);
+  const me = await discordFetchWithRateLimitRetry('/users/@me', {}, 'Discord token check');
+  if (me?.response?.status === 429) {
+    console.warn('[COMMAND_SYNC] DEFERRED: Discord is still rate-limiting the recovery sync; the main bot remains online and existing commands stay untouched.');
+    return;
+  }
+  if (!me?.response?.ok || !me.body?.id) {
+    throw new Error(`Discord token check failed (${me?.response?.status ?? 'unknown'}): ${JSON.stringify(me?.body)}`);
   }
 
   const applicationId = String(me.body.id);
@@ -167,8 +191,12 @@ async function main() {
   const route = `/applications/${applicationId}/guilds/${guildId}/commands`;
 
   try {
-    const existing = await discordFetch(route, { method: 'GET' });
-    if (existing.response.ok && commandSetsMatch(existing.body, payloads)) {
+    const existing = await discordFetchWithRateLimitRetry(route, { method: 'GET' }, 'Existing-command check');
+    if (existing?.response?.status === 429) {
+      console.warn('[COMMAND_SYNC] DEFERRED: Discord is still rate-limiting the consistency check; skipping the fallback PUT to avoid making the limit worse.');
+      return;
+    }
+    if (existing?.response?.ok && commandSetsMatch(existing.body, payloads)) {
       console.log(`[COMMAND_SYNC] SKIPPED: Discord already has the current ${payloads.length} Cloudy guild commands.`);
       return;
     }
@@ -197,9 +225,12 @@ async function main() {
       return;
     }
 
-    if (result.response.status === 429 && attempt < MAX_RETRIES) {
-      const retryAfter = retryAfterSeconds(result);
-      const waitSeconds = Math.max(5, Math.ceil((retryAfter ?? 5) + 1));
+    if (result.response.status === 429) {
+      if (attempt >= MAX_RETRIES) {
+        console.warn('[COMMAND_SYNC] DEFERRED: Discord is still rate-limiting the fallback sync; leaving the existing command set untouched.');
+        return;
+      }
+      const waitSeconds = rateLimitWaitSeconds(result, attempt);
       console.warn(`[COMMAND_SYNC] Rate-limited; waiting ${waitSeconds}s before retry.`);
       await sleep(waitSeconds * 1000);
       continue;
