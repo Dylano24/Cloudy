@@ -7,6 +7,10 @@
   "scripts": {
     "start": "node scripts/register-cloudy-guild-commands.js & exec node src/bootstrap.js",
     "lint": "eslint .",
+    "lint:fast": "eslint . --cache --cache-strategy content",
+    "test": "node --test",
+    "check": "npm run lint && npm test",
+    "check:fast": "npm run lint:fast && npm test",
     "migrate": "node scripts/migrate.js apply",
     "migrate:check": "node scripts/migrate.js check",
     "migrate:status": "node scripts/migrate.js status",
