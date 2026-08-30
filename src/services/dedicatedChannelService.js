@@ -63,7 +63,7 @@ export async function enforceDedicatedCommandChannel(interaction, key) {
     `Command used outside dedicated ${key} channel`,
     ErrorTypes.VALIDATION,
     key === 'gambling'
-      ? `This command can only be used in the dedicated channel. Please use <#${targetChannel.id}> to play.`
+      ? 'Please use #gambling to play.'
       : `${rule.wrongChannelMessage} Use <#${targetChannel.id}>.`,
     {
       expectedChannelId: targetChannel.id,

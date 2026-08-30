@@ -54,7 +54,7 @@ for (const [name, command] of Object.entries({ gamble, fight, flip, roll })) {
     const payload = f.sent[0].payload;
     assert.equal(payload.embeds[0].toJSON().title, 'Wrong channel');
     assert.equal(payload.embeds[0].toJSON().description,
-      `This command can only be used in the dedicated channel. Please use <#${f.gambling.id}> to play.`);
+      'Please use #gambling to play.');
     assert.deepEqual(payload.components, []);
     assert.equal(payload.flags, MessageFlags.Ephemeral);
   });
