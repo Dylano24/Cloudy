@@ -5,7 +5,10 @@ import {
   getCountingGameConfig,
   saveCountingGameConfig,
 } from '../src/services/countingGameService.js';
-import { getAllReactionRoleMessages } from '../src/services/reactionRoleService.js';
+import {
+  getAllReactionRoleMessages,
+  reconcileReactionRoleMessages,
+} from '../src/services/reactionRoleService.js';
 import { mapWithConcurrency } from '../src/events/cloudyBrandingReady.js';
 
 test('counting game reads are coalesced and successful writes refresh the cache', async () => {
@@ -104,6 +107,50 @@ test('reaction-role guild reads are cached to avoid repeated database listing', 
 
   assert.equal(listCalls, 1);
   assert.deepEqual(first, second);
+});
+
+test('reaction-role reconciliation invalidates cached records after cleanup', async () => {
+  const guildId = '56789012345678901';
+  const messageId = '67890123456789012';
+  const channelId = '78901234567890123';
+  const key = `reactionroles:${guildId}:${messageId}`;
+  let present = true;
+  let listCalls = 0;
+
+  const guild = {
+    channels: {
+      cache: new Map(),
+      fetch: async () => null,
+    },
+  };
+
+  const client = {
+    db: {
+      list: async () => {
+        listCalls += 1;
+        return present ? [key] : [];
+      },
+      get: async () => present ? { guildId, channelId, messageId, roles: {} } : null,
+      delete: async () => {
+        present = false;
+        return true;
+      },
+    },
+    guilds: {
+      cache: new Map([[guildId, guild]]),
+      fetch: async () => guild,
+    },
+  };
+
+  const beforeCleanup = await getAllReactionRoleMessages(client, guildId);
+  assert.equal(beforeCleanup.length, 1);
+
+  const summary = await reconcileReactionRoleMessages(client, guildId);
+  const afterCleanup = await getAllReactionRoleMessages(client, guildId);
+
+  assert.equal(summary.removedMessages, 1);
+  assert.equal(afterCleanup.length, 0);
+  assert.equal(listCalls, 2);
 });
 
 test('channel normalization uses bounded concurrency without changing item order', async () => {
