@@ -1,0 +1,71 @@
+name: ChatGPT Invite Welcome Reliability
+
+on:
+  push:
+    branches:
+      - chatgpt-invite-welcome-reliability-20260830
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply isolated reliability patch
+        run: node scripts/chatgpt-invite-welcome-reliability-patch.mjs
+      - name: Syntax checks
+        run: |
+          node --check src/services/inviteTrackingService.js
+          node --check src/services/embedManagerService.js
+          node --check src/services/embedRegistryService.js
+          node --check src/events/guildMemberAdd.js
+          node --check src/events/cloudyBrandingReady.js
+          node --check test/inviteWelcomeReliability.test.js
+      - name: Verify reliability contracts
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manager = readFileSync('src/services/embedManagerService.js', 'utf8');
+          const registry = readFileSync('src/services/embedRegistryService.js', 'utf8');
+          const invites = readFileSync('src/services/inviteTrackingService.js', 'utf8');
+          const welcome = readFileSync('src/events/guildMemberAdd.js', 'utf8');
+          const history = readFileSync('src/events/cloudyBrandingReady.js', 'utf8');
+          if (!manager.includes("'1539371572442435646'")) throw new Error('Invite template channel missing.');
+          if (!manager.includes("key: 'welcome-cloudy'")) throw new Error('Welcome template identity missing.');
+          if (!manager.includes("key: 'member-joined-using-invite'")) throw new Error('Invite join template identity missing.');
+          if (!registry.includes("return 'Invite created'")) throw new Error('Canonical invite-created registry identity missing.');
+          if (!registry.includes("return 'Member joined using invite'")) throw new Error('Canonical invite-join registry identity missing.');
+          if (!registry.includes('registerCloudyEmbedMessages')) throw new Error('Batch history registry backfill missing.');
+          if (!invites.includes('withInviteLock')) throw new Error('Invite serialization missing.');
+          if (!invites.includes('recentlyDeletedInvites')) throw new Error('Deleted invite tombstone protection missing.');
+          if (!invites.includes('decorateEmbedWithSavedTemplate')) throw new Error('Invite pre-send template decoration missing.');
+          if (!welcome.includes('decorated.matched')) throw new Error('Welcome saved-media handling missing.');
+          if (!welcome.includes("registerCloudyEmbedMessage(sentWelcome, 'welcome')")) throw new Error('Welcome direct registry registration missing.');
+          if (!history.includes('const BRANDING_SCAN_VERSION = 2')) throw new Error('History backfill version was not bumped.');
+          if (!history.includes("registerCloudyEmbedMessages(registrableMessages, 'history')")) throw new Error('Full history registry backfill missing.');
+          NODE
+      - name: Dependency audit
+        run: npm audit --audit-level=low
+      - name: Node tests
+        run: node --test
+      - name: ESLint
+        run: npx eslint . --ignore-pattern scripts/chatgpt-invite-welcome-reliability-patch.mjs
+      - name: Commit validated files
+        run: |
+          git config user.name "ChatGPT Safe Scan"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/services/inviteTrackingService.js src/services/embedManagerService.js src/services/embedRegistryService.js src/events/guildMemberAdd.js src/events/cloudyBrandingReady.js test/inviteWelcomeReliability.test.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Harden invite and welcome embed reliability"
+            git push
+          fi
