@@ -23,26 +23,11 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Install current dependencies
+      - name: Install dependencies
         run: npm ci
-
-      - name: Apply safe code fixes
-        run: node scripts/chatgpt-safe-fixes.mjs
-
-      - name: Extend command sync retry window
-        run: node scripts/chatgpt-command-sync-retry-patch.mjs
 
       - name: Make bootstrap REST-rate-limit independent
         run: node scripts/chatgpt-bootstrap-nonblocking-patch.mjs
-
-      - name: Apply lockfile-only security fixes
-        run: npm audit fix --package-lock-only
-
-      - name: Ensure dependency ranges were not changed
-        run: git diff --exit-code -- package.json
-
-      - name: Install fixed dependencies
-        run: npm ci
 
       - name: Verify dependency audit
         run: npm audit --audit-level=low
@@ -53,12 +38,12 @@ jobs:
       - name: ESLint
         run: npm run lint
 
-      - name: Commit validated fixes
+      - name: Commit validated bootstrap fix
         if: success()
         run: |
           git config user.name "ChatGPT Safe Scan"
           git config user.email "actions@users.noreply.github.com"
-          git add package-lock.json scripts/register-cloudy-guild-commands.js src/bootstrap.js
+          git add src/bootstrap.js
           if ! git diff --cached --quiet; then
             git commit -m "Keep bot startup independent from Discord REST rate limits"
             git push
