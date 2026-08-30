@@ -7,6 +7,7 @@ import {
   PermissionFlagsBits,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { createSingleFlight } from '../utils/singleFlight.js';
 
 const NITRADO_PATCH_CHANNEL_ID = '1539397467647377530';
 const NITRADO_NEWS_SOURCES = [
@@ -331,12 +332,14 @@ async function checkForNitradoUpdate(client) {
   }
 }
 
+const runNitradoUpdateCheck = createSingleFlight(checkForNitradoUpdate);
+
 export default {
   name: Events.ClientReady,
   once: true,
   async execute(client) {
-    await checkForNitradoUpdate(client);
-    const timer = setInterval(() => void checkForNitradoUpdate(client), CHECK_INTERVAL_MS);
+    await runNitradoUpdateCheck(client);
+    const timer = setInterval(() => void runNitradoUpdateCheck(client), CHECK_INTERVAL_MS);
     timer.unref?.();
     logger.info(`Nitrado Rust update monitor active for channel ${NITRADO_PATCH_CHANNEL_ID}`);
   },
