@@ -27,7 +27,9 @@ export function getGamblingResponsePolicy(interaction, context = {}) {
 
   return {
     showCloseButton: false,
-    autoDelete: !inGamblingChannel,
+    // All gambling errors are temporary. Successful game results are handled by the
+    // commands themselves and are not routed through this error policy.
+    autoDelete: true,
     ephemeral: !inGamblingChannel,
   };
 }
