@@ -3,7 +3,6 @@ import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
-import { buildCloseButtonRow } from '../../utils/closableResponse.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 export default {
@@ -24,8 +23,9 @@ export default {
 
     await InteractionHelper.safeReply(interaction, {
       embeds: [embed],
-      components: [buildCloseButtonRow(interaction.user.id)],
+      components: [],
     });
     logger.debug(`Flip command executed by user ${interaction.user.id} in guild ${interaction.guildId}`);
   },
 };
+

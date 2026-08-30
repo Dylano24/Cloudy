@@ -2,7 +2,6 @@ import { SlashCommandBuilder } from 'discord.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
-import { buildCloseButtonRow } from '../../utils/closableResponse.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -26,7 +25,7 @@ export default {
 
     const challenger = interaction.user;
     const opponent = interaction.options.getUser("opponent");
-    const components = [buildCloseButtonRow(challenger.id)];
+    const components = [];
 
     if (challenger.id === opponent.id) {
       const embed = warningEmbed(
@@ -85,3 +84,4 @@ export default {
     logger.debug(`Fight command executed between ${challenger.id} and ${opponent.id} in guild ${interaction.guildId}`);
   },
 };
+

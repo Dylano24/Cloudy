@@ -11,10 +11,15 @@ import {
   ensureDedicatedChannelGuides,
   scheduleDedicatedChannelGuide,
 } from '../src/services/dedicatedChannelService.js';
-import { createError, ErrorTypes, handleInteractionError } from '../src/utils/errorHandler.js';
+import { createError, ErrorTypes, handleInteractionError, replyUserError } from '../src/utils/errorHandler.js';
 
 function fixture(mode = 'reply') {
   const sent = [];
+  const deleted = [];
+  const responseMessage = {
+    id: 'response-id', deletable: true,
+    delete: async () => { deleted.push('response-id'); },
+  };
   const gambling = {
     id: '100000000000000001', name: '🎲｜gambling',
     isTextBased: () => true, isSendable: () => true,
@@ -27,7 +32,7 @@ function fixture(mode = 'reply') {
     id: 'dedicated-channel-test-guild', client: { user: { id: 'cloudy-bot' } },
     channels: { cache: new Collection([[gambling.id, gambling], [shop.id, shop]]), fetch: async () => {} },
   };
-  const capture = method => async payload => { sent.push({ method, payload }); return null; };
+  const capture = method => async payload => { sent.push({ method, payload }); return responseMessage; };
   const interaction = {
     id: 'interaction-id', user: { id: 'user-id' }, guild, guildId: guild.id,
     channelId: '100000000000000003',
@@ -35,9 +40,10 @@ function fixture(mode = 'reply') {
     isChatInputCommand: () => true,
     replied: mode === 'followUp', deferred: mode === 'editReply',
     reply: capture('reply'), editReply: capture('editReply'), followUp: capture('followUp'),
-    fetchReply: async () => null,
+    fetchReply: async () => responseMessage,
+    deleteReply: async () => { deleted.push('response-id'); },
   };
-  return { sent, interaction, guild, gambling, shop };
+  return { sent, deleted, responseMessage, interaction, guild, gambling, shop };
 }
 
 for (const [name, command] of Object.entries({ gamble, fight, flip, roll })) {
@@ -161,3 +167,124 @@ test('guide setup uses stored IDs and preserves the current embed and attachment
   await ensureDedicatedChannelGuides({ guilds: { cache: new Collection([[f.guild.id, f.guild]]) } });
   assert.equal(extraSend, false);
 });
+
+const settle = () => new Promise(resolve => { setImmediate(resolve); });
+
+for (const inGambling of [false, true]) {
+  for (const mode of ['reply', 'editReply', 'followUp', 'prefixReply', 'prefixEdit']) {
+    test(`${mode}: game errors ${inGambling ? 'remain in #gambling' : 'disappear elsewhere after 15 seconds'} without Close`, async t => {
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      const f = fixture(mode);
+      if (inGambling) f.interaction.channelId = f.gambling.id;
+      if (mode.startsWith('prefix')) {
+        f.interaction._isPrefixCommand = true;
+        f.interaction.isChatInputCommand = () => false;
+        f.interaction._responseCoordinator = {
+          isUsageFinalized: () => false,
+          hasResponded: () => mode === 'prefixEdit',
+          getReplyMessage: () => f.responseMessage,
+          respond: async payload => { f.sent.push({ method: 'prefixReply', payload }); },
+          edit: async payload => { f.sent.push({ method: 'prefixEdit', payload }); },
+        };
+      }
+
+      let error;
+      try {
+        await enforceDedicatedCommandChannel(f.interaction, 'gambling');
+        error = createError('Game input', ErrorTypes.VALIDATION, 'Check the game input.');
+      } catch (caught) {
+        error = caught;
+      }
+      await handleInteractionError(f.interaction, error);
+      assert.equal(f.sent.length, 1);
+      assert.equal(f.sent[0].method, mode);
+      assert.deepEqual(f.sent[0].payload.components, []);
+      if (inGambling) assert.equal((f.sent[0].payload.flags || 0) & MessageFlags.Ephemeral, 0);
+
+      t.mock.timers.tick(14999);
+      await settle();
+      assert.deepEqual(f.deleted, []);
+      t.mock.timers.tick(1);
+      await settle();
+      assert.deepEqual(f.deleted, inGambling ? [] : ['response-id']);
+      t.mock.timers.tick(60000);
+      await settle();
+      assert.deepEqual(f.deleted, inGambling ? [] : ['response-id']);
+    });
+  }
+}
+
+for (const useReplyHelper of [false, true]) {
+  test(`early cooldown errors in #gambling remain visible through ${useReplyHelper ? 'replyUserError' : 'handleInteractionError'}`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const f = fixture();
+    f.interaction.commandName = 'roll';
+    f.interaction.channelId = f.gambling.id;
+    // No command-specific channel guard has run yet.
+    if (useReplyHelper) {
+      await replyUserError(f.interaction, { type: ErrorTypes.RATE_LIMIT, message: 'Wait before playing again.' });
+    } else {
+      await handleInteractionError(f.interaction,
+        createError('Cooldown', ErrorTypes.RATE_LIMIT, 'Wait before playing again.'));
+    }
+    assert.deepEqual(f.sent[0].payload.components, []);
+    assert.equal((f.sent[0].payload.flags || 0) & MessageFlags.Ephemeral, 0);
+    t.mock.timers.tick(60000);
+    await settle();
+    assert.deepEqual(f.deleted, []);
+  });
+}
+
+const gameCases = [
+  { name: 'gamble win', command: gamble, random: 0 },
+  { name: 'gamble loss', command: gamble, random: 0.99 },
+  { name: 'fight', command: fight },
+  { name: 'fight self', command: fight, opponent: 'self' },
+  { name: 'fight bot', command: fight, opponent: 'bot' },
+  { name: 'flip', command: flip },
+  { name: 'roll', command: roll },
+  { name: 'roll invalid input', command: roll, notation: 'invalid', error: true },
+  { name: 'gamble insufficient funds', command: gamble, wallet: 0, error: true },
+  { name: 'gamble cooldown', command: gamble, cooldown: true, error: true },
+];
+
+for (const entry of gameCases) {
+  test(`${entry.name} stays in #gambling without a Close button`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    if (entry.random !== undefined) t.mock.method(Math, 'random', () => entry.random);
+    const f = fixture();
+    f.guild.id = '100000000000000010';
+    f.interaction.guildId = f.guild.id;
+    f.interaction.user = { id: '100000000000000011', username: 'Player' };
+    f.interaction.channelId = f.gambling.id;
+    f.interaction.commandName = entry.command.data.name;
+    f.interaction.deferReply = async () => { f.interaction.deferred = true; };
+    f.interaction.options = {
+      getInteger: () => 10,
+      getString: () => entry.notation || '2d6+1',
+      getUser: () => entry.opponent === 'self'
+        ? f.interaction.user
+        : { id: '100000000000000012', username: 'Opponent', bot: entry.opponent === 'bot' },
+    };
+    const writes = [];
+    const client = { db: {
+      get: async () => ({ wallet: entry.wallet ?? 100, inventory: {}, lastGamble: entry.cooldown ? Date.now() : 0 }),
+      set: async (_key, value) => { writes.push(value); return true; },
+    } };
+    if (entry.error) {
+      let error;
+      await assert.rejects(entry.command.execute(f.interaction, {}, client), caught => { error = caught; return true; });
+      await handleInteractionError(f.interaction, error);
+    } else {
+      await entry.command.execute(f.interaction, {}, client);
+    }
+    assert.equal(f.sent.length, 1);
+    assert.deepEqual(f.sent[0].payload.components, []);
+    assert.equal((f.sent[0].payload.flags || 0) & MessageFlags.Ephemeral, 0);
+    if (entry.name === 'gamble win') assert.equal(writes[0].wallet, 110);
+    if (entry.name === 'gamble loss') assert.equal(writes[0].wallet, 90);
+    t.mock.timers.tick(60000);
+    await settle();
+    assert.deepEqual(f.deleted, []);
+  });
+}

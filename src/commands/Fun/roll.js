@@ -3,7 +3,6 @@ import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
-import { buildCloseButtonRow } from '../../utils/closableResponse.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 export default {
@@ -80,8 +79,9 @@ export default {
 
     await InteractionHelper.safeEditReply(interaction, {
       embeds: [embed],
-      components: [buildCloseButtonRow(interaction.user.id)],
+      components: [],
     });
     logger.debug(`Roll command executed by user ${interaction.user.id} with notation ${notation} in guild ${interaction.guildId}`);
   },
 };
+
