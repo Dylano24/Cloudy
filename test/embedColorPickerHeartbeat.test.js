@@ -34,22 +34,22 @@ test('web editor heartbeat touches the active Discord builder without changing c
   }
 });
 
-test('opening the content editor counts as activity immediately', async () => {
+test('loading editor state does not create a phantom content update', async () => {
   let updates = 0;
 
   const token = createEmbedColorPickerSession({
     userId: '1',
     onColor: async () => {},
     getEditorState: () => ({ title: 'Existing title', message: 'Existing message' }),
-    onEditorUpdate: async field => {
-      if (field === '__heartbeat__') updates += 1;
+    onEditorUpdate: async () => {
+      updates += 1;
     },
   });
 
   try {
     const result = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__');
     assert.equal(result.ok, true);
-    assert.equal(updates, 1);
+    assert.equal(updates, 0);
     const state = JSON.parse(result.color);
     assert.equal(state.title, 'Existing title');
     assert.equal(state.message, 'Existing message');
