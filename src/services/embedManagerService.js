@@ -336,6 +336,13 @@ function closeEmbedManagerSession(state, session, reason = 'closed') {
     if (state.activeEmbedManager === session) state.activeEmbedManager = null;
 }
 
+export function shouldApplyBackgroundRegistryRefresh(state, session) {
+    return Boolean(session)
+        && !session.closed
+        && state.activeEmbedManager === session
+        && !session.hasInteracted;
+}
+
 async function updateEmbedManager(interaction, payload, state, session) {
     if (session.closed || state.activeEmbedManager !== session) return false;
 
@@ -430,9 +437,8 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
         void loadCurrentRegistry(guild, buttonInteraction.client.user.id)
             .then(async refreshedRecords => {
-                if (session.closed || state.activeEmbedManager !== session) return;
+                if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
                 records = refreshedRecords;
-                if (session.hasInteracted) return;
 
                 const payload = records.length
                     ? buildChannelPayload(guild, records, 0)
