@@ -312,7 +312,9 @@ async function sendErrorResponse(interaction, embed, context = {}) {
 
         const errorMessage = {
             embeds: [embed],
-            components: interaction.user?.id ? [buildCloseButtonRow(interaction.user.id)] : [],
+            components: context.showCloseButton !== false && interaction.user?.id
+                ? [buildCloseButtonRow(interaction.user.id)]
+                : [],
         };
 
         if (interaction._isPrefixCommand) {
@@ -426,8 +428,14 @@ export async function handleInteractionError(interaction, error, context = {}) {
         ? userMessage
         : `${userMessage}\n\n-# Ref: \`${buildErrorReference(resolvedErrorCode, traceId)}\``;
 
-    const embed = buildUserErrorEmbed(errorType, description);
-    await sendErrorResponse(interaction, embed, { ...context, traceId });
+    const embed = buildUserErrorEmbed(errorType, description, {
+        titleOverride: error?.context?.titleOverride,
+    });
+    await sendErrorResponse(interaction, embed, {
+        ...context,
+        traceId,
+        showCloseButton: error?.context?.showCloseButton ?? context.showCloseButton,
+    });
 }
 
 /**
