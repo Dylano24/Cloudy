@@ -15,10 +15,16 @@ import {
     getApplicationRoles,
     saveApplicationRoles
 } from '../utils/database.js';
+import { sweepExpiredTimestamps } from '../utils/runtimeStoreCleanup.js';
 import botConfig from '../config/bot.js';
 
 const applicationCooldowns = new Map();
 const APPLICATION_SUBMIT_COOLDOWN = (botConfig.applications?.applicationCooldown ?? 24) * 60 * 60 * 1000;
+const APPLICATION_COOLDOWN_SWEEP_MS = Math.min(
+    Math.max(APPLICATION_SUBMIT_COOLDOWN, 60_000),
+    60 * 60 * 1000,
+);
+let lastApplicationCooldownSweepAt = 0;
 
 class ApplicationService {
     static sanitizeApplicationText(value, maxLength) {
@@ -81,6 +87,11 @@ class ApplicationService {
 
     static checkApplicationCooldown(userId) {
         const now = Date.now();
+        if (now - lastApplicationCooldownSweepAt >= APPLICATION_COOLDOWN_SWEEP_MS) {
+            lastApplicationCooldownSweepAt = now;
+            sweepExpiredTimestamps(applicationCooldowns, now - APPLICATION_SUBMIT_COOLDOWN);
+        }
+
         const cooldownKey = `submit_${userId}`;
         const lastSubmit = applicationCooldowns.get(cooldownKey);
 
