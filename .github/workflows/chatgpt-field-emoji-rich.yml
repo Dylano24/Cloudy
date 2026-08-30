@@ -1,0 +1,61 @@
+name: ChatGPT Field Emoji Rich Editor
+
+on:
+  push:
+    branches:
+      - chatgpt-field-emoji-rich-20260830
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply isolated field emoji patch
+        run: node scripts/chatgpt-field-emoji-rich-patch.mjs
+
+      - name: Syntax check editor
+        run: node --check src/web/embedColorPickerPage.js
+
+      - name: Verify field emoji wiring
+        run: |
+          grep -q "field-rich-editor field-name-editor" src/web/embedColorPickerPage.js
+          grep -q "field-rich-editor field-value-editor" src/web/embedColorPickerPage.js
+          grep -q "insertEmojiIntoFieldEditor" src/web/embedColorPickerPage.js
+          grep -q "embed_field_name:" src/web/embedColorPickerPage.js
+          grep -q "embed_field_value:" src/web/embedColorPickerPage.js
+
+      - name: Verify dependency audit
+        run: npm audit --audit-level=low
+
+      - name: Node tests
+        run: node --test
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Commit validated editor file only
+        if: success()
+        run: |
+          git config user.name "ChatGPT Safe Scan"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/web/embedColorPickerPage.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Render field emojis in embed editor"
+            git push
+          fi
