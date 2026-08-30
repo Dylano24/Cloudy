@@ -56,7 +56,11 @@ export default {
                     "Insufficient cash for gamble",
                     ErrorTypes.VALIDATION,
                     `You only have $${userData.wallet.toLocaleString()} cash, but you are trying to bet $${betAmount.toLocaleString()}.`,
-                    { required: betAmount, current: userData.wallet }
+                    {
+                        required: betAmount,
+                        current: userData.wallet,
+                        titleOverride: 'Not enough money',
+                    }
                 );
             }
 
