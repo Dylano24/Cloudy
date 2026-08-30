@@ -4,6 +4,7 @@ import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { createStickyGuideManager } from './stickyGuideService.js';
+import { findDedicatedChannelBySlug as findBySlug } from './dedicatedChannelPolicy.js';
 
 const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -23,18 +24,6 @@ const CHANNEL_RULES = {
   },
 };
 
-function isUsableTextChannel(channel) {
-  return Boolean(channel?.isTextBased?.() && channel?.isSendable?.());
-}
-
-function findBySlug(guild, slug) {
-  const normalizedSlug = String(slug).toLowerCase();
-  return guild.channels.cache.find(channel =>
-    isUsableTextChannel(channel)
-    && String(channel.name || '').toLowerCase().includes(normalizedSlug)
-  ) || null;
-}
-
 export async function resolveDedicatedChannel(guild, key) {
   const rule = CHANNEL_RULES[key];
   if (!guild || !rule) return null;
@@ -52,6 +41,7 @@ export async function enforceDedicatedCommandChannel(interaction, key) {
   if (!rule || !interaction?.guild) return true;
 
   const targetChannel = await resolveDedicatedChannel(interaction.guild, key);
+  interaction._cloudyDedicatedCommandChannel = { key, channelId: targetChannel?.id || null };
   if (!targetChannel) {
     return true;
   }

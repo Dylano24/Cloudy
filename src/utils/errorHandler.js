@@ -22,6 +22,7 @@ import { MessageFlags } from 'discord.js';
 import { getErrorMetadata, getDefaultErrorCodeByType, resolveErrorCode, ErrorCodes } from './errorRegistry.js';
 import { InteractionHelper } from './interactionHelper.js';
 import { buildCloseButtonRow } from './closableResponse.js';
+import { getGamblingResponsePolicy } from '../services/dedicatedChannelPolicy.js';
 
 // Re-export so consumers only ever need to import from errorHandler.js
 export { ErrorCodes, getErrorMetadata, resolveErrorCode, getDefaultErrorCodeByType } from './errorRegistry.js';
@@ -310,9 +311,12 @@ async function sendErrorResponse(interaction, embed, context = {}) {
             return false;
         }
 
+        const gamblingPolicy = getGamblingResponsePolicy(interaction, context);
+        const showCloseButton = gamblingPolicy?.showCloseButton ?? context.showCloseButton;
+        const autoDelete = gamblingPolicy?.autoDelete ?? true;
         const errorMessage = {
             embeds: [embed],
-            components: context.showCloseButton !== false && interaction.user?.id
+            components: showCloseButton !== false && interaction.user?.id
                 ? [buildCloseButtonRow(interaction.user.id)]
                 : [],
         };
@@ -323,17 +327,20 @@ async function sendErrorResponse(interaction, embed, context = {}) {
             } else {
                 await coordinator?.respond(errorMessage);
             }
-            scheduleErrorResponseDeletion(interaction, null, { coordinator });
+            if (autoDelete) scheduleErrorResponseDeletion(interaction, null, { coordinator });
             return true;
         }
 
-        const useEphemeral = context.ephemeral !== false;
+        const useEphemeral = gamblingPolicy?.ephemeral ?? (context.ephemeral !== false);
         let responseMessage = null;
         let followUp = false;
 
         if (interaction.replied) {
-            // A visible reply already exists; don't overwrite it — follow up ephemerally.
-            responseMessage = await interaction.followUp({ ...errorMessage, flags: MessageFlags.Ephemeral });
+            // Keep the existing reply; gambling errors in its channel remain public.
+            responseMessage = await interaction.followUp({
+                ...errorMessage,
+                ...(gamblingPolicy?.ephemeral === false ? {} : { flags: MessageFlags.Ephemeral }),
+            });
             followUp = true;
         } else if (interaction.deferred) {
             responseMessage = await interaction.editReply(errorMessage);
@@ -345,7 +352,7 @@ async function sendErrorResponse(interaction, embed, context = {}) {
             responseMessage = await interaction.fetchReply?.().catch(() => null);
         }
 
-        scheduleErrorResponseDeletion(interaction, responseMessage, { followUp });
+        if (autoDelete) scheduleErrorResponseDeletion(interaction, responseMessage, { followUp });
         return true;
     } catch (replyError) {
         if (replyError.code === 40060 || replyError.code === 10062 || replyError.code === 50027) {
@@ -422,7 +429,7 @@ export async function handleInteractionError(interaction, error, context = {}) {
 
     logInteractionError(error, errorType, logData);
 
-    // System errors still include a reference code, but every error response auto-deletes after 15 seconds.
+    // System errors include a reference code; the response policy controls deletion.
     const isUserError = USER_ERROR_TYPES.has(errorType) || error?.context?.expected === true;
     const description = isUserError
         ? userMessage
