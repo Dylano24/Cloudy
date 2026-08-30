@@ -11,6 +11,22 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+export function createPacedGate(intervalMs = CHANNEL_DELAY_MS) {
+  let nextAllowedAt = 0;
+  let queue = Promise.resolve();
+
+  return async function waitForSlot() {
+    const slot = queue.then(async () => {
+      const delayMs = Math.max(0, nextAllowedAt - Date.now());
+      if (delayMs > 0) await wait(delayMs);
+      nextAllowedAt = Date.now() + Math.max(0, intervalMs);
+    });
+
+    queue = slot.catch(() => {});
+    await slot;
+  };
+}
+
 export async function mapWithConcurrency(items, mapper, concurrency = 4) {
   const results = new Array(items.length);
   let index = 0;
@@ -27,7 +43,7 @@ export async function mapWithConcurrency(items, mapper, concurrency = 4) {
   return results;
 }
 
-export async function normalizeChannel(channel, botUserId) {
+export async function normalizeChannel(channel, botUserId, waitForFetchSlot = null) {
   if (!channel?.isTextBased?.() || !channel.messages?.fetch) return { scanned: 0, updated: 0 };
 
   let scanned = 0;
@@ -35,6 +51,8 @@ export async function normalizeChannel(channel, botUserId) {
   let before;
 
   while (true) {
+    if (waitForFetchSlot) await waitForFetchSlot();
+
     const messages = await channel.messages.fetch({
       limit: 100,
       ...(before ? { before } : {}),
@@ -69,7 +87,12 @@ export async function normalizeGuild(client, guild) {
   if (!channels) return { scanned: 0, updated: 0, completed: false };
 
   const channelList = [...channels.values()].filter(channel => channel?.isTextBased?.() && channel.messages?.fetch);
-  const results = await mapWithConcurrency(channelList, async channel => normalizeChannel(channel, client.user.id), 4);
+  const waitForFetchSlot = createPacedGate(CHANNEL_DELAY_MS);
+  const results = await mapWithConcurrency(
+    channelList,
+    async channel => normalizeChannel(channel, client.user.id, waitForFetchSlot),
+    4,
+  );
 
   const scanned = results.reduce((total, result) => total + (result?.scanned || 0), 0);
   const updated = results.reduce((total, result) => total + (result?.updated || 0), 0);
