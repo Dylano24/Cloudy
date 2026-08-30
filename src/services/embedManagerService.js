@@ -239,7 +239,7 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
                 const displayName = templateMode ? record.name : stripCustomEmojiMarkup(name);
                 const description = templateMode
                     ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
-                    : (record.duplicateCount > 1 ? `${record.duplicateCount} duplicate entries grouped` : 'Edit this embed');
+                    : 'Edit this embed';
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(displayName, 'Untitled embed'))
                     .setDescription(description.slice(0, 100))
