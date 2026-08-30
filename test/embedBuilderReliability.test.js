@@ -14,6 +14,7 @@ import {
 import {
   buildChannelPayload,
   openEmbedManager,
+  shouldApplyBackgroundRegistryRefresh,
 } from '../src/services/embedManagerService.js';
 import {
   applyEmbedColorPickerSession,
@@ -229,6 +230,24 @@ class FakeCollector extends EventEmitter {
     this.emit('end', [], reason);
   }
 }
+
+test('background registry refresh stops as soon as manager interaction begins', () => {
+  const session = { closed: false, hasInteracted: false };
+  const state = { activeEmbedManager: session };
+
+  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), true);
+
+  session.hasInteracted = true;
+  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
+
+  session.hasInteracted = false;
+  session.closed = true;
+  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
+
+  session.closed = false;
+  state.activeEmbedManager = {};
+  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
+});
 
 test('embed manager navigation edits through the fresh component interaction', async () => {
   installTestStorage();
