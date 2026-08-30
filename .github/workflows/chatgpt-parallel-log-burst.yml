@@ -1,0 +1,57 @@
+name: ChatGPT Parallel Old Log Burst
+
+on:
+  push:
+    branches:
+      - chatgpt-parallel-log-burst-20260830
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply isolated parallel-log patch
+        run: node scripts/chatgpt-parallel-old-log-burst-patch.mjs
+      - name: Syntax check service
+        run: node --check src/services/embedManagerService.js
+      - name: Verify parallel burst structure
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const source = readFileSync('src/services/embedManagerService.js', 'utf8');
+          const resolvePhase = source.indexOf('const resolvedPeers = await Promise.all(peers.map(record =>');
+          const editPhase = source.indexOf('const results = await Promise.all(edits.map(async ({ resolved, peerEmbeds }) => {');
+          const prefilter = source.indexOf('templateIdentity(targetSnapshot.channelId, recordName(record)) === targetSnapshot.templateTitle');
+          if (resolvePhase < 0 || editPhase < 0 || prefilter < 0 || editPhase < resolvePhase) {
+            throw new Error('Parallel two-phase log update structure missing.');
+          }
+          if (source.includes('await new Promise(resolve => setTimeout') || source.includes('sleep(')) {
+            throw new Error('Unexpected artificial delay detected in embed manager service.');
+          }
+          NODE
+      - name: Verify dependency audit
+        run: npm audit --audit-level=low
+      - name: Node tests
+        run: node --test
+      - name: ESLint
+        run: npx eslint . --ignore-pattern scripts/chatgpt-parallel-old-log-burst-patch.mjs
+      - name: Commit validated service file only
+        run: |
+          git config user.name "ChatGPT Safe Scan"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/services/embedManagerService.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Burst historical log updates in parallel"
+            git push
+          fi
