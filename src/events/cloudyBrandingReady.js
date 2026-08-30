@@ -1,9 +1,10 @@
 import { Events } from 'discord.js';
 import { normalizeCloudyMessage } from '../services/cloudyBrandingService.js';
+import { registerCloudyEmbedMessages } from '../services/embedRegistryService.js';
 
 const PAGE_DELAY_MS = 200;
 const CHANNEL_DELAY_MS = 350;
-const BRANDING_SCAN_VERSION = 1;
+const BRANDING_SCAN_VERSION = 2;
 const BRANDING_SCAN_STATE_KEY = 'global:cloudy:branding-history-scan-version';
 
 function wait(ms) {
@@ -25,12 +26,18 @@ async function normalizeChannel(channel, botUserId) {
 
     if (!messages?.size) break;
 
+    const registrableMessages = [];
     for (const message of messages.values()) {
       scanned += 1;
       if (message.author?.id !== botUserId) continue;
       if (!message.embeds?.length) continue;
 
       if (await normalizeCloudyMessage(message, { ensureFooter: true })) updated += 1;
+      registrableMessages.push(message);
+    }
+
+    if (registrableMessages.length) {
+      await registerCloudyEmbedMessages(registrableMessages, 'history');
     }
 
     before = messages.last()?.id;
