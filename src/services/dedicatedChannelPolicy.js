@@ -1,4 +1,9 @@
 const GAMBLING_COMMANDS = new Set(['gamble', 'fight', 'flip', 'roll']);
+const resolvedChannels = new WeakMap();
+
+export function rememberDedicatedCommandChannel(interaction, key, channelId) {
+  resolvedChannels.set(interaction, { key, channelId });
+}
 
 export function findDedicatedChannelBySlug(guild, slug) {
   const normalizedSlug = String(slug).toLowerCase();
@@ -9,7 +14,7 @@ export function findDedicatedChannelBySlug(guild, slug) {
 }
 
 export function getGamblingResponsePolicy(interaction, context = {}) {
-  const resolved = interaction?._cloudyDedicatedCommandChannel;
+  const resolved = resolvedChannels.get(interaction);
   const commandName = interaction?.commandName || context.commandName || context.command;
   if (resolved?.key !== 'gambling' && !GAMBLING_COMMANDS.has(commandName)) return null;
 
