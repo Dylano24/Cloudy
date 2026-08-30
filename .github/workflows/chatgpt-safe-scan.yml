@@ -23,8 +23,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: ESLint
-        run: npm run lint
-
       - name: Node tests
         run: node --test
+
+      - name: ESLint
+        if: always()
+        run: npm run lint
