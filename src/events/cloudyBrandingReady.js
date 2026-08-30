@@ -11,7 +11,23 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function normalizeChannel(channel, botUserId) {
+export async function mapWithConcurrency(items, mapper, concurrency = 4) {
+  const results = new Array(items.length);
+  let index = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length || 1) }, async () => {
+    while (index < items.length) {
+      const currentIndex = index;
+      index += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+export async function normalizeChannel(channel, botUserId) {
   if (!channel?.isTextBased?.() || !channel.messages?.fetch) return { scanned: 0, updated: 0 };
 
   let scanned = 0;
@@ -48,21 +64,15 @@ async function normalizeChannel(channel, botUserId) {
   return { scanned, updated };
 }
 
-async function normalizeGuild(client, guild) {
+export async function normalizeGuild(client, guild) {
   const channels = await guild.channels.fetch().catch(() => null);
   if (!channels) return { scanned: 0, updated: 0, completed: false };
 
-  let scanned = 0;
-  let updated = 0;
+  const channelList = [...channels.values()].filter(channel => channel?.isTextBased?.() && channel.messages?.fetch);
+  const results = await mapWithConcurrency(channelList, async channel => normalizeChannel(channel, client.user.id), 4);
 
-  for (const channel of channels.values()) {
-    if (!channel?.isTextBased?.() || !channel.messages?.fetch) continue;
-
-    const result = await normalizeChannel(channel, client.user.id);
-    scanned += result.scanned;
-    updated += result.updated;
-    await wait(CHANNEL_DELAY_MS);
-  }
+  const scanned = results.reduce((total, result) => total + (result?.scanned || 0), 0);
+  const updated = results.reduce((total, result) => total + (result?.updated || 0), 0);
 
   console.log(`[CLOUDY_BRANDING] ${guild.name}: scanned ${scanned} messages, updated ${updated} bot messages.`);
   return { scanned, updated, completed: true };

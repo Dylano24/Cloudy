@@ -11,7 +11,11 @@ function isOldLogoAttachment(attachment) {
   return OLD_LOGO_FILENAMES.has(attachment?.name);
 }
 
-async function cleanMainTicketMessage(message) {
+export async function cleanMainTicketMessage(message) {
+  if (!message || !Array.isArray(message.embeds) || message.embeds.length === 0) {
+    return false;
+  }
+
   const currentEmbed = message.embeds[0].toJSON();
   const brandedEmbed = forceCloudyTicketFooter(message.embeds[0]);
   const attachments = [...message.attachments.values()];

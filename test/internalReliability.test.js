@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { MemoryStorage } from '../src/utils/memoryStorage.js';
 import { Mutex } from '../src/utils/mutex.js';
+import { cleanMainTicketMessage } from '../src/events/ticketLegacyLogoCleanup.js';
 
 const sleep = ms => new Promise(resolve => {
   setTimeout(resolve, ms);
@@ -45,4 +46,19 @@ test('Mutex.runExclusiveMany serializes overlapping key sets without deadlock', 
     'second:start',
     'second:end',
   ]);
+});
+
+test('cleanMainTicketMessage safely ignores messages without embeds', async () => {
+  const message = {
+    embeds: [],
+    attachments: new Map(),
+    content: '',
+    edit: async () => {
+      throw new Error('edit should not be called when there are no embeds');
+    },
+  };
+
+  const result = await cleanMainTicketMessage(message);
+
+  assert.equal(result, false);
 });
