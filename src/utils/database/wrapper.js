@@ -203,8 +203,8 @@ export async function getFromDb(key, defaultValue = null) {
 
 export async function setInDb(key, value, ttl = null) {
     try {
-        await db.set(key, value, ttl);
-        return true;
+        const result = await db.set(key, value, ttl);
+        return result !== false;
     } catch (error) {
         logger.error(`Error setting value for key ${key}:`, error);
         return false;
@@ -213,8 +213,8 @@ export async function setInDb(key, value, ttl = null) {
 
 export async function deleteFromDb(key) {
     try {
-        await db.delete(key);
-        return true;
+        const result = await db.delete(key);
+        return result !== false;
     } catch (error) {
         logger.error(`Error deleting key ${key}:`, error);
         return false;
