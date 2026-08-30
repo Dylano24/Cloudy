@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import { REST } from '@discordjs/rest';
 
 function firstTrimmedEnv(...names) {
   for (const name of names) {
@@ -17,7 +16,7 @@ function assertSnowflake(value, label) {
   }
 }
 
-async function preflightDiscord() {
+function prepareDiscordConfig() {
   const token = firstTrimmedEnv(
     'DISCORD_TOKEN',
     'TOKEN',
@@ -32,37 +31,16 @@ async function preflightDiscord() {
   // Normalize whitespace from copied Railway secrets before the real app reads them.
   process.env.DISCORD_TOKEN = token;
 
-  const rest = new REST({ version: '10' }).setToken(token);
-
-  let botUser;
-  try {
-    botUser = await rest.get('/users/@me');
-  } catch (error) {
-    const code = error?.code ?? error?.status ?? 'unknown';
-    throw new Error(`Discord rejected the configured bot token (code ${code})`);
-  }
-
-  if (!botUser?.id) {
-    throw new Error('Discord token validation returned no bot user ID');
-  }
-
-  const authenticatedClientId = String(botUser.id);
-  const configuredClientId = firstTrimmedEnv(
+  const clientId = firstTrimmedEnv(
     'CLIENT_ID',
     'DISCORD_CLIENT_ID',
     'APPLICATION_ID',
     'BOT_CLIENT_ID',
   );
-
-  if (configuredClientId && configuredClientId !== authenticatedClientId) {
-    console.warn(
-      `[PREFLIGHT] Railway CLIENT_ID ${configuredClientId} does not match the authenticated bot ${authenticatedClientId}; using the authenticated ID.`,
-    );
+  if (clientId) {
+    assertSnowflake(clientId, 'CLIENT_ID');
+    process.env.CLIENT_ID = clientId;
   }
-
-  // The token is the source of truth. This prevents a stale Railway CLIENT_ID
-  // from registering commands for a different Discord application.
-  process.env.CLIENT_ID = authenticatedClientId;
 
   const guildId = firstTrimmedEnv('GUILD_ID', 'BOTPROFILE_GUILD_ID');
   if (!guildId) {
@@ -71,62 +49,16 @@ async function preflightDiscord() {
   assertSnowflake(guildId, 'GUILD_ID');
   process.env.GUILD_ID = guildId;
 
-  const verifyGuildAccess = async () => {
-    try {
-      const guild = await rest.get(`/guilds/${guildId}`);
-      console.log(
-        `[PREFLIGHT] Discord token valid for bot ${authenticatedClientId}; guild access confirmed for ${guild?.id || guildId}.`,
-      );
-    } catch (error) {
-      const code = error?.code ?? error?.status ?? 'unknown';
-      throw new Error(
-        `The configured bot token cannot access GUILD_ID ${guildId} (code ${code}). ` +
-        'Check that Cloudy is actually added to that server and that GUILD_ID is correct.',
-      );
-    }
-  };
-
-  // app.js requests GuildMembers and MessageContent. If Discord says either
-  // privileged intent is unavailable, the gateway connection can be closed and
-  // the bot will appear offline even though Railway's HTTP server started.
-  const verifyPrivilegedIntents = async () => {
-    try {
-      const application = await rest.get('/oauth2/applications/@me');
-      const flags = BigInt(application?.flags || 0);
-      const guildMembersBits = 16384n | 32768n;
-      const messageContentBits = 262144n | 524288n;
-      const missing = [];
-
-      if ((flags & guildMembersBits) === 0n) {
-        missing.push('Server Members Intent');
-      }
-      if ((flags & messageContentBits) === 0n) {
-        missing.push('Message Content Intent');
-      }
-
-      if (missing.length > 0) {
-        throw new Error(
-          `Discord privileged intents missing: ${missing.join(', ')}. ` +
-          'Enable them in Discord Developer Portal > Bot > Privileged Gateway Intents and save changes.',
-        );
-      }
-
-      console.log('[PREFLIGHT] Required Discord privileged intents are available.');
-    } catch (error) {
-      if (String(error?.message || '').startsWith('Discord privileged intents missing:')) {
-        throw error;
-      }
-      console.warn(`[PREFLIGHT] Could not inspect application intent flags: ${error?.message || error}`);
-    }
-  };
-
-  // These checks use independent Discord REST routes, so there is no reason to
-  // make bot startup wait for them one after the other.
-  await Promise.all([verifyGuildAccess(), verifyPrivilegedIntents()]);
+  // Do not make application startup depend on Discord REST. Cloudflare/Discord
+  // can temporarily rate-limit REST while the Gateway is healthy. The real
+  // Discord client login below is the authoritative live token/intent check.
+  console.log(
+    `[PREFLIGHT] Local Discord configuration validated${clientId ? ` for app ${clientId}` : ''}; live validation deferred to Discord Gateway login.`,
+  );
 }
 
 try {
-  await preflightDiscord();
+  prepareDiscordConfig();
   await import('./app.js');
 } catch (error) {
   console.error(`[PREFLIGHT] Fatal startup validation failed: ${error?.message || error}`);
