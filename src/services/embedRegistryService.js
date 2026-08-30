@@ -92,6 +92,12 @@ function cleanName(value) {
     return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+function canonicalEmbedName(value) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (/^welcome to cloudy(?:\s+inc\.?)?$/i.test(text)) return 'Welcome to Cloudy Inc.';
+    return text;
+}
+
 function isInternalEmbedRecord(record) {
     const title = cleanName(record?.title);
     const name = cleanName(record?.name);
@@ -113,7 +119,7 @@ export function isRegistrableCloudyEmbedMessage(message) {
 }
 
 function embedName(embed) {
-    const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
+    const title = canonicalEmbedName(embed?.title || '');
     if (title) return title.slice(0, 256);
 
     const firstLine = String(embed?.description || '')
@@ -121,7 +127,7 @@ function embedName(embed) {
         .map(line => line.replace(/^[>\s#*_`~|\-]+/, '').replace(/[*_`~]/g, '').trim())
         .find(Boolean);
 
-    return (firstLine || 'Untitled embed').slice(0, 256);
+    return canonicalEmbedName(firstLine || 'Untitled embed').slice(0, 256);
 }
 
 function normalizeRecord(record) {
@@ -133,7 +139,7 @@ function normalizeRecord(record) {
         embedIndex: Math.max(0, Number(record.embedIndex) || 0),
         source: String(record.source || 'cloudy'),
         title: String(record.title || '').slice(0, 256),
-        name: String(record.name || record.title || '').slice(0, 256),
+        name: canonicalEmbedName(record.name || record.title || '').slice(0, 256),
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
