@@ -1,0 +1,69 @@
+name: ChatGPT Direct Log Update
+
+on:
+  push:
+    branches:
+      - chatgpt-direct-log-update-20260830
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply isolated direct-update patch
+        run: node scripts/chatgpt-direct-log-patch.mjs
+
+      - name: Syntax checks
+        run: |
+          node --check src/services/embedManagerService.js
+          node --check src/services/embedRegistryService.js
+
+      - name: Verify Discord direct edit API and patch structure
+        run: |
+          node --input-type=module <<'NODE'
+          import * as Discord from 'discord.js';
+          import { readFileSync } from 'node:fs';
+          if (typeof Discord.MessageManager?.prototype?.edit !== 'function') {
+            throw new Error('Discord.js MessageManager.edit is unavailable.');
+          }
+          const manager = readFileSync('src/services/embedManagerService.js', 'utf8');
+          const registry = readFileSync('src/services/embedRegistryService.js', 'utf8');
+          if (!manager.includes('channel.messages.edit(messageId, { embeds })')) throw new Error('Direct message-ID edit missing.');
+          if (!manager.includes('getEmbedRegistrySnapshot(record)')) throw new Error('Snapshot fast path missing.');
+          if (!manager.includes('resolveEmbedRegistryRecord(guild, record)')) throw new Error('Safe legacy fallback missing.');
+          if (!registry.includes('export function getEmbedRegistrySnapshot(record)')) throw new Error('Snapshot cache export missing.');
+          if (!registry.includes('rememberEmbedSnapshot(record, embed);')) throw new Error('Resolved-message snapshot warming missing.');
+          NODE
+
+      - name: Dependency audit
+        run: npm audit --audit-level=low
+
+      - name: Node tests
+        run: node --test
+
+      - name: ESLint
+        run: npx eslint . --ignore-pattern scripts/chatgpt-direct-log-patch.mjs
+
+      - name: Commit validated production files only
+        run: |
+          git config user.name "ChatGPT Safe Scan"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/services/embedManagerService.js src/services/embedRegistryService.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Update historical logs without prefetch when cached"
+            git push
+          fi
