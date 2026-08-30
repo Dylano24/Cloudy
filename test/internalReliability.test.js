@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { MemoryStorage } from '../src/utils/memoryStorage.js';
 import { Mutex } from '../src/utils/mutex.js';
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = ms => new Promise(resolve => {
+  setTimeout(resolve, ms);
+});
 
 test('MemoryStorage clears an old TTL when a key is overwritten without TTL', async () => {
   const storage = new MemoryStorage();
