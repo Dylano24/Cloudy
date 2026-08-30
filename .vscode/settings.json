@@ -1,4 +1,18 @@
 {
   "files.encoding": "utf8",
-  "files.autoGuessEncoding": false
+  "files.autoGuessEncoding": false,
+  "vscord.status.details.text.editing": "Editing {file_name}{file_extension}",
+  "vscord.status.details.text.viewing": "Viewing {file_name}{file_extension}",
+  "vscord.status.details.text.debugging": "Debugging {file_name}{file_extension}",
+  "vscord.status.details.text.idle": "Cloudy • Idling",
+  "vscord.status.details.text.notInFile": "Cloudy",
+  "vscord.status.details.text.noWorkSpaceText": "Cloudy",
+  "vscord.status.state.text.editing": "Cloudy",
+  "vscord.status.state.text.viewing": "Cloudy",
+  "vscord.status.state.text.debugging": "Cloudy",
+  "vscord.status.state.text.noWorkspaceFound": "Cloudy",
+  "vscord.status.buttons.button1.enabled": false,
+  "vscord.status.buttons.button1.git.active.enabled": false,
+  "vscord.status.buttons.button1.git.inactive.enabled": false,
+  "vscord.status.buttons.button1.git.idle.enabled": false
 }
