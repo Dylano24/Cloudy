@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Collection, EmbedBuilder, MessageFlags } from 'discord.js';
+import { Collection, Embed, MessageFlags } from 'discord.js';
+import { db } from '../src/utils/database.js';
 import gamble from '../src/commands/Economy/gamble.js';
 import fight from '../src/commands/Fun/fight.js';
 import flip from '../src/commands/Fun/flip.js';
@@ -107,16 +108,19 @@ test('the gambling channel remains allowed, and other channels do not get sticky
   assert.equal(scheduleDedicatedChannelGuide({ channel: f.gambling }), false);
   assert.equal(scheduleDedicatedChannelGuide({
     guild: f.guild, channel: f.gambling, author: f.guild.client.user,
-    embeds: [new EmbedBuilder().setTitle('Gambling & Games')],
+    embeds: [new Embed({ title: 'Gambling & Games' })],
   }), false);
 });
 
-test('guide setup uses persistent IDs and preserves the current embed and attachments when moving', async () => {
+test('guide setup uses stored IDs and preserves the current embed and attachments when moving', async t => {
+  const storage = new Map();
+  t.mock.method(db, 'get', async key => storage.get(key) ?? null);
+  t.mock.method(db, 'set', async (key, value) => { storage.set(key, value); return true; });
   const f = fixture();
   f.guild.channels.cache.delete(f.shop.id);
   f.gambling.guild = f.guild;
   f.gambling.client = f.guild.client;
-  const embed = new EmbedBuilder({
+  const embed = new Embed({
     title: 'Gambling & games', description: 'Custom text', color: 0x123456,
     footer: { text: 'Custom footer' }, thumbnail: { url: 'attachment://custom.png' },
   });
@@ -129,11 +133,16 @@ test('guide setup uses persistent IDs and preserves the current embed and attach
   const user = { id: '200000000000000002', author: { id: 'user' }, embeds: [] };
   const history = new Collection([[user.id, user], [old.id, old]]);
   f.gambling.lastMessageId = user.id;
-  f.gambling.messages = { fetch: async () => history };
+  f.gambling.messages = { fetch: async options => options.message
+    ? history.get(options.message)
+    : new Collection([...history.entries()].sort(([a], [b]) => b.localeCompare(a))) };
   let sentPayload;
   f.gambling.send = async payload => {
     sentPayload = payload;
-    const message = { id: '200000000000000003', author: f.guild.client.user, embeds: [embed] };
+    const message = {
+      id: '200000000000000003', author: f.guild.client.user, embeds: [embed],
+      delete: async () => history.delete(message.id),
+    };
     f.gambling.lastMessageId = message.id;
     history.set(message.id, message);
     return message;
@@ -145,4 +154,10 @@ test('guide setup uses persistent IDs and preserves the current embed and attach
   assert.deepEqual(sentPayload.files, [{ name: 'custom.png', attachment: 'https://example.com/custom.png' }]);
   assert.deepEqual(sentPayload.allowedMentions, { parse: [] });
   assert.equal(history.has(old.id), false);
+  assert.equal(storage.get(`cloudy:dedicated-guide:${f.guild.id}:${f.gambling.id}`).messageId,
+    f.gambling.lastMessageId);
+  let extraSend = false;
+  f.gambling.send = async () => { extraSend = true; throw new Error('Already last'); };
+  await ensureDedicatedChannelGuides({ guilds: { cache: new Collection([[f.guild.id, f.guild]]) } });
+  assert.equal(extraSend, false);
 });

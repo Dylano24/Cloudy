@@ -74,7 +74,7 @@ function fixture() {
   };
 }
 
-const settle = () => new Promise(resolve => setImmediate(resolve));
+const settle = () => new Promise(resolve => { setImmediate(resolve); });
 
 test('moves the guide below a user and saves the replacement before deleting the old guide', async () => {
   const f = fixture();
