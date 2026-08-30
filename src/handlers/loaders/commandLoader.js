@@ -91,6 +91,7 @@ export async function loadCommands(client) {
   const commandsPath = path.join(__dirname, '../../commands');
   const commandFiles = await getAllFiles(commandsPath);
   const seen = new Set();
+  const loadErrors = [];
 
   logger.info(`[COMMAND_LOAD] Found ${commandFiles.length} command files.`);
 
@@ -120,8 +121,15 @@ export async function loadCommands(client) {
       const subcommands = getSubcommandInfo(command.data.toJSON());
       logger.info(`[COMMAND_LOAD] /${commandName}${subcommands.length ? ` -> ${subcommands.join(', ')}` : ''}`);
     } catch (error) {
+      loadErrors.push({ filePath, message: error.message });
       logger.error(`[COMMAND_LOAD] Failed ${filePath}:`, error);
     }
+  }
+
+  if (loadErrors.length > 0) {
+    throw new Error(
+      `[COMMAND_LOAD] Aborting startup because ${loadErrors.length} command file(s) failed to load.`,
+    );
   }
 
   logger.info(`[COMMAND_LOAD] Loaded ${client.commands.size} unique top-level commands.`);
