@@ -28,5 +28,18 @@ export const Mutex = {
         nextLock.then(cleanup, cleanup);
 
         return nextLock;
+    },
+
+    async runExclusiveMany(keys, task) {
+        const uniqueKeys = [...new Set((keys || []).filter(Boolean))].sort();
+
+        const runAt = (index) => {
+            if (index >= uniqueKeys.length) {
+                return task();
+            }
+            return this.runExclusive(uniqueKeys[index], () => runAt(index + 1));
+        };
+
+        return runAt(0);
     }
 };

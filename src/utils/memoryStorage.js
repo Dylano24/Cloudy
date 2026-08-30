@@ -28,6 +28,10 @@ class MemoryStorage {
         
         if (ttl && ttl > 0) {
             this.expirationTimes.set(key, Date.now() + (ttl * 1000));
+        } else {
+            // Replacing a TTL-backed value with a persistent value must also
+            // clear the previous expiry, otherwise the fresh value can vanish.
+            this.expirationTimes.delete(key);
         }
         
         return true;

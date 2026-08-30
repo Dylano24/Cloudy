@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
+import { Mutex } from '../../utils/mutex.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +21,50 @@ function getSubcommandInfo(commandData) {
     }
   }
   return subcommands;
+}
+
+function collectInteractionUserIds(interaction) {
+  const userIds = new Set();
+  if (interaction?.user?.id) userIds.add(String(interaction.user.id));
+
+  const visitOptions = (options = []) => {
+    for (const option of options) {
+      if (option?.user?.id) userIds.add(String(option.user.id));
+      if (option?.member?.id) userIds.add(String(option.member.id));
+      if (option?.type === 6 && option?.value) userIds.add(String(option.value));
+      if (Array.isArray(option?.options)) visitOptions(option.options);
+    }
+  };
+
+  visitOptions(interaction?.options?.data || []);
+  return [...userIds];
+}
+
+function wrapEconomyCommandExecution(command) {
+  if (String(command?.category || '').toLowerCase() !== 'economy' || command.__economySerialized) {
+    return command;
+  }
+
+  const originalExecute = command.execute;
+  command.execute = async function serializedEconomyExecute(...args) {
+    const interaction = args[0];
+    const guildId = String(interaction?.guildId || interaction?.guild?.id || 'global');
+    const lockKeys = collectInteractionUserIds(interaction)
+      .map(userId => `economy:${guildId}:${userId}`);
+
+    if (lockKeys.length === 0) {
+      return originalExecute.apply(this, args);
+    }
+
+    return Mutex.runExclusiveMany(lockKeys, () => originalExecute.apply(this, args));
+  };
+
+  Object.defineProperty(command, '__economySerialized', {
+    value: true,
+    configurable: true,
+  });
+
+  return command;
 }
 
 async function getAllFiles(directory, fileList = []) {
@@ -46,6 +91,7 @@ export async function loadCommands(client) {
   const commandsPath = path.join(__dirname, '../../commands');
   const commandFiles = await getAllFiles(commandsPath);
   const seen = new Set();
+  const loadErrors = [];
 
   logger.info(`[COMMAND_LOAD] Found ${commandFiles.length} command files.`);
 
@@ -69,13 +115,21 @@ export async function loadCommands(client) {
       if (typeof command.adminOnly !== 'boolean') {
         command.adminOnly = !isPlayerCommand(commandName);
       }
+      wrapEconomyCommandExecution(command);
       client.commands.set(commandName, command);
 
       const subcommands = getSubcommandInfo(command.data.toJSON());
       logger.info(`[COMMAND_LOAD] /${commandName}${subcommands.length ? ` -> ${subcommands.join(', ')}` : ''}`);
     } catch (error) {
+      loadErrors.push({ filePath, message: error.message });
       logger.error(`[COMMAND_LOAD] Failed ${filePath}:`, error);
     }
+  }
+
+  if (loadErrors.length > 0) {
+    throw new Error(
+      `[COMMAND_LOAD] Aborting startup because ${loadErrors.length} command file(s) failed to load.`,
+    );
   }
 
   logger.info(`[COMMAND_LOAD] Loaded ${client.commands.size} unique top-level commands.`);
@@ -113,6 +167,7 @@ export async function reloadCommand(client, commandName) {
     fresh.category = fresh.category || existing.category;
     fresh.filePath = existing.filePath;
     if (typeof fresh.adminOnly !== 'boolean') fresh.adminOnly = existing.adminOnly;
+    wrapEconomyCommandExecution(fresh);
 
     client.commands.set(commandName, fresh);
     logger.info(`[COMMAND_RELOAD] Reloaded /${commandName}.`);
