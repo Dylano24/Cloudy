@@ -129,15 +129,39 @@ function cleanFieldName(value) {
         .toLowerCase();
 }
 
+function embedFieldNames(embed) {
+    return new Set((embed?.fields || []).map(field => cleanFieldName(field?.name)));
+}
+
 function isCloudyWelcomeEmbed(embed) {
     const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
     if (/^welcome to cloudy(?:\s+inc\.?)?$/i.test(title)) return true;
 
-    const fieldNames = new Set((embed?.fields || []).map(field => cleanFieldName(field?.name)));
+    const fieldNames = embedFieldNames(embed);
     return fieldNames.has('rules')
         && fieldNames.has('link your account')
         && fieldNames.has('subscriptions & purchases')
         && fieldNames.has('support & help');
+}
+
+function isInviteCreatedEmbed(embed) {
+    const fieldNames = embedFieldNames(embed);
+    return fieldNames.has('created by')
+        && fieldNames.has('invite')
+        && fieldNames.has('channel')
+        && fieldNames.has('maximum uses')
+        && fieldNames.has('expires')
+        && fieldNames.has('created');
+}
+
+function isInviteJoinEmbed(embed) {
+    const fieldNames = embedFieldNames(embed);
+    return fieldNames.has('member')
+        && fieldNames.has('invited by')
+        && fieldNames.has('invite')
+        && fieldNames.has('invite uses')
+        && fieldNames.has('account age')
+        && fieldNames.has('joined server');
 }
 
 function isInternalEmbedRecord(record) {
@@ -160,6 +184,8 @@ export function isRegistrableCloudyEmbedMessage(message) {
 
 function embedName(embed) {
     if (isCloudyWelcomeEmbed(embed)) return 'Welcome to Cloudy Inc.';
+    if (isInviteCreatedEmbed(embed)) return 'Invite created';
+    if (isInviteJoinEmbed(embed)) return 'Member joined using invite';
 
     const title = canonicalEmbedName(embed?.title || '');
     if (title) return title.slice(0, 256);
@@ -219,33 +245,46 @@ async function saveRecords(guildId, additions) {
     });
 }
 
-export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
-    if (!isRegistrableCloudyEmbedMessage(message)) return false;
+export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
+    const grouped = new Map();
 
     try {
-        const additions = message.embeds
-            .map((embed, embedIndex) => {
-                const addition = {
-                    guildId: message.guildId,
-                    channelId: message.channelId,
-                    messageId: message.id,
-                    embedIndex,
-                    source,
-                    title: embed?.title || '',
-                    name: embedName(embed),
-                    createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
-                };
-                rememberEmbedSnapshot(addition, embed);
-                return addition;
-            })
-            .filter(addition => !isInternalEmbedRecord(addition));
+        for (const message of Array.isArray(messages) ? messages : []) {
+            if (!isRegistrableCloudyEmbedMessage(message)) continue;
 
-        if (!additions.length) return false;
-        return await saveRecords(message.guildId, additions);
+            const additions = message.embeds
+                .map((embed, embedIndex) => {
+                    const addition = {
+                        guildId: message.guildId,
+                        channelId: message.channelId,
+                        messageId: message.id,
+                        embedIndex,
+                        source,
+                        title: embed?.title || '',
+                        name: embedName(embed),
+                        createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
+                    };
+                    rememberEmbedSnapshot(addition, embed);
+                    return addition;
+                })
+                .filter(addition => !isInternalEmbedRecord(addition));
+
+            if (!additions.length) continue;
+            if (!grouped.has(message.guildId)) grouped.set(message.guildId, []);
+            grouped.get(message.guildId).push(...additions);
+        }
+
+        if (!grouped.size) return false;
+        await Promise.all([...grouped.entries()].map(([guildId, additions]) => saveRecords(guildId, additions)));
+        return true;
     } catch (error) {
-        logger.error('Failed to register Cloudy embed message:', error);
+        logger.error('Failed to register Cloudy embed messages:', error);
         return false;
     }
+}
+
+export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
+    return registerCloudyEmbedMessages([message], source);
 }
 
 export async function removeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
@@ -464,6 +503,7 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
                     if (isInternalEmbedRecord(addition)) continue;
+                    rememberEmbedSnapshot(addition, embed);
                     additions.push(addition);
                     found += 1;
                 }

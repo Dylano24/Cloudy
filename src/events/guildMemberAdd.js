@@ -9,6 +9,7 @@ import { logger } from '../utils/logger.js';
 import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
 import { trackMemberInvite } from '../services/inviteTrackingService.js';
 import { decorateEmbedWithSavedTemplate } from '../services/embedTemplateService.js';
+import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const CLOUDY_BANNER_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-dynamic-banner.gif';
@@ -180,11 +181,16 @@ export default {
                                 channel.id,
                                 baseEmbed,
                             );
-                            const finalEmbed = normalizeBuiltInWelcomeMedia(decorated.embed || baseEmbed);
+                            const finalEmbed = decorated.matched
+                                ? (decorated.embed || baseEmbed)
+                                : normalizeBuiltInWelcomeMedia(baseEmbed);
 
-                            await channel.send({
+                            const sentWelcome = await channel.send({
                                 content: ping,
                                 embeds: [finalEmbed]
+                            });
+                            await registerCloudyEmbedMessage(sentWelcome, 'welcome').catch(error => {
+                                logger.error('Failed to register welcome embed:', error);
                             });
                         } else {
                             await channel.send({
