@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 const sessions = new Map();
 const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
+const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const SESSION_TTL_MS = 14 * 60_000;
 
 function parseColor(value) {
@@ -42,6 +43,26 @@ function sanitizeEmojis(emojis = []) {
     return [...unique.values()].slice(0, 500);
 }
 
+async function touchEditorSession(token, session) {
+    if (typeof session.onEditorUpdate !== 'function') {
+        return { ok: false, reason: 'editor_unavailable' };
+    }
+
+    try {
+        // Unknown fields are intentionally ignored by the builder state updater,
+        // but still refresh/touch the Discord builder session. This lets the web
+        // editor keep the 60-second inactivity timer alive without changing data.
+        await session.onEditorUpdate('__heartbeat__', '');
+        return { ok: true };
+    } catch (error) {
+        if (error?.code === 'EMBED_BUILDER_EXPIRED') {
+            deleteEmbedColorPickerSession(token);
+            return { ok: false, reason: 'expired' };
+        }
+        throw error;
+    }
+}
+
 export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, emojis = [] }) {
     const token = randomBytes(32).toString('hex');
     const expiresAt = Date.now() + SESSION_TTL_MS;
@@ -64,6 +85,12 @@ export async function applyEmbedColorPickerSession(token, value) {
     if (!session || Date.now() >= session.expiresAt) {
         deleteEmbedColorPickerSession(token);
         return { ok: false, reason: 'expired' };
+    }
+
+    if (value === HEARTBEAT_PREFIX) {
+        const touched = await touchEditorSession(token, session);
+        if (!touched.ok) return touched;
+        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
     }
 
     if (value === STATE_PREFIX) {
