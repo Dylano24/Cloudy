@@ -32,6 +32,9 @@ jobs:
       - name: Extend command sync retry window
         run: node scripts/chatgpt-command-sync-retry-patch.mjs
 
+      - name: Make bootstrap REST-rate-limit independent
+        run: node scripts/chatgpt-bootstrap-nonblocking-patch.mjs
+
       - name: Apply lockfile-only security fixes
         run: npm audit fix --package-lock-only
 
@@ -55,8 +58,8 @@ jobs:
         run: |
           git config user.name "ChatGPT Safe Scan"
           git config user.email "actions@users.noreply.github.com"
-          git add package-lock.json scripts/register-cloudy-guild-commands.js
+          git add package-lock.json scripts/register-cloudy-guild-commands.js src/bootstrap.js
           if ! git diff --cached --quiet; then
-            git commit -m "Extend command sync rate-limit recovery"
+            git commit -m "Keep bot startup independent from Discord REST rate limits"
             git push
           fi
