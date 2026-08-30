@@ -5,6 +5,7 @@ import {
   BUILDER_SESSION_IDLE_MS,
   deleteBuilderSessionMessage,
   isBuilderSessionMessage,
+  shouldDeleteBuilderSessionOnCollectorEnd,
   touchBuilderSessionMessage,
 } from '../src/utils/builderSessionCleanup.js';
 
@@ -27,6 +28,13 @@ test('session cleanup only targets Message Builder and Modify Embed messages', (
     id: '3',
     embeds: [{ title: 'Changes saved' }],
   }), false);
+});
+
+test('Modify Embed is deleted when the parent builder ends from inactivity', () => {
+  assert.equal(shouldDeleteBuilderSessionOnCollectorEnd('idle'), true);
+  assert.equal(shouldDeleteBuilderSessionOnCollectorEnd('builder-ended'), true);
+  assert.equal(shouldDeleteBuilderSessionOnCollectorEnd('posted'), false);
+  assert.equal(shouldDeleteBuilderSessionOnCollectorEnd('replaced'), false);
 });
 
 test('builder cleanup deletes ephemeral messages through the interaction webhook', async () => {
