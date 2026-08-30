@@ -1,5 +1,9 @@
 import { EmbedBuilder } from 'discord.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
+import { getFromDb, setInDb } from '../utils/database.js';
+import { logger } from '../utils/logger.js';
+import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
+import { createStickyGuideManager } from './stickyGuideService.js';
 
 const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -58,11 +62,14 @@ export async function enforceDedicatedCommandChannel(interaction, key) {
   throw createError(
     `Command used outside dedicated ${key} channel`,
     ErrorTypes.VALIDATION,
-    `${rule.wrongChannelMessage} Use <#${targetChannel.id}>.`,
+    key === 'gambling'
+      ? `This command can only be used in the dedicated channel. Please use <#${targetChannel.id}> to play.`
+      : `${rule.wrongChannelMessage} Use <#${targetChannel.id}>.`,
     {
       expectedChannelId: targetChannel.id,
       currentChannelId,
       dedicatedChannel: key,
+      ...(key === 'gambling' ? { titleOverride: 'Wrong channel', showCloseButton: false } : {}),
     },
   );
 }
@@ -76,10 +83,62 @@ function buildGuideEmbed(rule) {
     .setFooter({ text: FOOTER });
 }
 
+function isGamblingGuide(message) {
+  return message.embeds?.some(embed =>
+    String(embed.title || '').toLowerCase() === 'gambling & games'
+    || embed.description === CHANNEL_RULES.gambling.guideDescription
+  ) || false;
+}
+
+function gamblingGuideStorageKey(channel) {
+  return `cloudy:dedicated-guide:${channel.guild.id}:${channel.id}`;
+}
+
+const gamblingGuideManager = createStickyGuideManager({
+  loadState: channel => getFromDb(gamblingGuideStorageKey(channel), null),
+  saveState: (channel, state) => setInDb(gamblingGuideStorageKey(channel), state),
+  isGuide: isGamblingGuide,
+  onError: error => logger.warn(`Gambling guide refresh failed: ${error.message}`),
+  async buildPayload(channel, existing) {
+    if (existing?.embeds?.length) {
+      // Keep changes made in the embed builder when moving the guide.
+      return {
+        content: existing.content || undefined,
+        embeds: existing.embeds.map(embed => embed.toJSON()),
+        files: [...(existing.attachments?.values() || [])].map(attachment => ({
+          attachment: attachment.url,
+          name: attachment.name,
+        })),
+        allowedMentions: { parse: [] },
+      };
+    }
+    const { embed } = await decorateEmbedWithSavedTemplate(
+      channel.guild.id,
+      channel.id,
+      buildGuideEmbed(CHANNEL_RULES.gambling),
+    );
+    return { embeds: [embed], allowedMentions: { parse: [] } };
+  },
+});
+
+export function scheduleDedicatedChannelGuide(message) {
+  if (!message?.guild || !message.channel) return false;
+  const channel = findBySlug(message.guild, CHANNEL_RULES.gambling.slug);
+  if (!channel || message.channel.id !== channel.id) return false;
+  return gamblingGuideManager.schedule(message);
+}
+
 async function ensureGuideMessage(guild, key) {
   const rule = CHANNEL_RULES[key];
   const channel = await resolveDedicatedChannel(guild, key);
   if (!rule || !channel?.messages?.fetch) return false;
+
+  if (key === 'gambling') {
+    return gamblingGuideManager.refresh(channel).catch(error => {
+      logger.warn(`Gambling guide setup failed: ${error.message}`);
+      return false;
+    });
+  }
 
   const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
   const existing = recent?.find(message =>
