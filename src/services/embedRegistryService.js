@@ -98,6 +98,26 @@ function canonicalEmbedName(value) {
     return text;
 }
 
+function cleanFieldName(value) {
+    return String(value || '')
+        .replace(/<a?:[^:>]+:\d+>/g, ' ')
+        .replace(/[^a-z0-9&\s-]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function isCloudyWelcomeEmbed(embed) {
+    const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
+    if (/^welcome to cloudy(?:\s+inc\.?)?$/i.test(title)) return true;
+
+    const fieldNames = new Set((embed?.fields || []).map(field => cleanFieldName(field?.name)));
+    return fieldNames.has('rules')
+        && fieldNames.has('link your account')
+        && fieldNames.has('subscriptions & purchases')
+        && fieldNames.has('support & help');
+}
+
 function isInternalEmbedRecord(record) {
     const title = cleanName(record?.title);
     const name = cleanName(record?.name);
@@ -110,8 +130,6 @@ function isInternalEmbedRecord(record) {
 export function isRegistrableCloudyEmbedMessage(message) {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
 
-    // Slash-command replies (including ephemeral builder previews and menus) are
-    // controls, not embeds that exist as normal editable channel messages.
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
     if (message.interaction || message.interactionMetadata) return false;
 
@@ -119,6 +137,8 @@ export function isRegistrableCloudyEmbedMessage(message) {
 }
 
 function embedName(embed) {
+    if (isCloudyWelcomeEmbed(embed)) return 'Welcome to Cloudy Inc.';
+
     const title = canonicalEmbedName(embed?.title || '');
     if (title) return title.slice(0, 256);
 
