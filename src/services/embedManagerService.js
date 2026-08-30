@@ -690,8 +690,7 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
     const records = await getEmbedRegistry(guild.id);
     const peers = records.filter(record =>
         String(record.channelId) === String(targetSnapshot.channelId) &&
-        !(String(record.messageId) === String(targetSnapshot.messageId) && Number(record.embedIndex || 0) === Number(targetSnapshot.embedIndex || 0)) &&
-        templateIdentity(targetSnapshot.channelId, recordName(record)) === targetSnapshot.templateTitle,
+        !(String(record.messageId) === String(targetSnapshot.messageId) && Number(record.embedIndex || 0) === Number(targetSnapshot.embedIndex || 0)),
     );
 
     // Resolve every matching historical log first, in parallel. This prevents
@@ -737,18 +736,40 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
 
 function queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, current, mediaChanges) {
     const key = `${guild.id}:${targetSnapshot.channelId}:${targetSnapshot.templateTitle || ''}`;
-    const previous = templatePeerUpdateJobs.get(key) || Promise.resolve();
-    const job = previous
-        .catch(() => {})
-        .then(() => updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot, current, mediaChanges));
-    templatePeerUpdateJobs.set(key, job);
+    const request = { guild, stateSnapshot, targetSnapshot, current, mediaChanges };
+    const existing = templatePeerUpdateJobs.get(key);
 
-    void job
-        .then(updatedCount => logger.debug(`Updated ${updatedCount} matching historical log embed(s) in background.`))
-        .catch(error => logger.error('Failed to update matching historical log embeds in background:', error))
-        .finally(() => {
-            if (templatePeerUpdateJobs.get(key) === job) templatePeerUpdateJobs.delete(key);
-        });
+    if (existing) {
+        existing.pending = request;
+        return;
+    }
+
+    const entry = { pending: request };
+    templatePeerUpdateJobs.set(key, entry);
+
+    const run = async () => {
+        while (entry.pending) {
+            const next = entry.pending;
+            entry.pending = null;
+
+            try {
+                const updatedCount = await updateMatchingTemplatePeers(
+                    next.guild,
+                    next.stateSnapshot,
+                    next.targetSnapshot,
+                    next.current,
+                    next.mediaChanges,
+                );
+                logger.debug(`Updated ${updatedCount} matching historical log embed(s) in background.`);
+            } catch (error) {
+                logger.error('Failed to update matching historical log embeds in background:', error);
+            }
+        }
+    };
+
+    void run().finally(() => {
+        if (templatePeerUpdateJobs.get(key) === entry) templatePeerUpdateJobs.delete(key);
+    });
 }
 
 export async function saveModifiedEmbed(guild, state) {
