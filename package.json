@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node scripts/register-cloudy-guild-commands.js & exec node src/bootstrap.js",
+    "lint": "eslint .",
     "migrate": "node scripts/migrate.js apply",
     "migrate:check": "node scripts/migrate.js check",
     "migrate:status": "node scripts/migrate.js status",
@@ -27,6 +28,11 @@
     "winston-daily-rotate-file": "^5.0.0",
     "zod": "^3.25.76",
     "riffy": "1.0.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0"
   },
   "engines": {
     "node": ">=20.10.0"
