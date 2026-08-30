@@ -15,7 +15,7 @@ const configuredClientId = String(
 const API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 3;
-const RATE_LIMIT_RETRIES = 4;
+const RATE_LIMIT_RETRIES = 10;
 const START_DELAY_MS = Math.max(
   0,
   Number.parseInt(process.env.COMMAND_SYNC_START_DELAY_MS || '10000', 10) || 0,
