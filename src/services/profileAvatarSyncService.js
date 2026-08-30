@@ -9,6 +9,7 @@ import { logger } from '../utils/logger.js';
 
 const SYNC_CONCURRENCY = 6;
 const RECENT_SYNC_TTL_MS = 3_000;
+const RECENT_SYNC_MAX_ENTRIES = 256;
 const DEFINITIVE_MISSING_CODES = new Set([10003, 10008, 50001, 50013]);
 const avatarSyncQueues = new Map();
 const recentAvatarSyncs = new Map();
@@ -113,6 +114,16 @@ async function withAvatarSyncLock(key, task) {
   }
 }
 
+function pruneRecentAvatarSyncs(now) {
+  if (recentAvatarSyncs.size <= RECENT_SYNC_MAX_ENTRIES) return;
+
+  for (const [key, value] of recentAvatarSyncs) {
+    if (!value || now - value.at >= RECENT_SYNC_TTL_MS) {
+      recentAvatarSyncs.delete(key);
+    }
+  }
+}
+
 function shouldSkipDuplicateSync(key, newAvatarUrl) {
   const fingerprint = normalizeAvatarUrl(newAvatarUrl);
   const now = Date.now();
@@ -123,6 +134,7 @@ function shouldSkipDuplicateSync(key, newAvatarUrl) {
   }
 
   recentAvatarSyncs.set(key, { fingerprint, at: now });
+  pruneRecentAvatarSyncs(now);
   return false;
 }
 

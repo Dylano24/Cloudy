@@ -15,6 +15,14 @@ function persistentStorageError(key, operation) {
     return error;
 }
 
+function assertStorageOperationSucceeded(result, key, operation) {
+    if (result !== false) return result;
+
+    const error = new Error(`Database ${operation} failed for key ${key}`);
+    error.code = 'DATABASE_OPERATION_FAILED';
+    throw error;
+}
+
 class DatabaseWrapper {
     constructor() {
         this.initialized = false;
@@ -85,7 +93,8 @@ class DatabaseWrapper {
             });
         }
 
-        return this.db.set(key, value, ttl);
+        const result = await this.db.set(key, value, ttl);
+        return assertStorageOperationSucceeded(result, key, 'write');
     }
 
     async get(key, defaultValue = null) {
@@ -100,7 +109,9 @@ class DatabaseWrapper {
         if (this.useFallback) {
             logger.debug(`[DEGRADED] Deleting from memory: ${key}`);
         }
-        return this.db.delete(key);
+
+        const result = await this.db.delete(key);
+        return assertStorageOperationSucceeded(result, key, 'delete');
     }
 
     async list(prefix) {
@@ -203,8 +214,8 @@ export async function getFromDb(key, defaultValue = null) {
 
 export async function setInDb(key, value, ttl = null) {
     try {
-        await db.set(key, value, ttl);
-        return true;
+        const result = await db.set(key, value, ttl);
+        return result !== false;
     } catch (error) {
         logger.error(`Error setting value for key ${key}:`, error);
         return false;
@@ -213,8 +224,8 @@ export async function setInDb(key, value, ttl = null) {
 
 export async function deleteFromDb(key) {
     try {
-        await db.delete(key);
-        return true;
+        const result = await db.delete(key);
+        return result !== false;
     } catch (error) {
         logger.error(`Error deleting key ${key}:`, error);
         return false;
