@@ -1,0 +1,60 @@
+name: ChatGPT Fix Log Refresh Regression
+
+on:
+  push:
+    branches:
+      - chatgpt-fix-log-refresh-regression-20260830
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply isolated regression fix
+        run: node scripts/chatgpt-fix-log-refresh-regression.mjs
+      - name: Syntax check service
+        run: node --check src/services/embedManagerService.js
+      - name: Verify regression fix structure
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const source = readFileSync('src/services/embedManagerService.js', 'utf8');
+          if (source.includes("templateIdentity(targetSnapshot.channelId, recordName(record)) === targetSnapshot.templateTitle")) {
+            throw new Error('Restrictive registry-name prefilter still exists.');
+          }
+          if (!source.includes('existing.pending = request;')) {
+            throw new Error('Repeated-save coalescing missing.');
+          }
+          if (!source.includes('const resolvedPeers = await Promise.all(peers.map(record =>')) {
+            throw new Error('Parallel resolve phase missing.');
+          }
+          if (!source.includes('const results = await Promise.all(edits.map(async ({ resolved, peerEmbeds }) => {')) {
+            throw new Error('Parallel edit burst missing.');
+          }
+          NODE
+      - name: Dependency audit
+        run: npm audit --audit-level=low
+      - name: Node tests
+        run: node --test
+      - name: ESLint
+        run: npx eslint . --ignore-pattern scripts/chatgpt-fix-log-refresh-regression.mjs
+      - name: Commit validated service file only
+        run: |
+          git config user.name "ChatGPT Safe Scan"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/services/embedManagerService.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix historical log refresh regression"
+            git push
+          fi
