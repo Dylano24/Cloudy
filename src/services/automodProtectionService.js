@@ -9,10 +9,12 @@ const LINK_WINDOW_MS = 15 * 1000;
 const BOT_SPAM_WINDOW_MS = 6 * 1000;
 const JOIN_WINDOW_MS = 10 * 1000;
 const NSFW_OFFENSE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const ACTIVITY_SWEEP_INTERVAL = 250;
 
 const messageActivity = new Map();
 const joinActivity = new Map();
 const nsfwOffenses = new Map();
+let activitySweepCounter = 0;
 
 function isStaff(message) {
   return Boolean(
@@ -33,8 +35,26 @@ function prune(entries, now, windowMs) {
   return entries.filter(entry => now - entry.timestamp <= windowMs);
 }
 
+function sweepActivityMap(map, now, windowMs) {
+  for (const [key, entries] of map) {
+    const current = prune(Array.isArray(entries) ? entries : [], now, windowMs);
+    if (current.length === 0) map.delete(key);
+    else if (current.length !== entries.length) map.set(key, current);
+  }
+}
+
+function maybeSweepActivityMaps(now) {
+  activitySweepCounter += 1;
+  if (activitySweepCounter % ACTIVITY_SWEEP_INTERVAL !== 0) return;
+
+  sweepActivityMap(messageActivity, now, Math.max(LINK_WINDOW_MS, MESSAGE_WINDOW_MS));
+  sweepActivityMap(joinActivity, now, JOIN_WINDOW_MS);
+  sweepActivityMap(nsfwOffenses, now, NSFW_OFFENSE_WINDOW_MS);
+}
+
 function recordMessageActivity(message) {
   const now = Date.now();
+  maybeSweepActivityMaps(now);
   const key = getMessageKey(message);
   const previous = prune(messageActivity.get(key) || [], now, Math.max(LINK_WINDOW_MS, MESSAGE_WINDOW_MS));
   previous.push({
@@ -149,9 +169,10 @@ async function sendWarning(message, title, description) {
   }).catch(() => null);
 
   if (warning) {
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       void warning.delete().catch(() => {});
     }, WARNING_DELETE_MS);
+    timer.unref?.();
   }
 }
 
@@ -185,38 +206,35 @@ async function handleImageModeration(message) {
   const imageUrls = getImageUrls(message);
   if (imageUrls.length === 0) return false;
 
-  for (const url of imageUrls) {
-    const result = await moderateImageUrl(url);
-    if (!result.unsafe) continue;
+  const results = await Promise.all(imageUrls.map(url => moderateImageUrl(url)));
+  const unsafeResult = results.find(result => result.unsafe);
+  if (!unsafeResult) return false;
 
-    await message.delete().catch(() => {});
+  await message.delete().catch(() => {});
 
-    const key = getMessageKey(message);
-    const now = Date.now();
-    const previous = prune(nsfwOffenses.get(key) || [], now, NSFW_OFFENSE_WINDOW_MS);
-    previous.push({ timestamp: now });
-    nsfwOffenses.set(key, previous);
+  const key = getMessageKey(message);
+  const now = Date.now();
+  const previous = prune(nsfwOffenses.get(key) || [], now, NSFW_OFFENSE_WINDOW_MS);
+  previous.push({ timestamp: now });
+  nsfwOffenses.set(key, previous);
 
-    if (previous.length >= 3 && message.member?.bannable) {
-      await message.member.ban({ reason: 'Automod: repeated explicit or graphic image violations', deleteMessageSeconds: 60 }).catch(() => {});
-      return true;
-    }
-
-    if (previous.length >= 2 && message.member?.moderatable) {
-      await message.member.timeout(60 * 60 * 1000, 'Automod: repeated explicit or graphic image violation').catch(() => {});
-    }
-
-    await sendWarning(
-      message,
-      'Image removed',
-      previous.length >= 2
-        ? 'your image was removed because it was detected as explicit or graphic. Repeated violations can result in a ban.'
-        : 'your image was removed because it was detected as explicit or graphic. Please keep images appropriate for the server.'
-    );
+  if (previous.length >= 3 && message.member?.bannable) {
+    await message.member.ban({ reason: 'Automod: repeated explicit or graphic image violations', deleteMessageSeconds: 60 }).catch(() => {});
     return true;
   }
 
-  return false;
+  if (previous.length >= 2 && message.member?.moderatable) {
+    await message.member.timeout(60 * 60 * 1000, 'Automod: repeated explicit or graphic image violation').catch(() => {});
+  }
+
+  await sendWarning(
+    message,
+    'Image removed',
+    previous.length >= 2
+      ? 'your image was removed because it was detected as explicit or graphic. Repeated violations can result in a ban.'
+      : 'your image was removed because it was detected as explicit or graphic. Please keep images appropriate for the server.'
+  );
+  return true;
 }
 
 export async function enforceAutomodProtection(message) {
@@ -234,6 +252,7 @@ export async function enforceJoinRaidProtection(member) {
   if (!member?.guild || !member.user) return false;
 
   const now = Date.now();
+  maybeSweepActivityMaps(now);
   const guildId = member.guild.id;
   const recent = prune(joinActivity.get(guildId) || [], now, JOIN_WINDOW_MS);
   recent.push({ timestamp: now, userId: member.id, bot: member.user.bot });
