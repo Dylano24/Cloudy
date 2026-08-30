@@ -1,0 +1,71 @@
+name: ChatGPT Fast Save Old Logs
+
+on:
+  push:
+    branches:
+      - chatgpt-fast-save-old-logs-20260830
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply isolated fast-save patch
+        run: node scripts/chatgpt-fast-save-old-logs-patch.mjs
+
+      - name: Syntax check service
+        run: node --check src/services/embedManagerService.js
+
+      - name: Verify save stays fast and template-safe
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const source = readFileSync('src/services/embedManagerService.js', 'utf8');
+          const templateSave = source.indexOf('        await saveEmbedTemplateDecoration(');
+          const backgroundQueue = source.indexOf('        queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, current, mediaChanges);');
+          if (templateSave < 0 || backgroundQueue < 0 || backgroundQueue < templateSave) {
+            throw new Error('Template persistence must complete before background historical-log refresh starts.');
+          }
+          if (source.includes('await queueMatchingTemplatePeerUpdate(') || source.includes('await updateMatchingTemplatePeers(')) {
+            throw new Error('Historical-log refresh is still blocking Save.');
+          }
+          if (!source.includes('const stateSnapshot = snapshotTemplatePeerState(')) {
+            throw new Error('Background historical-log refresh must use an immutable save snapshot.');
+          }
+          NODE
+
+      - name: Verify dependency audit
+        run: npm audit --audit-level=low
+
+      - name: Node tests
+        run: node --test
+
+      - name: ESLint
+        run: npx eslint . --ignore-pattern scripts/chatgpt-fast-save-old-logs-patch.mjs
+
+      - name: Commit validated service file only
+        if: success()
+        run: |
+          git config user.name "ChatGPT Safe Scan"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/services/embedManagerService.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Make embed save return before old log refresh"
+            git push
+          fi
