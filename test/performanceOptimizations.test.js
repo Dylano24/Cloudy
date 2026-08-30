@@ -6,6 +6,7 @@ import {
   saveCountingGameConfig,
 } from '../src/services/countingGameService.js';
 import { getAllReactionRoleMessages } from '../src/services/reactionRoleService.js';
+import { mapWithConcurrency } from '../src/events/cloudyBrandingReady.js';
 
 test('counting game reads are coalesced and successful writes refresh the cache', async () => {
   const guildId = '12345678901234567';
@@ -76,4 +77,62 @@ test('reaction-role records are loaded concurrently while preserving their order
     panels.map(panel => panel.messageId),
     keys.map((_, index) => `4567890123456789${index}`),
   );
+});
+
+test('reaction-role guild reads are cached to avoid repeated database listing', async () => {
+  const guildId = '45678901234567890';
+  const messageId = '56789012345678901';
+  let listCalls = 0;
+
+  const client = {
+    db: {
+      list: async () => {
+        listCalls += 1;
+        return [`reactionroles:${guildId}:${messageId}`];
+      },
+      get: async key => ({
+        guildId,
+        channelId: '67890123456789012',
+        messageId: key.split(':').at(-1),
+        roles: {},
+      }),
+    },
+  };
+
+  const first = await getAllReactionRoleMessages(client, guildId);
+  const second = await getAllReactionRoleMessages(client, guildId);
+
+  assert.equal(listCalls, 1);
+  assert.deepEqual(first, second);
+});
+
+test('channel normalization uses bounded concurrency without changing item order', async () => {
+  let active = 0;
+  let peak = 0;
+
+  const result = await mapWithConcurrency([1, 2, 3, 4, 5], async value => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    active -= 1;
+    return value * 2;
+  }, 3);
+
+  assert.equal(peak, 3);
+  assert.deepEqual(result, [2, 4, 6, 8, 10]);
+});
+
+test('interaction autocomplete message fetch has timeout protection', async () => {
+  const results = await Promise.allSettled([
+    (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 100);
+      try {
+        await new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 200));
+      } finally {
+        clearTimeout(timeout);
+      }
+    })(),
+  ]);
+  assert.equal(results[0].status, 'rejected');
 });

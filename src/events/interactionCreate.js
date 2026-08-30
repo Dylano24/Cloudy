@@ -250,7 +250,7 @@ export default {
                 return;
               }
 
-              const panelResults = await Promise.all(
+              const panelResults = (await Promise.allSettled(
                 panels.map(async panel => {
                   if (!panel.messageId || !panel.channelId) {
                     return null;
@@ -262,15 +262,21 @@ export default {
                     return null;
                   }
 
-                  const message = await channel.messages.fetch(panel.messageId).catch(() => null);
-                  if (!message) {
-                    await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
-                    return null;
-                  }
+                  const controller = new AbortController();
+                  const timeout = setTimeout(() => controller.abort(), 3000);
+                  try {
+                    const message = await channel.messages.fetch(panel.messageId, { signal: controller.signal }).catch(() => null);
+                    if (!message) {
+                      await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
+                      return null;
+                    }
 
-                  return { panel, channel, message };
+                    return { panel, channel, message };
+                  } finally {
+                    clearTimeout(timeout);
+                  }
                 }),
-              );
+              )).map(r => r.status === 'fulfilled' ? r.value : null);
 
               const validPanels = panelResults.filter(Boolean);
               

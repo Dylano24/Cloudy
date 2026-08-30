@@ -5,6 +5,9 @@ import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { getReactionRoleKey, getReactionRolesPrefix } from '../utils/database/keys.js';
 
 const MAX_ROLES_PER_MESSAGE = 25;
+const REACTION_ROLE_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+const reactionRoleListCache = new Map();
+const reactionRoleListReads = new Map();
 
 const DANGEROUS_PERMISSIONS = [
     'Administrator',
@@ -123,6 +126,12 @@ export async function getReactionRoleMessage(client, guildId, messageId) {
     }
 }
 
+function invalidateReactionRoleListCache(guildId) {
+    const key = String(guildId);
+    reactionRoleListCache.delete(key);
+    reactionRoleListReads.delete(key);
+}
+
 export async function createReactionRoleMessage(client, guildId, channelId, messageId, roleIds) {
     try {
         validateGuildId(guildId);
@@ -170,6 +179,7 @@ export async function createReactionRoleMessage(client, guildId, channelId, mess
         
         const key = getReactionRoleKey(guildId, messageId);
         await client.db.set(key, reactionRoleData);
+        invalidateReactionRoleListCache(guildId);
         
         logger.info(`Created reaction role message ${messageId} in guild ${guildId} with ${roleIds.length} roles`);
         return reactionRoleData;
@@ -205,6 +215,7 @@ export async function addReactionRole(client, guildId, messageId, emoji, roleId)
         data.roles[emoji] = roleId;
         
         await client.db.set(key, data);
+        invalidateReactionRoleListCache(guildId);
         logger.info(`Added reaction role for emoji ${emoji} to message ${messageId} in guild ${guildId}`);
         return true;
     } catch (error) {
@@ -236,6 +247,7 @@ export async function deleteReactionRoleMessage(client, guildId, messageId) {
         }
         
         await client.db.delete(key);
+        invalidateReactionRoleListCache(guildId);
         logger.info(`Deleted reaction role message ${messageId} in guild ${guildId}`);
         return true;
     } catch (error) {
@@ -268,9 +280,11 @@ export async function removeReactionRole(client, guildId, messageId, emoji) {
 
         if (Object.keys(data.roles).length === 0) {
             await client.db.delete(key);
+            invalidateReactionRoleListCache(guildId);
             logger.info(`Removed last reaction role from message ${messageId}, deleted message data`);
         } else {
             await client.db.set(key, data);
+            invalidateReactionRoleListCache(guildId);
             logger.info(`Removed reaction role for emoji ${emoji} from message ${messageId}`);
         }
         
@@ -292,73 +306,99 @@ export async function removeReactionRole(client, guildId, messageId, emoji) {
 export async function getAllReactionRoleMessages(client, guildId) {
     try {
         validateGuildId(guildId);
-        
-        const prefix = getReactionRolesPrefix(guildId);
-        
-        let keys;
-        try {
-            keys = await client.db.list(prefix);
-            
-            if (keys && typeof keys === 'object') {
-                if (Array.isArray(keys)) {
-                    
-                } else if (keys.value && Array.isArray(keys.value)) {
-                    keys = keys.value;
-                } else {
-                    const allKeys = await client.db.list();
-                    
-                    if (Array.isArray(allKeys)) {
-                        keys = allKeys.filter(key => key.startsWith(prefix));
-                    } else if (allKeys.value && Array.isArray(allKeys.value)) {
-                        keys = allKeys.value.filter(key => key.startsWith(prefix));
+
+        const cacheKey = String(guildId);
+        const cached = reactionRoleListCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.value;
+        }
+        if (cached) {
+            reactionRoleListCache.delete(cacheKey);
+        }
+
+        let pendingRead = reactionRoleListReads.get(cacheKey);
+        if (!pendingRead) {
+            pendingRead = (async () => {
+                const prefix = getReactionRolesPrefix(guildId);
+                let keys;
+                try {
+                    keys = await client.db.list(prefix);
+
+                    if (keys && typeof keys === 'object') {
+                        if (Array.isArray(keys)) {
+
+                        } else if (keys.value && Array.isArray(keys.value)) {
+                            keys = keys.value;
+                        } else {
+                            const allKeys = await client.db.list();
+
+                            if (Array.isArray(allKeys)) {
+                                keys = allKeys.filter(key => key.startsWith(prefix));
+                            } else if (allKeys.value && Array.isArray(allKeys.value)) {
+                                keys = allKeys.value.filter(key => key.startsWith(prefix));
+                            } else {
+                                return [];
+                            }
+                        }
                     } else {
                         return [];
                     }
+                } catch (listError) {
+                    logger.error(`Error listing reaction role keys for guild ${guildId}:`, listError);
+                    throw createError(
+                        'Database error listing reaction roles',
+                        ErrorTypes.DATABASE,
+                        'Failed to retrieve reaction role list. Please try again.',
+                        { guildId, originalError: listError.message }
+                    );
                 }
-            } else {
-                return [];
-            }
-        } catch (listError) {
-            logger.error(`Error listing reaction role keys for guild ${guildId}:`, listError);
-            throw createError(
-                'Database error listing reaction roles',
-                ErrorTypes.DATABASE,
-                'Failed to retrieve reaction role list. Please try again.',
-                { guildId, originalError: listError.message }
-            );
-        }
-        
-        if (!keys || keys.length === 0) {
-            return [];
-        }
 
-        const messages = (await Promise.all(keys.map(async key => {
-            try {
-                const data = await client.db.get(key);
-                
-                if (data) {
-                    let actualData;
-                    if (data && data.ok && data.value) {
-                        actualData = data.value;
-                    } else if (data && data.value) {
-                        actualData = data.value;
-                    } else {
-                        actualData = data;
-                    }
-                    
-                    if (actualData && actualData.messageId && actualData.channelId) {
-                        return actualData;
-                    } else if (actualData) {
-                        logger.warn(`Skipping malformed reaction role data for guild ${guildId}:`, actualData);
-                    }
+                if (!keys || keys.length === 0) {
+                    return [];
                 }
-            } catch (dataError) {
-                logger.warn(`Error getting data for reaction role key ${key}:`, dataError);
-            }
 
-            return null;
-        }))).filter(Boolean);
+                const messages = (await Promise.all(keys.map(async key => {
+                    try {
+                        const data = await client.db.get(key);
 
+                        if (data) {
+                            let actualData;
+                            if (data && data.ok && data.value) {
+                                actualData = data.value;
+                            } else if (data && data.value) {
+                                actualData = data.value;
+                            } else {
+                                actualData = data;
+                            }
+
+                            if (actualData && actualData.messageId && actualData.channelId) {
+                                return actualData;
+                            } else if (actualData) {
+                                logger.warn(`Skipping malformed reaction role data for guild ${guildId}:`, actualData);
+                            }
+                        }
+                    } catch (dataError) {
+                        logger.warn(`Error getting data for reaction role key ${key}:`, dataError);
+                    }
+
+                    return null;
+                }))).filter(Boolean);
+
+                return messages;
+            })().finally(() => {
+                if (reactionRoleListReads.get(cacheKey) === pendingRead) {
+                    reactionRoleListReads.delete(cacheKey);
+                }
+            });
+
+            reactionRoleListReads.set(cacheKey, pendingRead);
+        }
+
+        const messages = await pendingRead;
+        reactionRoleListCache.set(cacheKey, {
+            value: messages,
+            expiresAt: Date.now() + REACTION_ROLE_LIST_CACHE_TTL_MS,
+        });
         return messages;
     } catch (error) {
         if (error.name === 'TitanBotError') {
@@ -398,6 +438,7 @@ export async function setReactionRoleChannel(client, guildId, messageId, channel
 
         data.channelId = channelId;
         await client.db.set(key, data);
+        invalidateReactionRoleListCache(guildId);
         logger.info(`Set channel ${channelId} for reaction role message ${messageId}`);
         return true;
     } catch (error) {
