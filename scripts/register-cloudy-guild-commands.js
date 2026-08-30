@@ -18,7 +18,7 @@ const MAX_RETRIES = 3;
 const RATE_LIMIT_RETRIES = 10;
 const START_DELAY_MS = Math.max(
   0,
-  Number.parseInt(process.env.COMMAND_SYNC_START_DELAY_MS || '10000', 10) || 0,
+  Number.parseInt(process.env.COMMAND_SYNC_START_DELAY_MS || '2500', 10) || 0,
 );
 
 if (!token) {
@@ -77,6 +77,7 @@ async function loadPayloads() {
   const files = await getCommandFiles(path.resolve('src/commands'));
   const payloads = [];
   const seen = new Set();
+  const loadErrors = [];
 
   for (const file of files) {
     try {
@@ -95,8 +96,15 @@ async function loadPayloads() {
       delete payload.dm_permission;
       payloads.push(payload);
     } catch (error) {
+      loadErrors.push({ file, message: error.message });
       console.error(`[COMMAND_SYNC] Failed loading ${file}: ${error.message}`);
     }
+  }
+
+  if (loadErrors.length > 0) {
+    throw new Error(
+      `Aborting command sync because ${loadErrors.length} command file(s) failed to load; existing Discord commands were left untouched.`,
+    );
   }
 
   return payloads.sort((a, b) => a.name.localeCompare(b.name));
@@ -162,9 +170,9 @@ function commandSetsMatch(current, desired) {
 }
 
 async function main() {
-  // Railway starts this recovery sync beside the bot. Let the gateway login use
-  // the initial CPU/network burst first; slash commands remain available while
-  // this background consistency check waits briefly.
+  // Railway starts this recovery sync beside the bot. A short delay lets the
+  // gateway login take the initial CPU/network burst while keeping command
+  // updates close to instant after deploy.
   if (START_DELAY_MS > 0) {
     await sleep(START_DELAY_MS);
   }
