@@ -236,7 +236,7 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setMaxValues(1)
             .addOptions(...result.items.map(record => {
                 const name = recordName(record) || record.name || 'Untitled embed';
-                const displayName = templateMode ? record.name : name;
+                const displayName = templateMode ? record.name : stripCustomEmojiMarkup(name);
                 const description = templateMode
                     ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
                     : (record.duplicateCount > 1 ? `${record.duplicateCount} duplicate entries grouped` : 'Edit this embed');
