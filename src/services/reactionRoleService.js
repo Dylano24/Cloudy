@@ -8,6 +8,7 @@ const MAX_ROLES_PER_MESSAGE = 25;
 const REACTION_ROLE_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 const reactionRoleListCache = new Map();
 const reactionRoleListReads = new Map();
+const reactionRoleCacheGenerations = new Map();
 
 const DANGEROUS_PERMISSIONS = [
     'Administrator',
@@ -128,6 +129,7 @@ export async function getReactionRoleMessage(client, guildId, messageId) {
 
 function invalidateReactionRoleListCache(guildId) {
     const key = String(guildId);
+    reactionRoleCacheGenerations.set(key, (reactionRoleCacheGenerations.get(key) || 0) + 1);
     reactionRoleListCache.delete(key);
     reactionRoleListReads.delete(key);
 }
@@ -316,6 +318,7 @@ export async function getAllReactionRoleMessages(client, guildId) {
             reactionRoleListCache.delete(cacheKey);
         }
 
+        const readGeneration = reactionRoleCacheGenerations.get(cacheKey) || 0;
         let pendingRead = reactionRoleListReads.get(cacheKey);
         if (!pendingRead) {
             pendingRead = (async () => {
@@ -395,6 +398,10 @@ export async function getAllReactionRoleMessages(client, guildId) {
         }
 
         const messages = await pendingRead;
+        if ((reactionRoleCacheGenerations.get(cacheKey) || 0) !== readGeneration) {
+            return getAllReactionRoleMessages(client, guildId);
+        }
+
         reactionRoleListCache.set(cacheKey, {
             value: messages,
             expiresAt: Date.now() + REACTION_ROLE_LIST_CACHE_TTL_MS,
@@ -489,6 +496,7 @@ export async function reconcileReactionRoleMessages(client, guildId = null) {
                 for (const reactionRoleMessage of reactionRoleMessages) {
                     summary.scannedMessages += 1;
                     await client.db.delete(getReactionRoleKey(targetGuildId, reactionRoleMessage.messageId));
+                    invalidateReactionRoleListCache(targetGuildId);
                     summary.removedMessages += 1;
                 }
                 logger.info(`Removed ${reactionRoleMessages.length} stale reaction role message(s) for unavailable guild ${targetGuildId}`);
@@ -504,6 +512,7 @@ export async function reconcileReactionRoleMessages(client, guildId = null) {
 
                     if (!channel || !channel.isTextBased?.()) {
                         await client.db.delete(getReactionRoleKey(targetGuildId, reactionRoleMessage.messageId));
+                        invalidateReactionRoleListCache(targetGuildId);
                         summary.removedMessages += 1;
                         continue;
                     }
@@ -511,6 +520,7 @@ export async function reconcileReactionRoleMessages(client, guildId = null) {
                     const message = await channel.messages.fetch(reactionRoleMessage.messageId).catch(() => null);
                     if (!message) {
                         await client.db.delete(getReactionRoleKey(targetGuildId, reactionRoleMessage.messageId));
+                        invalidateReactionRoleListCache(targetGuildId);
                         summary.removedMessages += 1;
                     }
                 } catch (messageCheckError) {
