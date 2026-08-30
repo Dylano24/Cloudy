@@ -20,6 +20,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
 import { applyEmbedColorPickerSession } from './services/embedColorPickerSessionService.js';
 import { embedColorPickerPage } from './web/embedColorPickerPage.js';
+import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 
 class TitanBot extends Client {
   constructor() {
@@ -142,11 +143,17 @@ class TitanBot extends Client {
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
     const maxRequests = this.config.api?.rateLimit?.max || 100;
+    let nextRequestSweepAt = 0;
     
     app.use((req, res, next) => {
       const ip = req.ip;
       const now = Date.now();
       const windowStart = now - windowMs;
+
+      if (now >= nextRequestSweepAt) {
+        sweepTimestampBuckets(requestCounts, windowStart);
+        nextRequestSweepAt = now + windowMs;
+      }
       
       if (!requestCounts.has(ip)) {
         requestCounts.set(ip, []);
