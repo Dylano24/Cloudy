@@ -115,6 +115,28 @@ export function embedColorPickerPage() {
       return data.color;
     }
 
+    let heartbeatInFlight = false;
+    async function keepEditorSessionActive() {
+      if (!token || document.visibilityState !== 'visible' || heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      try {
+        await callSession('__CLOUDY_EMBED_HEARTBEAT__');
+      } catch {
+        // Actual editor actions surface expiry/errors to the user; heartbeat stays silent.
+      } finally {
+        heartbeatInFlight = false;
+      }
+    }
+    const heartbeatTimer = setInterval(() => {
+      void keepEditorSessionActive();
+    }, 20_000);
+    window.addEventListener('focus', () => { void keepEditorSessionActive(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void keepEditorSessionActive();
+    });
+    window.addEventListener('pagehide', () => clearInterval(heartbeatTimer), { once: true });
+    void keepEditorSessionActive();
+
     if (mode === 'content' || mode === 'footer') {
       const editorMode = document.getElementById('editorMode');
       const status = document.getElementById('status');
