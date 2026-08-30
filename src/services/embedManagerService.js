@@ -11,6 +11,7 @@ import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 import {
     getEmbedRegistry,
+    getEmbedRegistrySnapshot,
     reconcileEmbedRegistry,
     registerCloudyEmbedMessage,
     resolveEmbedRegistryRecord,
@@ -688,18 +689,78 @@ function snapshotTemplatePeerState(state, target, sourceData) {
 
 async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot, current, mediaChanges) {
     const records = await getEmbedRegistry(guild.id);
-    const peers = records.filter(record =>
-        String(record.channelId) === String(targetSnapshot.channelId) &&
-        !(String(record.messageId) === String(targetSnapshot.messageId) && Number(record.embedIndex || 0) === Number(targetSnapshot.embedIndex || 0)),
+    const channelRecords = records.filter(record =>
+        String(record.channelId) === String(targetSnapshot.channelId),
     );
+    const groups = new Map();
+    for (const record of channelRecords) {
+        const messageId = String(record.messageId);
+        if (!groups.has(messageId)) groups.set(messageId, []);
+        groups.get(messageId).push(record);
+    }
 
-    // Resolve every matching historical log first, in parallel. This prevents
-    // network fetch timing from staggering the actual Discord edit requests.
-    const resolvedPeers = await Promise.all(peers.map(record =>
+    const channel = guild.channels.cache.get(targetSnapshot.channelId)
+        || await guild.channels.fetch(targetSnapshot.channelId).catch(() => null);
+    if (!channel?.messages?.edit) return 0;
+
+    const directEdits = [];
+    const fallbackRecords = [];
+
+    for (const [messageId, messageRecords] of groups) {
+        const ordered = [...messageRecords].sort((a, b) => Number(a.embedIndex || 0) - Number(b.embedIndex || 0));
+        const maxIndex = ordered.reduce((max, record) => Math.max(max, Number(record.embedIndex || 0)), -1);
+        const snapshots = new Array(maxIndex + 1).fill(null);
+
+        for (const record of ordered) {
+            const index = Number(record.embedIndex || 0);
+            const isTarget = messageId === String(targetSnapshot.messageId)
+                && index === Number(targetSnapshot.embedIndex || 0);
+            snapshots[index] = isTarget ? current : getEmbedRegistrySnapshot(record);
+        }
+
+        const complete = snapshots.length > 0 && snapshots.every(Boolean);
+        if (!complete) {
+            fallbackRecords.push(...ordered.filter(record => !(
+                messageId === String(targetSnapshot.messageId)
+                && Number(record.embedIndex || 0) === Number(targetSnapshot.embedIndex || 0)
+            )));
+            continue;
+        }
+
+        let changed = false;
+        const embeds = snapshots.map((peerData, embedIndex) => {
+            const record = ordered.find(item => Number(item.embedIndex || 0) === embedIndex);
+            const isTarget = messageId === String(targetSnapshot.messageId)
+                && embedIndex === Number(targetSnapshot.embedIndex || 0);
+            if (isTarget || !record) return new EmbedBuilder(peerData);
+
+            const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData.title || recordName(record));
+            if (peerIdentity !== targetSnapshot.templateTitle) return new EmbedBuilder(peerData);
+
+            changed = true;
+            return new EmbedBuilder(applyStateToTemplatePeer(stateSnapshot, peerData, current, mediaChanges));
+        });
+
+        if (changed) directEdits.push({ messageId, embeds });
+    }
+
+    const directJob = Promise.all(directEdits.map(async ({ messageId, embeds }) => {
+        const peerEdited = await channel.messages.edit(messageId, { embeds }).catch(error => {
+            logger.error('Failed to directly update matching log template embed:', error);
+            return null;
+        });
+        if (!peerEdited) return false;
+
+        void registerCloudyEmbedMessage(peerEdited, 'modified-template')
+            .catch(error => logger.error('Failed to refresh directly modified template registry:', error));
+        return true;
+    }));
+
+    const resolvedPeers = await Promise.all(fallbackRecords.map(record =>
         resolveEmbedRegistryRecord(guild, record).catch(() => null),
     ));
 
-    const edits = [];
+    const fallbackEdits = [];
     for (const resolved of resolvedPeers) {
         if (!resolved) continue;
 
@@ -714,12 +775,10 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
                 ? new EmbedBuilder(applyStateToTemplatePeer(stateSnapshot, peerData, current, mediaChanges))
                 : new EmbedBuilder(embed.toJSON()),
         );
-        edits.push({ resolved, peerEmbeds });
+        fallbackEdits.push({ resolved, peerEmbeds });
     }
 
-    // Start all matching message edits together. Discord may still apply its own
-    // per-route rate limits, but Cloudy adds no per-embed delay or sequencing here.
-    const results = await Promise.all(edits.map(async ({ resolved, peerEmbeds }) => {
+    const fallbackJob = Promise.all(fallbackEdits.map(async ({ resolved, peerEmbeds }) => {
         const peerEdited = await resolved.message.edit({ embeds: peerEmbeds }).catch(error => {
             logger.error('Failed to update matching log template embed:', error);
             return null;
@@ -731,7 +790,8 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
         return true;
     }));
 
-    return results.filter(Boolean).length;
+    const [directResults, fallbackResults] = await Promise.all([directJob, fallbackJob]);
+    return [...directResults, ...fallbackResults].filter(Boolean).length;
 }
 
 function queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, current, mediaChanges) {

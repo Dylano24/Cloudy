@@ -7,6 +7,8 @@ const SCAN_BATCH_SIZE = 100;
 const RECONCILE_CONCURRENCY = 6;
 const DEFINITIVE_MISSING_CODES = new Set([10003, 10008, 50001, 50013]);
 const registryMutationQueues = new Map();
+const embedSnapshotCache = new Map();
+const EMBED_SNAPSHOT_CACHE_LIMIT = 2000;
 const INTERNAL_EMBED_NAMES = new Set([
     'message builder',
     'modify embed',
@@ -29,6 +31,26 @@ function recordKey(record) {
 
 function messageKey(record) {
     return `${String(record?.channelId || '')}:${String(record?.messageId || '')}`;
+}
+
+function rememberEmbedSnapshot(record, embed) {
+    if (!record?.channelId || !record?.messageId || !embed) return;
+    const key = recordKey(record);
+    const data = typeof embed.toJSON === 'function' ? embed.toJSON() : embed;
+    if (!data || typeof data !== 'object') return;
+
+    embedSnapshotCache.delete(key);
+    embedSnapshotCache.set(key, data);
+    while (embedSnapshotCache.size > EMBED_SNAPSHOT_CACHE_LIMIT) {
+        const oldest = embedSnapshotCache.keys().next().value;
+        if (!oldest) break;
+        embedSnapshotCache.delete(oldest);
+    }
+}
+
+export function getEmbedRegistrySnapshot(record) {
+    if (!record) return null;
+    return embedSnapshotCache.get(recordKey(record)) || null;
 }
 
 function sortRecords(records) {
@@ -202,16 +224,20 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
 
     try {
         const additions = message.embeds
-            .map((embed, embedIndex) => ({
-                guildId: message.guildId,
-                channelId: message.channelId,
-                messageId: message.id,
-                embedIndex,
-                source,
-                title: embed?.title || '',
-                name: embedName(embed),
-                createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
-            }))
+            .map((embed, embedIndex) => {
+                const addition = {
+                    guildId: message.guildId,
+                    channelId: message.channelId,
+                    messageId: message.id,
+                    embedIndex,
+                    source,
+                    title: embed?.title || '',
+                    name: embedName(embed),
+                    createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
+                };
+                rememberEmbedSnapshot(addition, embed);
+                return addition;
+            })
             .filter(addition => !isInternalEmbedRecord(addition));
 
         if (!additions.length) return false;
@@ -274,6 +300,7 @@ export async function resolveEmbedRegistryRecord(guild, record) {
         return null;
     }
 
+    rememberEmbedSnapshot(record, embed);
     return { channel, message, embed, record };
 }
 
@@ -284,7 +311,7 @@ function recordsFromMessage(message, priorRecords = []) {
     return message.embeds
         .map((embed, embedIndex) => {
             const prior = priorByIndex.get(embedIndex);
-            return normalizeRecord({
+            const record = normalizeRecord({
                 guildId: message.guildId,
                 channelId: message.channelId,
                 messageId: message.id,
@@ -294,6 +321,8 @@ function recordsFromMessage(message, priorRecords = []) {
                 name: embedName(embed),
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
             });
+            if (record) rememberEmbedSnapshot(record, embed);
+            return record;
         })
         .filter(Boolean);
 }
