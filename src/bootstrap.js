@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { installBuilderSessionCleanup } from './utils/builderSessionCleanup.js';
 
 function firstTrimmedEnv(...names) {
   for (const name of names) {
@@ -59,6 +60,7 @@ function prepareDiscordConfig() {
 
 try {
   prepareDiscordConfig();
+  installBuilderSessionCleanup();
   await import('./app.js');
 } catch (error) {
   console.error(`[PREFLIGHT] Fatal startup validation failed: ${error?.message || error}`);
