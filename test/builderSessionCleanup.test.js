@@ -5,6 +5,8 @@ import {
   BUILDER_SESSION_IDLE_MS,
   deleteBuilderSessionMessage,
   isBuilderSessionMessage,
+  linkBuilderSessionMessages,
+  registerBuilderSessionCollector,
   shouldDeleteBuilderSessionOnCollectorEnd,
   touchBuilderSessionMessage,
 } from '../src/utils/builderSessionCleanup.js';
@@ -57,4 +59,68 @@ test('builder cleanup deletes ephemeral messages through the interaction webhook
   assert.equal(await deleteBuilderSessionMessage(message), true);
   assert.equal(webhookDeletes, 1);
   assert.equal(directDeletes, 0);
+});
+
+test('Modify Embed activity resets both its own and the parent Message Builder idle collector', async () => {
+  let parentResets = 0;
+  let managerResets = 0;
+  const parent = {
+    id: 'parent-builder-session',
+    embeds: [{ title: 'Message builder' }],
+    delete: async () => {},
+  };
+  const manager = {
+    id: 'modify-manager-session',
+    embeds: [{ title: 'Modify embed' }],
+    delete: async () => {},
+  };
+  const parentCollector = {
+    ended: false,
+    resetTimer(options) {
+      assert.equal(options.idle, BUILDER_SESSION_IDLE_MS);
+      parentResets += 1;
+    },
+  };
+  const managerCollector = {
+    ended: false,
+    resetTimer(options) {
+      assert.equal(options.idle, BUILDER_SESSION_IDLE_MS);
+      managerResets += 1;
+    },
+  };
+
+  assert.equal(registerBuilderSessionCollector(parent, parentCollector), true);
+  assert.equal(registerBuilderSessionCollector(manager, managerCollector), true);
+  assert.equal(linkBuilderSessionMessages(parent, manager), true);
+
+  touchBuilderSessionMessage(manager);
+
+  assert.equal(managerResets, 1);
+  assert.equal(parentResets, 1);
+
+  await deleteBuilderSessionMessage(manager);
+  await deleteBuilderSessionMessage(parent);
+});
+
+test('live Message Builder refresh activity resets its collector', async () => {
+  let resets = 0;
+  const parent = {
+    id: 'live-builder-session',
+    embeds: [{ title: 'Message builder' }],
+    delete: async () => {},
+  };
+  const collector = {
+    ended: false,
+    resetTimer(options) {
+      assert.equal(options.idle, BUILDER_SESSION_IDLE_MS);
+      resets += 1;
+    },
+  };
+
+  assert.equal(registerBuilderSessionCollector(parent, collector), true);
+  touchBuilderSessionMessage(parent);
+  touchBuilderSessionMessage(parent);
+
+  assert.equal(resets, 2);
+  await deleteBuilderSessionMessage(parent);
 });
