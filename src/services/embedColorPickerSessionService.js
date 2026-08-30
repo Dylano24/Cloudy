@@ -94,8 +94,6 @@ export async function applyEmbedColorPickerSession(token, value) {
     }
 
     if (value === STATE_PREFIX) {
-        const touched = await touchEditorSession(token, session);
-        if (!touched.ok) return touched;
         const state = sanitizeEditorState(await session.getEditorState?.() || {});
         return {
             ok: true,
