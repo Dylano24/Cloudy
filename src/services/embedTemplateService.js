@@ -71,7 +71,12 @@ export async function saveEmbedTemplateDecoration(guildId, channelId, matchNames
         };
       }
 
-      await setInDb(key, templates);
+      const saved = await setInDb(key, templates);
+      if (!saved) {
+        logger.error(`Failed to persist embed template decoration for ${guildId}:${channelId}`);
+        return false;
+      }
+
       templateCache.set(key, templates);
       return true;
     });
