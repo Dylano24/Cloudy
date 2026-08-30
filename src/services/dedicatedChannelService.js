@@ -4,7 +4,7 @@ import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { createStickyGuideManager } from './stickyGuideService.js';
-import { findDedicatedChannelBySlug as findBySlug } from './dedicatedChannelPolicy.js';
+import { findDedicatedChannelBySlug as findBySlug, rememberDedicatedCommandChannel } from './dedicatedChannelPolicy.js';
 
 const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -41,7 +41,7 @@ export async function enforceDedicatedCommandChannel(interaction, key) {
   if (!rule || !interaction?.guild) return true;
 
   const targetChannel = await resolveDedicatedChannel(interaction.guild, key);
-  interaction._cloudyDedicatedCommandChannel = { key, channelId: targetChannel?.id || null };
+  rememberDedicatedCommandChannel(interaction, key, targetChannel?.id || null);
   if (!targetChannel) {
     return true;
   }
