@@ -22,7 +22,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Apply isolated reliability patch
-        run: node scripts/chatgpt-invite-welcome-reliability-patch.mjs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/chatgpt-invite-welcome-reliability-patch.mjs')
+          text = path.read_text()
+          text = text.replace("const key = `template:${rule.key}`;", "const key = 'template:' + rule.key;")
+          path.write_text(text)
+          PY
+          node scripts/chatgpt-invite-welcome-reliability-patch.mjs
       - name: Syntax checks
         run: |
           node --check src/services/inviteTrackingService.js
