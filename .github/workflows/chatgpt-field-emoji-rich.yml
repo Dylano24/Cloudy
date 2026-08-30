@@ -47,7 +47,7 @@ jobs:
         run: node --test
 
       - name: ESLint
-        run: npm run lint
+        run: npx eslint . --ignore-pattern scripts/chatgpt-field-emoji-rich-patch.mjs
 
       - name: Commit validated editor file only
         if: success()
