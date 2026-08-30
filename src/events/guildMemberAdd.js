@@ -1,5 +1,4 @@
-import { Events, EmbedBuilder, PermissionFlagsBits, AttachmentBuilder } from 'discord.js';
-import { fileURLToPath } from 'node:url';
+import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { getWelcomeConfig, updateWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
@@ -9,6 +8,10 @@ import { getServerCounters, updateCounter } from '../services/serverstatsService
 import { logger } from '../utils/logger.js';
 import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
 import { trackMemberInvite } from '../services/inviteTrackingService.js';
+import { decorateEmbedWithSavedTemplate } from '../services/embedTemplateService.js';
+
+const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+const CLOUDY_BANNER_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-dynamic-banner.gif';
 
 function getOrdinalSuffix(number) {
     const value = Math.abs(Number(number));
@@ -21,6 +24,22 @@ function getOrdinalSuffix(number) {
         case 3: return 'rd';
         default: return 'th';
     }
+}
+
+function normalizeBuiltInWelcomeMedia(embed) {
+    const data = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
+    const thumbnailUrl = String(data.thumbnail?.url || '');
+    const imageUrl = String(data.image?.url || '');
+
+    if (!thumbnailUrl || /cloudy-c-logo\.png/i.test(thumbnailUrl)) {
+        data.thumbnail = { url: CLOUDY_LOGO_URL };
+    }
+
+    if (!imageUrl || /cloudy-dynamic-banner\.gif/i.test(imageUrl)) {
+        data.image = { url: CLOUDY_BANNER_URL };
+    }
+
+    return new EmbedBuilder(data);
 }
 
 export default {
@@ -42,8 +61,6 @@ export default {
             const config = await getGuildConfig(member.client, guild.id);
             let welcome = await getWelcomeConfig(member.client, guild.id);
 
-            // Recover the welcome setup after a degraded/in-memory database
-            // restart by locating the server's existing welcome channel.
             if (!welcome?.enabled || !welcome?.channelId) {
                 let recoveredChannel = guild.channels.cache.find(channel =>
                     channel?.isTextBased?.() &&
@@ -51,8 +68,6 @@ export default {
                     /(^|[^a-z])(welcome|welkom|arrivals)([^a-z]|$)/i.test(channel.name)
                 );
 
-                // If the channel has a custom name, locate the most recent
-                // Cloudy welcome embed instead of guessing a destination.
                 if (!recoveredChannel) {
                     const textChannels = guild.channels.cache.filter(channel =>
                         channel?.isTextBased?.() &&
@@ -65,7 +80,7 @@ export default {
                         const hasCloudyWelcome = recentMessages?.some(message =>
                             message.author?.id === member.client.user?.id &&
                             (
-                                message.embeds?.some(embed => embed.title === 'Welcome to Cloudy') ||
+                                message.embeds?.some(embed => /^Welcome to Cloudy(?: Inc\.)?$/i.test(embed.title || '')) ||
                                 message.attachments?.some(file => file.name === 'cloudy-dynamic-banner.gif')
                             )
                         );
@@ -94,33 +109,17 @@ export default {
                 }
             }
 
-
-            // WELCOME MESSAGE
-
             if (welcome?.enabled && welcome.channelId) {
-
-                const channel = guild.channels.cache.get(
-                    welcome.channelId
-                );
+                const channel = guild.channels.cache.get(welcome.channelId);
 
                 if (channel?.isTextBased()) {
-
-                    const perms = channel.permissionsFor(
-                        guild.members.me
-                    );
+                    const perms = channel.permissionsFor(guild.members.me);
 
                     if (
                         perms?.has(PermissionFlagsBits.ViewChannel) &&
                         perms?.has(PermissionFlagsBits.SendMessages)
                     ) {
-
-                        const data = {
-                            user,
-                            guild,
-                            member
-                        };
-
-
+                        const data = { user, guild, member };
                         const message =
                             formatWelcomeMessage(
                                 welcome.welcomeMessage ||
@@ -130,23 +129,11 @@ export default {
                             ) ||
                             `Welcome ${user} to ${guild.name}`;
 
-                        const cleanMessage = message.replace(/!+\s*$/, '');
                         const memberNumber = guild.memberCount;
                         const memberPosition = `You are the **${memberNumber}**${getOrdinalSuffix(memberNumber)} member of the server`;
+                        const ping = welcome.welcomePing ? user.toString() : undefined;
 
-
-                        const ping =
-                            welcome.welcomePing
-                            ? user.toString()
-                            : undefined;
-
-
-                        if (
-                            perms.has(
-                                PermissionFlagsBits.EmbedLinks
-                            )
-                        ) {
-
+                        if (perms.has(PermissionFlagsBits.EmbedLinks)) {
                             const rulesUrl =
                                 'https://discord.com/channels/1532882647838228723/1533189582064062564';
                             const linkAccountUrl =
@@ -156,10 +143,9 @@ export default {
                             const contactUrl =
                                 'https://discord.com/channels/1532882647838228723/1533197784725852181';
 
-                            const embed =
-                                new EmbedBuilder()
+                            const baseEmbed = new EmbedBuilder()
                                 .setColor('#FFFFFF')
-                                .setTitle('Welcome to Cloudy')
+                                .setTitle('Welcome to Cloudy Inc.')
                                 .setDescription(`${memberPosition} ${user}`)
                                 .addFields(
                                     {
@@ -183,61 +169,38 @@ export default {
                                         inline: false
                                     }
                                 )
-                                .setThumbnail('attachment://cloudy-c-logo.png')
-                                .setImage('attachment://cloudy-dynamic-banner.gif');
+                                .setThumbnail(CLOUDY_LOGO_URL)
+                                .setImage(CLOUDY_BANNER_URL)
+                                .setFooter({
+                                    text: '© Cloudy Inc. • Quality. Innovation. Performance.'
+                                });
 
-                            // Force the footer into the final Discord API payload so it
-                            // always renders inside this embed, directly below the banner.
-                            const embedPayload = embed.toJSON();
-                            embedPayload.footer = {
-                                text: '© Cloudy Inc. • Quality. Innovation. Performance.'
-                            };
-
-                            const welcomeBanner = new AttachmentBuilder(
-                                fileURLToPath(new URL('../../assets/cloudy-dynamic-banner.gif', import.meta.url)),
-                                { name: 'cloudy-dynamic-banner.gif' }
+                            const decorated = await decorateEmbedWithSavedTemplate(
+                                guild.id,
+                                channel.id,
+                                baseEmbed,
                             );
-                            const welcomeLogo = new AttachmentBuilder(
-                                fileURLToPath(new URL('../../assets/cloudy-c-logo.png', import.meta.url)),
-                                { name: 'cloudy-c-logo.png' }
-                            );
+                            const finalEmbed = normalizeBuiltInWelcomeMedia(decorated.embed || baseEmbed);
 
                             await channel.send({
                                 content: ping,
-                                embeds: [embedPayload],
-                                files: [welcomeBanner, welcomeLogo]
+                                embeds: [finalEmbed]
                             });
-
                         } else {
-
                             await channel.send({
-                                content:
-                                ping
-                                ? `${ping}\n${message}`
-                                : message
+                                content: ping ? `${ping}\n${message}` : message
                             });
-
                         }
 
-
                         console.log('Welcome sent');
-
                     }
                 }
             }
 
-
-            // AUTO ROLE
-
             if (welcome?.roleIds?.length) {
-
-                const role =
-                    guild.roles.cache.get(
-                        welcome.roleIds[0]
-                    );
+                const role = guild.roles.cache.get(welcome.roleIds[0]);
 
                 if (role) {
-
                     await member.roles.add(role)
                     .catch(err =>
                         logger.warn(
@@ -245,23 +208,17 @@ export default {
                             err
                         )
                     );
-
                 }
-            }            // VERIFICATION
+            }
 
             if (
                 config?.verification?.enabled ||
                 config?.verification?.autoVerify?.enabled
             ) {
-
                 try {
-
-                    const {
-                        autoVerifyOnJoin
-                    } = await import(
+                    const { autoVerifyOnJoin } = await import(
                         '../services/verificationService.js'
                     );
-
 
                     await autoVerifyOnJoin(
                         member.client,
@@ -269,122 +226,70 @@ export default {
                         member,
                         config.verification
                     );
-
-
                 } catch(err) {
-
                     logger.error(
                         'Verification error:',
                         err
                     );
-
                 }
             }
 
-
-
-            // LOGGING
-
             try {
-
                 await logEvent({
-
                     client: member.client,
-
                     guildId: guild.id,
-
                     eventType: EVENT_TYPES.MEMBER_JOIN,
-
                     data: {
-
                         title: 'User joined',
-
                         lines: [
                             `**Created:** <t:${Math.floor(user.createdTimestamp / 1000)}:R>`,
                             `**Members:** ${guild.memberCount}`
                         ],
-
                         thumbnail:
                         user.displayAvatarURL({
                             dynamic:true
                         }),
-
                         userId:user.id
                     }
-
                 });
-
-
             } catch(err) {
-
                 logger.debug(
                     'Join log error:',
                     err
                 );
-
             }
 
-
-
-            // COUNTERS
-
             try {
-
-                const counters =
-                    await getServerCounters(
-                        member.client,
-                        guild.id
-                    );
-
+                const counters = await getServerCounters(
+                    member.client,
+                    guild.id
+                );
 
                 for (const counter of counters) {
-
                     if (
                         counter?.enabled !== false &&
                         counter.channelId
                     ) {
-
                         await updateCounter(
                             member.client,
                             guild,
                             counter
                         );
-
                     }
                 }
-
-
             } catch(err) {
-
                 logger.debug(
                     'Counter error:',
                     err
                 );
-
             }
 
-
-
-            // RESTORE BIRTHDAY
-
             try {
-
-                const key =
-                    `guild:${guild.id}:birthdays:left`;
-
-
-                const backup =
-                    await member.client.db.get(key) || {};
-
+                const key = `guild:${guild.id}:birthdays:left`;
+                const backup = await member.client.db.get(key) || {};
 
                 if (backup[user.id]) {
-
-
-                    const {
-                        month,
-                        day
-                    } = backup[user.id];
-
+                    const { month, day } = backup[user.id];
 
                     await dbSetBirthday(
                         member.client,
@@ -394,35 +299,24 @@ export default {
                         day
                     );
 
-
                     delete backup[user.id];
-
 
                     await member.client.db.set(
                         key,
                         backup
                     );
-
                 }
-
-
             } catch(err) {
-
                 logger.debug(
                     'Birthday restore error:',
                     err
                 );
-
             }
-
-
         } catch(error) {
-
             logger.error(
                 'guildMemberAdd failed:',
                 error
             );
-
         }
     }
 };
