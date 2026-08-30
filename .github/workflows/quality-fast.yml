@@ -1,0 +1,82 @@
+name: Fast Quality Check
+
+on:
+  push:
+    branches:
+      - main
+      - 'chatgpt-*'
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'eslint.config.js'
+      - '.github/workflows/quality-fast.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'eslint.config.js'
+      - '.github/workflows/quality-fast.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: fast-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Restore ESLint cache
+        uses: actions/cache@v4
+        with:
+          path: .eslintcache
+          key: eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.js') }}-${{ github.ref_name }}
+          restore-keys: |
+            eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.js') }}-
+            eslint-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Lint and tests in parallel
+        shell: bash
+        run: |
+          set +e
+          npm run lint:fast &
+          LINT_PID=$!
+          npm test &
+          TEST_PID=$!
+
+          LINT_STATUS=0
+          TEST_STATUS=0
+          wait "$LINT_PID" || LINT_STATUS=$?
+          wait "$TEST_PID" || TEST_STATUS=$?
+
+          if [ "$LINT_STATUS" -ne 0 ] || [ "$TEST_STATUS" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
