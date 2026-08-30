@@ -19,6 +19,10 @@ export function isBuilderSessionMessage(message) {
   );
 }
 
+export function shouldDeleteBuilderSessionOnCollectorEnd(reason) {
+  return reason === 'idle' || reason === 'builder-ended';
+}
+
 function clearBuilderSessionTimer(messageId) {
   const key = String(messageId || '');
   const timer = sessionTimers.get(key);
@@ -108,7 +112,7 @@ export function installBuilderSessionCleanup() {
     });
 
     collector.on('end', (_collected, reason) => {
-      if (reason === 'idle') {
+      if (shouldDeleteBuilderSessionOnCollectorEnd(reason)) {
         void deleteBuilderSessionMessage(this);
       }
     });
