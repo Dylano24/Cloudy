@@ -1,13 +1,13 @@
 import { deflateSync } from 'node:zlib';
 
-// Simple UnbelievaBoat-style inline playing cards: narrow white rectangle,
-// centered rank above one clear suit. No extra artwork.
+// Simple UnbelievaBoat-style inline playing cards: large white card,
+// centered rank above one clean emoji-style suit.
 const SIZE = 128;
-const W = 86;
-const H = 122;
+const W = 96;
+const H = 126;
 const X = Math.floor((SIZE - W) / 2);
 const Y = Math.floor((SIZE - H) / 2);
-const VERSION = 'v5';
+const VERSION = 'v6';
 const cache = new WeakMap();
 
 const FONT = {
@@ -77,6 +77,14 @@ function circle(s, cx, cy, r, color) {
   }
 }
 
+function ellipse(s, cx, cy, rx, ry, color) {
+  for (let y = -ry; y <= ry; y += 1) {
+    for (let x = -rx; x <= rx; x += 1) {
+      if ((x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1) s.set(cx + x, cy + y, color);
+    }
+  }
+}
+
 function triangle(s, ax, ay, bx, by, cx, cy, color) {
   const minX = Math.floor(Math.min(ax, bx, cx));
   const maxX = Math.ceil(Math.max(ax, bx, cx));
@@ -101,30 +109,39 @@ function kind(suit = '') {
   return 'spade';
 }
 
+// Rounded suit silhouettes shaped to match the familiar ♣️ ♦️ ❤️ ♠️ emoji look.
 function drawSuit(s, symbol, cx, cy, size, color) {
   const k = kind(symbol);
+
   if (k === 'diamond') {
-    triangle(s, cx, cy - size, cx + size, cy, cx, cy + size, color);
-    triangle(s, cx, cy - size, cx - size, cy, cx, cy + size, color);
+    triangle(s, cx, cy - size, cx + Math.round(size * 0.78), cy, cx, cy + size, color);
+    triangle(s, cx, cy - size, cx - Math.round(size * 0.78), cy, cx, cy + size, color);
     return;
   }
+
   if (k === 'heart') {
-    circle(s, cx - Math.floor(size / 2), cy - Math.floor(size / 3), Math.max(1, Math.floor(size / 2)), color);
-    circle(s, cx + Math.floor(size / 2), cy - Math.floor(size / 3), Math.max(1, Math.floor(size / 2)), color);
-    triangle(s, cx - size, cy - Math.floor(size / 3), cx + size, cy - Math.floor(size / 3), cx, cy + size, color);
+    const lobe = Math.max(2, Math.round(size * 0.55));
+    circle(s, cx - Math.round(size * 0.48), cy - Math.round(size * 0.30), lobe, color);
+    circle(s, cx + Math.round(size * 0.48), cy - Math.round(size * 0.30), lobe, color);
+    triangle(s, cx - size, cy - Math.round(size * 0.22), cx + size, cy - Math.round(size * 0.22), cx, cy + Math.round(size * 1.05), color);
     return;
   }
+
   if (k === 'club') {
-    circle(s, cx, cy - Math.floor(size / 2), Math.max(1, Math.floor(size / 2)), color);
-    circle(s, cx - Math.floor(size / 2), cy, Math.max(1, Math.floor(size / 2)), color);
-    circle(s, cx + Math.floor(size / 2), cy, Math.max(1, Math.floor(size / 2)), color);
-    s.rect(cx - 2, cy, 4, size + 3, color);
+    const lobe = Math.max(2, Math.round(size * 0.52));
+    circle(s, cx, cy - Math.round(size * 0.52), lobe, color);
+    circle(s, cx - Math.round(size * 0.50), cy, lobe, color);
+    circle(s, cx + Math.round(size * 0.50), cy, lobe, color);
+    triangle(s, cx - Math.round(size * 0.34), cy + Math.round(size * 0.15), cx + Math.round(size * 0.34), cy + Math.round(size * 0.15), cx, cy + Math.round(size * 0.95), color);
+    s.rect(cx - Math.max(2, Math.round(size * 0.16)), cy + Math.round(size * 0.22), Math.max(4, Math.round(size * 0.32)), Math.round(size * 0.84), color);
     return;
   }
-  triangle(s, cx - size, cy + Math.floor(size / 3), cx + size, cy + Math.floor(size / 3), cx, cy - size, color);
-  circle(s, cx - Math.floor(size / 2), cy + Math.floor(size / 4), Math.max(1, Math.floor(size / 2)), color);
-  circle(s, cx + Math.floor(size / 2), cy + Math.floor(size / 4), Math.max(1, Math.floor(size / 2)), color);
-  s.rect(cx - 2, cy + Math.floor(size / 4), 4, size, color);
+
+  // Spade: rounded shoulders and pointed crown, like ♠️.
+  ellipse(s, cx - Math.round(size * 0.40), cy + Math.round(size * 0.12), Math.round(size * 0.52), Math.round(size * 0.48), color);
+  ellipse(s, cx + Math.round(size * 0.40), cy + Math.round(size * 0.12), Math.round(size * 0.52), Math.round(size * 0.48), color);
+  triangle(s, cx - size, cy + Math.round(size * 0.18), cx + size, cy + Math.round(size * 0.18), cx, cy - Math.round(size * 1.05), color);
+  s.rect(cx - Math.max(2, Math.round(size * 0.16)), cy + Math.round(size * 0.14), Math.max(4, Math.round(size * 0.32)), Math.round(size * 0.92), color);
 }
 
 function glyph(s, char, x, y, scale, color) {
@@ -169,15 +186,14 @@ function drawFront(s, card, color) {
   const scale = card.rank === '10' ? 3 : 4;
   const rankWidth = (String(card.rank).length * 6 - 1) * scale;
   const rankX = X + Math.floor((W - rankWidth) / 2);
-  const rankY = Y + 10;
+  const rankY = Y + 9;
 
-  // Rank/letter is centered directly above the suit.
   drawRank(s, card.rank, rankX, rankY, scale, color);
-  drawSuit(s, card.suit, X + Math.floor(W / 2), Y + 82, 18, color);
+  drawSuit(s, card.suit, X + Math.floor(W / 2), Y + 85, 22, color);
 }
 
 function drawBack(s) {
-  roundedRect(s, X + 4, Y + 4, W - 8, H - 8, 4, [52, 92, 170, 255]);
+  roundedRect(s, X + 4, Y + 4, W - 8, H - 8, 5, [52, 92, 170, 255]);
   roundedRect(s, X + 8, Y + 8, W - 16, H - 16, 3, [231, 237, 248, 255]);
   roundedRect(s, X + 11, Y + 11, W - 22, H - 22, 2, [52, 92, 170, 255]);
 }
@@ -188,7 +204,7 @@ function render(card, hidden = false) {
   const white = [255, 255, 255, 255];
   const shadow = [0, 0, 0, 35];
 
-  roundedRect(s, X + 2, Y + 2, W, H, 6, shadow);
+  roundedRect(s, X + 1, Y + 1, W, H, 6, shadow);
   roundedRect(s, X, Y, W, H, 6, border);
   roundedRect(s, X + 1, Y + 1, W - 2, H - 2, 5, white);
 
@@ -198,7 +214,7 @@ function render(card, hidden = false) {
   }
 
   const red = kind(card.suit) === 'heart' || kind(card.suit) === 'diamond';
-  const color = red ? [196, 43, 52, 255] : [18, 18, 20, 255];
+  const color = red ? [232, 52, 65, 255] : [20, 20, 22, 255];
   drawFront(s, card, color);
   return png(s);
 }
