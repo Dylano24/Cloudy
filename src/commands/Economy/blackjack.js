@@ -4,6 +4,7 @@ import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHan
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
+import { cardEmoji, cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -21,12 +22,6 @@ const score = cards => {
 };
 const isBlackjack = cards => cards.length === 2 && score(cards) === 21;
 
-const RANK_CODE = { A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, J: 11, Q: 13, K: 14 };
-const SUIT_BASE = { '♠': 0x1f0a0, '♥': 0x1f0b0, '♦': 0x1f0c0, '♣': 0x1f0d0 };
-const cardGlyph = card => String.fromCodePoint(SUIT_BASE[card.suit] + RANK_CODE[card.rank]);
-const cardsGlyphs = cards => cards.map(cardGlyph).join(' ');
-const hiddenCard = String.fromCodePoint(0x1f0a0);
-
 function controls(state, ended = false) {
   const hand = state.hands[state.current];
   const canDouble = hand.cards.length === 2 && state.data.wallet >= hand.bet;
@@ -42,7 +37,7 @@ function controls(state, ended = false) {
   ];
 }
 
-function embed(state, result = null) {
+async function embed(state, result = null) {
   const gameEmbed = createEmbed({
     title: result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`,
     description: [result?.text, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
@@ -50,26 +45,31 @@ function embed(state, result = null) {
     author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
   });
 
-  const fields = state.hands.map((hand, index) => ({
-    name: state.hands.length > 1 ? `Your Hand ${index + 1}` : 'Your Hand',
-    value: `${cardsGlyphs(hand.cards)}\nValue: **${score(hand.cards)}**${score(hand.cards) > 21 ? ' — Bust' : ''}`,
-    inline: true,
-  }));
-  const dealerCards = state.finished ? cardsGlyphs(state.dealer) : `${cardGlyph(state.dealer[0])} ${hiddenCard}`;
+  const fields = [];
+  for (let index = 0; index < state.hands.length; index += 1) {
+    const hand = state.hands[index];
+    fields.push({
+      name: state.hands.length > 1 ? `Your Hand ${index + 1}` : 'Your Hand',
+      value: `${await cardsEmojiLine(state.client, hand.cards)}\nValue: **${score(hand.cards)}**${score(hand.cards) > 21 ? ' — Bust' : ''}`,
+      inline: true,
+    });
+  }
+
+  const dealerCards = state.finished
+    ? await cardsEmojiLine(state.client, state.dealer)
+    : `${await cardEmoji(state.client, state.dealer[0])} ${await cardEmoji(state.client, null, true)}`;
   fields.push({
     name: 'Dealer Hand',
     value: `${dealerCards}\nValue: **${state.finished ? score(state.dealer) : '?'}**`,
     inline: true,
   });
 
-  // Raw field assignment is intentional: Cloudy's normal embed sanitizer removes
-  // playing-card glyphs, while these are game UI rather than decorative emojis.
   gameEmbed.data.fields = fields;
   return gameEmbed;
 }
 
-function payload(state, result = null, ended = false) {
-  return { embeds: [embed(state, result)], components: controls(state, ended), attachments: [] };
+async function payload(state, result = null, ended = false) {
+  return { embeds: [await embed(state, result)], components: controls(state, ended), attachments: [] };
 }
 
 function dealerDraw(state) { while (score(state.dealer) < 17) state.dealer.push(draw(state)); }
@@ -87,7 +87,7 @@ async function settle(state, component, collector) {
   }
   state.data.wallet += payout; await setEconomyData(state.client, state.guildId, state.user.id, state.data);
   const result = { title: outcomes.join(' / '), color: payout > state.totalBet ? 'success' : payout === state.totalBet ? 'primary' : 'error', text: `Payout: **${money(payout)}**\nCash balance: **${money(state.data.wallet)}**` };
-  await component.update(payload(state, result, true)); collector.stop('finished');
+  await component.update(await payload(state, result, true)); collector.stop('finished');
 }
 
 export default {
@@ -99,7 +99,7 @@ export default {
     const { amount, userData } = await takeBet(interaction, client); await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
     const deck = makeDeck();
     const state = { id: interaction.id, client, guildId: interaction.guildId, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
-    await InteractionHelper.safeEditReply(interaction, payload(state));
+    await InteractionHelper.safeEditReply(interaction, await payload(state));
     const message = await interaction.fetchReply().catch(() => null);
     if (!message?.createMessageComponentCollector) return;
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${state.id}`), time: 10 * 60 * 1000 });
@@ -123,16 +123,16 @@ export default {
         }
         const activeHand = state.hands[state.current];
         if (score(activeHand.cards) >= 21) activeHand.done = true;
-        if (activeHand.done && state.current < state.hands.length - 1) { state.current += 1; await component.update(payload(state)); return; }
+        if (activeHand.done && state.current < state.hands.length - 1) { state.current += 1; await component.update(await payload(state)); return; }
         if (state.hands.every(current => current.done || score(current.cards) > 21)) { await settle(state, component, collector); return; }
-        await component.update(payload(state));
+        await component.update(await payload(state));
       } catch (error) { await component.reply({ ephemeral: true, content: error.userMessage || 'That action cannot be used now.' }).catch(() => {}); }
       finally { busy = false; }
     });
     collector.on('end', async (_, reason) => {
       if (reason === 'finished' || state.finished) return;
       state.finished = true; state.data.wallet += state.totalBet; await setEconomyData(client, interaction.guildId, interaction.user.id, state.data);
-      await message.edit(payload(state, { title: 'Expired', color: 'warning', text: `Game expired — **${money(state.totalBet)}** was returned.` }, true)).catch(() => {});
+      await message.edit(await payload(state, { title: 'Expired', color: 'warning', text: `Game expired — **${money(state.totalBet)}** was returned.` }, true)).catch(() => {});
     });
   }, { command: 'blackjack' }),
 };
