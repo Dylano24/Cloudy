@@ -19,7 +19,9 @@ import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.embedManagerTitleSearch');
 const SEARCH_BUTTON_ID = 'simple_embed_title_search';
-const SEARCH_MODAL_PREFIX = 'simple_embed_title_search_modal:';
+// Do not use ':' here. The global modal router treats colon-separated IDs as
+// registered modal handlers. This modal is handled inline by awaitModalSubmit.
+const SEARCH_MODAL_PREFIX = 'simple_embed_title_search_modal_';
 const SEARCH_INPUT_ID = 'title_query';
 const MAX_CHANNEL_GROUPS = 4;
 const MAX_RESULTS_PER_CHANNEL = 25;
@@ -98,28 +100,49 @@ function normalizedTitle(record) {
     .trim();
 }
 
+function searchKey(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/<a?:[^:>]+:\d+>/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function shortText(value, max = 100) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   return (text || 'Untitled embed').slice(0, max);
 }
 
 function rankMatch(title, query) {
-  const value = title.toLowerCase();
-  if (value === query) return 0;
-  if (value.startsWith(query)) return 1;
-  const wordIndex = value.split(/\s+/).findIndex(word => word.startsWith(query));
-  if (wordIndex >= 0) return 2;
+  const value = searchKey(title);
+  const needle = searchKey(query);
+  if (value === needle) return 0;
+  if (value.startsWith(needle)) return 1;
+  const words = value.split(' ');
+  const queryWords = needle.split(' ').filter(Boolean);
+  if (queryWords.length && queryWords.every(queryWord => words.some(word => word.startsWith(queryWord)))) return 2;
   return 3;
 }
 
 function findTitleMatches(records, query) {
-  const normalizedQuery = String(query || '').trim().toLowerCase();
+  const normalizedQuery = searchKey(query);
   if (!normalizedQuery) return [];
 
+  const queryWords = normalizedQuery.split(' ').filter(Boolean);
   const seen = new Set();
+
   return records
-    .map(record => ({ record, title: normalizedTitle(record) }))
-    .filter(item => item.title.toLowerCase().includes(normalizedQuery))
+    .map(record => {
+      const title = normalizedTitle(record);
+      return { record, title, titleKey: searchKey(title) };
+    })
+    // Search on any part of the title. Punctuation such as "—", "-", ":" and
+    // emoji does not matter. Typing just "roulette" therefore shows every
+    // Roulette title; "roulette won" narrows that list to titles containing
+    // both words even when the real title is "Roulette — You won!".
+    .filter(item => queryWords.every(word => item.titleKey.includes(word)))
     .sort((a, b) => {
       const rankDiff = rankMatch(a.title, normalizedQuery) - rankMatch(b.title, normalizedQuery);
       if (rankDiff) return rankDiff;
@@ -195,7 +218,7 @@ function buildSearchResultsPayload(guild, records, query) {
     : [
         `Search: **${String(query).slice(0, 120)}**`,
         '',
-        'No embed title matched that search. Try another title or part of a title.',
+        'No embed title matched that search. Try one word or any part of the title.',
       ].join('\n');
 
   return {
@@ -213,8 +236,8 @@ async function handleSearchButton(interaction) {
   const modalId = `${SEARCH_MODAL_PREFIX}${interaction.id}`;
   const input = new TextInputBuilder()
     .setCustomId(SEARCH_INPUT_ID)
-    .setLabel('Embed title')
-    .setPlaceholder('Example: Roulette — You won!')
+    .setLabel('Embed title or part of title')
+    .setPlaceholder('Example: Roulette')
     .setStyle(TextInputStyle.Short)
     .setMinLength(1)
     .setMaxLength(120)
@@ -262,6 +285,6 @@ export default {
       });
     });
 
-    logger.info('[EMBED_BUILDER] Title search enabled in Modify embed.');
+    logger.info('[EMBED_BUILDER] Partial title search enabled in Modify embed.');
   },
 };
