@@ -3,6 +3,7 @@ import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 
 const TEMPLATE_PREFIX = 'cloudy:embed-template:';
+const GLOBAL_SCOPE = '__global__';
 const templateCache = new Map();
 const templateMutationQueues = new Map();
 
@@ -27,6 +28,14 @@ async function loadTemplates(guildId, channelId) {
   return templates;
 }
 
+async function loadMergedTemplates(guildId, channelId) {
+  const [globalTemplates, channelTemplates] = await Promise.all([
+    loadTemplates(guildId, GLOBAL_SCOPE),
+    loadTemplates(guildId, channelId),
+  ]);
+  return { ...globalTemplates, ...channelTemplates };
+}
+
 async function mutateTemplates(guildId, channelId, operation) {
   const key = templateKey(guildId, channelId);
   const previous = templateMutationQueues.get(key) || Promise.resolve();
@@ -40,12 +49,76 @@ async function mutateTemplates(guildId, channelId, operation) {
   }
 }
 
-function pickDecoration(data = {}, options = {}) {
+function dynamicParts(value = '') {
+  const values = [];
+  const sentinel = '\u0000CLOUDY_DYNAMIC\u0000';
+  let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
+
+  text = text.replace(
+    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie|win|won|loss|lost|push|bust)\b|\b\d+(?:\.\d+)?\b/gi,
+    match => {
+      values.push(match);
+      return '{dynamic}';
+    },
+  );
+
+  text = text.replaceAll(sentinel, '{dynamic}');
+  return {
+    pattern: normalizeKey(text),
+    tokenized: text,
+    values,
+  };
+}
+
+function renderDynamic(template, runtime, {
+  fallbackToRuntimeOnMismatch = false,
+  preserveRuntimeWhenNoDynamic = false,
+} = {}) {
+  const source = String(runtime || '');
+  const templateSource = String(template || '');
+  const runtimeParts = dynamicParts(source);
+  const templateParts = dynamicParts(templateSource);
+  const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
+
+  if (!placeholders.length) {
+    if (preserveRuntimeWhenNoDynamic && source && source !== templateSource) return source;
+    return templateSource;
+  }
+
+  if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) return source;
+
+  let runtimeIndex = 0;
+  let templateIndex = 0;
+  const rendered = templateParts.tokenized.replace(/\{dynamic\}/gi, () => {
+    const runtimeValue = runtimeParts.values[runtimeIndex++];
+    const fallbackValue = templateParts.values[templateIndex++];
+    return runtimeValue ?? fallbackValue ?? '{dynamic}';
+  });
+
+  return fallbackToRuntimeOnMismatch && /\{dynamic\}/i.test(rendered) ? source : rendered;
+}
+
+function aliasKeys(value) {
+  const raw = normalizeKey(value);
+  const pattern = dynamicParts(value).pattern;
+  return [...new Set([raw, pattern].filter(Boolean))];
+}
+
+function pickTemplate(data = {}, options = {}) {
   const applyThumbnail = options.applyThumbnail === true;
   const applyImage = options.applyImage === true;
+  const fields = Array.isArray(data.fields)
+    ? data.fields.slice(0, 25).map(field => ({
+        name: String(field?.name || '\u200B').slice(0, 256),
+        value: String(field?.value || '\u200B').slice(0, 1024),
+        inline: Boolean(field?.inline),
+      }))
+    : [];
 
   return {
-    title: data.title || null,
+    title: data.title ?? null,
+    description: data.description ?? null,
+    fields,
     color: Number.isInteger(data.color) ? data.color : null,
     footer: data.footer?.text ? { ...data.footer } : null,
     applyThumbnail,
@@ -55,25 +128,31 @@ function pickDecoration(data = {}, options = {}) {
   };
 }
 
-export async function saveEmbedTemplateDecoration(guildId, channelId, matchNames = [], embedData = {}, options = {}) {
+async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, options = {}) {
   try {
-    return await mutateTemplates(guildId, channelId, async () => {
-      const key = templateKey(guildId, channelId);
-      const stored = await loadTemplates(guildId, channelId);
+    return await mutateTemplates(guildId, scope, async () => {
+      const key = templateKey(guildId, scope);
+      const stored = await loadTemplates(guildId, scope);
       const templates = { ...stored };
-      const decoration = pickDecoration(embedData, options);
-      const aliases = [...new Set(matchNames.map(normalizeKey).filter(Boolean))];
+      const template = pickTemplate(embedData, options);
+      const aliases = [
+        ...matchNames,
+        embedData.title,
+        String(embedData.description || '').split('\n').find(Boolean),
+      ]
+        .flatMap(aliasKeys)
+        .filter(Boolean);
 
-      for (const alias of aliases) {
+      for (const alias of new Set(aliases)) {
         templates[alias] = {
-          ...decoration,
+          ...template,
           updatedAt: new Date().toISOString(),
         };
       }
 
       const saved = await setInDb(key, templates);
       if (!saved) {
-        logger.error(`Failed to persist embed template decoration for ${guildId}:${channelId}`);
+        logger.error(`Failed to persist embed template for ${guildId}:${scope}`);
         return false;
       }
 
@@ -81,28 +160,88 @@ export async function saveEmbedTemplateDecoration(guildId, channelId, matchNames
       return true;
     });
   } catch (error) {
-    logger.error('Failed to save embed template decoration:', error);
+    logger.error('Failed to save embed template:', error);
     return false;
   }
 }
 
-function decorateEmbedData(embed, stored) {
-  const data = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
-  const candidates = [data.title, String(data.description || '').split('\n').find(Boolean)]
-    .map(normalizeKey)
+export async function saveEmbedTemplateDecoration(guildId, channelId, matchNames = [], embedData = {}, options = {}) {
+  return saveTemplate(guildId, channelId, matchNames, embedData, options);
+}
+
+export async function saveGlobalEmbedTemplate(guildId, matchNames = [], embedData = {}, options = {}) {
+  return saveTemplate(guildId, GLOBAL_SCOPE, matchNames, embedData, options);
+}
+
+function findStoredTemplate(data, stored) {
+  const candidates = [
+    data.title,
+    String(data.description || '').split('\n').find(Boolean),
+  ]
+    .flatMap(aliasKeys)
     .filter(Boolean);
-  const template = candidates.map(candidate => stored[candidate]).find(Boolean);
+
+  return candidates.map(candidate => stored[candidate]).find(Boolean) || null;
+}
+
+function decorateEmbedData(embed, stored) {
+  const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
+  const data = { ...original };
+  const template = findStoredTemplate(data, stored);
   if (!template) return { matched: false, changed: false, data };
 
-  if (template.title) data.title = template.title;
-  else delete data.title;
+  if (template.title) {
+    data.title = renderDynamic(template.title, original.title || '', {
+      fallbackToRuntimeOnMismatch: true,
+    });
+  } else {
+    delete data.title;
+  }
+
+  if (template.description) {
+    data.description = renderDynamic(template.description, original.description || '', {
+      fallbackToRuntimeOnMismatch: true,
+    });
+  } else {
+    delete data.description;
+  }
+
+  if (Array.isArray(template.fields)) {
+    if (!template.fields.length) {
+      delete data.fields;
+    } else {
+      const runtimeFields = Array.isArray(original.fields) ? original.fields : [];
+      data.fields = template.fields.slice(0, 25).map((templateField, index) => {
+        const runtimeField = runtimeFields[index] || {};
+        return {
+          name: renderDynamic(templateField.name, runtimeField.name || templateField.name, {
+            fallbackToRuntimeOnMismatch: true,
+          }).slice(0, 256),
+          value: renderDynamic(templateField.value, runtimeField.value || templateField.value, {
+            fallbackToRuntimeOnMismatch: true,
+            preserveRuntimeWhenNoDynamic: true,
+          }).slice(0, 1024),
+          inline: Boolean(templateField.inline),
+        };
+      });
+    }
+  }
 
   if (Number.isInteger(template.color)) data.color = template.color;
 
-  if (template.footer?.text) data.footer = { ...template.footer };
-  else delete data.footer;
+  if (template.footer?.text) {
+    data.footer = {
+      ...template.footer,
+      text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text, {
+        fallbackToRuntimeOnMismatch: true,
+      }),
+    };
+  } else {
+    delete data.footer;
+  }
 
-  // User/member avatars and other event-specific thumbnails must stay dynamic.
+  // User/member avatars and other event-specific thumbnails stay dynamic unless
+  // the administrator explicitly changed/removed the thumbnail in Embed Builder.
   if (template.applyThumbnail === true) {
     if (template.thumbnail?.url) data.thumbnail = { url: template.thumbnail.url };
     else delete data.thumbnail;
@@ -113,13 +252,16 @@ function decorateEmbedData(embed, stored) {
     else delete data.image;
   }
 
-  const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
-  return { matched: true, changed: JSON.stringify(original) !== JSON.stringify(data), data };
+  return {
+    matched: true,
+    changed: JSON.stringify(original) !== JSON.stringify(data),
+    data,
+  };
 }
 
 export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed) {
   try {
-    const stored = await loadTemplates(guildId, channelId);
+    const stored = await loadMergedTemplates(guildId, channelId);
     const result = decorateEmbedData(embed, stored);
     return {
       matched: result.matched,
@@ -136,7 +278,7 @@ export async function applySavedEmbedTemplates(message) {
   if (!message?.guildId || !message?.channelId || !message?.editable || !message?.embeds?.length) return false;
 
   try {
-    const stored = await loadTemplates(message.guildId, message.channelId);
+    const stored = await loadMergedTemplates(message.guildId, message.channelId);
     if (!Object.keys(stored).length) return false;
 
     let matched = false;
@@ -149,9 +291,12 @@ export async function applySavedEmbedTemplates(message) {
       return new EmbedBuilder(result.data);
     });
 
-    if (!matched) return false;
-    if (changed) await message.edit({ embeds }).catch(() => null);
-    return true;
+    if (!matched || !changed) return false;
+    const edited = await message.edit({ embeds }).catch(error => {
+      logger.debug(`[EMBED_BUILDER] Saved template could not be applied to message ${message.id}: ${error?.message || error}`);
+      return null;
+    });
+    return Boolean(edited);
   } catch (error) {
     logger.error('Failed to apply saved embed templates:', error);
     return false;
