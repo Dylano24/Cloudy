@@ -61,32 +61,23 @@ async function embed(state, result = null) {
     inline: true,
   });
 
-  const runtimeTitle = liveTitle(state, result);
   const gameEmbed = createEmbed({
-    title: runtimeTitle,
+    title: liveTitle(state, result),
     description: [result?.text, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
     color: result?.color || 'primary',
     author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
     fields,
   });
 
-  // Embed Builder can style the embed, but live game data must always win.
-  // Use the builder API instead of mutating .data directly so Discord receives
-  // the exact wager from this interaction, never a stored example such as $100.
-  gameEmbed.setTitle(runtimeTitle);
+  // Runtime hand data stays authoritative. The global embed template layer now
+  // replaces only dynamic values, so a saved example bet/card value can never
+  // freeze the live game while Embed Builder styling/text remains editable.
   gameEmbed.data.fields = fields;
   return gameEmbed;
 }
 
 async function payload(state, result = null, ended = false) {
-  const gameEmbed = await embed(state, result);
-  const embedData = gameEmbed.toJSON();
-
-  // Final send-time guard: even if another template layer touched the builder,
-  // the serialized payload always contains the live wager/result title.
-  embedData.title = liveTitle(state, result);
-
-  return { embeds: [embedData], components: controls(state, ended), attachments: [] };
+  return { embeds: [await embed(state, result)], components: controls(state, ended), attachments: [] };
 }
 
 function dealerDraw(state) { while (score(state.dealer) < 17) state.dealer.push(draw(state)); }
