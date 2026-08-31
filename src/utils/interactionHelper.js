@@ -8,9 +8,32 @@ import { ResponseCoordinator } from './responseCoordinator.js';
 const INTERACTION_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_DEFER_OPTIONS = { flags: MessageFlags.Ephemeral };
 const INTERACTION_UNAVAILABLE_CODES = new Set([10062, 40060, 50027]);
+const INTERNAL_TEMPLATE_AUTHOR_PREFIX = 'cloudy template key:';
 
 function isInteractionUnavailableError(error) {
     return INTERACTION_UNAVAILABLE_CODES.has(error?.code);
+}
+
+function stripInternalEmbedMetadata(options) {
+    if (!options || typeof options !== 'object' || !Array.isArray(options.embeds)) {
+        return options;
+    }
+
+    let changed = false;
+    const embeds = options.embeds.map(embed => {
+        const data = embed?.toJSON ? embed.toJSON() : embed;
+        if (!data || typeof data !== 'object') return embed;
+
+        const authorName = String(data.author?.name || '').trim().toLowerCase();
+        if (!authorName.startsWith(INTERNAL_TEMPLATE_AUTHOR_PREFIX)) return embed;
+
+        changed = true;
+        const clean = { ...data };
+        delete clean.author;
+        return clean;
+    });
+
+    return changed ? { ...options, embeds } : options;
 }
 
 function sanitizeEditReplyOptions(options = {}) {
@@ -18,12 +41,17 @@ function sanitizeEditReplyOptions(options = {}) {
         return options;
     }
 
-    const { flags, ephemeral, ...rest } = options;
+    const cleaned = stripInternalEmbedMetadata(options);
+    const { flags, ephemeral, ...rest } = cleaned;
 
     if (flags && (flags & MessageFlags.IsComponentsV2)) {
         rest.flags = MessageFlags.IsComponentsV2;
     }
     return rest;
+}
+
+function sanitizeReplyOptions(options) {
+    return stripInternalEmbedMetadata(options);
 }
 
 export class InteractionHelper {
@@ -46,28 +74,29 @@ export class InteractionHelper {
 
         interaction.reply = async (options) => {
             const coordinator = InteractionHelper.getCoordinator(interaction);
+            const cleanOptions = sanitizeReplyOptions(options);
             if (coordinator?.isUsageFinalized()) {
                 return coordinator.getReplyMessage();
             }
 
             if (!interaction.deferred && !interaction.replied) {
                 if (coordinator && interaction._isPrefixCommand) {
-                    return coordinator.respond(options);
+                    return coordinator.respond(cleanOptions);
                 }
-                return await originalReply(options);
+                return await originalReply(cleanOptions);
             }
 
             if (interaction.deferred && !interaction.replied) {
                 if (coordinator && interaction._isPrefixCommand) {
-                    return coordinator.edit(sanitizeEditReplyOptions(options));
+                    return coordinator.edit(sanitizeEditReplyOptions(cleanOptions));
                 }
-                return await originalEditReply(sanitizeEditReplyOptions(options));
+                return await originalEditReply(sanitizeEditReplyOptions(cleanOptions));
             }
 
             if (coordinator && interaction._isPrefixCommand) {
-                return coordinator.followUp(options);
+                return coordinator.followUp(cleanOptions);
             }
-            return await originalFollowUp(options);
+            return await originalFollowUp(cleanOptions);
         };
 
         interaction.__titanResponsePatched = true;
@@ -142,6 +171,7 @@ export class InteractionHelper {
     static async safeEditReply(interaction, options) {
         try {
             const coordinator = this.getCoordinator(interaction);
+            const cleanOptions = sanitizeEditReplyOptions(options);
             if (coordinator?.isUsageFinalized()) {
                 return false;
             }
@@ -152,16 +182,16 @@ export class InteractionHelper {
             }
 
             if (coordinator && (interaction._isPrefixCommand || coordinator.getReplyMessage())) {
-                await coordinator.edit(sanitizeEditReplyOptions(options));
+                await coordinator.edit(cleanOptions);
                 return true;
             }
 
             if (!interaction.replied && !interaction.deferred) {
                 logger.debug(`Interaction ${interaction.id} not deferred, using reply fallback instead of edit`);
-                return await this.safeReply(interaction, options);
+                return await this.safeReply(interaction, cleanOptions);
             }
 
-            await interaction.editReply(sanitizeEditReplyOptions(options));
+            await interaction.editReply(cleanOptions);
             return true;
         } catch (error) {
             if (isInteractionUnavailableError(error)) {
@@ -179,7 +209,7 @@ export class InteractionHelper {
             if (error.code === 10008) {
                 logger.debug(`Interaction ${interaction.id} reply message deleted, using followUp fallback`);
                 try {
-                    await interaction.followUp(options);
+                    await interaction.followUp(sanitizeReplyOptions(options));
                     return true;
                 } catch (followUpError) {
                     if (isInteractionUnavailableError(followUpError)) {
@@ -198,6 +228,7 @@ export class InteractionHelper {
     static async safeReply(interaction, options) {
         try {
             const coordinator = this.getCoordinator(interaction);
+            const cleanOptions = sanitizeReplyOptions(options);
             if (coordinator?.isUsageFinalized()) {
                 return false;
             }
@@ -209,24 +240,24 @@ export class InteractionHelper {
 
             if (coordinator && (interaction._isPrefixCommand || coordinator.hasResponded())) {
                 if (coordinator.hasResponded()) {
-                    await coordinator.edit(sanitizeEditReplyOptions(options));
+                    await coordinator.edit(sanitizeEditReplyOptions(cleanOptions));
                 } else {
-                    await coordinator.respond(options);
+                    await coordinator.respond(cleanOptions);
                 }
                 return true;
             }
 
             if (interaction.deferred && !interaction.replied) {
-                await interaction.editReply(sanitizeEditReplyOptions(options));
+                await interaction.editReply(sanitizeEditReplyOptions(cleanOptions));
                 return true;
             }
 
             if (interaction.replied) {
-                await interaction.followUp(options);
+                await interaction.followUp(cleanOptions);
                 return true;
             }
 
-            await interaction.reply(options);
+            await interaction.reply(cleanOptions);
             return true;
         } catch (error) {
             if (isInteractionUnavailableError(error)) {
@@ -250,7 +281,7 @@ export class InteractionHelper {
             }
 
             if (interaction.replied || interaction.deferred) {
-                logger.warn(`Interaction ${interaction.id} already acknowledged, cannot show modal`);
+                logger.warn(`Interaction ${interaction.id} already acknowledged, cannot showModal`);
                 return false;
             }
 
@@ -313,27 +344,28 @@ export class InteractionHelper {
 
     static async universalReply(interaction, options) {
         const coordinator = this.getCoordinator(interaction);
+        const cleanOptions = sanitizeReplyOptions(options);
         if (coordinator?.isUsageFinalized()) {
             return false;
         }
 
         if (interaction._isPrefixCommand) {
             if (coordinator?.hasResponded()) {
-                return await coordinator.edit(sanitizeEditReplyOptions(options));
+                return await coordinator.edit(sanitizeEditReplyOptions(cleanOptions));
             }
-            return await coordinator?.respond(options) ?? this.safeReply(interaction, options);
+            return await coordinator?.respond(cleanOptions) ?? this.safeReply(interaction, cleanOptions);
         }
 
-        const isReady = await this.ensureReady(interaction, options.flags ? { flags: options.flags } : {});
+        const isReady = await this.ensureReady(interaction, cleanOptions?.flags ? { flags: cleanOptions.flags } : {});
         if (!isReady) {
             return false;
         }
 
         if (interaction.deferred) {
-            return await this.safeEditReply(interaction, options);
+            return await this.safeEditReply(interaction, cleanOptions);
         }
 
-        return await this.safeReply(interaction, options);
+        return await this.safeReply(interaction, cleanOptions);
     }
 }
 
