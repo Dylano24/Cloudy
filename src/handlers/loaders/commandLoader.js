@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
-import { isGamblingGameCommand } from '../../config/gamblingCommands.js';
+import { isGamblingGameCommand, isRetiredGamblingCommand } from '../../config/gamblingCommands.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 import { Mutex } from '../../utils/mutex.js';
 
@@ -126,6 +126,10 @@ export async function loadCommands(client) {
       }
 
       const commandName = command.data.toJSON()?.name;
+      if (isRetiredGamblingCommand(commandName)) {
+        logger.info(`[COMMAND_LOAD] /${commandName} is retired and was skipped.`);
+        continue;
+      }
       if (!commandName || seen.has(commandName)) {
         if (commandName) logger.warn(`[COMMAND_LOAD] Duplicate /${commandName} ignored: ${filePath}`);
         continue;
