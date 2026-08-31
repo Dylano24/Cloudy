@@ -23,9 +23,14 @@ function choices(id, disabled = false) {
   )];
 }
 function gameEmbed(user, amount, player = null, banker = null, result = null, withCards = false) {
-  const description = result
-    ? `**Player Hand**\nValue: **${score(player)}**\n\n**Banker Hand**\nValue: **${score(banker)}**\n\n${result}`
-    : `Bet: **${money(amount)}**\n\nChoose where to place your bet.`;
+  let description;
+  if (result && player?.length && banker?.length) {
+    description = `**Player Hand**\nValue: **${score(player)}**\n\n**Banker Hand**\nValue: **${score(banker)}**\n\n${result}`;
+  } else if (result) {
+    description = result;
+  } else {
+    description = `Bet: **${money(amount)}**\n\nChoose where to place your bet.`;
+  }
   return createEmbed({
     title: result ? 'Baccarat — Result' : 'Baccarat',
     description,
