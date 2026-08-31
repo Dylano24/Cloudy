@@ -38,13 +38,6 @@ function controls(state, ended = false) {
 }
 
 async function embed(state, result = null) {
-  const gameEmbed = createEmbed({
-    title: result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`,
-    description: [result?.text, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
-    color: result?.color || 'primary',
-    author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
-  });
-
   const fields = [];
   for (let index = 0; index < state.hands.length; index += 1) {
     const hand = state.hands[index];
@@ -64,6 +57,16 @@ async function embed(state, result = null) {
     inline: true,
   });
 
+  const gameEmbed = createEmbed({
+    title: result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`,
+    description: [result?.text, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
+    color: result?.color || 'primary',
+    author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
+    fields,
+  });
+
+  // Keep the exact custom-card markup in the live message while also exposing the
+  // complete field layout to the automatic system embed catalog / embed builder.
   gameEmbed.data.fields = fields;
   return gameEmbed;
 }
@@ -92,7 +95,7 @@ async function settle(state, component, collector) {
 
 export default {
   data: new SlashCommandBuilder().setName('blackjack').setDescription('Play interactive blackjack')
-    .addIntegerOption(option => option.setName('amount').setDescription('Cash to bet').setRequired(true).setMinValue(1)),
+    .addIntegerOption(option => option.setName('amount').setDescription('Bet any cash amount you can afford').setRequired(true).setMinValue(1)),
   category: 'Economy',
   execute: withErrorHandling(async (interaction, config, client) => {
     const deferred = await InteractionHelper.safeDefer(interaction); if (!deferred) return;
