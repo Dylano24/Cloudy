@@ -17,19 +17,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Rebuild exact AUF AUF GIF
-        run: cat assets/cloudy-c-logo-auf-auf.b64.00 assets/cloudy-c-logo-auf-auf.b64.01 | base64 --decode > assets/cloudy-c-logo-auf-auf.gif
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+
+          paths = [
+              Path('assets/cloudy-c-logo-auf-auf.b64.00'),
+              Path('assets/cloudy-c-logo-auf-auf.b64.01'),
+          ]
+          encoded = ''.join(p.read_text(encoding='utf-8').strip() for p in paths)
+          encoded += '=' * (-len(encoded) % 4)
+          data = base64.b64decode(encoded, validate=True)
+          Path('assets/cloudy-c-logo-auf-auf.gif').write_bytes(data)
+          print('Decoded bytes:', len(data))
+          PY
+
       - name: Verify exact dimensions and GIF header
         run: |
           python - <<'PY'
           from pathlib import Path
-          d=Path('assets/cloudy-c-logo-auf-auf.gif').read_bytes()
-          assert d[:6] in (b'GIF87a',b'GIF89a')
-          assert int.from_bytes(d[6:8],'little') == 555
-          assert int.from_bytes(d[8:10],'little') == 609
-          assert len(d) > 10000
-          print('AUF AUF verified', len(d))
+          d = Path('assets/cloudy-c-logo-auf-auf.gif').read_bytes()
+          assert d[:6] in (b'GIF87a', b'GIF89a'), 'Invalid GIF header'
+          width = int.from_bytes(d[6:8], 'little')
+          height = int.from_bytes(d[8:10], 'little')
+          assert (width, height) == (555, 609), f'Unexpected dimensions: {width}x{height}'
+          assert len(d) > 10_000, f'GIF too small: {len(d)} bytes'
+          print(f'AUF AUF verified: {width}x{height}, {len(d)} bytes')
           PY
+
       - name: Commit binary GIF
         run: |
           git config user.name "github-actions[bot]"
