@@ -6,6 +6,8 @@ const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const SCAN_BATCH_SIZE = 100;
 const RECONCILE_CONCURRENCY = 6;
 const DEFINITIVE_MISSING_CODES = new Set([10003, 10008, 50001, 50013]);
+const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
+const SYSTEM_TEMPLATE_KEY_PREFIX = 'Cloudy template key:';
 const registryMutationQueues = new Map();
 const embedSnapshotCache = new Map();
 const EMBED_SNAPSHOT_CACHE_LIMIT = 2000;
@@ -15,22 +17,52 @@ const INTERNAL_EMBED_NAMES = new Set([
     'embed loaded',
     'changes saved',
     'could not load embeds',
-    'configuration error',
     '(use the buttons below to create your message)',
     'use the buttons below to create your message',
     'untitled embed',
 ]);
 
+const SYSTEM_TEMPLATE_PLACEMENTS = [
+    {
+        match: /\b(gambl|gambling|bet|wallet|cash|money|fight|flip|roll|dice|cooldown|wrong channel|not enough money)\b/i,
+        channelSlugs: ['gambling'],
+    },
+    {
+        match: /\b(ticket|transcript|claim ticket|close ticket|reopen ticket)\b/i,
+        channelSlugs: ['ticket-logs', 'ticket-panel', 'tickets'],
+    },
+    {
+        match: /\b(appeal|ban appeal)\b/i,
+        channelSlugs: ['ban-appeal', 'appeal'],
+    },
+    {
+        match: /\b(report|reported)\b/i,
+        channelSlugs: ['reports', 'report'],
+    },
+    {
+        match: /\b(shop|purchase|subscription)\b/i,
+        channelSlugs: ['shop', 'purchases'],
+    },
+    {
+        match: /\b(music|song|track|queue)\b/i,
+        channelSlugs: ['music'],
+    },
+];
+
 function registryKey(guildId) {
     return `${REGISTRY_PREFIX}${guildId}`;
 }
 
+function physicalChannelId(record) {
+    return String(record?.backingChannelId || record?.channelId || '');
+}
+
 function recordKey(record) {
-    return `${String(record?.channelId || '')}:${String(record?.messageId || '')}:${Math.max(0, Number(record?.embedIndex) || 0)}`;
+    return `${physicalChannelId(record)}:${String(record?.messageId || '')}:${Math.max(0, Number(record?.embedIndex) || 0)}`;
 }
 
 function messageKey(record) {
-    return `${String(record?.channelId || '')}:${String(record?.messageId || '')}`;
+    return `${physicalChannelId(record)}:${String(record?.messageId || '')}`;
 }
 
 function rememberEmbedSnapshot(record, embed) {
@@ -198,11 +230,81 @@ function embedName(embed) {
     return canonicalEmbedName(firstLine || 'Untitled embed').slice(0, 256);
 }
 
+function isSystemCatalogMessage(message) {
+    return String(message?.content || '').trim() === SYSTEM_CATALOG_CONTENT;
+}
+
+function systemTemplateSearchText(embed) {
+    const data = typeof embed?.toJSON === 'function' ? embed.toJSON() : (embed || {});
+    const authorName = String(data.author?.name || '');
+    const stableKey = authorName.toLowerCase().startsWith(SYSTEM_TEMPLATE_KEY_PREFIX.toLowerCase())
+        ? authorName.slice(SYSTEM_TEMPLATE_KEY_PREFIX.length)
+        : '';
+    return [stableKey, data.title, data.description]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function findFeatureChannel(guild, slugs = []) {
+    const normalizedSlugs = slugs.map(slug => cleanName(slug)).filter(Boolean);
+    if (!normalizedSlugs.length) return null;
+
+    const candidates = [...(guild?.channels?.cache?.values?.() || [])]
+        .filter(channel => channel?.isTextBased?.() && channel?.messages?.fetch)
+        .map(channel => {
+            const channelName = cleanName(channel.name);
+            const parentName = cleanName(channel.parent?.name);
+            let score = 0;
+
+            for (const slug of normalizedSlugs) {
+                if (channelName === slug) score = Math.max(score, 100);
+                else if (channelName.includes(slug)) score = Math.max(score, 80);
+                else if (parentName === slug) score = Math.max(score, 60);
+                else if (parentName.includes(slug)) score = Math.max(score, 40);
+            }
+
+            return { channel, score };
+        })
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score || a.channel.position - b.channel.position);
+
+    return candidates[0]?.channel || null;
+}
+
+function catalogDisplayChannelId(message, embed) {
+    if (!isSystemCatalogMessage(message)) return String(message.channelId);
+
+    const text = systemTemplateSearchText(embed);
+    for (const placement of SYSTEM_TEMPLATE_PLACEMENTS) {
+        if (!placement.match.test(text)) continue;
+        const channel = findFeatureChannel(message.guild, placement.channelSlugs);
+        if (channel?.id) return String(channel.id);
+    }
+
+    return String(message.channelId);
+}
+
+function recordLocationForEmbed(message, embed, prior = null) {
+    const displayChannelId = catalogDisplayChannelId(message, embed);
+    const actualChannelId = String(message.channelId);
+    const isVirtualPlacement = displayChannelId !== actualChannelId;
+
+    return {
+        channelId: displayChannelId,
+        backingChannelId: isVirtualPlacement
+            ? actualChannelId
+            : (prior?.backingChannelId ? String(prior.backingChannelId) : null),
+    };
+}
+
 function normalizeRecord(record) {
     if (!record?.guildId || !record?.channelId || !record?.messageId) return null;
     const normalized = {
         guildId: String(record.guildId),
         channelId: String(record.channelId),
+        backingChannelId: record.backingChannelId ? String(record.backingChannelId) : null,
         messageId: String(record.messageId),
         embedIndex: Math.max(0, Number(record.embedIndex) || 0),
         source: String(record.source || 'cloudy'),
@@ -254,12 +356,13 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
 
             const additions = message.embeds
                 .map((embed, embedIndex) => {
+                    const location = recordLocationForEmbed(message, embed);
                     const addition = {
                         guildId: message.guildId,
-                        channelId: message.channelId,
+                        ...location,
                         messageId: message.id,
                         embedIndex,
-                        source,
+                        source: isSystemCatalogMessage(message) ? 'system-catalog' : source,
                         title: embed?.title || '',
                         name: embedName(embed),
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
@@ -291,7 +394,7 @@ export async function removeEmbedRegistryRecord(guildId, channelId, messageId, e
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
         const next = records.filter(item => !(
-            String(item.channelId) === String(channelId) &&
+            (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId)) &&
             String(item.messageId) === String(messageId) &&
             Number(item.embedIndex || 0) === Number(embedIndex || 0)
         ));
@@ -304,7 +407,7 @@ export async function removeEmbedRegistryMessage(guildId, channelId, messageId) 
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
         const next = records.filter(item => !(
-            String(item.channelId) === String(channelId) &&
+            (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId)) &&
             String(item.messageId) === String(messageId)
         ));
         if (next.length === records.length) return false;
@@ -315,7 +418,9 @@ export async function removeEmbedRegistryMessage(guildId, channelId, messageId) 
 export async function removeEmbedRegistryChannel(guildId, channelId) {
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
-        const next = records.filter(item => String(item.channelId) !== String(channelId));
+        const next = records.filter(item =>
+            String(item.channelId) !== String(channelId) && physicalChannelId(item) !== String(channelId),
+        );
         if (next.length === records.length) return false;
         return setInDb(registryKey(guildId), next);
     });
@@ -323,8 +428,9 @@ export async function removeEmbedRegistryChannel(guildId, channelId) {
 
 export async function resolveEmbedRegistryRecord(guild, record) {
     if (!guild || !record) return null;
-    const channel = guild.channels.cache.get(record.channelId)
-        || await guild.channels.fetch(record.channelId).catch(() => null);
+    const sourceChannelId = physicalChannelId(record);
+    const channel = guild.channels.cache.get(sourceChannelId)
+        || await guild.channels.fetch(sourceChannelId).catch(() => null);
     if (!channel?.messages?.fetch) return null;
 
     const message = await channel.messages.fetch(record.messageId).catch(() => null);
@@ -350,12 +456,13 @@ function recordsFromMessage(message, priorRecords = []) {
     return message.embeds
         .map((embed, embedIndex) => {
             const prior = priorByIndex.get(embedIndex);
+            const location = recordLocationForEmbed(message, embed, prior);
             const record = normalizeRecord({
                 guildId: message.guildId,
-                channelId: message.channelId,
+                ...location,
                 messageId: message.id,
                 embedIndex,
-                source: prior?.source || 'reconciled',
+                source: isSystemCatalogMessage(message) ? 'system-catalog' : (prior?.source || 'reconciled'),
                 title: embed?.title || '',
                 name: embedName(embed),
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
@@ -368,11 +475,12 @@ function recordsFromMessage(message, priorRecords = []) {
 
 async function resolveRegistryMessage(guild, records) {
     const first = records[0];
-    let channel = guild.channels.cache.get(first.channelId) || null;
+    const sourceChannelId = physicalChannelId(first);
+    let channel = guild.channels.cache.get(sourceChannelId) || null;
 
     if (!channel) {
         try {
-            channel = await guild.channels.fetch(first.channelId);
+            channel = await guild.channels.fetch(sourceChannelId);
         } catch (error) {
             return DEFINITIVE_MISSING_CODES.has(error?.code)
                 ? { status: 'missing', records: [] }
@@ -492,12 +600,13 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
 
                 for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
                     const embed = message.embeds[embedIndex];
+                    const location = recordLocationForEmbed(message, embed);
                     const addition = {
                         guildId: guild.id,
-                        channelId: channel.id,
+                        ...location,
                         messageId: message.id,
                         embedIndex,
-                        source: 'history',
+                        source: isSystemCatalogMessage(message) ? 'system-catalog' : 'history',
                         title: embed?.title || '',
                         name: embedName(embed),
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
