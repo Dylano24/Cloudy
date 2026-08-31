@@ -4,13 +4,13 @@ import { withErrorHandling } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
+import { createCardVisual } from './modules/cardVisuals.js';
 
 // Hollow suit glyphs survive Cloudy's global emoji sanitiser while staying readable.
 const SUITS = ['♤', '♡', '♢', '♧'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const value = card => card.rank === 'A' ? 1 : ['10', 'J', 'Q', 'K'].includes(card.rank) ? 0 : Number(card.rank);
 const score = cards => cards.reduce((total, card) => total + value(card), 0) % 10;
-const cardsText = cards => cards.map(card => `${card.rank}${card.suit}`).join('  ');
 function deck() {
   const cards = SUITS.flatMap(suit => RANKS.map(rank => ({ rank, suit })));
   for (let i = cards.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
@@ -25,9 +25,19 @@ function choices(id, disabled = false) {
 }
 function gameEmbed(user, amount, player = null, banker = null, result = null) {
   const description = result
-    ? `**Player Hand**\n${cardsText(player)}\nValue: **${score(player)}**\n\n**Banker Hand**\n${cardsText(banker)}\nValue: **${score(banker)}**\n\n${result}`
+    ? `**Player Hand** — Value: **${score(player)}**\n**Banker Hand** — Value: **${score(banker)}**\n\n${result}`
     : `Bet: **${money(amount)}**\n\nChoose where to place your bet.`;
   return createEmbed({ title: result ? 'Baccarat — Result' : 'Baccarat', description, color: result ? 'success' : 'primary', author: { name: user.username, iconURL: user.displayAvatarURL() } });
+}
+
+function payload(user, amount, id, player = null, banker = null, result = null, disabled = false) {
+  const gameEmbedResult = gameEmbed(user, amount, player, banker, result);
+  const files = [];
+  if (player && banker) {
+    const file = createCardVisual({ filename: `baccarat-${id}.svg`, rows: [{ label: 'Player', cards: player }, { label: 'Banker', cards: banker }] });
+    gameEmbedResult.setImage(`attachment://${file.name}`); files.push(file);
+  }
+  return { embeds: [gameEmbedResult], components: choices(id, disabled), files };
 }
 
 export default {
@@ -37,7 +47,7 @@ export default {
   execute: withErrorHandling(async (interaction, config, client) => {
     const deferred = await InteractionHelper.safeDefer(interaction); if (!deferred) return;
     const { amount, userData } = await takeBet(interaction, client); await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
-    await InteractionHelper.safeEditReply(interaction, { embeds: [gameEmbed(interaction.user, amount)], components: choices(interaction.id) });
+    await InteractionHelper.safeEditReply(interaction, payload(interaction.user, amount, interaction.id));
     const message = await interaction.fetchReply().catch(() => null);
     if (!message?.createMessageComponentCollector) return;
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${interaction.id}`), time: 2 * 60 * 1000, max: 1 });
@@ -49,12 +59,12 @@ export default {
       const multiplier = pick === winner ? winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2 : 0;
       const payout = Math.floor(amount * multiplier); userData.wallet += payout; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
       const result = `You chose **${pick}**. Winner: **${winner}**\n${payout ? `Payout: **${money(payout)}**` : `You lost **${money(amount)}**`}\nCash balance: **${money(userData.wallet)}**`;
-      await component.update({ embeds: [gameEmbed(interaction.user, amount, player, banker, result)], components: choices(interaction.id, true) });
+      await component.update(payload(interaction.user, amount, interaction.id, player, banker, result, true));
     });
     collector.on('end', async collected => {
       if (collected.size) return;
       userData.wallet += amount; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
-      await message.edit({ embeds: [gameEmbed(interaction.user, amount, null, null, `Game expired — **${money(amount)}** was returned.`)], components: choices(interaction.id, true) }).catch(() => {});
+      await message.edit(payload(interaction.user, amount, interaction.id, null, null, `Game expired — **${money(amount)}** was returned.`, true)).catch(() => {});
     });
   }, { command: 'baccarat' }),
 };
