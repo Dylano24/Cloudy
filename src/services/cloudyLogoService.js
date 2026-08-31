@@ -31,7 +31,13 @@ function filenameFromUrl(value) {
 
 export function isLegacyCloudyLogoUrl(value) {
   if (!value) return false;
-  return LEGACY_CLOUDY_LOGO_FILENAMES.has(filenameFromUrl(value));
+  const filename = filenameFromUrl(value);
+  if (filename === filenameFromUrl(CLOUDY_LOGO_URL)) return false;
+  if (LEGACY_CLOUDY_LOGO_FILENAMES.has(filename)) return true;
+
+  // Discord preserves old CDN upload names in many different forms. Treat
+  // every older Cloudy C-logo asset as legacy while leaving AUF AUF untouched.
+  return /^(?:cloudy-c-|cloudy-logo|cloudy-ticket-c-|cloudy-ticket-welcome-c).*\.(?:png|jpe?g|gif|webp|svg)$/i.test(filename);
 }
 
 export function isCloudyLogoUrl(value) {
