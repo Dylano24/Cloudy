@@ -2,12 +2,15 @@ import { EmbedBuilder } from 'discord.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { buildGamblingGuideDescription } from '../config/gamblingCommands.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { createStickyGuideManager } from './stickyGuideService.js';
 import { findDedicatedChannelBySlug as findBySlug, rememberDedicatedCommandChannel } from './dedicatedChannelPolicy.js';
 
 const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const LEGACY_GAMBLING_GUIDE_DESCRIPTION = 'All Cloudy gambling and game commands must be used in this channel. Use `/gamble`, `/fight`, `/flip`, or `/roll` here. These commands will not work in other channels.';
+const GAMBLING_GUIDE_DESCRIPTION = buildGamblingGuideDescription();
 
 const CHANNEL_RULES = {
   shop: {
@@ -19,7 +22,7 @@ const CHANNEL_RULES = {
   gambling: {
     slug: 'gambling',
     guideTitle: 'Gambling & Games',
-    guideDescription: 'All Cloudy gambling and game commands must be used in this channel. Use `/gamble`, `/fight`, `/flip`, or `/roll` here. These commands will not work in other channels.',
+    guideDescription: GAMBLING_GUIDE_DESCRIPTION,
     wrongChannelMessage: 'Gambling and game commands can only be used in the dedicated gambling channel.',
   },
 };
@@ -77,6 +80,7 @@ function isGamblingGuide(message) {
   return message.embeds?.some(embed =>
     String(embed.title || '').toLowerCase() === 'gambling & games'
     || embed.description === CHANNEL_RULES.gambling.guideDescription
+    || embed.description === LEGACY_GAMBLING_GUIDE_DESCRIPTION
   ) || false;
 }
 
@@ -91,10 +95,22 @@ const gamblingGuideManager = createStickyGuideManager({
   onError: error => logger.warn(`Gambling guide refresh failed: ${error.message}`),
   async buildPayload(channel, existing) {
     if (existing?.embeds?.length) {
-      // Keep changes made in the embed builder when moving the guide.
+      // Preserve Embed Builder styling and custom text. Only migrate the previous
+      // default four-command description to the complete Gambling & Games list.
+      const embeds = existing.embeds.map(embed => {
+        const data = embed.toJSON();
+        if (
+          String(data.title || '').toLowerCase() === 'gambling & games'
+          && data.description === LEGACY_GAMBLING_GUIDE_DESCRIPTION
+        ) {
+          data.description = GAMBLING_GUIDE_DESCRIPTION;
+        }
+        return data;
+      });
+
       return {
         content: existing.content || undefined,
-        embeds: existing.embeds.map(embed => embed.toJSON()),
+        embeds,
         files: [...(existing.attachments?.values() || [])].map(attachment => ({
           attachment: attachment.url,
           name: attachment.name,
