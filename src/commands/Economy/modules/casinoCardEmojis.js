@@ -1,13 +1,14 @@
 import { deflateSync } from 'node:zlib';
 
-// Simple UnbelievaBoat-style inline playing cards: large white card,
-// centered rank above one clean emoji-style suit.
-const SIZE = 128;
-const W = 96;
-const H = 126;
+// High-resolution UnbelievaBoat-style inline playing cards.
+// Discord still controls the final inline emoji height, but rendering at 256px
+// and filling the canvas gives the rank and suit much cleaner edges.
+const SIZE = 256;
+const W = 204;
+const H = 252;
 const X = Math.floor((SIZE - W) / 2);
 const Y = Math.floor((SIZE - H) / 2);
-const VERSION = 'v6';
+const VERSION = 'v7';
 const cache = new WeakMap();
 
 const FONT = {
@@ -109,7 +110,6 @@ function kind(suit = '') {
   return 'spade';
 }
 
-// Rounded suit silhouettes shaped to match the familiar ♣️ ♦️ ❤️ ♠️ emoji look.
 function drawSuit(s, symbol, cx, cy, size, color) {
   const k = kind(symbol);
 
@@ -133,15 +133,14 @@ function drawSuit(s, symbol, cx, cy, size, color) {
     circle(s, cx - Math.round(size * 0.50), cy, lobe, color);
     circle(s, cx + Math.round(size * 0.50), cy, lobe, color);
     triangle(s, cx - Math.round(size * 0.34), cy + Math.round(size * 0.15), cx + Math.round(size * 0.34), cy + Math.round(size * 0.15), cx, cy + Math.round(size * 0.95), color);
-    s.rect(cx - Math.max(2, Math.round(size * 0.16)), cy + Math.round(size * 0.22), Math.max(4, Math.round(size * 0.32)), Math.round(size * 0.84), color);
+    s.rect(cx - Math.max(3, Math.round(size * 0.16)), cy + Math.round(size * 0.22), Math.max(6, Math.round(size * 0.32)), Math.round(size * 0.84), color);
     return;
   }
 
-  // Spade: rounded shoulders and pointed crown, like ♠️.
   ellipse(s, cx - Math.round(size * 0.40), cy + Math.round(size * 0.12), Math.round(size * 0.52), Math.round(size * 0.48), color);
   ellipse(s, cx + Math.round(size * 0.40), cy + Math.round(size * 0.12), Math.round(size * 0.52), Math.round(size * 0.48), color);
   triangle(s, cx - size, cy + Math.round(size * 0.18), cx + size, cy + Math.round(size * 0.18), cx, cy - Math.round(size * 1.05), color);
-  s.rect(cx - Math.max(2, Math.round(size * 0.16)), cy + Math.round(size * 0.14), Math.max(4, Math.round(size * 0.32)), Math.round(size * 0.92), color);
+  s.rect(cx - Math.max(3, Math.round(size * 0.16)), cy + Math.round(size * 0.14), Math.max(6, Math.round(size * 0.32)), Math.round(size * 0.92), color);
 }
 
 function glyph(s, char, x, y, scale, color) {
@@ -183,19 +182,19 @@ function png(s) {
 }
 
 function drawFront(s, card, color) {
-  const scale = card.rank === '10' ? 3 : 4;
+  const scale = card.rank === '10' ? 7 : 9;
   const rankWidth = (String(card.rank).length * 6 - 1) * scale;
   const rankX = X + Math.floor((W - rankWidth) / 2);
-  const rankY = Y + 9;
+  const rankY = Y + 17;
 
   drawRank(s, card.rank, rankX, rankY, scale, color);
-  drawSuit(s, card.suit, X + Math.floor(W / 2), Y + 85, 22, color);
+  drawSuit(s, card.suit, X + Math.floor(W / 2), Y + 174, 47, color);
 }
 
 function drawBack(s) {
-  roundedRect(s, X + 4, Y + 4, W - 8, H - 8, 5, [52, 92, 170, 255]);
-  roundedRect(s, X + 8, Y + 8, W - 16, H - 16, 3, [231, 237, 248, 255]);
-  roundedRect(s, X + 11, Y + 11, W - 22, H - 22, 2, [52, 92, 170, 255]);
+  roundedRect(s, X + 8, Y + 8, W - 16, H - 16, 10, [52, 92, 170, 255]);
+  roundedRect(s, X + 16, Y + 16, W - 32, H - 32, 7, [231, 237, 248, 255]);
+  roundedRect(s, X + 22, Y + 22, W - 44, H - 44, 5, [52, 92, 170, 255]);
 }
 
 function render(card, hidden = false) {
@@ -204,9 +203,9 @@ function render(card, hidden = false) {
   const white = [255, 255, 255, 255];
   const shadow = [0, 0, 0, 35];
 
-  roundedRect(s, X + 1, Y + 1, W, H, 6, shadow);
-  roundedRect(s, X, Y, W, H, 6, border);
-  roundedRect(s, X + 1, Y + 1, W - 2, H - 2, 5, white);
+  roundedRect(s, X + 2, Y + 2, W, H, 12, shadow);
+  roundedRect(s, X, Y, W, H, 12, border);
+  roundedRect(s, X + 2, Y + 2, W - 4, H - 4, 10, white);
 
   if (hidden) {
     drawBack(s);
@@ -229,15 +228,17 @@ async function stateFor(client) {
   if (!client.application?.emojis) return null;
   let state = cache.get(client);
   if (!state) {
-    state = { loaded: false, byName: new Map() };
+    state = { loaded: false, byName: new Map(), loading: null, pending: new Map() };
     cache.set(client, state);
   }
   if (!state.loaded) {
-    try {
-      const emojis = await client.application.emojis.fetch();
-      for (const emoji of emojis.values()) state.byName.set(emoji.name, emoji);
-    } catch {}
-    state.loaded = true;
+    if (!state.loading) {
+      state.loading = client.application.emojis.fetch()
+        .then(emojis => { for (const emoji of emojis.values()) state.byName.set(emoji.name, emoji); })
+        .catch(() => {})
+        .finally(() => { state.loaded = true; state.loading = null; });
+    }
+    await state.loading;
   }
   return state;
 }
@@ -249,9 +250,15 @@ export async function cardEmoji(client, card, hidden = false) {
 
   let emoji = state.byName.get(name);
   if (!emoji) {
+    let pending = state.pending.get(name);
+    if (!pending) {
+      pending = client.application.emojis.create({ attachment: render(card, hidden), name })
+        .then(created => { state.byName.set(name, created); return created; })
+        .finally(() => state.pending.delete(name));
+      state.pending.set(name, pending);
+    }
     try {
-      emoji = await client.application.emojis.create({ attachment: render(card, hidden), name });
-      state.byName.set(name, emoji);
+      emoji = await pending;
     } catch {
       return hidden ? '🂠' : `${card.rank}${card.suit}`;
     }
