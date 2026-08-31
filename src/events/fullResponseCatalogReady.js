@@ -68,6 +68,74 @@ function captureMessage(message) {
   }, source);
 }
 
+function seedKnownGameResponses() {
+  const roulette = { commandName: 'roulette' };
+  const blackjack = { commandName: 'blackjack' };
+  const baccarat = { commandName: 'baccarat' };
+
+  captureSystemEmbedData({
+    title: 'Roulette — You won!',
+    description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
+    color: 0x57F287,
+    fields: [
+      { name: 'Your bet', value: '**{dynamic}** on **{dynamic}**', inline: true },
+      { name: 'Payout', value: '**{dynamic}**', inline: true },
+      { name: 'Cash balance', value: '**{dynamic}**', inline: true },
+    ],
+  }, roulette);
+
+  captureSystemEmbedData({
+    title: 'Roulette — You lost',
+    description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
+    color: 0xFEE75C,
+    fields: [
+      { name: 'Your bet', value: '**{dynamic}** on **{dynamic}**', inline: true },
+      { name: 'Result', value: 'Lost **{dynamic}**', inline: true },
+      { name: 'Cash balance', value: '**{dynamic}**', inline: true },
+    ],
+  }, roulette);
+
+  captureSystemEmbedData({
+    title: 'Blackjack — Bet $100',
+    description: 'Cards remaining: **48**',
+    color: 0x5865F2,
+    fields: [
+      { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+      { name: 'Dealer Hand', value: '{dynamic}\nValue: **?**', inline: true },
+    ],
+  }, blackjack);
+
+  for (const title of ['Win', 'Loss', 'Push', 'Bust', 'Blackjack', 'Expired']) {
+    captureSystemEmbedData({
+      title: `Result: ${title}`,
+      description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**\n\nCards remaining: **{dynamic}**',
+      color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0x5865F2,
+      fields: [
+        { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+        { name: 'Dealer Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+      ],
+    }, blackjack);
+  }
+
+  captureSystemEmbedData({
+    title: 'Baccarat — Place your bet',
+    description: 'Bet: **{dynamic}**\nChoose Player, Banker, or Tie.',
+    color: 0x5865F2,
+  }, baccarat);
+
+  for (const title of ['Player wins', 'Banker wins', 'Tie']) {
+    captureSystemEmbedData({
+      title: `Baccarat — ${title}`,
+      description: 'Bet: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**',
+      color: title === 'Tie' ? 0x5865F2 : 0x57F287,
+      fields: [
+        { name: 'Player', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+        { name: 'Banker', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+      ],
+    }, baccarat);
+  }
+}
+
 function patchInteractionCapture() {
   if (InteractionHelper[PATCH_MARKER]) return;
 
@@ -128,7 +196,7 @@ async function scanRecentBotResponses(client) {
     }
   }
 
-  logger.info(
+  logger.warn(
     `[EMBED_BUILDER] Full response history sync complete: ${channelsScanned} channels, ${messagesScanned} bot messages checked, ${responsesCaptured} response payloads captured.`,
   );
 }
@@ -139,6 +207,7 @@ export default {
 
   execute(client) {
     patchInteractionCapture();
+    seedKnownGameResponses();
 
     client.on(Events.MessageCreate, message => {
       try {
@@ -168,6 +237,6 @@ export default {
     }, STARTUP_SCAN_DELAY_MS);
     timer.unref?.();
 
-    logger.info('[EMBED_BUILDER] Full response capture enabled for embeds, notifications, interaction replies and message updates.');
+    logger.warn('[EMBED_BUILDER] Full response capture enabled for embeds, notifications, interaction replies and message updates.');
   },
 };
