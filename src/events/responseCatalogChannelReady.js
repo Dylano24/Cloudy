@@ -31,11 +31,18 @@ export default {
         });
       }
 
-      if (thread?.archived) await thread.setArchived(false).catch(() => {});
-      if (thread && String(thread.name || '').toLowerCase() !== 'botlog') {
-        await thread.setName('botlog').catch(() => {});
+      if (!thread) continue;
+
+      // Make the internal catalog discoverable immediately in the local Discord
+      // cache. The REST rename/unarchive can finish in the background without
+      // blocking the Embed Builder startup path.
+      if (String(thread.name || '').toLowerCase() !== 'botlog') {
+        try { thread.name = 'botlog'; } catch {}
+        void thread.setName('botlog').catch(() => {});
       }
-      if (thread) logger.warn(`[EMBED_BUILDER] Private catalog channel ready: ${thread.id}.`);
+      if (thread.archived) void thread.setArchived(false).catch(() => {});
+
+      logger.warn(`[EMBED_BUILDER] Private catalog channel ready: ${thread.id}.`);
     }
   },
 };
