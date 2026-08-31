@@ -66,14 +66,9 @@ async function embed(state, result = null) {
     fields,
   });
 
-  // Preserve Embed Builder title customizations, but never let a saved example bet
-  // (for example $100) overwrite the actual live wager.
-  if (!result) {
-    const currentTitle = String(gameEmbed.data.title || runtimeTitle);
-    gameEmbed.data.title = /\$[\d,.]+/.test(currentTitle)
-      ? currentTitle.replace(/\$[\d,.]+/, money(state.totalBet))
-      : runtimeTitle;
-  }
+  // The Embed Builder may contain an example title such as "Blackjack — Bet $100".
+  // Never allow that saved example value to replace the actual live wager.
+  gameEmbed.data.title = runtimeTitle;
 
   // Keep the exact custom-card markup in the live message while also exposing the
   // complete field layout to the automatic system embed catalog / embed builder.
