@@ -1,0 +1,40 @@
+name: Materialize exact Cloudy logo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'assets/cloudy-c-logo-auf-auf.b64.00'
+      - 'assets/cloudy-c-logo-auf-auf.b64.01'
+      - '.github/workflows/materialize-cloudy-logo.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild exact AUF AUF GIF
+        run: cat assets/cloudy-c-logo-auf-auf.b64.00 assets/cloudy-c-logo-auf-auf.b64.01 | base64 --decode > assets/cloudy-c-logo-auf-auf.gif
+      - name: Verify exact dimensions and GIF header
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          d=Path('assets/cloudy-c-logo-auf-auf.gif').read_bytes()
+          assert d[:6] in (b'GIF87a',b'GIF89a')
+          assert int.from_bytes(d[6:8],'little') == 555
+          assert int.from_bytes(d[8:10],'little') == 609
+          assert len(d) > 10000
+          print('AUF AUF verified', len(d))
+          PY
+      - name: Commit binary GIF
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/cloudy-c-logo-auf-auf.gif
+          git diff --cached --quiet && exit 0
+          git commit -m "Add exact AUF AUF Cloudy logo GIF"
+          git push
