@@ -1,13 +1,13 @@
 import { deflateSync } from 'node:zlib';
 
 // Simple UnbelievaBoat-style inline playing cards: narrow white rectangle,
-// large rank at the top and one clear suit underneath. No extra artwork.
+// centered rank above one clear suit. No extra artwork.
 const SIZE = 128;
-const W = 54;
-const H = 92;
+const W = 86;
+const H = 122;
 const X = Math.floor((SIZE - W) / 2);
 const Y = Math.floor((SIZE - H) / 2);
-const VERSION = 'v4';
+const VERSION = 'v5';
 const cache = new WeakMap();
 
 const FONT = {
@@ -166,24 +166,20 @@ function png(s) {
 }
 
 function drawFront(s, card, color) {
-  const rankScale = card.rank === '10' ? 3 : 4;
-  const rankX = X + 6;
-  const rankY = Y + 6;
-  drawRank(s, card.rank, rankX, rankY, rankScale, color);
+  const scale = card.rank === '10' ? 3 : 4;
+  const rankWidth = (String(card.rank).length * 6 - 1) * scale;
+  const rankX = X + Math.floor((W - rankWidth) / 2);
+  const rankY = Y + 10;
 
-  // One large suit directly under the rank, matching the simple reference card.
-  drawSuit(s, card.suit, X + Math.floor(W / 2), Y + 59, 12, color);
+  // Rank/letter is centered directly above the suit.
+  drawRank(s, card.rank, rankX, rankY, scale, color);
+  drawSuit(s, card.suit, X + Math.floor(W / 2), Y + 82, 18, color);
 }
 
 function drawBack(s) {
-  roundedRect(s, X + 4, Y + 4, W - 8, H - 8, 3, [52, 92, 170, 255]);
-  roundedRect(s, X + 7, Y + 7, W - 14, H - 14, 2, [231, 237, 248, 255]);
-  roundedRect(s, X + 10, Y + 10, W - 20, H - 20, 2, [52, 92, 170, 255]);
-  for (let yy = Y + 15; yy < Y + H - 14; yy += 8) {
-    for (let xx = X + 15; xx < X + W - 14; xx += 8) {
-      drawSuit(s, '♦', xx, yy, 2, [222, 231, 245, 255]);
-    }
-  }
+  roundedRect(s, X + 4, Y + 4, W - 8, H - 8, 4, [52, 92, 170, 255]);
+  roundedRect(s, X + 8, Y + 8, W - 16, H - 16, 3, [231, 237, 248, 255]);
+  roundedRect(s, X + 11, Y + 11, W - 22, H - 22, 2, [52, 92, 170, 255]);
 }
 
 function render(card, hidden = false) {
@@ -192,9 +188,9 @@ function render(card, hidden = false) {
   const white = [255, 255, 255, 255];
   const shadow = [0, 0, 0, 35];
 
-  roundedRect(s, X + 2, Y + 2, W, H, 4, shadow);
-  roundedRect(s, X, Y, W, H, 4, border);
-  roundedRect(s, X + 1, Y + 1, W - 2, H - 2, 3, white);
+  roundedRect(s, X + 2, Y + 2, W, H, 6, shadow);
+  roundedRect(s, X, Y, W, H, 6, border);
+  roundedRect(s, X + 1, Y + 1, W - 2, H - 2, 5, white);
 
   if (hidden) {
     drawBack(s);
