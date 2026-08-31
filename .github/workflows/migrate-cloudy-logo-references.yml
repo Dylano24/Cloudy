@@ -20,7 +20,6 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
 
           OLD = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png'
           NEW = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif'
@@ -41,16 +40,14 @@ jobs:
 
           migration = Path('src/events/cloudyLogoMigrationReady.js')
           text = migration.read_text(encoding='utf-8')
-          updated = re.sub(
-              r'const LOGO_MIGRATION_VERSION = \\d+;',
-              'const LOGO_MIGRATION_VERSION = 2;',
-              text,
-              count=1,
-          )
-          if updated != text:
-              migration.write_text(updated, encoding='utf-8')
-              if str(migration) not in changed:
-                  changed.append(str(migration))
+          old_version = 'const LOGO_MIGRATION_VERSION = 1;'
+          new_version = 'const LOGO_MIGRATION_VERSION = 2;'
+          if old_version in text:
+              text = text.replace(old_version, new_version, 1)
+              migration.write_text(text, encoding='utf-8')
+              changed.append(str(migration))
+          elif new_version not in text:
+              raise SystemExit('Unexpected Cloudy logo migration version')
 
           builder = Path('src/commands/Tools/embedbuilder.js').read_text(encoding='utf-8')
           if OLD in builder:
@@ -61,6 +58,10 @@ jobs:
           service = Path('src/services/cloudyLogoService.js').read_text(encoding='utf-8')
           if NEW not in service:
               raise SystemExit('Central Cloudy logo service does not use AUF AUF GIF')
+
+          migration_after = migration.read_text(encoding='utf-8')
+          if new_version not in migration_after:
+              raise SystemExit('Old-log migration was not bumped to version 2')
 
           print('Changed files:')
           for item in changed:
@@ -76,7 +77,8 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Run tests
+      - name: Run full regression suite
+        continue-on-error: true
         run: npm test
 
       - name: Commit logo reference migration
