@@ -344,7 +344,7 @@ function loadEmbedIntoState(state, resolved) {
         sourceEmbedData: data,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(templateRule),
-        templateTitle: templateRule?.key || templateIdentity(channel.id, recordName(record) || data.title),
+        templateTitle: templateRule?.key || templateIdentity(channel.id, data.title || recordName(record)),
     };
 }
 
@@ -771,7 +771,7 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
                 && embedIndex === Number(targetSnapshot.embedIndex || 0);
             if (isTarget || !record) return new EmbedBuilder(peerData);
 
-            const peerIdentity = templateIdentity(targetSnapshot.channelId, recordName(record) || peerData.title);
+            const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData.title || recordName(record));
             if (peerIdentity !== targetSnapshot.templateTitle) return new EmbedBuilder(peerData);
 
             changed = true;
@@ -803,7 +803,7 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
 
         const { record } = resolved;
         const peerData = resolved.embed.toJSON();
-        const peerIdentity = templateIdentity(targetSnapshot.channelId, recordName(record) || peerData.title);
+        const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData.title || recordName(record));
         if (peerIdentity !== targetSnapshot.templateTitle) continue;
 
         const peerIndex = Number(record.embedIndex || 0);
