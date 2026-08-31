@@ -11,6 +11,7 @@ import { scanProtectedIdentities } from "../services/protectedIdentityService.js
 import { initializeInviteTracking } from "../services/inviteTrackingService.js";
 import { reconcileTermsMessage } from "../services/termsMessageService.js";
 import { reconcileStoreTermsMessage } from "../services/storeTermsMessageService.js";
+import { ensureSystemEmbedCatalogs } from "../services/systemEmbedCatalogService.js";
 
 async function runReadyStep(label, task) {
   try {
@@ -68,6 +69,11 @@ export default {
     startupLog(`Ready! Logged in as ${client.user.tag}`);
     startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
     startupLog(`Loaded ${client.commands.size} commands`);
+
+    // Keep the Embed Builder master list synchronized independently from the
+    // rest of startup so every static, temporary and runtime embed can appear.
+    void runReadyStep('embed builder catalog sync', () => ensureSystemEmbedCatalogs(client))
+      .then(() => logger.info('[READY] Embed builder catalog sync complete.'));
 
     // Every subsystem is isolated so one optional feature can never prevent the
     // rest of Cloudy from finishing its startup sequence.
