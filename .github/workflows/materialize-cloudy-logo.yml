@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'assets/cloudy-c-logo-data/**'
+      - 'assets/cloudy-c-logo-exact-parts/**'
       - '.github/workflows/materialize-cloudy-logo.yml'
   workflow_dispatch:
 
@@ -18,20 +19,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rebuild AUF AUF GIF from all stored parts
+      - name: Rebuild exact AUF AUF GIF
         run: |
           python - <<'PY'
           from pathlib import Path
-          import base64
+          import base64, hashlib
 
-          paths = sorted(Path('assets/cloudy-c-logo-data').glob('*.b64'))
-          assert paths, 'No AUF AUF data parts found'
-          encoded = ''.join(p.read_text(encoding='utf-8').strip() for p in paths)
+          legacy = sorted(Path('assets/cloudy-c-logo-data').glob('*.b64'))
+          encoded = ''.join(p.read_text(encoding='utf-8').strip() for p in legacy)
           encoded += '=' * (-len(encoded) % 4)
-          data = base64.b64decode(encoded, validate=True)
+          prefix = base64.b64decode(encoded, validate=True)
+          print('stored-prefix-bytes=', len(prefix))
+          print('stored-prefix-sha256=', hashlib.sha256(prefix).hexdigest())
+
+          expected_prefix_sha = '0bfd0f7e0a97a5cabe41ff7d98f51c000758d84f9b7c803214921e616b82d1cb'
+          exact_parts = sorted(Path('assets/cloudy-c-logo-exact-parts').glob('*.bin'))
+          if hashlib.sha256(prefix).hexdigest() == expected_prefix_sha:
+              data = prefix + b''.join(p.read_bytes() for p in exact_parts)
+          else:
+              data = b''.join(p.read_bytes() for p in exact_parts)
+
           Path('assets/cloudy-c-logo-auf-auf.gif').write_bytes(data)
-          print('parts=', [p.name for p in paths])
-          print('decoded bytes=', len(data))
+          print('rebuilt-bytes=', len(data))
+          print('binary-sha256=', hashlib.sha256(data).hexdigest())
           PY
 
       - name: Install Pillow
