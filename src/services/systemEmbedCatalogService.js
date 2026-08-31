@@ -70,24 +70,42 @@ function shortHash(value) {
 
 function dynamicParts(value = '') {
   const values = [];
-  let text = String(value || '');
-  text = text.replace(/\{dynamic\}/gi, () => '{dynamic}');
-  text = text.replace(/<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/g, match => {
-    values.push(match);
-    return '{dynamic}';
-  });
+  const sentinel = '\u0000CLOUDY_DYNAMIC\u0000';
+  let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
+  text = text.replace(
+    /<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
+    match => {
+      values.push(match);
+      return '{dynamic}';
+    },
+  );
+  text = text.replaceAll(sentinel, '{dynamic}');
   return {
     pattern: normalize(text),
+    tokenized: text,
     values,
   };
 }
 
-function renderDynamic(template, runtime) {
+function renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch = false } = {}) {
   const source = String(runtime || '');
-  const values = dynamicParts(source).values;
-  let index = 0;
-  const rendered = String(template || '').replace(/\{dynamic\}/gi, () => values[index++] ?? '{dynamic}');
-  return /\{dynamic\}/i.test(rendered) ? source : rendered;
+  const templateSource = String(template || '');
+  const runtimeParts = dynamicParts(source);
+  const templateParts = dynamicParts(templateSource);
+  const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
+
+  if (!placeholders.length) return templateSource;
+  if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) return source;
+
+  let runtimeIndex = 0;
+  let templateIndex = 0;
+  const rendered = templateParts.tokenized.replace(/\{dynamic\}/gi, () => {
+    const runtimeValue = runtimeParts.values[runtimeIndex++];
+    const fallbackValue = templateParts.values[templateIndex++];
+    return runtimeValue ?? fallbackValue ?? '{dynamic}';
+  });
+
+  return fallbackToRuntimeOnMismatch && /\{dynamic\}/i.test(rendered) ? source : rendered;
 }
 
 function responseSignature(kind, title = '', description = '') {
@@ -118,7 +136,7 @@ function inferContextHint(source = null) {
   );
 
   if (/embed.?builder|simple_embed|message.?builder/.test(raw)) return null;
-  if (/gambl|coin.?flip|slots?|blackjack|roulette|fight|dice|roll|balance|daily|beg|crime|rob|fish|mine|pay|deposit|withdraw|inventory|economy|wallet|cash/.test(raw)) return contextualize('gambling', raw);
+  if (/gambl|coin.?flip|slots?|blackjack|roulette|baccarat|fight|dice|roll|balance|daily|beg|crime|rob|fish|mine|pay|deposit|withdraw|inventory|economy|wallet|cash/.test(raw)) return contextualize('gambling', raw);
   if (/ticket|transcript|claim|reopen/.test(raw)) return contextualize('tickets', raw);
   if (/music|play|skip|pause|resume|queue|now.?playing|volume/.test(raw)) return contextualize('music', raw);
   if (/giveaway|gcreate|gend|gdelete|greroll/.test(raw)) return contextualize('giveaway', raw);
@@ -268,6 +286,10 @@ function definitionToCatalog(definition) {
     ? String(definition.label || friendlyPlainTitle(context, description)).slice(0, 256)
     : (sourceTitle || 'Untitled embed').slice(0, 256);
 
+  const fields = Array.isArray(definition.fields)
+    ? definition.fields.filter(field => field?.name && field?.value).slice(0, 25).map(field => ({ ...field }))
+    : undefined;
+
   return {
     key,
     context,
@@ -276,13 +298,78 @@ function definitionToCatalog(definition) {
       title,
       ...(description ? { description } : {}),
       color: Number.isInteger(definition.color) ? definition.color : 0x5865F2,
+      ...(fields?.length ? { fields } : {}),
+      ...(definition.footer?.text ? { footer: { ...definition.footer } } : {}),
+      ...(definition.thumbnail?.url ? { thumbnail: { ...definition.thumbnail } } : {}),
+      ...(definition.image?.url ? { image: { ...definition.image } } : {}),
     }, key, context, kind),
   };
 }
 
+function mergeCatalogShape(existingData, incomingData) {
+  const existing = cloneData(existingData || {});
+  const incoming = cloneData(incomingData || {});
+  const next = { ...existing };
+
+  if (!next.title && incoming.title) next.title = incoming.title;
+  if (!next.description && incoming.description) next.description = incoming.description;
+  if (!Number.isInteger(next.color) && Number.isInteger(incoming.color)) next.color = incoming.color;
+  if (!next.footer?.text && incoming.footer?.text) next.footer = { ...incoming.footer };
+  if (!next.thumbnail?.url && incoming.thumbnail?.url) next.thumbnail = { ...incoming.thumbnail };
+  if (!next.image?.url && incoming.image?.url) next.image = { ...incoming.image };
+
+  const currentFields = Array.isArray(next.fields) ? next.fields.map(field => ({ ...field })) : [];
+  const incomingFields = Array.isArray(incoming.fields) ? incoming.fields : [];
+  for (let index = currentFields.length; index < incomingFields.length; index += 1) {
+    if (incomingFields[index]?.name && incomingFields[index]?.value) {
+      currentFields.push({ ...incomingFields[index] });
+    }
+  }
+  if (currentFields.length) next.fields = currentFields.slice(0, 25);
+
+  if (!next.author?.name && incoming.author?.name) next.author = { ...incoming.author };
+  return next;
+}
+
+function catalogDataChanged(left, right) {
+  return JSON.stringify(cloneData(left || {})) !== JSON.stringify(cloneData(right || {}));
+}
+
+function findCatalogEntry(messages, identity) {
+  for (const message of messages) {
+    for (let index = 0; index < (message?.embeds?.length || 0); index += 1) {
+      const metadata = parseTemplateMetadata(message.embeds[index]);
+      if (cacheIdentity(metadata.key, metadata.context) === identity) {
+        return { message, index, embed: message.embeds[index], metadata };
+      }
+    }
+  }
+  return null;
+}
+
 async function appendCatalogEntry(context, entry, messages) {
   const identity = cacheIdentity(entry.key, entry.context);
-  if (catalogEntries.has(identity)) return false;
+  const existingLocation = findCatalogEntry(messages, identity);
+
+  if (existingLocation) {
+    const currentData = cloneData(existingLocation.embed);
+    const mergedData = mergeCatalogShape(currentData, entry.data);
+    if (!catalogDataChanged(currentData, mergedData)) {
+      catalogEntries.add(identity);
+      rememberTemplate(entry.key, currentData, entry.context);
+      return false;
+    }
+
+    const embeds = existingLocation.message.embeds.map(embed => new EmbedBuilder(embed.toJSON()));
+    embeds[existingLocation.index] = new EmbedBuilder(mergedData);
+    const edited = await existingLocation.message.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
+    if (!edited) return false;
+
+    catalogEntries.add(identity);
+    rememberTemplate(entry.key, mergedData, entry.context);
+    await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register updated response catalog: ${error.message}`));
+    return true;
+  }
 
   let target = messages.at(-1) || null;
   let embeds = target ? target.embeds.map(embed => new EmbedBuilder(embed.toJSON())) : [];
@@ -325,7 +412,22 @@ function scheduleFlush() {
 
 function queueRuntimeEntry(entry) {
   const identity = cacheIdentity(entry.key, entry.context);
-  if (catalogEntries.has(identity) || pendingTemplates.has(identity)) return false;
+  const pending = pendingTemplates.get(identity);
+  if (pending) {
+    const merged = mergeCatalogShape(pending.data, entry.data);
+    pendingTemplates.set(identity, { ...pending, data: merged });
+    return true;
+  }
+
+  if (catalogEntries.has(identity)) {
+    const cached = findTemplate(entry.key, entry.context);
+    const merged = mergeCatalogShape(cached || {}, entry.data);
+    if (cached && !catalogDataChanged(cached, merged)) return false;
+    pendingTemplates.set(identity, { ...entry, data: merged });
+    scheduleFlush();
+    return true;
+  }
+
   pendingTemplates.set(identity, entry);
   scheduleFlush();
   return true;
@@ -365,12 +467,37 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   }
 
   const next = { ...data };
-  if (template.title) next.title = template.title;
-  if (template.description) next.description = renderDynamic(template.description, data.description);
+  if (template.title) next.title = renderDynamic(template.title, data.title, { fallbackToRuntimeOnMismatch: true });
+  if (template.description) next.description = renderDynamic(template.description, data.description, { fallbackToRuntimeOnMismatch: true });
   if (Number.isInteger(template.color)) next.color = template.color;
-  if (Array.isArray(template.fields)) next.fields = template.fields.map(field => ({ ...field }));
-  if (template.footer?.text) next.footer = { ...template.footer };
-  else delete next.footer;
+
+  if (Array.isArray(template.fields)) {
+    const runtimeFields = Array.isArray(data.fields) ? data.fields : [];
+    next.fields = runtimeFields.length
+      ? runtimeFields.map((runtimeField, index) => {
+        const templateField = template.fields[index];
+        if (!templateField) return { ...runtimeField };
+        return {
+          ...runtimeField,
+          name: templateField.name
+            ? renderDynamic(templateField.name, runtimeField.name, { fallbackToRuntimeOnMismatch: true })
+            : runtimeField.name,
+          value: templateField.value
+            ? renderDynamic(templateField.value, runtimeField.value, { fallbackToRuntimeOnMismatch: true })
+            : runtimeField.value,
+          inline: typeof templateField.inline === 'boolean' ? templateField.inline : runtimeField.inline,
+        };
+      })
+      : template.fields.map(field => ({ ...field }));
+  }
+
+  if (template.footer?.text) {
+    next.footer = {
+      ...template.footer,
+      text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, { fallbackToRuntimeOnMismatch: true }),
+    };
+  } else delete next.footer;
+
   if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
   else delete next.thumbnail;
   if (template.image?.url) next.image = { ...template.image };
@@ -403,7 +530,7 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
     return payload;
   }
 
-  const replacement = renderDynamic(template.description || content, content);
+  const replacement = renderDynamic(template.description || content, content, { fallbackToRuntimeOnMismatch: true });
   if (typeof payload === 'string') return replacement;
   return { ...payload, content: replacement };
 }
@@ -438,7 +565,7 @@ export async function ensureSystemEmbedCatalogs(client) {
   }
 
   await flushPendingTemplates();
-  logger.warn(`[EMBED_BUILDER] Response catalog ready: ${definitions.length} source definitions, ${totalAdded} newly indexed.`);
+  logger.warn(`[EMBED_BUILDER] Response catalog ready: ${definitions.length} source definitions, ${totalAdded} newly indexed or enriched.`);
   return { definitions: definitions.length, added: totalAdded };
 }
 
@@ -462,10 +589,12 @@ async function flushPendingTemplates() {
 
   for (const context of contexts.values()) {
     const messages = await loadCatalogMessages(context);
+    for (const message of messages) rememberCatalogMessage(message);
     for (const entry of queued) {
       await appendCatalogEntry(context, entry, messages).catch(error => {
-        logger.warn(`Failed to append runtime response template: ${error.message}`);
+        logger.warn(`Failed to append or enrich runtime response template: ${error.message}`);
       });
     }
+    await saveCatalogIds(context.guild.id, messages);
   }
 }
