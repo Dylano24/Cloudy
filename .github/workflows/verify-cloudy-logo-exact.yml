@@ -1,0 +1,47 @@
+name: Verify exact Cloudy logo pixels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-cloudy-logo-exact.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pillow
+        run: python -m pip install --quiet pillow
+      - name: Verify every AUF AUF frame and timing
+        run: |
+          python - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          import hashlib, struct
+
+          path = Path('assets/cloudy-c-logo-auf-auf.gif')
+          im = Image.open(path)
+          h = hashlib.sha256()
+          h.update(struct.pack('<II', *im.size))
+          h.update(struct.pack('<I', im.n_frames))
+          h.update(struct.pack('<I', im.info.get('loop', 0)))
+          durations = []
+          for i in range(im.n_frames):
+              im.seek(i)
+              duration = im.info.get('duration', 0)
+              durations.append(duration)
+              h.update(struct.pack('<I', duration))
+              h.update(im.convert('RGBA').tobytes())
+
+          expected = 'a1d78814bd281d9f035a85029746808b0c4fb61a96cce708b3436d5669c8de1c'
+          actual = h.hexdigest()
+          print('size=', im.size, 'frames=', im.n_frames, 'loop=', im.info.get('loop', 0))
+          print('durations=', sorted(set(durations)))
+          print('visual_hash=', actual)
+          if actual != expected:
+              raise SystemExit('AUF AUF visual/frame hash mismatch')
+          if im.size != (555, 609) or im.n_frames != 23 or set(durations) != {40}:
+              raise SystemExit('AUF AUF metadata mismatch')
+          print('EXACT VISUAL MATCH')
+          PY
