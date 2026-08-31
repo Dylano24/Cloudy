@@ -23,24 +23,28 @@ function choices(id, disabled = false) {
   )];
 }
 async function gameEmbed(client, user, amount, player = null, banker = null, result = null) {
+  const fields = player?.length && banker?.length ? [
+    { name: 'Player Hand', value: `${await cardsEmojiLine(client, player)}\nValue: **${score(player)}**`, inline: true },
+    { name: 'Banker Hand', value: `${await cardsEmojiLine(client, banker)}\nValue: **${score(banker)}**`, inline: true },
+  ] : [];
+
   const game = createEmbed({
     title: result ? 'Baccarat — Result' : `Baccarat — Bet ${money(amount)}`,
     description: result || 'Choose where to place your bet.',
     color: result ? 'success' : 'primary',
     author: { name: user.username, iconURL: user.displayAvatarURL() },
+    fields,
   });
-  if (player?.length && banker?.length) {
-    game.data.fields = [
-      { name: 'Player Hand', value: `${await cardsEmojiLine(client,player)}\nValue: **${score(player)}**`, inline: true },
-      { name: 'Banker Hand', value: `${await cardsEmojiLine(client,banker)}\nValue: **${score(banker)}**`, inline: true },
-    ];
-  }
+
+  // Preserve exact application-emoji markup in Discord while the complete fields
+  // are also registered in the automatic system embed catalog / embed builder.
+  if (fields.length) game.data.fields = fields;
   return game;
 }
 
 export default {
   data: new SlashCommandBuilder().setName('baccarat').setDescription('Play interactive baccarat')
-    .addIntegerOption(option => option.setName('amount').setDescription('Cash to bet').setRequired(true).setMinValue(1)),
+    .addIntegerOption(option => option.setName('amount').setDescription('Bet any cash amount you can afford').setRequired(true).setMinValue(1)),
   category: 'Economy',
   execute: withErrorHandling(async (interaction, config, client) => {
     const deferred = await InteractionHelper.safeDefer(interaction); if (!deferred) return;
