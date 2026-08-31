@@ -363,10 +363,14 @@ async function saveRecords(guildId, additions) {
 
 export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
     const grouped = new Map();
+    // A message deliberately sent from the Embed Builder is a user-created
+    // template and must remain editable even when its title is custom. Normal
+    // bot traffic stays restricted to the fixed template types below.
+    const isManualBuilderMessage = source === 'embed-builder';
 
     try {
         for (const message of Array.isArray(messages) ? messages : []) {
-            if (!isRegistrableCloudyEmbedMessage(message)) continue;
+            if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;
 
             const additions = message.embeds
                 .map((embed, embedIndex) => {
@@ -385,6 +389,7 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                     return addition;
                 })
                 .filter(addition => isSystemCatalogMessage(message)
+                    || isManualBuilderMessage
                     || (!isInternalEmbedRecord(addition) && isFixedCloudyEmbed(message.embeds[addition.embedIndex])));
 
             if (!additions.length) continue;
