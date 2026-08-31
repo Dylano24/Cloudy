@@ -68,9 +68,11 @@ function buildModerationLogData(event) {
     });
   }
 
-  const title = event.action === 'Member Unbanned'
-    ? 'Member unbanned'
-    : event.caseId
+  const title = event.action === 'Member Kicked'
+    ? 'Kick log'
+    : event.action === 'Member Unbanned'
+      ? 'Member unbanned'
+      : event.caseId
       ? `${event.action} · Case #${event.caseId}`
       : event.action;
 
