@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
 const CATALOG_CONTENT = 'System & error embed templates';
 const MAX_EMBEDS_PER_MESSAGE = 10;
+const TEMPLATE_KEY_PREFIX = 'Cloudy template key:';
 
 const contexts = new Map();
 const templateCache = new Map();
@@ -45,11 +46,22 @@ function findCatalogChannel(guild) {
   }) || null;
 }
 
+function withStableKey(data, key) {
+  return {
+    ...data,
+    author: {
+      ...(data.author || {}),
+      name: `${TEMPLATE_KEY_PREFIX} ${normalize(key)}`,
+    },
+  };
+}
+
 function seedToEmbed(seed) {
-  return new EmbedBuilder()
-    .setTitle(seed.title)
-    .setDescription(seed.description)
-    .setColor(seed.color);
+  return new EmbedBuilder(withStableKey({
+    title: seed.title,
+    description: seed.description,
+    color: seed.color,
+  }, seed.key));
 }
 
 function extractDynamicValues(description = '') {
@@ -86,6 +98,10 @@ function rememberTemplate(key, embed) {
 
 function templateKeyFromEmbed(embed) {
   const data = cloneData(embed);
+  const authorName = String(data.author?.name || '');
+  if (authorName.toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase())) {
+    return normalize(authorName.slice(TEMPLATE_KEY_PREFIX.length));
+  }
   return normalize(data.title);
 }
 
@@ -94,7 +110,7 @@ function queueRuntimeTemplate(embed) {
   const key = normalize(data.title);
   if (!key || templateCache.has(key) || pendingTemplates.has(key)) return;
 
-  pendingTemplates.set(key, data);
+  pendingTemplates.set(key, withStableKey(data, key));
   if (flushTimer) return;
   flushTimer = setTimeout(() => {
     flushTimer = null;
@@ -193,6 +209,8 @@ export async function ensureSystemEmbedCatalogs(client) {
     messages = await ensureSeedTemplates(context, messages);
     refreshCacheFromMessages(messages);
   }
+
+  if (pendingTemplates.size) await flushPendingTemplates();
 }
 
 export async function syncSystemEmbedCatalogMessage(message) {
@@ -224,7 +242,7 @@ async function appendRuntimeTemplate(context, data) {
   if (!edited) return false;
 
   await saveCatalogIds(context.guild.id, messages);
-  rememberTemplate(data.title, data);
+  rememberTemplate(templateKeyFromEmbed(data), data);
   return true;
 }
 
