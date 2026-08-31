@@ -13,23 +13,10 @@ const SKIPPED_FILES = new Set([
   'systemEmbedCatalogMessageUpdate.js',
 ]);
 
-const STRING_LITERAL = String.raw`(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|\`((?:\\.|[^\`\\])*)\`)`;
-const TITLE_PATTERNS = [
-  new RegExp(String.raw`\.setTitle\(\s*${STRING_LITERAL}\s*\)`, 'gs'),
-  new RegExp(String.raw`\btitle\s*:\s*${STRING_LITERAL}`, 'gs'),
-  new RegExp(String.raw`\btitleOverride\s*:\s*${STRING_LITERAL}`, 'gs'),
-];
-const DESCRIPTION_PATTERNS = [
-  new RegExp(String.raw`\.setDescription\(\s*${STRING_LITERAL}\s*\)`, 'gs'),
-  new RegExp(String.raw`\bdescription\s*:\s*${STRING_LITERAL}`, 'gs'),
-];
-
-function decodeLiteral(match, offset = 1, { allowDynamic = true } = {}) {
-  const raw = match[offset] ?? match[offset + 1] ?? match[offset + 2];
-  if (raw == null) return null;
-  if (!allowDynamic && raw.includes('${')) return null;
-
-  return raw
+function decodeString(value, { allowDynamic = true } = {}) {
+  if (value == null) return null;
+  if (!allowDynamic && value.includes('${')) return null;
+  return String(value)
     .replace(/\$\{[^}]*\}/g, '{dynamic}')
     .replace(/\\n/g, '\n')
     .replace(/\\r/g, '\r')
@@ -39,6 +26,11 @@ function decodeLiteral(match, offset = 1, { allowDynamic = true } = {}) {
     .replace(/\\'/g, "'")
     .replace(/\\\\/g, '\\')
     .trim();
+}
+
+function literalFromText(text) {
+  const match = String(text || '').match(/(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/s);
+  return match ? (match[1] ?? match[2] ?? match[3] ?? null) : null;
 }
 
 function safeSlug(value) {
@@ -55,22 +47,20 @@ function inferContext(relativePath) {
   const normalized = relativePath.replace(/\\/g, '/');
   const parts = normalized.split('/');
   const file = safeSlug(parts.at(-1));
-  const commandCategory = parts[0] === 'commands' ? String(parts[1] || '').toLowerCase() : '';
+  const category = parts[0] === 'commands' ? String(parts[1] || '').toLowerCase() : '';
 
-  if (commandCategory === 'economy') return `gambling/${file}`;
-  if (commandCategory === 'music') return `music/${file}`;
-  if (commandCategory === 'ticket') return `tickets/${file}`;
-  if (commandCategory === 'giveaway') return `giveaway/${file}`;
-  if (commandCategory === 'moderation' || commandCategory === 'logging') return `botlog/${file}`;
-  if (commandCategory === 'community') {
+  if (category === 'economy') return `gambling/${file}`;
+  if (category === 'music') return `music/${file}`;
+  if (category === 'ticket') return `tickets/${file}`;
+  if (category === 'giveaway') return `giveaway/${file}`;
+  if (category === 'moderation' || category === 'logging') return `botlog/${file}`;
+  if (category === 'community') {
     if (/appeal/.test(file)) return `ban-appeal/${file}`;
     if (/report/.test(file)) return `reports/${file}`;
     if (/shop|store|purchase|subscription/.test(file)) return `shop/${file}`;
     return `botlog/${file}`;
   }
-  if (commandCategory === 'fun') return `botlog/${file}`;
-  if (commandCategory === 'reaction_roles') return `botlog/${file}`;
-  if (commandCategory) return `botlog/${file}`;
+  if (category) return `botlog/${file}`;
 
   if (/welcome/.test(file)) return `welcome/${file}`;
   if (/faq/.test(file)) return `faq/${file}`;
@@ -91,54 +81,69 @@ function inferColor(title) {
   return 0x5865F2;
 }
 
-function nearestDescription(source, index) {
-  const window = source.slice(index, Math.min(source.length, index + 1800));
-  let best = null;
+function findDescription(lines, startIndex) {
+  const end = Math.min(lines.length, startIndex + 24);
+  for (let index = startIndex; index < end; index += 1) {
+    const line = lines[index];
+    const marker = line.includes('.setDescription(')
+      ? '.setDescription('
+      : /\bdescription\s*:/.test(line)
+        ? 'description:'
+        : null;
+    if (!marker) continue;
 
-  for (const pattern of DESCRIPTION_PATTERNS) {
-    pattern.lastIndex = 0;
-    const match = pattern.exec(window);
-    if (!match) continue;
-    if (!best || match.index < best.index) best = { match, index: match.index };
+    const combined = lines.slice(index, Math.min(end, index + 8)).join('\n');
+    const raw = literalFromText(combined.slice(combined.indexOf(marker) + marker.length));
+    const decoded = decodeString(raw, { allowDynamic: true });
+    if (decoded) return decoded;
   }
+  return null;
+}
 
-  return best ? decodeLiteral(best.match, 1, { allowDynamic: true }) : null;
+function findTitleOnLine(lines, index) {
+  const line = lines[index];
+  let marker = null;
+  if (line.includes('.setTitle(')) marker = '.setTitle(';
+  else if (/\btitleOverride\s*:/.test(line)) marker = 'titleOverride:';
+  else if (/\btitle\s*:/.test(line)) marker = 'title:';
+  if (!marker) return null;
+
+  const combined = lines.slice(index, Math.min(lines.length, index + 8)).join('\n');
+  const raw = literalFromText(combined.slice(combined.indexOf(marker) + marker.length));
+  return decodeString(raw, { allowDynamic: false });
 }
 
 function extractDefinitions(source, relativePath) {
   if (!EMBED_HINT.test(source)) return [];
 
   const context = inferContext(relativePath);
+  const lines = source.split(/\r?\n/);
   const results = [];
   const seen = new Set();
 
-  for (const pattern of TITLE_PATTERNS) {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(source))) {
-      const title = decodeLiteral(match, 1, { allowDynamic: false });
-      if (!title || title.length > 256) continue;
+  for (let index = 0; index < lines.length; index += 1) {
+    const title = findTitleOnLine(lines, index);
+    if (!title || title.length > 256) continue;
 
-      const description = nearestDescription(source, match.index);
-      const identity = `${context}\n${title}\n${description || ''}`;
-      if (seen.has(identity)) continue;
-      seen.add(identity);
+    const description = findDescription(lines, index);
+    const identity = `${context}\n${title}\n${description || ''}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
 
-      results.push({
-        title,
-        description,
-        color: inferColor(title),
-        context,
-        variantId: `${relativePath}:${match.index}`,
-      });
-    }
+    results.push({
+      title,
+      description,
+      color: inferColor(title),
+      context,
+      variantId: `${relativePath}:${index + 1}`,
+    });
   }
 
   return results;
 }
 
 async function walk(dir, output = []) {
-  let entries;
+  let entries = [];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
@@ -150,10 +155,9 @@ async function walk(dir, output = []) {
     const absolute = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       await walk(absolute, output);
-      continue;
+    } else if (entry.isFile() && entry.name.endsWith('.js') && !SKIPPED_FILES.has(entry.name)) {
+      output.push(absolute);
     }
-    if (!entry.isFile() || !entry.name.endsWith('.js') || SKIPPED_FILES.has(entry.name)) continue;
-    output.push(absolute);
   }
 
   return output;
