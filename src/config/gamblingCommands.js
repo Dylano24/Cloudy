@@ -1,13 +1,11 @@
 export const GAMBLING_GAME_COMMANDS = [
-  { name: 'gamble', usage: '/gamble [amount]', group: 'Games', description: 'View this list or bet cash for a chance to win more.' },
-  { name: 'fight', usage: '/fight opponent', group: 'Games', description: 'Start a 1v1 battle with another member.' },
-  { name: 'flip', usage: '/flip', group: 'Games', description: 'Flip a coin.' },
-  { name: 'roll', usage: '/roll notation', group: 'Games', description: 'Roll dice, for example 2d6 or 1d20+4.' },
+  { name: 'baccarat', usage: '/baccarat amount bet', group: 'Games', description: 'Bet on Player, Banker, or Tie.' },
+  { name: 'blackjack', usage: '/blackjack amount', group: 'Games', description: 'Play a complete blackjack hand.' },
+  { name: 'roulette', usage: '/roulette amount bet', group: 'Games', description: 'Bet red, black, even, odd, or a number.' },
+  { name: 'slots', usage: '/slots amount', group: 'Games', description: 'Spin the slot machine.' },
   { name: 'beg', usage: '/beg', group: 'Earn money', description: 'Beg for some cash.' },
   { name: 'crime', usage: '/crime', group: 'Earn money', description: 'Attempt a crime for a possible cash reward.' },
   { name: 'daily', usage: '/daily', group: 'Earn money', description: 'Claim your daily economy reward.' },
-  { name: 'fish', usage: '/fish', group: 'Earn money', description: 'Go fishing for economy rewards.' },
-  { name: 'mine', usage: '/mine', group: 'Earn money', description: 'Go mining for economy rewards.' },
   { name: 'rob', usage: '/rob', group: 'Earn money', description: 'Attempt to rob another member.' },
   { name: 'slut', usage: '/slut', group: 'Earn money', description: 'Use the economy risk/reward command.' },
   { name: 'work', usage: '/work', group: 'Earn money', description: 'Work for an economy reward.' },
@@ -16,16 +14,27 @@ export const GAMBLING_GAME_COMMANDS = [
   { name: 'withdraw', usage: '/withdraw', group: 'Economy', description: 'Move money out of your bank.' },
   { name: 'pay', usage: '/pay', group: 'Economy', description: 'Pay another member.' },
   { name: 'inventory', usage: '/inventory', group: 'Economy', description: 'View your economy inventory.' },
-  { name: 'eleaderboard', usage: '/eleaderboard', group: 'Economy', description: 'View the economy leaderboard.' },
-  { name: 'count', usage: '/count', group: 'Game management', description: 'Manage the server counting game. Manage Server permission required.' },
+  { name: 'leaderboard', usage: '/leaderboard', group: 'Economy', description: 'View the economy leaderboard.' },
 ];
 
 export const GAMBLING_GAME_COMMAND_NAMES = new Set(
   GAMBLING_GAME_COMMANDS.map(command => command.name),
 );
 
+// These older gambling-channel commands are intentionally no longer registered.
+// Their files remain for migration safety, but Discord removes them on the next
+// bulk command sync.
+export const RETIRED_GAMBLING_COMMAND_NAMES = new Set([
+  'gamble', 'fish', 'mine', 'count', 'fight', 'flip', 'roll',
+]);
+
+export function isRetiredGamblingCommand(commandName) {
+  return RETIRED_GAMBLING_COMMAND_NAMES.has(String(commandName || '').toLowerCase());
+}
+
 export function isGamblingGameCommand(commandName) {
-  return GAMBLING_GAME_COMMAND_NAMES.has(String(commandName || '').toLowerCase());
+  const normalized = String(commandName || '').toLowerCase();
+  return GAMBLING_GAME_COMMAND_NAMES.has(normalized) || RETIRED_GAMBLING_COMMAND_NAMES.has(normalized);
 }
 
 export function buildGamblingCommandListText() {
@@ -41,6 +50,13 @@ export function buildGamblingCommandListText() {
       ...commands.map(command => `\`${command.usage}\` — ${command.description}`),
     ].join('\n'))
     .join('\n\n');
+}
+
+export function buildGamesCommandListText() {
+  return GAMBLING_GAME_COMMANDS
+    .filter(command => command.group === 'Games')
+    .map(command => `\`${command.usage}\` — ${command.description}`)
+    .join('\n');
 }
 
 export function buildGamblingGuideDescription() {
