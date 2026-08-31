@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'assets/cloudy-c-logo-auf-auf.b64.00'
-      - 'assets/cloudy-c-logo-auf-auf.b64.01'
+      - 'assets/cloudy-c-logo-data/**'
       - '.github/workflows/materialize-cloudy-logo.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,41 +18,62 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rebuild exact AUF AUF GIF
+      - name: Rebuild AUF AUF GIF from all stored parts
         run: |
           python - <<'PY'
           from pathlib import Path
           import base64
 
-          paths = [
-              Path('assets/cloudy-c-logo-auf-auf.b64.00'),
-              Path('assets/cloudy-c-logo-auf-auf.b64.01'),
-          ]
+          paths = sorted(Path('assets/cloudy-c-logo-data').glob('*.b64'))
+          assert paths, 'No AUF AUF data parts found'
           encoded = ''.join(p.read_text(encoding='utf-8').strip() for p in paths)
           encoded += '=' * (-len(encoded) % 4)
           data = base64.b64decode(encoded, validate=True)
           Path('assets/cloudy-c-logo-auf-auf.gif').write_bytes(data)
-          print('Decoded bytes:', len(data))
+          print('parts=', [p.name for p in paths])
+          print('decoded bytes=', len(data))
           PY
 
-      - name: Verify exact dimensions and GIF header
+      - name: Install Pillow
+        run: python -m pip install --quiet pillow
+
+      - name: Verify exact AUF AUF animation
         run: |
           python - <<'PY'
+          from PIL import Image
           from pathlib import Path
-          d = Path('assets/cloudy-c-logo-auf-auf.gif').read_bytes()
-          assert d[:6] in (b'GIF87a', b'GIF89a'), 'Invalid GIF header'
-          width = int.from_bytes(d[6:8], 'little')
-          height = int.from_bytes(d[8:10], 'little')
-          assert (width, height) == (555, 609), f'Unexpected dimensions: {width}x{height}'
-          assert len(d) > 10_000, f'GIF too small: {len(d)} bytes'
-          print(f'AUF AUF verified: {width}x{height}, {len(d)} bytes')
+          import hashlib, struct
+
+          path = Path('assets/cloudy-c-logo-auf-auf.gif')
+          im = Image.open(path)
+          h = hashlib.sha256()
+          h.update(struct.pack('<II', *im.size))
+          h.update(struct.pack('<I', im.n_frames))
+          h.update(struct.pack('<I', im.info.get('loop', 0)))
+          durations = []
+          for i in range(im.n_frames):
+              im.seek(i)
+              duration = im.info.get('duration', 0)
+              durations.append(duration)
+              h.update(struct.pack('<I', duration))
+              h.update(im.convert('RGBA').tobytes())
+
+          expected = 'a1d78814bd281d9f035a85029746808b0c4fb61a96cce708b3436d5669c8de1c'
+          actual = h.hexdigest()
+          print('size=', im.size, 'frames=', im.n_frames, 'durations=', sorted(set(durations)))
+          print('visual_hash=', actual)
+          assert im.size == (555, 609)
+          assert im.n_frames == 23
+          assert set(durations) == {40}
+          assert actual == expected, 'AUF AUF is not the approved pixel-exact animation'
+          print('EXACT AUF AUF MATCH')
           PY
 
-      - name: Commit binary GIF
+      - name: Commit verified binary GIF
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add assets/cloudy-c-logo-auf-auf.gif
           git diff --cached --quiet && exit 0
-          git commit -m "Add exact AUF AUF Cloudy logo GIF"
+          git commit -m "Install verified AUF AUF Cloudy logo"
           git push
