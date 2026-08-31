@@ -126,7 +126,8 @@ export async function loadCommands(client) {
       }
 
       const commandName = command.data.toJSON()?.name;
-      if (isRetiredGamblingCommand(commandName)) {
+      if (isRetiredGamblingCommand(commandName)
+        || (commandName === 'gamble' && path.basename(filePath) === 'gamble.js')) {
         logger.info(`[COMMAND_LOAD] /${commandName} is retired and was skipped.`);
         continue;
       }

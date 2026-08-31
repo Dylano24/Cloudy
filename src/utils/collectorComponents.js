@@ -14,6 +14,7 @@ const COLLECTOR_MANAGED_PREFIXES = [
   'simple_embed_modify_embed',
   'simple_embed_modify_embed_page',
   'simple_embed_modify_back',
+  'casino_',
 ];
 
 export function isCollectorManagedComponent(customId = '') {

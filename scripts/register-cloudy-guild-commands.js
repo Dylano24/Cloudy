@@ -87,7 +87,8 @@ async function loadPayloads() {
       if (!command?.data || typeof command.data.toJSON !== 'function' || typeof command.execute !== 'function') continue;
 
       const payload = JSON.parse(JSON.stringify(command.data.toJSON()));
-      if (isRetiredGamblingCommand(payload?.name)) continue;
+      if (isRetiredGamblingCommand(payload?.name)
+        || (payload?.name === 'gamble' && path.basename(file) === 'gamble.js')) continue;
       if (!payload?.name || seen.has(payload.name)) continue;
       seen.add(payload.name);
 
