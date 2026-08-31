@@ -54,9 +54,22 @@ export default {
       if (score(player) < 6) player.push(cards.pop());
       if (score(banker) < 6) banker.push(cards.pop());
       const playerScore = score(player), bankerScore = score(banker); const winner = playerScore === bankerScore ? 'tie' : playerScore > bankerScore ? 'player' : 'banker';
-      const multiplier = pick === winner ? winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2 : 0;
-      const payout = Math.floor(amount * multiplier); userData.wallet += payout; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
-      const result = `You chose **${pick}**. Winner: **${winner}**\n${payout ? `Payout: **${money(payout)}**` : `You lost **${money(amount)}**`}\nCash balance: **${money(userData.wallet)}**`;
+
+      let payout = 0;
+      let outcomeText = '';
+      if (winner === 'tie' && pick !== 'tie') {
+        payout = amount;
+        outcomeText = `Tie — your **${money(amount)}** bet was returned.`;
+      } else if (pick === winner) {
+        const multiplier = winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2;
+        payout = Math.floor(amount * multiplier);
+        outcomeText = `Payout: **${money(payout)}**`;
+      } else {
+        outcomeText = `You lost **${money(amount)}**`;
+      }
+
+      userData.wallet += payout; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
+      const result = `You chose **${pick}**. Winner: **${winner}**\n${outcomeText}\nCash balance: **${money(userData.wallet)}**`;
       await component.update({ embeds: [await gameEmbed(client, interaction.user, amount, player, banker, result)], components: choices(interaction.id, true), attachments: [] });
     });
     collector.on('end', async collected => {
