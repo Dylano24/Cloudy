@@ -17,9 +17,11 @@ export function createStickyGuideManager({
   isGuide,
   onError,
   delayMs = DEFAULT_REFRESH_DELAY_MS,
+  everyNMessages = 1,
 }) {
   const operations = new Map();
   const scheduled = new Map();
+  const messageCounts = new Map();
 
   async function persist(channel, state) {
     if (await saveState(channel, state) === false) {
@@ -117,6 +119,13 @@ export function createStickyGuideManager({
     const botUserId = channel?.client?.user?.id || message.guild?.client?.user?.id;
     if (!channel || !message.guild || !botUserId) return false;
     if (message.author?.id === botUserId && isGuide(message)) return false;
+
+    const nextCount = (messageCounts.get(channel.id) || 0) + 1;
+    if (nextCount < everyNMessages) {
+      messageCounts.set(channel.id, nextCount);
+      return true;
+    }
+    messageCounts.set(channel.id, 0);
 
     const existing = scheduled.get(channel.id);
     if (existing) {
