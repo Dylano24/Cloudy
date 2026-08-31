@@ -1,7 +1,7 @@
 export const GAMBLING_GAME_COMMANDS = [
-  { name: 'baccarat', usage: '/baccarat amount bet', group: 'Games', description: 'Bet on Player, Banker, or Tie.' },
-  { name: 'blackjack', usage: '/blackjack amount', group: 'Games', description: 'Play a complete blackjack hand.' },
-  { name: 'roulette', usage: '/roulette amount bet', group: 'Games', description: 'Bet red, black, even, odd, or a number.' },
+  { name: 'baccarat', usage: '/baccarat amount', group: 'Games', description: 'Bet any affordable amount, then choose Player, Banker, or Tie.' },
+  { name: 'blackjack', usage: '/blackjack amount', group: 'Games', description: 'Play a complete blackjack hand with any affordable bet amount.' },
+  { name: 'roulette', usage: '/roulette amount bet', group: 'Games', description: 'Bet any affordable amount on red, black, even, odd, or a number.' },
   { name: 'beg', usage: '/beg', group: 'Earn money', description: 'Beg for some cash.' },
   { name: 'crime', usage: '/crime', group: 'Earn money', description: 'Attempt a crime for a possible cash reward.' },
   { name: 'daily', usage: '/daily', group: 'Earn money', description: 'Claim your daily economy reward.' },
