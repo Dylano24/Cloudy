@@ -2,6 +2,7 @@
 
 import { EmbedBuilder } from 'discord.js';
 import { getColor, botConfig } from '../config/bot.js';
+import { applySystemEmbedTemplate } from '../services/systemEmbedCatalogService.js';
 
 const EMOJI_REGEX = /[\p{Extended_Pictographic}\uFE0F]/gu;
 const EMBED_FOOTER_SYMBOL = Symbol('titanbotFooterText');
@@ -14,10 +15,10 @@ function sanitizeEmbedText(text = '') {
 
   return text
     .replace(EMOJI_REGEX, '')
-    .replace(/[ \t]+/g, ' ')  // Replace consecutive spaces/tabs with single space
-    .replace(/[ \t]\n/g, '\n')  // Remove spaces before newlines
-    .replace(/\n[ \t]/g, '\n')  // Remove spaces after newlines
-    .replace(/\n{3,}/g, '\n\n')  // Limit consecutive newlines to 2
+    .replace(/[ \t]+/g, ' ')
+    .replace(/[ \t]\n/g, '\n')
+    .replace(/\n[ \t]/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -143,7 +144,7 @@ export function createEmbed({
   if (Array.isArray(fields) && fields.length > 0) {
     const validFields = fields.filter(f => f && f.name && f.value);
     if (validFields.length > 0) {
-      embed.addFields(validFields.slice(0, 25)); 
+      embed.addFields(validFields.slice(0, 25));
     }
   }
 
@@ -155,7 +156,6 @@ export function createEmbed({
         embed.setAuthor(author);
       }
     } catch (error) {
-      
     }
   } else if (botConfig.embeds?.author?.name) {
     embed.setAuthor({
@@ -173,7 +173,6 @@ export function createEmbed({
         embed.setFooter(footer);
       }
     } catch (error) {
-      
     }
   } else if (botConfig.embeds?.footer?.text) {
     const defaultFooter = {
@@ -191,7 +190,6 @@ export function createEmbed({
         embed.setThumbnail(thumbnail.url);
       }
     } catch (error) {
-      
     }
   } else if (botConfig.embeds?.thumbnail) {
     embed.setThumbnail(botConfig.embeds.thumbnail);
@@ -205,7 +203,6 @@ export function createEmbed({
         embed.setImage(image.url);
       }
     } catch (error) {
-      
     }
   }
 
@@ -219,11 +216,10 @@ export function createEmbed({
     try {
       embed.setURL(url);
     } catch (error) {
-      
     }
   }
 
-  return embed;
+  return applySystemEmbedTemplate(embed);
 }
 
 const NOTIFICATION_DEFAULT_TITLES = {
@@ -250,12 +246,6 @@ const USER_ERROR_COLORS = {
   rate_limit: 'warning',
 };
 
-/**
- * Build a consistent user-facing error embed.
- * @param {string} errorType - Error category key (e.g. validation, permission)
- * @param {string} [description] - Specific, actionable message for the user
- * @param {{ titleOverride?: string }} [options]
- */
 export function buildUserErrorEmbed(errorType, description = '', options = {}) {
   const type = errorType || 'unknown';
   const title = options.titleOverride || USER_ERROR_TITLES[type] || USER_ERROR_TITLES.unknown;
@@ -290,9 +280,6 @@ function buildNotificationEmbed(title, body = '', color = 'primary') {
   });
 }
 
-/**
- * @deprecated Prefer buildUserErrorEmbed or replyUserError from errorHandler.js.
- */
 export function errorEmbed(title, detail = null, options = {}) {
   const { showDetails = process.env.NODE_ENV !== 'production' } = options;
   let body = detail;
@@ -308,7 +295,6 @@ export function errorEmbed(title, detail = null, options = {}) {
   return buildUserErrorEmbed('unknown', description, { titleOverride });
 }
 
-/** @param {string} titleOrBody - With one arg: body text. With two args: title and body. */
 export function successEmbed(title, body = '') {
   if (arguments.length === 1) {
     return buildNotificationEmbed('Success', title, 'success');
@@ -317,7 +303,6 @@ export function successEmbed(title, body = '') {
   return buildNotificationEmbed(title || 'Success', body, 'success');
 }
 
-/** @param {string} titleOrBody - With one arg: body text. With two args: title and body. */
 export function infoEmbed(title, body = '') {
   if (arguments.length === 1) {
     return buildNotificationEmbed('Information', title, 'info');
@@ -326,7 +311,6 @@ export function infoEmbed(title, body = '') {
   return buildNotificationEmbed(title || 'Information', body, 'info');
 }
 
-/** @param {string} titleOrBody - With one arg: body text. With two args: title and body. */
 export function warningEmbed(title, body = '') {
   if (arguments.length === 1) {
     return buildNotificationEmbed('Warning', title, 'warning');
