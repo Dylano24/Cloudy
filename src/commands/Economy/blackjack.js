@@ -57,13 +57,23 @@ async function embed(state, result = null) {
     inline: true,
   });
 
+  const runtimeTitle = result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`;
   const gameEmbed = createEmbed({
-    title: result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`,
+    title: runtimeTitle,
     description: [result?.text, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
     color: result?.color || 'primary',
     author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
     fields,
   });
+
+  // Preserve Embed Builder title customizations, but never let a saved example bet
+  // (for example $100) overwrite the actual live wager.
+  if (!result) {
+    const currentTitle = String(gameEmbed.data.title || runtimeTitle);
+    gameEmbed.data.title = /\$[\d,.]+/.test(currentTitle)
+      ? currentTitle.replace(/\$[\d,.]+/, money(state.totalBet))
+      : runtimeTitle;
+  }
 
   // Keep the exact custom-card markup in the live message while also exposing the
   // complete field layout to the automatic system embed catalog / embed builder.
