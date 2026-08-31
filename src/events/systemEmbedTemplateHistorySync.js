@@ -29,8 +29,39 @@ function canonicalComponentCommand(customId = '') {
     [/\bkick\b/, 'kick'],
     [/report/, 'report'],
     [/appeal/, 'appeal'],
+    [/invite/, 'invite'],
+    [/welcome/, 'welcome'],
   ];
   return mappings.find(([pattern]) => pattern.test(value))?.[1] || '';
+}
+
+function canonicalEmbedCommand(message) {
+  const text = (message?.embeds || [])
+    .map(embed => {
+      const data = embed?.toJSON ? embed.toJSON() : embed;
+      return [data?.title, data?.description, ...(data?.fields || []).map(field => field?.name)]
+        .filter(Boolean)
+        .join(' ');
+    })
+    .join(' ')
+    .toLowerCase();
+
+  if (!text) return '';
+  const mappings = [
+    [/roulette/, 'roulette'],
+    [/blackjack|dealer hand|your hand/, 'blackjack'],
+    [/baccarat|banker hand|player hand/, 'baccarat'],
+    [/un[-\s]?time[-\s]?out/, 'untimeout'],
+    [/time[-\s]?out/, 'timeout'],
+    [/unban/, 'unban'],
+    [/\bban\s+log\b|account removed|automod account banned/, 'ban'],
+    [/\bkick\s+log\b/, 'kick'],
+    [/report(?:s)?\s+log|message reported/, 'report'],
+    [/invite created|joined using invite/, 'invite'],
+    [/ticket|transcript|claim/, 'ticket'],
+    [/welcome to cloudy/, 'welcome'],
+  ];
+  return mappings.find(([pattern]) => pattern.test(text))?.[1] || '';
 }
 
 function messageContext(message) {
@@ -39,6 +70,7 @@ function messageContext(message) {
     commandName: metadata?.commandName
       || metadata?.name
       || canonicalComponentCommand(metadata?.customId)
+      || canonicalEmbedCommand(message)
       || '',
     customId: metadata?.customId || '',
     channel: message?.channel || null,
