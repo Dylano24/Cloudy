@@ -11,7 +11,7 @@ import { trackMemberInvite } from '../services/inviteTrackingService.js';
 import { decorateEmbedWithSavedTemplate } from '../services/embedTemplateService.js';
 import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 
-const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const CLOUDY_BANNER_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-dynamic-banner.gif';
 
 function getOrdinalSuffix(number) {

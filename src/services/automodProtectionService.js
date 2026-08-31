@@ -2,7 +2,7 @@ import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 
-const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const WARNING_DELETE_MS = 15 * 1000;
 const MESSAGE_WINDOW_MS = 10 * 1000;
 const LINK_WINDOW_MS = 15 * 1000;
