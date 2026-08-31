@@ -84,6 +84,11 @@ function isGamblingGuide(message) {
   ) || false;
 }
 
+function isOutdatedGamblingGuideDescription(description = '') {
+  return description === LEGACY_GAMBLING_GUIDE_DESCRIPTION
+    || /\/(?:eleaderboard|count|slots|fish|mine|fight|flip|roll)\b/.test(description);
+}
+
 function gamblingGuideStorageKey(channel) {
   return `cloudy:dedicated-guide:${channel.guild.id}:${channel.id}`;
 }
@@ -100,10 +105,8 @@ const gamblingGuideManager = createStickyGuideManager({
       // default four-command description to the complete Gambling & Games list.
       const embeds = existing.embeds.map(embed => {
         const data = embed.toJSON();
-        if (
-          String(data.title || '').toLowerCase() === 'gambling & games'
-          && data.description === LEGACY_GAMBLING_GUIDE_DESCRIPTION
-        ) {
+        if (String(data.title || '').toLowerCase() === 'gambling & games'
+          && isOutdatedGamblingGuideDescription(data.description)) {
           data.description = GAMBLING_GUIDE_DESCRIPTION;
         }
         return data;
