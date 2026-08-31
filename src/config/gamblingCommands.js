@@ -2,7 +2,6 @@ export const GAMBLING_GAME_COMMANDS = [
   { name: 'baccarat', usage: '/baccarat amount bet', group: 'Games', description: 'Bet on Player, Banker, or Tie.' },
   { name: 'blackjack', usage: '/blackjack amount', group: 'Games', description: 'Play a complete blackjack hand.' },
   { name: 'roulette', usage: '/roulette amount bet', group: 'Games', description: 'Bet red, black, even, odd, or a number.' },
-  { name: 'slots', usage: '/slots amount', group: 'Games', description: 'Spin the slot machine.' },
   { name: 'beg', usage: '/beg', group: 'Earn money', description: 'Beg for some cash.' },
   { name: 'crime', usage: '/crime', group: 'Earn money', description: 'Attempt a crime for a possible cash reward.' },
   { name: 'daily', usage: '/daily', group: 'Earn money', description: 'Claim your daily economy reward.' },
@@ -25,8 +24,10 @@ export const GAMBLING_GAME_COMMAND_NAMES = new Set(
 // Their files remain for migration safety, but Discord removes them on the next
 // bulk command sync.
 export const RETIRED_GAMBLING_COMMAND_NAMES = new Set([
-  'gamble', 'fish', 'mine', 'count', 'fight', 'flip', 'roll',
+  'slots', 'fish', 'mine', 'count', 'fight', 'flip', 'roll',
 ]);
+
+const GAMBLING_INFO_COMMAND_NAMES = new Set(['gamble', 'game']);
 
 export function isRetiredGamblingCommand(commandName) {
   return RETIRED_GAMBLING_COMMAND_NAMES.has(String(commandName || '').toLowerCase());
@@ -34,7 +35,9 @@ export function isRetiredGamblingCommand(commandName) {
 
 export function isGamblingGameCommand(commandName) {
   const normalized = String(commandName || '').toLowerCase();
-  return GAMBLING_GAME_COMMAND_NAMES.has(normalized) || RETIRED_GAMBLING_COMMAND_NAMES.has(normalized);
+  return GAMBLING_GAME_COMMAND_NAMES.has(normalized)
+    || GAMBLING_INFO_COMMAND_NAMES.has(normalized)
+    || RETIRED_GAMBLING_COMMAND_NAMES.has(normalized);
 }
 
 export function buildGamblingCommandListText() {
