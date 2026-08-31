@@ -93,7 +93,7 @@ function cleanStoredRecords(records) {
     const unique = new Map();
 
     for (const record of Array.isArray(records) ? records : []) {
-        if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record) || !isFixedCloudyRecord(record)) continue;
+        if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record)) continue;
         unique.set(recordKey(record), record);
     }
 
@@ -205,27 +205,13 @@ function isInternalEmbedRecord(record) {
         || name.includes('use the buttons below to create your message');
 }
 
-function isFixedCloudyEmbed(embed) {
-    if (isCloudyWelcomeEmbed(embed) || isInviteCreatedEmbed(embed) || isInviteJoinEmbed(embed)) return true;
-    const title = cleanName(embed?.title);
-    return /^(?:kick|ban|unban|timeout|untimeout|report)\s+log\b/.test(title)
-        || /^(?:invite created|member joined using invite)$/.test(title);
-}
-
-function isFixedCloudyRecord(record) {
-    if (['system-catalog', 'embed-builder'].includes(String(record?.source || ''))) return true;
-    const title = cleanName(record?.title || record?.name);
-    return /^(?:welcome to cloudy(?: inc\.?)?|kick|ban|unban|timeout|untimeout|report)\b/.test(title)
-        || /^(?:invite created|member joined using invite)$/.test(title);
-}
-
 export function isRegistrableCloudyEmbedMessage(message) {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
 
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
     if (message.interaction || message.interactionMetadata) return false;
 
-    return isSystemCatalogMessage(message) || message.embeds.some(isFixedCloudyEmbed);
+    return true;
 }
 
 function embedName(embed) {
@@ -363,14 +349,10 @@ async function saveRecords(guildId, additions) {
 
 export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
     const grouped = new Map();
-    // A message deliberately sent from the Embed Builder is a user-created
-    // template and must remain editable even when its title is custom. Normal
-    // bot traffic stays restricted to the fixed template types below.
-    const isManualBuilderMessage = source === 'embed-builder';
 
     try {
         for (const message of Array.isArray(messages) ? messages : []) {
-            if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;
+            if (!isRegistrableCloudyEmbedMessage(message)) continue;
 
             const additions = message.embeds
                 .map((embed, embedIndex) => {
@@ -388,9 +370,7 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                     rememberEmbedSnapshot(addition, embed);
                     return addition;
                 })
-                .filter(addition => isSystemCatalogMessage(message)
-                    || isManualBuilderMessage
-                    || (!isInternalEmbedRecord(addition) && isFixedCloudyEmbed(message.embeds[addition.embedIndex])));
+                .filter(addition => !isInternalEmbedRecord(addition));
 
             if (!additions.length) continue;
             if (!grouped.has(message.guildId)) grouped.set(message.guildId, []);
@@ -487,8 +467,7 @@ function recordsFromMessage(message, priorRecords = []) {
                 name: embedName(embed),
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
             });
-            if (!record || (!isSystemCatalogMessage(message) && !isFixedCloudyEmbed(embed))) return null;
-            rememberEmbedSnapshot(record, embed);
+            if (record) rememberEmbedSnapshot(record, embed);
             return record;
         })
         .filter(Boolean);
@@ -621,7 +600,6 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
 
                 for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
                     const embed = message.embeds[embedIndex];
-                    if (!isSystemCatalogMessage(message) && !isFixedCloudyEmbed(embed)) continue;
                     const location = recordLocationForEmbed(message, embed);
                     const addition = {
                         guildId: guild.id,
