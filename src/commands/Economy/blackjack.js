@@ -37,6 +37,10 @@ function controls(state, ended = false) {
   ];
 }
 
+function liveTitle(state, result = null) {
+  return result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`;
+}
+
 async function embed(state, result = null) {
   const fields = [];
   for (let index = 0; index < state.hands.length; index += 1) {
@@ -57,7 +61,7 @@ async function embed(state, result = null) {
     inline: true,
   });
 
-  const runtimeTitle = result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`;
+  const runtimeTitle = liveTitle(state, result);
   const gameEmbed = createEmbed({
     title: runtimeTitle,
     description: [result?.text, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
@@ -66,18 +70,23 @@ async function embed(state, result = null) {
     fields,
   });
 
-  // The Embed Builder may contain an example title such as "Blackjack — Bet $100".
-  // Never allow that saved example value to replace the actual live wager.
-  gameEmbed.data.title = runtimeTitle;
-
-  // Keep the exact custom-card markup in the live message while also exposing the
-  // complete field layout to the automatic system embed catalog / embed builder.
+  // Embed Builder can style the embed, but live game data must always win.
+  // Use the builder API instead of mutating .data directly so Discord receives
+  // the exact wager from this interaction, never a stored example such as $100.
+  gameEmbed.setTitle(runtimeTitle);
   gameEmbed.data.fields = fields;
   return gameEmbed;
 }
 
 async function payload(state, result = null, ended = false) {
-  return { embeds: [await embed(state, result)], components: controls(state, ended), attachments: [] };
+  const gameEmbed = await embed(state, result);
+  const embedData = gameEmbed.toJSON();
+
+  // Final send-time guard: even if another template layer touched the builder,
+  // the serialized payload always contains the live wager/result title.
+  embedData.title = liveTitle(state, result);
+
+  return { embeds: [embedData], components: controls(state, ended), attachments: [] };
 }
 
 function dealerDraw(state) { while (score(state.dealer) < 17) state.dealer.push(draw(state)); }
