@@ -32,6 +32,9 @@ export default {
       }
 
       if (thread?.archived) await thread.setArchived(false).catch(() => {});
+      if (thread && String(thread.name || '').toLowerCase() !== 'botlog') {
+        await thread.setName('botlog').catch(() => {});
+      }
       if (thread) logger.warn(`[EMBED_BUILDER] Private catalog channel ready: ${thread.id}.`);
     }
   },
