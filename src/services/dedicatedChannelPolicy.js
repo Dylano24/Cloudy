@@ -1,4 +1,4 @@
-import { GAMBLING_GAME_COMMAND_NAMES } from '../config/gamblingCommands.js';
+import { isGamblingGameCommand } from '../config/gamblingCommands.js';
 
 const resolvedChannels = new WeakMap();
 
@@ -17,7 +17,7 @@ export function findDedicatedChannelBySlug(guild, slug) {
 export function getGamblingResponsePolicy(interaction, context = {}) {
   const resolved = resolvedChannels.get(interaction);
   const commandName = String(interaction?.commandName || context.commandName || context.command || '').toLowerCase();
-  if (resolved?.key !== 'gambling' && !GAMBLING_GAME_COMMAND_NAMES.has(commandName)) return null;
+  if (resolved?.key !== 'gambling' && !isGamblingGameCommand(commandName)) return null;
 
   // Also covers validation and cooldown errors raised before command.execute.
   const targetId = resolved?.key === 'gambling'
@@ -28,9 +28,8 @@ export function getGamblingResponsePolicy(interaction, context = {}) {
 
   return {
     showCloseButton: false,
-    // All Gambling & Games errors are temporary. Successful command results are handled
-    // by the commands themselves and are not routed through this error policy.
-    autoDelete: true,
+    // Keep errors visible in the dedicated channel; elsewhere they are temporary.
+    autoDelete: !inGamblingChannel,
     ephemeral: !inGamblingChannel,
   };
 }
