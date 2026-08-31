@@ -2,6 +2,7 @@ import { Events } from 'discord.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import {
   applyPlainResponseTemplate,
+  applyRuntimeEmbedTemplateData,
   captureSystemEmbedData,
 } from '../services/systemEmbedCatalogService.js';
 import { logger } from '../utils/logger.js';
@@ -10,11 +11,38 @@ const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const HISTORY_LIMIT = 100;
 const STARTUP_SCAN_DELAY_MS = 7000;
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
+const autoApplyingMessageIds = new Set();
+
+function canonicalComponentCommand(customId = '') {
+  const value = String(customId || '').toLowerCase();
+  const mappings = [
+    [/blackjack/, 'blackjack'],
+    [/baccarat/, 'baccarat'],
+    [/roulette/, 'roulette'],
+    [/coin.?flip/, 'coinflip'],
+    [/slots?/, 'slots'],
+    [/ticket|transcript|claim|reopen/, 'ticket'],
+    [/giveaway|gcreate|gend|gdelete|greroll/, 'giveaway'],
+    [/music|play|skip|pause|resume|queue|volume/, 'music'],
+    [/untimeout|un-timeout/, 'untimeout'],
+    [/timeout|time-out/, 'timeout'],
+    [/unban/, 'unban'],
+    [/\bban\b/, 'ban'],
+    [/\bkick\b/, 'kick'],
+    [/report/, 'report'],
+    [/appeal/, 'appeal'],
+  ];
+
+  return mappings.find(([pattern]) => pattern.test(value))?.[1] || '';
+}
 
 function interactionContext(interaction) {
   if (!interaction) return null;
+  const commandName = interaction.commandName
+    || canonicalComponentCommand(interaction.customId)
+    || '';
   return {
-    commandName: interaction.commandName || '',
+    commandName,
     customId: interaction.customId || '',
     channel: interaction.channel || null,
   };
@@ -22,11 +50,40 @@ function interactionContext(interaction) {
 
 function messageContext(message) {
   const metadata = message?.interactionMetadata || message?.interaction || null;
+  const commandName = metadata?.commandName
+    || metadata?.name
+    || canonicalComponentCommand(metadata?.customId)
+    || '';
   return {
-    commandName: metadata?.commandName || metadata?.name || '',
+    commandName,
     customId: metadata?.customId || '',
     channel: message?.channel || null,
   };
+}
+
+function applyPayloadTemplates(payload, source) {
+  if (payload == null) return payload;
+
+  if (typeof payload === 'string') {
+    return applyPlainResponseTemplate(payload, source);
+  }
+
+  if (typeof payload !== 'object') return payload;
+
+  let next = { ...payload };
+  if (Array.isArray(payload.embeds)) {
+    next.embeds = payload.embeds.map(embed => {
+      const data = embed?.toJSON ? embed.toJSON() : embed;
+      if (!data || typeof data !== 'object') return embed;
+      return applyRuntimeEmbedTemplateData(data, source);
+    });
+  }
+
+  if (typeof payload.content === 'string' && payload.content.trim()) {
+    next = applyPlainResponseTemplate(next, source);
+  }
+
+  return next;
 }
 
 function capturePayload(payload, source) {
@@ -45,9 +102,6 @@ function capturePayload(payload, source) {
 
   if (typeof normalized?.content === 'string' && normalized.content.trim()) {
     if (normalized.content.trim() !== SYSTEM_CATALOG_CONTENT) {
-      // applyPlainResponseTemplate also registers previously unseen plain-text
-      // responses in the same editable response catalog. The returned payload is
-      // intentionally ignored here; this hook only observes/captures.
       applyPlainResponseTemplate({ content: normalized.content }, source);
       captured = true;
     }
@@ -66,6 +120,51 @@ function captureMessage(message) {
     content: message.content || '',
     embeds: message.embeds || [],
   }, source);
+}
+
+function embedJson(embed) {
+  return embed?.toJSON ? embed.toJSON() : embed || null;
+}
+
+async function applyTemplatesToExistingMessage(message) {
+  if (!message?.client?.user?.id || !message.guildId || !message.editable) return false;
+  if (message.author?.id !== message.client.user.id) return false;
+  if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
+  if (autoApplyingMessageIds.has(message.id)) return false;
+
+  const source = messageContext(message);
+  const runtimePayload = {
+    content: message.content || '',
+    embeds: message.embeds || [],
+  };
+  const templated = applyPayloadTemplates(runtimePayload, source);
+
+  const currentContent = String(message.content || '');
+  const nextContent = typeof templated?.content === 'string' ? templated.content : currentContent;
+  const currentEmbeds = (message.embeds || []).map(embedJson);
+  const nextEmbeds = Array.isArray(templated?.embeds)
+    ? templated.embeds.map(embedJson)
+    : currentEmbeds;
+
+  const contentChanged = currentContent !== nextContent;
+  const embedsChanged = JSON.stringify(currentEmbeds) !== JSON.stringify(nextEmbeds);
+  if (!contentChanged && !embedsChanged) return false;
+
+  const editPayload = {};
+  if (contentChanged) editPayload.content = nextContent;
+  if (embedsChanged) editPayload.embeds = templated.embeds;
+
+  autoApplyingMessageIds.add(message.id);
+  try {
+    await message.edit(editPayload);
+    return true;
+  } catch (error) {
+    logger.debug(`[EMBED_BUILDER] Automatic response template edit skipped: ${error?.message || error}`);
+    return false;
+  } finally {
+    const timer = setTimeout(() => autoApplyingMessageIds.delete(message.id), 1500);
+    timer.unref?.();
+  }
 }
 
 function seedKnownGameResponses() {
@@ -118,22 +217,20 @@ function seedKnownGameResponses() {
   }
 
   captureSystemEmbedData({
-    title: 'Baccarat — Place your bet',
-    description: 'Bet: **{dynamic}**\nChoose Player, Banker, or Tie.',
+    title: 'Baccarat — Bet $100',
+    description: 'Choose where to place your bet.',
     color: 0x5865F2,
   }, baccarat);
 
-  for (const title of ['Player wins', 'Banker wins', 'Tie']) {
-    captureSystemEmbedData({
-      title: `Baccarat — ${title}`,
-      description: 'Bet: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**',
-      color: title === 'Tie' ? 0x5865F2 : 0x57F287,
-      fields: [
-        { name: 'Player', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
-        { name: 'Banker', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
-      ],
-    }, baccarat);
-  }
+  captureSystemEmbedData({
+    title: 'Baccarat — Result',
+    description: 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**',
+    color: 0x57F287,
+    fields: [
+      { name: 'Player Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+      { name: 'Banker Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+    ],
+  }, baccarat);
 }
 
 function patchInteractionCapture() {
@@ -150,12 +247,14 @@ function patchInteractionCapture() {
       if (!original) continue;
 
       interaction[method] = async (payload, ...args) => {
+        let outgoing = payload;
         try {
           capturePayload(payload, source);
+          outgoing = applyPayloadTemplates(payload, source);
         } catch (error) {
-          logger.debug(`[EMBED_BUILDER] Response capture skipped for ${method}: ${error?.message || error}`);
+          logger.debug(`[EMBED_BUILDER] Response template processing skipped for ${method}: ${error?.message || error}`);
         }
-        return original(payload, ...args);
+        return original(outgoing, ...args);
       };
     }
 
@@ -186,6 +285,7 @@ async function scanRecentBotResponses(client) {
 
       for (const message of messages.values()) {
         if (message.author?.id !== client.user.id) continue;
+        if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) continue;
         messagesScanned += 1;
         try {
           if (captureMessage(message)) responsesCaptured += 1;
@@ -210,10 +310,12 @@ export default {
     seedKnownGameResponses();
 
     client.on(Events.MessageCreate, message => {
+      if (String(message?.content || '').trim() === SYSTEM_CATALOG_CONTENT) return;
       try {
         captureMessage(message);
+        void applyTemplatesToExistingMessage(message);
       } catch (error) {
-        logger.debug(`[EMBED_BUILDER] Live message capture skipped: ${error?.message || error}`);
+        logger.debug(`[EMBED_BUILDER] Live message processing skipped: ${error?.message || error}`);
       }
     });
 
@@ -222,11 +324,14 @@ export default {
         ? await newMessage.fetch().catch(() => null)
         : newMessage;
       if (!message) return;
+      if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return;
+      if (autoApplyingMessageIds.has(message.id)) return;
 
       try {
         captureMessage(message);
+        await applyTemplatesToExistingMessage(message);
       } catch (error) {
-        logger.debug(`[EMBED_BUILDER] Live message update capture skipped: ${error?.message || error}`);
+        logger.debug(`[EMBED_BUILDER] Live message update processing skipped: ${error?.message || error}`);
       }
     });
 
@@ -237,6 +342,6 @@ export default {
     }, STARTUP_SCAN_DELAY_MS);
     timer.unref?.();
 
-    logger.warn('[EMBED_BUILDER] Full response capture enabled for embeds, notifications, interaction replies and message updates.');
+    logger.warn('[EMBED_BUILDER] Automatic response templates enabled: saved titles, text, fields, colors, footer and media are reused while live values stay dynamic.');
   },
 };
