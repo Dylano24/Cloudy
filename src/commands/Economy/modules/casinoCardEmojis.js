@@ -1,14 +1,14 @@
 import { deflateSync } from 'node:zlib';
 
-// Discord renders custom emojis at a fixed inline height, so the card fills almost
-// the complete 128x128 source image. This makes it visibly larger than the native
-// Unicode playing-card glyphs while keeping the UnbelievaBoat-style inline layout.
-const CARD_SIZE = 128;
-const FACE_W = 86;
-const FACE_H = 120;
-const FACE_X = Math.floor((CARD_SIZE - FACE_W) / 2);
-const FACE_Y = Math.floor((CARD_SIZE - FACE_H) / 2);
-const VERSION = 'v2';
+// UnbelievaBoat-style compact playing-card emojis: a clean white vertical card,
+// thin grey edge, rank/suit in the corner and a large suit mark in the centre.
+// The transparent 128px canvas lets Discord render the card crisply inline.
+const SIZE = 128;
+const W = 78;
+const H = 116;
+const X = Math.floor((SIZE - W) / 2);
+const Y = Math.floor((SIZE - H) / 2);
+const VERSION = 'v3';
 const cache = new WeakMap();
 
 const FONT = {
@@ -28,18 +28,6 @@ const FONT = {
   K:['10001','10010','10100','11000','10100','10010','10001'],
 };
 
-const PIP_LAYOUTS = {
-  '2': [[0.5,0.25],[0.5,0.75]],
-  '3': [[0.5,0.22],[0.5,0.5],[0.5,0.78]],
-  '4': [[0.32,0.28],[0.68,0.28],[0.32,0.72],[0.68,0.72]],
-  '5': [[0.32,0.25],[0.68,0.25],[0.5,0.5],[0.32,0.75],[0.68,0.75]],
-  '6': [[0.32,0.22],[0.68,0.22],[0.32,0.5],[0.68,0.5],[0.32,0.78],[0.68,0.78]],
-  '7': [[0.32,0.20],[0.68,0.20],[0.5,0.36],[0.32,0.5],[0.68,0.5],[0.32,0.80],[0.68,0.80]],
-  '8': [[0.32,0.19],[0.68,0.19],[0.5,0.34],[0.32,0.5],[0.68,0.5],[0.5,0.66],[0.32,0.81],[0.68,0.81]],
-  '9': [[0.32,0.18],[0.68,0.18],[0.32,0.36],[0.68,0.36],[0.5,0.5],[0.32,0.64],[0.68,0.64],[0.32,0.82],[0.68,0.82]],
-  '10': [[0.32,0.16],[0.68,0.16],[0.5,0.29],[0.32,0.37],[0.68,0.37],[0.32,0.63],[0.68,0.63],[0.5,0.71],[0.32,0.84],[0.68,0.84]],
-};
-
 function crc32(buffer) {
   let crc = 0xffffffff;
   for (const byte of buffer) {
@@ -50,17 +38,18 @@ function crc32(buffer) {
 }
 
 function chunk(type, data) {
-  const typeBuffer = Buffer.from(type);
-  const length = Buffer.alloc(4); length.writeUInt32BE(data.length);
-  const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])));
-  return Buffer.concat([length, typeBuffer, data, checksum]);
+  const t = Buffer.from(type);
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const c = Buffer.alloc(4); c.writeUInt32BE(crc32(Buffer.concat([t, data])));
+  return Buffer.concat([len, t, data, c]);
 }
 
-function surface(width, height) {
+function makeSurface(width, height) {
   const pixels = Buffer.alloc(width * height * 4, 0);
   const set = (x, y, color) => {
+    x = Math.round(x); y = Math.round(y);
     if (x < 0 || y < 0 || x >= width || y >= height) return;
-    const i = (Math.round(y) * width + Math.round(x)) * 4;
+    const i = (y * width + x) * 4;
     pixels[i] = color[0]; pixels[i + 1] = color[1]; pixels[i + 2] = color[2]; pixels[i + 3] = color[3] ?? 255;
   };
   const rect = (x, y, w, h, color) => {
@@ -79,8 +68,8 @@ function roundedRect(s, x, y, w, h, radius, color) {
   }
 }
 
-function circle(s, cx, cy, radius, color) {
-  for (let y = -radius; y <= radius; y += 1) for (let x = -radius; x <= radius; x += 1) if (x*x + y*y <= radius*radius) s.set(cx+x, cy+y, color);
+function circle(s, cx, cy, r, color) {
+  for (let y = -r; y <= r; y += 1) for (let x = -r; x <= r; x += 1) if (x*x + y*y <= r*r) s.set(cx+x, cy+y, color);
 }
 
 function triangle(s, ax, ay, bx, by, cx, cy, color) {
@@ -94,33 +83,37 @@ function triangle(s, ax, ay, bx, by, cx, cy, color) {
   }
 }
 
-function suitKind(suit = '') {
+function kind(suit='') {
   if (suit === '♥') return 'heart';
   if (suit === '♦') return 'diamond';
   if (suit === '♣') return 'club';
   return 'spade';
 }
 
-function drawSuit(s, suit, cx, cy, size, color) {
-  const kind = suitKind(suit);
-  if (kind === 'diamond') {
-    triangle(s,cx,cy-size,cx+size,cy,cx,cy+size,color); triangle(s,cx,cy-size,cx-size,cy,cx,cy+size,color); return;
+function suit(s, symbol, cx, cy, size, color) {
+  const k = kind(symbol);
+  if (k === 'diamond') {
+    triangle(s,cx,cy-size,cx+size,cy,cx,cy+size,color);
+    triangle(s,cx,cy-size,cx-size,cy,cx,cy+size,color);
+    return;
   }
-  if (kind === 'heart') {
+  if (k === 'heart') {
     circle(s,cx-Math.floor(size/2),cy-Math.floor(size/3),Math.max(1,Math.floor(size/2)),color);
     circle(s,cx+Math.floor(size/2),cy-Math.floor(size/3),Math.max(1,Math.floor(size/2)),color);
-    triangle(s,cx-size,cy-Math.floor(size/3),cx+size,cy-Math.floor(size/3),cx,cy+size,color); return;
+    triangle(s,cx-size,cy-Math.floor(size/3),cx+size,cy-Math.floor(size/3),cx,cy+size,color);
+    return;
   }
-  if (kind === 'club') {
+  if (k === 'club') {
     circle(s,cx,cy-Math.floor(size/2),Math.max(1,Math.floor(size/2)),color);
     circle(s,cx-Math.floor(size/2),cy,Math.max(1,Math.floor(size/2)),color);
     circle(s,cx+Math.floor(size/2),cy,Math.max(1,Math.floor(size/2)),color);
-    s.rect(cx-Math.max(1,Math.floor(size/5)),cy,Math.max(2,Math.floor(size*0.4)),size,color); return;
+    s.rect(cx-2,cy,4,size+3,color);
+    return;
   }
   triangle(s,cx-size,cy+Math.floor(size/3),cx+size,cy+Math.floor(size/3),cx,cy-size,color);
   circle(s,cx-Math.floor(size/2),cy+Math.floor(size/4),Math.max(1,Math.floor(size/2)),color);
   circle(s,cx+Math.floor(size/2),cy+Math.floor(size/4),Math.max(1,Math.floor(size/2)),color);
-  s.rect(cx-Math.max(1,Math.floor(size/5)),cy+Math.floor(size/4),Math.max(2,Math.floor(size*0.4)),Math.max(2,size),color);
+  s.rect(cx-2,cy+Math.floor(size/4),4,size,color);
 }
 
 function glyph(s, char, x, y, scale, color) {
@@ -129,8 +122,8 @@ function glyph(s, char, x, y, scale, color) {
 }
 
 function rank(s, value, x, y, scale, color) {
-  let cursor = x;
-  for (const char of String(value)) { glyph(s,char,cursor,y,scale,color); cursor += 6*scale; }
+  let cx = x;
+  for (const char of String(value)) { glyph(s,char,cx,y,scale,color); cx += 6*scale; }
 }
 
 function png(s) {
@@ -144,84 +137,53 @@ function png(s) {
   return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',ihdr),chunk('IDAT',deflateSync(raw,{level:9})),chunk('IEND',Buffer.alloc(0))]);
 }
 
-function drawIndex(s, card, color) {
-  const scale = card.rank === '10' ? 2 : 3;
-  rank(s, card.rank, FACE_X + 7, FACE_Y + 7, scale, color);
-  const suitY = FACE_Y + (card.rank === '10' ? 31 : 34);
-  drawSuit(s, card.suit, FACE_X + 14, suitY, 6, color);
-}
-
-function drawNumberCard(s, card, color) {
-  if (card.rank === 'A') {
-    drawSuit(s, card.suit, FACE_X + FACE_W/2, FACE_Y + FACE_H/2 + 6, 20, color);
-    return;
-  }
-  const layout = PIP_LAYOUTS[card.rank] || [];
-  for (const [x,y] of layout) drawSuit(s, card.suit, FACE_X + Math.round(FACE_W*x), FACE_Y + Math.round(FACE_H*y), 7, color);
-}
-
-function drawCourtCard(s, card, color) {
-  const x = FACE_X + 22, y = FACE_Y + 25, w = FACE_W - 29, h = FACE_H - 34;
-  roundedRect(s,x,y,w,h,4,[244,236,211,255]);
-  s.rect(x+3,y+3,w-6,4,[32,72,122,255]);
-  s.rect(x+3,y+h-7,w-6,4,[32,72,122,255]);
-  s.rect(x+3,y+Math.floor(h/2)-2,w-6,4,[202,45,52,255]);
-  circle(s,x+Math.floor(w/2),y+22,10,[239,199,146,255]);
-  s.rect(x+Math.floor(w/2)-10,y+13,20,5,[62,44,32,255]);
-  triangle(s,x+7,y+38,x+w-7,y+38,x+Math.floor(w/2),y+62,[42,87,150,255]);
-  triangle(s,x+7,y+h-38,x+w-7,y+h-38,x+Math.floor(w/2),y+h-62,[202,45,52,255]);
-  rank(s,card.rank,x+Math.floor(w/2)-8,y+Math.floor(h/2)-10,3,color);
-  drawSuit(s,card.suit,x+Math.floor(w/2),y+Math.floor(h/2)+18,7,color);
-}
-
 function render(card, hidden = false) {
-  const s = surface(CARD_SIZE,CARD_SIZE);
-  const shadow = [0,0,0,45];
-  const border = [190,194,202,255];
+  const s = makeSurface(SIZE,SIZE);
+  const border = [184,187,193,255];
   const white = [255,255,255,255];
+  const shadow = [0,0,0,40];
 
-  roundedRect(s,FACE_X+2,FACE_Y+2,FACE_W,FACE_H,8,shadow);
-  roundedRect(s,FACE_X,FACE_Y,FACE_W,FACE_H,8,border);
-  roundedRect(s,FACE_X+2,FACE_Y+2,FACE_W-4,FACE_H-4,7,white);
+  roundedRect(s,X+2,Y+2,W,H,7,shadow);
+  roundedRect(s,X,Y,W,H,7,border);
+  roundedRect(s,X+2,Y+2,W-4,H-4,6,white);
 
   if (hidden) {
-    roundedRect(s,FACE_X+6,FACE_Y+6,FACE_W-12,FACE_H-12,5,[40,73,118,255]);
-    roundedRect(s,FACE_X+10,FACE_Y+10,FACE_W-20,FACE_H-20,3,[235,239,247,255]);
-    roundedRect(s,FACE_X+13,FACE_Y+13,FACE_W-26,FACE_H-26,2,[40,73,118,255]);
-    for (let y=FACE_Y+18;y<FACE_Y+FACE_H-16;y+=9) for (let x=FACE_X+18;x<FACE_X+FACE_W-16;x+=9) {
-      const alternate = ((x+y)/9) % 2 < 1;
-      drawSuit(s, alternate ? '♦' : '♣', x, y, 2, [223,231,243,255]);
+    roundedRect(s,X+7,Y+7,W-14,H-14,4,[43,76,121,255]);
+    roundedRect(s,X+11,Y+11,W-22,H-22,2,[235,240,248,255]);
+    roundedRect(s,X+14,Y+14,W-28,H-28,2,[43,76,121,255]);
+    for (let yy=Y+19; yy<Y+H-16; yy+=10) for (let xx=X+19; xx<X+W-16; xx+=10) {
+      if (((xx+yy)/10)%2 < 1) suit(s,'♦',xx,yy,2,[222,231,245,255]);
     }
     return png(s);
   }
 
-  const red = suitKind(card.suit) === 'heart' || suitKind(card.suit) === 'diamond';
-  const color = red ? [197,31,45,255] : [24,26,30,255];
-  drawIndex(s,card,color);
+  const color = (kind(card.suit) === 'heart' || kind(card.suit) === 'diamond') ? [205,30,45,255] : [24,24,27,255];
 
-  if (['J','Q','K'].includes(card.rank)) drawCourtCard(s,card,color);
-  else drawNumberCard(s,card,color);
+  // Compact corner index, matching the simple UnbelievaBoat card-emote look.
+  const scale = card.rank === '10' ? 2 : 3;
+  rank(s,card.rank,X+7,Y+7,scale,color);
+  suit(s,card.suit,X+15,Y+(card.rank === '10' ? 31 : 34),6,color);
+
+  // One strong central suit keeps the card readable at Discord's inline emoji size.
+  suit(s,card.suit,X+Math.floor(W/2),Y+70,16,color);
 
   return png(s);
 }
 
 function cardName(card, hidden = false) {
   if (hidden) return `${VERSION}_card_back`;
-  const suit = { '♠':'s','♥':'h','♦':'d','♣':'c' }[card.suit] || 's';
-  return `${VERSION}_card_${String(card.rank).toLowerCase()}${suit}`;
+  const suitCode = { '♠':'s','♥':'h','♦':'d','♣':'c' }[card.suit] || 's';
+  return `${VERSION}_card_${String(card.rank).toLowerCase()}${suitCode}`;
 }
 
-async function emojiManager(client) {
+async function stateFor(client) {
   if (!client.application?.emojis) return null;
   let state = cache.get(client);
-  if (!state) {
-    state = { loaded: false, byName: new Map() };
-    cache.set(client,state);
-  }
+  if (!state) { state = { loaded:false, byName:new Map() }; cache.set(client,state); }
   if (!state.loaded) {
     try {
       const emojis = await client.application.emojis.fetch();
-      for (const emoji of emojis.values()) state.byName.set(emoji.name, emoji);
+      for (const emoji of emojis.values()) state.byName.set(emoji.name,emoji);
     } catch {}
     state.loaded = true;
   }
@@ -230,7 +192,7 @@ async function emojiManager(client) {
 
 export async function cardEmoji(client, card, hidden = false) {
   const name = cardName(card,hidden);
-  const state = await emojiManager(client);
+  const state = await stateFor(client);
   if (!state) return hidden ? '🂠' : `${card.rank}${card.suit}`;
   let emoji = state.byName.get(name);
   if (!emoji) {
@@ -245,6 +207,5 @@ export async function cardEmoji(client, card, hidden = false) {
 }
 
 export async function cardsEmojiLine(client, cards = []) {
-  const rendered = await Promise.all(cards.map(card => cardEmoji(client,card,false)));
-  return rendered.join(' ');
+  return (await Promise.all(cards.map(card => cardEmoji(client,card,false)))).join(' ');
 }
