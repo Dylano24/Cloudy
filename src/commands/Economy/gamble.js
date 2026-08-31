@@ -2,6 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import { successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getEconomyData, setEconomyData } from '../../utils/economy.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
+import { buildGamblingCommandListText } from '../../config/gamblingCommands.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
@@ -13,20 +14,15 @@ const GAMBLE_COOLDOWN = 5 * 60 * 1000;
 
 function buildGamblingCommandList() {
     return infoEmbed(
-        'Gambling commands',
-        [
-            '`/gamble amount` — Bet cash for a chance to win more.',
-            '`/fight opponent` — Start a 1v1 battle with another member.',
-            '`/flip` — Flip a coin.',
-            '`/roll notation` — Roll dice, for example `2d6` or `1d20+4`.',
-        ].join('\n'),
+        'Gambling & Games',
+        buildGamblingCommandListText(),
     );
 }
 
 export default {
     data: new SlashCommandBuilder()
         .setName('gamble')
-        .setDescription('View gambling commands or gamble your money')
+        .setDescription('View Gambling & Games commands or gamble your money')
         .addIntegerOption(option =>
             option
                 .setName('amount')
