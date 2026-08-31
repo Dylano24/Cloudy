@@ -4,6 +4,8 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
+import { isGamblingGameCommand } from '../../config/gamblingCommands.js';
+import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 import { Mutex } from '../../utils/mutex.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -67,6 +69,26 @@ function wrapEconomyCommandExecution(command) {
   return command;
 }
 
+function wrapDedicatedGamblingCommandExecution(command, commandName) {
+  if (!isGamblingGameCommand(commandName) || command.__gamblingChannelGuarded) {
+    return command;
+  }
+
+  const originalExecute = command.execute;
+  command.execute = async function dedicatedGamblingExecute(...args) {
+    const interaction = args[0];
+    await enforceDedicatedCommandChannel(interaction, 'gambling');
+    return originalExecute.apply(this, args);
+  };
+
+  Object.defineProperty(command, '__gamblingChannelGuarded', {
+    value: true,
+    configurable: true,
+  });
+
+  return command;
+}
+
 async function getAllFiles(directory, fileList = []) {
   const entries = (await fs.readdir(directory, { withFileTypes: true }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -116,6 +138,7 @@ export async function loadCommands(client) {
         command.adminOnly = !isPlayerCommand(commandName);
       }
       wrapEconomyCommandExecution(command);
+      wrapDedicatedGamblingCommandExecution(command, commandName);
       client.commands.set(commandName, command);
 
       const subcommands = getSubcommandInfo(command.data.toJSON());
@@ -168,6 +191,7 @@ export async function reloadCommand(client, commandName) {
     fresh.filePath = existing.filePath;
     if (typeof fresh.adminOnly !== 'boolean') fresh.adminOnly = existing.adminOnly;
     wrapEconomyCommandExecution(fresh);
+    wrapDedicatedGamblingCommandExecution(fresh, commandName);
 
     client.commands.set(commandName, fresh);
     logger.info(`[COMMAND_RELOAD] Reloaded /${commandName}.`);
