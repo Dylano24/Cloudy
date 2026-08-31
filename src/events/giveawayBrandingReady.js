@@ -1,7 +1,7 @@
 import { EmbedBuilder, Events } from 'discord.js';
 import { getGuildGiveaways } from '../utils/giveaways.js';
 
-const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const CLOUDY_EMBED_COLOR = 0xFFFFFF;
 
 async function restoreGiveawayBranding(client, guild, giveaway) {

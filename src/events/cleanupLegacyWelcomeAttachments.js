@@ -4,7 +4,7 @@ const LEGACY_NAMES = new Set([
   'cloudy-c-logo.png',
   'cloudy-dynamic-banner.gif',
 ]);
-const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png';
+const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const CLOUDY_BANNER_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-dynamic-banner.gif';
 
 function isWelcomeEmbed(embed) {
