@@ -14,13 +14,13 @@ import { InteractionHelper } from '../utils/interactionHelper.js';
 import {
   getEmbedRegistry,
   getEmbedRegistrySnapshot,
+  reconcileEmbedRegistry,
 } from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.embedManagerTitleSearch');
 const SEARCH_BUTTON_ID = 'simple_embed_title_search';
-// Do not use ':' here. The global modal router treats colon-separated IDs as
-// registered modal handlers. This modal is handled inline by awaitModalSubmit.
+// Keep the stable ID for compatibility with already-open Embed Builder sessions.
 const SEARCH_MODAL_PREFIX = 'simple_embed_title_search_modal_';
 const SEARCH_INPUT_ID = 'title_query';
 const MAX_CHANNEL_GROUPS = 4;
@@ -47,7 +47,7 @@ function hasSearchButton(payload) {
   });
 }
 
-function searchButtonRow(label = 'Search by title') {
+function searchButtonRow(label = 'Search') {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(SEARCH_BUTTON_ID)
@@ -70,7 +70,7 @@ function patchManagerResponses() {
   if (InteractionHelper[PATCH_MARKER]) return;
 
   const previousPatch = InteractionHelper.patchInteractionResponses.bind(InteractionHelper);
-  InteractionHelper.patchInteractionResponses = function patchEmbedManagerTitleSearch(interaction) {
+  InteractionHelper.patchInteractionResponses = function patchEmbedManagerSearch(interaction) {
     previousPatch(interaction);
     if (!interaction || interaction.__cloudyEmbedManagerTitleSearchPatched) return;
 
@@ -114,15 +114,39 @@ function shortText(value, max = 100) {
   return (text || 'Untitled embed').slice(0, max);
 }
 
-function rankMatch(title, query) {
-  const value = searchKey(title);
+function recordSearchText(guild, record) {
+  const snapshot = getEmbedRegistrySnapshot(record) || {};
+  const channel = guild?.channels?.cache?.get?.(String(record?.channelId || '')) || null;
+  const fields = Array.isArray(snapshot.fields)
+    ? snapshot.fields.flatMap(field => [field?.name, field?.value])
+    : [];
+
+  return [
+    normalizedTitle(record),
+    record?.name,
+    record?.title,
+    record?.source,
+    channel?.name,
+    channel?.parent?.name,
+    snapshot.title,
+    snapshot.description,
+    snapshot.author?.name,
+    snapshot.footer?.text,
+    ...fields,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function rankMatch(title, document, query) {
+  const titleValue = searchKey(title);
+  const documentValue = searchKey(document);
   const needle = searchKey(query);
-  if (value === needle) return 0;
-  if (value.startsWith(needle)) return 1;
-  const words = value.split(' ');
-  const queryWords = needle.split(' ').filter(Boolean);
-  if (queryWords.length && queryWords.every(queryWord => words.some(word => word.startsWith(queryWord)))) return 2;
-  return 3;
+  if (titleValue === needle) return 0;
+  if (titleValue.startsWith(needle)) return 1;
+  if (titleValue.includes(needle)) return 2;
+  if (documentValue.includes(needle)) return 3;
+  return 4;
 }
 
 function recordPriority(record) {
@@ -145,7 +169,7 @@ function preferredRecord(left, right) {
   return rightTime >= leftTime ? right : left;
 }
 
-function findTitleMatches(records, query) {
+function findSearchMatches(guild, records, query) {
   const normalizedQuery = searchKey(query);
   if (!normalizedQuery) return [];
 
@@ -155,18 +179,20 @@ function findTitleMatches(records, query) {
   for (const record of records) {
     const title = normalizedTitle(record);
     const titleKey = searchKey(title);
-    if (!queryWords.every(word => titleKey.includes(word))) continue;
+    const document = recordSearchText(guild, record);
+    const documentKey = searchKey(document);
+    if (!queryWords.every(word => documentKey.includes(word))) continue;
 
-    // One logical entry per title in each visible channel. If the automatic
-    // response catalog contains that title, prefer that template over one of
-    // the many historical messages that used the same title.
-    const groupKey = `${record.channelId}:${titleKey}`;
-    const candidate = { record, title, titleKey };
+    // Show one logical template instead of every old copy. Prefer the automatic
+    // response catalog entry whenever the same item exists in the catalog.
+    const logicalName = titleKey || searchKey(record?.name) || searchKey(record?.source) || 'untitled';
+    const groupKey = `${record.channelId}:${logicalName}`;
+    const candidate = { record, title, titleKey, document };
     grouped.set(groupKey, preferredRecord(grouped.get(groupKey), candidate));
   }
 
   return [...grouped.values()].sort((a, b) => {
-    const rankDiff = rankMatch(a.title, normalizedQuery) - rankMatch(b.title, normalizedQuery);
+    const rankDiff = rankMatch(a.title, a.document, normalizedQuery) - rankMatch(b.title, b.document, normalizedQuery);
     if (rankDiff) return rankDiff;
     const titleDiff = a.title.localeCompare(b.title);
     if (titleDiff) return titleDiff;
@@ -175,7 +201,7 @@ function findTitleMatches(records, query) {
 }
 
 function buildSearchResultsPayload(guild, records, query) {
-  const matches = findTitleMatches(records, query);
+  const matches = findSearchMatches(guild, records, query);
   const byChannel = new Map();
 
   for (const match of matches) {
@@ -197,15 +223,15 @@ function buildSearchResultsPayload(guild, records, query) {
     const channel = guild.channels.cache.get(channelId) || null;
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`simple_embed_modify_embed:${channelId}:0`)
-      .setPlaceholder(shortText(`${channel?.name ? `# ${channel.name}` : 'Channel'} • ${usable.length} template${usable.length === 1 ? '' : 's'}`))
+      .setPlaceholder(shortText(`${channel?.name ? `# ${channel.name}` : 'Channel'} • ${usable.length} result${usable.length === 1 ? '' : 's'}`))
       .setMinValues(1)
       .setMaxValues(1)
       .addOptions(...usable.map(({ record, title }) =>
         new StringSelectMenuOptionBuilder()
           .setLabel(shortText(title))
           .setDescription(shortText(record.source === 'system-catalog'
-            ? 'Automatic template • edits future and matching previous messages'
-            : (channel?.name ? `#${channel.name} • unique title` : 'Unique title')))
+            ? 'Automatic template • affects future matching messages'
+            : (channel?.name ? `#${channel.name} • matching embed` : 'Matching embed')))
           .setValue(`${record.messageId}:${Number(record.embedIndex || 0)}`),
       ));
 
@@ -228,15 +254,16 @@ function buildSearchResultsPayload(guild, records, query) {
   const description = matches.length
     ? [
         `Search: **${String(query).slice(0, 120)}**`,
-        `**Unique titles found:** ${matches.length}`,
+        `**Matches found:** ${matches.length}`,
         `**Showing:** ${shown}${hidden ? ` • ${hidden} more not shown` : ''}`,
         '',
-        'Repeated messages are grouped. Choose one title to edit its template.',
+        'Search checks titles, messages, fields, logs, notifications and channel names.',
+        'Repeated copies are grouped automatically.',
       ].join('\n')
     : [
         `Search: **${String(query).slice(0, 120)}**`,
         '',
-        'No embed title matched that search. Try one word or any part of the title.',
+        'Nothing matched. Search with any word from a title, message, field, log, notification or channel.',
       ].join('\n');
 
   return {
@@ -254,8 +281,8 @@ async function handleSearchButton(interaction) {
   const modalId = `${SEARCH_MODAL_PREFIX}${interaction.id}`;
   const input = new TextInputBuilder()
     .setCustomId(SEARCH_INPUT_ID)
-    .setLabel('Embed title or part of title')
-    .setPlaceholder('Example: Roulette')
+    .setLabel('Search')
+    .setPlaceholder('Roulette, ban, kick, lost, ticket...')
     .setStyle(TextInputStyle.Short)
     .setMinLength(1)
     .setMaxLength(120)
@@ -263,7 +290,7 @@ async function handleSearchButton(interaction) {
 
   const modal = new ModalBuilder()
     .setCustomId(modalId)
-    .setTitle('Search embed by title')
+    .setTitle('Search')
     .addComponents(new ActionRowBuilder().addComponents(input));
 
   await interaction.showModal(modal);
@@ -278,13 +305,19 @@ async function handleSearchButton(interaction) {
   if (!submitted) return true;
 
   const query = submitted.fields.getTextInputValue(SEARCH_INPUT_ID).trim();
-  const records = await getEmbedRegistry(interaction.guildId);
+  await submitted.deferUpdate().catch(() => {});
+
+  let records = await getEmbedRegistry(interaction.guildId);
+  try {
+    const reconciled = await reconcileEmbedRegistry(interaction.guild);
+    if (reconciled?.records?.length) records = reconciled.records;
+  } catch (error) {
+    logger.debug(`[EMBED_BUILDER] Search registry refresh skipped: ${error?.message || error}`);
+  }
+
   const payload = buildSearchResultsPayload(interaction.guild, records, query);
-  await submitted.update(payload).catch(async error => {
-    logger.error('[EMBED_BUILDER] Title search result update failed:', error);
-    if (!submitted.replied && !submitted.deferred) {
-      await submitted.reply({ content: 'Could not load the embed search results.', ephemeral: true }).catch(() => {});
-    }
+  await submitted.editReply(payload).catch(error => {
+    logger.error('[EMBED_BUILDER] Search result update failed:', error);
   });
   return true;
 }
@@ -299,10 +332,10 @@ export default {
     client.on(Events.InteractionCreate, interaction => {
       if (!interaction.isButton?.() || interaction.customId !== SEARCH_BUTTON_ID) return;
       void handleSearchButton(interaction).catch(error => {
-        logger.error('[EMBED_BUILDER] Title search failed:', error);
+        logger.error('[EMBED_BUILDER] Search failed:', error);
       });
     });
 
-    logger.info('[EMBED_BUILDER] Unique partial-title template search enabled in Modify embed.');
+    logger.info('[EMBED_BUILDER] Universal search enabled in Modify embed.');
   },
 };
