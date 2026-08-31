@@ -7,7 +7,7 @@ import { getEconomyPrefix } from '../../utils/database.js';
 
 export default {
     data: new SlashCommandBuilder()
-        .setName("eleaderboard")
+        .setName("leaderboard")
         .setDescription("View the server's top 10 richest users.")
         .setDMPermission(false),
 
@@ -85,5 +85,5 @@ export default {
             });
 
             await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
-    }, { command: 'eleaderboard' })
+    }, { command: 'leaderboard' })
 };
