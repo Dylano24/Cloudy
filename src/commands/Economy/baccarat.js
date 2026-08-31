@@ -4,13 +4,12 @@ import { withErrorHandling } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
+import { renderCardRows } from './modules/casinoCardRenderer.js';
 
-// Hollow suit glyphs survive Cloudy's global emoji sanitiser while staying readable.
-const SUITS = ['♤', '♡', '♢', '♧'];
+const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const value = card => card.rank === 'A' ? 1 : ['10', 'J', 'Q', 'K'].includes(card.rank) ? 0 : Number(card.rank);
 const score = cards => cards.reduce((total, card) => total + value(card), 0) % 10;
-const cardsText = cards => cards.map(card => `${card.rank}${card.suit}`).join('  ');
 function deck() {
   const cards = SUITS.flatMap(suit => RANKS.map(rank => ({ rank, suit })));
   for (let i = cards.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
@@ -23,11 +22,25 @@ function choices(id, disabled = false) {
     new ButtonBuilder().setCustomId(`casino_baccarat:tie:${id}`).setLabel('Tie').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
   )];
 }
-function gameEmbed(user, amount, player = null, banker = null, result = null) {
+function gameEmbed(user, amount, player = null, banker = null, result = null, withCards = false) {
   const description = result
-    ? `**Player Hand**\n${cardsText(player)}\nValue: **${score(player)}**\n\n**Banker Hand**\n${cardsText(banker)}\nValue: **${score(banker)}**\n\n${result}`
+    ? `**Player Hand**\nValue: **${score(player)}**\n\n**Banker Hand**\nValue: **${score(banker)}**\n\n${result}`
     : `Bet: **${money(amount)}**\n\nChoose where to place your bet.`;
-  return createEmbed({ title: result ? 'Baccarat — Result' : 'Baccarat', description, color: result ? 'success' : 'primary', author: { name: user.username, iconURL: user.displayAvatarURL() } });
+  return createEmbed({
+    title: result ? 'Baccarat — Result' : 'Baccarat',
+    description,
+    color: result ? 'success' : 'primary',
+    author: { name: user.username, iconURL: user.displayAvatarURL() },
+    image: withCards ? 'attachment://baccarat-cards.png' : null,
+  });
+}
+function resultPayload(user, amount, player, banker, result, id) {
+  return {
+    embeds: [gameEmbed(user, amount, player, banker, result, true)],
+    components: choices(id, true),
+    attachments: [],
+    files: [{ attachment: renderCardRows([{ cards: player }, { cards: banker }]), name: 'baccarat-cards.png' }],
+  };
 }
 
 export default {
@@ -49,7 +62,7 @@ export default {
       const multiplier = pick === winner ? winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2 : 0;
       const payout = Math.floor(amount * multiplier); userData.wallet += payout; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
       const result = `You chose **${pick}**. Winner: **${winner}**\n${payout ? `Payout: **${money(payout)}**` : `You lost **${money(amount)}**`}\nCash balance: **${money(userData.wallet)}**`;
-      await component.update({ embeds: [gameEmbed(interaction.user, amount, player, banker, result)], components: choices(interaction.id, true) });
+      await component.update(resultPayload(interaction.user, amount, player, banker, result, interaction.id));
     });
     collector.on('end', async collected => {
       if (collected.size) return;
