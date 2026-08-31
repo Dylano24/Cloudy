@@ -4,9 +4,9 @@ import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHan
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
+import { renderCardRows } from './modules/casinoCardRenderer.js';
 
-// Hollow suit glyphs survive Cloudy's global emoji sanitiser while staying readable.
-const SUITS = ['♤', '♡', '♢', '♧'];
+const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const makeDeck = () => {
   const cards = SUITS.flatMap(suit => RANKS.map(rank => ({ rank, suit, text: `${rank}${suit}` })));
@@ -39,13 +39,23 @@ function controls(state, ended = false) {
 }
 
 function embed(state, result = null) {
-  const hands = state.hands.map((hand, index) => `**${state.hands.length > 1 ? `Hand ${index + 1}` : 'Your Hand'}${!state.finished && index === state.current ? ' — Playing' : ''}**\n${cardsText(hand.cards)}\nValue: **${score(hand.cards)}**${score(hand.cards) > 21 ? ' — Bust' : ''}`).join('\n\n');
-  const dealerCards = state.finished ? cardsText(state.dealer) : `${state.dealer[0].text}  🂠`;
+  const hands = state.hands.map((hand, index) => `**${state.hands.length > 1 ? `Hand ${index + 1}` : 'Your Hand'}${!state.finished && index === state.current ? ' — Playing' : ''}**\nValue: **${score(hand.cards)}**${score(hand.cards) > 21 ? ' — Bust' : ''}`).join('\n\n');
   return createEmbed({
     title: result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`,
-    description: [result?.text, hands, `**Dealer Hand**\n${dealerCards}\nValue: **${state.finished ? score(state.dealer) : '?'}**`, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
+    description: [result?.text, '**Dealer Hand**', `Value: **${state.finished ? score(state.dealer) : '?'}**`, hands, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
     color: result?.color || 'primary', author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
+    image: 'attachment://blackjack-cards.png',
   });
+}
+
+function visualPayload(state, result = null, ended = false) {
+  const rows = [{ cards: state.dealer, hideFrom: state.finished ? Infinity : 1 }, ...state.hands.map(hand => ({ cards: hand.cards }))];
+  return {
+    embeds: [embed(state, result)],
+    components: controls(state, ended),
+    attachments: [],
+    files: [{ attachment: renderCardRows(rows), name: 'blackjack-cards.png' }],
+  };
 }
 
 function dealerDraw(state) { while (score(state.dealer) < 17) state.dealer.push(draw(state)); }
@@ -63,7 +73,7 @@ async function settle(state, component, collector) {
   }
   state.data.wallet += payout; await setEconomyData(state.client, state.guildId, state.user.id, state.data);
   const result = { title: outcomes.join(' / '), color: payout > state.totalBet ? 'success' : payout === state.totalBet ? 'primary' : 'error', text: `Payout: **${money(payout)}**\nCash balance: **${money(state.data.wallet)}**` };
-  await component.update({ embeds: [embed(state, result)], components: controls(state, true) }); collector.stop('finished');
+  await component.update(visualPayload(state, result, true)); collector.stop('finished');
 }
 
 export default {
@@ -75,7 +85,7 @@ export default {
     const { amount, userData } = await takeBet(interaction, client); await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
     const deck = makeDeck();
     const state = { id: interaction.id, client, guildId: interaction.guildId, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
-    await InteractionHelper.safeEditReply(interaction, { embeds: [embed(state)], components: controls(state) });
+    await InteractionHelper.safeEditReply(interaction, visualPayload(state));
     const message = await interaction.fetchReply().catch(() => null);
     if (!message?.createMessageComponentCollector) return;
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${state.id}`), time: 10 * 60 * 1000 });
@@ -97,17 +107,18 @@ export default {
           state.data.wallet -= hand.bet; state.totalBet += hand.bet;
           state.hands = [{ cards: [hand.cards[0], draw(state)], bet: hand.bet, done: false }, { cards: [hand.cards[1], draw(state)], bet: hand.bet, done: false }]; state.current = 0;
         }
-        if (score(hand.cards) >= 21) hand.done = true;
-        if (hand.done && state.current < state.hands.length - 1) { state.current += 1; await component.update({ embeds: [embed(state)], components: controls(state) }); return; }
+        const activeHand = state.hands[state.current];
+        if (score(activeHand.cards) >= 21) activeHand.done = true;
+        if (activeHand.done && state.current < state.hands.length - 1) { state.current += 1; await component.update(visualPayload(state)); return; }
         if (state.hands.every(current => current.done || score(current.cards) > 21)) { await settle(state, component, collector); return; }
-        await component.update({ embeds: [embed(state)], components: controls(state) });
+        await component.update(visualPayload(state));
       } catch (error) { await component.reply({ ephemeral: true, content: error.userMessage || 'That action cannot be used now.' }).catch(() => {}); }
       finally { busy = false; }
     });
     collector.on('end', async (_, reason) => {
       if (reason === 'finished' || state.finished) return;
       state.finished = true; state.data.wallet += state.totalBet; await setEconomyData(client, interaction.guildId, interaction.user.id, state.data);
-      await message.edit({ embeds: [embed(state, { title: 'Expired', color: 'warning', text: `Game expired — **${money(state.totalBet)}** was returned.` })], components: controls(state, true) }).catch(() => {});
+      await message.edit(visualPayload(state, { title: 'Expired', color: 'warning', text: `Game expired — **${money(state.totalBet)}** was returned.` }, true)).catch(() => {});
     });
   }, { command: 'blackjack' }),
 };
