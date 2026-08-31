@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { successEmbed, warningEmbed } from '../../utils/embeds.js';
+import { createEmbed } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { takeBet, settleBet, money } from './modules/casinoGameUtils.js';
@@ -30,7 +30,6 @@ export default {
       );
     }
 
-    // takeBet accepts every whole-dollar amount from $1 through the user's cash balance.
     const { amount, userData } = await takeBet(interaction, client);
     const number = Math.floor(Math.random() * 37);
     const color = getRouletteColor(number);
@@ -42,21 +41,21 @@ export default {
     const multiplier = numberBet ? (won ? 36 : 0) : (won ? 2 : 0);
     const result = await settleBet(interaction, client, userData, amount, multiplier);
 
-    const embed = (won ? successEmbed : warningEmbed)(
-      won ? 'Roulette — You won!' : 'Roulette — You lost',
-      `The wheel landed on ${tile}\n**${number} • ${color.charAt(0).toUpperCase() + color.slice(1)}**`,
-    ).addFields(
-      { name: 'Your bet', value: `**${money(amount)}** on **${choice}**`, inline: true },
-      {
-        name: won ? 'Payout' : 'Result',
-        value: won ? `**${money(result.payout)}**` : `Lost **${money(amount)}**`,
-        inline: true,
-      },
-      { name: 'Cash balance', value: `**${money(result.balance)}**`, inline: true },
-    );
+    const embed = createEmbed({
+      title: won ? 'Roulette — You won!' : 'Roulette — You lost',
+      description: `The wheel landed on ${tile}\n**${number} • ${color.charAt(0).toUpperCase() + color.slice(1)}**`,
+      color: won ? 'success' : 'warning',
+      fields: [
+        { name: 'Your bet', value: `**${money(amount)}** on **${choice}**`, inline: true },
+        {
+          name: won ? 'Payout' : 'Result',
+          value: won ? `**${money(result.payout)}**` : `Lost **${money(amount)}**`,
+          inline: true,
+        },
+        { name: 'Cash balance', value: `**${money(result.balance)}**`, inline: true },
+      ],
+    });
 
-    // Everything stays inside the embed so the system embed catalog / builder can
-    // capture and keep the roulette result template in sync automatically.
     await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components: [] });
   }, { command: 'roulette' }),
 };
