@@ -4,12 +4,15 @@ import { withErrorHandling } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
-import { renderCardRows } from './modules/casinoCardRenderer.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const value = card => card.rank === 'A' ? 1 : ['10', 'J', 'Q', 'K'].includes(card.rank) ? 0 : Number(card.rank);
 const score = cards => cards.reduce((total, card) => total + value(card), 0) % 10;
+const RANK_CODE = { A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, J: 11, Q: 13, K: 14 };
+const SUIT_BASE = { '♠': 0x1f0a0, '♥': 0x1f0b0, '♦': 0x1f0c0, '♣': 0x1f0d0 };
+const cardGlyph = card => String.fromCodePoint(SUIT_BASE[card.suit] + RANK_CODE[card.rank]);
+const cardsGlyphs = cards => cards.map(cardGlyph).join(' ');
 function deck() {
   const cards = SUITS.flatMap(suit => RANKS.map(rank => ({ rank, suit })));
   for (let i = cards.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
@@ -22,30 +25,20 @@ function choices(id, disabled = false) {
     new ButtonBuilder().setCustomId(`casino_baccarat:tie:${id}`).setLabel('Tie').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
   )];
 }
-function gameEmbed(user, amount, player = null, banker = null, result = null, withCards = false) {
-  let description;
-  if (result && player?.length && banker?.length) {
-    description = `**Player Hand**\nValue: **${score(player)}**\n\n**Banker Hand**\nValue: **${score(banker)}**\n\n${result}`;
-  } else if (result) {
-    description = result;
-  } else {
-    description = `Bet: **${money(amount)}**\n\nChoose where to place your bet.`;
-  }
-  return createEmbed({
-    title: result ? 'Baccarat — Result' : 'Baccarat',
-    description,
+function gameEmbed(user, amount, player = null, banker = null, result = null) {
+  const game = createEmbed({
+    title: result ? 'Baccarat — Result' : `Baccarat — Bet ${money(amount)}`,
+    description: result || 'Choose where to place your bet.',
     color: result ? 'success' : 'primary',
     author: { name: user.username, iconURL: user.displayAvatarURL() },
-    image: withCards ? 'attachment://baccarat-cards.png' : null,
   });
-}
-function resultPayload(user, amount, player, banker, result, id) {
-  return {
-    embeds: [gameEmbed(user, amount, player, banker, result, true)],
-    components: choices(id, true),
-    attachments: [],
-    files: [{ attachment: renderCardRows([{ cards: player }, { cards: banker }]), name: 'baccarat-cards.png' }],
-  };
+  if (player?.length && banker?.length) {
+    game.data.fields = [
+      { name: 'Player Hand', value: `${cardsGlyphs(player)}\nValue: **${score(player)}**`, inline: true },
+      { name: 'Banker Hand', value: `${cardsGlyphs(banker)}\nValue: **${score(banker)}**`, inline: true },
+    ];
+  }
+  return game;
 }
 
 export default {
@@ -67,12 +60,12 @@ export default {
       const multiplier = pick === winner ? winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2 : 0;
       const payout = Math.floor(amount * multiplier); userData.wallet += payout; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
       const result = `You chose **${pick}**. Winner: **${winner}**\n${payout ? `Payout: **${money(payout)}**` : `You lost **${money(amount)}**`}\nCash balance: **${money(userData.wallet)}**`;
-      await component.update(resultPayload(interaction.user, amount, player, banker, result, interaction.id));
+      await component.update({ embeds: [gameEmbed(interaction.user, amount, player, banker, result)], components: choices(interaction.id, true), attachments: [] });
     });
     collector.on('end', async collected => {
       if (collected.size) return;
       userData.wallet += amount; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
-      await message.edit({ embeds: [gameEmbed(interaction.user, amount, null, null, `Game expired — **${money(amount)}** was returned.`)], components: choices(interaction.id, true) }).catch(() => {});
+      await message.edit({ embeds: [gameEmbed(interaction.user, amount, null, null, `Game expired — **${money(amount)}** was returned.`)], components: choices(interaction.id, true), attachments: [] }).catch(() => {});
     });
   }, { command: 'baccarat' }),
 };
