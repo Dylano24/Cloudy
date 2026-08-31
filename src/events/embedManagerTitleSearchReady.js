@@ -77,7 +77,6 @@ function patchManagerResponses() {
     for (const method of ['reply', 'editReply', 'followUp', 'update']) {
       const original = interaction[method]?.bind(interaction);
       if (!original) continue;
-
       interaction[method] = async (payload, ...args) => original(addSearchControl(payload), ...args);
     }
 
@@ -126,34 +125,53 @@ function rankMatch(title, query) {
   return 3;
 }
 
+function recordPriority(record) {
+  const source = String(record?.source || '').toLowerCase();
+  if (source === 'system-catalog') return 100;
+  if (source.includes('template')) return 80;
+  if (source.includes('modified')) return 60;
+  if (source === 'history') return 20;
+  return 40;
+}
+
+function preferredRecord(left, right) {
+  if (!left) return right;
+  const priorityDiff = recordPriority(right.record) - recordPriority(left.record);
+  if (priorityDiff > 0) return right;
+  if (priorityDiff < 0) return left;
+
+  const leftTime = new Date(left.record?.updatedAt || left.record?.createdAt || 0).getTime();
+  const rightTime = new Date(right.record?.updatedAt || right.record?.createdAt || 0).getTime();
+  return rightTime >= leftTime ? right : left;
+}
+
 function findTitleMatches(records, query) {
   const normalizedQuery = searchKey(query);
   if (!normalizedQuery) return [];
 
   const queryWords = normalizedQuery.split(' ').filter(Boolean);
-  const seen = new Set();
+  const grouped = new Map();
 
-  return records
-    .map(record => {
-      const title = normalizedTitle(record);
-      return { record, title, titleKey: searchKey(title) };
-    })
-    // Search on any part of the title. Punctuation such as "—", "-", ":" and
-    // emoji does not matter. Typing just "roulette" therefore shows every
-    // Roulette title; "roulette won" narrows that list to titles containing
-    // both words even when the real title is "Roulette — You won!".
-    .filter(item => queryWords.every(word => item.titleKey.includes(word)))
-    .sort((a, b) => {
-      const rankDiff = rankMatch(a.title, normalizedQuery) - rankMatch(b.title, normalizedQuery);
-      if (rankDiff) return rankDiff;
-      return a.title.localeCompare(b.title);
-    })
-    .filter(item => {
-      const key = `${item.record.channelId}:${item.record.messageId}:${Number(item.record.embedIndex || 0)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  for (const record of records) {
+    const title = normalizedTitle(record);
+    const titleKey = searchKey(title);
+    if (!queryWords.every(word => titleKey.includes(word))) continue;
+
+    // One logical entry per title in each visible channel. If the automatic
+    // response catalog contains that title, prefer that template over one of
+    // the many historical messages that used the same title.
+    const groupKey = `${record.channelId}:${titleKey}`;
+    const candidate = { record, title, titleKey };
+    grouped.set(groupKey, preferredRecord(grouped.get(groupKey), candidate));
+  }
+
+  return [...grouped.values()].sort((a, b) => {
+    const rankDiff = rankMatch(a.title, normalizedQuery) - rankMatch(b.title, normalizedQuery);
+    if (rankDiff) return rankDiff;
+    const titleDiff = a.title.localeCompare(b.title);
+    if (titleDiff) return titleDiff;
+    return String(a.record.channelId).localeCompare(String(b.record.channelId));
+  });
 }
 
 function buildSearchResultsPayload(guild, records, query) {
@@ -178,16 +196,16 @@ function buildSearchResultsPayload(guild, records, query) {
 
     const channel = guild.channels.cache.get(channelId) || null;
     const menu = new StringSelectMenuBuilder()
-      // This intentionally uses the Embed Manager's existing selection ID so
-      // selecting a search result loads the embed into the normal builder flow.
       .setCustomId(`simple_embed_modify_embed:${channelId}:0`)
-      .setPlaceholder(shortText(`${channel?.name ? `# ${channel.name}` : 'Channel'} • ${usable.length} match${usable.length === 1 ? '' : 'es'}`))
+      .setPlaceholder(shortText(`${channel?.name ? `# ${channel.name}` : 'Channel'} • ${usable.length} template${usable.length === 1 ? '' : 's'}`))
       .setMinValues(1)
       .setMaxValues(1)
       .addOptions(...usable.map(({ record, title }) =>
         new StringSelectMenuOptionBuilder()
           .setLabel(shortText(title))
-          .setDescription(shortText(channel?.name ? `#${channel.name} • title match` : 'Title match'))
+          .setDescription(shortText(record.source === 'system-catalog'
+            ? 'Automatic template • edits future and matching previous messages'
+            : (channel?.name ? `#${channel.name} • unique title` : 'Unique title')))
           .setValue(`${record.messageId}:${Number(record.embedIndex || 0)}`),
       ));
 
@@ -210,10 +228,10 @@ function buildSearchResultsPayload(guild, records, query) {
   const description = matches.length
     ? [
         `Search: **${String(query).slice(0, 120)}**`,
-        `**Matches found:** ${matches.length}`,
-        `**Showing:** ${shown}${hidden ? ` • ${hidden} more match${hidden === 1 ? '' : 'es'} not shown` : ''}`,
+        `**Unique titles found:** ${matches.length}`,
+        `**Showing:** ${shown}${hidden ? ` • ${hidden} more not shown` : ''}`,
         '',
-        'Choose a matching title below to load it directly into the Embed Builder.',
+        'Repeated messages are grouped. Choose one title to edit its template.',
       ].join('\n')
     : [
         `Search: **${String(query).slice(0, 120)}**`,
@@ -285,6 +303,6 @@ export default {
       });
     });
 
-    logger.info('[EMBED_BUILDER] Partial title search enabled in Modify embed.');
+    logger.info('[EMBED_BUILDER] Unique partial-title template search enabled in Modify embed.');
   },
 };
