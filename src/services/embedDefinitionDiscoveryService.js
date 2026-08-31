@@ -86,7 +86,7 @@ function inferContext(relativePath) {
   if (/music/.test(file)) return `music/${file}`;
   if (/ticket|transcript/.test(file)) return `tickets/${file}`;
   if (/shop|store|purchase|subscription/.test(file)) return `shop/${file}`;
-  if (/gambl|economy|coin|flip|slots|blackjack|roulette|fight|dice|roll/.test(file)) return `gambling/${file}`;
+  if (/gambl|economy|coin|flip|slots|blackjack|roulette|baccarat|fight|dice|roll/.test(file)) return `gambling/${file}`;
   return `botlog/${file}`;
 }
 
@@ -94,7 +94,7 @@ function inferColor(title, kind = 'embed') {
   const value = String(title || '').toLowerCase();
   if (/success|completed|created|saved|enabled|added|joined|won|winner|purchased|received/.test(value)) return 0x57F287;
   if (/warning|cooldown|wait|pending|slow|too fast/.test(value)) return 0xFEE75C;
-  if (/error|wrong|invalid|failed|denied|missing|not enough|blocked|disabled|cannot|could not/.test(value)) return 0xED4245;
+  if (/error|wrong|invalid|failed|denied|missing|not enough|blocked|disabled|cannot|could not|lost|loss/.test(value)) return 0xED4245;
   return kind === 'content' ? 0x99AAB5 : 0x5865F2;
 }
 
@@ -136,17 +136,27 @@ function findDescription(lines, startIndex) {
   return null;
 }
 
-function findTitleOnLine(lines, index) {
+function findTitlesOnLine(lines, index) {
   const line = lines[index];
   let marker = null;
   if (line.includes('.setTitle(')) marker = '.setTitle(';
   else if (/\btitleOverride\s*:/.test(line)) marker = 'titleOverride:';
   else if (/\btitle\s*:/.test(line)) marker = 'title:';
-  if (!marker) return null;
+  if (!marker) return [];
+
+  const markerIndex = line.indexOf(marker);
+  const sameLineExpression = line.slice(markerIndex + marker.length);
+  const candidates = allLiterals(sameLineExpression, 8)
+    .map(raw => decodeString(raw, { allowDynamic: false }))
+    .filter(Boolean)
+    .filter(value => value.length <= 256);
+
+  if (candidates.length) return [...new Set(candidates)];
 
   const combined = lines.slice(index, Math.min(lines.length, index + 8)).join('\n');
   const raw = literalFromText(combined.slice(combined.indexOf(marker) + marker.length));
-  return decodeString(raw, { allowDynamic: false });
+  const decoded = decodeString(raw, { allowDynamic: false });
+  return decoded ? [decoded] : [];
 }
 
 function addDefinition(results, seen, definition) {
@@ -161,17 +171,19 @@ function extractEmbedDefinitions(source, relativePath, results, seen) {
   const lines = source.split(/\r?\n/);
 
   for (let index = 0; index < lines.length; index += 1) {
-    const title = findTitleOnLine(lines, index);
-    if (!title || title.length > 256) continue;
+    const titles = findTitlesOnLine(lines, index);
+    if (!titles.length) continue;
     const description = findDescription(lines, index);
-    addDefinition(results, seen, {
-      kind: 'embed',
-      title,
-      description,
-      color: inferColor(title),
-      context,
-      variantId: `${relativePath}:embed:${index + 1}`,
-    });
+    for (const title of titles) {
+      addDefinition(results, seen, {
+        kind: 'embed',
+        title,
+        description,
+        color: inferColor(title),
+        context,
+        variantId: `${relativePath}:embed:${index + 1}:${safeSlug(title)}`,
+      });
+    }
   }
 
   const helperRegex = /\b(successEmbed|infoEmbed|warningEmbed|errorEmbed)\s*\(([\s\S]{0,900}?)\)/g;
