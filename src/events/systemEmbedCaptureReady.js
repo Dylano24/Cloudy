@@ -1,5 +1,8 @@
 import { EmbedBuilder, Events } from 'discord.js';
-import { captureSystemEmbedData } from '../services/systemEmbedCatalogService.js';
+import {
+  applyRuntimeEmbedTemplateData,
+  captureSystemEmbedData,
+} from '../services/systemEmbedCatalogService.js';
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.systemEmbedCapture');
@@ -20,13 +23,15 @@ export default {
     });
 
     EmbedBuilder.prototype.toJSON = function cloudyObservedEmbedToJSON(...args) {
-      const data = originalToJSON.apply(this, args);
+      const original = originalToJSON.apply(this, args);
       try {
-        captureSystemEmbedData(data);
+        const transformed = applyRuntimeEmbedTemplateData(original);
+        captureSystemEmbedData(original);
+        return transformed;
       } catch (error) {
         logger.debug(`System embed capture skipped: ${error?.message || error}`);
+        return original;
       }
-      return data;
     };
 
     logger.info('System embed capture enabled.');
