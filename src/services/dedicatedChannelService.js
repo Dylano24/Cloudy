@@ -93,6 +93,7 @@ const gamblingGuideManager = createStickyGuideManager({
   saveState: (channel, state) => setInDb(gamblingGuideStorageKey(channel), state),
   isGuide: isGamblingGuide,
   onError: error => logger.warn(`Gambling guide refresh failed: ${error.message}`),
+  everyNMessages: 5,
   async buildPayload(channel, existing) {
     if (existing?.embeds?.length) {
       // Preserve Embed Builder styling and custom text. Only migrate the previous
