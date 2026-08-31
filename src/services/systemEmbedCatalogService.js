@@ -4,23 +4,16 @@ import { getTraceContext, logger } from '../utils/logger.js';
 import { discoverEmbedDefinitions } from './embedDefinitionDiscoveryService.js';
 
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
-const EDITED_VARIANTS_PREFIX = 'cloudy:system-embed-edited-variants:';
 const CATALOG_CONTENT = 'System & error embed templates';
 const MAX_EMBEDS_PER_MESSAGE = 10;
 const TEMPLATE_KEY_PREFIX = 'Cloudy template key:';
 const TEMPLATE_CONTEXT_SEPARATOR = ' || Cloudy context:';
-const TEMPLATE_VARIANT_SEPARATOR = ' || Cloudy variant:';
-const DISCOVERY_EDGE = '\u2063';
-const DISCOVERY_ZERO = '\u200B';
-const DISCOVERY_ONE = '\u200C';
-const INTERNAL_WRITE_TTL_MS = 5_000;
+const TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
 
 const contexts = new Map();
 const templateCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
-const editedVariants = new Map();
-const internalCatalogWrites = new Map();
 let flushTimer = null;
 let discoveryPromise = null;
 
@@ -35,54 +28,72 @@ const INTERNAL_TEMPLATE_TITLES = new Set([
 ]);
 
 const DEFAULT_TEMPLATES = [
-  { key: 'wrong channel', context: 'gambling', title: 'Wrong channel', description: 'This command can only be used in the dedicated channel. Please use {channel} to play.', color: 0xED4245 },
-  { key: 'not enough money', context: 'gambling', title: 'Not enough money', description: 'You only have {current} cash, but you are trying to bet {required}.', color: 0xED4245 },
-  { key: 'invalid input', context: 'gambling', title: 'Invalid Input', description: 'Please check your input and try again.', color: 0xED4245 },
-  { key: 'invalid code', context: 'botlog', title: 'Invalid code', description: 'That code is invalid or no longer available.', color: 0xED4245 },
-  { key: 'permission denied', context: 'botlog', title: 'Permission Denied', description: "You don't have permission to do that.", color: 0xED4245 },
-  { key: 'configuration error', context: 'botlog', title: 'Configuration Error', description: 'This feature is not set up yet. Ask a server administrator to configure it.', color: 0xED4245 },
-  { key: 'database error', context: 'botlog', title: 'Database Error', description: 'Something went wrong while saving data. Please try again in a moment.', color: 0xED4245 },
-  { key: 'network error', context: 'botlog', title: 'Network Error', description: 'I could not reach an external service. Please try again in a moment.', color: 0xED4245 },
-  { key: 'discord api error', context: 'botlog', title: 'Discord API Error', description: 'Discord rejected that request. Please try again in a moment.', color: 0xED4245 },
-  { key: 'input error', context: 'botlog', title: 'Input Error', description: 'There was a problem with your request. Check your input and try again.', color: 0xED4245 },
-  { key: 'too fast', context: 'botlog', title: 'Too Fast', description: "You're doing that too quickly. Wait a moment and try again.", color: 0xFEE75C },
-  { key: 'something went wrong', context: 'botlog', title: 'Something Went Wrong', description: 'Something went wrong. Please try again in a moment.', color: 0xED4245 },
-  { key: 'warning', context: 'botlog', title: 'Warning', description: 'A warning message from Cloudy.', color: 0xFEE75C },
-  { key: 'information', context: 'botlog', title: 'Information', description: 'An information message from Cloudy.', color: 0x5865F2 },
-  { key: 'success', context: 'botlog', title: 'Success', description: 'The action was completed successfully.', color: 0x57F287 },
-  { key: 'notice', context: 'botlog', title: 'Notice', description: 'A notice from Cloudy.', color: 0x5865F2 },
-  { key: 'error', context: 'botlog', title: 'Error', description: 'Something went wrong. Please try again.', color: 0xED4245 },
+  { key: 'wrong channel', context: 'gambling', kind: 'embed', title: 'Wrong channel', description: 'This command can only be used in the dedicated channel. Please use {dynamic} to play.', color: 0xED4245 },
+  { key: 'not enough money', context: 'gambling', kind: 'embed', title: 'Not enough money', description: 'You only have {dynamic} cash, but you are trying to bet {dynamic}.', color: 0xED4245 },
+  { key: 'invalid input', context: 'gambling', kind: 'embed', title: 'Invalid Input', description: 'Please check your input and try again.', color: 0xED4245 },
+  { key: 'invalid code', context: 'botlog', kind: 'embed', title: 'Invalid code', description: 'That code is invalid or no longer available.', color: 0xED4245 },
+  { key: 'permission denied', context: 'botlog', kind: 'embed', title: 'Permission Denied', description: "You don't have permission to do that.", color: 0xED4245 },
+  { key: 'configuration error', context: 'botlog', kind: 'embed', title: 'Configuration Error', description: 'This feature is not set up yet. Ask a server administrator to configure it.', color: 0xED4245 },
+  { key: 'database error', context: 'botlog', kind: 'embed', title: 'Database Error', description: 'Something went wrong while saving data. Please try again in a moment.', color: 0xED4245 },
+  { key: 'network error', context: 'botlog', kind: 'embed', title: 'Network Error', description: 'I could not reach an external service. Please try again in a moment.', color: 0xED4245 },
+  { key: 'discord api error', context: 'botlog', kind: 'embed', title: 'Discord API Error', description: 'Discord rejected that request. Please try again in a moment.', color: 0xED4245 },
+  { key: 'input error', context: 'botlog', kind: 'embed', title: 'Input Error', description: 'There was a problem with your request. Check your input and try again.', color: 0xED4245 },
+  { key: 'too fast', context: 'botlog', kind: 'embed', title: 'Too Fast', description: "You're doing that too quickly. Wait a moment and try again.", color: 0xFEE75C },
+  { key: 'something went wrong', context: 'botlog', kind: 'embed', title: 'Something Went Wrong', description: 'Something went wrong. Please try again in a moment.', color: 0xED4245 },
 ];
 
 function normalize(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+function compactName(value) {
+  return normalize(value).replace(/[^a-z0-9]/g, '');
+}
+
+function cloneData(value) {
+  return value?.toJSON ? value.toJSON() : { ...(value || {}) };
+}
+
 function storageKey(guildId) {
   return `${CATALOG_PREFIX}${guildId}`;
 }
 
-function editedVariantsKey(guildId) {
-  return `${EDITED_VARIANTS_PREFIX}${guildId}`;
+function shortHash(value) {
+  let hash = 2166136261;
+  const text = String(value || '');
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-function cloneData(embed) {
-  return embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
+function dynamicParts(value = '') {
+  const values = [];
+  let text = String(value || '');
+  text = text.replace(/\{dynamic\}/gi, () => '{dynamic}');
+  text = text.replace(/<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/g, match => {
+    values.push(match);
+    return '{dynamic}';
+  });
+  return {
+    pattern: normalize(text),
+    values,
+  };
 }
 
-function isInternalTemplate(data) {
-  const title = normalize(data?.title);
-  if (!title || INTERNAL_TEMPLATE_TITLES.has(title)) return true;
-  const authorName = String(data?.author?.name || '');
-  return authorName.toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase());
+function renderDynamic(template, runtime) {
+  const source = String(runtime || '');
+  const values = dynamicParts(source).values;
+  let index = 0;
+  const rendered = String(template || '').replace(/\{dynamic\}/gi, () => values[index++] ?? '{dynamic}');
+  return /\{dynamic\}/i.test(rendered) ? source : rendered;
 }
 
-function findCatalogChannel(guild) {
-  return guild?.channels?.cache?.find(channel => {
-    const name = normalize(channel?.name);
-    return channel?.isTextBased?.() && channel?.isSendable?.()
-      && (name === 'botlog' || name === 'bot-log' || name === 'bot-logs' || name.includes('botlog'));
-  }) || null;
+function responseSignature(kind, title = '', description = '') {
+  const titlePattern = dynamicParts(title).pattern;
+  const descriptionPattern = dynamicParts(description).pattern;
+  return `${kind}:${shortHash(`${titlePattern}\n${descriptionPattern}`)}`;
 }
 
 function commandSlug(raw) {
@@ -107,7 +118,6 @@ function inferContextHint(source = null) {
   );
 
   if (/embed.?builder|simple_embed|message.?builder/.test(raw)) return null;
-
   if (/gambl|coin.?flip|slots?|blackjack|roulette|fight|dice|roll|balance|daily|beg|crime|rob|fish|mine|pay|deposit|withdraw|inventory|economy|wallet|cash/.test(raw)) return contextualize('gambling', raw);
   if (/ticket|transcript|claim|reopen/.test(raw)) return contextualize('tickets', raw);
   if (/music|play|skip|pause|resume|queue|now.?playing|volume/.test(raw)) return contextualize('music', raw);
@@ -127,34 +137,38 @@ function inferContextHint(source = null) {
 }
 
 function parentContext(context) {
-  const normalized = normalize(context);
-  if (!normalized.includes('/')) return null;
-  return normalized.split('/')[0] || null;
+  const value = normalize(context);
+  return value.includes('/') ? value.split('/')[0] : null;
 }
 
 function cacheIdentity(key, context = null) {
-  return `${normalize(key)}::${normalize(context) || 'global'}`;
+  return `${normalize(context) || 'global'}::${normalize(key)}`;
 }
 
-function catalogIdentity(key, context = null, variant = null) {
-  return `${cacheIdentity(key, context)}::${normalize(variant) || 'primary'}`;
+function findCatalogChannel(guild) {
+  const candidates = [...(guild?.channels?.cache?.values?.() || [])]
+    .filter(channel => channel?.isTextBased?.() && channel?.isSendable?.())
+    .map(channel => ({ channel, compact: compactName(channel.name) }))
+    .filter(item => item.compact === 'botlog' || item.compact === 'botlogs' || item.compact.includes('botlog'))
+    .sort((a, b) => (a.channel.position ?? 0) - (b.channel.position ?? 0));
+  return candidates[0]?.channel || null;
 }
 
 function parseTemplateMetadata(embed) {
   const data = cloneData(embed);
   const authorName = String(data.author?.name || '');
   if (!authorName.toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase())) {
-    return { key: normalize(stripDiscoverySuffix(data.title)), context: null, variant: null };
+    return { key: normalize(data.title), context: null, kind: 'embed' };
   }
 
   let metadata = authorName.slice(TEMPLATE_KEY_PREFIX.length).trim();
-  let variant = null;
+  let kind = 'embed';
   let context = null;
 
-  const variantIndex = metadata.toLowerCase().indexOf(TEMPLATE_VARIANT_SEPARATOR.toLowerCase());
-  if (variantIndex !== -1) {
-    variant = normalize(metadata.slice(variantIndex + TEMPLATE_VARIANT_SEPARATOR.length));
-    metadata = metadata.slice(0, variantIndex);
+  const kindIndex = metadata.toLowerCase().indexOf(TEMPLATE_KIND_SEPARATOR.toLowerCase());
+  if (kindIndex !== -1) {
+    kind = normalize(metadata.slice(kindIndex + TEMPLATE_KIND_SEPARATOR.length)) || 'embed';
+    metadata = metadata.slice(0, kindIndex);
   }
 
   const contextIndex = metadata.toLowerCase().indexOf(TEMPLATE_CONTEXT_SEPARATOR.toLowerCase());
@@ -163,18 +177,15 @@ function parseTemplateMetadata(embed) {
     metadata = metadata.slice(0, contextIndex);
   }
 
-  return { key: normalize(metadata), context, variant };
+  return { key: normalize(metadata), context, kind };
 }
 
-function withStableKey(data, key, context = null, variant = null) {
-  const normalizedContext = normalize(context);
-  const normalizedVariant = normalize(variant);
+function withStableKey(data, key, context = null, kind = 'embed') {
   const authorName = [
     `${TEMPLATE_KEY_PREFIX} ${normalize(key)}`,
-    normalizedContext ? `${TEMPLATE_CONTEXT_SEPARATOR} ${normalizedContext}` : '',
-    normalizedVariant ? `${TEMPLATE_VARIANT_SEPARATOR} ${normalizedVariant}` : '',
+    context ? `${TEMPLATE_CONTEXT_SEPARATOR} ${normalize(context)}` : '',
+    `${TEMPLATE_KIND_SEPARATOR} ${normalize(kind) || 'embed'}`,
   ].join('').slice(0, 256);
-
   return {
     ...data,
     author: {
@@ -184,136 +195,19 @@ function withStableKey(data, key, context = null, variant = null) {
   };
 }
 
-function shortHash(value) {
-  let hash = 2166136261;
-  const text = String(value || '');
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
+function isInternalTemplate(data) {
+  const title = normalize(data?.title);
+  if (!title || INTERNAL_TEMPLATE_TITLES.has(title)) return true;
+  const authorName = String(data?.author?.name || '');
+  return authorName.toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase());
 }
 
-function discoverySuffix(seed) {
-  const numeric = Number.parseInt(shortHash(seed), 16) >>> 0;
-  let bits = '';
-  for (let bit = 31; bit >= 0; bit -= 1) {
-    bits += (numeric >>> bit) & 1 ? DISCOVERY_ONE : DISCOVERY_ZERO;
-  }
-  return `${DISCOVERY_EDGE}${bits}${DISCOVERY_EDGE}`;
+function rememberTemplate(key, data, context = null) {
+  if (!key || !data) return;
+  templateCache.set(cacheIdentity(key, context), cloneData(data));
 }
 
-function stripDiscoverySuffix(value) {
-  return String(value || '').replace(/\u2063[\u200B\u200C]+\u2063$/u, '');
-}
-
-function seedToEmbed(seed) {
-  return new EmbedBuilder(withStableKey({
-    title: seed.title,
-    description: seed.description,
-    color: seed.color,
-  }, seed.key, seed.context));
-}
-
-function extractDynamicValues(description = '') {
-  const text = String(description || '');
-  const money = text.match(/\$[\d,.]+/g) || [];
-  return {
-    channel: text.match(/<#\d+>/)?.[0] || null,
-    current: money[0] || null,
-    required: money[1] || null,
-    time: text.match(/\*\*([^*]+)\*\*/)?.[1] || null,
-    command: text.match(/\/[a-z0-9_-]+/i)?.[0] || null,
-    code: text.match(/`([^`]+)`/)?.[1] || null,
-  };
-}
-
-function renderTemplateDescription(templateDescription, runtimeDescription) {
-  const template = String(templateDescription || '');
-  if (!template.includes('{')) return template || runtimeDescription;
-
-  const values = extractDynamicValues(runtimeDescription);
-  let output = template;
-  for (const [key, value] of Object.entries(values)) {
-    if (value) output = output.replaceAll(`{${key}}`, value);
-  }
-
-  return /\{[a-z0-9_-]+\}/i.test(output) ? runtimeDescription : output;
-}
-
-function rememberTemplate(key, embed, contextOverride = null) {
-  const normalizedKey = normalize(key);
-  if (!normalizedKey || !embed) return;
-  const metadata = parseTemplateMetadata(embed);
-  const context = normalize(contextOverride || metadata.context);
-  templateCache.set(cacheIdentity(normalizedKey, context), cloneData(embed));
-}
-
-function scheduleFlush() {
-  if (flushTimer) return;
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    void flushPendingTemplates();
-  }, 350);
-  flushTimer.unref?.();
-}
-
-function queueRuntimeTemplate(embed, contextHint = null, { keyOverride = null, variant = null } = {}) {
-  const data = cloneData(embed);
-  if (isInternalTemplate(data)) return false;
-
-  const key = normalize(keyOverride || stripDiscoverySuffix(data.title));
-  const context = normalize(contextHint || inferContextHint());
-  const normalizedVariant = normalize(variant);
-  const entryIdentity = catalogIdentity(key, context, normalizedVariant);
-
-  if (!key || catalogEntries.has(entryIdentity) || pendingTemplates.has(entryIdentity)) return false;
-  if (!normalizedVariant && templateCache.has(cacheIdentity(key, context))) return false;
-
-  pendingTemplates.set(entryIdentity, withStableKey(data, key, context, normalizedVariant));
-  scheduleFlush();
-  return true;
-}
-
-export function captureSystemEmbedData(embedData, contextSource = null) {
-  const data = cloneData(embedData);
-  if (isInternalTemplate(data)) return false;
-
-  const trace = getTraceContext();
-  const explicitContext = inferContextHint(contextSource);
-  const traceContext = inferContextHint(trace?.command || null);
-  const context = explicitContext || traceContext;
-
-  if (!context && !contextSource) return false;
-  return queueRuntimeTemplate(data, context);
-}
-
-export function registerDiscoveredEmbedDefinition({
-  title,
-  description = null,
-  color = 0x5865F2,
-  context = 'botlog',
-  variantId = null,
-} = {}) {
-  const cleanTitle = String(title || '').trim();
-  if (!cleanTitle || INTERNAL_TEMPLATE_TITLES.has(normalize(cleanTitle))) return false;
-
-  const variant = shortHash(variantId || `${context}:${cleanTitle}:${description || ''}`);
-  const suffix = discoverySuffix(variant);
-  const visibleLength = Math.max(1, 256 - suffix.length);
-  const data = {
-    title: `${cleanTitle.slice(0, visibleLength)}${suffix}`,
-    color: Number.isInteger(color) ? color : 0x5865F2,
-  };
-  if (description) data.description = String(description).slice(0, 4096);
-
-  return queueRuntimeTemplate(data, normalize(context) || 'botlog', {
-    keyOverride: cleanTitle,
-    variant,
-  });
-}
-
-function templateForRuntime(key, context) {
+function findTemplate(key, context) {
   const exact = normalize(context);
   const parent = parentContext(exact);
   return templateCache.get(cacheIdentity(key, exact))
@@ -322,44 +216,13 @@ function templateForRuntime(key, context) {
     || null;
 }
 
-export function applySystemEmbedTemplate(embed) {
-  if (!embed) return embed;
-  const data = cloneData(embed);
-  const key = normalize(stripDiscoverySuffix(data.title));
-  if (!key) return embed;
-
-  const context = inferContextHint();
-  const template = templateForRuntime(key, context);
-
-  if (!template) {
-    queueRuntimeTemplate(embed, context);
-    return embed;
+function rememberCatalogMessage(message) {
+  for (const embed of message?.embeds || []) {
+    const metadata = parseTemplateMetadata(embed);
+    if (!metadata.key) continue;
+    catalogEntries.add(cacheIdentity(metadata.key, metadata.context));
+    rememberTemplate(metadata.key, embed, metadata.context);
   }
-
-  const next = { ...data };
-  if (template.title) next.title = stripDiscoverySuffix(template.title);
-  if (Number.isInteger(template.color)) next.color = template.color;
-  if (template.description) next.description = renderTemplateDescription(template.description, data.description);
-  if (template.footer?.text) next.footer = { ...template.footer };
-  else delete next.footer;
-  if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
-  else delete next.thumbnail;
-  if (template.image?.url) next.image = { ...template.image };
-  else delete next.image;
-
-  return new EmbedBuilder(next);
-}
-
-async function loadEditedVariants(guildId) {
-  const stored = await getFromDb(editedVariantsKey(guildId), []);
-  const set = new Set(Array.isArray(stored) ? stored.map(normalize).filter(Boolean) : []);
-  editedVariants.set(String(guildId), set);
-  return set;
-}
-
-async function saveEditedVariants(guildId) {
-  const set = editedVariants.get(String(guildId)) || new Set();
-  await setInDb(editedVariantsKey(guildId), [...set]);
 }
 
 async function loadCatalogMessages(context) {
@@ -372,116 +235,211 @@ async function loadCatalogMessages(context) {
   return messages;
 }
 
-function refreshCacheFromMessages(messages, guildId) {
-  const edited = editedVariants.get(String(guildId)) || new Set();
-  for (const message of messages) {
-    for (const embed of message.embeds || []) {
-      const metadata = parseTemplateMetadata(embed);
-      if (!metadata.key) continue;
-      catalogEntries.add(catalogIdentity(metadata.key, metadata.context, metadata.variant));
-      if (!metadata.variant || edited.has(metadata.variant)) {
-        rememberTemplate(metadata.key, embed, metadata.context);
-      }
-    }
-  }
-}
-
-async function registerCatalogMessages(messages) {
-  if (!messages?.length) return;
-  try {
-    const { registerCloudyEmbedMessages } = await import('./embedRegistryService.js');
-    await registerCloudyEmbedMessages(messages, 'system-catalog');
-  } catch (error) {
-    logger.warn(`Failed to register system embed catalog messages: ${error.message}`);
-  }
-}
-
 async function saveCatalogIds(guildId, messages) {
   await setInDb(storageKey(guildId), messages.map(message => message.id));
 }
 
-function markInternalWrite(messageId) {
-  if (messageId) internalCatalogWrites.set(String(messageId), Date.now());
+async function registerCatalogMessages(messages) {
+  if (!messages?.length) return;
+  const { registerCloudyEmbedMessages } = await import('./embedRegistryService.js');
+  await registerCloudyEmbedMessages(messages, 'system-catalog');
 }
 
-function consumeInternalWrite(messageId) {
-  const key = String(messageId || '');
-  const timestamp = internalCatalogWrites.get(key);
-  if (!timestamp) return false;
-  internalCatalogWrites.delete(key);
-  return Date.now() - timestamp <= INTERNAL_WRITE_TTL_MS;
+function friendlyPlainTitle(context, content) {
+  const command = normalize(context).split('/')[1] || normalize(context).split('/')[0] || 'bot';
+  const prefix = command ? command.charAt(0).toUpperCase() + command.slice(1) : 'Bot';
+  const preview = String(content || '')
+    .replace(/<a?:[^:>]+:\d+>/g, '')
+    .replace(/\{dynamic\}/gi, '…')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 65);
+  return `${prefix} • ${preview || 'Message'}`.slice(0, 256);
 }
 
-async function ensureSeedTemplates(context, messages) {
-  const existing = new Set();
-  for (const message of messages) {
-    for (const embed of message.embeds || []) {
-      const metadata = parseTemplateMetadata(embed);
-      existing.add(catalogIdentity(metadata.key, metadata.context, metadata.variant));
-    }
-  }
+function definitionToCatalog(definition) {
+  const kind = normalize(definition.kind) === 'content' ? 'content' : 'embed';
+  const context = normalize(definition.context) || 'botlog';
+  const description = String(definition.description || definition.content || '').slice(0, 4096);
+  const sourceTitle = String(definition.title || '').trim();
+  const key = definition.key
+    || responseSignature(kind, kind === 'embed' ? sourceTitle : '', description);
+  const title = kind === 'content'
+    ? String(definition.label || friendlyPlainTitle(context, description)).slice(0, 256)
+    : (sourceTitle || 'Untitled embed').slice(0, 256);
 
-  const missing = DEFAULT_TEMPLATES.filter(seed => !existing.has(catalogIdentity(seed.key, seed.context, null)));
-  if (!missing.length) return messages;
+  return {
+    key,
+    context,
+    kind,
+    data: withStableKey({
+      title,
+      ...(description ? { description } : {}),
+      color: Number.isInteger(definition.color) ? definition.color : 0x5865F2,
+    }, key, context, kind),
+  };
+}
 
-  const payloads = missing.map(seedToEmbed);
+async function appendCatalogEntry(context, entry, messages) {
+  const identity = cacheIdentity(entry.key, entry.context);
+  if (catalogEntries.has(identity)) return false;
+
   let target = messages.at(-1) || null;
-  let targetEmbeds = target ? [...target.embeds].map(embed => new EmbedBuilder(embed.toJSON())) : [];
-
-  for (const embed of payloads) {
-    if (!target || targetEmbeds.length >= MAX_EMBEDS_PER_MESSAGE) {
-      target = await context.channel.send({ content: CATALOG_CONTENT, embeds: [] }).catch(() => null);
-      if (!target) break;
-      messages.push(target);
-      targetEmbeds = [];
-    }
-
-    targetEmbeds.push(embed);
-    markInternalWrite(target.id);
-    target = await target.edit({ content: CATALOG_CONTENT, embeds: targetEmbeds }).catch(() => target);
+  let embeds = target ? target.embeds.map(embed => new EmbedBuilder(embed.toJSON())) : [];
+  if (!target || embeds.length >= MAX_EMBEDS_PER_MESSAGE) {
+    target = await context.channel.send({ content: CATALOG_CONTENT, embeds: [] }).catch(() => null);
+    if (!target) return false;
+    messages.push(target);
+    embeds = [];
   }
 
+  embeds.push(new EmbedBuilder(entry.data));
+  const edited = await target.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
+  if (!edited) return false;
+
+  catalogEntries.add(identity);
+  rememberTemplate(entry.key, entry.data, entry.context);
   await saveCatalogIds(context.guild.id, messages);
-  return messages;
+  await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register response catalog: ${error.message}`));
+  return true;
 }
 
 async function discoverStaticTemplates() {
   if (!discoveryPromise) {
-    discoveryPromise = discoverEmbedDefinitions()
-      .then(definitions => {
-        let queued = 0;
-        for (const definition of definitions) {
-          if (registerDiscoveredEmbedDefinition(definition)) queued += 1;
-        }
-        logger.info(`Embed builder source discovery found ${definitions.length} definitions (${queued} new).`);
-        return definitions.length;
-      })
-      .catch(error => {
-        logger.warn(`Embed builder source discovery failed: ${error.message}`);
-        return 0;
-      });
+    discoveryPromise = discoverEmbedDefinitions().catch(error => {
+      logger.warn(`Embed builder source discovery failed: ${error.message}`);
+      return [];
+    });
   }
   return discoveryPromise;
 }
 
+function scheduleFlush() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flushPendingTemplates();
+  }, 250);
+  flushTimer.unref?.();
+}
+
+function queueRuntimeEntry(entry) {
+  const identity = cacheIdentity(entry.key, entry.context);
+  if (catalogEntries.has(identity) || pendingTemplates.has(identity)) return false;
+  pendingTemplates.set(identity, entry);
+  scheduleFlush();
+  return true;
+}
+
+export function registerDiscoveredEmbedDefinition(definition = {}) {
+  const entry = definitionToCatalog(definition);
+  if (!entry.key || isInternalTemplate(entry.data)) return false;
+  return queueRuntimeEntry(entry);
+}
+
+export function captureSystemEmbedData(embedData, contextSource = null) {
+  const data = cloneData(embedData);
+  if (isInternalTemplate(data)) return false;
+  const context = inferContextHint(contextSource);
+  if (!context) return false;
+  const key = responseSignature('embed', data.title, data.description);
+  return queueRuntimeEntry({
+    key,
+    context,
+    kind: 'embed',
+    data: withStableKey(data, key, context, 'embed'),
+  });
+}
+
+export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
+  const data = cloneData(embedData);
+  if (isInternalTemplate(data)) return data;
+  const context = inferContextHint(contextSource);
+  const specificKey = responseSignature('embed', data.title, data.description);
+  const titleKey = normalize(data.title);
+  const template = findTemplate(specificKey, context) || findTemplate(titleKey, context);
+
+  if (!template) {
+    if (context) captureSystemEmbedData(data, contextSource);
+    return data;
+  }
+
+  const next = { ...data };
+  if (template.title) next.title = template.title;
+  if (template.description) next.description = renderDynamic(template.description, data.description);
+  if (Number.isInteger(template.color)) next.color = template.color;
+  if (Array.isArray(template.fields)) next.fields = template.fields.map(field => ({ ...field }));
+  if (template.footer?.text) next.footer = { ...template.footer };
+  else delete next.footer;
+  if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
+  else delete next.thumbnail;
+  if (template.image?.url) next.image = { ...template.image };
+  else delete next.image;
+  return next;
+}
+
+export function applySystemEmbedTemplate(embed) {
+  if (!embed) return embed;
+  return new EmbedBuilder(applyRuntimeEmbedTemplateData(embed));
+}
+
+function contentFromPayload(payload) {
+  if (typeof payload === 'string') return payload;
+  return typeof payload?.content === 'string' ? payload.content : null;
+}
+
+export function applyPlainResponseTemplate(payload, contextSource = null) {
+  const content = contentFromPayload(payload);
+  if (!content?.trim()) return payload;
+
+  const context = inferContextHint(contextSource);
+  if (!context) return payload;
+  const key = responseSignature('content', '', content);
+  const template = findTemplate(key, context);
+
+  if (!template) {
+    const entry = definitionToCatalog({ kind: 'content', context, content, key });
+    queueRuntimeEntry(entry);
+    return payload;
+  }
+
+  const replacement = renderDynamic(template.description || content, content);
+  if (typeof payload === 'string') return replacement;
+  return { ...payload, content: replacement };
+}
+
 export async function ensureSystemEmbedCatalogs(client) {
-  await discoverStaticTemplates();
+  const definitions = await discoverStaticTemplates();
+  let totalAdded = 0;
 
   for (const guild of client.guilds.cache.values()) {
     const channel = findCatalogChannel(guild);
-    if (!channel?.messages?.fetch) continue;
+    if (!channel?.messages?.fetch) {
+      logger.warn(`[EMBED_BUILDER] No botlog channel found in guild ${guild.id}; response catalog cannot be indexed.`);
+      continue;
+    }
 
     const context = { guild, channel };
     contexts.set(guild.id, context);
-    await loadEditedVariants(guild.id);
+    const messages = await loadCatalogMessages(context);
+    for (const message of messages) rememberCatalogMessage(message);
 
-    let messages = await loadCatalogMessages(context);
-    messages = await ensureSeedTemplates(context, messages);
-    refreshCacheFromMessages(messages, guild.id);
-    await registerCatalogMessages(messages);
+    const entries = [
+      ...DEFAULT_TEMPLATES.map(definitionToCatalog),
+      ...definitions.map(definitionToCatalog),
+    ];
+
+    for (const entry of entries) {
+      if (await appendCatalogEntry(context, entry, messages)) totalAdded += 1;
+    }
+
+    await saveCatalogIds(guild.id, messages);
+    await registerCatalogMessages(messages).catch(error => logger.warn(`Failed to register response catalog messages: ${error.message}`));
   }
 
-  if (pendingTemplates.size) await flushPendingTemplates();
+  await flushPendingTemplates();
+  logger.warn(`[EMBED_BUILDER] Response catalog ready: ${definitions.length} source definitions, ${totalAdded} newly indexed.`);
+  return { definitions: definitions.length, added: totalAdded };
 }
 
 export async function syncSystemEmbedCatalogMessage(message) {
@@ -492,66 +450,21 @@ export async function syncSystemEmbedCatalogMessage(message) {
   const ids = await getFromDb(storageKey(message.guildId), []);
   if (!Array.isArray(ids) || !ids.includes(message.id)) return false;
 
-  const internalWrite = consumeInternalWrite(message.id);
-  if (!internalWrite) {
-    const edited = editedVariants.get(String(message.guildId)) || new Set();
-    let changed = false;
-    for (const embed of message.embeds || []) {
-      const metadata = parseTemplateMetadata(embed);
-      if (metadata.variant && !edited.has(metadata.variant)) {
-        edited.add(metadata.variant);
-        changed = true;
-      }
-    }
-    if (changed) {
-      editedVariants.set(String(message.guildId), edited);
-      await saveEditedVariants(message.guildId);
-    }
-  }
-
-  refreshCacheFromMessages([message], message.guildId);
-  await registerCatalogMessages([message]);
-  return true;
-}
-
-async function appendRuntimeTemplate(context, data) {
-  const metadata = parseTemplateMetadata(data);
-  const identity = catalogIdentity(metadata.key, metadata.context, metadata.variant);
-  if (catalogEntries.has(identity)) return false;
-
-  let messages = await loadCatalogMessages(context);
-  let target = messages.at(-1) || null;
-  let embeds = target ? [...target.embeds].map(embed => new EmbedBuilder(embed.toJSON())) : [];
-
-  if (!target || embeds.length >= MAX_EMBEDS_PER_MESSAGE) {
-    target = await context.channel.send({ content: CATALOG_CONTENT, embeds: [] }).catch(() => null);
-    if (!target) return false;
-    messages.push(target);
-    embeds = [];
-  }
-
-  embeds.push(new EmbedBuilder(data));
-  markInternalWrite(target.id);
-  const edited = await target.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
-  if (!edited) return false;
-
-  await saveCatalogIds(context.guild.id, messages);
-  catalogEntries.add(identity);
-  if (!metadata.variant) rememberTemplate(metadata.key, data, metadata.context);
-  await registerCatalogMessages([edited]);
+  rememberCatalogMessage(message);
+  await registerCatalogMessages([message]).catch(error => logger.warn(`Failed to sync edited response template: ${error.message}`));
   return true;
 }
 
 async function flushPendingTemplates() {
   if (!pendingTemplates.size || !contexts.size) return;
-  const queued = [...pendingTemplates.entries()];
+  const queued = [...pendingTemplates.values()];
   pendingTemplates.clear();
 
-  for (const [identity, data] of queued) {
-    if (catalogEntries.has(identity)) continue;
-    for (const context of contexts.values()) {
-      await appendRuntimeTemplate(context, data).catch(error => {
-        logger.warn(`Failed to append runtime embed template: ${error.message}`);
+  for (const context of contexts.values()) {
+    const messages = await loadCatalogMessages(context);
+    for (const entry of queued) {
+      await appendCatalogEntry(context, entry, messages).catch(error => {
+        logger.warn(`Failed to append runtime response template: ${error.message}`);
       });
     }
   }
