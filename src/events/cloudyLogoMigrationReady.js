@@ -3,7 +3,7 @@ import { installCloudyLogoEmbedPatch, normalizeCloudyLogoMessage } from '../serv
 
 installCloudyLogoEmbedPatch();
 
-const LOGO_MIGRATION_VERSION = 3;
+const LOGO_MIGRATION_VERSION = 4;
 const LOGO_MIGRATION_STATE_KEY = 'global:cloudy:logo-history-migration-version';
 const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 150;
