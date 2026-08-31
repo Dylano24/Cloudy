@@ -5,7 +5,8 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
 
-const SUITS = ['♠', '♥', '♦', '♣'];
+// Hollow suit glyphs survive Cloudy's global emoji sanitiser while staying readable.
+const SUITS = ['♤', '♡', '♢', '♧'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const makeDeck = () => {
   const cards = SUITS.flatMap(suit => RANKS.map(rank => ({ rank, suit, text: `${rank}${suit}` })));
@@ -74,7 +75,8 @@ export default {
     const { amount, userData } = await takeBet(interaction, client); await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
     const deck = makeDeck();
     const state = { id: interaction.id, client, guildId: interaction.guildId, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
-    const message = await InteractionHelper.safeEditReply(interaction, { embeds: [embed(state)], components: controls(state) });
+    await InteractionHelper.safeEditReply(interaction, { embeds: [embed(state)], components: controls(state) });
+    const message = await interaction.fetchReply().catch(() => null);
     if (!message?.createMessageComponentCollector) return;
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${state.id}`), time: 10 * 60 * 1000 });
     let busy = false;
