@@ -1,0 +1,89 @@
+name: Migrate Cloudy logo references
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrate-cloudy-logo-references.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Replace old C logo references safely
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          OLD = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png'
+          NEW = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif'
+          roots = [Path('src'), Path('scripts'), Path('test')]
+          changed = []
+
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob('*'):
+                  if not path.is_file() or path.suffix not in {'.js', '.mjs', '.cjs', '.json'}:
+                      continue
+                  text = path.read_text(encoding='utf-8')
+                  updated = text.replace(OLD, NEW)
+                  if updated != text:
+                      path.write_text(updated, encoding='utf-8')
+                      changed.append(str(path))
+
+          migration = Path('src/events/cloudyLogoMigrationReady.js')
+          text = migration.read_text(encoding='utf-8')
+          updated = re.sub(
+              r'const LOGO_MIGRATION_VERSION = \\d+;',
+              'const LOGO_MIGRATION_VERSION = 2;',
+              text,
+              count=1,
+          )
+          if updated != text:
+              migration.write_text(updated, encoding='utf-8')
+              if str(migration) not in changed:
+                  changed.append(str(migration))
+
+          builder = Path('src/commands/Tools/embedbuilder.js').read_text(encoding='utf-8')
+          if OLD in builder:
+              raise SystemExit('Embed builder still contains old Cloudy C logo URL')
+          if NEW not in builder:
+              raise SystemExit('Embed builder does not contain new AUF AUF logo URL')
+
+          service = Path('src/services/cloudyLogoService.js').read_text(encoding='utf-8')
+          if NEW not in service:
+              raise SystemExit('Central Cloudy logo service does not use AUF AUF GIF')
+
+          print('Changed files:')
+          for item in changed:
+              print(' -', item)
+          PY
+
+      - name: Syntax-check changed logo code
+        run: |
+          node --check src/services/cloudyLogoService.js
+          node --check src/events/cloudyLogoMigrationReady.js
+          node --check src/commands/Tools/embedbuilder.js
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run tests
+        run: npm test
+
+      - name: Commit logo reference migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src scripts test
+          git diff --cached --quiet && exit 0
+          git commit -m "Use AUF AUF logo across Cloudy embeds"
+          git push
