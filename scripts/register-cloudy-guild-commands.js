@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
+import { isRetiredGamblingCommand } from '../src/config/gamblingCommands.js';
 
 const token = String(
   process.env.DISCORD_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN || process.env.DISCORD_BOT_TOKEN || ''
@@ -86,6 +87,7 @@ async function loadPayloads() {
       if (!command?.data || typeof command.data.toJSON !== 'function' || typeof command.execute !== 'function') continue;
 
       const payload = JSON.parse(JSON.stringify(command.data.toJSON()));
+      if (isRetiredGamblingCommand(payload?.name)) continue;
       if (!payload?.name || seen.has(payload.name)) continue;
       seen.add(payload.name);
 
