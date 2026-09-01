@@ -3,7 +3,8 @@ import { reconcileEmbedRegistry } from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
 
 const CATALOG_CONTENT = 'System & error embed templates';
-const CLEANUP_DELAY_MS = 9000;
+const CLEANUP_DELAY_MS = 5000;
+const CATALOG_CHANNEL_NAMES = new Set(['botlog', 'cloudy-response-catalog-loading']);
 
 function normalize(value) {
   return String(value || '')
@@ -36,8 +37,6 @@ function catalogIdentity(embed) {
   const stableKey = author.match(/^Cloudy\s+template\s+key:\s*([^|]+)/i)?.[1]?.trim().toLowerCase() || '';
   const context = metadataContext(embed);
 
-  // Prefer the hidden stable system key. A visible title can be completely
-  // renamed in the Builder and must not create a second logical template.
   if (stableKey) return `${context}::system:${stableKey}`;
 
   const title = normalize(data.title || '');
@@ -49,8 +48,16 @@ function catalogIdentity(embed) {
 
 async function cleanupGuild(guild, clientUserId) {
   const catalogMessages = [];
-  for (const channel of guild.channels.cache.values()) {
-    if (!channel?.isTextBased?.() || !channel?.messages?.fetch) continue;
+  const catalogChannels = [...guild.channels.cache.values()].filter(channel =>
+    channel?.isTextBased?.()
+    && channel?.messages?.fetch
+    && CATALOG_CHANNEL_NAMES.has(String(channel.name || '').toLowerCase()),
+  );
+
+  // The old implementation fetched 100 messages from every server channel.
+  // The response catalog only lives in the internal botlog catalog channel, so
+  // limit cleanup to those candidates. This removes minutes of unnecessary I/O.
+  for (const channel of catalogChannels) {
     const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
     if (!messages) continue;
     for (const message of messages.values()) {
@@ -95,9 +102,6 @@ async function cleanupGuild(guild, clientUserId) {
     }
   }
 
-  // Cleanup changes physical embed indices/counts. Reconcile immediately so
-  // the manager never shows an old raw registry count (for example 102) while
-  // its channel views already show the cleaned logical count (for example 59).
   const reconciliation = await reconcileEmbedRegistry(guild).catch(error => {
     logger.warn(`[EMBED_BUILDER] Registry reconcile after catalog cleanup failed: ${error?.message || error}`);
     return null;
@@ -106,6 +110,7 @@ async function cleanupGuild(guild, clientUserId) {
   return {
     removed,
     slotsRemoved,
+    catalogChannels: catalogChannels.length,
     registryCount: reconciliation?.records?.length ?? null,
   };
 }
@@ -119,14 +124,16 @@ export default {
       void (async () => {
         let removed = 0;
         let slotsRemoved = 0;
+        let catalogChannels = 0;
         let registryCount = 0;
         for (const guild of client.guilds.cache.values()) {
           const result = await cleanupGuild(guild, client.user.id);
           removed += result.removed;
           slotsRemoved += result.slotsRemoved;
+          catalogChannels += result.catalogChannels;
           if (Number.isInteger(result.registryCount)) registryCount += result.registryCount;
         }
-        logger.warn(`[EMBED_BUILDER] Catalog cleanup complete: ${removed} duplicate/retired entries removed (${slotsRemoved} slots); registry reconciled to ${registryCount} physical record(s).`);
+        logger.warn(`[EMBED_BUILDER] Catalog cleanup complete: ${removed} duplicate/retired entries removed (${slotsRemoved} slots) across ${catalogChannels} catalog channel(s); registry reconciled to ${registryCount} physical record(s).`);
       })().catch(error => {
         logger.warn(`[EMBED_BUILDER] Catalog cleanup failed: ${error?.message || error}`);
       });
