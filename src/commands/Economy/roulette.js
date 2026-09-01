@@ -31,7 +31,10 @@ async function styledReply(interaction, sourceInteraction, embed, options = {}) 
 }
 
 async function requestRouletteNumber(interaction) {
-  const customId = `roulette_number:${interaction.id}`;
+  // Keep this custom id colon-free. Inline-awaited modals with a colon are also
+  // routed through the global modal registry, which would produce the unrelated
+  // "This form is not available" configuration error before this waiter finishes.
+  const customId = `roulette_number_${interaction.id}`;
   const input = new TextInputBuilder()
     .setCustomId('roulette_number_value')
     .setLabel('Choose a number from 0 to 36')
