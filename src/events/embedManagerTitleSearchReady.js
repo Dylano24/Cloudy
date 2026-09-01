@@ -162,9 +162,9 @@ function recordDocument(guild, record) {
     titleKey: searchKey(titleText),
     bodyKey: searchKey(bodyText),
     allKey: searchKey(`${titleText} ${bodyText}`),
-    // Amounts, IDs and other runtime values must not turn the same response
-    // template into separate search results. Win/Lost remain literal words.
-    templateKey: `${templateSearchShape(title)}::${templateSearchShape(fieldNames.join(' '))}`,
+    // The title is the visible template identity. Runtime descriptions (such
+    // as appeal answers) must not turn one titled embed into many entries.
+    templateKey: templateSearchShape(title) || templateSearchShape(fieldNames.join(' ')),
     channel,
   };
 }
@@ -250,6 +250,15 @@ function fuzzyScore(document, query) {
   const queryTokens = normalizedQuery.split(' ').filter(Boolean);
   const titleTokens = uniqueTokens(document.titleKey, 150);
   const bodyTokens = uniqueTokens(document.bodyKey, 700);
+
+  // Title searches are the primary Builder flow. A first word or a beginning
+  // of a title must always work, before any fuzzy scoring is considered.
+  const titlePrefixMatch = queryTokens.every(queryToken =>
+    titleTokens.some(titleToken => titleToken.startsWith(queryToken)),
+  );
+  if (titlePrefixMatch) {
+    return 2_000 + (document.titleKey.startsWith(normalizedQuery) ? 500 : 0);
+  }
   let score = 0;
 
   for (const queryToken of queryTokens) {
