@@ -12,12 +12,14 @@ const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 150;
 const CHANNEL_DELAY_MS = 250;
 const START_DELAY_MS = 20_000;
+const scheduledClients = new WeakSet();
 
 function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-function readableHistoryChannels(guild) {
+async function readableHistoryChannels(guild) {
   const me = guild.members.me;
-  return [...guild.channels.cache.values()]
+  const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
+  return [...channels.values()]
     .filter(channel =>
       channel?.isTextBased?.()
       && channel.messages?.fetch
@@ -53,7 +55,7 @@ async function migrateGuild(guild, botUserId) {
   let scanned = 0;
   let updated = 0;
   let completed = true;
-  for (const channel of readableHistoryChannels(guild)) {
+  for (const channel of await readableHistoryChannels(guild)) {
     const result = await migrateChannel(channel, botUserId);
     scanned += result.scanned;
     updated += result.updated;
@@ -64,27 +66,43 @@ async function migrateGuild(guild, botUserId) {
   return { scanned, updated, completed };
 }
 
+export function scheduleCloudyLogoMigration(client) {
+  if (!client || scheduledClients.has(client)) return false;
+  scheduledClients.add(client);
+
+  const timer = setTimeout(() => {
+    void (async () => {
+      const completedVersion = Number(await client.db?.get?.(LOGO_MIGRATION_STATE_KEY, 0).catch(() => 0) || 0);
+      if (completedVersion >= LOGO_MIGRATION_VERSION) {
+        console.log('[CLOUDY_LOGO] CDN logo migration already completed.');
+        return;
+      }
+
+      const guilds = [...client.guilds.cache.values()];
+      if (!guilds.length) {
+        console.warn('[CLOUDY_LOGO] CDN logo migration deferred: no guild cache is available yet.');
+        scheduledClients.delete(client);
+        return;
+      }
+
+      let allGuildsCompleted = true;
+      for (const guild of guilds) {
+        const result = await migrateGuild(guild, client.user.id);
+        if (!result.completed) allGuildsCompleted = false;
+      }
+      if (allGuildsCompleted) {
+        await client.db?.set?.(LOGO_MIGRATION_STATE_KEY, LOGO_MIGRATION_VERSION).catch(() => null);
+      }
+    })().catch(error => console.error('[CLOUDY_LOGO] Existing-message logo migration failed:', error));
+  }, START_DELAY_MS);
+  timer.unref?.();
+  return true;
+}
+
 export default {
   name: Events.ClientReady,
   once: true,
-  async execute(client) {
-    const timer = setTimeout(() => {
-      void (async () => {
-        const completedVersion = Number(await client.db?.get?.(LOGO_MIGRATION_STATE_KEY, 0).catch(() => 0) || 0);
-        if (completedVersion >= LOGO_MIGRATION_VERSION) {
-          console.log('[CLOUDY_LOGO] CDN logo migration already completed.');
-          return;
-        }
-        let allGuildsCompleted = true;
-        for (const guild of client.guilds.cache.values()) {
-          const result = await migrateGuild(guild, client.user.id);
-          if (!result.completed) allGuildsCompleted = false;
-        }
-        if (allGuildsCompleted) {
-          await client.db?.set?.(LOGO_MIGRATION_STATE_KEY, LOGO_MIGRATION_VERSION).catch(() => null);
-        }
-      })().catch(error => console.error('[CLOUDY_LOGO] Existing-message logo migration failed:', error));
-    }, START_DELAY_MS);
-    timer.unref?.();
+  execute(client) {
+    scheduleCloudyLogoMigration(client);
   },
 };

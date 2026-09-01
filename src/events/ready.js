@@ -12,6 +12,7 @@ import { initializeInviteTracking } from "../services/inviteTrackingService.js";
 import { reconcileTermsMessage } from "../services/termsMessageService.js";
 import { reconcileStoreTermsMessage } from "../services/storeTermsMessageService.js";
 import { ensureSystemEmbedCatalogs } from "../services/systemEmbedCatalogService.js";
+import { scheduleCloudyLogoMigration } from './cloudyLogoMigrationReady.js';
 
 async function runReadyStep(label, task) {
   try {
@@ -27,6 +28,11 @@ export default {
   once: true,
 
   async execute(client) {
+    // This startup path is always present. The scheduler is also invoked by
+    // its dedicated ready handler, but it is idempotent so this guarantees the
+    // one-time CDN swap starts without ever running twice.
+    scheduleCloudyLogoMigration(client);
+
     let presence = config.bot.presence;
     try {
       presence = await client.db.get('global:bot:profile:presence') || presence;
