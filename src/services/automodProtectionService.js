@@ -10,7 +10,6 @@ const BOT_SPAM_WINDOW_MS = 6 * 1000;
 const JOIN_WINDOW_MS = 10 * 1000;
 const NSFW_OFFENSE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const ACTIVITY_SWEEP_INTERVAL = 250;
-const MODERATION_REQUEST_TIMEOUT_MS = 8 * 1000;
 
 const messageActivity = new Map();
 const joinActivity = new Map();
@@ -125,7 +124,6 @@ async function moderateImageUrl(url) {
   try {
     const response = await fetch('https://api.openai.com/v1/moderations', {
       method: 'POST',
-      signal: AbortSignal.timeout(MODERATION_REQUEST_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
@@ -152,13 +150,7 @@ async function moderateImageUrl(url) {
 
     return { unsafe: sexual || sexualMinors || graphic, sexual, sexualMinors, graphic };
   } catch (error) {
-    const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
-    logger.warn(
-      timedOut
-        ? `Image moderation request timed out after ${MODERATION_REQUEST_TIMEOUT_MS}ms`
-        : 'Image moderation request failed:',
-      timedOut ? undefined : error,
-    );
+    logger.warn('Image moderation request failed:', error);
     return { unsafe: false, unavailable: true };
   }
 }

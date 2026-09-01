@@ -1,5 +1,4 @@
-import { AttachmentBuilder, Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-import { fileURLToPath } from 'node:url';
+import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { getWelcomeConfig, updateWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
@@ -14,10 +13,6 @@ import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js'
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const CLOUDY_BANNER_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-dynamic-banner.gif';
-const CLOUDY_LOGO_ATTACHMENT_NAME = 'cloudy-c-logo-auf-auf.gif';
-const CLOUDY_LOGO_ATTACHMENT_PATH = fileURLToPath(
-    new URL('../../assets/cloudy-c-logo-auf-auf.gif', import.meta.url),
-);
 
 function getOrdinalSuffix(number) {
     const value = Math.abs(Number(number));
@@ -189,14 +184,10 @@ export default {
                             const finalEmbed = decorated.matched
                                 ? (decorated.embed || baseEmbed)
                                 : normalizeBuiltInWelcomeMedia(baseEmbed);
-                            finalEmbed.setThumbnail(`attachment://${CLOUDY_LOGO_ATTACHMENT_NAME}`);
 
                             const sentWelcome = await channel.send({
                                 content: ping,
-                                embeds: [finalEmbed],
-                                files: [new AttachmentBuilder(CLOUDY_LOGO_ATTACHMENT_PATH, {
-                                    name: CLOUDY_LOGO_ATTACHMENT_NAME,
-                                })],
+                                embeds: [finalEmbed]
                             });
                             await registerCloudyEmbedMessage(sentWelcome, 'welcome').catch(error => {
                                 logger.error('Failed to register welcome embed:', error);

@@ -55,7 +55,7 @@ function dynamicParts(value = '') {
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
 
   text = text.replace(
-    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
+    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie|win|won|loss|lost|push|bust)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
       values.push(match);
       return '{dynamic}';
@@ -104,15 +104,7 @@ function aliasKeys(value) {
   return [...new Set([raw, pattern].filter(Boolean))];
 }
 
-function hasOwn(value, key) {
-  return Object.prototype.hasOwnProperty.call(value || {}, key);
-}
-
 function pickTemplate(data = {}, options = {}) {
-  const applyTitle = options.applyTitle ?? hasOwn(data, 'title');
-  const applyDescription = options.applyDescription ?? hasOwn(data, 'description');
-  const applyFields = options.applyFields ?? hasOwn(data, 'fields');
-  const applyFooter = options.applyFooter ?? hasOwn(data, 'footer');
   const applyThumbnail = options.applyThumbnail === true;
   const applyImage = options.applyImage === true;
   const fields = Array.isArray(data.fields)
@@ -124,14 +116,10 @@ function pickTemplate(data = {}, options = {}) {
     : [];
 
   return {
-    applyTitle,
     title: data.title ?? null,
-    applyDescription,
     description: data.description ?? null,
-    applyFields,
     fields,
     color: Number.isInteger(data.color) ? data.color : null,
-    applyFooter,
     footer: data.footer?.text ? { ...data.footer } : null,
     applyThumbnail,
     thumbnail: applyThumbnail && data.thumbnail?.url ? { url: data.thumbnail.url } : null,
@@ -196,45 +184,30 @@ function findStoredTemplate(data, stored) {
   return candidates.map(candidate => stored[candidate]).find(Boolean) || null;
 }
 
-function shouldApply(template, flagName, valueName) {
-  if (template?.[flagName] === true) return true;
-  if (template?.[flagName] === false) return false;
-
-  // Templates saved before explicit apply flags existed should keep their old
-  // non-empty values, but must not erase live content merely because a style-only
-  // template did not contain that property.
-  const value = template?.[valueName];
-  return Array.isArray(value) ? value.length > 0 : value != null;
-}
-
 function decorateEmbedData(embed, stored) {
   const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
   const data = { ...original };
   const template = findStoredTemplate(data, stored);
   if (!template) return { matched: false, changed: false, data };
 
-  if (shouldApply(template, 'applyTitle', 'title')) {
-    if (template.title) {
-      data.title = renderDynamic(template.title, original.title || '', {
-        fallbackToRuntimeOnMismatch: true,
-      });
-    } else {
-      delete data.title;
-    }
+  if (template.title) {
+    data.title = renderDynamic(template.title, original.title || '', {
+      fallbackToRuntimeOnMismatch: true,
+    });
+  } else {
+    delete data.title;
   }
 
-  if (shouldApply(template, 'applyDescription', 'description')) {
-    if (template.description) {
-      data.description = renderDynamic(template.description, original.description || '', {
-        fallbackToRuntimeOnMismatch: true,
-      });
-    } else {
-      delete data.description;
-    }
+  if (template.description) {
+    data.description = renderDynamic(template.description, original.description || '', {
+      fallbackToRuntimeOnMismatch: true,
+    });
+  } else {
+    delete data.description;
   }
 
-  if (shouldApply(template, 'applyFields', 'fields')) {
-    if (!template.fields?.length) {
+  if (Array.isArray(template.fields)) {
+    if (!template.fields.length) {
       delete data.fields;
     } else {
       const runtimeFields = Array.isArray(original.fields) ? original.fields : [];
@@ -256,17 +229,15 @@ function decorateEmbedData(embed, stored) {
 
   if (Number.isInteger(template.color)) data.color = template.color;
 
-  if (shouldApply(template, 'applyFooter', 'footer')) {
-    if (template.footer?.text) {
-      data.footer = {
-        ...template.footer,
-        text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text, {
-          fallbackToRuntimeOnMismatch: true,
-        }),
-      };
-    } else {
-      delete data.footer;
-    }
+  if (template.footer?.text) {
+    data.footer = {
+      ...template.footer,
+      text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text, {
+        fallbackToRuntimeOnMismatch: true,
+      }),
+    };
+  } else {
+    delete data.footer;
   }
 
   // User/member avatars and other event-specific thumbnails stay dynamic unless
@@ -320,9 +291,7 @@ export async function applySavedEmbedTemplates(message) {
       return new EmbedBuilder(result.data);
     });
 
-    if (!matched) return false;
-    if (!changed) return true;
-
+    if (!matched || !changed) return false;
     const edited = await message.edit({ embeds }).catch(error => {
       logger.debug(`[EMBED_BUILDER] Saved template could not be applied to message ${message.id}: ${error?.message || error}`);
       return null;

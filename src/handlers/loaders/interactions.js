@@ -27,8 +27,6 @@ async function getAllInteractionFiles(directory, fileList = []) {
 }
 
 export default async (client) => {
-  const loadErrors = [];
-
   try {
     const interactionsPath = join(__dirname, '../../interactions');
 
@@ -51,16 +49,12 @@ export default async (client) => {
 
             for (const interaction of interactions) {
               if (!interaction?.name || !interaction?.execute) {
-                const message = `Interaction ${relativePath} in ${type} is missing required properties.`;
-                loadErrors.push({ type, source: relativePath, message });
-                logger.error(message);
+                logger.warn(`Interaction ${relativePath} in ${type} is missing required properties.`);
                 continue;
               }
 
               const existingSource = registeredSources.get(interaction.name);
               if (existingSource || client[type].has(interaction.name)) {
-                const message = `Duplicate interaction handler ${interaction.name} in ${type}`;
-                loadErrors.push({ type, source: relativePath, message });
                 logger.error('Duplicate interaction handler blocked', {
                   type,
                   name: interaction.name,
@@ -76,7 +70,6 @@ export default async (client) => {
               logger.info(`Loaded ${type.slice(0, -1)}: ${interaction.name} (${fileName})`);
             }
           } catch (error) {
-            loadErrors.push({ type, source: relativePath, message: error.message });
             logger.error(`Error loading interaction ${relativePath} in ${type}:`, error);
           }
         }
@@ -84,7 +77,6 @@ export default async (client) => {
         logger.info(`Loaded ${loadedCount} ${type}`);
       } catch (error) {
         if (error.code !== 'ENOENT') {
-          loadErrors.push({ type, source: typePath, message: error.message });
           logger.error(`Error loading ${type}:`, error);
         } else {
           logger.debug(`No ${type} directory found, skipping...`);
@@ -92,13 +84,6 @@ export default async (client) => {
       }
     }
   } catch (error) {
-    loadErrors.push({ type: 'loader', source: 'interactions', message: error.message });
     logger.error('Error loading interactions:', error);
-  }
-
-  if (loadErrors.length > 0) {
-    throw new Error(
-      `Interaction loading failed with ${loadErrors.length} error(s); refusing to start with partial handlers.`,
-    );
   }
 };
