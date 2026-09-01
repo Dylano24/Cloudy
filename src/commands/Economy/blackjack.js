@@ -74,6 +74,18 @@ async function embed(state, result = null) {
     ? await decorateEmbedWithSavedTemplate(state.guildId, state.channelId, gameEmbed)
     : { embed: gameEmbed };
 
+  // If the administrator edits the fixed part of the live title to e.g.
+  // "Blackjack bet", keep the wager itself dynamic instead of treating the
+  // edited title as a completely static string.
+  if (!result) {
+    const title = String(styled.embed.data.title || '').trim();
+    const liveBet = money(state.totalBet);
+    const titleAlreadyHasAmount = /(?:[$€£]\s*)?\d[\d,.]*/.test(title);
+    if (title && /\bbet\b/i.test(title) && !titleAlreadyHasAmount) {
+      styled.embed.data.title = `${title} ${liveBet}`.slice(0, 256);
+    }
+  }
+
   // Keep live game values authoritative while applying the saved Builder style.
   // In particular, an older template must never bring "Cards remaining" back.
   styled.embed.data.fields = fields;
