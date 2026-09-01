@@ -3,6 +3,7 @@ import { createEmbed } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
+import { decorateEmbedWithSavedTemplate } from '../../services/embedTemplateService.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
 import { cardEmoji, cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
@@ -69,11 +70,16 @@ async function embed(state, result = null) {
     fields,
   });
 
-  // Runtime hand data stays authoritative. The global embed template layer now
-  // replaces only dynamic values, so a saved example bet/card value can never
-  // freeze the live game while Embed Builder styling/text remains editable.
-  gameEmbed.data.fields = fields;
-  return gameEmbed;
+  const styled = state.guildId && state.channelId
+    ? await decorateEmbedWithSavedTemplate(state.guildId, state.channelId, gameEmbed)
+    : { embed: gameEmbed };
+
+  // Keep live game values authoritative while applying the saved Builder style.
+  // In particular, an older template must never bring "Cards remaining" back.
+  styled.embed.data.fields = fields;
+  if (result?.text) styled.embed.data.description = result.text;
+  else delete styled.embed.data.description;
+  return styled.embed;
 }
 
 async function payload(state, result = null, ended = false) {
@@ -106,7 +112,7 @@ export default {
     const deferred = await InteractionHelper.safeDefer(interaction); if (!deferred) return;
     const { amount, userData } = await takeBet(interaction, client); await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
     const deck = makeDeck();
-    const state = { id: interaction.id, client, guildId: interaction.guildId, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
+    const state = { id: interaction.id, client, guildId: interaction.guildId, channelId: interaction.channelId, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
     await InteractionHelper.safeEditReply(interaction, await payload(state));
     const message = await interaction.fetchReply().catch(() => null);
     if (!message?.createMessageComponentCollector) return;
