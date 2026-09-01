@@ -4,6 +4,7 @@ import { logger } from '../utils/logger.js';
 
 const TEMPLATE_PREFIX = 'cloudy:embed-template:';
 const GLOBAL_SCOPE = '__global__';
+const SAVED_TEMPLATE_MARKER = Symbol.for('cloudy.savedEmbedTemplateApplied');
 const templateCache = new Map();
 const templateMutationQueues = new Map();
 const pendingTemplateOverlays = new Map();
@@ -19,6 +20,17 @@ function templateKey(guildId, channelId) {
 
 function cleanTemplates(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function markSavedTemplate(embed) {
+  if (!embed || typeof embed !== 'object') return embed;
+  Object.defineProperty(embed, SAVED_TEMPLATE_MARKER, {
+    value: true,
+    configurable: true,
+    enumerable: false,
+    writable: false,
+  });
+  return embed;
 }
 
 function pendingTemplatesForKey(key) {
@@ -355,10 +367,11 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed) 
   try {
     const stored = await loadMergedTemplates(guildId, channelId);
     const result = decorateEmbedData(embed, stored);
+    const decoratedEmbed = result.matched ? markSavedTemplate(new EmbedBuilder(result.data)) : embed;
     return {
       matched: result.matched,
       changed: result.changed,
-      embed: result.matched ? new EmbedBuilder(result.data) : embed,
+      embed: decoratedEmbed,
     };
   } catch (error) {
     logger.error('Failed to decorate embed with saved template:', error);
@@ -380,7 +393,7 @@ export async function applySavedEmbedTemplates(message) {
       if (!result.matched) return embed;
       matched = true;
       changed ||= result.changed;
-      return new EmbedBuilder(result.data);
+      return markSavedTemplate(new EmbedBuilder(result.data));
     });
 
     if (!matched) return false;
