@@ -39,6 +39,8 @@ test('roulette prompts for a missing Number bet instead of returning the old val
   assert.match(source, /safeShowModal\(interaction, modal\)/);
   assert.match(source, /awaitModalSubmit/);
   assert.match(source, /roulette_number_value/);
+  assert.match(source, /roulette_number_\$\{interaction\.id\}/);
+  assert.doesNotMatch(source, /roulette_number:\$\{interaction\.id\}/);
   assert.match(source, /value >= 0/);
   assert.match(source, /value <= 36/);
   assert.doesNotMatch(source, /Roulette number required/);
