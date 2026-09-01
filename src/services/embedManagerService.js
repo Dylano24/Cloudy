@@ -108,13 +108,19 @@ function getTemplateRuleByKey(channelId, key) {
     return rules.find(rule => rule.key === key) || null;
 }
 
+function stableSystemTemplateKey(data = {}) {
+    const authorName = String(data?.author?.name || '');
+    const match = authorName.match(/^Cloudy\s+template\s+key:\s*([^|]+)/i);
+    return match?.[1]?.trim() ? `system:${match[1].trim().toLowerCase()}` : null;
+}
+
 function dynamicTemplateText(value) {
     return stripCustomEmojiMarkup(value)
         .replace(/\{dynamic\}/gi, '{dynamic}')
         .replace(/<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/gi, '{dynamic}')
-        // A Discord tag in a title is a live value, not a different embed type.
         .replace(/@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi, '{dynamic}')
         .replace(/\b[a-z0-9_.-]{2,32}'s\b/gi, '{dynamic}')
+        .replace(/\s*[—–-]\s*/g, ' — ')
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase();
@@ -131,13 +137,14 @@ function recordEmbedData(record) {
 
 function templateIdentity(channelId, value) {
     const data = value && typeof value === 'object' ? value : { title: value };
+    const stableKey = stableSystemTemplateKey(data);
+    if (stableKey) return stableKey;
+
     const title = String(data.title || '');
     const rule = getTemplateRule(channelId, title);
     if (rule) return rule.key;
 
     const titleShape = dynamicTemplateText(title);
-    // A visible title defines the Builder template. Descriptions contain live
-    // appeal/ticket answers and must never create separate entries.
     if (titleShape) return titleShape;
 
     const fieldShape = (data.fields || [])
@@ -154,6 +161,8 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
 
     for (const record of channelRecords) {
         const rawName = recordName(record);
+        const data = recordEmbedData(record);
+        const stableKey = stableSystemTemplateKey(data);
         const rule = strictTemplateMode
             ? getChannelTemplateRule(channelId, rawName)
             : getTemplateRule(channelId, rawName);
@@ -165,6 +174,13 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
             continue;
         }
 
+        if (stableKey) {
+            const key = `template:${stableKey}`;
+            if (!groups.has(key)) groups.set(key, { label: rawName || 'Untitled embed', records: [], templateMode: true });
+            groups.get(key).records.push(record);
+            continue;
+        }
+
         if (rule) {
             const key = 'template:' + rule.key;
             if (!groups.has(key)) groups.set(key, { label: rule.label, records: [], templateMode: true });
@@ -173,15 +189,13 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
         }
 
         const name = rawName || 'Untitled embed';
-        const key = `template:${templateIdentity(channelId, recordEmbedData(record))}`;
+        const key = `template:${templateIdentity(channelId, data)}`;
         if (!groups.has(key)) groups.set(key, { label: name, records: [], templateMode: false });
         groups.get(key).records.push(record);
     }
 
     return [...groups.values()].map(group => {
         group.records.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-        // Show the newest real message when there is one, so the Builder opens
-        // with live cards/bets/cash. The hidden peers remain linked for Save.
         const realRecords = group.records.filter(record => record.source !== 'system-catalog');
         const representative = (realRecords.length ? realRecords : group.records).at(-1);
         return {
@@ -377,9 +391,6 @@ function loadEmbedIntoState(state, resolved) {
     state.mediaConvertedFromVideo = false;
     state.modifyTarget = {
         guildId: message.guildId,
-        // Keep the virtual/display channel as the template scope. For system
-        // catalog records the actual Discord message lives elsewhere and is
-        // tracked separately through backingChannelId.
         channelId: templateChannelId,
         backingChannelId,
         messageId: message.id,
@@ -488,8 +499,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             }
         }
 
-        // Render the original channel picker immediately. Discord history checks
-        // must never block the Modify button from opening its menu.
         let records = await getEmbedRegistry(guild.id);
         const managerMessage = await buttonInteraction.followUp({
             ...(records.length
@@ -698,8 +707,6 @@ function mergeDynamicTemplateText(sourceText, editedText, peerText) {
     const peer = dynamicValues(peerText);
     const placeholders = edited.tokenized.match(/\{dynamic\}/gi) || [];
 
-    // No dynamic slot was kept in the edited text: that is an explicit title/
-    // text change, so use it as-is.
     if (!placeholders.length) return String(editedText || '');
     if (source.values.length !== peer.values.length || placeholders.length !== peer.values.length) {
         return String(editedText || '');
@@ -948,9 +955,6 @@ export async function saveModifiedEmbed(guild, state) {
     const target = state.modifyTarget;
     if (!guild || !target) return { ok: false, reason: 'missing-target' };
 
-    // A virtual system-catalog template belongs to its displayed feature channel
-    // for template matching, but the Discord message itself must be edited in the
-    // physical backing channel.
     const messageChannelId = target.backingChannelId || target.channelId;
     const channel = guild.channels.cache.get(messageChannelId)
         || await guild.channels.fetch(messageChannelId).catch(() => null);
@@ -988,22 +992,18 @@ export async function saveModifiedEmbed(guild, state) {
             || getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
         const aliases = [sourceData.title, current.title, sourceRule?.label].filter(Boolean);
 
-        // target.channelId deliberately remains the logical/display feature
-        // channel so the next live command reads this saved template instantly.
-        void saveEmbedTemplateDecoration(
+        const templateSaved = await saveEmbedTemplateDecoration(
             guild.id,
             target.channelId,
             aliases,
             current,
             {
-                applyThumbnail: mediaChanges.thumbnailChanged,
+                applyThumbnail: state.showLogo || state.removeExistingLogo || mediaChanges.thumbnailChanged,
                 applyImage: mediaChanges.imageChanged,
             },
-        ).catch(error => logger.error('Failed to persist saved embed template:', error));
+        );
+        if (!templateSaved) return { ok: false, reason: 'template-save-failed' };
 
-        // Virtual catalog entries have no historical message peers in the
-        // display channel. Their backing message was already edited above and
-        // the saved template layer handles every future live response.
         if (!target.backingChannelId) {
             const targetSnapshot = {
                 ...target,
