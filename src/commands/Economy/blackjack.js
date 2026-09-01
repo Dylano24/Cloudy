@@ -63,7 +63,7 @@ async function embed(state, result = null) {
 
   const gameEmbed = createEmbed({
     title: liveTitle(state, result),
-    description: [result?.text, `Cards remaining: **${state.deck.length}**`].filter(Boolean).join('\n\n'),
+    description: result?.text || '',
     color: result?.color || 'primary',
     author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
     fields,
