@@ -1,12 +1,8 @@
 import { EmbedBuilder, Events } from 'discord.js';
-import {
-  applyRuntimeEmbedTemplateData,
-  captureSystemEmbedData,
-} from '../services/systemEmbedCatalogService.js';
+import { captureSystemEmbedData } from '../services/systemEmbedCatalogService.js';
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.systemEmbedCapture');
-const SAVED_TEMPLATE_MARKER = Symbol.for('cloudy.savedEmbedTemplateApplied');
 
 export default {
   name: Events.ClientReady,
@@ -26,20 +22,16 @@ export default {
     EmbedBuilder.prototype.toJSON = function cloudyObservedEmbedToJSON(...args) {
       const original = originalToJSON.apply(this, args);
       try {
-        // A channel/global Embed Builder template is the final authority. The
-        // system catalog must not run again during Discord serialization and
-        // overwrite the saved color, logo, footer, media, or edited title.
-        if (this[SAVED_TEMPLATE_MARKER]) return original;
-
-        const transformed = applyRuntimeEmbedTemplateData(original);
+        // Serialization is observation-only. Runtime/system templates are applied
+        // in the response pipeline, and saved Builder templates are applied last.
+        // Re-applying a template here caused new messages to revert after Save.
         captureSystemEmbedData(original);
-        return transformed;
       } catch (error) {
         logger.debug(`System embed capture skipped: ${error?.message || error}`);
-        return original;
       }
+      return original;
     };
 
-    logger.info('System embed capture enabled.');
+    logger.info('System embed capture enabled (observation-only serialization).');
   },
 };
