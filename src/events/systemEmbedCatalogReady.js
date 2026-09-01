@@ -2,7 +2,7 @@ import { Events } from 'discord.js';
 import { ensureSystemEmbedCatalogs } from '../services/systemEmbedCatalogService.js';
 import {
   getEmbedRegistry,
-  getEmbedRegistrySnapshot,
+  resolveEmbedRegistryRecord,
 } from '../services/embedRegistryService.js';
 import { saveEmbedTemplateDecoration } from '../services/embedTemplateService.js';
 import { getFromDb } from '../utils/database.js';
@@ -27,14 +27,14 @@ function sameSavedTemplate(left, right) {
     );
 }
 
-function matchingTemplateGroups(sourceTemplates, snapshot) {
+function matchingTemplateGroups(sourceTemplates, liveEmbedData) {
   const groups = [];
   const seenTemplates = [];
-  const snapshotTitle = normalize(snapshot?.title);
+  const liveTitle = normalize(liveEmbedData?.title);
 
   for (const [alias, template] of Object.entries(sourceTemplates || {})) {
     if (!template || typeof template !== 'object') continue;
-    if (snapshotTitle && normalize(template.title) !== snapshotTitle) continue;
+    if (liveTitle && normalize(template.title) !== liveTitle) continue;
 
     let groupIndex = seenTemplates.findIndex(existing => sameSavedTemplate(existing, template));
     if (groupIndex === -1) {
@@ -78,8 +78,13 @@ async function migrateCatalogTemplateScopes(client) {
     for (const record of catalogRecords) {
       const physicalChannelId = String(record.backingChannelId);
       const liveChannelId = String(record.channelId);
-      const snapshot = getEmbedRegistrySnapshot(record);
-      if (!snapshot?.title) continue;
+
+      // Read the actual current catalog message instead of a registry snapshot.
+      // The old Builder bug edited this physical message, so this is the source
+      // that contains the administrator's most recently saved title/style.
+      const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
+      const liveEmbedData = resolved?.embed?.toJSON?.() || null;
+      if (!liveEmbedData?.title) continue;
 
       const sourceKey = templateStorageKey(guild.id, physicalChannelId);
       let sourceTemplates = sourceTemplateCache.get(sourceKey);
@@ -90,17 +95,15 @@ async function migrateCatalogTemplateScopes(client) {
       }
 
       // The old Builder bug saved virtual catalog edits under the physical
-      // backing channel. Match the saved template by its edited visible title,
-      // then copy every alias that points at that same template. This preserves
-      // the original dynamic alias (for example "Blackjack — Bet {dynamic}")
-      // even when the administrator renamed the visible title in the Builder.
-      const groups = matchingTemplateGroups(sourceTemplates, snapshot);
+      // backing channel. Match against the current edited catalog embed and copy
+      // every alias for that saved template into its real feature-channel scope.
+      const groups = matchingTemplateGroups(sourceTemplates, liveEmbedData);
       for (const group of groups) {
         const uniqueAliases = [...new Set([
           ...group.aliases,
           record.title,
           record.name,
-          snapshot.title,
+          liveEmbedData.title,
         ].filter(Boolean))];
         if (!uniqueAliases.length) continue;
 
@@ -138,14 +141,16 @@ export default {
   name: Events.ClientReady,
   once: true,
 
-  async execute(client) {
+  execute(client) {
     const timer = setTimeout(async () => {
-      await ensureSystemEmbedCatalogs(client).catch(error => {
-        logger.warn(`System embed catalog setup failed: ${error.message}`);
-      });
-
+      // Repair old wrongly-scoped Builder saves first. The full system catalog
+      // synchronization can take much longer and must never block this repair.
       await migrateCatalogTemplateScopes(client).catch(error => {
         logger.warn(`Saved catalog template migration failed: ${error.message}`);
+      });
+
+      await ensureSystemEmbedCatalogs(client).catch(error => {
+        logger.warn(`System embed catalog setup failed: ${error.message}`);
       });
     }, 3500);
 
