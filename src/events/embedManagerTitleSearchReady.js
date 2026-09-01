@@ -107,6 +107,13 @@ function shortText(value, max = 100) {
   return (text || 'Untitled embed').slice(0, max);
 }
 
+function templateSearchShape(value) {
+  return searchKey(value)
+    .replace(/\b\d{1,20}(?:\.\d+)?\b/g, ' dynamic ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizedTitle(record) {
   const snapshot = getEmbedRegistrySnapshot(record) || {};
   return String(record?.name || record?.title || snapshot?.title || 'Untitled embed')
@@ -130,6 +137,9 @@ function recordDocument(guild, record) {
   const fields = Array.isArray(snapshot.fields)
     ? snapshot.fields.flatMap(field => [field?.name, field?.value])
     : [];
+  const fieldNames = Array.isArray(snapshot.fields)
+    ? snapshot.fields.map(field => field?.name).filter(Boolean)
+    : [];
 
   const title = normalizedTitle(record);
   const titleText = [title, record?.name, record?.title, snapshot.title]
@@ -152,6 +162,9 @@ function recordDocument(guild, record) {
     titleKey: searchKey(titleText),
     bodyKey: searchKey(bodyText),
     allKey: searchKey(`${titleText} ${bodyText}`),
+    // Amounts, IDs and other runtime values must not turn the same response
+    // template into separate search results. Win/Lost remain literal words.
+    templateKey: `${templateSearchShape(title)}::${templateSearchShape(fieldNames.join(' '))}`,
     channel,
   };
 }
@@ -278,7 +291,7 @@ function findSearchMatches(guild, records, query) {
     const score = fuzzyScore(document, query);
     if (score == null) continue;
 
-    const logicalName = searchKey(document.title)
+    const logicalName = document.templateKey
       || searchKey(record?.name)
       || searchKey(record?.source)
       || `${record.messageId}:${record.embedIndex || 0}`;
