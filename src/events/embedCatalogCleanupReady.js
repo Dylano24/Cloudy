@@ -1,5 +1,8 @@
 import { Events } from 'discord.js';
-import { reconcileEmbedRegistry } from '../services/embedRegistryService.js';
+import {
+  registerCloudyEmbedMessage,
+  removeEmbedRegistryMessage,
+} from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
 
 const CATALOG_CONTENT = 'System & error embed templates';
@@ -46,6 +49,18 @@ function catalogIdentity(embed) {
   return `${context}::${fieldNames}::${description}`;
 }
 
+async function refreshChangedCatalogMessage(guild, message) {
+  // Removing by the physical catalog channel also removes virtual registry rows
+  // whose display channel points at gambling/tickets/etc. Re-registering the
+  // edited message then recreates only the embeds that still exist.
+  await removeEmbedRegistryMessage(guild.id, message.channelId, message.id).catch(error => {
+    logger.warn(`[EMBED_BUILDER] Could not remove stale catalog registry rows: ${error?.message || error}`);
+  });
+  await registerCloudyEmbedMessage(message, 'system-catalog').catch(error => {
+    logger.warn(`[EMBED_BUILDER] Could not refresh cleaned catalog registry rows: ${error?.message || error}`);
+  });
+}
+
 async function cleanupGuild(guild, clientUserId) {
   const catalogMessages = [];
   const catalogChannels = [...guild.channels.cache.values()].filter(channel =>
@@ -54,9 +69,6 @@ async function cleanupGuild(guild, clientUserId) {
     && CATALOG_CHANNEL_NAMES.has(String(channel.name || '').toLowerCase()),
   );
 
-  // The old implementation fetched 100 messages from every server channel.
-  // The response catalog only lives in the internal botlog catalog channel, so
-  // limit cleanup to those candidates. This removes minutes of unnecessary I/O.
   for (const channel of catalogChannels) {
     const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
     if (!messages) continue;
@@ -71,6 +83,7 @@ async function cleanupGuild(guild, clientUserId) {
   const seen = new Set();
   let removed = 0;
   let slotsRemoved = 0;
+  let refreshedMessages = 0;
 
   for (const message of catalogMessages) {
     const kept = [];
@@ -95,23 +108,23 @@ async function cleanupGuild(guild, clientUserId) {
       kept.push(embed);
     }
 
-    if (changed) {
-      await message.edit({ content: CATALOG_CONTENT, embeds: kept }).catch(error => {
-        logger.warn(`[EMBED_BUILDER] Catalog duplicate cleanup edit failed: ${error?.message || error}`);
-      });
-    }
-  }
+    if (!changed) continue;
 
-  const reconciliation = await reconcileEmbedRegistry(guild).catch(error => {
-    logger.warn(`[EMBED_BUILDER] Registry reconcile after catalog cleanup failed: ${error?.message || error}`);
-    return null;
-  });
+    const edited = await message.edit({ content: CATALOG_CONTENT, embeds: kept }).catch(error => {
+      logger.warn(`[EMBED_BUILDER] Catalog duplicate cleanup edit failed: ${error?.message || error}`);
+      return null;
+    });
+    if (!edited) continue;
+
+    await refreshChangedCatalogMessage(guild, edited);
+    refreshedMessages += 1;
+  }
 
   return {
     removed,
     slotsRemoved,
     catalogChannels: catalogChannels.length,
-    registryCount: reconciliation?.records?.length ?? null,
+    refreshedMessages,
   };
 }
 
@@ -125,15 +138,15 @@ export default {
         let removed = 0;
         let slotsRemoved = 0;
         let catalogChannels = 0;
-        let registryCount = 0;
+        let refreshedMessages = 0;
         for (const guild of client.guilds.cache.values()) {
           const result = await cleanupGuild(guild, client.user.id);
           removed += result.removed;
           slotsRemoved += result.slotsRemoved;
           catalogChannels += result.catalogChannels;
-          if (Number.isInteger(result.registryCount)) registryCount += result.registryCount;
+          refreshedMessages += result.refreshedMessages;
         }
-        logger.warn(`[EMBED_BUILDER] Catalog cleanup complete: ${removed} duplicate/retired entries removed (${slotsRemoved} slots) across ${catalogChannels} catalog channel(s); registry reconciled to ${registryCount} physical record(s).`);
+        logger.warn(`[EMBED_BUILDER] Catalog cleanup complete: ${removed} duplicate/retired entries removed (${slotsRemoved} slots) across ${catalogChannels} catalog channel(s); ${refreshedMessages} changed catalog message(s) refreshed in registry.`);
       })().catch(error => {
         logger.warn(`[EMBED_BUILDER] Catalog cleanup failed: ${error?.message || error}`);
       });
