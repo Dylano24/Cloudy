@@ -7,6 +7,11 @@ import {
   decorateEmbedWithSavedTemplate,
   saveEmbedTemplateDecoration,
 } from '../src/services/embedTemplateService.js';
+import {
+  indexSystemEmbedCatalogMessage,
+  systemEmbedResponseSignature,
+} from '../src/services/systemEmbedCatalogService.js';
+import { applyRuntimeResponseTemplates } from '../src/events/fullResponseCatalogReady.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 
@@ -182,6 +187,60 @@ test('stable system key keeps saved title, logo and style across a different liv
   assert.equal(data.footer.text, 'Saved master footer');
   assert.equal(data.fields[0].name, 'Your Hand');
   assert.match(data.fields[0].value, /18/);
+});
+
+test('persisted system alias still removes a logo after a cold catalog load', async () => {
+  installBlockingStorage();
+  const guildId = '810000000000000007';
+  const channelId = '820000000000000007';
+  const key = systemEmbedResponseSignature({ title: 'Blackjack — Bet $100' });
+  const authorName = `Cloudy template key: ${key} || Cloudy context: gambling/blackjack || Cloudy kind: embed`;
+
+  await saveEmbedTemplateDecoration(
+    guildId,
+    channelId,
+    ['Blackjack — Bet $100', 'Fresh Blackjack'],
+    {
+      title: 'Fresh Blackjack',
+      color: 0xABCDEF,
+      author: { name: authorName },
+    },
+    { applyThumbnail: true },
+  );
+
+  // Only the edited catalog version is indexed, matching a fresh process where
+  // no in-memory before/after comparison exists to infer media removal.
+  indexSystemEmbedCatalogMessage({
+    guildId,
+    embeds: [{
+      toJSON: () => ({
+        title: 'Fresh Blackjack',
+        color: 0xABCDEF,
+        author: { name: authorName },
+      }),
+    }],
+  });
+
+  const result = await applyRuntimeResponseTemplates({
+    embeds: [{
+      title: 'Blackjack — Bet $25',
+      color: 0x5865F2,
+      thumbnail: { url: 'https://example.com/runtime-logo.png' },
+      fields: [
+        { name: 'Your Hand', value: 'Cards\nValue: **20**', inline: true },
+      ],
+    }],
+  }, {
+    guildId,
+    commandName: 'blackjack',
+    channel: { id: channelId, guildId },
+  });
+  const data = result.embeds[0].toJSON();
+
+  assert.equal(data.title, 'Fresh Blackjack $25');
+  assert.equal(data.color, 0xABCDEF);
+  assert.equal(data.thumbnail, undefined);
+  assert.match(data.fields[0].value, /\*\*20\*\*/);
 });
 
 test('builder field labels can change without freezing live game values or dropping extra fields', async () => {

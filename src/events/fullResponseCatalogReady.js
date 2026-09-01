@@ -101,7 +101,18 @@ function sourceLocation(source) {
   return { guildId, channelId };
 }
 
-async function applyPayloadTemplates(payload, source) {
+function markRuntimeTemplateApplied(embed) {
+  if (!embed || typeof embed !== 'object' || embed[SAVED_TEMPLATE_MARKER]) return embed;
+  Object.defineProperty(embed, SAVED_TEMPLATE_MARKER, {
+    value: true,
+    configurable: true,
+    enumerable: false,
+    writable: false,
+  });
+  return embed;
+}
+
+export async function applyRuntimeResponseTemplates(payload, source) {
   if (payload == null) return payload;
   if (isInternalResponsePayload(payload)) return stripInternalResponsePayloadMarker(payload);
   if (typeof payload === 'string') return applyPlainResponseTemplate(payload, source);
@@ -123,6 +134,7 @@ async function applyPayloadTemplates(payload, source) {
     if (guildId && channelId) {
       next = await decoratePayloadWithSavedTemplates(guildId, channelId, next);
     }
+    next.embeds = next.embeds.map(markRuntimeTemplateApplied);
   }
 
   if (typeof payload.content === 'string' && payload.content.trim()) {
@@ -139,6 +151,9 @@ function capturePayload(payload, source) {
 
   if (Array.isArray(normalized?.embeds)) {
     for (const embed of normalized.embeds) {
+      // Explicitly pre-templated payloads (for example blackjack timeout edits)
+      // must not be captured again under their edited title as a new template.
+      if (embed?.[SAVED_TEMPLATE_MARKER]) continue;
       const data = embed?.toJSON ? embed.toJSON() : embed;
       if (!data || typeof data !== 'object') continue;
       if (captureSystemEmbedData(data, source)) captured = true;
@@ -176,7 +191,7 @@ async function applyTemplatesToExistingMessage(message) {
 
   const currentContent = String(message.content || '');
   const currentEmbeds = (message.embeds || []).map(embedJson);
-  const templated = await applyPayloadTemplates({
+  const templated = await applyRuntimeResponseTemplates({
     content: currentContent,
     embeds: message.embeds || [],
   }, messageContext(message));
@@ -293,7 +308,7 @@ export function patchInteractionCapture() {
         let outgoing = payload;
         try {
           capturePayload(payload, source);
-          outgoing = await applyPayloadTemplates(payload, source);
+          outgoing = await applyRuntimeResponseTemplates(payload, source);
         } catch (error) {
           logger.debug(`[EMBED_BUILDER] Response template processing skipped for ${method}: ${error?.message || error}`);
         }

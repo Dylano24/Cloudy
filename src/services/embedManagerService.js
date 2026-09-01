@@ -21,7 +21,6 @@ import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 import {
     syncSystemEmbedCatalogMessage,
-    systemEmbedResponseSignature,
 } from './systemEmbedCatalogService.js';
 import {
     markInternalResponsePayload,
@@ -167,13 +166,16 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
         const rawName = recordName(record);
         const data = recordEmbedData(record);
         const isCatalog = record.source === 'system-catalog';
-        const stableKey = stableSystemTemplateKey(data);
         const rule = strictTemplateMode
             ? getChannelTemplateRule(channelId, rawName)
             : getTemplateRule(channelId, rawName);
 
         if (isCatalog) {
-            const identity = stableKey || systemEmbedResponseSignature(data);
+            // Catalog records carry a persisted identity derived from their
+            // metadata. Never depend on the process-local snapshot cache when
+            // deciding how many templates exist.
+            const identity = record.catalogTemplateIdentity
+                || `signature:embed:${dynamicTemplateText(record.title || record.name)}`;
             const key = `catalog:${identity}`;
             if (!groups.has(key)) {
                 groups.set(key, {
@@ -540,6 +542,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             }
         }
 
+        // Open from the persisted registry immediately. Reconciliation remains
+        // a background refresh so slow Discord history fetches never delay the
+        // manager UI.
         let records = await getEmbedRegistry(guild.id);
         const managerMessage = await buttonInteraction.followUp({
             ...(records.length
