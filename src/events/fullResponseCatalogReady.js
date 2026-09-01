@@ -8,6 +8,7 @@ import {
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
+const SAVED_TEMPLATE_MARKER = Symbol.for('cloudy.savedEmbedTemplateApplied');
 const HISTORY_LIMIT = 100;
 const STARTUP_SCAN_DELAY_MS = 7000;
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
@@ -105,6 +106,11 @@ function applyPayloadTemplates(payload, source) {
   let next = { ...payload };
   if (Array.isArray(payload.embeds)) {
     next.embeds = payload.embeds.map(embed => {
+      // The saved Embed Builder layer is final. Do not run the system response
+      // catalog over an embed that has already received its channel/global saved
+      // template, otherwise color/logo/footer/title are reverted right before send.
+      if (embed?.[SAVED_TEMPLATE_MARKER]) return embed;
+
       const data = embed?.toJSON ? embed.toJSON() : embed;
       if (!data || typeof data !== 'object') return embed;
       return applyRuntimeEmbedTemplateData(data, source);
@@ -163,6 +169,11 @@ async function applyTemplatesToExistingMessage(message) {
   if (message.author?.id !== message.client.user.id) return false;
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
   if (autoApplyingMessageIds.has(message.id)) return false;
+
+  // Slash-command and component responses are already templated in the outgoing
+  // interaction pipeline. Re-editing them on MessageCreate/MessageUpdate would
+  // apply the system catalog a second time and undo a saved Builder template.
+  if (message.interaction || message.interactionMetadata) return false;
 
   const source = messageContext(message);
   const runtimePayload = {
