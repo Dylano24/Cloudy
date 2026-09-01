@@ -19,7 +19,14 @@ import {
 } from './embedRegistryService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
-import { syncSystemEmbedCatalogMessage } from './systemEmbedCatalogService.js';
+import {
+    syncSystemEmbedCatalogMessage,
+    systemEmbedResponseSignature,
+} from './systemEmbedCatalogService.js';
+import {
+    markInternalResponsePayload,
+    stripInternalResponsePayloadMarker,
+} from './internalResponsePayloadService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const PAGE_SIZE = 25;
@@ -71,10 +78,6 @@ function cleanFooter(text) {
 function shortLabel(value, fallback = 'Embed') {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return (text || fallback).slice(0, 100);
-}
-
-function titleKey(value) {
-    return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function recordName(record) {
@@ -163,22 +166,31 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
     for (const record of channelRecords) {
         const rawName = recordName(record);
         const data = recordEmbedData(record);
+        const isCatalog = record.source === 'system-catalog';
         const stableKey = stableSystemTemplateKey(data);
         const rule = strictTemplateMode
             ? getChannelTemplateRule(channelId, rawName)
             : getTemplateRule(channelId, rawName);
 
+        if (isCatalog) {
+            const identity = stableKey || systemEmbedResponseSignature(data);
+            const key = `catalog:${identity}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    label: rawName || 'Untitled embed',
+                    records: [],
+                    templateMode: true,
+                    templateOnly: true,
+                });
+            }
+            groups.get(key).records.push(record);
+            continue;
+        }
+
         if (strictTemplateMode) {
             if (!rule) continue;
             if (!groups.has(rule.key)) groups.set(rule.key, { label: rule.label, records: [], templateMode: true });
             groups.get(rule.key).records.push(record);
-            continue;
-        }
-
-        if (stableKey) {
-            const key = `template:${stableKey}`;
-            if (!groups.has(key)) groups.set(key, { label: rawName || 'Untitled embed', records: [], templateMode: true });
-            groups.get(key).records.push(record);
             continue;
         }
 
@@ -197,16 +209,33 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
 
     return [...groups.values()].map(group => {
         group.records.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-        const realRecords = group.records.filter(record => record.source !== 'system-catalog');
-        const representative = (realRecords.length ? realRecords : group.records).at(-1);
+        const representative = group.records.at(-1);
+        const templateOnly = Boolean(group.templateOnly);
         return {
             ...representative,
             name: group.label,
             duplicateCount: group.records.length,
             templateCount: group.records.length,
             templateMode: Boolean(group.templateMode) || group.records.length > 1 || representative.source === 'system-catalog',
+            templateOnly,
         };
     });
+}
+
+function countDisplayRecordKinds(displayRecords) {
+    return displayRecords.reduce((counts, record) => {
+        if (record.templateOnly) counts.cloudyTemplates += 1;
+        else counts.embeds += 1;
+        return counts;
+    }, { embeds: 0, cloudyTemplates: 0 });
+}
+
+function formatRecordCounts(counts) {
+    const parts = [`${counts.embeds} ${counts.embeds === 1 ? 'embed' : 'embeds'}`];
+    if (counts.cloudyTemplates) {
+        parts.push(`${counts.cloudyTemplates} Cloudy ${counts.cloudyTemplates === 1 ? 'template' : 'templates'}`);
+    }
+    return parts.join(' • ');
 }
 
 function channelOrderTuple(channel) {
@@ -269,6 +298,11 @@ function navigationRow(prefix, page, pageCount) {
 
 export function buildChannelPayload(guild, records, page = 0) {
     const groups = buildChannelGroups(guild, records);
+    const groupDisplays = new Map(groups.map(group => [
+        group.channelId,
+        collapseDisplayRecords(group.records, group.channelId),
+    ]));
+    const totals = countDisplayRecordKinds([...groupDisplays.values()].flat());
     const result = pageItems(groups, page);
     const components = [];
 
@@ -280,9 +314,9 @@ export function buildChannelPayload(guild, records, page = 0) {
             .setMaxValues(1)
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
-                const count = collapseDisplayRecords(group.records, group.channelId).length;
+                const counts = countDisplayRecordKinds(groupDisplays.get(group.channelId));
                 return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(`${name} • ${count} ${count === 1 ? 'embed' : 'embeds'}`))
+                    .setLabel(shortLabel(`${name} • ${formatRecordCounts(counts)}`))
                     .setDescription('Open the embeds in this channel')
                     .setValue(group.channelId);
             }));
@@ -292,28 +326,30 @@ export function buildChannelPayload(guild, records, page = 0) {
     const nav = navigationRow('simple_embed_modify_channel_page', result.safePage, result.pageCount);
     if (nav) components.push(nav);
 
-    return {
+    return markInternalResponsePayload({
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
             .setDescription([
                 'Choose a channel first, then choose the embed you want to edit.',
                 '',
-                `**Embeds found:** ${groups.reduce((sum, group) => sum + collapseDisplayRecords(group.records, group.channelId).length, 0)}`,
+                `**Embeds found:** ${totals.embeds}`,
+                `**Cloudy templates:** ${totals.cloudyTemplates}`,
                 `**Channels:** ${groups.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
             ].join('\n'))
             .setColor(0xFFFFFF)],
         components,
-    };
+    });
 }
 
-function buildEmbedPayload(guild, records, channelId, page = 0) {
+export function buildEmbedPayload(guild, records, channelId, page = 0) {
     const channel = guild.channels.cache.get(channelId) || null;
     const channelRecords = records
         .filter(record => String(record.channelId) === String(channelId))
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     const strictTemplateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
     const displayRecords = collapseDisplayRecords(channelRecords, channelId);
+    const counts = countDisplayRecordKinds(displayRecords);
     const result = pageItems(displayRecords, page);
     const components = [];
 
@@ -327,7 +363,9 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
                 const name = recordName(record) || record.name || 'Untitled embed';
                 const isTemplate = Boolean(record.templateMode);
                 const displayName = isTemplate ? record.name : stripCustomEmojiMarkup(name);
-                const description = isTemplate
+                const description = record.templateOnly
+                    ? 'Edit this Cloudy template'
+                    : isTemplate
                     ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
                     : 'Edit this embed';
                 return new StringSelectMenuOptionBuilder()
@@ -348,12 +386,13 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setStyle(ButtonStyle.Secondary),
     ));
 
-    return {
+    return markInternalResponsePayload({
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
             .setDescription([
                 `**Channel:** ${channel ? `${channel}` : `#${channelId}`}`,
-                strictTemplateMode ? `**Templates:** ${displayRecords.length}` : `**Embeds:** ${displayRecords.length}`,
+                `**Embeds:** ${counts.embeds}`,
+                `**Cloudy templates:** ${counts.cloudyTemplates}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
                 '',
                 strictTemplateMode
@@ -362,7 +401,7 @@ function buildEmbedPayload(guild, records, channelId, page = 0) {
             ].join('\n'))
             .setColor(0xFFFFFF)],
         components,
-    };
+    });
 }
 
 function loadEmbedIntoState(state, resolved) {
@@ -414,13 +453,13 @@ function isEmbedManagerComponent(interaction) {
 }
 
 function buildEmptyManagerPayload() {
-    return {
+    return markInternalResponsePayload({
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
             .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
             .setColor(0xFFFFFF)],
         components: [],
-    };
+    });
 }
 
 function closeEmbedManagerSession(state, session, reason = 'closed') {
@@ -536,7 +575,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 const payload = records.length
                     ? buildChannelPayload(guild, records, 0)
                     : buildEmptyManagerPayload();
-                await buttonInteraction.webhook.editMessage(managerMessage.id, payload).catch(error => {
+                await buttonInteraction.webhook.editMessage(
+                    managerMessage.id,
+                    stripInternalResponsePayloadMarker(payload),
+                ).catch(error => {
                     if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
                         logger.error('Failed to refresh the embed manager registry:', error);
                     }

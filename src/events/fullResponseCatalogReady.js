@@ -7,6 +7,10 @@ import {
 } from '../services/systemEmbedCatalogService.js';
 import { decoratePayloadWithSavedTemplates } from '../services/embedTemplateService.js';
 import { logger } from '../utils/logger.js';
+import {
+  isInternalResponsePayload,
+  stripInternalResponsePayloadMarker,
+} from '../services/internalResponsePayloadService.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const SAVED_TEMPLATE_MARKER = Symbol.for('cloudy.savedEmbedTemplateApplied');
@@ -99,6 +103,7 @@ function sourceLocation(source) {
 
 async function applyPayloadTemplates(payload, source) {
   if (payload == null) return payload;
+  if (isInternalResponsePayload(payload)) return stripInternalResponsePayloadMarker(payload);
   if (typeof payload === 'string') return applyPlainResponseTemplate(payload, source);
   if (typeof payload !== 'object') return payload;
 
@@ -128,6 +133,7 @@ async function applyPayloadTemplates(payload, source) {
 
 function capturePayload(payload, source) {
   if (payload == null) return false;
+  if (isInternalResponsePayload(payload)) return false;
   let captured = false;
   const normalized = typeof payload === 'string' ? { content: payload } : payload;
 
@@ -267,7 +273,7 @@ function seedKnownGameResponses() {
   }, baccarat);
 }
 
-function patchInteractionCapture() {
+export function patchInteractionCapture() {
   if (InteractionHelper[PATCH_MARKER]) return;
   const originalPatch = InteractionHelper.patchInteractionResponses.bind(InteractionHelper);
 
@@ -281,6 +287,9 @@ function patchInteractionCapture() {
       if (!original) continue;
 
       interaction[method] = async (payload, ...args) => {
+        if (isInternalResponsePayload(payload)) {
+          return original(stripInternalResponsePayloadMarker(payload), ...args);
+        }
         let outgoing = payload;
         try {
           capturePayload(payload, source);
