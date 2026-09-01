@@ -9,7 +9,6 @@ import {
 import { createEmbed } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { decorateEmbedWithSavedTemplate } from '../../services/embedTemplateService.js';
 import { takeBet, settleBet, money } from './modules/casinoGameUtils.js';
 import { getRouletteColor, rouletteNumberEmoji } from './modules/rouletteNumberEmoji.js';
 
@@ -17,23 +16,14 @@ const ROULETTE_BETS = new Set(['red', 'black', 'even', 'odd', 'number']);
 const NUMBER_MODAL_TIMEOUT = 60_000;
 
 async function styledReply(interaction, sourceInteraction, embed, options = {}) {
-  const guildId = sourceInteraction.guildId || interaction.guildId;
-  const channelId = sourceInteraction.channelId || interaction.channelId;
-  const styled = guildId && channelId
-    ? await decorateEmbedWithSavedTemplate(guildId, channelId, embed)
-    : { embed };
-
   return InteractionHelper.safeReply(interaction, {
-    embeds: [styled.embed],
+    embeds: [embed],
     components: [],
     ...options,
   });
 }
 
 async function requestRouletteNumber(interaction) {
-  // Keep this custom id colon-free. Inline-awaited modals with a colon are also
-  // routed through the global modal registry, which would produce the unrelated
-  // "This form is not available" configuration error before this waiter finishes.
   const customId = `roulette_number_${interaction.id}`;
   const input = new TextInputBuilder()
     .setCustomId('roulette_number_value')
@@ -129,9 +119,6 @@ export default {
       );
     }
 
-    // Discord slash-command options cannot become required conditionally. If the
-    // player chooses Number without filling the optional number field, open a
-    // modal immediately instead of returning an Invalid Input embed.
     if (selectedBet === 'number' && selectedNumber === null) {
       const selection = await requestRouletteNumber(interaction);
       if (!selection) return;
@@ -170,15 +157,8 @@ export default {
         ],
       });
 
-      const styled = interaction.guildId && interaction.channelId
-        ? await decorateEmbedWithSavedTemplate(interaction.guildId, interaction.channelId, embed)
-        : { embed };
-
-      await InteractionHelper.safeEditReply(responseInteraction, { embeds: [styled.embed], components: [] });
+      await InteractionHelper.safeEditReply(responseInteraction, { embeds: [embed], components: [] });
     } catch (error) {
-      // Once a modal has been shown the original slash interaction is already
-      // acknowledged. Route any game/economy error to the modal submission so
-      // insufficient funds and validation errors are still visible to the user.
       if (responseInteraction !== interaction) {
         await replyModalGameError(responseInteraction, interaction, error);
         return;
