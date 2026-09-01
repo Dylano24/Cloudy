@@ -5,6 +5,7 @@ import {
   applyRuntimeEmbedTemplateData,
   captureSystemEmbedData,
 } from '../services/systemEmbedCatalogService.js';
+import { decoratePayloadWithSavedTemplates } from '../services/embedTemplateService.js';
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
@@ -35,7 +36,6 @@ function canonicalComponentCommand(customId = '') {
     [/invite/, 'invite'],
     [/welcome/, 'welcome'],
   ];
-
   return mappings.find(([pattern]) => pattern.test(value))?.[1] || '';
 }
 
@@ -70,11 +70,8 @@ function canonicalEmbedCommand(message) {
 
 function interactionContext(interaction) {
   if (!interaction) return null;
-  const commandName = interaction.commandName
-    || canonicalComponentCommand(interaction.customId)
-    || '';
   return {
-    commandName,
+    commandName: interaction.commandName || canonicalComponentCommand(interaction.customId) || '',
     customId: interaction.customId || '',
     channel: interaction.channel || null,
   };
@@ -82,51 +79,55 @@ function interactionContext(interaction) {
 
 function messageContext(message) {
   const metadata = message?.interactionMetadata || message?.interaction || null;
-  const commandName = metadata?.commandName
-    || metadata?.name
-    || canonicalComponentCommand(metadata?.customId)
-    || canonicalEmbedCommand(message)
-    || '';
   return {
-    commandName,
+    commandName: metadata?.commandName
+      || metadata?.name
+      || canonicalComponentCommand(metadata?.customId)
+      || canonicalEmbedCommand(message)
+      || '',
     customId: metadata?.customId || '',
     channel: message?.channel || null,
   };
 }
 
-function applyPayloadTemplates(payload, source) {
+function sourceLocation(source) {
+  const channel = source?.channel;
+  const guildId = channel?.guildId || channel?.guild?.id || null;
+  const channelId = channel?.id || null;
+  return { guildId, channelId };
+}
+
+async function applyPayloadTemplates(payload, source) {
   if (payload == null) return payload;
-
-  if (typeof payload === 'string') {
-    return applyPlainResponseTemplate(payload, source);
-  }
-
+  if (typeof payload === 'string') return applyPlainResponseTemplate(payload, source);
   if (typeof payload !== 'object') return payload;
 
   let next = { ...payload };
   if (Array.isArray(payload.embeds)) {
     next.embeds = payload.embeds.map(embed => {
-      // The saved Embed Builder layer is final. Do not run the system response
-      // catalog over an embed that has already received its channel/global saved
-      // template, otherwise color/logo/footer/title are reverted right before send.
       if (embed?.[SAVED_TEMPLATE_MARKER]) return embed;
-
       const data = embed?.toJSON ? embed.toJSON() : embed;
       if (!data || typeof data !== 'object') return embed;
       return applyRuntimeEmbedTemplateData(data, source);
     });
+
+    // This is the single final Builder step for every interaction response.
+    // System/runtime templates run first; the saved channel/global Builder style
+    // runs last and is marked so nothing is allowed to overwrite it afterward.
+    const { guildId, channelId } = sourceLocation(source);
+    if (guildId && channelId) {
+      next = await decoratePayloadWithSavedTemplates(guildId, channelId, next);
+    }
   }
 
   if (typeof payload.content === 'string' && payload.content.trim()) {
     next = applyPlainResponseTemplate(next, source);
   }
-
   return next;
 }
 
 function capturePayload(payload, source) {
   if (payload == null) return false;
-
   let captured = false;
   const normalized = typeof payload === 'string' ? { content: payload } : payload;
 
@@ -144,7 +145,6 @@ function capturePayload(payload, source) {
       captured = true;
     }
   }
-
   return captured;
 }
 
@@ -152,12 +152,7 @@ function captureMessage(message) {
   if (!message?.client?.user?.id || !message.guildId) return false;
   if (message.author?.id !== message.client.user.id) return false;
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
-
-  const source = messageContext(message);
-  return capturePayload({
-    content: message.content || '',
-    embeds: message.embeds || [],
-  }, source);
+  return capturePayload({ content: message.content || '', embeds: message.embeds || [] }, messageContext(message));
 }
 
 function embedJson(embed) {
@@ -170,25 +165,18 @@ async function applyTemplatesToExistingMessage(message) {
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
   if (autoApplyingMessageIds.has(message.id)) return false;
 
-  // Slash-command and component responses are already templated in the outgoing
-  // interaction pipeline. Re-editing them on MessageCreate/MessageUpdate would
-  // apply the system catalog a second time and undo a saved Builder template.
+  // Interaction replies are finalized before send by patchInteractionCapture.
   if (message.interaction || message.interactionMetadata) return false;
 
-  const source = messageContext(message);
-  const runtimePayload = {
-    content: message.content || '',
-    embeds: message.embeds || [],
-  };
-  const templated = applyPayloadTemplates(runtimePayload, source);
-
   const currentContent = String(message.content || '');
-  const nextContent = typeof templated?.content === 'string' ? templated.content : currentContent;
   const currentEmbeds = (message.embeds || []).map(embedJson);
-  const nextEmbeds = Array.isArray(templated?.embeds)
-    ? templated.embeds.map(embedJson)
-    : currentEmbeds;
+  const templated = await applyPayloadTemplates({
+    content: currentContent,
+    embeds: message.embeds || [],
+  }, messageContext(message));
 
+  const nextContent = typeof templated?.content === 'string' ? templated.content : currentContent;
+  const nextEmbeds = Array.isArray(templated?.embeds) ? templated.embeds.map(embedJson) : currentEmbeds;
   const contentChanged = currentContent !== nextContent;
   const embedsChanged = JSON.stringify(currentEmbeds) !== JSON.stringify(nextEmbeds);
   if (!contentChanged && !embedsChanged) return false;
@@ -239,7 +227,6 @@ function seedKnownGameResponses() {
 
   captureSystemEmbedData({
     title: 'Blackjack — Bet $100',
-    description: 'Cards remaining: **48**',
     color: 0x5865F2,
     fields: [
       { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
@@ -250,8 +237,12 @@ function seedKnownGameResponses() {
   for (const title of ['Win', 'Loss', 'Push', 'Bust', 'Blackjack', 'Expired']) {
     captureSystemEmbedData({
       title: `Result: ${title}`,
-      description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**\n\nCards remaining: **{dynamic}**',
-      color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0x5865F2,
+      description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**',
+      color: title === 'Win' || title === 'Blackjack'
+        ? 0x57F287
+        : title === 'Loss' || title === 'Bust'
+          ? 0xED4245
+          : 0x5865F2,
       fields: [
         { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
         { name: 'Dealer Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
@@ -278,8 +269,8 @@ function seedKnownGameResponses() {
 
 function patchInteractionCapture() {
   if (InteractionHelper[PATCH_MARKER]) return;
-
   const originalPatch = InteractionHelper.patchInteractionResponses.bind(InteractionHelper);
+
   InteractionHelper.patchInteractionResponses = function patchAllResponseCatalogOutputs(interaction) {
     originalPatch(interaction);
     if (!interaction || interaction.__cloudyFullResponseCatalogPatched) return;
@@ -293,14 +284,13 @@ function patchInteractionCapture() {
         let outgoing = payload;
         try {
           capturePayload(payload, source);
-          outgoing = applyPayloadTemplates(payload, source);
+          outgoing = await applyPayloadTemplates(payload, source);
         } catch (error) {
           logger.debug(`[EMBED_BUILDER] Response template processing skipped for ${method}: ${error?.message || error}`);
         }
         return original(outgoing, ...args);
       };
     }
-
     interaction.__cloudyFullResponseCatalogPatched = true;
   };
 
@@ -363,9 +353,7 @@ export default {
     });
 
     client.on(Events.MessageUpdate, async (oldMessage, newMessage) => {
-      const message = newMessage?.partial
-        ? await newMessage.fetch().catch(() => null)
-        : newMessage;
+      const message = newMessage?.partial ? await newMessage.fetch().catch(() => null) : newMessage;
       if (!message) return;
       if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return;
       if (autoApplyingMessageIds.has(message.id)) return;
@@ -385,6 +373,6 @@ export default {
     }, STARTUP_SCAN_DELAY_MS);
     timer.unref?.();
 
-    logger.warn('[EMBED_BUILDER] Automatic response templates enabled: saved titles, text, fields, colors, footer and media are reused while live values stay dynamic.');
+    logger.warn('[EMBED_BUILDER] Unified response templates enabled: runtime values first, saved Builder style last.');
   },
 };
