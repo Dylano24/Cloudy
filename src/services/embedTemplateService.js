@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 const TEMPLATE_PREFIX = 'cloudy:embed-template:';
 const GLOBAL_SCOPE = '__global__';
 const SAVED_TEMPLATE_MARKER = Symbol.for('cloudy.savedEmbedTemplateApplied');
+const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const templateCache = new Map();
 const templateMutationQueues = new Map();
 const pendingTemplateOverlays = new Map();
@@ -143,7 +144,7 @@ function pickTemplate(data = {}, options = {}) {
   const applyDescription = options.applyDescription ?? hasOwn(data, 'description');
   const applyFields = options.applyFields ?? hasOwn(data, 'fields');
   const applyFooter = options.applyFooter ?? hasOwn(data, 'footer');
-  const applyThumbnail = options.applyThumbnail === true;
+  const applyThumbnail = options.applyThumbnail === true || data.thumbnail?.url === CLOUDY_LOGO_URL;
   const applyImage = options.applyImage === true;
   const fields = Array.isArray(data.fields)
     ? data.fields.slice(0, 25).map(field => ({
