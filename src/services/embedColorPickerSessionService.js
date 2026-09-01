@@ -5,6 +5,7 @@ const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const SESSION_TTL_MS = 14 * 60_000;
+const EDIT_FLUSH_DELAY_MS = 60;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -43,24 +44,59 @@ function sanitizeEmojis(emojis = []) {
     return [...unique.values()].slice(0, 500);
 }
 
+function extendSessionLifetime(token, session) {
+    session.expiresAt = Date.now() + SESSION_TTL_MS;
+    if (session.expiryTimer) clearTimeout(session.expiryTimer);
+    session.expiryTimer = setTimeout(() => sessions.delete(token), SESSION_TTL_MS);
+    session.expiryTimer.unref?.();
+}
+
+function scheduleEditorFlush(token, session) {
+    if (session.editFlushTimer || session.editFlushRunning) return;
+
+    session.editFlushTimer = setTimeout(async () => {
+        session.editFlushTimer = null;
+        if (!sessions.has(token) || typeof session.onEditorUpdate !== 'function') return;
+
+        const pending = [...session.pendingEditorUpdates.entries()];
+        session.pendingEditorUpdates.clear();
+        if (!pending.length) return;
+
+        session.editFlushRunning = true;
+        try {
+            // Only the newest value for each field is sent to Discord. This
+            // prevents one API edit per keystroke from building a slow queue.
+            for (const [field, value] of pending) {
+                await session.onEditorUpdate(field, value);
+            }
+        } catch (error) {
+            if (error?.code === 'EMBED_BUILDER_EXPIRED') {
+                deleteEmbedColorPickerSession(token);
+            }
+        } finally {
+            session.editFlushRunning = false;
+            if (session.pendingEditorUpdates.size && sessions.has(token)) {
+                scheduleEditorFlush(token, session);
+            }
+        }
+    }, EDIT_FLUSH_DELAY_MS);
+    session.editFlushTimer.unref?.();
+}
+
+function queueEditorUpdate(token, session, field, value) {
+    session.pendingEditorUpdates.set(field, value);
+    scheduleEditorFlush(token, session);
+}
+
 async function touchEditorSession(token, session) {
     if (typeof session.onEditorUpdate !== 'function') {
         return { ok: false, reason: 'editor_unavailable' };
     }
 
-    try {
-        // Unknown fields are intentionally ignored by the builder state updater,
-        // but still refresh/touch the Discord builder session. This lets the web
-        // editor keep the 60-second inactivity timer alive without changing data.
-        await session.onEditorUpdate('__heartbeat__', '');
-        return { ok: true };
-    } catch (error) {
-        if (error?.code === 'EMBED_BUILDER_EXPIRED') {
-            deleteEmbedColorPickerSession(token);
-            return { ok: false, reason: 'expired' };
-        }
-        throw error;
-    }
+    // A heartbeat only keeps the web editor alive. It must never cause another
+    // Discord message edit, because that creates unnecessary preview lag.
+    extendSessionLifetime(token, session);
+    return { ok: true };
 }
 
 export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, emojis = [] }) {
@@ -76,6 +112,9 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         emojis: sanitizeEmojis(emojis),
         expiresAt,
         expiryTimer,
+        pendingEditorUpdates: new Map(),
+        editFlushTimer: null,
+        editFlushRunning: false,
     });
     return token;
 }
@@ -86,6 +125,8 @@ export async function applyEmbedColorPickerSession(token, value) {
         deleteEmbedColorPickerSession(token);
         return { ok: false, reason: 'expired' };
     }
+
+    extendSessionLifetime(token, session);
 
     if (value === HEARTBEAT_PREFIX) {
         const touched = await touchEditorSession(token, session);
@@ -129,15 +170,7 @@ export async function applyEmbedColorPickerSession(token, value) {
         }
 
         const nextValue = payload.value.slice(0, limit);
-        try {
-            await session.onEditorUpdate(field, nextValue);
-        } catch (error) {
-            if (error?.code === 'EMBED_BUILDER_EXPIRED') {
-                deleteEmbedColorPickerSession(token);
-                return { ok: false, reason: 'expired' };
-            }
-            throw error;
-        }
+        queueEditorUpdate(token, session, field, nextValue);
         return { ok: true, color: JSON.stringify({ type: 'editor_saved', field, value: nextValue }) };
     }
 
@@ -159,5 +192,6 @@ export async function applyEmbedColorPickerSession(token, value) {
 export function deleteEmbedColorPickerSession(token) {
     const session = sessions.get(token);
     if (session?.expiryTimer) clearTimeout(session.expiryTimer);
+    if (session?.editFlushTimer) clearTimeout(session.editFlushTimer);
     sessions.delete(token);
 }
