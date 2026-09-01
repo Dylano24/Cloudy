@@ -179,6 +179,10 @@ function responseSignature(kind, title = '', description = '') {
   return `${kind}:${shortHash(`${titlePattern}\n${descriptionPattern}`)}`;
 }
 
+export function systemEmbedResponseSignature(data = {}, kind = 'embed') {
+  return responseSignature(kind, data?.title, data?.description);
+}
+
 function commandSlug(raw) {
   return normalize(raw)
     .replace(/^\/+/, '')
