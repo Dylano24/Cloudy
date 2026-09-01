@@ -354,7 +354,9 @@ function loadEmbedIntoState(state, resolved) {
     const { record, channel, message, embed } = resolved;
     const data = embed.toJSON();
     const footerText = cleanFooter(data.footer?.text || '');
-    const templateRule = getTemplateRule(channel.id, recordName(record) || data.title);
+    const templateChannelId = String(record.channelId || channel.id);
+    const backingChannelId = record.backingChannelId ? String(record.backingChannelId) : null;
+    const templateRule = getTemplateRule(templateChannelId, recordName(record) || data.title);
 
     state.title = data.title || null;
     state.message = data.description || null;
@@ -375,14 +377,18 @@ function loadEmbedIntoState(state, resolved) {
     state.mediaConvertedFromVideo = false;
     state.modifyTarget = {
         guildId: message.guildId,
-        channelId: channel.id,
+        // Keep the virtual/display channel as the template scope. For system
+        // catalog records the actual Discord message lives elsewhere and is
+        // tracked separately through backingChannelId.
+        channelId: templateChannelId,
+        backingChannelId,
         messageId: message.id,
         embedIndex: Number(record.embedIndex || 0),
         source: record.source || 'cloudy',
         sourceEmbedData: data,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
-        templateTitle: templateRule?.key || templateIdentity(channel.id, data),
+        templateTitle: templateRule?.key || templateIdentity(templateChannelId, data),
     };
 }
 
@@ -892,7 +898,7 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
         if (!peerEdited) return false;
 
         void registerCloudyEmbedMessage(peerEdited, 'modified-template')
-            .catch(error => logger.error('Failed to refresh modified template registry:', error));
+            .catch(error => logger.error('Failed to refresh modified embed registry:', error));
         return true;
     }));
 
@@ -942,8 +948,12 @@ export async function saveModifiedEmbed(guild, state) {
     const target = state.modifyTarget;
     if (!guild || !target) return { ok: false, reason: 'missing-target' };
 
-    const channel = guild.channels.cache.get(target.channelId)
-        || await guild.channels.fetch(target.channelId).catch(() => null);
+    // A virtual system-catalog template belongs to its displayed feature channel
+    // for template matching, but the Discord message itself must be edited in the
+    // physical backing channel.
+    const messageChannelId = target.backingChannelId || target.channelId;
+    const channel = guild.channels.cache.get(messageChannelId)
+        || await guild.channels.fetch(messageChannelId).catch(() => null);
     if (!channel?.messages?.fetch) return { ok: false, reason: 'channel-missing' };
 
     const message = await channel.messages.fetch(target.messageId).catch(() => null);
@@ -978,8 +988,8 @@ export async function saveModifiedEmbed(guild, state) {
             || getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
         const aliases = [sourceData.title, current.title, sourceRule?.label].filter(Boolean);
 
-        // The selected embed is already saved above. Persist the reusable
-        // template without holding the Save interaction open on a DB roundtrip.
+        // target.channelId deliberately remains the logical/display feature
+        // channel so the next live command reads this saved template instantly.
         void saveEmbedTemplateDecoration(
             guild.id,
             target.channelId,
@@ -991,13 +1001,18 @@ export async function saveModifiedEmbed(guild, state) {
             },
         ).catch(error => logger.error('Failed to persist saved embed template:', error));
 
-        const targetSnapshot = {
-            ...target,
-            sourceEmbedData: sourceData,
-            templateTitle: target.templateTitle,
-        };
-        const stateSnapshot = snapshotTemplatePeerState(state, targetSnapshot, sourceData);
-        queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, current, mediaChanges);
+        // Virtual catalog entries have no historical message peers in the
+        // display channel. Their backing message was already edited above and
+        // the saved template layer handles every future live response.
+        if (!target.backingChannelId) {
+            const targetSnapshot = {
+                ...target,
+                sourceEmbedData: sourceData,
+                templateTitle: target.templateTitle,
+            };
+            const stateSnapshot = snapshotTemplatePeerState(state, targetSnapshot, sourceData);
+            queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, current, mediaChanges);
+        }
     }
 
     state.modifyTarget.sourceEmbedData = current;
