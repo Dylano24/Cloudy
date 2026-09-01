@@ -6,6 +6,8 @@ const TEMPLATE_PREFIX = 'cloudy:embed-template:';
 const GLOBAL_SCOPE = '__global__';
 const templateCache = new Map();
 const templateMutationQueues = new Map();
+const pendingTemplateOverlays = new Map();
+let pendingTemplateRevision = 0;
 
 function normalizeKey(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -19,6 +21,15 @@ function cleanTemplates(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function pendingTemplatesForKey(key) {
+  const overlay = pendingTemplateOverlays.get(key);
+  if (!overlay) return {};
+
+  return Object.fromEntries(
+    [...overlay.entries()].map(([alias, entry]) => [alias, entry.template]),
+  );
+}
+
 async function loadTemplates(guildId, channelId) {
   const key = templateKey(guildId, channelId);
   if (templateCache.has(key)) return templateCache.get(key);
@@ -29,11 +40,18 @@ async function loadTemplates(guildId, channelId) {
 }
 
 async function loadMergedTemplates(guildId, channelId) {
+  const globalKey = templateKey(guildId, GLOBAL_SCOPE);
+  const channelKey = templateKey(guildId, channelId);
   const [globalTemplates, channelTemplates] = await Promise.all([
     loadTemplates(guildId, GLOBAL_SCOPE),
     loadTemplates(guildId, channelId),
   ]);
-  return { ...globalTemplates, ...channelTemplates };
+  return {
+    ...globalTemplates,
+    ...pendingTemplatesForKey(globalKey),
+    ...channelTemplates,
+    ...pendingTemplatesForKey(channelKey),
+  };
 }
 
 async function mutateTemplates(guildId, channelId, operation) {
@@ -140,49 +158,94 @@ function pickTemplate(data = {}, options = {}) {
   };
 }
 
-async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, options = {}) {
+function templateAliases(matchNames = [], embedData = {}) {
+  return [
+    ...matchNames,
+    embedData.title,
+    String(embedData.description || '').split('\n').find(Boolean),
+  ]
+    .flatMap(aliasKeys)
+    .filter(Boolean);
+}
+
+function stageTemplate(guildId, scope, matchNames = [], embedData = {}, options = {}) {
+  const key = templateKey(guildId, scope);
+  const revision = ++pendingTemplateRevision;
+  const template = {
+    ...pickTemplate(embedData, options),
+    updatedAt: new Date().toISOString(),
+  };
+  const aliases = [...new Set(templateAliases(matchNames, embedData))];
+  const overlay = pendingTemplateOverlays.get(key) || new Map();
+
+  for (const alias of aliases) {
+    overlay.set(alias, { revision, template });
+  }
+  pendingTemplateOverlays.set(key, overlay);
+
+  return { key, revision, aliases, template };
+}
+
+function clearStagedTemplate(stage) {
+  if (!stage) return;
+  const overlay = pendingTemplateOverlays.get(stage.key);
+  if (!overlay) return;
+
+  for (const alias of stage.aliases) {
+    if (overlay.get(alias)?.revision === stage.revision) overlay.delete(alias);
+  }
+  if (!overlay.size) pendingTemplateOverlays.delete(stage.key);
+}
+
+async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, options = {}, stage = null) {
   try {
     return await mutateTemplates(guildId, scope, async () => {
       const key = templateKey(guildId, scope);
       const stored = await loadTemplates(guildId, scope);
       const templates = { ...stored };
-      const template = pickTemplate(embedData, options);
-      const aliases = [
-        ...matchNames,
-        embedData.title,
-        String(embedData.description || '').split('\n').find(Boolean),
-      ]
-        .flatMap(aliasKeys)
-        .filter(Boolean);
+      const template = stage?.template || {
+        ...pickTemplate(embedData, options),
+        updatedAt: new Date().toISOString(),
+      };
+      const aliases = stage?.aliases || [...new Set(templateAliases(matchNames, embedData))];
 
-      for (const alias of new Set(aliases)) {
-        templates[alias] = {
-          ...template,
-          updatedAt: new Date().toISOString(),
-        };
+      for (const alias of aliases) {
+        templates[alias] = template;
       }
 
       const saved = await setInDb(key, templates);
       if (!saved) {
+        clearStagedTemplate(stage);
         logger.error(`Failed to persist embed template for ${guildId}:${scope}`);
         return false;
       }
 
       templateCache.set(key, templates);
+      clearStagedTemplate(stage);
       return true;
     });
   } catch (error) {
+    clearStagedTemplate(stage);
     logger.error('Failed to save embed template:', error);
     return false;
   }
 }
 
-export async function saveEmbedTemplateDecoration(guildId, channelId, matchNames = [], embedData = {}, options = {}) {
-  return saveTemplate(guildId, channelId, matchNames, embedData, options);
+function beginSaveTemplate(guildId, scope, matchNames = [], embedData = {}, options = {}) {
+  // Publish the newest template to an in-memory overlay before any DB await.
+  // Save can therefore stay non-blocking while the very next slash reply already
+  // uses the winning Builder style. Revision checks keep older queued saves from
+  // clearing a newer pending template.
+  const stage = stageTemplate(guildId, scope, matchNames, embedData, options);
+  return saveTemplate(guildId, scope, matchNames, embedData, options, stage);
 }
 
-export async function saveGlobalEmbedTemplate(guildId, matchNames = [], embedData = {}, options = {}) {
-  return saveTemplate(guildId, GLOBAL_SCOPE, matchNames, embedData, options);
+export function saveEmbedTemplateDecoration(guildId, channelId, matchNames = [], embedData = {}, options = {}) {
+  return beginSaveTemplate(guildId, channelId, matchNames, embedData, options);
+}
+
+export function saveGlobalEmbedTemplate(guildId, matchNames = [], embedData = {}, options = {}) {
+  return beginSaveTemplate(guildId, GLOBAL_SCOPE, matchNames, embedData, options);
 }
 
 function findStoredTemplate(data, stored) {
