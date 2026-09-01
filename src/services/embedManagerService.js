@@ -118,7 +118,7 @@ function stableSystemTemplateKey(data = {}) {
 function dynamicTemplateText(value) {
     return stripCustomEmojiMarkup(value)
         .replace(/\{dynamic\}/gi, '{dynamic}')
-        .replace(/<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/gi, '{dynamic}')
+        .replace(/<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|[$€£][\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/gi, '{dynamic}')
         .replace(/@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi, '{dynamic}')
         .replace(/\b[a-z0-9_.-]{2,32}'s\b/gi, '{dynamic}')
         .replace(/\s*[—–-]\s*/g, ' — ')
@@ -456,8 +456,9 @@ async function updateEmbedManager(interaction, payload, state, session) {
 async function loadCurrentRegistry(guild, botUserId) {
     let result = await reconcileEmbedRegistry(guild);
     if (result.records.length) {
-        void refreshRecentEmbedHistory(guild, botUserId)
-            .catch(error => logger.error('Background embed history sync failed:', error));
+        // Once a registry exists it is authoritative. Re-scanning Discord history
+        // on every Modify open caused the visible count to creep from 60 -> 78 ->
+        // 90 even though the logical templates had not changed.
         return result.records;
     }
 
@@ -693,7 +694,7 @@ function splitDynamicLogLine(line) {
 function dynamicValues(value) {
     const values = [];
     const tokenized = String(value || '').replace(
-        /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b|@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi,
+        /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|[$€£][\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b|@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi,
         match => {
             values.push(match);
             return '{dynamic}';
@@ -708,9 +709,13 @@ function mergeDynamicTemplateText(sourceText, editedText, peerText) {
     const peer = dynamicValues(peerText);
     const placeholders = edited.tokenized.match(/\{dynamic\}/gi) || [];
 
-    if (!placeholders.length) return String(editedText || '');
+    if (!placeholders.length) {
+        const cleanEdited = String(editedText || '').trim();
+        if (peer.values.length && cleanEdited) return `${cleanEdited} ${peer.values.join(' ')}`.trim();
+        return cleanEdited;
+    }
     if (source.values.length !== peer.values.length || placeholders.length !== peer.values.length) {
-        return String(editedText || '');
+        return String(peerText || editedText || '');
     }
 
     let index = 0;
@@ -746,6 +751,31 @@ function mergeTemplateDescription(sourceDescription, editedDescription, peerDesc
     return result.join('\n').slice(0, 4096);
 }
 
+function mergeTemplateFields(sourceFields = [], editedFields = [], peerFields = []) {
+    if (!Array.isArray(peerFields) || !peerFields.length) {
+        return Array.isArray(editedFields) ? editedFields.map(field => ({ ...field })) : [];
+    }
+
+    return peerFields.slice(0, 25).map((peerField, index) => {
+        const sourceField = sourceFields?.[index] || {};
+        const editedField = editedFields?.[index];
+        if (!editedField) return { ...peerField };
+
+        return {
+            ...peerField,
+            name: mergeDynamicTemplateText(
+                sourceField.name || peerField.name,
+                editedField.name || peerField.name,
+                peerField.name,
+            ).slice(0, 256),
+            // The value is live data (bet, card total, balance, member, reason,
+            // timestamp, etc.). Never copy the sample value from the template.
+            value: String(peerField.value || '\u200B').slice(0, 1024),
+            inline: Boolean(editedField.inline),
+        };
+    });
+}
+
 function applyStateToTemplatePeer(state, peerData, savedData, mediaChanges) {
     const target = state.modifyTarget;
     const source = target?.sourceEmbedData || {};
@@ -756,6 +786,12 @@ function applyStateToTemplatePeer(state, peerData, savedData, mediaChanges) {
 
     if (state.message) data.description = mergeTemplateDescription(source.description, state.message, peerData.description);
     else delete data.description;
+
+    if (Array.isArray(state.embedFields) && state.embedFields.length) {
+        data.fields = mergeTemplateFields(source.fields, state.embedFields, peerData.fields);
+    } else if (!peerData.fields?.length) {
+        delete data.fields;
+    }
 
     data.color = state.sideColor;
 
@@ -798,6 +834,9 @@ function snapshotTemplatePeerState(state, target, sourceData) {
     return {
         title: state.title,
         message: state.message,
+        embedFields: Array.isArray(state.embedFields)
+            ? state.embedFields.map(field => ({ ...field }))
+            : [],
         sideColor: state.sideColor,
         bottomLine: state.bottomLine,
         modifyTarget: {
@@ -984,9 +1023,8 @@ export async function saveModifiedEmbed(guild, state) {
     });
     if (!edited) return { ok: false, reason: 'edit-failed' };
 
-    // System response templates (blackjack, roulette, baccarat, errors, etc.) are
-    // cached in memory. Refresh that cache immediately after Save so the very next
-    // response uses the new title/color/logo/footer instead of the old template.
+    // System response templates are published to memory immediately. The catalog
+    // service performs its persistence/registry follow-up in the background.
     if (target.source === 'system-catalog' || target.backingChannelId) {
         await syncSystemEmbedCatalogMessage(edited).catch(error => {
             logger.error('Failed to hot-sync edited system embed template:', error);
@@ -1002,7 +1040,10 @@ export async function saveModifiedEmbed(guild, state) {
             || getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
         const aliases = [sourceData.title, current.title, sourceRule?.label].filter(Boolean);
 
-        const templateSaved = await saveEmbedTemplateDecoration(
+        // saveEmbedTemplateDecoration stages the newest template synchronously in
+        // memory before it starts the DB write. Do not make the Save button wait
+        // for database latency: the next runtime embed already sees this version.
+        const templateSave = saveEmbedTemplateDecoration(
             guild.id,
             target.channelId,
             aliases,
@@ -1012,7 +1053,9 @@ export async function saveModifiedEmbed(guild, state) {
                 applyImage: mediaChanges.imageChanged,
             },
         );
-        if (!templateSaved) return { ok: false, reason: 'template-save-failed' };
+        void templateSave.then(saved => {
+            if (!saved) logger.error(`Embed template persistence failed for ${guild.id}:${target.channelId}`);
+        }).catch(error => logger.error('Embed template persistence failed:', error));
 
         if (!target.backingChannelId) {
             const targetSnapshot = {
@@ -1026,8 +1069,6 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     state.modifyTarget.sourceEmbedData = current;
-    // Canonicalize the logo flags after every successful save. This prevents a
-    // stale removeExistingLogo flag from blocking Add Cloudy logo after removal.
     state.showLogo = current.thumbnail?.url === CLOUDY_LOGO_URL;
     state.removeExistingLogo = false;
     if (!target.templateMode) {
