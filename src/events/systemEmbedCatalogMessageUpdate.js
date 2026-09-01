@@ -122,6 +122,11 @@ export default {
       const data = embed.toJSON();
       const oldData = oldMessage?.embeds?.[index]?.toJSON?.() || {};
       const aliases = [oldData.title, data.title].filter(Boolean);
+      const application = {
+        applyFooter: Boolean(oldData.footer || data.footer),
+        applyThumbnail: Boolean(oldData.thumbnail || data.thumbnail),
+        applyImage: Boolean(oldData.image || data.image),
+      };
 
       if (scopeChannel?.id) {
         void saveEmbedTemplateDecoration(
@@ -129,7 +134,7 @@ export default {
           scopeChannel.id,
           aliases,
           data,
-          { applyThumbnail: true, applyImage: true },
+          application,
         ).catch(error => {
           logger.warn(`Feature embed template persistence failed for ${context}: ${error.message}`);
         });
@@ -143,7 +148,7 @@ export default {
           message.guildId,
           [canonicalTitle, ...aliases],
           data,
-          { applyThumbnail: true, applyImage: true },
+          application,
         ).catch(error => {
           logger.warn(`Roulette embed template persistence failed: ${error.message}`);
         });

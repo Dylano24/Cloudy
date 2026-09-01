@@ -362,7 +362,10 @@ function decorateEmbedData(embed, stored) {
         if (!templateField) return { ...runtimeField };
         return {
           name: templateField.name
-            ? renderDynamic(templateField.name, runtimeField.name || templateField.name).slice(0, 256)
+            ? (/\{dynamic\}/i.test(templateField.name)
+                ? renderDynamic(templateField.name, runtimeField.name || templateField.name)
+                : templateField.name
+              ).slice(0, 256)
             : String(runtimeField.name || '\u200B').slice(0, 256),
           value: mergeRuntimeFieldValue(templateField.value, runtimeField.value).slice(0, 1024),
           inline: typeof templateField.inline === 'boolean' ? templateField.inline : Boolean(runtimeField.inline),

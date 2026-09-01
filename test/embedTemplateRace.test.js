@@ -268,3 +268,37 @@ test('edited log labels keep each historical runtime value intact', async () => 
   assert.match(data.description, /1800000000/);
   assert.equal(data.fields[0].value, '<@222222222222222222>');
 });
+
+test('runtime media is preserved unless the saved template explicitly removes it', async () => {
+  installBlockingStorage();
+  const guildId = '810000000000000006';
+  const channelId = '820000000000000006';
+  const aliases = ['Media-preserving response'];
+  const runtime = new EmbedBuilder({
+    title: 'Media-preserving response',
+    footer: { text: 'Runtime footer' },
+    thumbnail: { url: 'https://example.com/runtime-thumbnail.png' },
+    image: { url: 'https://example.com/runtime-image.png' },
+  });
+
+  await saveEmbedTemplateDecoration(guildId, channelId, aliases, {
+    title: 'Media-preserving response',
+    color: 0x123456,
+  });
+  const preserved = (await decorateEmbedWithSavedTemplate(guildId, channelId, runtime)).embed.toJSON();
+  assert.equal(preserved.footer.text, 'Runtime footer');
+  assert.equal(preserved.thumbnail.url, 'https://example.com/runtime-thumbnail.png');
+  assert.equal(preserved.image.url, 'https://example.com/runtime-image.png');
+
+  await saveEmbedTemplateDecoration(
+    guildId,
+    channelId,
+    aliases,
+    { title: 'Media-preserving response', color: 0x123456 },
+    { applyFooter: true, applyThumbnail: true, applyImage: true },
+  );
+  const removed = (await decorateEmbedWithSavedTemplate(guildId, channelId, runtime)).embed.toJSON();
+  assert.equal(removed.footer, undefined);
+  assert.equal(removed.thumbnail, undefined);
+  assert.equal(removed.image, undefined);
+});
