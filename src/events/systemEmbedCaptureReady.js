@@ -6,6 +6,7 @@ import {
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.systemEmbedCapture');
+const SAVED_TEMPLATE_MARKER = Symbol.for('cloudy.savedEmbedTemplateApplied');
 
 export default {
   name: Events.ClientReady,
@@ -25,6 +26,11 @@ export default {
     EmbedBuilder.prototype.toJSON = function cloudyObservedEmbedToJSON(...args) {
       const original = originalToJSON.apply(this, args);
       try {
+        // A channel/global Embed Builder template is the final authority. The
+        // system catalog must not run again during Discord serialization and
+        // overwrite the saved color, logo, footer, media, or edited title.
+        if (this[SAVED_TEMPLATE_MARKER]) return original;
+
         const transformed = applyRuntimeEmbedTemplateData(original);
         captureSystemEmbedData(original);
         return transformed;
