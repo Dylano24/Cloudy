@@ -3,8 +3,11 @@ import { installCloudyLogoEmbedPatch, normalizeCloudyLogoMessage } from '../serv
 
 installCloudyLogoEmbedPatch();
 
-const LOGO_MIGRATION_VERSION = 5;
-const LOGO_MIGRATION_STATE_KEY = 'global:cloudy:logo-history-migration-version';
+// Keep the CDN swap separate from older image cleanups. Some databases have a
+// newer legacy-migration marker already, but still contain the direct GitHub
+// URL that flickers in the desktop Discord client.
+const LOGO_MIGRATION_VERSION = 1;
+const LOGO_MIGRATION_STATE_KEY = 'global:cloudy:logo-cdn-migration-version';
 const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 150;
 const CHANNEL_DELAY_MS = 250;
@@ -57,7 +60,7 @@ async function migrateGuild(guild, botUserId) {
     if (!result.completed) completed = false;
     await wait(CHANNEL_DELAY_MS);
   }
-  console.log(`[CLOUDY_LOGO] ${guild.name}: scanned ${scanned} messages, updated ${updated} existing bot messages.`);
+  console.log(`[CLOUDY_LOGO] CDN migration ${guild.name}: scanned ${scanned} messages, updated ${updated} bot messages.`);
   return { scanned, updated, completed };
 }
 
@@ -69,7 +72,7 @@ export default {
       void (async () => {
         const completedVersion = Number(await client.db?.get?.(LOGO_MIGRATION_STATE_KEY, 0).catch(() => 0) || 0);
         if (completedVersion >= LOGO_MIGRATION_VERSION) {
-          console.log('[CLOUDY_LOGO] Full logo history migration already completed.');
+          console.log('[CLOUDY_LOGO] CDN logo migration already completed.');
           return;
         }
         let allGuildsCompleted = true;
