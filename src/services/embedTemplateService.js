@@ -121,12 +121,23 @@ function dynamicSlotCount(value = '') {
   return (dynamicParts(value).tokenized.match(/\{dynamic\}/gi) || []).length;
 }
 
-function renderDynamic(template, runtime) {
+function renderDynamic(template, runtime, { appendMissingRuntimeDynamics = false } = {}) {
+  const source = String(runtime || '');
   const templateSource = String(template || '');
-  const runtimeParts = dynamicParts(runtime);
+  const runtimeParts = dynamicParts(source);
   const templateParts = dynamicParts(templateSource);
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
-  if (!placeholders.length) return templateSource;
+
+  if (!placeholders.length) {
+    if (appendMissingRuntimeDynamics && runtimeParts.values.length) {
+      const cleanTemplate = templateSource.replace(/\u200B/g, '').trim();
+      if (!cleanTemplate) return source;
+      return `${cleanTemplate} ${runtimeParts.values.join(' ')}`.trim();
+    }
+    return templateSource;
+  }
+
+  if (runtimeParts.values.length !== placeholders.length) return source || templateSource;
 
   let runtimeIndex = 0;
   let fallbackIndex = 0;
@@ -135,6 +146,52 @@ function renderDynamic(template, runtime) {
     const savedFallback = templateParts.values[fallbackIndex++];
     return runtimeValue ?? savedFallback ?? '';
   });
+}
+
+function splitLabeledDynamicLine(line) {
+  const match = String(line || '').match(/^(\s*(?:>\s*)?\*\*[^*]+:\*\*\s*)(.*)$/);
+  return match ? { prefix: match[1], value: match[2] } : null;
+}
+
+function mergeRuntimeDescription(template, runtime) {
+  const templateLines = String(template || '').split('\n');
+  const runtimeLines = String(runtime || '').split('\n');
+  const lineCount = Math.max(templateLines.length, runtimeLines.length);
+  const merged = [];
+
+  for (let index = 0; index < lineCount; index += 1) {
+    const templateLine = templateLines[index] ?? '';
+    const runtimeLine = runtimeLines[index] ?? '';
+    const templateLabeled = splitLabeledDynamicLine(templateLine);
+    const runtimeLabeled = splitLabeledDynamicLine(runtimeLine);
+
+    if (templateLabeled && runtimeLabeled) {
+      merged.push(`${templateLabeled.prefix}${runtimeLabeled.value}`);
+      continue;
+    }
+
+    if (!templateLine && runtimeLine) {
+      merged.push(runtimeLine);
+      continue;
+    }
+
+    merged.push(renderDynamic(templateLine, runtimeLine, { appendMissingRuntimeDynamics: true }));
+  }
+
+  return merged.join('\n').slice(0, 4096);
+}
+
+function mergeRuntimeFieldValue(templateValue, runtimeValue) {
+  const runtime = String(runtimeValue || '');
+  const template = String(templateValue || '');
+  if (!runtime) return template;
+  if (!template || !template.replace(/\u200B/g, '').trim()) return runtime;
+  if (dynamicSlotCount(template) > 0) return renderDynamic(template, runtime);
+
+  // Field values carry game/log state (bet, hand value, balance, moderator,
+  // reason, IDs, timestamps, etc.). Keep the live runtime value authoritative
+  // unless the template explicitly contains dynamic placeholders.
+  return runtime;
 }
 
 function aliasKeys(value) {
@@ -286,27 +343,35 @@ function decorateEmbedData(embed, stored) {
   if (!template) return { matched: false, changed: false, data };
 
   if (shouldApply(template, 'applyTitle', 'title')) {
-    if (template.title) data.title = renderDynamic(template.title, original.title || '');
-    else delete data.title;
+    if (template.title) {
+      data.title = renderDynamic(template.title, original.title || '', { appendMissingRuntimeDynamics: true }).slice(0, 256);
+    } else delete data.title;
   }
 
   if (shouldApply(template, 'applyDescription', 'description')) {
-    if (template.description) data.description = renderDynamic(template.description, original.description || '');
+    if (template.description) data.description = mergeRuntimeDescription(template.description, original.description || '');
+    else if (dynamicParts(original.description || '').values.length) data.description = original.description;
     else delete data.description;
   }
 
   if (shouldApply(template, 'applyFields', 'fields')) {
-    if (!template.fields?.length) delete data.fields;
-    else {
-      const runtimeFields = Array.isArray(original.fields) ? original.fields : [];
-      data.fields = template.fields.slice(0, 25).map((templateField, index) => {
-        const runtimeField = runtimeFields[index] || {};
+    const runtimeFields = Array.isArray(original.fields) ? original.fields : [];
+    if (runtimeFields.length) {
+      data.fields = runtimeFields.slice(0, 25).map((runtimeField, index) => {
+        const templateField = template.fields?.[index];
+        if (!templateField) return { ...runtimeField };
         return {
-          name: renderDynamic(templateField.name, runtimeField.name || templateField.name).slice(0, 256),
-          value: renderDynamic(templateField.value, runtimeField.value || templateField.value).slice(0, 1024),
-          inline: Boolean(templateField.inline),
+          name: templateField.name
+            ? renderDynamic(templateField.name, runtimeField.name || templateField.name, { appendMissingRuntimeDynamics: true }).slice(0, 256)
+            : String(runtimeField.name || '\u200B').slice(0, 256),
+          value: mergeRuntimeFieldValue(templateField.value, runtimeField.value).slice(0, 1024),
+          inline: typeof templateField.inline === 'boolean' ? templateField.inline : Boolean(runtimeField.inline),
         };
       });
+    } else if (template.fields?.length) {
+      data.fields = template.fields.slice(0, 25).map(field => ({ ...field }));
+    } else {
+      delete data.fields;
     }
   }
 
@@ -314,7 +379,10 @@ function decorateEmbedData(embed, stored) {
 
   if (shouldApply(template, 'applyFooter', 'footer')) {
     if (template.footer?.text) {
-      data.footer = { ...template.footer, text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text) };
+      data.footer = {
+        ...template.footer,
+        text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text, { appendMissingRuntimeDynamics: true }),
+      };
     } else delete data.footer;
   }
 
