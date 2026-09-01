@@ -703,7 +703,7 @@ function dynamicValues(value) {
     return { tokenized, values };
 }
 
-function mergeDynamicTemplateText(sourceText, editedText, peerText) {
+export function mergeDynamicTemplateText(sourceText, editedText, peerText) {
     const source = dynamicValues(sourceText);
     const edited = dynamicValues(editedText);
     const peer = dynamicValues(peerText);
@@ -711,10 +711,10 @@ function mergeDynamicTemplateText(sourceText, editedText, peerText) {
 
     if (!placeholders.length) {
         const cleanEdited = String(editedText || '').trim();
-        if (peer.values.length && cleanEdited) return `${cleanEdited} ${peer.values.join(' ')}`.trim();
         return cleanEdited;
     }
-    if (source.values.length !== peer.values.length || placeholders.length !== peer.values.length) {
+    const sourceSlots = source.tokenized.match(/\{dynamic\}/gi) || [];
+    if (sourceSlots.length !== peer.values.length || placeholders.length !== peer.values.length) {
         return String(peerText || editedText || '');
     }
 
@@ -751,7 +751,7 @@ function mergeTemplateDescription(sourceDescription, editedDescription, peerDesc
     return result.join('\n').slice(0, 4096);
 }
 
-function mergeTemplateFields(sourceFields = [], editedFields = [], peerFields = []) {
+export function mergeTemplateFields(sourceFields = [], editedFields = [], peerFields = []) {
     if (!Array.isArray(peerFields) || !peerFields.length) {
         return Array.isArray(editedFields) ? editedFields.map(field => ({ ...field })) : [];
     }
@@ -763,10 +763,13 @@ function mergeTemplateFields(sourceFields = [], editedFields = [], peerFields = 
 
         return {
             ...peerField,
-            name: mergeDynamicTemplateText(
-                sourceField.name || peerField.name,
-                editedField.name || peerField.name,
-                peerField.name,
+            name: (/\{dynamic\}/i.test(editedField.name || '')
+                ? mergeDynamicTemplateText(
+                    sourceField.name || peerField.name,
+                    editedField.name || peerField.name,
+                    peerField.name,
+                )
+                : String(editedField.name || peerField.name)
             ).slice(0, 256),
             // The value is live data (bet, card total, balance, member, reason,
             // timestamp, etc.). Never copy the sample value from the template.
@@ -825,6 +828,7 @@ function mediaChangeState(sourceData, savedData) {
     return {
         thumbnailChanged: sourceThumbnail !== savedThumbnail,
         imageChanged: sourceImage !== savedImage,
+        footerChanged: JSON.stringify(sourceData?.footer || null) !== JSON.stringify(savedData?.footer || null),
     };
 }
 
@@ -1049,6 +1053,7 @@ export async function saveModifiedEmbed(guild, state) {
             aliases,
             current,
             {
+                applyFooter: Boolean(current.footer) || mediaChanges.footerChanged,
                 applyThumbnail: state.showLogo || state.removeExistingLogo || mediaChanges.thumbnailChanged,
                 applyImage: mediaChanges.imageChanged,
             },

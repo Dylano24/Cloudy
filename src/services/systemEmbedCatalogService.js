@@ -224,8 +224,8 @@ function parentContext(context) {
   return value.includes('/') ? value.split('/')[0] : null;
 }
 
-function cacheIdentity(key, context = null) {
-  return `${normalize(context) || 'global'}::${normalize(key)}`;
+function cacheIdentity(guildId, key, context = null) {
+  return `${String(guildId || '')}::${normalize(context) || 'global'}::${normalize(key)}`;
 }
 
 function findCatalogChannel(guild) {
@@ -292,27 +292,37 @@ function isInternalTemplate(data) {
   return authorName.toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase());
 }
 
-function rememberTemplate(key, data, context = null) {
-  if (!key || !data) return;
-  templateCache.set(cacheIdentity(key, context), cloneData(data));
+function rememberTemplate(guildId, key, data, context = null) {
+  if (!guildId || !key || !data) return;
+  templateCache.set(cacheIdentity(guildId, key, context), cloneData(data));
 }
 
-function findTemplate(key, context) {
+function findTemplate(guildId, key, context) {
+  if (!guildId) return null;
   const exact = normalize(context);
   const parent = parentContext(exact);
-  return templateCache.get(cacheIdentity(key, exact))
-    || (parent ? templateCache.get(cacheIdentity(key, parent)) : null)
-    || templateCache.get(cacheIdentity(key, null))
+  return templateCache.get(cacheIdentity(guildId, key, exact))
+    || (parent ? templateCache.get(cacheIdentity(guildId, key, parent)) : null)
+    || templateCache.get(cacheIdentity(guildId, key, null))
     || null;
 }
 
 function rememberCatalogMessage(message) {
+  const guildId = message?.guildId || message?.guild?.id;
+  if (!guildId) return;
   for (const embed of message?.embeds || []) {
     const metadata = parseTemplateMetadata(embed);
     if (!metadata.key) continue;
-    catalogEntries.add(cacheIdentity(metadata.key, metadata.context));
-    rememberTemplate(metadata.key, embed, metadata.context);
+    catalogEntries.add(cacheIdentity(guildId, metadata.key, metadata.context));
+    rememberTemplate(guildId, metadata.key, embed, metadata.context);
   }
+}
+
+export function indexSystemEmbedCatalogMessage(message) {
+  const guildId = message?.guildId || message?.guild?.id;
+  if (!guildId || !hasCatalogMetadata(message)) return false;
+  rememberCatalogMessage(message);
+  return true;
 }
 
 async function loadCatalogMessages(context) {
@@ -407,11 +417,11 @@ function catalogDataChanged(left, right) {
   return JSON.stringify(cloneData(left || {})) !== JSON.stringify(cloneData(right || {}));
 }
 
-function findCatalogEntry(messages, identity) {
+function findCatalogEntry(guildId, messages, identity) {
   for (const message of messages) {
     for (let index = 0; index < (message?.embeds?.length || 0); index += 1) {
       const metadata = parseTemplateMetadata(message.embeds[index]);
-      if (cacheIdentity(metadata.key, metadata.context) === identity) {
+      if (cacheIdentity(guildId, metadata.key, metadata.context) === identity) {
         return { message, index, embed: message.embeds[index], metadata };
       }
     }
@@ -420,15 +430,16 @@ function findCatalogEntry(messages, identity) {
 }
 
 async function appendCatalogEntry(context, entry, messages) {
-  const identity = cacheIdentity(entry.key, entry.context);
-  const existingLocation = findCatalogEntry(messages, identity);
+  const guildId = context.guild.id;
+  const identity = cacheIdentity(guildId, entry.key, entry.context);
+  const existingLocation = findCatalogEntry(guildId, messages, identity);
 
   if (existingLocation) {
     const currentData = cloneData(existingLocation.embed);
     const mergedData = mergeCatalogShape(currentData, entry.data);
     if (!catalogDataChanged(currentData, mergedData)) {
       catalogEntries.add(identity);
-      rememberTemplate(entry.key, currentData, entry.context);
+      rememberTemplate(guildId, entry.key, currentData, entry.context);
       return false;
     }
 
@@ -438,7 +449,7 @@ async function appendCatalogEntry(context, entry, messages) {
     if (!edited) return false;
 
     catalogEntries.add(identity);
-    rememberTemplate(entry.key, mergedData, entry.context);
+    rememberTemplate(guildId, entry.key, mergedData, entry.context);
     await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register updated response catalog: ${error.message}`));
     return true;
   }
@@ -457,7 +468,7 @@ async function appendCatalogEntry(context, entry, messages) {
   if (!edited) return false;
 
   catalogEntries.add(identity);
-  rememberTemplate(entry.key, entry.data, entry.context);
+  rememberTemplate(guildId, entry.key, entry.data, entry.context);
   await saveCatalogIds(context.guild.id, messages);
   await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register response catalog: ${error.message}`));
   return true;
@@ -482,25 +493,32 @@ function scheduleFlush() {
   flushTimer.unref?.();
 }
 
-function queueRuntimeEntry(entry) {
-  const identity = cacheIdentity(entry.key, entry.context);
+function queueRuntimeEntry(guildId, entry) {
+  if (!guildId) return false;
+  const identity = cacheIdentity(guildId, entry.key, entry.context);
   const pending = pendingTemplates.get(identity);
   if (pending) {
-    const merged = mergeCatalogShape(pending.data, entry.data);
-    pendingTemplates.set(identity, { ...pending, data: merged });
+    const merged = mergeCatalogShape(pending.entry.data, entry.data);
+    pendingTemplates.set(identity, {
+      identity,
+      entry: { ...pending.entry, data: merged },
+    });
     return true;
   }
 
   if (catalogEntries.has(identity)) {
-    const cached = findTemplate(entry.key, entry.context);
+    const cached = findTemplate(guildId, entry.key, entry.context);
     const merged = mergeCatalogShape(cached || {}, entry.data);
     if (cached && !catalogDataChanged(cached, merged)) return false;
-    pendingTemplates.set(identity, { ...entry, data: merged });
+    pendingTemplates.set(identity, {
+      identity,
+      entry: { ...entry, data: merged },
+    });
     scheduleFlush();
     return true;
   }
 
-  pendingTemplates.set(identity, entry);
+  pendingTemplates.set(identity, { identity, entry });
   scheduleFlush();
   return true;
 }
@@ -508,16 +526,22 @@ function queueRuntimeEntry(entry) {
 export function registerDiscoveredEmbedDefinition(definition = {}) {
   const entry = definitionToCatalog(definition);
   if (!entry.key || isInternalTemplate(entry.data)) return false;
-  return queueRuntimeEntry(entry);
+  let queued = false;
+  for (const guildId of contexts.keys()) queued = queueRuntimeEntry(guildId, entry) || queued;
+  return queued;
 }
 
 export function captureSystemEmbedData(embedData, contextSource = null) {
   const data = cloneData(embedData);
   if (isInternalTemplate(data)) return false;
   const context = inferContextHint(contextSource);
-  if (!context) return false;
+  const guildId = contextSource?.guildId
+    || contextSource?.guild?.id
+    || contextSource?.channel?.guildId
+    || contextSource?.channel?.guild?.id;
+  if (!guildId || !context) return false;
   const key = responseSignature('embed', data.title, data.description);
-  return queueRuntimeEntry({
+  return queueRuntimeEntry(guildId, {
     key,
     context,
     kind: 'embed',
@@ -529,9 +553,13 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   const data = cloneData(embedData);
   if (isInternalTemplate(data)) return data;
   const context = inferContextHint(contextSource);
+  const guildId = contextSource?.guildId
+    || contextSource?.guild?.id
+    || contextSource?.channel?.guildId
+    || contextSource?.channel?.guild?.id;
   const specificKey = responseSignature('embed', data.title, data.description);
   const titleKey = normalize(data.title);
-  const template = findTemplate(specificKey, context) || findTemplate(titleKey, context);
+  const template = findTemplate(guildId, specificKey, context) || findTemplate(guildId, titleKey, context);
 
   if (!template) {
     if (context) captureSystemEmbedData(data, contextSource);
@@ -557,10 +585,12 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
         return {
           ...runtimeField,
           name: templateField.name
-            ? renderDynamic(templateField.name, runtimeField.name, {
-              fallbackToRuntimeOnMismatch: true,
-              appendMissingRuntimeDynamics: true,
-            }).slice(0, 256)
+            ? (/\{dynamic\}/i.test(templateField.name)
+                ? renderDynamic(templateField.name, runtimeField.name, {
+                  fallbackToRuntimeOnMismatch: true,
+                })
+                : templateField.name
+              ).slice(0, 256)
             : runtimeField.name,
           value: mergeRuntimeFieldValue(templateField.value, runtimeField.value).slice(0, 1024),
           inline: typeof templateField.inline === 'boolean' ? templateField.inline : runtimeField.inline,
@@ -577,18 +607,16 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
         appendMissingRuntimeDynamics: true,
       }),
     };
-  } else delete next.footer;
+  }
 
   if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
-  else delete next.thumbnail;
   if (template.image?.url) next.image = { ...template.image };
-  else delete next.image;
   return next;
 }
 
-export function applySystemEmbedTemplate(embed) {
+export function applySystemEmbedTemplate(embed, contextSource = null) {
   if (!embed) return embed;
-  return new EmbedBuilder(applyRuntimeEmbedTemplateData(embed));
+  return new EmbedBuilder(applyRuntimeEmbedTemplateData(embed, contextSource));
 }
 
 function contentFromPayload(payload) {
@@ -601,13 +629,17 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
   if (!content?.trim()) return payload;
 
   const context = inferContextHint(contextSource);
-  if (!context) return payload;
+  const guildId = contextSource?.guildId
+    || contextSource?.guild?.id
+    || contextSource?.channel?.guildId
+    || contextSource?.channel?.guild?.id;
+  if (!guildId || !context) return payload;
   const key = responseSignature('content', '', content);
-  const template = findTemplate(key, context);
+  const template = findTemplate(guildId, key, context);
 
   if (!template) {
     const entry = definitionToCatalog({ kind: 'content', context, content, key });
-    queueRuntimeEntry(entry);
+    queueRuntimeEntry(guildId, entry);
     return payload;
   }
 
@@ -662,7 +694,7 @@ export async function syncSystemEmbedCatalogMessage(message) {
   // The Builder save path already knows this is a catalog-backed embed. Publish
   // the edit to memory before touching the DB so the next command cannot see the
   // previous title/color/logo/footer while persistence/registry work is pending.
-  rememberCatalogMessage(message);
+  indexSystemEmbedCatalogMessage(message);
 
   void (async () => {
     const ids = await getFromDb(storageKey(message.guildId), []);
@@ -676,15 +708,20 @@ export async function syncSystemEmbedCatalogMessage(message) {
 async function flushPendingTemplates() {
   if (!pendingTemplates.size || !contexts.size) return;
   const queued = [...pendingTemplates.values()];
-  pendingTemplates.clear();
 
   for (const context of contexts.values()) {
+    const guildPrefix = `${String(context.guild.id)}::`;
+    const guildEntries = queued.filter(entry => entry.identity.startsWith(guildPrefix));
+    if (!guildEntries.length) continue;
     const messages = await loadCatalogMessages(context);
     for (const message of messages) rememberCatalogMessage(message);
-    for (const entry of queued) {
-      await appendCatalogEntry(context, entry, messages).catch(error => {
+    for (const pending of guildEntries) {
+      await appendCatalogEntry(context, pending.entry, messages).catch(error => {
         logger.warn(`Failed to append or enrich runtime response template: ${error.message}`);
       });
+      if (pendingTemplates.get(pending.identity) === pending) {
+        pendingTemplates.delete(pending.identity);
+      }
     }
     await saveCatalogIds(context.guild.id, messages);
   }
