@@ -1,11 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 
-// Keep one exact canonical URL everywhere. The embed builder/template services
-// already use the raw asset URL without a cache-busting query. Using a different
-// query-string variant here caused serialized embeds to stop matching the
-// builder's logo checks after Save, so Add/Remove logo became inconsistent.
 export const CLOUDY_LOGO_URL =
-  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
+  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif?v=desktop-safe-258043242096f2e57923054f6195a067376296aa';
 
 const LEGACY_CLOUDY_LOGO_FILENAMES = new Set([
   'cloudy-c-logo.png',
