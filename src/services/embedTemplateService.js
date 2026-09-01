@@ -101,32 +101,26 @@ function dynamicParts(value = '') {
   };
 }
 
-function renderDynamic(template, runtime, {
-  fallbackToRuntimeOnMismatch = false,
-  preserveRuntimeWhenNoDynamic = false,
-} = {}) {
+function renderDynamic(template, runtime) {
   const source = String(runtime || '');
   const templateSource = String(template || '');
   const runtimeParts = dynamicParts(source);
   const templateParts = dynamicParts(templateSource);
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
 
-  if (!placeholders.length) {
-    if (preserveRuntimeWhenNoDynamic && source && source !== templateSource) return source;
-    return templateSource;
-  }
-
-  if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) return source;
+  // The saved Builder text is the master. If it has no live slots, nothing from
+  // the runtime message is allowed to replace it.
+  if (!placeholders.length) return templateSource;
 
   let runtimeIndex = 0;
   let templateIndex = 0;
-  const rendered = templateParts.tokenized.replace(/\{dynamic\}/gi, () => {
+  return templateParts.tokenized.replace(/\{dynamic\}/gi, () => {
     const runtimeValue = runtimeParts.values[runtimeIndex++];
-    const fallbackValue = templateParts.values[templateIndex++];
-    return runtimeValue ?? fallbackValue ?? '{dynamic}';
+    const savedFallback = templateParts.values[templateIndex++];
+    // Only the value inside a detected dynamic slot may change. Static Builder
+    // text around it always survives, even when the runtime shape differs.
+    return runtimeValue ?? savedFallback ?? '';
   });
-
-  return fallbackToRuntimeOnMismatch && /\{dynamic\}/i.test(rendered) ? source : rendered;
 }
 
 function aliasKeys(value) {
@@ -304,9 +298,7 @@ function decorateEmbedData(embed, stored) {
 
   if (shouldApply(template, 'applyTitle', 'title')) {
     if (template.title) {
-      data.title = renderDynamic(template.title, original.title || '', {
-        fallbackToRuntimeOnMismatch: true,
-      });
+      data.title = renderDynamic(template.title, original.title || '');
     } else {
       delete data.title;
     }
@@ -314,9 +306,7 @@ function decorateEmbedData(embed, stored) {
 
   if (shouldApply(template, 'applyDescription', 'description')) {
     if (template.description) {
-      data.description = renderDynamic(template.description, original.description || '', {
-        fallbackToRuntimeOnMismatch: true,
-      });
+      data.description = renderDynamic(template.description, original.description || '');
     } else {
       delete data.description;
     }
@@ -330,13 +320,8 @@ function decorateEmbedData(embed, stored) {
       data.fields = template.fields.slice(0, 25).map((templateField, index) => {
         const runtimeField = runtimeFields[index] || {};
         return {
-          name: renderDynamic(templateField.name, runtimeField.name || templateField.name, {
-            fallbackToRuntimeOnMismatch: true,
-          }).slice(0, 256),
-          value: renderDynamic(templateField.value, runtimeField.value || templateField.value, {
-            fallbackToRuntimeOnMismatch: true,
-            preserveRuntimeWhenNoDynamic: true,
-          }).slice(0, 1024),
+          name: renderDynamic(templateField.name, runtimeField.name || templateField.name).slice(0, 256),
+          value: renderDynamic(templateField.value, runtimeField.value || templateField.value).slice(0, 1024),
           inline: Boolean(templateField.inline),
         };
       });
@@ -349,9 +334,7 @@ function decorateEmbedData(embed, stored) {
     if (template.footer?.text) {
       data.footer = {
         ...template.footer,
-        text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text, {
-          fallbackToRuntimeOnMismatch: true,
-        }),
+        text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text),
       };
     } else {
       delete data.footer;
