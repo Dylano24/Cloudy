@@ -102,7 +102,9 @@ export function scheduleCloudyLogoMigration(client) {
 export default {
   name: Events.ClientReady,
   once: true,
-  execute(client) {
-    scheduleCloudyLogoMigration(client);
+  execute() {
+    // `ready.js` owns the schedule. Keeping this tiny listener preserves the
+    // eager EmbedBuilder patch above without letting a duplicate startup
+    // callback reserve the migration before the proven ready route runs.
   },
 };
