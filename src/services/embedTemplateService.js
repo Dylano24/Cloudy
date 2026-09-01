@@ -85,7 +85,7 @@ function dynamicParts(value = '') {
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
 
   text = text.replace(
-    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
+    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|[$€£][\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
       values.push(match);
       return '{dynamic}';
@@ -170,6 +170,27 @@ function pickTemplate(data = {}, options = {}) {
   };
 }
 
+function preserveMissingTitleDynamics(template, matchNames = []) {
+  if (!template?.applyTitle || !template.title) return template;
+  const editedParts = dynamicParts(template.title);
+  if (/\{dynamic\}/i.test(editedParts.tokenized)) return template;
+
+  const source = matchNames
+    .map(value => ({ value, parts: dynamicParts(value) }))
+    .find(entry => entry.parts.values.length > 0);
+  if (!source) return template;
+
+  const placeholders = Array.from({ length: source.parts.values.length }, () => '{dynamic}').join(' ');
+  return {
+    ...template,
+    title: `${String(template.title).trim()} ${placeholders}`.trim().slice(0, 256),
+  };
+}
+
+function buildTemplate(embedData = {}, options = {}, matchNames = []) {
+  return preserveMissingTitleDynamics(pickTemplate(embedData, options), matchNames);
+}
+
 function templateAliases(matchNames = [], embedData = {}) {
   return [
     ...matchNames,
@@ -184,7 +205,7 @@ function stageTemplate(guildId, scope, matchNames = [], embedData = {}, options 
   const key = templateKey(guildId, scope);
   const revision = ++pendingTemplateRevision;
   const template = {
-    ...pickTemplate(embedData, options),
+    ...buildTemplate(embedData, options, matchNames),
     updatedAt: new Date().toISOString(),
   };
   const aliases = [...new Set(templateAliases(matchNames, embedData))];
@@ -216,7 +237,7 @@ async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, opt
       const stored = await loadTemplates(guildId, scope);
       const templates = { ...stored };
       const template = stage?.template || {
-        ...pickTemplate(embedData, options),
+        ...buildTemplate(embedData, options, matchNames),
         updatedAt: new Date().toISOString(),
       };
       const aliases = stage?.aliases || [...new Set(templateAliases(matchNames, embedData))];
@@ -244,10 +265,6 @@ async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, opt
 }
 
 function beginSaveTemplate(guildId, scope, matchNames = [], embedData = {}, options = {}) {
-  // Publish the newest template to an in-memory overlay before any DB await.
-  // Save can therefore stay non-blocking while the very next slash reply already
-  // uses the winning Builder style. Revision checks keep older queued saves from
-  // clearing a newer pending template.
   const stage = stageTemplate(guildId, scope, matchNames, embedData, options);
   return saveTemplate(guildId, scope, matchNames, embedData, options, stage);
 }
@@ -274,10 +291,6 @@ function findStoredTemplate(data, stored) {
 function shouldApply(template, flagName, valueName) {
   if (template?.[flagName] === true) return true;
   if (template?.[flagName] === false) return false;
-
-  // Templates saved before explicit apply flags existed should keep their old
-  // non-empty values, but must not erase live content merely because a style-only
-  // template did not contain that property.
   const value = template?.[valueName];
   return Array.isArray(value) ? value.length > 0 : value != null;
 }
@@ -344,8 +357,6 @@ function decorateEmbedData(embed, stored) {
     }
   }
 
-  // User/member avatars and other event-specific thumbnails stay dynamic unless
-  // the administrator explicitly changed/removed the thumbnail in Embed Builder.
   if (template.applyThumbnail === true) {
     if (template.thumbnail?.url) data.thumbnail = { url: template.thumbnail.url };
     else delete data.thumbnail;
@@ -365,6 +376,9 @@ function decorateEmbedData(embed, stored) {
 
 export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed) {
   try {
+    if (embed?.[SAVED_TEMPLATE_MARKER]) {
+      return { matched: true, changed: false, embed };
+    }
     const stored = await loadMergedTemplates(guildId, channelId);
     const result = decorateEmbedData(embed, stored);
     const decoratedEmbed = result.matched ? markSavedTemplate(new EmbedBuilder(result.data)) : embed;
@@ -377,6 +391,15 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed) 
     logger.error('Failed to decorate embed with saved template:', error);
     return { matched: false, changed: false, embed };
   }
+}
+
+export async function decoratePayloadWithSavedTemplates(guildId, channelId, payload) {
+  if (!guildId || !channelId || !payload || typeof payload !== 'object' || !Array.isArray(payload.embeds)) return payload;
+  const embeds = await Promise.all(payload.embeds.map(async embed => {
+    const decorated = await decorateEmbedWithSavedTemplate(guildId, channelId, embed);
+    return decorated.embed;
+  }));
+  return { ...payload, embeds };
 }
 
 export async function applySavedEmbedTemplates(message) {
