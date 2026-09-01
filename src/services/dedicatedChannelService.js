@@ -7,7 +7,7 @@ import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { createStickyGuideManager } from './stickyGuideService.js';
 import { findDedicatedChannelBySlug as findBySlug, rememberDedicatedCommandChannel } from './dedicatedChannelPolicy.js';
 
-const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
+const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const LEGACY_GAMBLING_GUIDE_DESCRIPTION = 'All Cloudy gambling and game commands must be used in this channel. Use `/gamble`, `/fight`, `/flip`, or `/roll` here. These commands will not work in other channels.';
 const GAMBLING_GUIDE_DESCRIPTION = buildGamblingGuideDescription();

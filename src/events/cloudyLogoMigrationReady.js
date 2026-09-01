@@ -1,9 +1,9 @@
-import { ChannelType, Events, PermissionFlagsBits } from 'discord.js';
+import { Events, PermissionFlagsBits } from 'discord.js';
 import { installCloudyLogoEmbedPatch, normalizeCloudyLogoMessage } from '../services/cloudyLogoService.js';
 
 installCloudyLogoEmbedPatch();
 
-const LOGO_MIGRATION_VERSION = 4;
+const LOGO_MIGRATION_VERSION = 5;
 const LOGO_MIGRATION_STATE_KEY = 'global:cloudy:logo-history-migration-version';
 const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 150;
@@ -16,7 +16,7 @@ function readableHistoryChannels(guild) {
   const me = guild.members.me;
   return [...guild.channels.cache.values()]
     .filter(channel =>
-      (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement)
+      channel?.isTextBased?.()
       && channel.messages?.fetch
       && channel.permissionsFor(me)?.has([
         PermissionFlagsBits.ViewChannel,

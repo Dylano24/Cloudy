@@ -18,13 +18,17 @@ import {
     scanGuildForCloudyEmbeds,
 } from './embedRegistryService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
+import {
+    CLOUDY_LOGO_URL,
+    isCloudyLogoUrl,
+    migrateCloudyLogoEmbedData,
+} from './cloudyLogoService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 import {
     primeSystemEmbedCatalogMessage,
     syncSystemEmbedCatalogMessage,
 } from './systemEmbedCatalogService.js';
 
-const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const PAGE_SIZE = 25;
 const MANAGER_IDLE_TIMEOUT = 30 * 60_000;
 const HISTORY_SCAN_TTL = 5 * 60_000;
@@ -130,12 +134,25 @@ function dynamicTemplateText(value) {
 }
 
 function recordEmbedData(record) {
-    const snapshot = getEmbedRegistrySnapshot(record) || {};
+    const snapshot = migrateCloudyLogoEmbedData(getEmbedRegistrySnapshot(record) || {}).data || {};
     return {
         ...snapshot,
         title: snapshot.title || record?.title || record?.name || '',
         fields: Array.isArray(snapshot.fields) ? snapshot.fields : [],
     };
+}
+
+function stableSystemTemplateKey(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const authorName = String(data.author?.name || '').trim();
+    const prefix = 'cloudy template key:';
+    if (!authorName.toLowerCase().startsWith(prefix)) return '';
+
+    return authorName
+        .slice(prefix.length)
+        .split(/\s+\|\|\s+cloudy\s+(?:context|kind):/i)[0]
+        .trim()
+        .toLowerCase();
 }
 
 function standardDynamicTemplateName(value) {
@@ -145,8 +162,10 @@ function standardDynamicTemplateName(value) {
     return title;
 }
 
-function templateIdentity(channelId, value) {
+export function templateIdentity(channelId, value) {
     const data = value && typeof value === 'object' ? value : { title: value };
+    const stableKey = stableSystemTemplateKey(data);
+    if (stableKey) return stableKey;
     const title = String(data.title || '');
     const rule = getTemplateRule(channelId, title);
     if (rule) return rule.key;
@@ -371,7 +390,7 @@ export function buildEmbedPayload(guild, records, channelId, page = 0) {
 
 function loadEmbedIntoState(state, resolved) {
     const { record, channel, message, embed } = resolved;
-    const data = embed.toJSON();
+    const data = migrateCloudyLogoEmbedData(embed).data || {};
     const footerText = cleanFooter(data.footer?.text || '');
     // System-catalog messages physically live in #botlog, but their record
     // points to the feature channel where future responses are sent.
@@ -388,7 +407,7 @@ function loadEmbedIntoState(state, resolved) {
         }))
         : [];
     state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
-    state.showLogo = data.thumbnail?.url === CLOUDY_LOGO_URL;
+    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);
     state.removeExistingLogo = false;
     state.bottomLine = footerText || null;
     state.mediaUrl = data.image?.url || null;
@@ -406,6 +425,7 @@ function loadEmbedIntoState(state, resolved) {
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
+        cachedMessage: message,
     };
 }
 
@@ -675,7 +695,7 @@ function applyStateToExistingEmbed(state) {
 
     if (state.removeExistingLogo) delete data.thumbnail;
     else if (state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
-    else if (data.thumbnail?.url === CLOUDY_LOGO_URL) delete data.thumbnail;
+    else if (isCloudyLogoUrl(data.thumbnail?.url)) delete data.thumbnail;
 
     if (state.bottomLine) {
         const marker = target?.hadBuilderMarker ? MESSAGE_BUILDER_FOOTER_MARKER : '';
@@ -970,11 +990,17 @@ export async function saveModifiedEmbed(guild, state) {
     if (!guild || !target) return { ok: false, reason: 'missing-target' };
 
     const backingChannelId = String(target.backingChannelId || target.channelId);
-    const channel = guild.channels.cache.get(backingChannelId)
+    const cachedMessage = target.cachedMessage
+        && String(target.cachedMessage.id) === String(target.messageId)
+        && target.cachedMessage.author?.id === guild.client.user?.id
+        ? target.cachedMessage
+        : null;
+    const channel = cachedMessage?.channel
+        || guild.channels.cache.get(backingChannelId)
         || await guild.channels.fetch(backingChannelId).catch(() => null);
-    if (!channel?.messages?.fetch) return { ok: false, reason: 'channel-missing' };
+    if (!cachedMessage && !channel?.messages?.fetch) return { ok: false, reason: 'channel-missing' };
 
-    const message = await channel.messages.fetch(target.messageId).catch(() => null);
+    const message = cachedMessage || await channel.messages.fetch(target.messageId).catch(() => null);
     if (!message || message.author?.id !== guild.client.user?.id) return { ok: false, reason: 'message-missing' };
     if (message.flags?.has?.(MessageFlags.Ephemeral) || message.interaction || message.interactionMetadata) {
         return { ok: false, reason: 'control-message' };
@@ -1043,6 +1069,7 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     state.modifyTarget.sourceEmbedData = current;
+    state.modifyTarget.cachedMessage = edited;
     if (!target.templateMode) {
         state.modifyTarget.templateTitle = templateIdentity(target.channelId, current);
     }

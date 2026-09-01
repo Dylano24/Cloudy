@@ -1,7 +1,10 @@
 import { EmbedBuilder } from 'discord.js';
 
 export const CLOUDY_LOGO_URL =
-  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
+  'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
+
+const LEGACY_RAW_GITHUB_LOGO_PATTERN =
+  /^https:\/\/raw\.githubusercontent\.com\/Dylano24\/Cloudy\/[^/]+\/assets\/cloudy-c-logo-auf-auf\.gif(?:[?#].*)?$/i;
 
 const LEGACY_CLOUDY_LOGO_FILENAMES = new Set([
   'cloudy-c-logo.png',
@@ -31,6 +34,15 @@ function filenameFromUrl(value) {
 
 export function isLegacyCloudyLogoUrl(value) {
   if (!value) return false;
+  const cleaned = cleanUrl(value);
+  if (cleaned === cleanUrl(CLOUDY_LOGO_URL)) return false;
+
+  // The direct GitHub origin is what the desktop Discord client was
+  // intermittently reloading after tab switches. It is the same AUF AUF GIF,
+  // but it must be migrated to the immutable CDN URL instead of being kept as
+  // the current asset merely because the filename matches.
+  if (LEGACY_RAW_GITHUB_LOGO_PATTERN.test(cleaned)) return true;
+
   const filename = filenameFromUrl(value);
   if (filename === filenameFromUrl(CLOUDY_LOGO_URL)) return false;
   if (LEGACY_CLOUDY_LOGO_FILENAMES.has(filename)) return true;

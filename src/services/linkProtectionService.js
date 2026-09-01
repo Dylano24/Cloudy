@@ -17,7 +17,7 @@ const SPAM_MESSAGE_LIMIT = 3;
 const ALERT_DELETE_MS = 15 * 1000;
 const CONTENT_CATEGORY_NAME = 'postyourcontent';
 const CONTENT_CHANNEL_NAMES = new Set(['youtube', 'tiktok', 'twitch']);
-const CLOUDY_C_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
+const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 
 const linkActivity = new Map();
 const linkSpamOffenses = new Map();
