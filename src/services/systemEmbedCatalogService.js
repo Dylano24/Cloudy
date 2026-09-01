@@ -12,8 +12,6 @@ const TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
 
 const contexts = new Map();
 const templateCache = new Map();
-const templateApplicationCache = new Map();
-const SYSTEM_TEMPLATE_ALIAS_MARKER = Symbol.for('cloudy.systemEmbedTemplateAlias');
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
 let flushTimer = null;
@@ -75,7 +73,7 @@ function dynamicParts(value = '') {
   const sentinel = '\u0000CLOUDY_DYNAMIC\u0000';
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
   text = text.replace(
-    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|[$€£][\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
+    /<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
       values.push(match);
       return '{dynamic}';
@@ -89,27 +87,14 @@ function dynamicParts(value = '') {
   };
 }
 
-function renderDynamic(template, runtime, {
-  fallbackToRuntimeOnMismatch = false,
-  appendMissingRuntimeDynamics = false,
-  preserveRuntimeWhenTemplateStatic = false,
-} = {}) {
+function renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch = false } = {}) {
   const source = String(runtime || '');
   const templateSource = String(template || '');
   const runtimeParts = dynamicParts(source);
   const templateParts = dynamicParts(templateSource);
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
 
-  if (!placeholders.length) {
-    if (runtimeParts.values.length && preserveRuntimeWhenTemplateStatic) return source;
-    if (runtimeParts.values.length && appendMissingRuntimeDynamics) {
-      const cleanTemplate = templateSource.replace(/\u200B/g, '').trim();
-      if (!cleanTemplate) return source;
-      return `${cleanTemplate} ${runtimeParts.values.join(' ')}`.trim();
-    }
-    return templateSource;
-  }
-
+  if (!placeholders.length) return templateSource;
   if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) return source;
 
   let runtimeIndex = 0;
@@ -123,66 +108,10 @@ function renderDynamic(template, runtime, {
   return fallbackToRuntimeOnMismatch && /\{dynamic\}/i.test(rendered) ? source : rendered;
 }
 
-function splitLabeledDynamicLine(line) {
-  const match = String(line || '').match(/^(\s*(?:>\s*)?\*\*[^*]+:\*\*\s*)(.*)$/);
-  return match ? { prefix: match[1], value: match[2] } : null;
-}
-
-function mergeRuntimeDescription(template, runtime) {
-  const templateLines = String(template || '').split('\n');
-  const runtimeLines = String(runtime || '').split('\n');
-  const lineCount = Math.max(templateLines.length, runtimeLines.length);
-  const merged = [];
-
-  for (let index = 0; index < lineCount; index += 1) {
-    const templateLine = templateLines[index] ?? '';
-    const runtimeLine = runtimeLines[index] ?? '';
-    const templateLabeled = splitLabeledDynamicLine(templateLine);
-    const runtimeLabeled = splitLabeledDynamicLine(runtimeLine);
-
-    if (templateLabeled && runtimeLabeled) {
-      merged.push(`${templateLabeled.prefix}${runtimeLabeled.value}`);
-      continue;
-    }
-
-    if (!templateLine && runtimeLine) {
-      merged.push(runtimeLine);
-      continue;
-    }
-
-    merged.push(renderDynamic(templateLine, runtimeLine, {
-      fallbackToRuntimeOnMismatch: true,
-      appendMissingRuntimeDynamics: true,
-    }));
-  }
-
-  return merged.join('\n').slice(0, 4096);
-}
-
-function mergeRuntimeFieldValue(templateValue, runtimeValue) {
-  const runtime = String(runtimeValue || '');
-  const template = String(templateValue || '');
-  if (!runtime) return template;
-  if (!template || !template.replace(/\u200B/g, '').trim()) return runtime;
-  const placeholders = (dynamicParts(template).tokenized.match(/\{dynamic\}/gi) || []).length;
-  if (placeholders) {
-    return renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch: true });
-  }
-
-  // Values are live state. The Builder may rename/re-style the field, but it
-  // must never freeze a sampled bet, balance, card value, moderator, reason,
-  // timestamp, etc. from the catalog entry.
-  return runtime;
-}
-
 function responseSignature(kind, title = '', description = '') {
   const titlePattern = dynamicParts(title).pattern;
   const descriptionPattern = dynamicParts(description).pattern;
   return `${kind}:${shortHash(`${titlePattern}\n${descriptionPattern}`)}`;
-}
-
-export function systemEmbedResponseSignature(data = {}, kind = 'embed') {
-  return responseSignature(kind, data?.title, data?.description);
 }
 
 function commandSlug(raw) {
@@ -230,8 +159,8 @@ function parentContext(context) {
   return value.includes('/') ? value.split('/')[0] : null;
 }
 
-function cacheIdentity(guildId, key, context = null) {
-  return `${String(guildId || '')}::${normalize(context) || 'global'}::${normalize(key)}`;
+function cacheIdentity(key, context = null) {
+  return `${normalize(context) || 'global'}::${normalize(key)}`;
 }
 
 function findCatalogChannel(guild) {
@@ -269,13 +198,6 @@ function parseTemplateMetadata(embed) {
   return { key: normalize(metadata), context, kind };
 }
 
-function hasCatalogMetadata(message) {
-  return (message?.embeds || []).some(embed => {
-    const data = cloneData(embed);
-    return String(data.author?.name || '').toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase());
-  });
-}
-
 function withStableKey(data, key, context = null, kind = 'embed') {
   const authorName = [
     `${TEMPLATE_KEY_PREFIX} ${normalize(key)}`,
@@ -298,65 +220,27 @@ function isInternalTemplate(data) {
   return authorName.toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase());
 }
 
-function rememberTemplate(guildId, key, data, context = null) {
-  if (!guildId || !key || !data) return;
-  const identity = cacheIdentity(guildId, key, context);
-  const next = cloneData(data);
-  const previous = templateCache.get(identity);
-  const existingApplication = templateApplicationCache.get(identity) || {};
-  templateApplicationCache.set(identity, {
-    footer: existingApplication.footer === true
-      || Boolean(previous && Boolean(previous.footer?.text) !== Boolean(next.footer?.text)),
-    thumbnail: existingApplication.thumbnail === true
-      || Boolean(previous && Boolean(previous.thumbnail?.url) !== Boolean(next.thumbnail?.url)),
-    image: existingApplication.image === true
-      || Boolean(previous && Boolean(previous.image?.url) !== Boolean(next.image?.url)),
-  });
-  templateCache.set(identity, next);
+function rememberTemplate(key, data, context = null) {
+  if (!key || !data) return;
+  templateCache.set(cacheIdentity(key, context), cloneData(data));
 }
 
-function findTemplate(guildId, key, context) {
-  if (!guildId) return null;
+function findTemplate(key, context) {
   const exact = normalize(context);
   const parent = parentContext(exact);
-  return templateCache.get(cacheIdentity(guildId, key, exact))
-    || (parent ? templateCache.get(cacheIdentity(guildId, key, parent)) : null)
-    || templateCache.get(cacheIdentity(guildId, key, null))
+  return templateCache.get(cacheIdentity(key, exact))
+    || (parent ? templateCache.get(cacheIdentity(key, parent)) : null)
+    || templateCache.get(cacheIdentity(key, null))
     || null;
 }
 
-function runtimeTemplateAlias(key, context) {
-  const normalizedKey = normalize(key);
-  if (!normalizedKey) return null;
-  return `__system__:${normalize(context) || 'global'}:embed:${normalizedKey}`;
-}
-
-function findTemplateApplication(guildId, key, context) {
-  if (!guildId) return {};
-  const exact = normalize(context);
-  const parent = parentContext(exact);
-  return templateApplicationCache.get(cacheIdentity(guildId, key, exact))
-    || (parent ? templateApplicationCache.get(cacheIdentity(guildId, key, parent)) : null)
-    || templateApplicationCache.get(cacheIdentity(guildId, key, null))
-    || {};
-}
-
 function rememberCatalogMessage(message) {
-  const guildId = message?.guildId || message?.guild?.id;
-  if (!guildId) return;
   for (const embed of message?.embeds || []) {
     const metadata = parseTemplateMetadata(embed);
     if (!metadata.key) continue;
-    catalogEntries.add(cacheIdentity(guildId, metadata.key, metadata.context));
-    rememberTemplate(guildId, metadata.key, embed, metadata.context);
+    catalogEntries.add(cacheIdentity(metadata.key, metadata.context));
+    rememberTemplate(metadata.key, embed, metadata.context);
   }
-}
-
-export function indexSystemEmbedCatalogMessage(message) {
-  const guildId = message?.guildId || message?.guild?.id;
-  if (!guildId || !hasCatalogMetadata(message)) return false;
-  rememberCatalogMessage(message);
-  return true;
 }
 
 async function loadCatalogMessages(context) {
@@ -451,11 +335,11 @@ function catalogDataChanged(left, right) {
   return JSON.stringify(cloneData(left || {})) !== JSON.stringify(cloneData(right || {}));
 }
 
-function findCatalogEntry(guildId, messages, identity) {
+function findCatalogEntry(messages, identity) {
   for (const message of messages) {
     for (let index = 0; index < (message?.embeds?.length || 0); index += 1) {
       const metadata = parseTemplateMetadata(message.embeds[index]);
-      if (cacheIdentity(guildId, metadata.key, metadata.context) === identity) {
+      if (cacheIdentity(metadata.key, metadata.context) === identity) {
         return { message, index, embed: message.embeds[index], metadata };
       }
     }
@@ -464,16 +348,15 @@ function findCatalogEntry(guildId, messages, identity) {
 }
 
 async function appendCatalogEntry(context, entry, messages) {
-  const guildId = context.guild.id;
-  const identity = cacheIdentity(guildId, entry.key, entry.context);
-  const existingLocation = findCatalogEntry(guildId, messages, identity);
+  const identity = cacheIdentity(entry.key, entry.context);
+  const existingLocation = findCatalogEntry(messages, identity);
 
   if (existingLocation) {
     const currentData = cloneData(existingLocation.embed);
     const mergedData = mergeCatalogShape(currentData, entry.data);
     if (!catalogDataChanged(currentData, mergedData)) {
       catalogEntries.add(identity);
-      rememberTemplate(guildId, entry.key, currentData, entry.context);
+      rememberTemplate(entry.key, currentData, entry.context);
       return false;
     }
 
@@ -483,7 +366,7 @@ async function appendCatalogEntry(context, entry, messages) {
     if (!edited) return false;
 
     catalogEntries.add(identity);
-    rememberTemplate(guildId, entry.key, mergedData, entry.context);
+    rememberTemplate(entry.key, mergedData, entry.context);
     await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register updated response catalog: ${error.message}`));
     return true;
   }
@@ -502,7 +385,7 @@ async function appendCatalogEntry(context, entry, messages) {
   if (!edited) return false;
 
   catalogEntries.add(identity);
-  rememberTemplate(guildId, entry.key, entry.data, entry.context);
+  rememberTemplate(entry.key, entry.data, entry.context);
   await saveCatalogIds(context.guild.id, messages);
   await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register response catalog: ${error.message}`));
   return true;
@@ -527,32 +410,25 @@ function scheduleFlush() {
   flushTimer.unref?.();
 }
 
-function queueRuntimeEntry(guildId, entry) {
-  if (!guildId) return false;
-  const identity = cacheIdentity(guildId, entry.key, entry.context);
+function queueRuntimeEntry(entry) {
+  const identity = cacheIdentity(entry.key, entry.context);
   const pending = pendingTemplates.get(identity);
   if (pending) {
-    const merged = mergeCatalogShape(pending.entry.data, entry.data);
-    pendingTemplates.set(identity, {
-      identity,
-      entry: { ...pending.entry, data: merged },
-    });
+    const merged = mergeCatalogShape(pending.data, entry.data);
+    pendingTemplates.set(identity, { ...pending, data: merged });
     return true;
   }
 
   if (catalogEntries.has(identity)) {
-    const cached = findTemplate(guildId, entry.key, entry.context);
+    const cached = findTemplate(entry.key, entry.context);
     const merged = mergeCatalogShape(cached || {}, entry.data);
     if (cached && !catalogDataChanged(cached, merged)) return false;
-    pendingTemplates.set(identity, {
-      identity,
-      entry: { ...entry, data: merged },
-    });
+    pendingTemplates.set(identity, { ...entry, data: merged });
     scheduleFlush();
     return true;
   }
 
-  pendingTemplates.set(identity, { identity, entry });
+  pendingTemplates.set(identity, entry);
   scheduleFlush();
   return true;
 }
@@ -560,22 +436,16 @@ function queueRuntimeEntry(guildId, entry) {
 export function registerDiscoveredEmbedDefinition(definition = {}) {
   const entry = definitionToCatalog(definition);
   if (!entry.key || isInternalTemplate(entry.data)) return false;
-  let queued = false;
-  for (const guildId of contexts.keys()) queued = queueRuntimeEntry(guildId, entry) || queued;
-  return queued;
+  return queueRuntimeEntry(entry);
 }
 
 export function captureSystemEmbedData(embedData, contextSource = null) {
   const data = cloneData(embedData);
   if (isInternalTemplate(data)) return false;
   const context = inferContextHint(contextSource);
-  const guildId = contextSource?.guildId
-    || contextSource?.guild?.id
-    || contextSource?.channel?.guildId
-    || contextSource?.channel?.guild?.id;
-  if (!guildId || !context) return false;
+  if (!context) return false;
   const key = responseSignature('embed', data.title, data.description);
-  return queueRuntimeEntry(guildId, {
+  return queueRuntimeEntry({
     key,
     context,
     kind: 'embed',
@@ -587,14 +457,9 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   const data = cloneData(embedData);
   if (isInternalTemplate(data)) return data;
   const context = inferContextHint(contextSource);
-  const guildId = contextSource?.guildId
-    || contextSource?.guild?.id
-    || contextSource?.channel?.guildId
-    || contextSource?.channel?.guild?.id;
   const specificKey = responseSignature('embed', data.title, data.description);
   const titleKey = normalize(data.title);
-  const matchedKey = findTemplate(guildId, specificKey, context) ? specificKey : titleKey;
-  const template = findTemplate(guildId, matchedKey, context);
+  const template = findTemplate(specificKey, context) || findTemplate(titleKey, context);
 
   if (!template) {
     if (context) captureSystemEmbedData(data, contextSource);
@@ -602,70 +467,47 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   }
 
   const next = { ...data };
-  if (template.title) {
-    next.title = renderDynamic(template.title, data.title, {
-      fallbackToRuntimeOnMismatch: true,
-      appendMissingRuntimeDynamics: true,
-    }).slice(0, 256);
-  }
-  if (template.description) next.description = mergeRuntimeDescription(template.description, data.description);
+  if (template.title) next.title = renderDynamic(template.title, data.title, { fallbackToRuntimeOnMismatch: true });
+  if (template.description) next.description = renderDynamic(template.description, data.description, { fallbackToRuntimeOnMismatch: true });
   if (Number.isInteger(template.color)) next.color = template.color;
 
   if (Array.isArray(template.fields)) {
     const runtimeFields = Array.isArray(data.fields) ? data.fields : [];
     next.fields = runtimeFields.length
-      ? runtimeFields.slice(0, 25).map((runtimeField, index) => {
+      ? runtimeFields.map((runtimeField, index) => {
         const templateField = template.fields[index];
         if (!templateField) return { ...runtimeField };
         return {
           ...runtimeField,
           name: templateField.name
-            ? (/\{dynamic\}/i.test(templateField.name)
-                ? renderDynamic(templateField.name, runtimeField.name, {
-                  fallbackToRuntimeOnMismatch: true,
-                })
-                : templateField.name
-              ).slice(0, 256)
+            ? renderDynamic(templateField.name, runtimeField.name, { fallbackToRuntimeOnMismatch: true })
             : runtimeField.name,
-          value: mergeRuntimeFieldValue(templateField.value, runtimeField.value).slice(0, 1024),
+          value: templateField.value
+            ? renderDynamic(templateField.value, runtimeField.value, { fallbackToRuntimeOnMismatch: true })
+            : runtimeField.value,
           inline: typeof templateField.inline === 'boolean' ? templateField.inline : runtimeField.inline,
         };
       })
       : template.fields.map(field => ({ ...field }));
   }
 
-  const application = findTemplateApplication(guildId, matchedKey, context);
-  if (template.footer?.text || application.footer) {
-    if (template.footer?.text) {
-      next.footer = {
-        ...template.footer,
-        text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, {
-          fallbackToRuntimeOnMismatch: true,
-          appendMissingRuntimeDynamics: true,
-        }),
-      };
-    } else delete next.footer;
-  }
+  if (template.footer?.text) {
+    next.footer = {
+      ...template.footer,
+      text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, { fallbackToRuntimeOnMismatch: true }),
+    };
+  } else delete next.footer;
 
   if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
-  else if (application.thumbnail) delete next.thumbnail;
+  else delete next.thumbnail;
   if (template.image?.url) next.image = { ...template.image };
-  else if (application.image) delete next.image;
-  const stableAlias = runtimeTemplateAlias(matchedKey, context);
-  if (stableAlias) {
-    Object.defineProperty(next, SYSTEM_TEMPLATE_ALIAS_MARKER, {
-      value: stableAlias,
-      configurable: true,
-      enumerable: false,
-      writable: false,
-    });
-  }
+  else delete next.image;
   return next;
 }
 
-export function applySystemEmbedTemplate(embed, contextSource = null) {
+export function applySystemEmbedTemplate(embed) {
   if (!embed) return embed;
-  return new EmbedBuilder(applyRuntimeEmbedTemplateData(embed, contextSource));
+  return new EmbedBuilder(applyRuntimeEmbedTemplateData(embed));
 }
 
 function contentFromPayload(payload) {
@@ -678,24 +520,17 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
   if (!content?.trim()) return payload;
 
   const context = inferContextHint(contextSource);
-  const guildId = contextSource?.guildId
-    || contextSource?.guild?.id
-    || contextSource?.channel?.guildId
-    || contextSource?.channel?.guild?.id;
-  if (!guildId || !context) return payload;
+  if (!context) return payload;
   const key = responseSignature('content', '', content);
-  const template = findTemplate(guildId, key, context);
+  const template = findTemplate(key, context);
 
   if (!template) {
     const entry = definitionToCatalog({ kind: 'content', context, content, key });
-    queueRuntimeEntry(guildId, entry);
+    queueRuntimeEntry(entry);
     return payload;
   }
 
-  const replacement = renderDynamic(template.description || content, content, {
-    fallbackToRuntimeOnMismatch: true,
-    appendMissingRuntimeDynamics: true,
-  });
+  const replacement = renderDynamic(template.description || content, content, { fallbackToRuntimeOnMismatch: true });
   if (typeof payload === 'string') return replacement;
   return { ...payload, content: replacement };
 }
@@ -735,42 +570,30 @@ export async function ensureSystemEmbedCatalogs(client) {
 }
 
 export async function syncSystemEmbedCatalogMessage(message) {
-  if (!message?.guildId || !message?.channelId || !Array.isArray(message.embeds)) return false;
+  if (!message?.guildId || !message?.channelId || !message?.embeds?.length) return false;
   const context = contexts.get(message.guildId);
   if (!context || String(context.channel.id) !== String(message.channelId)) return false;
-  if (message.embeds.length && !hasCatalogMetadata(message)) return false;
 
-  // The Builder save path already knows this is a catalog-backed embed. Publish
-  // the edit to memory before touching the DB so the next command cannot see the
-  // previous title/color/logo/footer while persistence/registry work is pending.
-  if (message.embeds.length) indexSystemEmbedCatalogMessage(message);
+  const ids = await getFromDb(storageKey(message.guildId), []);
+  if (!Array.isArray(ids) || !ids.includes(message.id)) return false;
 
-  void (async () => {
-    const ids = await getFromDb(storageKey(message.guildId), []);
-    if (!Array.isArray(ids) || !ids.includes(message.id)) return;
-    await registerCatalogMessages([message]).catch(error => logger.warn(`Failed to sync edited response template: ${error.message}`));
-  })().catch(error => logger.warn(`System embed catalog background sync failed: ${error.message}`));
-
+  rememberCatalogMessage(message);
+  await registerCatalogMessages([message]).catch(error => logger.warn(`Failed to sync edited response template: ${error.message}`));
   return true;
 }
 
 async function flushPendingTemplates() {
   if (!pendingTemplates.size || !contexts.size) return;
   const queued = [...pendingTemplates.values()];
+  pendingTemplates.clear();
 
   for (const context of contexts.values()) {
-    const guildPrefix = `${String(context.guild.id)}::`;
-    const guildEntries = queued.filter(entry => entry.identity.startsWith(guildPrefix));
-    if (!guildEntries.length) continue;
     const messages = await loadCatalogMessages(context);
     for (const message of messages) rememberCatalogMessage(message);
-    for (const pending of guildEntries) {
-      await appendCatalogEntry(context, pending.entry, messages).catch(error => {
+    for (const entry of queued) {
+      await appendCatalogEntry(context, entry, messages).catch(error => {
         logger.warn(`Failed to append or enrich runtime response template: ${error.message}`);
       });
-      if (pendingTemplates.get(pending.identity) === pending) {
-        pendingTemplates.delete(pending.identity);
-      }
     }
     await saveCatalogIds(context.guild.id, messages);
   }

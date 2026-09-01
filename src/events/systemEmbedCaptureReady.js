@@ -1,5 +1,8 @@
 import { EmbedBuilder, Events } from 'discord.js';
-import { captureSystemEmbedData } from '../services/systemEmbedCatalogService.js';
+import {
+  applyRuntimeEmbedTemplateData,
+  captureSystemEmbedData,
+} from '../services/systemEmbedCatalogService.js';
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.systemEmbedCapture');
@@ -22,16 +25,15 @@ export default {
     EmbedBuilder.prototype.toJSON = function cloudyObservedEmbedToJSON(...args) {
       const original = originalToJSON.apply(this, args);
       try {
-        // Serialization is observation-only. Runtime/system templates are applied
-        // in the response pipeline, and saved Builder templates are applied last.
-        // Re-applying a template here caused new messages to revert after Save.
+        const transformed = applyRuntimeEmbedTemplateData(original);
         captureSystemEmbedData(original);
+        return transformed;
       } catch (error) {
         logger.debug(`System embed capture skipped: ${error?.message || error}`);
+        return original;
       }
-      return original;
     };
 
-    logger.info('System embed capture enabled (observation-only serialization).');
+    logger.info('System embed capture enabled.');
   },
 };

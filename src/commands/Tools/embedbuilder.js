@@ -32,7 +32,6 @@ import {
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
 import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
-import { markInternalResponsePayload } from '../../services/internalResponsePayloadService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -420,16 +419,16 @@ function buildControls(state) {
     return [contentRow, actionRow];
 }
 
-export async function refreshBuilder(interaction, state) {
+async function refreshBuilder(interaction, state) {
     if (state.colorSessionToken) {
         state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${state.colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
     }
 
-    const payload = markInternalResponsePayload({
+    const payload = {
         embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],
         components: buildControls(state),
         attachments: [],
-    });
+    };
 
     if (state.mediaBuffer && state.mediaName) {
         payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
