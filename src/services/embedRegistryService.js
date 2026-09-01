@@ -8,6 +8,8 @@ const RECONCILE_CONCURRENCY = 6;
 const DEFINITIVE_MISSING_CODES = new Set([10003, 10008, 50001, 50013]);
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
 const SYSTEM_TEMPLATE_KEY_PREFIX = 'Cloudy template key:';
+const SYSTEM_TEMPLATE_CONTEXT_SEPARATOR = ' || Cloudy context:';
+const SYSTEM_TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
 const registryMutationQueues = new Map();
 const embedSnapshotCache = new Map();
 const EMBED_SNAPSHOT_CACHE_LIMIT = 2000;
@@ -93,7 +95,7 @@ function cleanStoredRecords(records) {
     const unique = new Map();
 
     for (const record of Array.isArray(records) ? records : []) {
-        if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record)) continue;
+        if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record) || !isFixedCloudyRecord(record)) continue;
         unique.set(recordKey(record), record);
     }
 
@@ -205,13 +207,33 @@ function isInternalEmbedRecord(record) {
         || name.includes('use the buttons below to create your message');
 }
 
+function isFixedCloudyEmbed(embed) {
+    if (isCloudyWelcomeEmbed(embed) || isInviteCreatedEmbed(embed) || isInviteJoinEmbed(embed)) return true;
+    const title = cleanName(embed?.title);
+    return /^(?:kick|ban|unban|timeout|untimeout|report)\s+log\b/.test(title)
+        || /^(?:invite created|member joined using invite)$/.test(title);
+}
+
+function isFixedCloudyRecord(record) {
+    if (['system-catalog', 'embed-builder'].includes(String(record?.source || ''))) return true;
+    const names = [record?.title, record?.name].map(cleanName).filter(Boolean);
+    return names.some(title =>
+        /^(?:welcome to cloudy(?: inc\.?)?|kick|ban|unban|timeout|untimeout|report)\b/.test(title)
+        || /^(?:invite created|member joined using invite)$/.test(title),
+    );
+}
+
+function isManualBuilderRecord(record) {
+    return String(record?.source || '') === 'embed-builder';
+}
+
 export function isRegistrableCloudyEmbedMessage(message) {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
 
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
     if (message.interaction || message.interactionMetadata) return false;
 
-    return true;
+    return isSystemCatalogMessage(message) || message.embeds.some(isFixedCloudyEmbed);
 }
 
 function embedName(embed) {
@@ -240,11 +262,43 @@ function systemTemplateSearchText(embed) {
     const stableKey = authorName.toLowerCase().startsWith(SYSTEM_TEMPLATE_KEY_PREFIX.toLowerCase())
         ? authorName.slice(SYSTEM_TEMPLATE_KEY_PREFIX.length)
         : '';
-    return [stableKey, data.title, data.description]
+    return [stableKey, systemTemplateContext(embed), data.title, data.description]
         .filter(Boolean)
         .join(' ')
         .replace(/\s+/g, ' ')
         .trim();
+}
+
+function systemTemplateContext(embed) {
+    const data = typeof embed?.toJSON === 'function' ? embed.toJSON() : (embed || {});
+    const authorName = String(data.author?.name || '');
+    if (!authorName.toLowerCase().startsWith(SYSTEM_TEMPLATE_KEY_PREFIX.toLowerCase())) return '';
+
+    let metadata = authorName.slice(SYSTEM_TEMPLATE_KEY_PREFIX.length).trim();
+    const kindIndex = metadata.toLowerCase().indexOf(SYSTEM_TEMPLATE_KIND_SEPARATOR.toLowerCase());
+    if (kindIndex !== -1) metadata = metadata.slice(0, kindIndex);
+
+    const contextIndex = metadata.toLowerCase().indexOf(SYSTEM_TEMPLATE_CONTEXT_SEPARATOR.toLowerCase());
+    if (contextIndex === -1) return '';
+    return cleanName(metadata.slice(contextIndex + SYSTEM_TEMPLATE_CONTEXT_SEPARATOR.length));
+}
+
+function placementSlugsForTemplateContext(context) {
+    const root = cleanName(context).split('/')[0];
+    const placements = {
+        gambling: ['gambling'],
+        tickets: ['ticket-logs', 'ticket-panel', 'tickets'],
+        'ban-appeal': ['ban-appeal', 'appeal'],
+        reports: ['reports', 'report'],
+        shop: ['shop', 'purchases'],
+        music: ['music'],
+        welcome: ['welcome'],
+        faq: ['faq'],
+        rules: ['rules'],
+        'staff-reviews': ['staff-reviews'],
+        botlog: ['botlog'],
+    };
+    return placements[root] || [];
 }
 
 function findFeatureChannel(guild, slugs = []) {
@@ -275,6 +329,14 @@ function findFeatureChannel(guild, slugs = []) {
 
 function catalogDisplayChannelId(message, embed) {
     if (!isSystemCatalogMessage(message)) return String(message.channelId);
+
+    // A saved custom title can remove every keyword from the visible embed.
+    // Its stable catalog context still identifies the real destination scope.
+    const contextualChannel = findFeatureChannel(
+        message.guild,
+        placementSlugsForTemplateContext(systemTemplateContext(embed)),
+    );
+    if (contextualChannel?.id) return String(contextualChannel.id);
 
     const text = systemTemplateSearchText(embed);
     for (const placement of SYSTEM_TEMPLATE_PLACEMENTS) {
@@ -349,10 +411,14 @@ async function saveRecords(guildId, additions) {
 
 export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
     const grouped = new Map();
+    // A message deliberately sent from the Embed Builder is a user-created
+    // template and must remain editable even when its title is custom. Normal
+    // bot traffic stays restricted to the fixed template types below.
+    const isManualBuilderMessage = source === 'embed-builder';
 
     try {
         for (const message of Array.isArray(messages) ? messages : []) {
-            if (!isRegistrableCloudyEmbedMessage(message)) continue;
+            if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;
 
             const additions = message.embeds
                 .map((embed, embedIndex) => {
@@ -370,7 +436,9 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                     rememberEmbedSnapshot(addition, embed);
                     return addition;
                 })
-                .filter(addition => !isInternalEmbedRecord(addition));
+                .filter(addition => isSystemCatalogMessage(message)
+                    || isManualBuilderMessage
+                    || (!isInternalEmbedRecord(addition) && isFixedCloudyEmbed(message.embeds[addition.embedIndex])));
 
             if (!additions.length) continue;
             if (!grouped.has(message.guildId)) grouped.set(message.guildId, []);
@@ -449,7 +517,7 @@ export async function resolveEmbedRegistryRecord(guild, record) {
     return { channel, message, embed, record };
 }
 
-function recordsFromMessage(message, priorRecords = []) {
+function recordsFromMessage(message, priorRecords = [], { allowManual = false } = {}) {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return [];
     const priorByIndex = new Map(priorRecords.map(record => [Number(record.embedIndex || 0), record]));
 
@@ -467,7 +535,8 @@ function recordsFromMessage(message, priorRecords = []) {
                 name: embedName(embed),
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
             });
-            if (record) rememberEmbedSnapshot(record, embed);
+            if (!record || (!allowManual && !isSystemCatalogMessage(message) && !isFixedCloudyEmbed(embed))) return null;
+            rememberEmbedSnapshot(record, embed);
             return record;
         })
         .filter(Boolean);
@@ -502,12 +571,17 @@ async function resolveRegistryMessage(guild, records) {
     if (
         !message ||
         message.author?.id !== guild.client.user?.id ||
-        !isRegistrableCloudyEmbedMessage(message)
+        (!isRegistrableCloudyEmbedMessage(message) && !records.some(isManualBuilderRecord))
     ) {
         return { status: 'missing', records: [] };
     }
 
-    return { status: 'resolved', records: recordsFromMessage(message, records) };
+    return {
+        status: 'resolved',
+        records: recordsFromMessage(message, records, {
+            allowManual: records.some(isManualBuilderRecord),
+        }),
+    };
 }
 
 export async function reconcileEmbedRegistry(guild) {
@@ -600,6 +674,7 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
 
                 for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
                     const embed = message.embeds[embedIndex];
+                    if (!isSystemCatalogMessage(message) && !isFixedCloudyEmbed(embed)) continue;
                     const location = recordLocationForEmbed(message, embed);
                     const addition = {
                         guildId: guild.id,

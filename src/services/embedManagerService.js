@@ -19,6 +19,10 @@ import {
 } from './embedRegistryService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
+import {
+    primeSystemEmbedCatalogMessage,
+    syncSystemEmbedCatalogMessage,
+} from './systemEmbedCatalogService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const PAGE_SIZE = 25;
@@ -27,6 +31,7 @@ const HISTORY_SCAN_TTL = 5 * 60_000;
 const CLOSED_MANAGER_ERROR_CODES = new Set([10008, 10062, 50027]);
 const historyScanTimes = new Map();
 const historyScanJobs = new Map();
+const activeEmbedManagerSaves = new Set();
 const TEMPLATE_CHANNEL_IDS = new Set([
     '1539375620885323826',
     '1539371111240831078',
@@ -59,6 +64,10 @@ const TEMPLATE_RULES = new Map([
 const GLOBAL_TEMPLATE_RULES = [
     { key: 'welcome-cloudy', label: 'Welcome to Cloudy Inc.', match: /^welcome to cloudy(?:\s+inc\.?)?$/i },
 ];
+
+export function isEmbedManagerSaveInProgress(messageId) {
+    return activeEmbedManagerSaves.has(String(messageId || ''));
+}
 
 function cleanFooter(text) {
     const value = String(text || '');
@@ -108,9 +117,54 @@ function getTemplateRuleByKey(channelId, key) {
     return rules.find(rule => rule.key === key) || null;
 }
 
+function dynamicTemplateText(value) {
+    return stripCustomEmojiMarkup(value)
+        .replace(/\{dynamic\}/gi, '{dynamic}')
+        .replace(/<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/gi, '{dynamic}')
+        // A Discord tag in a title is a live value, not a different embed type.
+        .replace(/@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi, '{dynamic}')
+        .replace(/\b[a-z0-9_.-]{2,32}'s\b/gi, '{dynamic}')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function recordEmbedData(record) {
+    const snapshot = getEmbedRegistrySnapshot(record) || {};
+    return {
+        ...snapshot,
+        title: snapshot.title || record?.title || record?.name || '',
+        fields: Array.isArray(snapshot.fields) ? snapshot.fields : [],
+    };
+}
+
+function standardDynamicTemplateName(value) {
+    const title = String(value || '').replace(/\s+/g, ' ').trim();
+    if (/^blackjack\s*[—-]\s*bet\b/i.test(title)) return 'Blackjack — Bet';
+    if (/^baccarat\s*[—-]\s*bet\b/i.test(title)) return 'Baccarat — Bet';
+    return title;
+}
+
 function templateIdentity(channelId, value) {
-    const rule = getTemplateRule(channelId, value);
-    return rule?.key || titleKey(stripCustomEmojiMarkup(value));
+    const data = value && typeof value === 'object' ? value : { title: value };
+    const title = String(data.title || '');
+    const rule = getTemplateRule(channelId, title);
+    if (rule) return rule.key;
+
+    if (/^blackjack\s*[—-]\s*bet\b/i.test(title)) return 'game:blackjack:bet';
+    if (/^baccarat\s*[—-]\s*bet\b/i.test(title)) return 'game:baccarat:bet';
+
+    const titleShape = dynamicTemplateText(title);
+    // A visible title defines the Builder template. Descriptions contain live
+    // appeal/ticket answers and must never create separate entries.
+    if (titleShape) return titleShape;
+
+    const fieldShape = (data.fields || [])
+        .map(field => dynamicTemplateText(field?.name || ''))
+        .filter(Boolean)
+        .join('|');
+    const descriptionShape = dynamicTemplateText(data.description || '');
+    return `${fieldShape}::${descriptionShape}`;
 }
 
 function collapseDisplayRecords(channelRecords, channelId = null) {
@@ -137,21 +191,24 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
             continue;
         }
 
-        const name = rawName || 'Untitled embed';
-        const key = titleKey(name);
+        const name = standardDynamicTemplateName(rawName) || 'Untitled embed';
+        const key = `template:${templateIdentity(channelId, recordEmbedData(record))}`;
         if (!groups.has(key)) groups.set(key, { label: name, records: [], templateMode: false });
         groups.get(key).records.push(record);
     }
 
     return [...groups.values()].map(group => {
         group.records.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-        const representative = group.records[group.records.length - 1];
+        // Show the newest real message when there is one, so the Builder opens
+        // with live cards/bets/cash. The hidden peers remain linked for Save.
+        const realRecords = group.records.filter(record => record.source !== 'system-catalog');
+        const representative = (realRecords.length ? realRecords : group.records).at(-1);
         return {
             ...representative,
             name: group.label,
             duplicateCount: group.records.length,
             templateCount: group.records.length,
-            templateMode: Boolean(group.templateMode),
+            templateMode: Boolean(group.templateMode) || group.records.length > 1 || representative.source === 'system-catalog',
         };
     });
 }
@@ -254,7 +311,7 @@ export function buildChannelPayload(guild, records, page = 0) {
     };
 }
 
-function buildEmbedPayload(guild, records, channelId, page = 0) {
+export function buildEmbedPayload(guild, records, channelId, page = 0) {
     const channel = guild.channels.cache.get(channelId) || null;
     const channelRecords = records
         .filter(record => String(record.channelId) === String(channelId))
@@ -316,7 +373,10 @@ function loadEmbedIntoState(state, resolved) {
     const { record, channel, message, embed } = resolved;
     const data = embed.toJSON();
     const footerText = cleanFooter(data.footer?.text || '');
-    const templateRule = getTemplateRule(channel.id, recordName(record) || data.title);
+    // System-catalog messages physically live in #botlog, but their record
+    // points to the feature channel where future responses are sent.
+    const logicalChannelId = String(record.channelId || channel.id);
+    const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
 
     state.title = data.title || null;
     state.message = data.description || null;
@@ -337,14 +397,15 @@ function loadEmbedIntoState(state, resolved) {
     state.mediaConvertedFromVideo = false;
     state.modifyTarget = {
         guildId: message.guildId,
-        channelId: channel.id,
+        channelId: logicalChannelId,
+        backingChannelId: String(channel.id),
         messageId: message.id,
         embedIndex: Number(record.embedIndex || 0),
         source: record.source || 'cloudy',
         sourceEmbedData: data,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
-        templateMode: Boolean(templateRule),
-        templateTitle: templateRule?.key || templateIdentity(channel.id, recordName(record) || data.title),
+        templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
+        templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
     };
 }
 
@@ -636,6 +697,35 @@ function splitDynamicLogLine(line) {
     return match ? { prefix: match[1], value: match[2] } : null;
 }
 
+function dynamicValues(value) {
+    const values = [];
+    const tokenized = String(value || '').replace(
+        /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b|@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi,
+        match => {
+            values.push(match);
+            return '{dynamic}';
+        },
+    );
+    return { tokenized, values };
+}
+
+function mergeDynamicTemplateText(sourceText, editedText, peerText) {
+    const source = dynamicValues(sourceText);
+    const edited = dynamicValues(editedText);
+    const peer = dynamicValues(peerText);
+    const placeholders = edited.tokenized.match(/\{dynamic\}/gi) || [];
+
+    // No dynamic slot was kept in the edited text: that is an explicit title/
+    // text change, so use it as-is.
+    if (!placeholders.length) return String(editedText || '');
+    if (source.values.length !== peer.values.length || placeholders.length !== peer.values.length) {
+        return String(editedText || '');
+    }
+
+    let index = 0;
+    return edited.tokenized.replace(/\{dynamic\}/gi, () => peer.values[index++] || '{dynamic}');
+}
+
 function mergeTemplateDescription(sourceDescription, editedDescription, peerDescription) {
     const sourceLines = String(sourceDescription || '').split('\n');
     const editedLines = String(editedDescription || '').split('\n');
@@ -653,6 +743,8 @@ function mergeTemplateDescription(sourceDescription, editedDescription, peerDesc
 
         if (sourceDynamic && editedDynamic && peerDynamic) {
             result.push(`${editedDynamic.prefix}${peerDynamic.value}`);
+        } else if (dynamicValues(source).values.length && dynamicValues(source).values.length === dynamicValues(peer).values.length) {
+            result.push(mergeDynamicTemplateText(source, edited, peer));
         } else if (peer === source || index >= peerLines.length) {
             result.push(edited);
         } else {
@@ -668,7 +760,7 @@ function applyStateToTemplatePeer(state, peerData, savedData, mediaChanges) {
     const source = target?.sourceEmbedData || {};
     const data = { ...peerData };
 
-    if (state.title) data.title = state.title.slice(0, 256);
+    if (state.title) data.title = mergeDynamicTemplateText(source.title, state.title, peerData.title).slice(0, 256);
     else delete data.title;
 
     if (state.message) data.description = mergeTemplateDescription(source.description, state.message, peerData.description);
@@ -731,57 +823,61 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
     );
     const groups = new Map();
     for (const record of channelRecords) {
-        const messageId = String(record.messageId);
-        if (!groups.has(messageId)) groups.set(messageId, []);
-        groups.get(messageId).push(record);
+        const physicalChannelId = String(record.backingChannelId || record.channelId);
+        const key = `${physicalChannelId}:${String(record.messageId)}`;
+        if (!groups.has(key)) groups.set(key, { physicalChannelId, messageId: String(record.messageId), records: [] });
+        groups.get(key).records.push(record);
     }
-
-    const channel = guild.channels.cache.get(targetSnapshot.channelId)
-        || await guild.channels.fetch(targetSnapshot.channelId).catch(() => null);
-    if (!channel?.messages?.edit) return 0;
 
     const directEdits = [];
     const fallbackRecords = [];
+    const targetPhysicalChannelId = String(targetSnapshot.backingChannelId || targetSnapshot.channelId);
 
-    for (const [messageId, messageRecords] of groups) {
-        const ordered = [...messageRecords].sort((a, b) => Number(a.embedIndex || 0) - Number(b.embedIndex || 0));
+    for (const group of groups.values()) {
+        const channel = guild.channels.cache.get(group.physicalChannelId)
+            || await guild.channels.fetch(group.physicalChannelId).catch(() => null);
+        const ordered = [...group.records].sort((a, b) => Number(a.embedIndex || 0) - Number(b.embedIndex || 0));
+        const isTargetRecord = record =>
+            group.physicalChannelId === targetPhysicalChannelId
+            && String(record.messageId) === String(targetSnapshot.messageId)
+            && Number(record.embedIndex || 0) === Number(targetSnapshot.embedIndex || 0);
+
+        if (!channel?.messages?.edit) {
+            fallbackRecords.push(...ordered.filter(record => !isTargetRecord(record)));
+            continue;
+        }
+
         const maxIndex = ordered.reduce((max, record) => Math.max(max, Number(record.embedIndex || 0)), -1);
         const snapshots = new Array(maxIndex + 1).fill(null);
 
         for (const record of ordered) {
             const index = Number(record.embedIndex || 0);
-            const isTarget = messageId === String(targetSnapshot.messageId)
-                && index === Number(targetSnapshot.embedIndex || 0);
-            snapshots[index] = isTarget ? current : getEmbedRegistrySnapshot(record);
+            snapshots[index] = isTargetRecord(record) ? current : getEmbedRegistrySnapshot(record);
         }
 
         const complete = snapshots.length > 0 && snapshots.every(Boolean);
         if (!complete) {
-            fallbackRecords.push(...ordered.filter(record => !(
-                messageId === String(targetSnapshot.messageId)
-                && Number(record.embedIndex || 0) === Number(targetSnapshot.embedIndex || 0)
-            )));
+            fallbackRecords.push(...ordered.filter(record => !isTargetRecord(record)));
             continue;
         }
 
         let changed = false;
         const embeds = snapshots.map((peerData, embedIndex) => {
             const record = ordered.find(item => Number(item.embedIndex || 0) === embedIndex);
-            const isTarget = messageId === String(targetSnapshot.messageId)
-                && embedIndex === Number(targetSnapshot.embedIndex || 0);
+            const isTarget = Boolean(record && isTargetRecord(record));
             if (isTarget || !record) return new EmbedBuilder(peerData);
 
-            const peerIdentity = templateIdentity(targetSnapshot.channelId, recordName(record) || peerData.title);
+            const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData);
             if (peerIdentity !== targetSnapshot.templateTitle) return new EmbedBuilder(peerData);
 
             changed = true;
             return new EmbedBuilder(applyStateToTemplatePeer(stateSnapshot, peerData, current, mediaChanges));
         });
 
-        if (changed) directEdits.push({ messageId, embeds });
+        if (changed) directEdits.push({ channel, messageId: group.messageId, embeds });
     }
 
-    const directJob = Promise.all(directEdits.map(async ({ messageId, embeds }) => {
+    const directJob = Promise.all(directEdits.map(async ({ channel, messageId, embeds }) => {
         const peerEdited = await channel.messages.edit(messageId, { embeds }).catch(error => {
             logger.error('Failed to directly update matching log template embed:', error);
             return null;
@@ -803,7 +899,7 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
 
         const { record } = resolved;
         const peerData = resolved.embed.toJSON();
-        const peerIdentity = templateIdentity(targetSnapshot.channelId, recordName(record) || peerData.title);
+        const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData);
         if (peerIdentity !== targetSnapshot.templateTitle) continue;
 
         const peerIndex = Number(record.embedIndex || 0);
@@ -873,8 +969,9 @@ export async function saveModifiedEmbed(guild, state) {
     const target = state.modifyTarget;
     if (!guild || !target) return { ok: false, reason: 'missing-target' };
 
-    const channel = guild.channels.cache.get(target.channelId)
-        || await guild.channels.fetch(target.channelId).catch(() => null);
+    const backingChannelId = String(target.backingChannelId || target.channelId);
+    const channel = guild.channels.cache.get(backingChannelId)
+        || await guild.channels.fetch(backingChannelId).catch(() => null);
     if (!channel?.messages?.fetch) return { ok: false, reason: 'channel-missing' };
 
     const message = await channel.messages.fetch(target.messageId).catch(() => null);
@@ -894,10 +991,13 @@ export async function saveModifiedEmbed(guild, state) {
     const payload = { embeds };
     if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
 
+    activeEmbedManagerSaves.add(String(message.id));
     const edited = await message.edit(payload).catch(error => {
         logger.error('Failed to save modified embed:', error);
         return null;
     });
+    const releaseSaveGuard = setTimeout(() => activeEmbedManagerSaves.delete(String(message.id)), 2_000);
+    releaseSaveGuard.unref?.();
     if (!edited) return { ok: false, reason: 'edit-failed' };
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
@@ -909,7 +1009,11 @@ export async function saveModifiedEmbed(guild, state) {
             || getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
         const aliases = [sourceData.title, current.title, sourceRule?.label].filter(Boolean);
 
-        await saveEmbedTemplateDecoration(
+        // The selected embed is already saved above. Persist the reusable
+        // template without holding the Save interaction open on a DB roundtrip.
+        // saveEmbedTemplateDecoration primes an in-memory overlay immediately,
+        // so the next game/log output cannot briefly fall back to blue/default.
+        void saveEmbedTemplateDecoration(
             guild.id,
             target.channelId,
             aliases,
@@ -918,7 +1022,16 @@ export async function saveModifiedEmbed(guild, state) {
                 applyThumbnail: mediaChanges.thumbnailChanged,
                 applyImage: mediaChanges.imageChanged,
             },
-        );
+        ).catch(error => logger.error('Failed to persist saved embed template:', error));
+
+        if (target.source === 'system-catalog') {
+            // Keep the catalog cache in sync in the same tick as Save. Gateway
+            // MessageUpdate events arrive later and previously caused a race
+            // where the first new game used the old blue template.
+            primeSystemEmbedCatalogMessage(edited);
+            void syncSystemEmbedCatalogMessage(edited)
+                .catch(error => logger.error('Failed to sync saved system embed template:', error));
+        }
 
         const targetSnapshot = {
             ...target,
@@ -931,10 +1044,14 @@ export async function saveModifiedEmbed(guild, state) {
 
     state.modifyTarget.sourceEmbedData = current;
     if (!target.templateMode) {
-        state.modifyTarget.templateTitle = templateIdentity(target.channelId, current.title || target.templateTitle);
+        state.modifyTarget.templateTitle = templateIdentity(target.channelId, current);
     }
-    void registerCloudyEmbedMessage(edited, target.templateMode ? 'modified-template' : 'modified')
+    const registrySource = target.source === 'embed-builder'
+        ? 'embed-builder'
+        : (target.templateMode ? 'modified-template' : 'modified');
+    void registerCloudyEmbedMessage(edited, registrySource)
         .catch(error => logger.error('Failed to refresh modified embed registry:', error));
 
-    return { ok: true, channel, message: edited, updatedCount };
+    const displayChannel = guild.channels.cache.get(target.channelId) || channel;
+    return { ok: true, channel: displayChannel, message: edited, updatedCount };
 }
