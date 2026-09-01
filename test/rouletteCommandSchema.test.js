@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import roulette from '../src/commands/Economy/roulette.js';
 
 test('roulette exposes fixed bet choices and an optional 0-36 number option', () => {
@@ -29,4 +30,16 @@ test('roulette exposes fixed bet choices and an optional 0-36 number option', ()
   assert.equal(number.required, false);
   assert.equal(number.min_value, 0);
   assert.equal(number.max_value, 36);
+  assert.match(number.description, /enter it after selecting Number/i);
+});
+
+test('roulette prompts for a missing Number bet instead of returning the old validation error', async () => {
+  const source = await fs.readFile(new URL('../src/commands/Economy/roulette.js', import.meta.url), 'utf8');
+
+  assert.match(source, /safeShowModal\(interaction, modal\)/);
+  assert.match(source, /awaitModalSubmit/);
+  assert.match(source, /roulette_number_value/);
+  assert.match(source, /value >= 0/);
+  assert.match(source, /value <= 36/);
+  assert.doesNotMatch(source, /Roulette number required/);
 });
