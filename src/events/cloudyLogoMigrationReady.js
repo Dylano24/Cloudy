@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { ChannelType, Events, PermissionFlagsBits } from 'discord.js';
 import { installCloudyLogoEmbedPatch, normalizeCloudyLogoMessage } from '../services/cloudyLogoService.js';
 
@@ -9,8 +10,22 @@ const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 150;
 const CHANNEL_DELAY_MS = 250;
 const START_DELAY_MS = 20_000;
+const CLOUDY_BOT_AVATAR = new URL('../../assets/cloudy-c-logo-auf-auf.gif', import.meta.url);
 
 function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function restoreMissingBotAvatar(client) {
+  if (!client?.user || client.user.avatar) return false;
+  try {
+    const avatar = await readFile(CLOUDY_BOT_AVATAR);
+    await client.user.setAvatar(avatar);
+    console.log('[CLOUDY_LOGO] Restored missing Cloudy bot profile logo.');
+    return true;
+  } catch (error) {
+    console.error('[CLOUDY_LOGO] Failed to restore missing bot profile logo:', error);
+    return false;
+  }
+}
 
 function readableHistoryChannels(guild) {
   const me = guild.members.me;
@@ -65,6 +80,8 @@ export default {
   name: Events.ClientReady,
   once: true,
   async execute(client) {
+    await restoreMissingBotAvatar(client);
+
     const timer = setTimeout(() => {
       void (async () => {
         const completedVersion = Number(await client.db?.get?.(LOGO_MIGRATION_STATE_KEY, 0).catch(() => 0) || 0);
