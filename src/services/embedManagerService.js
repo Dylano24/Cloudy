@@ -135,12 +135,17 @@ function templateIdentity(channelId, value) {
     const rule = getTemplateRule(channelId, title);
     if (rule) return rule.key;
 
+    const titleShape = dynamicTemplateText(title);
+    // A visible title defines the Builder template. Descriptions contain live
+    // appeal/ticket answers and must never create separate entries.
+    if (titleShape) return titleShape;
+
     const fieldShape = (data.fields || [])
         .map(field => dynamicTemplateText(field?.name || ''))
         .filter(Boolean)
         .join('|');
     const descriptionShape = dynamicTemplateText(data.description || '');
-    return `${dynamicTemplateText(title)}::${fieldShape}::${descriptionShape}`;
+    return `${fieldShape}::${descriptionShape}`;
 }
 
 function collapseDisplayRecords(channelRecords, channelId = null) {
