@@ -108,9 +108,39 @@ function getTemplateRuleByKey(channelId, key) {
     return rules.find(rule => rule.key === key) || null;
 }
 
+function dynamicTemplateText(value) {
+    return stripCustomEmojiMarkup(value)
+        .replace(/\{dynamic\}/gi, '{dynamic}')
+        .replace(/<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/gi, '{dynamic}')
+        // A Discord tag in a title is a live value, not a different embed type.
+        .replace(/@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi, '{dynamic}')
+        .replace(/\b[a-z0-9_.-]{2,32}'s\b/gi, '{dynamic}')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function recordEmbedData(record) {
+    const snapshot = getEmbedRegistrySnapshot(record) || {};
+    return {
+        ...snapshot,
+        title: snapshot.title || record?.title || record?.name || '',
+        fields: Array.isArray(snapshot.fields) ? snapshot.fields : [],
+    };
+}
+
 function templateIdentity(channelId, value) {
-    const rule = getTemplateRule(channelId, value);
-    return rule?.key || titleKey(stripCustomEmojiMarkup(value));
+    const data = value && typeof value === 'object' ? value : { title: value };
+    const title = String(data.title || '');
+    const rule = getTemplateRule(channelId, title);
+    if (rule) return rule.key;
+
+    const fieldShape = (data.fields || [])
+        .map(field => dynamicTemplateText(field?.name || ''))
+        .filter(Boolean)
+        .join('|');
+    const descriptionShape = dynamicTemplateText(data.description || '');
+    return `${dynamicTemplateText(title)}::${fieldShape}::${descriptionShape}`;
 }
 
 function collapseDisplayRecords(channelRecords, channelId = null) {
@@ -138,20 +168,23 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
         }
 
         const name = rawName || 'Untitled embed';
-        const key = titleKey(name);
+        const key = `template:${templateIdentity(channelId, recordEmbedData(record))}`;
         if (!groups.has(key)) groups.set(key, { label: name, records: [], templateMode: false });
         groups.get(key).records.push(record);
     }
 
     return [...groups.values()].map(group => {
         group.records.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-        const representative = group.records[group.records.length - 1];
+        // Show the newest real message when there is one, so the Builder opens
+        // with live cards/bets/cash. The hidden peers remain linked for Save.
+        const realRecords = group.records.filter(record => record.source !== 'system-catalog');
+        const representative = (realRecords.length ? realRecords : group.records).at(-1);
         return {
             ...representative,
             name: group.label,
             duplicateCount: group.records.length,
             templateCount: group.records.length,
-            templateMode: Boolean(group.templateMode),
+            templateMode: Boolean(group.templateMode) || group.records.length > 1 || representative.source === 'system-catalog',
         };
     });
 }
@@ -343,8 +376,8 @@ function loadEmbedIntoState(state, resolved) {
         source: record.source || 'cloudy',
         sourceEmbedData: data,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
-        templateMode: Boolean(templateRule),
-        templateTitle: templateRule?.key || templateIdentity(channel.id, data.title || recordName(record)),
+        templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
+        templateTitle: templateRule?.key || templateIdentity(channel.id, data),
     };
 }
 
@@ -636,6 +669,35 @@ function splitDynamicLogLine(line) {
     return match ? { prefix: match[1], value: match[2] } : null;
 }
 
+function dynamicValues(value) {
+    const values = [];
+    const tokenized = String(value || '').replace(
+        /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b|@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi,
+        match => {
+            values.push(match);
+            return '{dynamic}';
+        },
+    );
+    return { tokenized, values };
+}
+
+function mergeDynamicTemplateText(sourceText, editedText, peerText) {
+    const source = dynamicValues(sourceText);
+    const edited = dynamicValues(editedText);
+    const peer = dynamicValues(peerText);
+    const placeholders = edited.tokenized.match(/\{dynamic\}/gi) || [];
+
+    // No dynamic slot was kept in the edited text: that is an explicit title/
+    // text change, so use it as-is.
+    if (!placeholders.length) return String(editedText || '');
+    if (source.values.length !== peer.values.length || placeholders.length !== peer.values.length) {
+        return String(editedText || '');
+    }
+
+    let index = 0;
+    return edited.tokenized.replace(/\{dynamic\}/gi, () => peer.values[index++] || '{dynamic}');
+}
+
 function mergeTemplateDescription(sourceDescription, editedDescription, peerDescription) {
     const sourceLines = String(sourceDescription || '').split('\n');
     const editedLines = String(editedDescription || '').split('\n');
@@ -653,6 +715,8 @@ function mergeTemplateDescription(sourceDescription, editedDescription, peerDesc
 
         if (sourceDynamic && editedDynamic && peerDynamic) {
             result.push(`${editedDynamic.prefix}${peerDynamic.value}`);
+        } else if (dynamicValues(source).values.length && dynamicValues(source).values.length === dynamicValues(peer).values.length) {
+            result.push(mergeDynamicTemplateText(source, edited, peer));
         } else if (peer === source || index >= peerLines.length) {
             result.push(edited);
         } else {
@@ -668,7 +732,7 @@ function applyStateToTemplatePeer(state, peerData, savedData, mediaChanges) {
     const source = target?.sourceEmbedData || {};
     const data = { ...peerData };
 
-    if (state.title) data.title = state.title.slice(0, 256);
+    if (state.title) data.title = mergeDynamicTemplateText(source.title, state.title, peerData.title).slice(0, 256);
     else delete data.title;
 
     if (state.message) data.description = mergeTemplateDescription(source.description, state.message, peerData.description);
@@ -771,7 +835,7 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
                 && embedIndex === Number(targetSnapshot.embedIndex || 0);
             if (isTarget || !record) return new EmbedBuilder(peerData);
 
-            const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData.title || recordName(record));
+            const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData);
             if (peerIdentity !== targetSnapshot.templateTitle) return new EmbedBuilder(peerData);
 
             changed = true;
@@ -803,7 +867,7 @@ async function updateMatchingTemplatePeers(guild, stateSnapshot, targetSnapshot,
 
         const { record } = resolved;
         const peerData = resolved.embed.toJSON();
-        const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData.title || recordName(record));
+        const peerIdentity = templateIdentity(targetSnapshot.channelId, peerData);
         if (peerIdentity !== targetSnapshot.templateTitle) continue;
 
         const peerIndex = Number(record.embedIndex || 0);
@@ -931,7 +995,7 @@ export async function saveModifiedEmbed(guild, state) {
 
     state.modifyTarget.sourceEmbedData = current;
     if (!target.templateMode) {
-        state.modifyTarget.templateTitle = templateIdentity(target.channelId, current.title || target.templateTitle);
+        state.modifyTarget.templateTitle = templateIdentity(target.channelId, current);
     }
     void registerCloudyEmbedMessage(edited, target.templateMode ? 'modified-template' : 'modified')
         .catch(error => logger.error('Failed to refresh modified embed registry:', error));
