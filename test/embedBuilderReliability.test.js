@@ -16,7 +16,13 @@ import {
   buildChannelPayload,
   openEmbedManager,
   shouldApplyBackgroundRegistryRefresh,
+  templateIdentity,
 } from '../src/services/embedManagerService.js';
+import {
+  CLOUDY_LOGO_URL,
+  isCloudyLogoUrl,
+  migrateCloudyLogoEmbedData,
+} from '../src/services/cloudyLogoService.js';
 import { getSystemEmbedTemplateKey } from '../src/services/systemEmbedCatalogService.js';
 import {
   applyEmbedColorPickerSession,
@@ -94,6 +100,30 @@ function buildGuild({ guildId, channelId, messages }) {
     },
   };
 }
+
+test('renaming a catalog embed keeps its stable game template identity', () => {
+  const savedCatalogEmbed = {
+    title: 'My custom Blackjack title',
+    author: {
+      name: 'Cloudy template key: game:blackjack:bet || Cloudy context: gambling/blackjack || Cloudy kind: embed',
+    },
+  };
+
+  assert.equal(
+    templateIdentity('200000000000000001', savedCatalogEmbed),
+    'game:blackjack:bet',
+  );
+});
+
+test('the old GitHub-hosted C logo is recognized and migrated to the stable CDN URL', () => {
+  const oldLogoUrl = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
+  const migrated = migrateCloudyLogoEmbedData({ thumbnail: { url: oldLogoUrl } });
+
+  assert.equal(isCloudyLogoUrl(oldLogoUrl), true);
+  assert.equal(migrated.changed, true);
+  assert.equal(migrated.data.thumbnail.url, CLOUDY_LOGO_URL);
+  assert.match(CLOUDY_LOGO_URL, /^https:\/\/cdn\.jsdelivr\.net\//);
+});
 
 test('registry reconciliation removes deleted messages and missing embed indexes from counts', async () => {
   installTestStorage();

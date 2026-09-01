@@ -1,4 +1,4 @@
-import { Events } from 'discord.js';
+import { Events, Message } from 'discord.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import {
   applyPlainResponseTemplate,
@@ -6,9 +6,11 @@ import {
   captureSystemEmbedData,
 } from '../services/systemEmbedCatalogService.js';
 import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
+import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
+const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
 const HISTORY_LIMIT = 100;
 const STARTUP_SCAN_DELAY_MS = 7000;
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
@@ -119,6 +121,48 @@ function applyPayloadTemplates(payload, source) {
   return next;
 }
 
+function shouldPrepareMessageEdit(message) {
+  return Boolean(
+    message?.guildId
+    && message?.client?.user?.id
+    && message.author?.id === message.client.user.id
+    && !autoApplyingMessageIds.has(message.id)
+    && !isEmbedManagerSaveInProgress(message.id)
+    && String(message.content || '').trim() !== SYSTEM_CATALOG_CONTENT,
+  );
+}
+
+// Button-driven games sometimes update their original Message directly instead
+// of going through an Interaction reply. Decorate that payload before Discord
+// receives it, so the client never paints the default blue version first.
+export function prepareMessageEditPayload(message, payload) {
+  if (!shouldPrepareMessageEdit(message)) return payload;
+  return applyPayloadTemplates(payload, messageContext(message));
+}
+
+function patchMessageEdits() {
+  const prototype = Message.prototype;
+  if (prototype[MESSAGE_EDIT_PATCH_MARKER] || typeof prototype.edit !== 'function') return;
+
+  const originalEdit = prototype.edit;
+  Object.defineProperty(prototype, MESSAGE_EDIT_PATCH_MARKER, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+
+  prototype.edit = function cloudyPreStyledMessageEdit(payload, ...args) {
+    let outgoing = payload;
+    try {
+      outgoing = prepareMessageEditPayload(this, payload);
+    } catch (error) {
+      logger.debug(`[EMBED_BUILDER] Direct message template processing skipped: ${error?.message || error}`);
+    }
+    return originalEdit.call(this, outgoing, ...args);
+  };
+}
+
 function capturePayload(payload, source) {
   if (payload == null) return false;
 
@@ -163,6 +207,7 @@ async function applyTemplatesToExistingMessage(message) {
   if (!message?.client?.user?.id || !message.guildId || !message.editable) return false;
   if (message.author?.id !== message.client.user.id) return false;
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
+  if (isEmbedManagerSaveInProgress(message.id)) return false;
   if (autoApplyingMessageIds.has(message.id)) return false;
 
   const source = messageContext(message);
@@ -343,6 +388,7 @@ export default {
 
   execute(client) {
     patchInteractionCapture();
+    patchMessageEdits();
     seedKnownGameResponses();
 
     client.on(Events.MessageCreate, message => {
@@ -361,6 +407,7 @@ export default {
         : newMessage;
       if (!message) return;
       if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return;
+      if (isEmbedManagerSaveInProgress(message.id)) return;
       if (autoApplyingMessageIds.has(message.id)) return;
 
       try {

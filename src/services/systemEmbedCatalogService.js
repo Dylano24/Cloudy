@@ -2,6 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { getTraceContext, logger } from '../utils/logger.js';
 import { discoverEmbedDefinitions } from './embedDefinitionDiscoveryService.js';
+import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
 
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
 const CATALOG_CONTENT = 'System & error embed templates';
@@ -51,7 +52,8 @@ function compactName(value) {
 }
 
 function cloneData(value) {
-  return value?.toJSON ? value.toJSON() : { ...(value || {}) };
+  const data = value?.toJSON ? value.toJSON() : { ...(value || {}) };
+  return migrateCloudyLogoEmbedData(data).data || data;
 }
 
 function storageKey(guildId) {

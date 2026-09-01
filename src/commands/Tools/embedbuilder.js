@@ -25,6 +25,7 @@ import {
     deleteEmbedColorPickerSession,
 } from '../../services/embedColorPickerSessionService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from '../../services/cloudyBrandingService.js';
+import { CLOUDY_LOGO_URL, isCloudyLogoUrl } from '../../services/cloudyLogoService.js';
 import {
     getEveryGuildChannel,
     refreshAllTicketChannels,
@@ -33,7 +34,6 @@ import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
 import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
 
-const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
 const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
 const DEFAULT_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -190,6 +190,60 @@ function removeTransientMessage(interaction, message) {
     timer.unref?.();
 }
 
+async function replaceSaveFeedback(interaction, message, payload) {
+    if (message?.id && interaction.webhook?.editMessage) {
+        return interaction.webhook.editMessage(message.id, payload).catch(() => null);
+    }
+    return message?.edit?.(payload).catch(() => null) || null;
+}
+
+// Acknowledging the click immediately makes Save feel instant, while the
+// actual message edit still remains the source of truth before we confirm it.
+async function saveExistingEmbed(buttonInteraction, guild, state) {
+    const feedbackPromise = buttonInteraction.followUp({
+        content: 'Saving changes…',
+        flags: MessageFlags.Ephemeral,
+        fetchReply: true,
+    }).catch(() => null);
+
+    const saved = await saveModifiedEmbed(guild, state);
+    const feedbackMessage = await feedbackPromise;
+
+    if (!saved.ok) {
+        const failure = await replaceSaveFeedback(buttonInteraction, feedbackMessage, {
+            content: null,
+            embeds: [new EmbedBuilder()
+                .setTitle('Could not save changes')
+                .setDescription('The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.')
+                .setColor(getColor('error'))],
+        });
+        if (failure) removeTransientMessage(buttonInteraction, failure);
+        else {
+            await replyUserError(buttonInteraction, {
+                type: ErrorTypes.UNKNOWN,
+                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
+            });
+        }
+        return saved;
+    }
+
+    void refreshBuilder(buttonInteraction, state).catch(() => {});
+    const confirmationPayload = {
+        content: null,
+        embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
+    };
+    let confirmation = await replaceSaveFeedback(buttonInteraction, feedbackMessage, confirmationPayload);
+    if (!confirmation) {
+        confirmation = await buttonInteraction.followUp({
+            ...confirmationPayload,
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
+    }
+    if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
+    return saved;
+}
+
 function buildSingleEmbed(state, description = null, options = {}) {
     const {
         preview = false,
@@ -246,7 +300,7 @@ function buildPreviewEmbed(state) {
             delete data.thumbnail;
         } else if (state.showLogo) {
             data.thumbnail = { url: CLOUDY_LOGO_URL };
-        } else if (data.thumbnail?.url === CLOUDY_LOGO_URL) {
+        } else if (isCloudyLogoUrl(data.thumbnail?.url)) {
             delete data.thumbnail;
         }
 
@@ -798,22 +852,7 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
 async function postMessage(buttonInteraction, state, guild) {
     if (state.modifyTarget) {
         await buttonInteraction.deferUpdate().catch(() => {});
-        const saved = await saveModifiedEmbed(guild, state);
-
-        if (!saved.ok) {
-            await replyUserError(buttonInteraction, {
-                type: ErrorTypes.UNKNOWN,
-                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
-            });
-            return;
-        }
-
-        void refreshBuilder(buttonInteraction.message?.interaction ? buttonInteraction : buttonInteraction, state).catch(() => {});
-        const savedMessage = await buttonInteraction.followUp({
-            embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
-            flags: MessageFlags.Ephemeral,
-        }).catch(() => null);
-        if (savedMessage) removeTransientMessage(buttonInteraction, savedMessage);
+        await saveExistingEmbed(buttonInteraction, guild, state);
         return;
     }
 
@@ -1022,20 +1061,7 @@ export default {
                         case 'simple_embed_post':
                             if (state.modifyTarget) {
                                 await buttonInteraction.deferUpdate().catch(() => {});
-                                const saved = await saveModifiedEmbed(interaction.guild, state);
-                                if (!saved.ok) {
-                                    await replyUserError(buttonInteraction, {
-                                        type: ErrorTypes.UNKNOWN,
-                                        message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
-                                    });
-                                    break;
-                                }
-                                void refreshBuilder(buttonInteraction, state).catch(() => {});
-                                const savedMessage = await buttonInteraction.followUp({
-                                    embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
-                                    flags: MessageFlags.Ephemeral,
-                                }).catch(() => null);
-                                if (savedMessage) removeTransientMessage(buttonInteraction, savedMessage);
+                                await saveExistingEmbed(buttonInteraction, interaction.guild, state);
                                 break;
                             }
                             await postMessage(buttonInteraction, state, interaction.guild);

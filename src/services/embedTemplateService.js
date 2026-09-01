@@ -1,6 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
 
 const TEMPLATE_PREFIX = 'cloudy:embed-template:';
 const GLOBAL_SCOPE = '__global__';
@@ -20,7 +21,11 @@ function templateKey(guildId, channelId) {
 }
 
 function cleanTemplates(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).map(([key, template]) => [
+    key,
+    migrateCloudyLogoEmbedData(template).data || template,
+  ]));
 }
 
 async function loadTemplates(guildId, channelId) {
