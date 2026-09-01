@@ -12,7 +12,10 @@ import {
   indexSystemEmbedCatalogMessage,
   systemEmbedResponseSignature,
 } from '../src/services/systemEmbedCatalogService.js';
-import { patchInteractionCapture } from '../src/events/fullResponseCatalogReady.js';
+import {
+  applyRuntimeResponseTemplates,
+  patchInteractionCapture,
+} from '../src/events/fullResponseCatalogReady.js';
 import {
   isInternalResponsePayload,
 } from '../src/services/internalResponsePayloadService.js';
@@ -104,6 +107,72 @@ test('catalog omissions preserve runtime footer, thumbnail and image', () => {
   assert.deepEqual(result.image, runtime.image);
   assert.equal(result.fields[0].name, 'Bet 9');
   assert.equal(result.fields[0].value, 'Live field value');
+});
+
+test('saved blackjack style applies immediately, removes media, and stays idempotent', async () => {
+  const guildId = 'guild-blackjack-immediate-save';
+  const key = systemEmbedResponseSignature({ title: 'Blackjack — Bet $100' });
+  const author = {
+    name: `Cloudy template key: ${key} || Cloudy context: gambling/blackjack || Cloudy kind: embed`,
+  };
+  indexSystemEmbedCatalogMessage(catalogMessage(guildId, {
+    title: 'Blackjack — Bet $100',
+    color: 0x111111,
+    footer: { text: 'Old footer' },
+    thumbnail: { url: 'https://example.com/old-logo.png' },
+    image: { url: 'https://example.com/old-image.png' },
+    fields: [
+      { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+      { name: 'Dealer Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+    ],
+    author,
+  }));
+  indexSystemEmbedCatalogMessage(catalogMessage(guildId, {
+    title: 'Fresh Blackjack',
+    color: 0xABCDEF,
+    fields: [
+      { name: 'Player cards', value: '{dynamic}\nValue: **{dynamic}**', inline: false },
+      { name: 'Dealer cards', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+    ],
+    author,
+  }));
+
+  const source = {
+    guildId,
+    commandName: 'blackjack',
+  };
+  const runtime = {
+    embeds: [{
+      title: 'Blackjack — Bet $25',
+      color: 0x5865F2,
+      footer: { text: 'Runtime footer' },
+      thumbnail: { url: 'https://example.com/runtime-logo.png' },
+      image: { url: 'https://example.com/runtime-image.png' },
+      fields: [
+        { name: 'Your Hand', value: '<:card:111111111111111111>\nValue: **20**', inline: true },
+        { name: 'Dealer Hand', value: '<:card:222222222222222222>\nValue: **?**', inline: true },
+      ],
+    }],
+    components: [],
+  };
+
+  const first = await applyRuntimeResponseTemplates(runtime, source);
+  const second = await applyRuntimeResponseTemplates(first, source);
+  const firstData = first.embeds[0].toJSON ? first.embeds[0].toJSON() : first.embeds[0];
+  const secondData = second.embeds[0].toJSON ? second.embeds[0].toJSON() : second.embeds[0];
+
+  assert.equal(firstData.title, 'Fresh Blackjack $25');
+  assert.equal(firstData.color, 0xABCDEF);
+  assert.equal(firstData.footer, undefined);
+  assert.equal(firstData.thumbnail, undefined);
+  assert.equal(firstData.image, undefined);
+  assert.equal(firstData.fields[0].name, 'Player cards');
+  assert.match(firstData.fields[0].value, /111111111111111111/);
+  assert.match(firstData.fields[0].value, /\*\*20\*\*/);
+  assert.equal(firstData.fields[0].inline, false);
+  assert.match(firstData.fields[1].value, /222222222222222222/);
+  assert.match(firstData.fields[1].value, /\*\*\?\*\*/);
+  assert.deepEqual(secondData, firstData);
 });
 
 function patchedInteraction(guildId, outgoing) {

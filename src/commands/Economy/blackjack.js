@@ -5,6 +5,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
 import { cardEmoji, cardsEmojiLine } from './modules/casinoCardEmojis.js';
+import { applyRuntimeResponseTemplates } from '../../events/fullResponseCatalogReady.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -71,7 +72,14 @@ async function embed(state, result = null) {
 }
 
 async function payload(state, result = null, ended = false) {
-  return { embeds: [await embed(state, result)], components: controls(state, ended), attachments: [] };
+  return applyRuntimeResponseTemplates(
+    { embeds: [await embed(state, result)], components: controls(state, ended), attachments: [] },
+    {
+      guildId: state.guildId,
+      commandName: 'blackjack',
+      channel: state.channel || { id: state.channelId, guildId: state.guildId },
+    },
+  );
 }
 
 function dealerDraw(state) { while (score(state.dealer) < 17) state.dealer.push(draw(state)); }
@@ -100,7 +108,7 @@ export default {
     const deferred = await InteractionHelper.safeDefer(interaction); if (!deferred) return;
     const { amount, userData } = await takeBet(interaction, client); await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
     const deck = makeDeck();
-    const state = { id: interaction.id, client, guildId: interaction.guildId, channelId: interaction.channelId, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
+    const state = { id: interaction.id, client, guildId: interaction.guildId, channelId: interaction.channelId, channel: interaction.channel, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
     await InteractionHelper.safeEditReply(interaction, await payload(state));
     const message = await interaction.fetchReply().catch(() => null);
     if (!message?.createMessageComponentCollector) return;

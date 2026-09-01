@@ -33,6 +33,12 @@ function normalize(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+function templateMetadataIdentity(embed) {
+  const data = embed?.toJSON ? embed.toJSON() : (embed || {});
+  const authorName = normalize(data.author?.name);
+  return authorName.startsWith(TEMPLATE_KEY_PREFIX) ? authorName : null;
+}
+
 function templateContext(embed) {
   const data = embed?.toJSON ? embed.toJSON() : (embed || {});
   const authorName = String(data.author?.name || '');
@@ -120,7 +126,11 @@ export default {
 
       const scopeChannel = findContextChannel(message.guild, context);
       const data = embed.toJSON();
-      const oldData = oldMessage?.embeds?.[index]?.toJSON?.() || {};
+      const metadataIdentity = templateMetadataIdentity(data);
+      const oldEmbed = metadataIdentity
+        ? oldMessage?.embeds?.find(candidate => templateMetadataIdentity(candidate) === metadataIdentity)
+        : oldMessage?.embeds?.[index];
+      const oldData = oldEmbed?.toJSON?.() || {};
       const aliases = [oldData.title, data.title].filter(Boolean);
       const application = {
         applyFooter: Boolean(oldData.footer || data.footer),

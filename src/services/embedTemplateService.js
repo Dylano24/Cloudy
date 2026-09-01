@@ -9,6 +9,7 @@ const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/
 const SYSTEM_TEMPLATE_KEY_PREFIX = 'Cloudy template key:';
 const SYSTEM_TEMPLATE_CONTEXT_SEPARATOR = ' || Cloudy context:';
 const SYSTEM_TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
+const SYSTEM_TEMPLATE_ALIAS_MARKER = Symbol.for('cloudy.systemEmbedTemplateAlias');
 const templateCache = new Map();
 const templateMutationQueues = new Map();
 const pendingTemplateOverlays = new Map();
@@ -27,6 +28,7 @@ function cleanTemplates(value) {
 }
 
 function stableSystemTemplateAlias(data = {}) {
+  if (data?.[SYSTEM_TEMPLATE_ALIAS_MARKER]) return String(data[SYSTEM_TEMPLATE_ALIAS_MARKER]);
   const authorName = String(data?.author?.name || '');
   if (!authorName.toLowerCase().startsWith(SYSTEM_TEMPLATE_KEY_PREFIX.toLowerCase())) return null;
 
@@ -86,6 +88,18 @@ async function loadMergedTemplates(guildId, channelId) {
     ...globalTemplates,
     ...pendingTemplatesForKey(globalKey),
     ...channelTemplates,
+    ...pendingTemplatesForKey(channelKey),
+  };
+}
+
+function stagedMergedTemplates(guildId, channelId) {
+  const globalKey = templateKey(guildId, GLOBAL_SCOPE);
+  const channelKey = templateKey(guildId, channelId);
+  if (!pendingTemplateOverlays.has(globalKey) && !pendingTemplateOverlays.has(channelKey)) return null;
+  return {
+    ...(templateCache.get(globalKey) || {}),
+    ...pendingTemplatesForKey(globalKey),
+    ...(templateCache.get(channelKey) || {}),
     ...pendingTemplatesForKey(channelKey),
   };
 }
@@ -319,8 +333,7 @@ export function saveGlobalEmbedTemplate(guildId, matchNames = [], embedData = {}
   return beginSaveTemplate(guildId, GLOBAL_SCOPE, matchNames, embedData, options);
 }
 
-function findStoredTemplate(data, stored) {
-  const stableAlias = stableSystemTemplateAlias(data);
+function findStoredTemplate(data, stored, stableAlias = stableSystemTemplateAlias(data)) {
   if (stableAlias && stored[stableAlias]) return stored[stableAlias];
 
   const candidates = [data.title, String(data.description || '').split('\n').find(Boolean)]
@@ -337,9 +350,10 @@ function shouldApply(template, flagName, valueName) {
 }
 
 function decorateEmbedData(embed, stored) {
+  const stableAlias = stableSystemTemplateAlias(embed);
   const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
   const data = { ...original };
-  const template = findStoredTemplate(data, stored);
+  const template = findStoredTemplate(data, stored, stableAlias);
   if (!template) return { matched: false, changed: false, data };
 
   if (shouldApply(template, 'applyTitle', 'title')) {
@@ -405,8 +419,16 @@ function decorateEmbedData(embed, stored) {
 export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed) {
   try {
     if (embed?.[SAVED_TEMPLATE_MARKER]) return { matched: true, changed: false, embed };
-    const stored = await loadMergedTemplates(guildId, channelId);
-    const result = decorateEmbedData(embed, stored);
+    // A Builder save publishes its overlay synchronously. Do not wait for any
+    // first-load database read while such an overlay exists; it is authoritative
+    // for the very next runtime response.
+    const staged = stagedMergedTemplates(guildId, channelId);
+    let result = staged ? decorateEmbedData(embed, staged) : null;
+    // A pending save for one response must not temporarily hide an unrelated
+    // persisted response in the same channel.
+    if (!result?.matched) {
+      result = decorateEmbedData(embed, await loadMergedTemplates(guildId, channelId));
+    }
     return {
       matched: result.matched,
       changed: result.changed,

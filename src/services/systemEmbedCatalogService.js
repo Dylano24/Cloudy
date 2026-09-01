@@ -12,6 +12,8 @@ const TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
 
 const contexts = new Map();
 const templateCache = new Map();
+const templateApplicationCache = new Map();
+const SYSTEM_TEMPLATE_ALIAS_MARKER = Symbol.for('cloudy.systemEmbedTemplateAlias');
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
 let flushTimer = null;
@@ -298,7 +300,19 @@ function isInternalTemplate(data) {
 
 function rememberTemplate(guildId, key, data, context = null) {
   if (!guildId || !key || !data) return;
-  templateCache.set(cacheIdentity(guildId, key, context), cloneData(data));
+  const identity = cacheIdentity(guildId, key, context);
+  const next = cloneData(data);
+  const previous = templateCache.get(identity);
+  const existingApplication = templateApplicationCache.get(identity) || {};
+  templateApplicationCache.set(identity, {
+    footer: existingApplication.footer === true
+      || Boolean(previous && Boolean(previous.footer?.text) !== Boolean(next.footer?.text)),
+    thumbnail: existingApplication.thumbnail === true
+      || Boolean(previous && Boolean(previous.thumbnail?.url) !== Boolean(next.thumbnail?.url)),
+    image: existingApplication.image === true
+      || Boolean(previous && Boolean(previous.image?.url) !== Boolean(next.image?.url)),
+  });
+  templateCache.set(identity, next);
 }
 
 function findTemplate(guildId, key, context) {
@@ -309,6 +323,22 @@ function findTemplate(guildId, key, context) {
     || (parent ? templateCache.get(cacheIdentity(guildId, key, parent)) : null)
     || templateCache.get(cacheIdentity(guildId, key, null))
     || null;
+}
+
+function runtimeTemplateAlias(key, context) {
+  const normalizedKey = normalize(key);
+  if (!normalizedKey) return null;
+  return `__system__:${normalize(context) || 'global'}:embed:${normalizedKey}`;
+}
+
+function findTemplateApplication(guildId, key, context) {
+  if (!guildId) return {};
+  const exact = normalize(context);
+  const parent = parentContext(exact);
+  return templateApplicationCache.get(cacheIdentity(guildId, key, exact))
+    || (parent ? templateApplicationCache.get(cacheIdentity(guildId, key, parent)) : null)
+    || templateApplicationCache.get(cacheIdentity(guildId, key, null))
+    || {};
 }
 
 function rememberCatalogMessage(message) {
@@ -563,7 +593,8 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
     || contextSource?.channel?.guild?.id;
   const specificKey = responseSignature('embed', data.title, data.description);
   const titleKey = normalize(data.title);
-  const template = findTemplate(guildId, specificKey, context) || findTemplate(guildId, titleKey, context);
+  const matchedKey = findTemplate(guildId, specificKey, context) ? specificKey : titleKey;
+  const template = findTemplate(guildId, matchedKey, context);
 
   if (!template) {
     if (context) captureSystemEmbedData(data, contextSource);
@@ -603,18 +634,32 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
       : template.fields.map(field => ({ ...field }));
   }
 
-  if (template.footer?.text) {
-    next.footer = {
-      ...template.footer,
-      text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, {
-        fallbackToRuntimeOnMismatch: true,
-        appendMissingRuntimeDynamics: true,
-      }),
-    };
+  const application = findTemplateApplication(guildId, matchedKey, context);
+  if (template.footer?.text || application.footer) {
+    if (template.footer?.text) {
+      next.footer = {
+        ...template.footer,
+        text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, {
+          fallbackToRuntimeOnMismatch: true,
+          appendMissingRuntimeDynamics: true,
+        }),
+      };
+    } else delete next.footer;
   }
 
   if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
+  else if (application.thumbnail) delete next.thumbnail;
   if (template.image?.url) next.image = { ...template.image };
+  else if (application.image) delete next.image;
+  const stableAlias = runtimeTemplateAlias(matchedKey, context);
+  if (stableAlias) {
+    Object.defineProperty(next, SYSTEM_TEMPLATE_ALIAS_MARKER, {
+      value: stableAlias,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  }
   return next;
 }
 
@@ -690,15 +735,15 @@ export async function ensureSystemEmbedCatalogs(client) {
 }
 
 export async function syncSystemEmbedCatalogMessage(message) {
-  if (!message?.guildId || !message?.channelId || !message?.embeds?.length) return false;
+  if (!message?.guildId || !message?.channelId || !Array.isArray(message.embeds)) return false;
   const context = contexts.get(message.guildId);
   if (!context || String(context.channel.id) !== String(message.channelId)) return false;
-  if (!hasCatalogMetadata(message)) return false;
+  if (message.embeds.length && !hasCatalogMetadata(message)) return false;
 
   // The Builder save path already knows this is a catalog-backed embed. Publish
   // the edit to memory before touching the DB so the next command cannot see the
   // previous title/color/logo/footer while persistence/registry work is pending.
-  indexSystemEmbedCatalogMessage(message);
+  if (message.embeds.length) indexSystemEmbedCatalogMessage(message);
 
   void (async () => {
     const ids = await getFromDb(storageKey(message.guildId), []);

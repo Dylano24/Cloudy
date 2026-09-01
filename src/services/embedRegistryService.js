@@ -224,7 +224,7 @@ function embedName(embed) {
 
     const firstLine = String(embed?.description || '')
         .split('\n')
-        .map(line => line.replace(/^[>\s#*_`~|\-]+/, '').replace(/[*_`~]/g, '').trim())
+        .map(line => line.replace(/^[- >\s#*_`~|]+/, '').replace(/[*_`~]/g, '').trim())
         .find(Boolean);
 
     return canonicalEmbedName(firstLine || 'Untitled embed').slice(0, 256);
@@ -245,6 +245,36 @@ function systemTemplateSearchText(embed) {
         .join(' ')
         .replace(/\s+/g, ' ')
         .trim();
+}
+
+function shortHash(value) {
+    let hash = 2166136261;
+    for (const character of String(value || '')) {
+        hash ^= character.charCodeAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function catalogTemplateIdentity(embed) {
+    const data = typeof embed?.toJSON === 'function' ? embed.toJSON() : (embed || {});
+    const authorName = String(data.author?.name || '');
+    const metadata = authorName.match(
+        /^Cloudy\s+template\s+key:\s*([^|]+?)(?:\s*\|\|\s*Cloudy\s+context:\s*([^|]+?))?(?:\s*\|\|\s*Cloudy\s+kind:\s*([^|]+?))?\s*$/i,
+    );
+    if (metadata?.[1]) {
+        return [
+            cleanName(metadata[2]) || 'global',
+            cleanName(metadata[3]) || 'embed',
+            cleanName(metadata[1]),
+        ].join(':');
+    }
+    const signature = JSON.stringify({
+        title: cleanName(data.title),
+        description: cleanName(data.description),
+        fields: (data.fields || []).map(field => [cleanName(field?.name), cleanName(field?.value)]),
+    });
+    return `signature:embed:${shortHash(signature)}`;
 }
 
 function findFeatureChannel(guild, slugs = []) {
@@ -310,6 +340,9 @@ function normalizeRecord(record) {
         source: String(record.source || 'cloudy'),
         title: String(record.title || '').slice(0, 256),
         name: canonicalEmbedName(record.name || record.title || '').slice(0, 256),
+        catalogTemplateIdentity: record.catalogTemplateIdentity
+            ? String(record.catalogTemplateIdentity)
+            : null,
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
@@ -347,11 +380,45 @@ async function saveRecords(guildId, additions) {
     });
 }
 
+export async function replaceSystemCatalogRegistryRowsForMessage(message) {
+    if (!message?.guildId || !message?.id || !isSystemCatalogMessage(message)) return false;
+    const additions = (Array.isArray(message.embeds) ? message.embeds : []).map((embed, embedIndex) => {
+        const location = recordLocationForEmbed(message, embed);
+        const addition = normalizeRecord({
+            guildId: message.guildId,
+            ...location,
+            messageId: message.id,
+            embedIndex,
+            source: 'system-catalog',
+            title: embed?.title || '',
+            name: embedName(embed),
+            catalogTemplateIdentity: catalogTemplateIdentity(embed),
+            createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
+        });
+        if (addition) rememberEmbedSnapshot(addition, embed);
+        return addition;
+    }).filter(Boolean);
+
+    return mutateRegistry(message.guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(message.guildId));
+        // Discord message IDs are globally unique. Replacing only this backing
+        // message therefore clears old indexes and legacy virtual rows (which
+        // did not persist backingChannelId) without touching any live message.
+        const retained = records.filter(record => String(record.messageId) !== String(message.id));
+        return setInDb(registryKey(message.guildId), sortRecords([...retained, ...additions]));
+    });
+}
+
 export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
     const grouped = new Map();
+    let replacedCatalog = false;
 
     try {
         for (const message of Array.isArray(messages) ? messages : []) {
+            if (isSystemCatalogMessage(message)) {
+                replacedCatalog = await replaceSystemCatalogRegistryRowsForMessage(message) || replacedCatalog;
+                continue;
+            }
             if (!isRegistrableCloudyEmbedMessage(message)) continue;
 
             const additions = message.embeds
@@ -377,7 +444,7 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
             grouped.get(message.guildId).push(...additions);
         }
 
-        if (!grouped.size) return false;
+        if (!grouped.size) return replacedCatalog;
         await Promise.all([...grouped.entries()].map(([guildId, additions]) => saveRecords(guildId, additions)));
         return true;
     } catch (error) {
@@ -465,6 +532,9 @@ function recordsFromMessage(message, priorRecords = []) {
                 source: isSystemCatalogMessage(message) ? 'system-catalog' : (prior?.source || 'reconciled'),
                 title: embed?.title || '',
                 name: embedName(embed),
+                catalogTemplateIdentity: isSystemCatalogMessage(message)
+                    ? catalogTemplateIdentity(embed)
+                    : prior?.catalogTemplateIdentity,
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
             });
             if (record) rememberEmbedSnapshot(record, embed);
@@ -582,6 +652,7 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
     let scanned = 0;
     let found = 0;
     const additions = [];
+    const catalogMessages = [];
 
     for (const channel of readableTextChannels(guild)) {
         let before;
@@ -596,7 +667,13 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
             for (const message of batch.values()) {
                 scanned += 1;
                 channelScanned += 1;
-                if (message.author?.id !== botUserId || !isRegistrableCloudyEmbedMessage(message)) continue;
+                if (message.author?.id !== botUserId) continue;
+                if (isSystemCatalogMessage(message)) {
+                    catalogMessages.push(message);
+                    found += Array.isArray(message.embeds) ? message.embeds.length : 0;
+                    continue;
+                }
+                if (!isRegistrableCloudyEmbedMessage(message)) continue;
 
                 for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
                     const embed = message.embeds[embedIndex];
@@ -606,9 +683,10 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
                         ...location,
                         messageId: message.id,
                         embedIndex,
-                        source: isSystemCatalogMessage(message) ? 'system-catalog' : 'history',
+                        source: 'history',
                         title: embed?.title || '',
                         name: embedName(embed),
+                        catalogTemplateIdentity: null,
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
                     if (isInternalEmbedRecord(addition)) continue;
@@ -625,5 +703,8 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
     }
 
     if (additions.length) await saveRecords(guild.id, additions);
+    for (const message of catalogMessages) {
+        await replaceSystemCatalogRegistryRowsForMessage(message);
+    }
     return { scanned, found };
 }
