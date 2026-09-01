@@ -6,6 +6,19 @@ function compact(value, max = 90) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function summarizeTemplates(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value).map(([alias, template]) => ({
+    alias: compact(alias, 90),
+    title: compact(template?.title || '', 90),
+    color: Number.isInteger(template?.color) ? template.color : null,
+    footer: compact(template?.footer?.text || '', 70),
+    thumb: compact(template?.thumbnail?.url || '', 55),
+    applyThumbnail: template?.applyThumbnail === true,
+    updatedAt: template?.updatedAt || null,
+  }));
+}
+
 export default {
   name: Events.ClientReady,
   once: true,
@@ -19,6 +32,13 @@ export default {
           console.log(`[RECOVERY_AUDIT] backups dir=${backupDir} dumps=${dumps.join(',') || 'NONE'}`);
         } catch (error) {
           console.log(`[RECOVERY_AUDIT] backups dir=${backupDir} error=${error?.code || error?.message || 'unknown'}`);
+        }
+
+        const templateKeys = await client.db?.list?.('cloudy:embed-template:').catch(() => []) || [];
+        console.log(`[RECOVERY_AUDIT] templateKeys=${JSON.stringify(templateKeys)}`);
+        for (const key of templateKeys) {
+          const value = await client.db.get(key, {}).catch(() => ({}));
+          console.log(`[RECOVERY_AUDIT] template key=${key} entries=${JSON.stringify(summarizeTemplates(value))}`);
         }
 
         for (const guild of client.guilds.cache.values()) {
