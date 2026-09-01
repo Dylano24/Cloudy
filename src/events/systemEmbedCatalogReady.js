@@ -1,9 +1,6 @@
 import { Events } from 'discord.js';
 import { ensureSystemEmbedCatalogs } from '../services/systemEmbedCatalogService.js';
-import {
-  getEmbedRegistry,
-  resolveEmbedRegistryRecord,
-} from '../services/embedRegistryService.js';
+import { getEmbedRegistry } from '../services/embedRegistryService.js';
 import { saveEmbedTemplateDecoration } from '../services/embedTemplateService.js';
 import { getFromDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
@@ -27,25 +24,34 @@ function sameSavedTemplate(left, right) {
     );
 }
 
-function matchingTemplateGroups(sourceTemplates, liveEmbedData) {
-  const groups = [];
-  const seenTemplates = [];
-  const liveTitle = normalize(liveEmbedData?.title);
+function matchingTemplateGroups(sourceTemplates, record) {
+  const entries = Object.entries(sourceTemplates || {})
+    .filter(([, template]) => template && typeof template === 'object');
+  const recordAliases = new Set([
+    normalize(record?.title),
+    normalize(record?.name),
+  ].filter(Boolean));
 
-  for (const [alias, template] of Object.entries(sourceTemplates || {})) {
-    if (!template || typeof template !== 'object') continue;
-    if (liveTitle && normalize(template.title) !== liveTitle) continue;
+  // saveModifiedEmbed always stored the original catalog title as an alias even
+  // when the visible title was renamed. That lets us identify the wrongly scoped
+  // saved template without fetching any Discord messages.
+  const seeds = entries
+    .filter(([alias]) => recordAliases.has(normalize(alias)))
+    .map(([, template]) => template);
 
-    let groupIndex = seenTemplates.findIndex(existing => sameSavedTemplate(existing, template));
-    if (groupIndex === -1) {
-      groupIndex = seenTemplates.length;
-      seenTemplates.push(template);
-      groups.push({ template, aliases: [] });
+  const uniqueSeeds = [];
+  for (const seed of seeds) {
+    if (!uniqueSeeds.some(existing => sameSavedTemplate(existing, seed))) {
+      uniqueSeeds.push(seed);
     }
-    groups[groupIndex].aliases.push(alias);
   }
 
-  return groups;
+  return uniqueSeeds.map(template => ({
+    template,
+    aliases: entries
+      .filter(([, candidate]) => sameSavedTemplate(candidate, template))
+      .map(([alias]) => alias),
+  }));
 }
 
 function templateEmbedData(template) {
@@ -78,15 +84,8 @@ async function migrateCatalogTemplateScopes(client) {
     for (const record of catalogRecords) {
       const physicalChannelId = String(record.backingChannelId);
       const liveChannelId = String(record.channelId);
-
-      // Read the actual current catalog message instead of a registry snapshot.
-      // The old Builder bug edited this physical message, so this is the source
-      // that contains the administrator's most recently saved title/style.
-      const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
-      const liveEmbedData = resolved?.embed?.toJSON?.() || null;
-      if (!liveEmbedData?.title) continue;
-
       const sourceKey = templateStorageKey(guild.id, physicalChannelId);
+
       let sourceTemplates = sourceTemplateCache.get(sourceKey);
       if (!sourceTemplates) {
         const stored = await getFromDb(sourceKey, {});
@@ -94,16 +93,12 @@ async function migrateCatalogTemplateScopes(client) {
         sourceTemplateCache.set(sourceKey, sourceTemplates);
       }
 
-      // The old Builder bug saved virtual catalog edits under the physical
-      // backing channel. Match against the current edited catalog embed and copy
-      // every alias for that saved template into its real feature-channel scope.
-      const groups = matchingTemplateGroups(sourceTemplates, liveEmbedData);
+      const groups = matchingTemplateGroups(sourceTemplates, record);
       for (const group of groups) {
         const uniqueAliases = [...new Set([
           ...group.aliases,
           record.title,
           record.name,
-          liveEmbedData.title,
         ].filter(Boolean))];
         if (!uniqueAliases.length) continue;
 
@@ -143,8 +138,8 @@ export default {
 
   execute(client) {
     const timer = setTimeout(async () => {
-      // Repair old wrongly-scoped Builder saves first. The full system catalog
-      // synchronization can take much longer and must never block this repair.
+      // Repair old wrongly-scoped Builder saves first. This path only reads the
+      // registry/database and does not wait on Discord message-history requests.
       await migrateCatalogTemplateScopes(client).catch(error => {
         logger.warn(`Saved catalog template migration failed: ${error.message}`);
       });
