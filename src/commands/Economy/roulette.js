@@ -2,6 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { decorateEmbedWithSavedTemplate } from '../../services/embedTemplateService.js';
 import { takeBet, settleBet, money } from './modules/casinoGameUtils.js';
 import { getRouletteColor, rouletteNumberEmoji } from './modules/rouletteNumberEmoji.js';
 
@@ -80,6 +81,10 @@ export default {
       ],
     });
 
-    await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components: [] });
+    const styled = interaction.guildId && interaction.channelId
+      ? await decorateEmbedWithSavedTemplate(interaction.guildId, interaction.channelId, embed)
+      : { embed };
+
+    await InteractionHelper.safeEditReply(interaction, { embeds: [styled.embed], components: [] });
   }, { command: 'roulette' }),
 };
