@@ -19,6 +19,7 @@ import {
 } from './embedRegistryService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
+import { syncSystemEmbedCatalogMessage } from './systemEmbedCatalogService.js';
 
 const CLOUDY_LOGO_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
 const PAGE_SIZE = 25;
@@ -983,6 +984,15 @@ export async function saveModifiedEmbed(guild, state) {
     });
     if (!edited) return { ok: false, reason: 'edit-failed' };
 
+    // System response templates (blackjack, roulette, baccarat, errors, etc.) are
+    // cached in memory. Refresh that cache immediately after Save so the very next
+    // response uses the new title/color/logo/footer instead of the old template.
+    if (target.source === 'system-catalog' || target.backingChannelId) {
+        await syncSystemEmbedCatalogMessage(edited).catch(error => {
+            logger.error('Failed to hot-sync edited system embed template:', error);
+        });
+    }
+
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
     const mediaChanges = mediaChangeState(sourceData, current);
     let updatedCount = 1;
@@ -1016,6 +1026,10 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     state.modifyTarget.sourceEmbedData = current;
+    // Canonicalize the logo flags after every successful save. This prevents a
+    // stale removeExistingLogo flag from blocking Add Cloudy logo after removal.
+    state.showLogo = current.thumbnail?.url === CLOUDY_LOGO_URL;
+    state.removeExistingLogo = false;
     if (!target.templateMode) {
         state.modifyTarget.templateTitle = templateIdentity(target.channelId, current);
     }
