@@ -3,7 +3,6 @@ import { createEmbed } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
-import { decorateEmbedWithSavedTemplate } from '../../services/embedTemplateService.js';
 import { takeBet, money } from './modules/casinoGameUtils.js';
 import { cardEmoji, cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
@@ -62,36 +61,13 @@ async function embed(state, result = null) {
     inline: true,
   });
 
-  const gameEmbed = createEmbed({
+  return createEmbed({
     title: liveTitle(state, result),
     description: result?.text || '',
     color: result?.color || 'primary',
     author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
     fields,
   });
-
-  const styled = state.guildId && state.channelId
-    ? await decorateEmbedWithSavedTemplate(state.guildId, state.channelId, gameEmbed)
-    : { embed: gameEmbed };
-
-  // If the administrator edits the fixed part of the live title to e.g.
-  // "Blackjack bet", keep the wager itself dynamic instead of treating the
-  // edited title as a completely static string.
-  if (!result) {
-    const title = String(styled.embed.data.title || '').trim();
-    const liveBet = money(state.totalBet);
-    const titleAlreadyHasAmount = /(?:[$€£]\s*)?\d[\d,.]*/.test(title);
-    if (title && /\bbet\b/i.test(title) && !titleAlreadyHasAmount) {
-      styled.embed.data.title = `${title} ${liveBet}`.slice(0, 256);
-    }
-  }
-
-  // Keep live game values authoritative while applying the saved Builder style.
-  // In particular, an older template must never bring "Cards remaining" back.
-  styled.embed.data.fields = fields;
-  if (result?.text) styled.embed.data.description = result.text;
-  else delete styled.embed.data.description;
-  return styled.embed;
 }
 
 async function payload(state, result = null, ended = false) {
