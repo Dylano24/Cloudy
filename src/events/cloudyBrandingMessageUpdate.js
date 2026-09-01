@@ -1,4 +1,4 @@
-import { Events } from 'discord.js';
+import { Events, MessageFlags } from 'discord.js';
 import { normalizeCloudyMessage } from '../services/cloudyBrandingService.js';
 import {
   applySavedEmbedTemplates,
@@ -8,6 +8,7 @@ import {
   isRegistrableCloudyEmbedMessage,
   registerCloudyEmbedMessage,
 } from '../services/embedRegistryService.js';
+import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
 
 function isWelcomeEmbed(embed) {
   const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
@@ -27,7 +28,8 @@ export default {
 
     if (!message) return;
     if (message.author?.id !== message.client.user.id) return;
-    if (!isRegistrableCloudyEmbedMessage(message)) return;
+    if (message.flags?.has?.(MessageFlags.Ephemeral)) return;
+    if (isEmbedManagerSaveInProgress(message.id)) return;
 
     const oldEmbeds = oldMessage?.embeds || [];
     const welcomeEmbed = message.embeds?.find(isWelcomeEmbed) || null;
@@ -57,6 +59,8 @@ export default {
 
     const matchedTemplate = await applySavedEmbedTemplates(message);
     if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
-    await registerCloudyEmbedMessage(message, 'automatic-update');
+    if (isRegistrableCloudyEmbedMessage(message)) {
+      await registerCloudyEmbedMessage(message, 'automatic-update');
+    }
   },
 };

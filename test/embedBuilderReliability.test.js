@@ -12,10 +12,12 @@ import {
   removeEmbedRegistryMessage,
 } from '../src/services/embedRegistryService.js';
 import {
+  buildEmbedPayload,
   buildChannelPayload,
   openEmbedManager,
   shouldApplyBackgroundRegistryRefresh,
 } from '../src/services/embedManagerService.js';
+import { getSystemEmbedTemplateKey } from '../src/services/systemEmbedCatalogService.js';
 import {
   applyEmbedColorPickerSession,
   createEmbedColorPickerSession,
@@ -51,7 +53,9 @@ function record(guildId, channelId, messageId, embedIndex, title) {
     channelId,
     messageId,
     embedIndex,
-    source: 'test',
+    // These fixtures model a custom Builder message. The registry deliberately
+    // excludes random ordinary bot responses from the editable list.
+    source: 'embed-builder',
     title,
     name: title,
     createdAt: '2026-08-29T20:00:00.000Z',
@@ -419,6 +423,64 @@ test('saved template is applied before send and does not cause a second edit', a
   };
   assert.equal(await applySavedEmbedTemplates(alreadyDecoratedMessage), true);
   assert.equal(editCount, 0);
+});
+
+test('casino template identities ignore dynamic bets but keep result states separate', () => {
+  const blackjackBet = getSystemEmbedTemplateKey(
+    'embed',
+    'Blackjack — Bet $10',
+    'Cards remaining: **49**',
+    'gambling/blackjack',
+  );
+  const blackjackBetLater = getSystemEmbedTemplateKey(
+    'embed',
+    'Blackjack — Bet $100',
+    'Cards remaining: **42**',
+    'gambling/blackjack',
+  );
+
+  assert.equal(blackjackBet, 'game:blackjack:bet');
+  assert.equal(blackjackBetLater, blackjackBet);
+  assert.equal(
+    getSystemEmbedTemplateKey('embed', 'Result: Loss', 'Payout: **$0**', 'gambling/blackjack'),
+    'game:blackjack:result:loss',
+  );
+  assert.equal(
+    getSystemEmbedTemplateKey('embed', 'Result: Win', 'Payout: **$20**', 'gambling/blackjack'),
+    'game:blackjack:result:win',
+  );
+});
+
+test('embed manager shows one editable casino template for repeated dynamic results', () => {
+  const guildId = '100000000000000011';
+  const channelId = '200000000000000011';
+  const guild = buildGuild({ guildId, channelId, messages: new Map() });
+  guild.channels.cache.get(channelId).name = 'gambling';
+
+  const catalogRecord = (messageId, title, createdAt) => ({
+    guildId,
+    channelId,
+    backingChannelId: '900000000000000011',
+    messageId,
+    embedIndex: 0,
+    source: 'system-catalog',
+    title,
+    name: title,
+    createdAt,
+  });
+
+  const payload = buildEmbedPayload(guild, [
+    catalogRecord('300000000000000021', 'Blackjack — Bet $10', '2026-09-01T20:00:00.000Z'),
+    catalogRecord('300000000000000022', 'Blackjack — Bet $100', '2026-09-01T20:01:00.000Z'),
+    catalogRecord('300000000000000023', 'Result: Loss', '2026-09-01T20:02:00.000Z'),
+    catalogRecord('300000000000000024', 'Result: Loss', '2026-09-01T20:03:00.000Z'),
+  ], channelId);
+
+  const options = payload.components[0].toJSON().components[0].options;
+  assert.equal(options.length, 2);
+  assert.ok(options.some(option => option.label === 'Blackjack — Bet'));
+  assert.ok(options.some(option => option.label === 'Result: Loss'));
+  assert.ok(options.some(option => /applies to 2 matching embed\(s\)/.test(option.description)));
 });
 
 test('audit log lookup returns immediately when Discord already has the entry', async () => {

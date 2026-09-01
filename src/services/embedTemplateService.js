@@ -6,6 +6,10 @@ const TEMPLATE_PREFIX = 'cloudy:embed-template:';
 const GLOBAL_SCOPE = '__global__';
 const templateCache = new Map();
 const templateMutationQueues = new Map();
+// A Save must affect the very next bot response, even when its database write
+// is still queued. These overlays are folded into persistent cache reads and
+// disappear once the matching write succeeds.
+const templateOverlays = new Map();
 
 function normalizeKey(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -33,7 +37,14 @@ async function loadMergedTemplates(guildId, channelId) {
     loadTemplates(guildId, GLOBAL_SCOPE),
     loadTemplates(guildId, channelId),
   ]);
-  return { ...globalTemplates, ...channelTemplates };
+  const globalOverlay = templateOverlays.get(templateKey(guildId, GLOBAL_SCOPE)) || {};
+  const channelOverlay = templateOverlays.get(templateKey(guildId, channelId)) || {};
+  return {
+    ...globalTemplates,
+    ...globalOverlay,
+    ...channelTemplates,
+    ...channelOverlay,
+  };
 }
 
 async function mutateTemplates(guildId, channelId, operation) {
@@ -55,7 +66,7 @@ function dynamicParts(value = '') {
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
 
   text = text.replace(
-    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie|win|won|loss|lost|push|bust)\b|\b\d+(?:\.\d+)?\b/gi,
+    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
       values.push(match);
       return '{dynamic}';
@@ -107,6 +118,7 @@ function aliasKeys(value) {
 function pickTemplate(data = {}, options = {}) {
   const applyThumbnail = options.applyThumbnail === true;
   const applyImage = options.applyImage === true;
+  const hasDescription = Object.prototype.hasOwnProperty.call(data, 'description');
   const fields = Array.isArray(data.fields)
     ? data.fields.slice(0, 25).map(field => ({
         name: String(field?.name || '\u200B').slice(0, 256),
@@ -117,7 +129,9 @@ function pickTemplate(data = {}, options = {}) {
 
   return {
     title: data.title ?? null,
-    description: data.description ?? null,
+    // Omitted means "leave the live description alone". An explicit empty
+    // string/null is a deliberate removal from Embed Builder.
+    description: hasDescription ? data.description : undefined,
     fields,
     color: Number.isInteger(data.color) ? data.color : null,
     footer: data.footer?.text ? { ...data.footer } : null,
@@ -128,38 +142,76 @@ function pickTemplate(data = {}, options = {}) {
   };
 }
 
+function templateAliases(matchNames = [], embedData = {}) {
+  return [
+    ...matchNames,
+    embedData.title,
+    String(embedData.description || '').split('\n').find(Boolean),
+  ]
+    .flatMap(aliasKeys)
+    .filter(Boolean);
+}
+
+function prepareTemplateUpdate(matchNames = [], embedData = {}, options = {}) {
+  const updatedAt = new Date().toISOString();
+  return {
+    aliases: [...new Set(templateAliases(matchNames, embedData))],
+    template: pickTemplate(embedData, options),
+    updatedAt,
+  };
+}
+
+function primeTemplateOverlay(key, prepared) {
+  if (!prepared.aliases.length) return;
+  const current = { ...(templateOverlays.get(key) || {}) };
+  for (const alias of prepared.aliases) {
+    current[alias] = { ...prepared.template, updatedAt: prepared.updatedAt };
+  }
+  templateOverlays.set(key, current);
+}
+
+function clearSavedTemplateOverlay(key, prepared) {
+  const current = templateOverlays.get(key);
+  if (!current) return;
+
+  const next = { ...current };
+  for (const alias of prepared.aliases) {
+    if (next[alias]?.updatedAt === prepared.updatedAt) delete next[alias];
+  }
+  if (Object.keys(next).length) templateOverlays.set(key, next);
+  else templateOverlays.delete(key);
+}
+
 async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, options = {}) {
+  const key = templateKey(guildId, scope);
+  const prepared = prepareTemplateUpdate(matchNames, embedData, options);
+  primeTemplateOverlay(key, prepared);
+
   try {
     return await mutateTemplates(guildId, scope, async () => {
-      const key = templateKey(guildId, scope);
       const stored = await loadTemplates(guildId, scope);
       const templates = { ...stored };
-      const template = pickTemplate(embedData, options);
-      const aliases = [
-        ...matchNames,
-        embedData.title,
-        String(embedData.description || '').split('\n').find(Boolean),
-      ]
-        .flatMap(aliasKeys)
-        .filter(Boolean);
 
-      for (const alias of new Set(aliases)) {
+      for (const alias of prepared.aliases) {
         templates[alias] = {
-          ...template,
-          updatedAt: new Date().toISOString(),
+          ...prepared.template,
+          updatedAt: prepared.updatedAt,
         };
       }
 
       const saved = await setInDb(key, templates);
       if (!saved) {
         logger.error(`Failed to persist embed template for ${guildId}:${scope}`);
+        clearSavedTemplateOverlay(key, prepared);
         return false;
       }
 
       templateCache.set(key, templates);
+      clearSavedTemplateOverlay(key, prepared);
       return true;
     });
   } catch (error) {
+    clearSavedTemplateOverlay(key, prepared);
     logger.error('Failed to save embed template:', error);
     return false;
   }
@@ -198,12 +250,14 @@ function decorateEmbedData(embed, stored) {
     delete data.title;
   }
 
-  if (template.description) {
-    data.description = renderDynamic(template.description, original.description || '', {
-      fallbackToRuntimeOnMismatch: true,
-    });
-  } else {
-    delete data.description;
+  if (template.description !== undefined) {
+    if (template.description) {
+      data.description = renderDynamic(template.description, original.description || '', {
+        fallbackToRuntimeOnMismatch: true,
+      });
+    } else {
+      delete data.description;
+    }
   }
 
   if (Array.isArray(template.fields)) {
@@ -291,7 +345,11 @@ export async function applySavedEmbedTemplates(message) {
       return new EmbedBuilder(result.data);
     });
 
-    if (!matched || !changed) return false;
+    // A template that already matches is still authoritative. Reporting it as
+    // unmatched lets the generic branding handler run afterward and reintroduce
+    // default styling on a correctly saved game/log embed.
+    if (!matched) return false;
+    if (!changed) return true;
     const edited = await message.edit({ embeds }).catch(error => {
       logger.debug(`[EMBED_BUILDER] Saved template could not be applied to message ${message.id}: ${error?.message || error}`);
       return null;

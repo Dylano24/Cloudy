@@ -5,6 +5,7 @@ import {
   applyRuntimeEmbedTemplateData,
   captureSystemEmbedData,
 } from '../services/systemEmbedCatalogService.js';
+import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
@@ -320,6 +321,9 @@ async function scanRecentBotResponses(client) {
         if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) continue;
         messagesScanned += 1;
         try {
+          // Reapply Builder styling to recent interaction replies too. These
+          // replies do not pass through the normal registry on creation.
+          await applySavedEmbedTemplates(message);
           if (captureMessage(message)) responsesCaptured += 1;
         } catch (error) {
           logger.debug(`[EMBED_BUILDER] Historical response capture skipped: ${error?.message || error}`);
