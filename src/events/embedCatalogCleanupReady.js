@@ -1,4 +1,5 @@
 import { Events } from 'discord.js';
+import { reconcileEmbedRegistry } from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
 
 const CATALOG_CONTENT = 'System & error embed templates';
@@ -31,13 +32,17 @@ function isSlotsEmbed(embed) {
 
 function catalogIdentity(embed) {
   const data = embed?.toJSON ? embed.toJSON() : (embed || {});
+  const author = String(data.author?.name || '');
+  const stableKey = author.match(/^Cloudy\s+template\s+key:\s*([^|]+)/i)?.[1]?.trim().toLowerCase() || '';
   const context = metadataContext(embed);
+
+  // Prefer the hidden stable system key. A visible title can be completely
+  // renamed in the Builder and must not create a second logical template.
+  if (stableKey) return `${context}::system:${stableKey}`;
+
   const title = normalize(data.title || '');
   const fieldNames = (data.fields || []).map(field => normalize(field?.name || '')).join('|');
   const description = normalize(data.description || '');
-
-  // A visible title is the stable Builder type. Dynamic amounts/ids and spacing
-  // differences must never create a second master template.
   if (title) return `${context}::${title}`;
   return `${context}::${fieldNames}::${description}`;
 }
@@ -90,7 +95,19 @@ async function cleanupGuild(guild, clientUserId) {
     }
   }
 
-  return { removed, slotsRemoved };
+  // Cleanup changes physical embed indices/counts. Reconcile immediately so
+  // the manager never shows an old raw registry count (for example 102) while
+  // its channel views already show the cleaned logical count (for example 59).
+  const reconciliation = await reconcileEmbedRegistry(guild).catch(error => {
+    logger.warn(`[EMBED_BUILDER] Registry reconcile after catalog cleanup failed: ${error?.message || error}`);
+    return null;
+  });
+
+  return {
+    removed,
+    slotsRemoved,
+    registryCount: reconciliation?.records?.length ?? null,
+  };
 }
 
 export default {
@@ -102,12 +119,14 @@ export default {
       void (async () => {
         let removed = 0;
         let slotsRemoved = 0;
+        let registryCount = 0;
         for (const guild of client.guilds.cache.values()) {
           const result = await cleanupGuild(guild, client.user.id);
           removed += result.removed;
           slotsRemoved += result.slotsRemoved;
+          if (Number.isInteger(result.registryCount)) registryCount += result.registryCount;
         }
-        logger.warn(`[EMBED_BUILDER] Catalog cleanup complete: ${removed} duplicate/retired entries removed (${slotsRemoved} slots).`);
+        logger.warn(`[EMBED_BUILDER] Catalog cleanup complete: ${removed} duplicate/retired entries removed (${slotsRemoved} slots); registry reconciled to ${registryCount} physical record(s).`);
       })().catch(error => {
         logger.warn(`[EMBED_BUILDER] Catalog cleanup failed: ${error?.message || error}`);
       });
