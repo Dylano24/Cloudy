@@ -59,9 +59,11 @@ function searchButton() {
 }
 
 function addSearchControl(payload) {
-  // Search remains available internally for existing sessions, but the user
-  // no longer wants a Search button in the Embed Builder interface.
-  return payload;
+  if (!isModifyEmbedPayload(payload) || hasSearchButton(payload)) return payload;
+  const components = Array.isArray(payload.components) ? [...payload.components] : [];
+  if (components.length >= 5) return payload;
+  components.push(new ActionRowBuilder().addComponents(searchButton()));
+  return { ...payload, components };
 }
 
 function patchManagerResponses() {
@@ -105,13 +107,6 @@ function shortText(value, max = 100) {
   return (text || 'Untitled embed').slice(0, max);
 }
 
-function templateSearchShape(value) {
-  return searchKey(value)
-    .replace(/\b\d{1,20}(?:\.\d+)?\b/g, ' dynamic ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function normalizedTitle(record) {
   const snapshot = getEmbedRegistrySnapshot(record) || {};
   return String(record?.name || record?.title || snapshot?.title || 'Untitled embed')
@@ -135,9 +130,6 @@ function recordDocument(guild, record) {
   const fields = Array.isArray(snapshot.fields)
     ? snapshot.fields.flatMap(field => [field?.name, field?.value])
     : [];
-  const fieldNames = Array.isArray(snapshot.fields)
-    ? snapshot.fields.map(field => field?.name).filter(Boolean)
-    : [];
 
   const title = normalizedTitle(record);
   const titleText = [title, record?.name, record?.title, snapshot.title]
@@ -160,9 +152,6 @@ function recordDocument(guild, record) {
     titleKey: searchKey(titleText),
     bodyKey: searchKey(bodyText),
     allKey: searchKey(`${titleText} ${bodyText}`),
-    // The title is the visible template identity. Runtime descriptions (such
-    // as appeal answers) must not turn one titled embed into many entries.
-    templateKey: templateSearchShape(title) || templateSearchShape(fieldNames.join(' ')),
     channel,
   };
 }
@@ -248,15 +237,6 @@ function fuzzyScore(document, query) {
   const queryTokens = normalizedQuery.split(' ').filter(Boolean);
   const titleTokens = uniqueTokens(document.titleKey, 150);
   const bodyTokens = uniqueTokens(document.bodyKey, 700);
-
-  // Title searches are the primary Builder flow. A first word or a beginning
-  // of a title must always work, before any fuzzy scoring is considered.
-  const titlePrefixMatch = queryTokens.every(queryToken =>
-    titleTokens.some(titleToken => titleToken.startsWith(queryToken)),
-  );
-  if (titlePrefixMatch) {
-    return 2_000 + (document.titleKey.startsWith(normalizedQuery) ? 500 : 0);
-  }
   let score = 0;
 
   for (const queryToken of queryTokens) {
@@ -298,7 +278,7 @@ function findSearchMatches(guild, records, query) {
     const score = fuzzyScore(document, query);
     if (score == null) continue;
 
-    const logicalName = document.templateKey
+    const logicalName = searchKey(document.title)
       || searchKey(record?.name)
       || searchKey(record?.source)
       || `${record.messageId}:${record.embedIndex || 0}`;

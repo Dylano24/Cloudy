@@ -808,7 +808,7 @@ async function postMessage(buttonInteraction, state, guild) {
             return;
         }
 
-        void refreshBuilder(buttonInteraction.message?.interaction ? buttonInteraction : buttonInteraction, state).catch(() => {});
+        await refreshBuilder(buttonInteraction.message?.interaction ? buttonInteraction : buttonInteraction, state).catch(() => {});
         const savedMessage = await buttonInteraction.followUp({
             embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
             flags: MessageFlags.Ephemeral,
@@ -1030,7 +1030,7 @@ export default {
                                     });
                                     break;
                                 }
-                                void refreshBuilder(buttonInteraction, state).catch(() => {});
+                                await refreshBuilder(buttonInteraction, state);
                                 const savedMessage = await buttonInteraction.followUp({
                                     embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
                                     flags: MessageFlags.Ephemeral,

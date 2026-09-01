@@ -2,7 +2,6 @@ import { SlashCommandBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { decorateEmbedWithSavedTemplate } from '../../services/embedTemplateService.js';
 import { takeBet, settleBet, money } from './modules/casinoGameUtils.js';
 import { getRouletteColor, rouletteNumberEmoji } from './modules/rouletteNumberEmoji.js';
 
@@ -15,53 +14,29 @@ export default {
       .setMinValue(1))
     .addStringOption(option => option
       .setName('bet')
-      .setDescription('Choose your roulette bet')
-      .setRequired(true)
-      .addChoices(
-        { name: 'Red', value: 'red' },
-        { name: 'Black', value: 'black' },
-        { name: 'Even', value: 'even' },
-        { name: 'Odd', value: 'odd' },
-        { name: 'Number', value: 'number' },
-      ))
-    .addIntegerOption(option => option
-      .setName('number')
-      .setDescription('Choose a number from 0 to 36 when bet is Number')
-      .setRequired(false)
-      .setMinValue(0)
-      .setMaxValue(36)),
+      .setDescription('Choose red, black, even, odd, or a number 0–36')
+      .setRequired(true)),
   category: 'Economy',
   execute: withErrorHandling(async (interaction, config, client) => {
     const deferred = await InteractionHelper.safeDefer(interaction);
     if (!deferred) return;
 
-    const selectedBet = interaction.options.getString('bet', true).trim().toLowerCase();
-    const selectedNumber = interaction.options.getInteger('number');
-
-    if (!['red', 'black', 'even', 'odd', 'number'].includes(selectedBet)) {
+    const choice = interaction.options.getString('bet').trim().toLowerCase();
+    if (!['red', 'black', 'even', 'odd'].includes(choice) && !/^(?:[0-9]|[12][0-9]|3[0-6])$/.test(choice)) {
       throw createError(
         'Invalid roulette bet',
         ErrorTypes.VALIDATION,
-        'Choose `red`, `black`, `even`, `odd`, or `number`.',
+        'Choose `red`, `black`, `even`, `odd`, or a number from 0 to 36.',
       );
     }
 
-    if (selectedBet === 'number' && selectedNumber === null) {
-      throw createError(
-        'Roulette number required',
-        ErrorTypes.VALIDATION,
-        'Choose a number from 0 to 36 when your bet is `Number`.',
-      );
-    }
-
-    const choice = selectedBet === 'number' ? String(selectedNumber) : selectedBet;
     const { amount, userData } = await takeBet(interaction, client);
     const number = Math.floor(Math.random() * 37);
     const color = getRouletteColor(number);
     const tile = await rouletteNumberEmoji(client, number);
-    const numberBet = selectedBet === 'number';
+    const numberBet = /^\d+$/.test(choice);
     const won = numberBet
-      ? selectedNumber === number
+      ? Number(choice) === number
       : choice === color || (number !== 0 && choice === (number % 2 ? 'odd' : 'even'));
     const multiplier = numberBet ? (won ? 36 : 0) : (won ? 2 : 0);
     const result = await settleBet(interaction, client, userData, amount, multiplier);
@@ -81,10 +56,6 @@ export default {
       ],
     });
 
-    const styled = interaction.guildId && interaction.channelId
-      ? await decorateEmbedWithSavedTemplate(interaction.guildId, interaction.channelId, embed)
-      : { embed };
-
-    await InteractionHelper.safeEditReply(interaction, { embeds: [styled.embed], components: [] });
+    await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components: [] });
   }, { command: 'roulette' }),
 };

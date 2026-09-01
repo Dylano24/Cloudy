@@ -1,13 +1,11 @@
 import { Events } from 'discord.js';
 import { normalizeCloudyMessage } from '../services/cloudyBrandingService.js';
-import { registerCloudyEmbedMessages, scanGuildForCloudyEmbeds } from '../services/embedRegistryService.js';
+import { registerCloudyEmbedMessages } from '../services/embedRegistryService.js';
 
 const PAGE_DELAY_MS = 200;
 const CHANNEL_DELAY_MS = 350;
 const BRANDING_SCAN_VERSION = 2;
 const BRANDING_SCAN_STATE_KEY = 'global:cloudy:branding-history-scan-version';
-const EMBED_REGISTRY_RESTORE_VERSION = 1;
-const EMBED_REGISTRY_RESTORE_KEY = 'global:cloudy:embed-registry-restore-version';
 
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -116,16 +114,6 @@ export default {
 
         if (completedVersion >= BRANDING_SCAN_VERSION) {
           console.log('[CLOUDY_BRANDING] Full history scan already completed; live message normalization remains active.');
-          const restoredVersion = Number(
-            await client.db?.get?.(EMBED_REGISTRY_RESTORE_KEY, 0).catch(() => 0) || 0,
-          );
-          if (restoredVersion < EMBED_REGISTRY_RESTORE_VERSION) {
-            for (const guild of client.guilds.cache.values()) {
-              const result = await scanGuildForCloudyEmbeds(guild, client.user.id);
-              console.log(`[EMBED_BUILDER] Registry restored: ${guild.name}: scanned ${result.scanned}, restored ${result.found} entries.`);
-            }
-            await client.db?.set?.(EMBED_REGISTRY_RESTORE_KEY, EMBED_REGISTRY_RESTORE_VERSION).catch(() => null);
-          }
           return;
         }
 
