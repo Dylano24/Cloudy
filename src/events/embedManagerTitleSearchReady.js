@@ -59,11 +59,9 @@ function searchButton() {
 }
 
 function addSearchControl(payload) {
-  if (!isModifyEmbedPayload(payload) || hasSearchButton(payload)) return payload;
-  const components = Array.isArray(payload.components) ? [...payload.components] : [];
-  if (components.length >= 5) return payload;
-  components.push(new ActionRowBuilder().addComponents(searchButton()));
-  return { ...payload, components };
+  // Search remains available internally for existing sessions, but the user
+  // no longer wants a Search button in the Embed Builder interface.
+  return payload;
 }
 
 function patchManagerResponses() {
