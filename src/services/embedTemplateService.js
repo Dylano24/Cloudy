@@ -55,7 +55,7 @@ function dynamicParts(value = '') {
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
 
   text = text.replace(
-    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie|win|won|loss|lost|push|bust)\b|\b\d+(?:\.\d+)?\b/gi,
+    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
       values.push(match);
       return '{dynamic}';
