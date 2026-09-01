@@ -183,3 +183,88 @@ test('stable system key keeps saved title, logo and style across a different liv
   assert.equal(data.fields[0].name, 'Your Hand');
   assert.match(data.fields[0].value, /18/);
 });
+
+test('builder field labels can change without freezing live game values or dropping extra fields', async () => {
+  installBlockingStorage();
+  const guildId = '810000000000000004';
+  const channelId = '820000000000000004';
+  const authorName = 'Cloudy template key: blackjack-fields || Cloudy context: gambling/blackjack || Cloudy kind: embed';
+
+  const saved = await saveEmbedTemplateDecoration(
+    guildId,
+    channelId,
+    ['Blackjack — Bet $10'],
+    {
+      title: 'Blackjack bet',
+      color: 0x123456,
+      author: { name: authorName },
+      fields: [
+        { name: 'Bet', value: '$10', inline: true },
+        { name: 'Dealer', value: 'Value: 17', inline: true },
+      ],
+    },
+  );
+  assert.equal(saved, true);
+
+  const live = new EmbedBuilder({
+    title: 'Blackjack — Bet $25',
+    color: 0x5865F2,
+    author: { name: authorName },
+    fields: [
+      { name: 'Your Hand 1', value: '<:card:111111111111111111>\nValue: **20**', inline: true },
+      { name: 'Your Hand 2', value: '<:card:222222222222222222>\nValue: **18**', inline: true },
+      { name: 'Dealer Hand', value: '<:card:333333333333333333>\nValue: **17**', inline: true },
+    ],
+  });
+
+  const decorated = await decorateEmbedWithSavedTemplate(guildId, channelId, live);
+  const data = decorated.embed.toJSON();
+
+  assert.equal(data.title, 'Blackjack bet $25');
+  assert.equal(data.color, 0x123456);
+  assert.equal(data.fields.length, 3);
+  assert.equal(data.fields[0].name, 'Bet');
+  assert.match(data.fields[0].value, /20/);
+  assert.equal(data.fields[1].name, 'Dealer');
+  assert.match(data.fields[1].value, /18/);
+  assert.equal(data.fields[2].name, 'Dealer Hand');
+  assert.match(data.fields[2].value, /17/);
+});
+
+test('edited log labels keep each historical runtime value intact', async () => {
+  installBlockingStorage();
+  const guildId = '810000000000000005';
+  const channelId = '820000000000000005';
+  const authorName = 'Cloudy template key: moderation-log || Cloudy context: botlog/ban || Cloudy kind: embed';
+
+  await saveEmbedTemplateDecoration(
+    guildId,
+    channelId,
+    ['Ban Log'],
+    {
+      title: 'Ban Log',
+      author: { name: authorName },
+      description: '**Member:** Old User\n**Reason:** Old reason\n**Date:** <t:1700000000:F>',
+      fields: [
+        { name: 'Moderator', value: '<@111111111111111111>', inline: true },
+      ],
+    },
+  );
+
+  const live = new EmbedBuilder({
+    title: 'Ban Log',
+    author: { name: authorName },
+    description: '**Member:** New User\n**Reason:** New live reason\n**Date:** <t:1800000000:F>',
+    fields: [
+      { name: 'Moderator', value: '<@222222222222222222>', inline: true },
+    ],
+  });
+
+  const decorated = await decorateEmbedWithSavedTemplate(guildId, channelId, live);
+  const data = decorated.embed.toJSON();
+
+  assert.match(data.description, /New User/);
+  assert.match(data.description, /New live reason/);
+  assert.match(data.description, /1800000000/);
+  assert.equal(data.fields[0].value, '<@222222222222222222>');
+});
