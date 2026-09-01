@@ -73,7 +73,7 @@ function dynamicParts(value = '') {
   const sentinel = '\u0000CLOUDY_DYNAMIC\u0000';
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
   text = text.replace(
-    /<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
+    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|[$€£][\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
       values.push(match);
       return '{dynamic}';
@@ -87,14 +87,27 @@ function dynamicParts(value = '') {
   };
 }
 
-function renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch = false } = {}) {
+function renderDynamic(template, runtime, {
+  fallbackToRuntimeOnMismatch = false,
+  appendMissingRuntimeDynamics = false,
+  preserveRuntimeWhenTemplateStatic = false,
+} = {}) {
   const source = String(runtime || '');
   const templateSource = String(template || '');
   const runtimeParts = dynamicParts(source);
   const templateParts = dynamicParts(templateSource);
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
 
-  if (!placeholders.length) return templateSource;
+  if (!placeholders.length) {
+    if (runtimeParts.values.length && preserveRuntimeWhenTemplateStatic) return source;
+    if (runtimeParts.values.length && appendMissingRuntimeDynamics) {
+      const cleanTemplate = templateSource.replace(/\u200B/g, '').trim();
+      if (!cleanTemplate) return source;
+      return `${cleanTemplate} ${runtimeParts.values.join(' ')}`.trim();
+    }
+    return templateSource;
+  }
+
   if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) return source;
 
   let runtimeIndex = 0;
@@ -106,6 +119,58 @@ function renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch = false 
   });
 
   return fallbackToRuntimeOnMismatch && /\{dynamic\}/i.test(rendered) ? source : rendered;
+}
+
+function splitLabeledDynamicLine(line) {
+  const match = String(line || '').match(/^(\s*(?:>\s*)?\*\*[^*]+:\*\*\s*)(.*)$/);
+  return match ? { prefix: match[1], value: match[2] } : null;
+}
+
+function mergeRuntimeDescription(template, runtime) {
+  const templateLines = String(template || '').split('\n');
+  const runtimeLines = String(runtime || '').split('\n');
+  const lineCount = Math.max(templateLines.length, runtimeLines.length);
+  const merged = [];
+
+  for (let index = 0; index < lineCount; index += 1) {
+    const templateLine = templateLines[index] ?? '';
+    const runtimeLine = runtimeLines[index] ?? '';
+    const templateLabeled = splitLabeledDynamicLine(templateLine);
+    const runtimeLabeled = splitLabeledDynamicLine(runtimeLine);
+
+    if (templateLabeled && runtimeLabeled) {
+      merged.push(`${templateLabeled.prefix}${runtimeLabeled.value}`);
+      continue;
+    }
+
+    if (!templateLine && runtimeLine) {
+      merged.push(runtimeLine);
+      continue;
+    }
+
+    merged.push(renderDynamic(templateLine, runtimeLine, {
+      fallbackToRuntimeOnMismatch: true,
+      appendMissingRuntimeDynamics: true,
+    }));
+  }
+
+  return merged.join('\n').slice(0, 4096);
+}
+
+function mergeRuntimeFieldValue(templateValue, runtimeValue) {
+  const runtime = String(runtimeValue || '');
+  const template = String(templateValue || '');
+  if (!runtime) return template;
+  if (!template || !template.replace(/\u200B/g, '').trim()) return runtime;
+  const placeholders = (dynamicParts(template).tokenized.match(/\{dynamic\}/gi) || []).length;
+  if (placeholders) {
+    return renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch: true });
+  }
+
+  // Values are live state. The Builder may rename/re-style the field, but it
+  // must never freeze a sampled bet, balance, card value, moderator, reason,
+  // timestamp, etc. from the catalog entry.
+  return runtime;
 }
 
 function responseSignature(kind, title = '', description = '') {
@@ -196,6 +261,13 @@ function parseTemplateMetadata(embed) {
   }
 
   return { key: normalize(metadata), context, kind };
+}
+
+function hasCatalogMetadata(message) {
+  return (message?.embeds || []).some(embed => {
+    const data = cloneData(embed);
+    return String(data.author?.name || '').toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase());
+  });
 }
 
 function withStableKey(data, key, context = null, kind = 'embed') {
@@ -467,24 +539,30 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   }
 
   const next = { ...data };
-  if (template.title) next.title = renderDynamic(template.title, data.title, { fallbackToRuntimeOnMismatch: true });
-  if (template.description) next.description = renderDynamic(template.description, data.description, { fallbackToRuntimeOnMismatch: true });
+  if (template.title) {
+    next.title = renderDynamic(template.title, data.title, {
+      fallbackToRuntimeOnMismatch: true,
+      appendMissingRuntimeDynamics: true,
+    }).slice(0, 256);
+  }
+  if (template.description) next.description = mergeRuntimeDescription(template.description, data.description);
   if (Number.isInteger(template.color)) next.color = template.color;
 
   if (Array.isArray(template.fields)) {
     const runtimeFields = Array.isArray(data.fields) ? data.fields : [];
     next.fields = runtimeFields.length
-      ? runtimeFields.map((runtimeField, index) => {
+      ? runtimeFields.slice(0, 25).map((runtimeField, index) => {
         const templateField = template.fields[index];
         if (!templateField) return { ...runtimeField };
         return {
           ...runtimeField,
           name: templateField.name
-            ? renderDynamic(templateField.name, runtimeField.name, { fallbackToRuntimeOnMismatch: true })
+            ? renderDynamic(templateField.name, runtimeField.name, {
+              fallbackToRuntimeOnMismatch: true,
+              appendMissingRuntimeDynamics: true,
+            }).slice(0, 256)
             : runtimeField.name,
-          value: templateField.value
-            ? renderDynamic(templateField.value, runtimeField.value, { fallbackToRuntimeOnMismatch: true })
-            : runtimeField.value,
+          value: mergeRuntimeFieldValue(templateField.value, runtimeField.value).slice(0, 1024),
           inline: typeof templateField.inline === 'boolean' ? templateField.inline : runtimeField.inline,
         };
       })
@@ -494,7 +572,10 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   if (template.footer?.text) {
     next.footer = {
       ...template.footer,
-      text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, { fallbackToRuntimeOnMismatch: true }),
+      text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, {
+        fallbackToRuntimeOnMismatch: true,
+        appendMissingRuntimeDynamics: true,
+      }),
     };
   } else delete next.footer;
 
@@ -530,7 +611,10 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
     return payload;
   }
 
-  const replacement = renderDynamic(template.description || content, content, { fallbackToRuntimeOnMismatch: true });
+  const replacement = renderDynamic(template.description || content, content, {
+    fallbackToRuntimeOnMismatch: true,
+    appendMissingRuntimeDynamics: true,
+  });
   if (typeof payload === 'string') return replacement;
   return { ...payload, content: replacement };
 }
@@ -573,12 +657,19 @@ export async function syncSystemEmbedCatalogMessage(message) {
   if (!message?.guildId || !message?.channelId || !message?.embeds?.length) return false;
   const context = contexts.get(message.guildId);
   if (!context || String(context.channel.id) !== String(message.channelId)) return false;
+  if (!hasCatalogMetadata(message)) return false;
 
-  const ids = await getFromDb(storageKey(message.guildId), []);
-  if (!Array.isArray(ids) || !ids.includes(message.id)) return false;
-
+  // The Builder save path already knows this is a catalog-backed embed. Publish
+  // the edit to memory before touching the DB so the next command cannot see the
+  // previous title/color/logo/footer while persistence/registry work is pending.
   rememberCatalogMessage(message);
-  await registerCatalogMessages([message]).catch(error => logger.warn(`Failed to sync edited response template: ${error.message}`));
+
+  void (async () => {
+    const ids = await getFromDb(storageKey(message.guildId), []);
+    if (!Array.isArray(ids) || !ids.includes(message.id)) return;
+    await registerCatalogMessages([message]).catch(error => logger.warn(`Failed to sync edited response template: ${error.message}`));
+  })().catch(error => logger.warn(`System embed catalog background sync failed: ${error.message}`));
+
   return true;
 }
 
