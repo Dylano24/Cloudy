@@ -978,7 +978,9 @@ export async function saveModifiedEmbed(guild, state) {
             || getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
         const aliases = [sourceData.title, current.title, sourceRule?.label].filter(Boolean);
 
-        await saveEmbedTemplateDecoration(
+        // The selected embed is already saved above. Persist the reusable
+        // template without holding the Save interaction open on a DB roundtrip.
+        void saveEmbedTemplateDecoration(
             guild.id,
             target.channelId,
             aliases,
@@ -987,7 +989,7 @@ export async function saveModifiedEmbed(guild, state) {
                 applyThumbnail: mediaChanges.thumbnailChanged,
                 applyImage: mediaChanges.imageChanged,
             },
-        );
+        ).catch(error => logger.error('Failed to persist saved embed template:', error));
 
         const targetSnapshot = {
             ...target,
