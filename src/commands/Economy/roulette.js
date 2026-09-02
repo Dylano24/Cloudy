@@ -42,7 +42,7 @@ export default {
     const result = await settleBet(interaction, client, userData, amount, multiplier);
 
     const embed = createEmbed({
-      title: won ? 'Roulette — You won!' : 'Roulette — You lost',
+      title: won ? 'Roulette win' : 'Roulette loss',
       description: `The wheel landed on ${tile}\n**${number} • ${color.charAt(0).toUpperCase() + color.slice(1)}**`,
       color: won ? 'success' : 'warning',
       fields: [
