@@ -1,5 +1,5 @@
 import { Events } from 'discord.js';
-import { getFromDb } from '../utils/database.js';
+import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
@@ -27,9 +27,39 @@ function summarizeTitles(records) {
     .map(([title, count]) => ({ title, count }));
 }
 
-async function inspectGuild(guild, phase) {
-  logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] phase=${phase} guild=${guild.id} inspect-start`);
+async function cleanupOrphanCatalogRegistry(guild) {
+  const registryKey = `${REGISTRY_PREFIX}${guild.id}`;
+  const catalogKey = `${CATALOG_PREFIX}${guild.id}`;
+  const registry = await getFromDb(registryKey, []);
+  const catalogIds = await getFromDb(catalogKey, []);
+  const records = Array.isArray(registry) ? registry : [];
+  const ids = Array.isArray(catalogIds) ? catalogIds.map(String).filter(Boolean) : [];
 
+  // Never prune if the canonical catalog id list itself is unavailable. This
+  // cleanup is allowed to remove only proven orphan system-catalog references.
+  if (!ids.length) {
+    logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-skipped guild=${guild.id} reason=no-active-catalog-ids`);
+    return;
+  }
+
+  const activeIds = new Set(ids);
+  const removed = records.filter(record =>
+    String(record?.source || '') === 'system-catalog'
+    && !activeIds.has(String(record?.messageId || '')));
+  const next = records.filter(record =>
+    String(record?.source || '') !== 'system-catalog'
+    || activeIds.has(String(record?.messageId || '')));
+
+  if (!removed.length) {
+    logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-complete guild=${guild.id} removed=0 kept=${next.length}`);
+    return;
+  }
+
+  const saved = await setInDb(registryKey, next);
+  logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-complete guild=${guild.id} removed=${removed.length} kept=${next.length} saved=${Boolean(saved)}`);
+}
+
+async function inspectGuild(guild, phase) {
   const registry = await getFromDb(`${REGISTRY_PREFIX}${guild.id}`, []);
   const records = Array.isArray(registry) ? registry : [];
   const catalogIds = await getFromDb(`${CATALOG_PREFIX}${guild.id}`, []);
@@ -73,15 +103,6 @@ async function inspectGuild(guild, phase) {
   ].join(' '));
 
   logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] phase=${phase} activeGamblingTitles=${JSON.stringify(summarizeTitles(activeGamblingRecords))}`);
-  logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] phase=${phase} orphanGamblingTitles=${JSON.stringify(summarizeTitles(orphanGamblingRecords))}`);
-  logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] phase=${phase} namedGameRecords=${JSON.stringify(gameNameRecords.slice(0, 80).map(record => ({
-    title: record?.title || '',
-    name: record?.name || '',
-    messageId: String(record?.messageId || ''),
-    channelId: String(record?.channelId || ''),
-    backingChannelId: String(record?.backingChannelId || ''),
-    activeCatalogId: idSet.has(String(record?.messageId || '')),
-  })))}`);
 }
 
 export default {
@@ -90,6 +111,15 @@ export default {
 
   execute(client) {
     logger.warn('[GAMING_CATALOG_DIAGNOSTIC] event-armed');
+
+    const cleanupTimer = setTimeout(() => {
+      for (const guild of client.guilds.cache.values()) {
+        void cleanupOrphanCatalogRegistry(guild).catch(error => {
+          logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-failed guild=${guild.id}: ${error?.message || error}`);
+        });
+      }
+    }, 1000);
+    cleanupTimer.unref?.();
 
     for (const [phase, delay] of [['early', 8000], ['settled', 35000]]) {
       const timer = setTimeout(() => {
