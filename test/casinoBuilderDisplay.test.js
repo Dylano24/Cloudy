@@ -9,7 +9,7 @@ import {
   primeSystemEmbedTemplateData,
 } from '../src/services/systemEmbedCatalogService.js';
 
-function catalogRecord(index, key, title, context = null) {
+function catalogRecord(index, key, title, context = null, extra = {}) {
   const gameContext = context || `gambling/${key.split(':')[1]}`;
   return {
     guildId: 'guild-casino-labels',
@@ -22,6 +22,7 @@ function catalogRecord(index, key, title, context = null) {
     name: title,
     createdAt: new Date(Date.UTC(2026, 8, 2, 16, index)).toISOString(),
     snapshot: {
+      ...extra,
       title,
       author: {
         name: `Cloudy template key: ${key} || Cloudy context: ${gameContext} || Cloudy kind: embed`,
@@ -93,16 +94,35 @@ test('casino templates use stable game names and render custom emoji without exp
 test('legacy casino loss copies collapse into one canonical Save target per game', () => {
   const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
   const cases = [
-    ['game:roulette:lost', 'Roulette loss', 'gambling/roulette'],
-    ['game:blackjack:result:loss', 'Blackjack loss', 'gambling/blackjack'],
-    ['game:baccarat:loss', 'Baccarat loss', 'gambling/baccarat'],
+    ['game:roulette:lost', 'Roulette loss', 'gambling/roulette', {
+      description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
+      fields: [
+        { name: 'Your bet', value: '{dynamic}' },
+        { name: 'Result', value: '{dynamic}' },
+        { name: 'Cash balance', value: '{dynamic}' },
+      ],
+    }],
+    ['game:blackjack:result:loss', 'Blackjack loss', 'gambling/blackjack', {
+      description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**',
+      fields: [
+        { name: 'Your Hand', value: '{dynamic}' },
+        { name: 'Dealer Hand', value: '{dynamic}' },
+      ],
+    }],
+    ['game:baccarat:loss', 'Baccarat loss', 'gambling/baccarat', {
+      description: 'You chose **{dynamic}**. Winner: **{dynamic}**\nYou lost **{dynamic}**',
+      fields: [
+        { name: 'Player Hand', value: '{dynamic}' },
+        { name: 'Banker Hand', value: '{dynamic}' },
+      ],
+    }],
   ];
 
-  for (const [key, name, context] of cases) {
+  for (const [key, name, context, shape] of cases) {
     const records = [
-      catalogRecord(0, key, name, context),
-      catalogRecord(1, 'embed:legacy-one', emojiTitle, context),
-      catalogRecord(2, 'embed:legacy-two', emojiTitle, context),
+      catalogRecord(0, key, name, context, shape),
+      catalogRecord(1, 'embed:legacy-one', emojiTitle, 'gambling', shape),
+      catalogRecord(2, 'embed:legacy-two', emojiTitle, 'gambling', shape),
     ];
     const options = menuOptions(buildEmbedPayload(
       gamblingGuild(),
@@ -135,7 +155,7 @@ test('catalog cleanup migrates old Roulette copies without deleting the saved em
         { name: 'Cash balance', value: '**{dynamic}**', inline: true },
       ],
       author: {
-        name: `Cloudy template key: ${key} || Cloudy context: gambling/roulette || Cloudy kind: embed`,
+        name: `Cloudy template key: ${key} || Cloudy context: ${key.startsWith('game:') ? 'gambling/roulette' : 'gambling'} || Cloudy kind: embed`,
       },
     })],
     async edit(payload) {
