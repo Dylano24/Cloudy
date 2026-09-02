@@ -101,7 +101,8 @@ test('legacy ticket log titles collapse into the current ten Builder entries', (
     [field('Ticket'), field('Staff member')],
   ));
 
-  // A normal non-ticket embed in the same channel must remain visible.
+  // Ticket logs are now a strict event-only Builder scope. Unrelated embeds
+  // that happen to exist in the physical history must not leak into its menu.
   records.push(record(
     '500000000000000002',
     '2026-09-02T11:00:00.000Z',
@@ -112,8 +113,9 @@ test('legacy ticket log titles collapse into the current ten Builder entries', (
   const payload = buildEmbedPayload(guild(), records, channelId, 0);
   const options = payload.components[0].toJSON().components[0].options;
   const labels = options.map(option => option.label).sort();
-  const expected = [...current.map(([, title]) => title), 'Maintenance notice'].sort();
+  const expected = current.map(([, title]) => title).sort();
 
   assert.deepEqual(labels, expected);
   assert.equal(labels.includes('Ticket status changed'), false);
+  assert.equal(labels.includes('Maintenance notice'), false);
 });
