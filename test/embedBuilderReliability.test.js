@@ -15,6 +15,7 @@ import {
   buildEmbedPayload,
   buildChannelPayload,
   openEmbedManager,
+  prefersCatalogPreview,
   shouldApplyBackgroundRegistryRefresh,
   templateIdentity,
 } from '../src/services/embedManagerService.js';
@@ -23,7 +24,11 @@ import {
   isCloudyLogoUrl,
   migrateCloudyLogoEmbedData,
 } from '../src/services/cloudyLogoService.js';
-import { getSystemEmbedTemplateKey } from '../src/services/systemEmbedCatalogService.js';
+import {
+  applyRuntimeEmbedTemplateData,
+  getSystemEmbedTemplateKey,
+  primeSystemEmbedTemplateData,
+} from '../src/services/systemEmbedCatalogService.js';
 import {
   isBlackjackEmbed,
   stripBlackjackCardsRemaining,
@@ -39,6 +44,8 @@ import {
   saveEmbedTemplateDecoration,
 } from '../src/services/embedTemplateService.js';
 import { fetchRecentAuditEntry } from '../src/services/recentAuditLogService.js';
+import { logTicketEvent } from '../src/utils/ticket/ticketLogging.js';
+import ticketLogFooterEnforcer from '../src/events/ticketLogFooterEnforcer.js';
 
 function installTestStorage() {
   const values = new Map();
@@ -162,7 +169,9 @@ test('registry reconciliation removes deleted messages and missing embed indexes
   assert.equal(result.records.length, 1);
   assert.equal(result.removedRecords, 2);
   assert.match(payload.embeds[0].toJSON().description, /\*\*Embeds found:\*\* 1/);
-  assert.match(payload.components[0].toJSON().components[0].options[0].label, /1 embed$/);
+  const channelOption = payload.components[0].toJSON().components[0].options[0];
+  assert.equal(channelOption.label, '# command-channel');
+  assert.equal(channelOption.description, 'Open the saved embed');
   assert.equal((await getFromDb(registryKey, [])).length, 1);
 });
 
@@ -466,6 +475,101 @@ test('saved template is applied before send and does not cause a second edit', a
   assert.equal(editCount, 0);
 });
 
+test('ticket logs use the saved template before send and keep its footer', async () => {
+  installTestStorage();
+  const guildId = '100000000000000012';
+  const channelId = '200000000000000012';
+  let sentPayload = null;
+
+  await saveEmbedTemplateDecoration(
+    guildId,
+    channelId,
+    ['Ticket created'],
+    {
+      title: 'Ticket created',
+      color: 0x123456,
+      footer: { text: 'Saved ticket footer' },
+      fields: [
+        { name: 'Ticket', value: '#{dynamic}', inline: true },
+        { name: 'Creator', value: 'Unknown', inline: true },
+        { name: 'Channel', value: '<#{dynamic}>', inline: true },
+      ],
+    },
+  );
+
+  const channel = {
+    id: channelId,
+    type: 0,
+    isSendable: () => true,
+    permissionsFor: () => ({ has: () => true }),
+    send: async payload => {
+      sentPayload = payload;
+      return { id: 'ticket-log-message' };
+    },
+  };
+  const client = {
+    user: { id: 'cloudy-bot' },
+    db: {
+      get: async () => ({ ticketLogsChannelId: channelId }),
+      isAvailable: () => true,
+    },
+    guilds: {
+      cache: new Map(),
+      fetch: async id => id === guildId ? guild : null,
+    },
+  };
+  const guild = {
+    id: guildId,
+    client,
+    members: { me: { id: 'cloudy-bot' }, cache: new Map(), fetch: async () => null },
+    channels: {
+      cache: new Map([[channelId, channel]]),
+      fetch: async id => id === channelId ? channel : null,
+    },
+  };
+  client.guilds.cache.set(guildId, guild);
+
+  const logged = await logTicketEvent({
+    client,
+    guildId,
+    event: {
+      type: 'open',
+      ticketId: '300000000000000012',
+      ticketNumber: 77,
+    },
+  });
+
+  assert.equal(logged, true);
+  const sentEmbed = sentPayload.embeds[0].toJSON();
+  assert.equal(sentEmbed.color, 0x123456);
+  assert.equal(sentEmbed.footer.text, 'Saved ticket footer');
+  assert.equal(sentEmbed.fields[0].value, '#77');
+
+  let editCount = 0;
+  await ticketLogFooterEnforcer.execute({
+    id: 'ticket-log-message',
+    guild,
+    guildId,
+    channelId,
+    author: { id: 'cloudy-bot' },
+    editable: true,
+    embeds: sentPayload.embeds,
+    components: [],
+    edit: async () => { editCount += 1; },
+  }, client);
+  assert.equal(editCount, 0);
+});
+
+test('game and ticket template collections prefer catalog previews', () => {
+  const catalogRecord = id => ({
+    source: 'system-catalog',
+    messageId: id,
+  });
+
+  assert.equal(prefersCatalogPreview([catalogRecord('1'), catalogRecord('2')]), true);
+  assert.equal(prefersCatalogPreview([{ source: 'embed-builder', messageId: '3' }]), false);
+});
+
 test('casino template identities ignore dynamic bets but keep result states separate', () => {
   const blackjackBet = getSystemEmbedTemplateKey(
     'embed',
@@ -490,6 +594,37 @@ test('casino template identities ignore dynamic bets but keep result states sepa
     getSystemEmbedTemplateKey('embed', 'Result: Win', 'Payout: **$20**', 'gambling/blackjack'),
     'game:blackjack:result:win',
   );
+});
+
+test('a saved Blackjack Win template is authoritative on the next runtime result', () => {
+  primeSystemEmbedTemplateData(
+    'game:blackjack:result:win',
+    'gambling/blackjack',
+    {
+      title: 'Saved Blackjack Win',
+      description: 'Payout: **$20**\nCash balance: **$120**',
+      color: 0x123456,
+      fields: [
+        { name: 'Your Hand', value: '<:ten:400000000000000020> <:king:400000000000000021>\nValue: **20**', inline: true },
+        { name: 'Dealer Hand', value: '<:nine:400000000000000018> <:nine:400000000000000019>\nValue: **18**', inline: true },
+      ],
+    },
+  );
+
+  const rendered = applyRuntimeEmbedTemplateData({
+    title: 'Result: Win',
+    description: 'Payout: **$44**\nCash balance: **$144**',
+    color: 0x57F287,
+    fields: [
+      { name: 'Your Hand', value: '<:ace:500000000000000021> <:king:500000000000000022>\nValue: **21**', inline: true },
+      { name: 'Dealer Hand', value: '<:ten:500000000000000019> <:nine:500000000000000020>\nValue: **19**', inline: true },
+    ],
+  }, { commandName: 'blackjack' });
+
+  assert.equal(rendered.title, 'Saved Blackjack Win');
+  assert.equal(rendered.color, 0x123456);
+  assert.equal(rendered.description, 'Payout: **$44**\nCash balance: **$144**');
+  assert.equal(rendered.fields[0].value, '<:ace:500000000000000021> <:king:500000000000000022>\nValue: **21**');
 });
 
 test('legacy Blackjack styling cannot restore Cards Remaining', () => {
