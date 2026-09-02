@@ -1,10 +1,10 @@
 import {
   EmbedBuilder,
   Events,
-  StringSelectMenuOptionBuilder,
+  StringSelectMenuBuilder,
 } from 'discord.js';
 
-const PATCH_MARKER = Symbol.for('cloudy.embedBuilderStableUi');
+const PATCH_MARKER = Symbol.for('cloudy.embedBuilderStableUi.v2');
 
 function stripManagerCounts(value) {
   return String(value || '')
@@ -19,6 +19,37 @@ function stripManagerDescriptionCounts(value) {
     .join('\n');
 }
 
+function cleanLabel(value) {
+  return String(value || '')
+    .replace(/<a?:[^:>]+:\d+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function optionData(option) {
+  return option?.data && typeof option.data === 'object' ? option.data : option;
+}
+
+function cleanBuilderOption(option, isChannelMenu) {
+  const data = optionData(option);
+  if (!data || typeof data !== 'object') return option;
+
+  if (typeof data.label === 'string') {
+    const label = stripManagerCounts(data.label);
+    if (typeof option?.setLabel === 'function') option.setLabel(label);
+    else data.label = label;
+  }
+
+  if (!isChannelMenu && typeof data.description === 'string') {
+    const description = stripManagerCounts(data.description);
+    if (typeof option?.setDescription === 'function') option.setDescription(description);
+    else data.description = description;
+  }
+
+  return option;
+}
+
 export default {
   name: Events.ClientReady,
   once: true,
@@ -27,16 +58,36 @@ export default {
     if (globalThis[PATCH_MARKER]) return;
     globalThis[PATCH_MARKER] = true;
 
-    const originalOptionLabel = StringSelectMenuOptionBuilder.prototype.setLabel;
-    const originalOptionDescription = StringSelectMenuOptionBuilder.prototype.setDescription;
+    const originalAddOptions = StringSelectMenuBuilder.prototype.addOptions;
     const originalEmbedDescription = EmbedBuilder.prototype.setDescription;
 
-    StringSelectMenuOptionBuilder.prototype.setLabel = function cloudyStableBuilderLabel(label) {
-      return originalOptionLabel.call(this, stripManagerCounts(label));
-    };
+    // Only touch the two Modify Embed menus. Other Discord selects keep their
+    // original labels/descriptions and behavior.
+    StringSelectMenuBuilder.prototype.addOptions = function cloudyStableBuilderOptions(...options) {
+      const customId = String(this?.data?.custom_id || '');
+      const isChannelMenu = customId.startsWith('simple_embed_modify_channel:');
+      const isEmbedMenu = customId.startsWith('simple_embed_modify_embed:');
+      if (!isChannelMenu && !isEmbedMenu) {
+        return originalAddOptions.apply(this, options);
+      }
 
-    StringSelectMenuOptionBuilder.prototype.setDescription = function cloudyStableBuilderOptionDescription(description) {
-      return originalOptionDescription.call(this, stripManagerCounts(description));
+      const flat = options.flat(Infinity);
+      const unique = [];
+      const seen = new Set();
+
+      for (const rawOption of flat) {
+        const option = cleanBuilderOption(rawOption, isChannelMenu);
+        const data = optionData(option) || {};
+        const key = isChannelMenu
+          ? `channel:${String(data.value || '')}`
+          : `embed:${cleanLabel(data.label)}`;
+        if (!key.endsWith(':') && !seen.has(key)) {
+          seen.add(key);
+          unique.push(option);
+        }
+      }
+
+      return originalAddOptions.call(this, ...unique);
     };
 
     EmbedBuilder.prototype.setDescription = function cloudyStableBuilderDescription(description) {
