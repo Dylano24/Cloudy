@@ -22,14 +22,14 @@ function choices(id, disabled = false) {
     new ButtonBuilder().setCustomId(`casino_baccarat:tie:${id}`).setLabel('Tie').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
   )];
 }
-async function gameEmbed(client, user, amount, player = null, banker = null, result = null) {
+async function gameEmbed(client, user, amount, player = null, banker = null, result = null, outcome = null) {
   const fields = player?.length && banker?.length ? [
     { name: 'Player Hand', value: `${await cardsEmojiLine(client, player)}\nValue: **${score(player)}**`, inline: true },
     { name: 'Banker Hand', value: `${await cardsEmojiLine(client, banker)}\nValue: **${score(banker)}**`, inline: true },
   ] : [];
 
   const game = createEmbed({
-    title: result ? 'Baccarat — Result' : `Baccarat — Bet ${money(amount)}`,
+    title: outcome ? `Baccarat ${outcome}` : result ? 'Baccarat result' : `Baccarat — Bet ${money(amount)}`,
     description: result || 'Choose where to place your bet.',
     color: result ? 'success' : 'primary',
     author: { name: user.username, iconURL: user.displayAvatarURL() },
@@ -60,13 +60,16 @@ export default {
       const playerScore = score(player), bankerScore = score(banker); const winner = playerScore === bankerScore ? 'tie' : playerScore > bankerScore ? 'player' : 'banker';
 
       let payout = 0;
+      let outcome = 'loss';
       let outcomeText = '';
       if (winner === 'tie' && pick !== 'tie') {
         payout = amount;
+        outcome = 'tie';
         outcomeText = `Tie — your **${money(amount)}** bet was returned.`;
       } else if (pick === winner) {
         const multiplier = winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2;
         payout = Math.floor(amount * multiplier);
+        outcome = 'win';
         outcomeText = `Payout: **${money(payout)}**`;
       } else {
         outcomeText = `You lost **${money(amount)}**`;
@@ -74,12 +77,12 @@ export default {
 
       userData.wallet += payout; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
       const result = `You chose **${pick}**. Winner: **${winner}**\n${outcomeText}\nCash balance: **${money(userData.wallet)}**`;
-      await component.update({ embeds: [await gameEmbed(client, interaction.user, amount, player, banker, result)], components: choices(interaction.id, true), attachments: [] });
+      await component.update({ embeds: [await gameEmbed(client, interaction.user, amount, player, banker, result, outcome)], components: choices(interaction.id, true), attachments: [] });
     });
     collector.on('end', async collected => {
       if (collected.size) return;
       userData.wallet += amount; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
-      await message.edit({ embeds: [await gameEmbed(client, interaction.user, amount, null, null, `Game expired — **${money(amount)}** was returned.`)], components: choices(interaction.id, true), attachments: [] }).catch(() => {});
+      await message.edit({ embeds: [await gameEmbed(client, interaction.user, amount, null, null, `Game expired — **${money(amount)}** was returned.`, 'expired')], components: choices(interaction.id, true), attachments: [] }).catch(() => {});
     });
   }, { command: 'baccarat' }),
 };
