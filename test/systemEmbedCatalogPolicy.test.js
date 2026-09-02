@@ -101,6 +101,6 @@ test('catalog cleanup removes existing partial Blackjack and ticket templates bu
   assert.equal(await cleanupSystemCatalogEntries(messages), true);
   assert.equal(messages.length, 1);
   assert.equal(message.embeds.length, 1);
-  assert.equal(message.embeds[0].toJSON().title, 'Result: Bust');
+  assert.equal(message.embeds[0].toJSON().title, 'Blackjack bust');
   assert.match(message.embeds[0].toJSON().author.name, /game:blackjack:result:bust/);
 });

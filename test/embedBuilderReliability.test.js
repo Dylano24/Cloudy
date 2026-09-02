@@ -708,8 +708,8 @@ test('embed manager shows one editable casino template for repeated dynamic resu
 
   const options = payload.components[0].toJSON().components[0].options;
   assert.equal(options.length, 2);
-  assert.ok(options.some(option => option.label === 'Blackjack — Bet'));
-  assert.ok(options.some(option => option.label === 'Result: Loss'));
+  assert.ok(options.some(option => option.label === 'Blackjack bet'));
+  assert.ok(options.some(option => option.label === 'Blackjack loss'));
   assert.ok(options.some(option => /applies to 2 matching embed\(s\)/.test(option.description)));
 });
 
