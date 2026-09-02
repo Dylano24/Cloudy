@@ -61,6 +61,8 @@ test('ticket-logs Builder shows only real ticket events and hides panel/debug/co
         { name: 'Channel', value: '<#2>' },
       ],
     }),
+    // Cold-start registry row: the in-memory snapshot may not be primed yet.
+    record({ id: '111', title: 'Ticket closed' }),
     record({ id: '103', title: 'Contact the staff team' }),
     record({ id: '104', title: 'Change panel message' }),
     record({ id: '105', title: 'Ticket System Debug' }),
@@ -72,16 +74,16 @@ test('ticket-logs Builder shows only real ticket events and hides panel/debug/co
   ];
 
   const labels = menuLabels(buildEmbedPayload(guild, records, ticketLogs.id, 0));
-  assert.deepEqual(labels.sort(), ['Ticket created', 'Ticket pinned'].sort());
+  assert.deepEqual(labels.sort(), ['Ticket closed', 'Ticket created', 'Ticket pinned'].sort());
 });
 
-test('Cloudy Assistant has one stable template identity even when catalog keys differ', () => {
+test('Cloudy Assistant and Cloudy Support Assistant share one stable template identity', () => {
   const a = templateIdentity('faq-1', {
     title: 'Cloudy Assistant',
     author: { name: 'Cloudy template key: faq:first || Cloudy context: faq/assistant || Cloudy kind: embed' },
   });
   const b = templateIdentity('faq-1', {
-    title: 'Cloudy Assistant',
+    title: 'Cloudy Support Assistant',
     author: { name: 'Cloudy template key: faq:second || Cloudy context: faq/help || Cloudy kind: embed' },
   });
 
