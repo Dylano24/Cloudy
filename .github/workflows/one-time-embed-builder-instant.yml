@@ -1,0 +1,273 @@
+name: One-time embed builder instant fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'Fix instant embed preview and show all channels'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch embed builder
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          manager = Path('src/services/embedManagerService.js')
+          text = manager.read_text()
+
+          old = '''function buildChannelGroups(guild, records) {
+    const groups = new Map();
+    for (const record of records) {
+        const channelId = String(record.channelId);
+        if (!groups.has(channelId)) groups.set(channelId, []);
+        groups.get(channelId).push(record);
+    }
+
+    return [...groups.entries()]
+        .map(([channelId, channelRecords]) => ({
+            channelId,
+            channel: guild.channels.cache.get(channelId) || null,
+            records: channelRecords.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)),
+        }))
+        .filter(group => collapseDisplayRecords(group.records, group.channelId).length > 0)
+        .sort(compareChannelsByDiscordOrder);
+}'''
+          new = '''function buildChannelGroups(guild, records) {
+    const groups = new Map();
+
+    // Show every real text/announcement channel, even when it does not have a
+    // registered embed yet. The Modify browser is a channel browser first.
+    for (const channel of guild.channels.cache.values()) {
+        if (![0, 5].includes(channel?.type) || !channel?.messages?.fetch) continue;
+        groups.set(String(channel.id), []);
+    }
+
+    for (const record of records) {
+        const channelId = String(record.channelId);
+        if (!groups.has(channelId)) groups.set(channelId, []);
+        groups.get(channelId).push(record);
+    }
+
+    return [...groups.entries()]
+        .map(([channelId, channelRecords]) => ({
+            channelId,
+            channel: guild.channels.cache.get(channelId) || null,
+            records: channelRecords.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)),
+        }))
+        .filter(group => Boolean(group.channel))
+        .sort(compareChannelsByDiscordOrder);
+}'''
+          if old not in text:
+              raise SystemExit('buildChannelGroups source not found')
+          text = text.replace(old, new)
+
+          old = '''            .addOptions(...result.items.map(group => {
+                const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
+                const count = collapseDisplayRecords(group.records, group.channelId).length;
+                return new StringSelectMenuOptionBuilder()
+                    .setLabel(shortLabel(`${name} • ${count} ${count === 1 ? 'embed' : 'embeds'}`))
+                    .setDescription('Open the embeds in this channel')
+                    .setValue(group.channelId);
+            }));'''
+          new = '''            .addOptions(...result.items.map(group => {
+                const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
+                const count = collapseDisplayRecords(group.records, group.channelId).length;
+                return new StringSelectMenuOptionBuilder()
+                    .setLabel(shortLabel(name))
+                    .setDescription(count ? 'Open the saved embed' : 'No saved embed yet')
+                    .setValue(group.channelId);
+            }));'''
+          if old not in text:
+              raise SystemExit('channel option source not found')
+          text = text.replace(old, new)
+
+          marker = '''function loadEmbedIntoState(state, resolved) {'''
+          helper = '''function loadRecordSnapshotIntoState(state, guild, record) {
+    const snapshot = getEmbedRegistrySnapshot(record);
+    if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
+
+    const data = migrateCloudyLogoEmbedData(snapshot).data || {};
+    const footerText = cleanFooter(data.footer?.text || '');
+    const logicalChannelId = String(record.channelId || '');
+    const backingChannelId = String(record.backingChannelId || record.channelId || '');
+    const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
+
+    state.title = data.title || null;
+    state.message = data.description || null;
+    state.embedFields = Array.isArray(data.fields)
+        ? data.fields.map(field => ({
+            name: String(field.name || '').slice(0, 256),
+            value: String(field.value || '').slice(0, 1024),
+            inline: Boolean(field.inline),
+        }))
+        : [];
+    state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
+    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);
+    state.removeExistingLogo = false;
+    state.bottomLine = footerText || null;
+    state.mediaUrl = data.image?.url || null;
+    state.mediaBuffer = null;
+    state.mediaName = null;
+    state.mediaConvertedFromVideo = false;
+    state.modifyTarget = {
+        guildId: guild.id,
+        channelId: logicalChannelId,
+        backingChannelId,
+        messageId: String(record.messageId),
+        embedIndex: Number(record.embedIndex || 0),
+        source: record.source || 'cloudy',
+        sourceEmbedData: data,
+        hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
+        templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
+        templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
+        cachedMessage: null,
+    };
+    return true;
+}
+
+'''
+          if marker not in text:
+              raise SystemExit('loadEmbedIntoState marker not found')
+          text = text.replace(marker, helper + marker, 1)
+
+          old = '''                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
+                    const channelId = interaction.values?.[0];
+                    records = await getEmbedRegistry(guild.id);
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    return;
+                }'''
+          new = '''                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
+                    const channelId = interaction.values?.[0];
+                    const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
+                    const firstRecord = collapseDisplayRecords(channelRecords, channelId)[0] || null;
+
+                    // If this channel has a saved embed, put it in the main
+                    // preview immediately from memory. Do not wait for Discord
+                    // history or a database roundtrip before showing it.
+                    if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
+                        void Promise.resolve(refreshBuilder()).catch(error => {
+                            logger.debug(`Immediate channel preview refresh skipped: ${error?.message || error}`);
+                        });
+                    }
+
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    return;
+                }'''
+          if old not in text:
+              raise SystemExit('channel selection source not found')
+          text = text.replace(old, new)
+
+          old = '''                const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
+                if (!resolved) {
+                    records = await getEmbedRegistry(guild.id);
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
+                    return;
+                }
+
+                loadEmbedIntoState(state, resolved);
+                const refreshed = await refreshBuilder();
+                if (refreshed === false) {
+                    throw new Error('The message builder could not refresh after loading the selected embed.');
+                }
+
+                records = await getEmbedRegistry(guild.id);
+                await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);'''
+          new = '''                // The registry keeps an in-memory snapshot of every visible
+                // embed. Use it first so switching embeds updates the preview in
+                // the same interaction tick instead of waiting on Discord fetch.
+                let loaded = record ? loadRecordSnapshotIntoState(state, guild, record) : false;
+                if (loaded) {
+                    void Promise.resolve(refreshBuilder()).catch(error => {
+                        logger.debug(`Immediate embed preview refresh skipped: ${error?.message || error}`);
+                    });
+                } else {
+                    const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
+                    if (!resolved) {
+                        await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
+                        return;
+                    }
+                    loadEmbedIntoState(state, resolved);
+                    loaded = true;
+                    void Promise.resolve(refreshBuilder()).catch(error => {
+                        logger.debug(`Resolved embed preview refresh skipped: ${error?.message || error}`);
+                    });
+                }
+
+                await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);'''
+          if old not in text:
+              raise SystemExit('embed selection source not found')
+          text = text.replace(old, new)
+
+          # Navigation should use the already-loaded registry snapshot. Re-reading
+          # Postgres on every click is unnecessary and makes the UI feel slow.
+          text = text.replace("                    records = await getEmbedRegistry(guild.id);\n                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, 0), state, session);", "                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, 0), state, session);")
+          text = text.replace("                    records = await getEmbedRegistry(guild.id);\n                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, page), state, session);", "                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, page), state, session);")
+          text = text.replace("                    records = await getEmbedRegistry(guild.id);\n                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);", "                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);")
+
+          manager.write_text(text)
+
+          builder = Path('src/commands/Tools/embedbuilder.js')
+          text = builder.read_text()
+          pattern = re.compile(r"async function refreshBuilder\(interaction, state\) \{.*?\n\}\n\nasync function editContent", re.S)
+          match = pattern.search(text)
+          if not match:
+              raise SystemExit('refreshBuilder source not found')
+          replacement = '''async function refreshBuilder(interaction, state) {
+    if (state.colorSessionToken) {
+        state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${state.colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
+    }
+
+    const payload = {
+        embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],
+        components: buildControls(state),
+        attachments: [],
+    };
+
+    if (state.mediaBuffer && state.mediaName) {
+        payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
+    }
+
+    // Latest-preview-wins: never build a long Discord edit queue. If a preview
+    // edit is already in flight, replace the pending one with the newest state.
+    state.previewEditPending = { interaction, payload };
+    if (state.previewEditRunning) return true;
+
+    state.previewEditRunning = true;
+    let result = true;
+    try {
+        while (state.previewEditPending) {
+            const next = state.previewEditPending;
+            state.previewEditPending = null;
+            result = await InteractionHelper.safeEditReply(next.interaction, next.payload);
+        }
+    } finally {
+        state.previewEditRunning = false;
+    }
+    return result;
+}
+
+async function editContent'''
+          text = pattern.sub(replacement, text, count=1)
+          builder.write_text(text)
+
+          editor = Path('src/services/embedColorPickerSessionService.js')
+          text = editor.read_text().replace('const EDIT_FLUSH_DELAY_MS = 220;', 'const EDIT_FLUSH_DELAY_MS = 45;')
+          editor.write_text(text)
+          PY
+
+          npm test
+          npx eslint src/services/embedManagerService.js src/commands/Tools/embedbuilder.js src/services/embedColorPickerSessionService.js
+          git config user.name "Cloudy Builder Fix"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/services/embedManagerService.js src/commands/Tools/embedbuilder.js src/services/embedColorPickerSessionService.js
+          git commit -m "Fix instant embed preview and show all channels"
+          git push origin main
