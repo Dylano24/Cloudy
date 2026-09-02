@@ -21,12 +21,22 @@ function isBuilderMarked(message) {
     );
 }
 
+function hasComponents(message) {
+    return Array.isArray(message?.components) && message.components.length > 0;
+}
+
 function newestCandidate(messages, botUserId) {
     const usable = [...messages]
         .filter(message => isUsableMessage(message, botUserId))
         .sort((a, b) => Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0));
 
-    return usable.find(isBuilderMarked) || usable[0] || null;
+    // Persistent panels such as FAQ/contact/rules commonly include buttons.
+    // Prefer the actual panel in the channel over a virtual system template.
+    return usable.find(message => hasComponents(message) && isBuilderMarked(message))
+        || usable.find(hasComponents)
+        || usable.find(isBuilderMarked)
+        || usable[0]
+        || null;
 }
 
 function recordName(embed) {
@@ -55,8 +65,6 @@ export async function discoverMissingChannelEmbed(guild, channelId, botUserId) {
     }
     if (!message) return null;
 
-    // Register it through the existing manual-template path. This keeps the
-    // normal registry/reconcile/save behaviour intact and avoids any global scan.
     await registerCloudyEmbedMessage(message, 'embed-builder');
 
     const embedIndex = Math.max(0, message.embeds.findIndex(embed =>
