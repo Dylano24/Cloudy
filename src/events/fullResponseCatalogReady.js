@@ -5,7 +5,10 @@ import {
   applyRuntimeEmbedTemplateData,
   captureSystemEmbedData,
 } from '../services/systemEmbedCatalogService.js';
-import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
+import {
+  applySavedEmbedTemplates,
+  decorateEmbedWithSavedTemplate,
+} from '../services/embedTemplateService.js';
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
 import { logger } from '../utils/logger.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
@@ -79,6 +82,8 @@ function interactionContext(interaction) {
   return {
     commandName,
     customId: interaction.customId || '',
+    guildId: interaction.guildId || interaction.guild?.id || null,
+    channelId: interaction.channelId || interaction.channel?.id || null,
     channel: interaction.channel || null,
   };
 }
@@ -93,6 +98,8 @@ function messageContext(message) {
   return {
     commandName,
     customId: metadata?.customId || '',
+    guildId: message?.guildId || message?.guild?.id || null,
+    channelId: message?.channelId || message?.channel?.id || null,
     channel: message?.channel || null,
   };
 }
@@ -120,6 +127,24 @@ function applyPayloadTemplates(payload, source) {
   }
 
   return next;
+}
+
+export async function applySavedBlackjackPayloadTemplates(payload, source) {
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.embeds)) return payload;
+  if (String(source?.commandName || '').toLowerCase() !== 'blackjack') return payload;
+
+  const guildId = source.guildId || source.channel?.guildId || source.channel?.guild?.id;
+  const channelId = source.channelId || source.channel?.id;
+  if (!guildId || !channelId) return payload;
+
+  const embeds = await Promise.all(payload.embeds.map(async embed => {
+    const data = embed?.toJSON ? embed.toJSON() : embed;
+    if (!isBlackjackEmbed(data)) return embed;
+    const decorated = await decorateEmbedWithSavedTemplate(guildId, channelId, embed);
+    return decorated.embed;
+  }));
+
+  return { ...payload, embeds };
 }
 
 function shouldPrepareMessageEdit(message) {
@@ -334,6 +359,7 @@ function patchInteractionCapture() {
         try {
           capturePayload(payload, source);
           outgoing = applyPayloadTemplates(payload, source);
+          outgoing = await applySavedBlackjackPayloadTemplates(outgoing, source);
         } catch (error) {
           logger.debug(`[EMBED_BUILDER] Response template processing skipped for ${method}: ${error?.message || error}`);
         }
