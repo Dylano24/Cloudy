@@ -11,10 +11,17 @@ if (!text.includes("from './embedMissingChannelService.js'")) {
   );
 }
 
-if (!text.includes('discardPendingEmbedEditorUpdates')) {
+if (text.includes("import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';")) {
   text = text.replace(
     "import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';",
-    "import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';\nimport { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';",
+    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';",
+  );
+}
+
+if (!text.includes('discardPendingEmbedEditorUpdates')) {
+  text = text.replace(
+    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';",
+    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';\nimport { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';",
   );
 }
 
@@ -49,9 +56,6 @@ const newBlock = `                if (interaction.isStringSelectMenu() && intera
                             logger.debug(\`Immediate channel preview refresh skipped: \${error?.message || error}\`);
                         });
                     } else {
-                        // If this channel only has a virtual system-catalog entry,
-                        // fetch the real panel from the selected channel instead of
-                        // showing a {dynamic} placeholder in the preview.
                         const discovered = await discoverMissingChannelEmbed(
                             guild,
                             channelId,
@@ -61,8 +65,6 @@ const newBlock = `                if (interaction.isStringSelectMenu() && intera
                             return null;
                         });
 
-                        // A slower older channel lookup must never overwrite the
-                        // newest selection in the live preview.
                         if (selectionVersion !== session.selectionVersion) return;
 
                         if (discovered) {
@@ -98,8 +100,6 @@ if (!text.includes('A slower older channel lookup must never overwrite')) {
   text = text.replace(oldBlock, newBlock);
 }
 
-// Do not serialize every click behind one slow ticket/log request. Each click is
-// handled immediately; the newest selection version is authoritative.
 if (text.includes('session.queue = session.queue.then(async () => {')) {
   text = text.replace(
 `            session.queue = session.queue.then(async () => {
@@ -123,8 +123,6 @@ if (text.includes('session.queue = session.queue.then(async () => {')) {
             });`);
 }
 
-// A fallback message fetch can finish after the user has already selected a
-// different embed. Drop that stale result before it touches the preview state.
 text = text.replace(
 `                    const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                     if (!resolved) {`,
@@ -132,8 +130,6 @@ text = text.replace(
                     if (selectionVersion !== session.selectionVersion) return;
                     if (!resolved) {`);
 
-// Any remaining registry refresh is allowed to finish in the background, but it
-// may only render if it still belongs to the newest interaction.
 text = text.replaceAll(
 `                    records = await getEmbedRegistry(guild.id);
                     await updateEmbedManager(`,
@@ -141,5 +137,56 @@ text = text.replaceAll(
                     if (selectionVersion !== session.selectionVersion) return;
                     await updateEmbedManager(`);
 
+// Generic system-catalog hashes and a real channel message can represent the
+// same visible embed. Group those by the visible title; only curated game keys
+// need their stable game:* identity to stay distinct.
+text = text.replace(
+  '    if (stableKey) return stableKey;',
+  "    if (stableKey && stableKey.startsWith('game:')) return stableKey;",
+);
+
+// Selecting a channel must only open its embed list. Do not enqueue a preview
+// edit for the first item: that older edit is exactly what made the next embed
+// click wait behind stale Discord traffic. Discover every persistent embed in
+// the selected channel first, merge them into the local registry view, then let
+// the user's explicit embed click be the only action that changes live preview.
+const channelStartMarker = "                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {";
+const channelEndMarker = "                if (interaction.customId.startsWith('simple_embed_modify_embed_page:')) {";
+const channelStart = text.indexOf(channelStartMarker);
+const channelEnd = channelStart === -1 ? -1 : text.indexOf(channelEndMarker, channelStart);
+if (channelStart !== -1 && channelEnd !== -1) {
+  const channelBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
+                    const channelId = interaction.values?.[0];
+                    const discoveredRecords = await discoverMissingChannelEmbeds(
+                        guild,
+                        channelId,
+                        buttonInteraction.client.user.id,
+                    ).catch(error => {
+                        logger.debug(\`On-demand channel embed discovery skipped: \${error?.message || error}\`);
+                        return [];
+                    });
+
+                    if (selectionVersion !== session.selectionVersion) return;
+
+                    if (discoveredRecords.length) {
+                        const discoveredKeys = new Set(discoveredRecords.map(record =>
+                            \`${'${'}String(record.backingChannelId || record.channelId)}:${'${'}String(record.messageId)}:${'${'}Number(record.embedIndex || 0)}\`,
+                        ));
+                        records = [
+                            ...records.filter(record => !discoveredKeys.has(
+                                \`${'${'}String(record.backingChannelId || record.channelId)}:${'${'}String(record.messageId)}:${'${'}Number(record.embedIndex || 0)}\`,
+                            )),
+                            ...discoveredRecords,
+                        ];
+                    }
+
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    return;
+                }
+
+`;
+  text = text.slice(0, channelStart) + channelBlock + text.slice(channelEnd);
+}
+
 if (text !== before) fs.writeFileSync(path, text);
-console.log(`[EMBED_BUILDER_MISSING] ${text === before ? 'already current' : 'patched latest-wins'}`);
+console.log(`[EMBED_BUILDER_MISSING] ${text === before ? 'already current' : 'patched instant canonical selection'}`);
