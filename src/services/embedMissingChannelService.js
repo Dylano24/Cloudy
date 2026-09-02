@@ -89,7 +89,14 @@ function mergeUsableMessages(target, messages, botUserId) {
     }
 }
 
-async function getRecentUsableMessages(channel, botUserId) {
+function sortedMessages(state) {
+    return [...state.messages.values()].sort((a, b) =>
+        candidatePriority(b) - candidatePriority(a)
+        || Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0),
+    );
+}
+
+async function getRecentUsableMessages(channel, botUserId, { fullHistory = true } = {}) {
     const cacheKey = String(channel.id);
     const state = discoveryCache.get(cacheKey) || {
         messages: new Map(),
@@ -99,7 +106,8 @@ async function getRecentUsableMessages(channel, botUserId) {
 
     mergeUsableMessages(state.messages, channel.messages.cache.values(), botUserId);
 
-    // Always refresh the newest page so newly-created embeds appear immediately.
+    // Always refresh exactly one newest page first. This is the only network
+    // fetch used by live channel switching in the Embed Builder.
     const newestBatch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE }).catch(() => null);
     if (newestBatch?.size) {
         mergeUsableMessages(state.messages, newestBatch.values(), botUserId);
@@ -107,8 +115,12 @@ async function getRecentUsableMessages(channel, botUserId) {
         if (newestBatch.size < DISCOVERY_PAGE_SIZE) state.complete = true;
     }
 
-    // First visit indexes the full channel history. Later visits reuse that
-    // completed index and only fetch the newest page, so switching stays fast.
+    discoveryCache.set(cacheKey, state);
+
+    // Live Builder selection must never wait for old history. Full-history mode
+    // remains available for background/recovery callers only.
+    if (!fullHistory) return sortedMessages(state);
+
     let before = state.complete ? null : state.oldestId;
     while (before) {
         const batch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE, before }).catch(() => null);
@@ -130,21 +142,30 @@ async function getRecentUsableMessages(channel, botUserId) {
     }
 
     discoveryCache.set(cacheKey, state);
+    return sortedMessages(state);
+}
 
-    return [...state.messages.values()].sort((a, b) =>
-        candidatePriority(b) - candidatePriority(a)
-        || Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0),
-    );
+async function resolveChannel(guild, channelId) {
+    return guild.channels.cache.get(String(channelId))
+        || await guild.channels.fetch(String(channelId)).catch(() => null);
+}
+
+export async function discoverRecentChannelEmbeds(guild, channelId, botUserId) {
+    if (!guild || !channelId || !botUserId) return [];
+    const channel = await resolveChannel(guild, channelId);
+    if (!channel?.messages?.fetch) return [];
+
+    const messages = await getRecentUsableMessages(channel, botUserId, { fullHistory: false });
+    return messages.flatMap(message => buildRecords(guild, channel, message));
 }
 
 export async function discoverMissingChannelEmbeds(guild, channelId, botUserId) {
     if (!guild || !channelId || !botUserId) return [];
 
-    const channel = guild.channels.cache.get(String(channelId))
-        || await guild.channels.fetch(String(channelId)).catch(() => null);
+    const channel = await resolveChannel(guild, channelId);
     if (!channel?.messages?.fetch) return [];
 
-    const messages = await getRecentUsableMessages(channel, botUserId);
+    const messages = await getRecentUsableMessages(channel, botUserId, { fullHistory: true });
     if (!messages.length) return [];
 
     // Do not persist historical discovery as manual Embed Builder records.
@@ -154,12 +175,13 @@ export async function discoverMissingChannelEmbeds(guild, channelId, botUserId) 
 }
 
 export async function discoverMissingChannelEmbed(guild, channelId, botUserId) {
-    const records = await discoverMissingChannelEmbeds(guild, channelId, botUserId);
+    // A single live preview only needs the cache/newest page. Never perform an
+    // exhaustive history walk on an interaction path.
+    const records = await discoverRecentChannelEmbeds(guild, channelId, botUserId);
     const record = records[0] || null;
     if (!record) return null;
 
-    const channel = guild.channels.cache.get(String(channelId))
-        || await guild.channels.fetch(String(channelId)).catch(() => null);
+    const channel = await resolveChannel(guild, channelId);
     if (!channel?.messages?.fetch) return null;
 
     const message = channel.messages.cache.get(String(record.messageId))
