@@ -5,10 +5,10 @@
   "main": "src/app.js",
   "type": "module",
   "scripts": {
-    "start": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && (node scripts/register-cloudy-guild-commands.js & exec node src/bootstrap.js)",
+    "start": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && node scripts/patch-embed-builder-integrity.js && (node scripts/register-cloudy-guild-commands.js & exec node src/bootstrap.js)",
     "lint": "eslint .",
     "lint:fast": "eslint . --cache --cache-strategy content",
-    "test": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && node --test",
+    "test": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && node scripts/patch-embed-builder-integrity.js && node --test",
     "check": "npm run lint && npm test",
     "check:fast": "npm run lint:fast && npm test",
     "migrate": "node scripts/migrate.js apply",
@@ -28,7 +28,7 @@
     "node-cron": "^4.2.1",
     "pg": "^8.11.3",
     "winston": "^3.19.0",
-    "winston-daily-rotate-file": "^5.0.0",
+    "winston-daily-rotate-file": "^3.19.0",
     "zod": "^3.25.76",
     "riffy": "1.0.12"
   },
