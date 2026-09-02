@@ -4,102 +4,29 @@ const path = 'src/services/embedManagerService.js';
 const before = fs.readFileSync(path, 'utf8');
 let text = before;
 
-if (!text.includes("from './embedMissingChannelService.js'")) {
+// Keep the runtime patch narrow: only the Embed Manager discovery/selection
+// path is changed. Save, templates, games and logo handling stay untouched.
+if (text.includes("import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';")) {
+  text = text.replace(
+    "import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';",
+    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';",
+  );
+} else if (!text.includes('discoverMissingChannelEmbeds')) {
   text = text.replace(
     "import { saveEmbedTemplateDecoration } from './embedTemplateService.js';",
-    "import { saveEmbedTemplateDecoration } from './embedTemplateService.js';\nimport { discoverMissingChannelEmbed } from './embedMissingChannelService.js';",
+    "import { saveEmbedTemplateDecoration } from './embedTemplateService.js';\nimport { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';",
   );
 }
 
 if (!text.includes('discardPendingEmbedEditorUpdates')) {
   text = text.replace(
-    "import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';",
-    "import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';\nimport { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';",
+    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';",
+    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';\nimport { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';",
   );
 }
 
-const oldBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
-                    const channelId = interaction.values?.[0];
-                    const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
-                    const firstRecord = collapseDisplayRecords(channelRecords, channelId)[0] || null;
-                    if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                        void Promise.resolve(refreshBuilder()).catch(error => {
-                            logger.debug(\`Immediate channel preview refresh skipped: \${error?.message || error}\`);
-                        });
-                    }
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
-                    return;
-                }`;
-
-const newBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
-                    const channelId = interaction.values?.[0];
-                    const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
-                    const realChannelRecords = channelRecords.filter(record =>
-                        String(record.source || '') !== 'system-catalog'
-                        && String(record.backingChannelId || record.channelId || '') === String(channelId)
-                    );
-                    let firstRecord = collapseDisplayRecords(
-                        realChannelRecords.length ? realChannelRecords : channelRecords,
-                        channelId,
-                    )[0] || null;
-
-                    if (realChannelRecords.length && firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                        if (selectionVersion !== session.selectionVersion) return;
-                        void Promise.resolve(refreshBuilder()).catch(error => {
-                            logger.debug(\`Immediate channel preview refresh skipped: \${error?.message || error}\`);
-                        });
-                    } else {
-                        // If this channel only has a virtual system-catalog entry,
-                        // fetch the real panel from the selected channel instead of
-                        // showing a {dynamic} placeholder in the preview.
-                        const discovered = await discoverMissingChannelEmbed(
-                            guild,
-                            channelId,
-                            buttonInteraction.client.user.id,
-                        ).catch(error => {
-                            logger.debug(\`On-demand channel embed discovery skipped: \${error?.message || error}\`);
-                            return null;
-                        });
-
-                        // A slower older channel lookup must never overwrite the
-                        // newest selection in the live preview.
-                        if (selectionVersion !== session.selectionVersion) return;
-
-                        if (discovered) {
-                            loadEmbedIntoState(state, discovered);
-                            firstRecord = discovered.record;
-                            records = [
-                                ...records.filter(record => !(
-                                    String(record.channelId) === String(channelId)
-                                    && String(record.source || '') === 'embed-builder'
-                                    && String(record.messageId) !== String(discovered.record.messageId)
-                                )),
-                                discovered.record,
-                            ];
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(\`Discovered channel preview refresh skipped: \${error?.message || error}\`);
-                            });
-                        } else if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(\`Catalog fallback preview refresh skipped: \${error?.message || error}\`);
-                            });
-                        }
-                    }
-
-                    if (selectionVersion !== session.selectionVersion) return;
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
-                    return;
-                }`;
-
-if (!text.includes('A slower older channel lookup must never overwrite')) {
-  if (!text.includes(oldBlock)) {
-    throw new Error('Expected instant channel selection block was not found.');
-  }
-  text = text.replace(oldBlock, newBlock);
-}
-
-// Do not serialize every click behind one slow ticket/log request. Each click is
-// handled immediately; the newest selection version is authoritative.
+// Preserve latest-wins interaction handling. Never serialize rapid selections
+// behind an older Discord/API request.
 if (text.includes('session.queue = session.queue.then(async () => {')) {
   text = text.replace(
 `            session.queue = session.queue.then(async () => {
@@ -123,8 +50,60 @@ if (text.includes('session.queue = session.queue.then(async () => {')) {
             });`);
 }
 
-// A fallback message fetch can finish after the user has already selected a
-// different embed. Drop that stale result before it touches the preview state.
+// Selecting a channel only discovers/populates its complete embed list. It must
+// not push an arbitrary first embed into the live preview, because that creates
+// stale preview edits when the user immediately chooses another embed.
+const channelStartMarker = "                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {";
+const channelEndMarker = "                if (interaction.customId.startsWith('simple_embed_modify_embed_page:')) {";
+const channelStart = text.indexOf(channelStartMarker);
+const channelEnd = channelStart === -1 ? -1 : text.indexOf(channelEndMarker, channelStart);
+
+if (channelStart === -1 || channelEnd === -1) {
+  throw new Error('Embed Manager channel-selection block was not found.');
+}
+
+const channelBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
+                    const channelId = interaction.values?.[0];
+                    const discoveredRecords = await discoverMissingChannelEmbeds(
+                        guild,
+                        channelId,
+                        buttonInteraction.client.user.id,
+                    ).catch(error => {
+                        logger.debug(\`On-demand channel embed discovery skipped: \${error?.message || error}\`);
+                        return [];
+                    });
+
+                    if (selectionVersion !== session.selectionVersion) return;
+
+                    if (discoveredRecords.length) {
+                        const otherChannelRecords = records.filter(record =>
+                            String(record.channelId) !== String(channelId)
+                            || String(record.source || '') === 'system-catalog'
+                        );
+                        const existingCatalogRecords = records.filter(record =>
+                            String(record.channelId) === String(channelId)
+                            && String(record.source || '') === 'system-catalog'
+                        );
+
+                        // Replace stale real-message records for this channel with
+                        // the freshly discovered set. collapseDisplayRecords then
+                        // guarantees one visible entry per canonical embed type.
+                        records = [
+                            ...otherChannelRecords,
+                            ...existingCatalogRecords.filter(record => !otherChannelRecords.includes(record)),
+                            ...discoveredRecords,
+                        ];
+                    }
+
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    return;
+                }
+
+`;
+
+text = text.slice(0, channelStart) + channelBlock + text.slice(channelEnd);
+
+// Any async record resolve belongs only to the selection that started it.
 text = text.replace(
 `                    const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                     if (!resolved) {`,
@@ -132,8 +111,6 @@ text = text.replace(
                     if (selectionVersion !== session.selectionVersion) return;
                     if (!resolved) {`);
 
-// Any remaining registry refresh is allowed to finish in the background, but it
-// may only render if it still belongs to the newest interaction.
 text = text.replaceAll(
 `                    records = await getEmbedRegistry(guild.id);
                     await updateEmbedManager(`,
@@ -142,4 +119,4 @@ text = text.replaceAll(
                     await updateEmbedManager(`);
 
 if (text !== before) fs.writeFileSync(path, text);
-console.log(`[EMBED_BUILDER_MISSING] ${text === before ? 'already current' : 'patched latest-wins'}`);
+console.log(`[EMBED_BUILDER_MISSING] ${text === before ? 'already current' : 'patched complete discovery + explicit latest-wins preview'}`);
