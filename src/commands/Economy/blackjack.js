@@ -38,7 +38,8 @@ function controls(state, ended = false) {
 }
 
 function liveTitle(state, result = null) {
-  return result ? `Blackjack ${String(result.title || '').toLowerCase()}` : `Blackjack — Bet ${money(state.totalBet)}`;
+  if (!result) return `Blackjack — Bet ${money(state.totalBet)}`;
+  return `Blackjack ${String(result.title || '').trim().toLowerCase()}`;
 }
 
 async function embed(state, result = null) {
