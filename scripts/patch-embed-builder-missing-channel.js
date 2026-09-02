@@ -11,6 +11,13 @@ if (!text.includes("from './embedMissingChannelService.js'")) {
   );
 }
 
+if (!text.includes('discardPendingEmbedEditorUpdates')) {
+  text = text.replace(
+    "import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';",
+    "import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';\nimport { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';",
+  );
+}
+
 const oldBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
                     const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
@@ -99,6 +106,7 @@ if (text.includes('session.queue = session.queue.then(async () => {')) {
                 if (session.closed || state.activeEmbedManager !== session) return;`,
 `            const selectionVersion = (session.selectionVersion || 0) + 1;
             session.selectionVersion = selectionVersion;
+            discardPendingEmbedEditorUpdates(state.colorSessionToken);
 
             void (async () => {
                 if (session.closed || state.activeEmbedManager !== session) return;
