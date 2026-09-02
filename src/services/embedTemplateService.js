@@ -2,6 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
+import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentation.js';
 
 const TEMPLATE_PREFIX = 'cloudy:embed-template:';
 const GLOBAL_SCOPE = '__global__';
@@ -311,10 +312,11 @@ function decorateEmbedData(embed, stored) {
     else delete data.image;
   }
 
+  const finalData = stripBlackjackCardsRemaining(data);
   return {
     matched: true,
-    changed: JSON.stringify(original) !== JSON.stringify(data),
-    data,
+    changed: JSON.stringify(original) !== JSON.stringify(finalData),
+    data: finalData,
   };
 }
 

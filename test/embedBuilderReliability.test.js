@@ -25,6 +25,10 @@ import {
 } from '../src/services/cloudyLogoService.js';
 import { getSystemEmbedTemplateKey } from '../src/services/systemEmbedCatalogService.js';
 import {
+  isBlackjackEmbed,
+  stripBlackjackCardsRemaining,
+} from '../src/utils/blackjackEmbedPresentation.js';
+import {
   applyEmbedColorPickerSession,
   createEmbedColorPickerSession,
   deleteEmbedColorPickerSession,
@@ -212,7 +216,7 @@ test('private builder previews and command replies never enter the editable embe
   assert.deepEqual(await getEmbedRegistry(guildId), []);
 });
 
-test('emoji editor preserves animated emoji data and applies live field updates', async () => {
+test('emoji editor preserves animated emoji data and keeps only the latest live field update', async () => {
   const updates = [];
   const token = createEmbedColorPickerSession({
     userId: 'owner-user',
@@ -241,15 +245,22 @@ test('emoji editor preserves animated emoji data and applies live field updates'
     token,
     `__CLOUDY_EMBED_EDIT__:${JSON.stringify({ field: 'message', value: `Hi ${markup}` })}`,
   );
+  const latestUpdate = await applyEmbedColorPickerSession(
+    token,
+    `__CLOUDY_EMBED_EDIT__:${JSON.stringify({ field: 'message', value: `Latest ${markup}` })}`,
+  );
 
   assert.equal(update.ok, true);
-  assert.deepEqual(updates, [{ field: 'message', value: `Hi ${markup}` }]);
+  assert.equal(latestUpdate.ok, true);
+  await new Promise(resolve => { setTimeout(resolve, 10); });
+  assert.deepEqual(updates, [{ field: 'message', value: `Latest ${markup}` }]);
 
   const fieldUpdate = await applyEmbedColorPickerSession(
     token,
     `__CLOUDY_EMBED_EDIT__:${JSON.stringify({ field: 'embed_field_value:0', value: `Updated ${markup}` })}`,
   );
   assert.equal(fieldUpdate.ok, true);
+  await new Promise(resolve => { setTimeout(resolve, 10); });
   assert.deepEqual(updates.at(-1), { field: 'embed_field_value:0', value: `Updated ${markup}` });
   deleteEmbedColorPickerSession(token);
   assert.equal((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__')).reason, 'expired');
@@ -459,13 +470,13 @@ test('casino template identities ignore dynamic bets but keep result states sepa
   const blackjackBet = getSystemEmbedTemplateKey(
     'embed',
     'Blackjack — Bet $10',
-    'Cards remaining: **49**',
+    '',
     'gambling/blackjack',
   );
   const blackjackBetLater = getSystemEmbedTemplateKey(
     'embed',
     'Blackjack — Bet $100',
-    'Cards remaining: **42**',
+    '',
     'gambling/blackjack',
   );
 
@@ -479,6 +490,20 @@ test('casino template identities ignore dynamic bets but keep result states sepa
     getSystemEmbedTemplateKey('embed', 'Result: Win', 'Payout: **$20**', 'gambling/blackjack'),
     'game:blackjack:result:win',
   );
+});
+
+test('legacy Blackjack styling cannot restore Cards Remaining', () => {
+  const result = stripBlackjackCardsRemaining({
+    title: 'Result: Win',
+    description: 'Payout: **$20**\nCash balance: **$120**\n\nCards remaining: **42**',
+    fields: [
+      { name: 'Your Hand', value: '20' },
+      { name: 'Dealer Hand', value: '18' },
+    ],
+  });
+
+  assert.equal(isBlackjackEmbed(result), true);
+  assert.equal(result.description, 'Payout: **$20**\nCash balance: **$120**');
 });
 
 test('embed manager shows one editable casino template for repeated dynamic results', () => {

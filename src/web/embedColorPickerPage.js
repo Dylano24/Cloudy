@@ -161,8 +161,9 @@ export function embedColorPickerPage() {
       let emojis = [];
       let activeField = mode === 'footer' ? footerInput : messageEditor;
       let saveTimer = null;
-      let saveQueue = Promise.resolve();
+      let saveRunning = false;
       let saveSequence = 0;
+      const pendingSaves = new Map();
       let titleRange = null;
       let messageRange = null;
       let lastValidTitle = '';
@@ -207,26 +208,40 @@ export function embedColorPickerPage() {
         }
       }
 
-      async function save(input) {
-        const field = fieldName(input);
-        const value = field === 'title' ? titleInput.value : field === 'message' ? messageInput.value : input.value;
-        const sequence = ++saveSequence;
-        setStatus('Updating Discord preview…');
+      async function flushSaves() {
+        if (saveRunning || !pendingSaves.size) return;
+        saveRunning = true;
+        const pending = [...pendingSaves.entries()];
+        pendingSaves.clear();
+        const latestSequence = Math.max(...pending.map(([, update]) => update.sequence));
         try {
-          saveQueue = saveQueue
-            .catch(() => {})
-            .then(() => callSession('__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field, value })));
-          await saveQueue;
-          if (sequence === saveSequence) setStatus('Live preview updated.', 'ok');
+          await Promise.all(pending.map(([field, update]) =>
+            callSession('__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field, value: update.value }))
+          ));
+          if (!pendingSaves.size && latestSequence === saveSequence) setStatus('Live preview updated.', 'ok');
         } catch (error) {
-          if (sequence === saveSequence) setStatus(error.message || 'Could not update the preview.', 'error');
+          if (latestSequence === saveSequence) setStatus(error.message || 'Could not update the preview.', 'error');
+        } finally {
+          saveRunning = false;
+          if (pendingSaves.size) scheduleSaveFlush();
         }
+      }
+
+      function scheduleSaveFlush() {
+        if (saveTimer || saveRunning) return;
+        saveTimer = setTimeout(() => {
+          saveTimer = null;
+          void flushSaves();
+        }, 0);
       }
 
       function scheduleSave(input) {
         updateCount(input);
-        clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => save(input), 200);
+        const field = fieldName(input);
+        const value = field === 'title' ? titleInput.value : field === 'message' ? messageInput.value : input.value;
+        pendingSaves.set(field, { value, sequence: ++saveSequence });
+        setStatus('Updating Discord preview…');
+        scheduleSaveFlush();
       }
 
       footerInput.addEventListener('focus', () => { activeField = footerInput; });
