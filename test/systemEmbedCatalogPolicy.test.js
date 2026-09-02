@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EmbedBuilder } from 'discord.js';
 import {
   captureSystemEmbedData,
+  cleanupSystemCatalogEntries,
   getSystemEmbedTemplateKey,
   isEditableSystemCatalogTemplate,
 } from '../src/services/systemEmbedCatalogService.js';
@@ -70,4 +72,35 @@ test('malformed casino runtime output is rejected before it can queue a catalog 
     ),
     false,
   );
+});
+
+test('catalog cleanup removes existing partial Blackjack and ticket templates but keeps the real Bust template', async () => {
+  const template = (title, key, context) => new EmbedBuilder({
+    title,
+    description: 'Template body',
+    author: {
+      name: `Cloudy template key: ${key} || Cloudy context: ${context} || Cloudy kind: embed`,
+    },
+  });
+
+  const message = {
+    id: 'catalog-message-1',
+    embeds: [
+      template('Result: Bust', 'game:blackjack:result:bust', 'gambling/blackjack'),
+      template('Result: Bus', 'game:blackjack:result:bus', 'gambling/blackjack'),
+      template('Result: Bu', 'game:blackjack:result:bu', 'gambling/blackjack'),
+      template('Ticket closed', 'embed:deadbeef', 'tickets/close'),
+    ],
+    async edit(payload) {
+      this.embeds = payload.embeds;
+      return this;
+    },
+  };
+  const messages = [message];
+
+  assert.equal(await cleanupSystemCatalogEntries(messages), true);
+  assert.equal(messages.length, 1);
+  assert.equal(message.embeds.length, 1);
+  assert.equal(message.embeds[0].toJSON().title, 'Result: Bust');
+  assert.match(message.embeds[0].toJSON().author.name, /game:blackjack:result:bust/);
 });
