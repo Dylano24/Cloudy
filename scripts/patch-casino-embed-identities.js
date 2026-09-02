@@ -81,6 +81,23 @@ const baccaratChanged = patchFile('src/commands/Economy/baccarat.js', source => 
 const catalogChanged = patchFile('src/services/systemEmbedCatalogService.js', source => {
   let text = source;
 
+  if (!text.includes('function renderTitleTemplate(')) {
+    const marker = 'function responseSignature(kind, title = \'\', description = \'\') {';
+    if (!text.includes(marker)) throw new Error('[CASINO_EMBEDS] title renderer marker was not found.');
+    const helper = `function renderTitleTemplate(template, runtime) {
+  const emojis = [];
+  const protectedTemplate = String(template || '').replace(/<a?:[^:>]+:\\d+>/g, emoji => {
+    const index = emojis.push(emoji) - 1;
+    return \`CLOUDYEMOJI\${index}TOKEN\`;
+  });
+  const rendered = renderDynamic(protectedTemplate, runtime, { fallbackToRuntimeOnMismatch: true });
+  return rendered.replace(/CLOUDYEMOJI(\\d+)TOKEN/g, (_match, index) => emojis[Number(index)] || '');
+}
+
+${marker}`;
+    text = text.replace(marker, helper);
+  }
+
   text = replaceRequired(
     text,
     "    return normalizedKey === 'game:baccarat:bet' || normalizedKey === 'game:baccarat:result';",
@@ -312,6 +329,13 @@ function baccaratDecorationFallback(template, runtimeData) {
 
   text = replaceRequired(
     text,
+    "  if (template.title) next.title = renderDynamic(template.title, data.title, { fallbackToRuntimeOnMismatch: true });",
+    "  if (template.title) next.title = renderTitleTemplate(template.title, data.title);",
+    'saved title rendering',
+  );
+
+  text = replaceRequired(
+    text,
     "  const next = { ...data };",
     "  if (usingLegacyBaccaratFallback) captureSystemEmbedData(data, contextSource);\n\n  const next = { ...data };",
     'baccarat fallback capture',
@@ -376,6 +400,33 @@ const responseCatalogChanged = patchFile('src/events/fullResponseCatalogReady.js
     newBaccaratResultSeeds,
     'baccarat outcome seeds',
   );
+  return text;
+});
+
+const builderTitleDisplayChanged = patchFile('src/commands/Tools/embedbuilder.js', source => {
+  let text = source;
+
+  if (!text.includes('function visibleBuilderTitle(')) {
+    const marker = 'function isPublicToEveryone(guild, channel) {';
+    if (!text.includes(marker)) throw new Error('[CASINO_EMBEDS] Builder short-value marker was not found.');
+    const helper = `function visibleBuilderTitle(value) {
+    if (!value) return '\`Not set\`';
+    // Custom emoji markup must stay outside a code span so Discord renders the
+    // emoji itself instead of exposing its internal name and numeric ID.
+    return String(value).replace(/\\s+/g, ' ').trim();
+}
+
+${marker}`;
+    text = text.replace(marker, helper);
+  }
+
+  text = replaceRequired(
+    text,
+    '            `**Title** › ${shortValue(state.title, 40)}`,',
+    '            `**Title** › ${visibleBuilderTitle(state.title)}`,',
+    'rendered Builder title',
+  );
+
   return text;
 });
 
@@ -462,7 +513,10 @@ const managerChanged = patchFile('src/services/embedManagerService.js', source =
         return {
             ...representative,`;
 
-  text = replaceRequired(text, oldRepresentative, newRepresentative, 'manager casino save representative');
+  if (!text.includes(newRepresentative)
+    && !text.includes('catalogRepresentative.snapshot = liveSnapshot;')) {
+    text = replaceRequired(text, oldRepresentative, newRepresentative, 'manager casino save representative');
+  }
 
   text = replaceRequired(
     text,
@@ -478,6 +532,95 @@ const managerChanged = patchFile('src/services/embedManagerService.js', source =
     'manager catalog save target state',
   );
 
+  if (!text.includes('function customEmojiOption(')) {
+    const marker = `function standardDynamicTemplateName(value) {
+    const title = String(value || '').replace(/\\s+/g, ' ').trim();
+    if (/^blackjack\\s*[—-]\\s*bet\\b/i.test(title)) return 'Blackjack — Bet';
+    if (/^baccarat\\s*[—-]\\s*bet\\b/i.test(title)) return 'Baccarat — Bet';
+    return title;
+}
+`;
+    if (!text.includes(marker)) throw new Error('[CASINO_EMBEDS] manager display-name marker was not found.');
+    const helpers = `${marker}
+function customEmojiOption(value) {
+    const match = String(value || '').match(/<(a?):([^:>]+):(\\d+)>/);
+    if (!match) return null;
+    return { id: match[3], name: match[2], animated: match[1] === 'a' };
+}
+
+function gameTemplateDisplayName(identity) {
+    const key = String(identity || '').toLowerCase();
+    if (key === 'game:roulette:won') return 'Roulette win';
+    if (key === 'game:roulette:lost') return 'Roulette loss';
+    if (key === 'game:blackjack:bet') return 'Blackjack bet';
+    if (key === 'game:baccarat:bet') return 'Baccarat bet';
+
+    const blackjackPrefix = 'game:blackjack:result:';
+    if (key.startsWith(blackjackPrefix)) {
+        const outcome = key.slice(blackjackPrefix.length)
+            .split('-')
+            .map(part => part === 'blackjack' ? 'natural win' : part)
+            .join(' / ');
+        return outcome ? \`Blackjack \${outcome}\` : '';
+    }
+
+    const baccaratMatch = key.match(/^game:baccarat:(win|loss|tie|expired)$/);
+    return baccaratMatch ? \`Baccarat \${baccaratMatch[1]}\` : '';
+}
+`;
+    text = text.replace(marker, helpers);
+  }
+
+  text = replaceRequired(
+    text,
+    `        const name = standardDynamicTemplateName(rawName) || 'Untitled embed';
+        const key = \`template:\${templateIdentity(channelId, recordEmbedData(record))}\`;
+        if (!groups.has(key)) groups.set(key, { label: name, records: [], templateMode: false });
+        groups.get(key).records.push(record);`,
+    `        const identity = templateIdentity(channelId, recordData);
+        const visibleName = stripCustomEmojiMarkup(rawName);
+        const name = gameTemplateDisplayName(identity)
+            || standardDynamicTemplateName(visibleName)
+            || 'Untitled embed';
+        const key = \`template:\${identity}\`;
+        const emoji = customEmojiOption(recordData.title || rawName);
+        if (!groups.has(key)) groups.set(key, {
+            label: name,
+            records: [],
+            templateMode: false,
+            optionEmoji: emoji,
+        });
+        const group = groups.get(key);
+        if (emoji && (record.source === 'system-catalog' || !group.optionEmoji)) group.optionEmoji = emoji;
+        group.records.push(record);`,
+    'manager stable game display names',
+  );
+
+  text = replaceRequired(
+    text,
+    `            name: group.label,
+            duplicateCount: group.records.length,`,
+    `            name: group.label,
+            optionEmoji: group.optionEmoji || null,
+            duplicateCount: group.records.length,`,
+    'manager custom emoji option',
+  );
+
+  text = replaceRequired(
+    text,
+    `                return new StringSelectMenuOptionBuilder()
+                    .setLabel(shortLabel(displayName, 'Untitled embed'))
+                    .setDescription(description.slice(0, 100))
+                    .setValue(\`\${record.messageId}:\${record.embedIndex || 0}\`);`,
+    `                const option = new StringSelectMenuOptionBuilder()
+                    .setLabel(shortLabel(displayName, 'Untitled embed'))
+                    .setDescription(description.slice(0, 100))
+                    .setValue(\`\${record.messageId}:\${record.embedIndex || 0}\`);
+                if (record.optionEmoji) option.setEmoji(record.optionEmoji);
+                return option;`,
+    'manager rendered custom emoji',
+  );
+
   return text;
 });
 
@@ -487,5 +630,6 @@ console.log(`[CASINO_EMBEDS] ${[
   baccaratChanged,
   catalogChanged,
   responseCatalogChanged,
+  builderTitleDisplayChanged,
   managerChanged,
 ].some(Boolean) ? 'patched distinct per-game outcomes + safe catalog Save targeting' : 'already current'}`);
