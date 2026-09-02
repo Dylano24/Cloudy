@@ -356,7 +356,8 @@ function baccaratDecorationFallback(template, runtimeData) {
     );
   }
 
-  if (!text.includes("      winner.canonicalContext,\n      winner.metadata.kind,")) {
+  if (!text.includes("      winner.canonicalContext,\n      winner.metadata.kind,")
+    && !text.includes("      keeper.canonicalContext,\n      keeper.metadata.kind,")) {
     text = replaceRequired(
       text,
       "    const canonicalData = withStableKey(\n      merged,\n      winner.canonicalKey,",
@@ -373,9 +374,10 @@ function baccaratDecorationFallback(template, runtimeData) {
 }`,
     `function catalogEntryPriority(location) {
   const stableKey = String(location.metadata?.key || '');
+  const customizedTitlePriority = location.customizedTitle ? 3_000_000_000_000_000 : 0;
   const customizedLegacyPriority = location.customizedLegacy ? 2_000_000_000_000_000 : 0;
   const stableGamePriority = stableKey.startsWith('game:') ? 1_000_000_000_000_000 : 0;
-  return customizedLegacyPriority + stableGamePriority + catalogEntryTimestamp(location);
+  return customizedTitlePriority + customizedLegacyPriority + stableGamePriority + catalogEntryTimestamp(location);
 }`,
     'custom legacy template priority',
   );
@@ -384,7 +386,7 @@ function baccaratDecorationFallback(template, runtimeData) {
     text = replaceRequired(
       text,
       "      groups.get(identity).push({ message, index, embed, metadata, canonicalKey });",
-      "      groups.get(identity).push({\n        message,\n        index,\n        embed,\n        metadata,\n        canonicalKey,\n        customizedLegacy: !String(metadata.key || '').startsWith('game:')\n          && isLegacyCatalogEdit(metadata, data),\n      });",
+      "      groups.get(identity).push({\n        message,\n        index,\n        embed,\n        metadata,\n        canonicalKey,\n        customizedLegacy: !String(metadata.key || '').startsWith('game:')\n          && isLegacyCatalogEdit(metadata, data),\n        customizedTitle: /<a?:[^:>]+:\\d+>/.test(String(data.title || ''))\n          || !isLegacyDefaultGameTitle(data.title, canonicalKey),\n      });",
       'custom legacy template migration',
     );
   }
@@ -438,12 +440,14 @@ function baccaratDecorationFallback(template, runtimeData) {
     'canonical cleanup record context',
   );
 
-  text = replaceRequired(
-    text,
-    "      winner.metadata.context,\n      winner.metadata.kind,",
-    "      winner.canonicalContext,\n      winner.metadata.kind,",
-    'canonical cleanup rewrite context',
-  );
+  if (!text.includes("      keeper.canonicalContext,\n      keeper.metadata.kind,")) {
+    text = replaceRequired(
+      text,
+      "      winner.metadata.context,\n      winner.metadata.kind,",
+      "      winner.canonicalContext,\n      winner.metadata.kind,",
+      'canonical cleanup rewrite context',
+    );
+  }
 
   text = replaceRequired(
     text,
@@ -454,9 +458,16 @@ function baccaratDecorationFallback(template, runtimeData) {
 
   text = replaceRequired(
     text,
-    "    for (const duplicate of ordered.slice(1)) {\n      merged = mergeCatalogShape(merged, duplicate.embed);",
-    "    for (const duplicate of ordered.slice(1)) {\n      mergedCasinoDuplicates += 1;\n      merged = mergeCatalogShape(merged, duplicate.embed);",
-    'casino duplicate counter',
+    "    const ordered = [...entries].sort((left, right) => catalogEntryPriority(right) - catalogEntryPriority(left));\n    const winner = ordered[0];\n    let merged = cloneData(winner.embed);\n\n    for (const duplicate of ordered.slice(1)) {\n      merged = mergeCatalogShape(merged, duplicate.embed);\n      markRemoval(duplicate.message, duplicate.index);\n    }\n\n    const canonicalData = withStableKey(\n      normalizeCuratedGameTemplate(merged, winner.canonicalKey),\n      winner.canonicalKey,\n      winner.canonicalContext,\n      winner.metadata.kind,\n    );\n    if (!catalogDataChanged(winner.embed, canonicalData)) continue;\n    if (!rewrites.has(winner.message.id)) rewrites.set(winner.message.id, new Map());\n    rewrites.get(winner.message.id).set(winner.index, canonicalData);",
+    "    const ordered = [...entries].sort((left, right) => catalogEntryPriority(right) - catalogEntryPriority(left));\n    const styleWinner = ordered[0];\n    const canonicalEntries = entries.filter(entry =>\n      normalize(entry.metadata.key) === normalize(entry.canonicalKey)\n      && normalize(entry.metadata.context) === normalize(entry.canonicalContext));\n    const keeper = [...canonicalEntries]\n      .sort((left, right) => catalogEntryPriority(right) - catalogEntryPriority(left))[0]\n      || styleWinner;\n    let merged = cloneData(styleWinner.embed);\n\n    for (const entry of ordered) {\n      if (entry === styleWinner) continue;\n      merged = mergeCatalogShape(merged, entry.embed);\n    }\n    for (const duplicate of entries) {\n      if (duplicate === keeper) continue;\n      mergedCasinoDuplicates += 1;\n      markRemoval(duplicate.message, duplicate.index);\n    }\n\n    const canonicalData = withStableKey(\n      normalizeCuratedGameTemplate(merged, keeper.canonicalKey),\n      keeper.canonicalKey,\n      keeper.canonicalContext,\n      keeper.metadata.kind,\n    );\n    if (!catalogDataChanged(keeper.embed, canonicalData)) continue;\n    if (!rewrites.has(keeper.message.id)) rewrites.set(keeper.message.id, new Map());\n    rewrites.get(keeper.message.id).set(keeper.index, canonicalData);",
+    'stable canonical casino Save target',
+  );
+
+  text = replaceRequired(
+    text,
+    "  for (const context of contexts.values()) {\n    const messages = await loadCatalogMessages(context);\n    await cleanupSystemCatalogEntries(messages);\n    for (const message of messages) rememberCatalogMessage(message);",
+    "  for (const context of contexts.values()) {\n    const messages = await loadCatalogMessages(context);\n    // Cleanup can delete or reorder the exact catalog embed an administrator\n    // is editing. It runs once during catalog startup; live flushes only append\n    // or enrich stable entries so Save targets never disappear mid-session.\n    for (const message of messages) rememberCatalogMessage(message);",
+    'no live casino cleanup during Save',
   );
 
   text = replaceRequired(

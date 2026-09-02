@@ -174,9 +174,16 @@ test('catalog cleanup migrates old Roulette copies without deleting the saved em
 
   assert.equal(await cleanupSystemCatalogEntries(messages), true);
   assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, 'roulette-canonical');
   const migrated = messages[0].embeds[0].toJSON();
   assert.equal(migrated.title, emojiTitle);
   assert.match(migrated.author.name, /game:roulette:lost/);
+
+  messages.push(makeMessage('roulette-new-default-copy', 'Roulette loss', 'game:roulette:lost', 4));
+  assert.equal(await cleanupSystemCatalogEntries(messages), true);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, 'roulette-canonical');
+  assert.equal(messages[0].embeds[0].toJSON().title, emojiTitle);
 });
 
 test('saved casino titles are applied to the next real channel result while live values stay dynamic', () => {
