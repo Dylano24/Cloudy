@@ -1,8 +1,7 @@
 import { MessageFlags } from 'discord.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
-import { registerCloudyEmbedMessage } from './embedRegistryService.js';
 
-const DISCOVERY_LIMIT = 100;
+const DISCOVERY_PAGE_SIZE = 100;
 const INTERNAL_TITLES = new Set([
     'message builder',
     'modify embed',
@@ -10,12 +9,15 @@ const INTERNAL_TITLES = new Set([
     'changes saved',
     'could not load embeds',
 ]);
+const discoveryCache = new Map();
 
 function isUsableMessage(message, botUserId) {
     if (!message?.guildId || message.author?.id !== botUserId || !message.embeds?.length) return false;
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
-    if (message.interaction || message.interactionMetadata) return false;
 
+    // Persistent slash-command replies are normal Cloudy embeds too. Older
+    // discovery code rejected interaction replies, which made whole classes of
+    // game/system embeds impossible to load in the Builder live preview.
     return message.embeds.some(embed => {
         const title = String(embed?.title || '').trim().toLowerCase();
         return !INTERNAL_TITLES.has(title);
@@ -50,6 +52,12 @@ function recordName(embed) {
     return String(firstLine || 'Untitled embed').slice(0, 256);
 }
 
+function embedSnapshot(embed) {
+    if (!embed) return null;
+    const data = typeof embed.toJSON === 'function' ? embed.toJSON() : { ...embed };
+    return data && typeof data === 'object' ? data : null;
+}
+
 function buildRecords(guild, channel, message) {
     return message.embeds
         .map((embed, embedIndex) => {
@@ -62,27 +70,68 @@ function buildRecords(guild, channel, message) {
                 backingChannelId: null,
                 messageId: String(message.id),
                 embedIndex,
+                // Session-only discovery records deliberately behave as direct
+                // editable embeds, not as persistent/system templates.
                 source: 'embed-builder',
                 title: String(embed?.title || '').slice(0, 256),
                 name: recordName(embed),
                 createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                 discoveryPriority: candidatePriority(message),
+                snapshot: embedSnapshot(embed),
             };
         })
         .filter(Boolean);
 }
 
-async function getRecentUsableMessages(channel, botUserId) {
-    const cached = [...channel.messages.cache.values()]
-        .filter(message => isUsableMessage(message, botUserId));
+function mergeUsableMessages(target, messages, botUserId) {
+    for (const message of messages || []) {
+        if (isUsableMessage(message, botUserId)) target.set(String(message.id), message);
+    }
+}
 
-    const fetched = await channel.messages.fetch({ limit: DISCOVERY_LIMIT }).catch(() => null);
-    const merged = new Map(cached.map(message => [String(message.id), message]));
-    for (const message of fetched?.values?.() || []) {
-        if (isUsableMessage(message, botUserId)) merged.set(String(message.id), message);
+async function getRecentUsableMessages(channel, botUserId) {
+    const cacheKey = String(channel.id);
+    const state = discoveryCache.get(cacheKey) || {
+        messages: new Map(),
+        oldestId: null,
+        complete: false,
+    };
+
+    mergeUsableMessages(state.messages, channel.messages.cache.values(), botUserId);
+
+    // Always refresh the newest page so newly-created embeds appear immediately.
+    const newestBatch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE }).catch(() => null);
+    if (newestBatch?.size) {
+        mergeUsableMessages(state.messages, newestBatch.values(), botUserId);
+        if (!state.oldestId) state.oldestId = newestBatch.last()?.id || null;
+        if (newestBatch.size < DISCOVERY_PAGE_SIZE) state.complete = true;
     }
 
-    return [...merged.values()].sort((a, b) =>
+    // First visit indexes the full channel history. Later visits reuse that
+    // completed index and only fetch the newest page, so switching stays fast.
+    let before = state.complete ? null : state.oldestId;
+    while (before) {
+        const batch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE, before }).catch(() => null);
+        if (!batch) break;
+        if (!batch.size) {
+            state.complete = true;
+            break;
+        }
+
+        mergeUsableMessages(state.messages, batch.values(), botUserId);
+        const oldest = batch.last();
+        state.oldestId = oldest?.id || state.oldestId;
+
+        if (!oldest || batch.size < DISCOVERY_PAGE_SIZE) {
+            state.complete = true;
+            break;
+        }
+        before = oldest.id;
+    }
+
+    discoveryCache.set(cacheKey, state);
+
+    return [...state.messages.values()].sort((a, b) =>
         candidatePriority(b) - candidatePriority(a)
         || Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0),
     );
@@ -98,15 +147,10 @@ export async function discoverMissingChannelEmbeds(guild, channelId, botUserId) 
     const messages = await getRecentUsableMessages(channel, botUserId);
     if (!messages.length) return [];
 
-    // Registration primes the in-memory embed snapshots used by the Builder.
-    // Keep this sequential so registry writes cannot race each other.
-    const records = [];
-    for (const message of messages) {
-        await registerCloudyEmbedMessage(message, 'embed-builder');
-        records.push(...buildRecords(guild, channel, message));
-    }
-
-    return records;
+    // Do not persist historical discovery as manual Embed Builder records.
+    // The inline snapshot is enough for instant preview and prevents old log
+    // history from permanently polluting the registry/menu again.
+    return messages.flatMap(message => buildRecords(guild, channel, message));
 }
 
 export async function discoverMissingChannelEmbed(guild, channelId, botUserId) {
