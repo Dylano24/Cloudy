@@ -3,7 +3,7 @@ import fs from 'node:fs';
 // Final interaction-path hardening for the Embed Builder.
 // Rules:
 // 1. Channel/embed switching never waits for Discord history, DB refreshes, or message resolution.
-// 2. Every visible embed option must already have a renderable snapshot.
+// 2. Every option rendered from a real Discord channel must already have a usable preview snapshot.
 // 3. Snapshot data is persisted with registry rows so previews survive restarts.
 // 4. Repeated messages of one template remain one visible Builder entry.
 
@@ -88,7 +88,6 @@ managerText = managerText.replace(
     "import { discoverCachedChannelEmbeds } from './embedMissingChannelService.js';",
 );
 
-// Never expose a selector entry that cannot paint a preview synchronously.
 if (!managerText.includes('function hasRenderableBuilderSnapshot(record)')) {
     const marker = 'function collapseDisplayRecords(channelRecords, channelId = null) {';
     const helper = `function hasRenderableBuilderSnapshot(record) {
@@ -97,15 +96,18 @@ if (!managerText.includes('function hasRenderableBuilderSnapshot(record)')) {
 }
 
 `;
-    if (!managerText.includes(marker)) throw new Error('Display collapse insertion point was not found.');
+    if (!managerText.includes(marker)) throw new Error('Display helper insertion point was not found.');
     managerText = managerText.replace(marker, helper + marker);
 }
 
+// Older patch versions filtered inside collapseDisplayRecords(). Keep that
+// function pure so offline/unit callers can still inspect registry grouping.
+// The actual Discord interaction path below enforces the renderable-only rule.
 managerText = managerText.replace(
 `    for (const record of channelRecords) {
+        if (!hasRenderableBuilderSnapshot(record)) continue;
         const rawName = recordName(record);`,
 `    for (const record of channelRecords) {
-        if (!hasRenderableBuilderSnapshot(record)) continue;
         const rawName = recordName(record);`,
 );
 
@@ -117,8 +119,9 @@ if (channelStart === -1 || channelEnd === -1) throw new Error('Channel selection
 
 const channelBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
+                    const selectedChannel = guild.channels.cache.get(String(channelId)) || null;
 
-                    // Zero-wait switching: only merge messages Discord.js already
+                    // Zero-wait switching: only inspect objects Discord.js already
                     // has in memory. No history fetch, registry reconcile or message
                     // resolve is allowed on this interaction path.
                     const cachedRecords = discoverCachedChannelEmbeds(
@@ -127,20 +130,20 @@ const channelBlock = `                if (interaction.isStringSelectMenu() && in
                         buttonInteraction.client.user.id,
                     );
 
-                    if (cachedRecords.length) {
-                        const otherChannelRecords = records.filter(record =>
+                    // Real discord.js text channels always expose messages.cache.
+                    // For those channels, remove stale registry rows before the
+                    // menu is rendered. Therefore every visible option has a full
+                    // snapshot and can paint the preview synchronously.
+                    if (selectedChannel?.messages?.cache) {
+                        const outsideSelectedChannel = records.filter(record =>
                             String(record.channelId) !== String(channelId)
-                            || String(record.source || '') === 'system-catalog'
                         );
-                        const existingCatalogRecords = records.filter(record =>
-                            String(record.channelId) === String(channelId)
-                            && String(record.source || '') === 'system-catalog'
-                        );
-                        records = [
-                            ...otherChannelRecords,
-                            ...existingCatalogRecords.filter(record => !otherChannelRecords.includes(record)),
+                        const selectedCandidates = [
+                            ...records.filter(record => String(record.channelId) === String(channelId)),
                             ...cachedRecords,
                         ];
+                        const renderableSelected = selectedCandidates.filter(hasRenderableBuilderSnapshot);
+                        records = [...outsideSelectedChannel, ...renderableSelected];
                     }
 
                     if (selectionVersion !== session.selectionVersion) return;
@@ -151,8 +154,8 @@ const channelBlock = `                if (interaction.isStringSelectMenu() && in
 `;
 managerText = managerText.slice(0, channelStart) + channelBlock + managerText.slice(channelEnd);
 
-// Embed clicks are also snapshot-only. If a stale component somehow points at a
-// record without a snapshot, keep it out of the menu instead of blocking on a
+// Embed clicks are snapshot-only. If a stale component somehow points at a
+// record without a snapshot, remove it immediately rather than blocking on a
 // Discord fetch and leaving the preview hanging.
 const selectStartMarker = '                let record = records.find(item =>';
 const selectEndMarker = '\n            })().catch(error => {';
@@ -191,6 +194,9 @@ const patchedChannelSection = managerText.slice(
 );
 if (/discover(?:Missing|Recent)ChannelEmbeds|messages\.fetch|resolveEmbedRegistryRecord|getEmbedRegistry\(/.test(patchedChannelSection)) {
     throw new Error('A blocking/network operation remains in the channel-switch path.');
+}
+if (!patchedChannelSection.includes('selectedCandidates.filter(hasRenderableBuilderSnapshot)')) {
+    throw new Error('Renderable-only channel filtering was not installed.');
 }
 
 if (managerText !== managerBefore) fs.writeFileSync(managerPath, managerText);
