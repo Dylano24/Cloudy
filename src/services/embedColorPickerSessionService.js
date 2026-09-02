@@ -5,7 +5,7 @@ const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const SESSION_TTL_MS = 14 * 60_000;
-const EDIT_FLUSH_DELAY_MS = 60;
+const EDIT_FLUSH_DELAY_MS = 220;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -52,8 +52,9 @@ function extendSessionLifetime(token, session) {
 }
 
 function scheduleEditorFlush(token, session) {
-    if (session.editFlushTimer || session.editFlushRunning) return;
+    if (session.editFlushRunning) return;
 
+    if (session.editFlushTimer) clearTimeout(session.editFlushTimer);
     session.editFlushTimer = setTimeout(async () => {
         session.editFlushTimer = null;
         if (!sessions.has(token) || typeof session.onEditorUpdate !== 'function') return;
@@ -64,8 +65,9 @@ function scheduleEditorFlush(token, session) {
 
         session.editFlushRunning = true;
         try {
-            // Only the newest value for each field is sent to Discord. This
-            // prevents one API edit per keystroke from building a slow queue.
+            // Apply only the newest value for each field after a very short
+            // typing pause. This prevents Discord edit-rate queues from leaving
+            // the preview tens of seconds behind the selected/current embed.
             for (const [field, value] of pending) {
                 await session.onEditorUpdate(field, value);
             }
@@ -93,8 +95,8 @@ async function touchEditorSession(token, session) {
         return { ok: false, reason: 'editor_unavailable' };
     }
 
-    // A heartbeat only keeps the web editor alive. It must never cause another
-    // Discord message edit, because that creates unnecessary preview lag.
+    // A heartbeat only keeps the web editor alive. It must never cause a
+    // Discord message edit or it can push the visible preview behind.
     extendSessionLifetime(token, session);
     return { ok: true };
 }
