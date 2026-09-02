@@ -27,15 +27,23 @@ const oldBlock = `                if (interaction.isStringSelectMenu() && intera
 const newBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
                     const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
-                    let firstRecord = collapseDisplayRecords(channelRecords, channelId)[0] || null;
+                    const realChannelRecords = channelRecords.filter(record =>
+                        String(record.source || '') !== 'system-catalog'
+                        && String(record.backingChannelId || record.channelId || '') === String(channelId)
+                    );
+                    let firstRecord = collapseDisplayRecords(
+                        realChannelRecords.length ? realChannelRecords : channelRecords,
+                        channelId,
+                    )[0] || null;
 
-                    if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
+                    if (realChannelRecords.length && firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
                         void Promise.resolve(refreshBuilder()).catch(error => {
                             logger.debug(\`Immediate channel preview refresh skipped: \${error?.message || error}\`);
                         });
-                    } else if (!firstRecord) {
-                        // Only the selected empty channel is checked. This is one
-                        // bounded Discord request, never a guild-wide history scan.
+                    } else {
+                        // If this channel only has a virtual system-catalog entry,
+                        // fetch the real panel from the selected channel instead of
+                        // showing a {dynamic} placeholder in the preview.
                         const discovered = await discoverMissingChannelEmbed(
                             guild,
                             channelId,
@@ -52,11 +60,16 @@ const newBlock = `                if (interaction.isStringSelectMenu() && intera
                                 ...records.filter(record => !(
                                     String(record.channelId) === String(channelId)
                                     && String(record.source || '') === 'embed-builder'
+                                    && String(record.messageId) !== String(discovered.record.messageId)
                                 )),
                                 discovered.record,
                             ];
                             void Promise.resolve(refreshBuilder()).catch(error => {
                                 logger.debug(\`Discovered channel preview refresh skipped: \${error?.message || error}\`);
+                            });
+                        } else if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
+                            void Promise.resolve(refreshBuilder()).catch(error => {
+                                logger.debug(\`Catalog fallback preview refresh skipped: \${error?.message || error}\`);
                             });
                         }
                     }
@@ -65,7 +78,7 @@ const newBlock = `                if (interaction.isStringSelectMenu() && intera
                     return;
                 }`;
 
-if (!text.includes('On-demand channel embed discovery skipped')) {
+if (!text.includes('fetch the real panel from the selected channel')) {
   if (!text.includes(oldBlock)) {
     throw new Error('Expected instant channel selection block was not found.');
   }
