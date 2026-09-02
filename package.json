@@ -5,10 +5,10 @@
   "main": "src/app.js",
   "type": "module",
   "scripts": {
-    "start": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && (node scripts/register-cloudy-guild-commands.js & exec node src/bootstrap.js)",
+    "start": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && (node scripts/register-cloudy-guild-commands.js & exec node src/bootstrap.js)",
     "lint": "eslint .",
     "lint:fast": "eslint . --cache --cache-strategy content",
-    "test": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node --test",
+    "test": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && node --test",
     "check": "npm run lint && npm test",
     "check:fast": "npm run lint:fast && npm test",
     "migrate": "node scripts/migrate.js apply",
@@ -17,8 +17,7 @@
     "migrate:keys": "node scripts/migrate-keys.js",
     "migrate:keys:dry": "node scripts/migrate-keys.js --dry-run",
     "backup:db": "node scripts/backup.js",
-    "restore:db": "node scripts/restore.js",
-    "backup:drill": "node scripts/restore-drill.js"
+    "restore:db": "node scripts/restore-drill.js"
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.1",
