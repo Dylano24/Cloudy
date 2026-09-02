@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 
-// This patch runs after the existing Embed Builder patches. It only corrects
-// catalog placement and channel-selection loading; game/save/logo behavior is
-// intentionally left untouched.
+// This patch runs after the existing Embed Builder patches. It corrects
+// catalog placement, channel-selection loading, and the Save feedback lifecycle.
+// Game behavior, template semantics, dynamic values, and logo behavior stay untouched.
 
 const registryPath = 'src/services/embedRegistryService.js';
 const registryBefore = fs.readFileSync(registryPath, 'utf8');
@@ -103,3 +103,61 @@ managerText = managerText.slice(0, channelStart) + channelBlock + managerText.sl
 
 if (managerText !== managerBefore) fs.writeFileSync(managerPath, managerText);
 console.log(`[EMBED_BUILDER_ROUTING_LOADING] ${managerText === managerBefore ? 'manager already current' : 'patched non-blocking channel selection'}`);
+
+const builderPath = 'src/commands/Tools/embedbuilder.js';
+const builderBefore = fs.readFileSync(builderPath, 'utf8');
+let builderText = builderBefore;
+
+// The Save button is already acknowledged with deferUpdate before this function
+// runs. A second ephemeral "Saving changes…" message can outlive a failed edit
+// of that follow-up and leave Discord visibly stuck on loading even though the
+// real embed was saved. Only show a terminal success/error message after Save.
+if (builderText.includes("        content: 'Saving changes…',")) {
+    const saveStartMarker = 'async function saveExistingEmbed(buttonInteraction, guild, state) {';
+    const saveEndMarker = '\n\nfunction buildSingleEmbed(state, description = null, options = {}) {';
+    const saveStart = builderText.indexOf(saveStartMarker);
+    const saveEnd = saveStart === -1 ? -1 : builderText.indexOf(saveEndMarker, saveStart);
+
+    if (saveStart === -1 || saveEnd === -1) {
+        throw new Error('Embed Builder Save function was not found.');
+    }
+
+    const saveBlock = `async function saveExistingEmbed(buttonInteraction, guild, state) {
+    const saved = await saveModifiedEmbed(guild, state);
+
+    if (!saved.ok) {
+        const failure = await buttonInteraction.followUp({
+            content: null,
+            embeds: [new EmbedBuilder()
+                .setTitle('Could not save changes')
+                .setDescription('The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.')
+                .setColor(getColor('error'))],
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
+        if (failure) removeTransientMessage(buttonInteraction, failure);
+        else {
+            await replyUserError(buttonInteraction, {
+                type: ErrorTypes.UNKNOWN,
+                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
+            });
+        }
+        return saved;
+    }
+
+    void refreshBuilder(buttonInteraction, state).catch(() => {});
+    const confirmation = await buttonInteraction.followUp({
+        content: null,
+        embeds: [successEmbed('Changes saved', \`The existing embed in \${saved.channel} was updated.\`)],
+        flags: MessageFlags.Ephemeral,
+        fetchReply: true,
+    }).catch(() => null);
+    if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
+    return saved;
+}`;
+
+    builderText = builderText.slice(0, saveStart) + saveBlock + builderText.slice(saveEnd);
+}
+
+if (builderText !== builderBefore) fs.writeFileSync(builderPath, builderText);
+console.log(`[EMBED_BUILDER_ROUTING_LOADING] ${builderText === builderBefore ? 'save feedback already current' : 'patched terminal-only save feedback'}`);
