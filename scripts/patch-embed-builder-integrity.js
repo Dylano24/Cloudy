@@ -54,22 +54,38 @@ if (!managerText.includes('function strictTicketLogTemplate(value)')) {
 function strictTicketLogTemplate(value) {
     const data = value && typeof value === 'object' ? value : {};
     const fields = ticketLogFieldNames(data);
+    const title = normalizedTicketLogTitle(data.title);
 
-    // Real ticket-log embeds have a stable Ticket field plus event-specific
-    // fields. UI/dashboard/debug text must never be accepted just because its
-    // title happens to contain the word "ticket".
-    if (!fields.has('ticket')) return null;
-    if (fields.has('unclaimed by')) return { key: 'unclaim', label: 'Ticket unclaimed' };
-    if (fields.has('claimed by')) return { key: 'claim', label: 'Ticket claimed' };
-    if (fields.has('closed by')) return { key: 'close', label: 'Ticket closed' };
-    if (fields.has('deleted by')) return { key: 'delete', label: 'Ticket deleted' };
-    if (fields.has('unpinned by')) return { key: 'unpin', label: 'Ticket unpinned' };
-    if (fields.has('pinned by')) return { key: 'pin', label: 'Ticket pinned' };
-    if (fields.has('rating')) return { key: 'feedback', label: 'Feedback received' };
-    if (fields.has('priority')) return { key: 'priority', label: 'Priority updated' };
-    if (fields.has('creator') && fields.has('messages')) return { key: 'transcript', label: 'Transcript generated' };
-    if (fields.has('creator') && fields.has('channel')) return { key: 'open', label: 'Ticket created' };
-    return null;
+    // Prefer structural fields whenever the snapshot is already warm.
+    if (fields.has('ticket')) {
+        if (fields.has('unclaimed by')) return { key: 'unclaim', label: 'Ticket unclaimed' };
+        if (fields.has('claimed by')) return { key: 'claim', label: 'Ticket claimed' };
+        if (fields.has('closed by')) return { key: 'close', label: 'Ticket closed' };
+        if (fields.has('deleted by')) return { key: 'delete', label: 'Ticket deleted' };
+        if (fields.has('unpinned by')) return { key: 'unpin', label: 'Ticket unpinned' };
+        if (fields.has('pinned by')) return { key: 'pin', label: 'Ticket pinned' };
+        if (fields.has('rating')) return { key: 'feedback', label: 'Feedback received' };
+        if (fields.has('priority')) return { key: 'priority', label: 'Priority updated' };
+        if (fields.has('creator') && fields.has('messages')) return { key: 'transcript', label: 'Transcript generated' };
+        if (fields.has('creator') && fields.has('channel')) return { key: 'open', label: 'Ticket created' };
+    }
+
+    // Registry rows survive restarts while the in-memory snapshot cache does
+    // not. Exact canonical event titles are therefore an equally safe fallback
+    // for the first paint. No generic "ticket" matching is allowed here.
+    const exact = new Map([
+        ['ticket created', { key: 'open', label: 'Ticket created' }],
+        ['ticket claimed', { key: 'claim', label: 'Ticket claimed' }],
+        ['ticket unclaimed', { key: 'unclaim', label: 'Ticket unclaimed' }],
+        ['ticket closed', { key: 'close', label: 'Ticket closed' }],
+        ['ticket deleted', { key: 'delete', label: 'Ticket deleted' }],
+        ['ticket pinned', { key: 'pin', label: 'Ticket pinned' }],
+        ['ticket unpinned', { key: 'unpin', label: 'Ticket unpinned' }],
+        ['priority updated', { key: 'priority', label: 'Priority updated' }],
+        ['transcript generated', { key: 'transcript', label: 'Transcript generated' }],
+        ['feedback received', { key: 'feedback', label: 'Feedback received' }],
+    ]);
+    return exact.get(title) || null;
 }
 
 function isTicketLogsBuilderChannel(guild, channelId) {
@@ -87,9 +103,9 @@ function builderRecordsForChannel(guild, channelId, records) {
     managerText = managerText.slice(0, end) + helper + managerText.slice(end);
 }
 
-// Cloudy Assistant is one editable response type. Different source definitions
-// with the exact same visible title must not create four menu entries or four
-// different Save identities.
+// The support assistant is one editable response type. Different source
+// definitions or historical rows with the same visible assistant title must not
+// become multiple menu entries or multiple Save identities.
 managerText = managerText.replace(
 `    const ticketLog = canonicalTicketLogTemplate(data);
     if (ticketLog) return \`ticket-log:\${ticketLog.key}\`;
@@ -97,7 +113,7 @@ managerText = managerText.replace(
 `    const ticketLog = canonicalTicketLogTemplate(data);
     if (ticketLog) return \`ticket-log:\${ticketLog.key}\`;
     const visibleTitle = stripCustomEmojiMarkup(data.title || '');
-    if (/^cloudy assistant$/i.test(visibleTitle)) return 'cloudy-assistant';
+    if (/^cloudy(?: support)? assistant$/i.test(visibleTitle)) return 'cloudy-assistant';
     const stableKey = stableSystemTemplateKey(data);`,
 );
 
