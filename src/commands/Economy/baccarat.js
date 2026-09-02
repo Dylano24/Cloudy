@@ -29,7 +29,7 @@ async function gameEmbed(client, user, amount, player = null, banker = null, res
   ] : [];
 
   const game = createEmbed({
-    title: outcome ? `Baccarat ${outcome}` : result ? 'Baccarat result' : `Baccarat — Bet ${money(amount)}`,
+    title: result ? `Baccarat ${outcome || 'result'}` : `Baccarat — Bet ${money(amount)}` ,
     description: result || 'Choose where to place your bet.',
     color: result ? 'success' : 'primary',
     author: { name: user.username, iconURL: user.displayAvatarURL() },
@@ -63,13 +63,13 @@ export default {
       let outcome = 'loss';
       let outcomeText = '';
       if (winner === 'tie' && pick !== 'tie') {
-        payout = amount;
         outcome = 'tie';
+        payout = amount;
         outcomeText = `Tie — your **${money(amount)}** bet was returned.`;
       } else if (pick === winner) {
+        outcome = 'win';
         const multiplier = winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2;
         payout = Math.floor(amount * multiplier);
-        outcome = 'win';
         outcomeText = `Payout: **${money(payout)}**`;
       } else {
         outcomeText = `You lost **${money(amount)}**`;
