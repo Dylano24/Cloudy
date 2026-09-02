@@ -5,10 +5,10 @@
   "main": "src/app.js",
   "type": "module",
   "scripts": {
-    "start": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && node scripts/patch-embed-builder-integrity.js && exec node src/bootstrap.js",
+    "start": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && node scripts/patch-embed-builder-integrity.js && node scripts/patch-embed-builder-zero-latency.js && exec node src/bootstrap.js",
     "lint": "eslint .",
     "lint:fast": "eslint . --cache --cache-strategy content",
-    "test": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && node scripts/patch-embed-builder-integrity.js && node --test",
+    "test": "node scripts/patch-embed-builder-instant.js && node scripts/patch-embed-builder-missing-channel.js && node scripts/patch-embed-builder-routing-loading.js && node scripts/patch-embed-builder-integrity.js && node scripts/patch-embed-builder-zero-latency.js && node --test",
     "check": "npm run lint && npm test",
     "check:fast": "npm run lint:fast && npm test",
     "migrate": "node scripts/migrate.js apply",
