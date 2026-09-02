@@ -37,35 +37,85 @@ text = text.replace(
   "const snapshot = record?.snapshot || getEmbedRegistrySnapshot(record);\n    if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;",
 );
 
-// Historical ticket logs changed titles several times. Their field layout is
-// stable, so identify the event by fields and show exactly one current entry
-// per ticket-log type without turning ticket history into a template.
+// Ticket log titles have changed historically. Resolve the event from stable
+// fields first, then from known title aliases. Any remaining record that still
+// clearly looks like a historical ticket log is hidden from the Builder instead
+// of surfacing as a second/obsolete ticket type.
 if (!text.includes('function canonicalTicketLogTemplate(value)')) {
   const marker = 'export function templateIdentity(channelId, value) {';
-  const helper = `function canonicalTicketLogTemplate(value) {
-    const data = value && typeof value === 'object' ? value : {};
-    const fields = new Set((Array.isArray(data.fields) ? data.fields : [])
-        .map(field => String(field?.name || '').replace(/<a?:[^:>]+:\\d+>/g, ' ').replace(/[^a-z0-9&\\s-]/gi, ' ').replace(/\\s+/g, ' ').trim().toLowerCase())
-        .filter(Boolean));
-    if (!fields.has('ticket')) return null;
+  const helper = `function normalizedTicketLogTitle(value) {
+    return String(value || '')
+        .replace(/<a?:[^:>]+:\\d+>/g, ' ')
+        .replace(/[^a-z0-9\\s-]/gi, ' ')
+        .replace(/\\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
 
-    const definitions = [
-        ['claim', 'Ticket claimed', 'claimed by'],
-        ['unclaim', 'Ticket unclaimed', 'unclaimed by'],
-        ['close', 'Ticket closed', 'closed by'],
-        ['delete', 'Ticket deleted', 'deleted by'],
-        ['pin', 'Ticket pinned', 'pinned by'],
-        ['unpin', 'Ticket unpinned', 'unpinned by'],
-        ['priority', 'Priority updated', 'priority'],
-        ['feedback', 'Feedback received', 'rating'],
+function ticketLogFieldNames(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    return new Set((Array.isArray(data.fields) ? data.fields : [])
+        .map(field => String(field?.name || '')
+            .replace(/<a?:[^:>]+:\\d+>/g, ' ')
+            .replace(/[^a-z0-9&\\s-]/gi, ' ')
+            .replace(/\\s+/g, ' ')
+            .trim()
+            .toLowerCase())
+        .filter(Boolean));
+}
+
+function canonicalTicketLogTemplate(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const fields = ticketLogFieldNames(data);
+    const title = normalizedTicketLogTitle(data.title);
+    if (!fields.has('ticket') && !/\\b(?:ticket|transcript|feedback|priority)\\b/.test(title)) return null;
+
+    const fieldDefinitions = [
+        ['unclaim', 'Ticket unclaimed', ['unclaimed by']],
+        ['claim', 'Ticket claimed', ['claimed by']],
+        ['close', 'Ticket closed', ['closed by']],
+        ['delete', 'Ticket deleted', ['deleted by']],
+        ['unpin', 'Ticket unpinned', ['unpinned by']],
+        ['pin', 'Ticket pinned', ['pinned by']],
+        ['priority', 'Priority updated', ['priority']],
+        ['feedback', 'Feedback received', ['rating']],
     ];
-    for (const [key, label, field] of definitions) {
-        if (fields.has(field)) return { key, label };
+    for (const [key, label, names] of fieldDefinitions) {
+        if (names.some(name => fields.has(name))) return { key, label };
     }
 
     if (fields.has('creator') && fields.has('messages')) return { key: 'transcript', label: 'Transcript generated' };
-    if (fields.has('creator') && fields.has('channel')) return { key: 'open', label: 'Ticket created' };
+    if (fields.has('creator') && (fields.has('channel') || /\\b(?:created|opened|open)\\b/.test(title))) {
+        return { key: 'open', label: 'Ticket created' };
+    }
+
+    const titleDefinitions = [
+        ['unclaim', 'Ticket unclaimed', /\\bunclaim(?:ed)?\\b|\\bunclaimed\\b/],
+        ['claim', 'Ticket claimed', /\\bclaim(?:ed)?\\b/],
+        ['close', 'Ticket closed', /\\bclos(?:e|ed)\\b/],
+        ['delete', 'Ticket deleted', /\\bdelet(?:e|ed)\\b/],
+        ['unpin', 'Ticket unpinned', /\\bunpin(?:ned)?\\b/],
+        ['pin', 'Ticket pinned', /\\bpin(?:ned)?\\b/],
+        ['priority', 'Priority updated', /\\bpriority\\b/],
+        ['transcript', 'Transcript generated', /\\btranscript\\b/],
+        ['feedback', 'Feedback received', /\\bfeedback\\b|\\brating\\b/],
+        ['open', 'Ticket created', /\\bcreat(?:e|ed)\\b|\\bopen(?:ed)?\\b/],
+    ];
+    for (const [key, label, match] of titleDefinitions) {
+        if (match.test(title)) return { key, label };
+    }
+
     return null;
+}
+
+function isLegacyTicketLog(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const fields = ticketLogFieldNames(data);
+    const title = normalizedTicketLogTitle(data.title);
+    if (!fields.has('ticket')) return false;
+    return /\\b(?:ticket|transcript|feedback|priority)\\b/.test(title)
+        || ['creator', 'claimed by', 'unclaimed by', 'closed by', 'deleted by', 'pinned by', 'unpinned by', 'priority', 'messages', 'rating']
+            .some(name => fields.has(name));
 }
 
 `;
@@ -105,6 +155,7 @@ text = text.replace(
             groups.get(key).records.push(record);
             continue;
         }
+        if (isLegacyTicketLog(recordData)) continue;
 
         const rule = strictTemplateMode
             ? getChannelTemplateRule(channelId, rawName)
@@ -210,4 +261,4 @@ text = text.replaceAll(
                     await updateEmbedManager(`);
 
 if (text !== before) fs.writeFileSync(path, text);
-console.log(`[EMBED_BUILDER_MISSING] ${text === before ? 'already current' : 'patched complete discovery + ticket dedupe + latest-wins preview'}`);
+console.log(`[EMBED_BUILDER_MISSING] ${text === before ? 'already current' : 'patched complete discovery + strict ticket history dedupe + latest-wins preview'}`);
