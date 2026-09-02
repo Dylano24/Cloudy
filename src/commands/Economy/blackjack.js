@@ -38,7 +38,7 @@ function controls(state, ended = false) {
 }
 
 function liveTitle(state, result = null) {
-  return result ? `Result: ${result.title}` : `Blackjack — Bet ${money(state.totalBet)}`;
+  return result ? `Blackjack ${String(result.title || '').toLowerCase()}` : `Blackjack — Bet ${money(state.totalBet)}`;
 }
 
 async function embed(state, result = null) {
