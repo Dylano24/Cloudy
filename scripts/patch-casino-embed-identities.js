@@ -81,6 +81,13 @@ const baccaratChanged = patchFile('src/commands/Economy/baccarat.js', source => 
 const catalogChanged = patchFile('src/services/systemEmbedCatalogService.js', source => {
   let text = source;
 
+  text = replaceRequired(
+    text,
+    "async function registerCatalogMessages(messages) {\n  if (!messages?.length) return;\n  const { registerCloudyEmbedMessages } = await import('./embedRegistryService.js');\n  await registerCloudyEmbedMessages(messages, 'system-catalog');\n}",
+    "async function registerCatalogMessages(messages, replace = false) {\n  if (!messages?.length) return;\n  const registry = await import('./embedRegistryService.js');\n  if (replace) {\n    await registry.replaceSystemCatalogEmbedMessages(messages);\n    return;\n  }\n  await registry.registerCloudyEmbedMessages(messages, 'system-catalog');\n}",
+    'complete catalog registry replacement',
+  );
+
   if (!text.includes('function renderTitleTemplate(')) {
     const marker = 'function responseSignature(kind, title = \'\', description = \'\') {';
     if (!text.includes(marker)) throw new Error('[CASINO_EMBEDS] title renderer marker was not found.');
@@ -199,6 +206,20 @@ function gameFamilyFromFields(data) {
   if (names.has('player hand') && names.has('banker hand')) return 'baccarat';
   if (names.has('your bet') && names.has('cash balance') && (names.has('payout') || names.has('result'))) return 'roulette';
   return '';
+}
+
+function curatedCasinoContext(metadata, data) {
+  const explicitContext = normalize(metadata?.context);
+  if (/^gambling\\/(?:roulette|blackjack|baccarat)$/.test(explicitContext)) return explicitContext;
+
+  const title = normalize(String(data?.title || '').replace(/<a?:[^:>]+:\\d+>/g, ' '));
+  const description = normalize(data?.description);
+  const family = gameFamilyFromKey(metadata?.key)
+    || gameFamilyFromFields(data)
+    || (/^baccarat\\b/.test(title) || (/\\byou chose\\b/.test(description) && /\\bwinner\\b/.test(description)) ? 'baccarat' : '')
+    || (/^blackjack\\b/.test(title) || (/\\bpayout\\b/.test(description) && /\\bcash balance\\b/.test(description)) ? 'blackjack' : '')
+    || (/^roulet(?:te)?\\b/.test(title) || /\\bwheel landed on\\b/.test(description) ? 'roulette' : '');
+  return family ? \`gambling/\${family}\` : explicitContext;
 }
 
 function canonicalGameContent(key) {
@@ -326,19 +347,23 @@ function baccaratDecorationFallback(template, runtimeData) {
     'catalog cache normalization',
   );
 
-  text = replaceRequired(
-    text,
-    "      const data = cloneData(embed);\n      const stableGameKey = String(metadata.key || '').startsWith('game:')\n        && isEditableSystemCatalogTemplate(metadata.key, metadata.context)\n        ? metadata.key\n        : null;\n      const canonicalKey = stableGameKey\n        || legacyCasinoTemplateKey(metadata.key, metadata.context)\n        || getSystemEmbedTemplateKey(\n          metadata.kind,\n          data.title,\n          data.description,\n          metadata.context,\n        );",
-    "      const data = cloneData(embed);\n      const inferredGameKey = getSystemEmbedTemplateKey(\n        metadata.kind,\n        data.title,\n        data.description,\n        metadata.context,\n      );\n      const legacyBaccaratResult = normalize(metadata.context) === 'gambling/baccarat'\n        && normalize(metadata.key) === 'game:baccarat:result'\n        && /^game:baccarat:(?:win|loss|tie|expired)$/.test(String(inferredGameKey || ''));\n      const stableGameKey = legacyBaccaratResult\n        ? inferredGameKey\n        : (String(metadata.key || '').startsWith('game:')\n          && isEditableSystemCatalogTemplate(metadata.key, metadata.context)\n          ? metadata.key\n          : null);\n      const canonicalKey = stableGameKey\n        || legacyCasinoTemplateKey(metadata.key, metadata.context)\n        || inferredGameKey;",
-    'legacy baccarat migration',
-  );
+  if (!text.includes('const canonicalContext = curatedCasinoContext(metadata, data);')) {
+    text = replaceRequired(
+      text,
+      "      const data = cloneData(embed);\n      const stableGameKey = String(metadata.key || '').startsWith('game:')\n        && isEditableSystemCatalogTemplate(metadata.key, metadata.context)\n        ? metadata.key\n        : null;\n      const canonicalKey = stableGameKey\n        || legacyCasinoTemplateKey(metadata.key, metadata.context)\n        || getSystemEmbedTemplateKey(\n          metadata.kind,\n          data.title,\n          data.description,\n          metadata.context,\n        );",
+      "      const data = cloneData(embed);\n      const inferredGameKey = getSystemEmbedTemplateKey(\n        metadata.kind,\n        data.title,\n        data.description,\n        metadata.context,\n      );\n      const legacyBaccaratResult = normalize(metadata.context) === 'gambling/baccarat'\n        && normalize(metadata.key) === 'game:baccarat:result'\n        && /^game:baccarat:(?:win|loss|tie|expired)$/.test(String(inferredGameKey || ''));\n      const stableGameKey = legacyBaccaratResult\n        ? inferredGameKey\n        : (String(metadata.key || '').startsWith('game:')\n          && isEditableSystemCatalogTemplate(metadata.key, metadata.context)\n          ? metadata.key\n          : null);\n      const canonicalKey = stableGameKey\n        || legacyCasinoTemplateKey(metadata.key, metadata.context)\n        || inferredGameKey;",
+      'legacy baccarat migration',
+    );
+  }
 
-  text = replaceRequired(
-    text,
-    "    const canonicalData = withStableKey(\n      merged,\n      winner.canonicalKey,",
-    "    const canonicalData = withStableKey(\n      normalizeCuratedGameTemplate(merged, winner.canonicalKey),\n      winner.canonicalKey,",
-    'catalog cleanup repair',
-  );
+  if (!text.includes("      winner.canonicalContext,\n      winner.metadata.kind,")) {
+    text = replaceRequired(
+      text,
+      "    const canonicalData = withStableKey(\n      merged,\n      winner.canonicalKey,",
+      "    const canonicalData = withStableKey(\n      normalizeCuratedGameTemplate(merged, winner.canonicalKey),\n      winner.canonicalKey,",
+      'catalog cleanup repair',
+    );
+  }
 
   text = replaceRequired(
     text,
@@ -355,11 +380,90 @@ function baccaratDecorationFallback(template, runtimeData) {
     'custom legacy template priority',
   );
 
+  if (!text.includes("        canonicalContext,\n        customizedLegacy:")) {
+    text = replaceRequired(
+      text,
+      "      groups.get(identity).push({ message, index, embed, metadata, canonicalKey });",
+      "      groups.get(identity).push({\n        message,\n        index,\n        embed,\n        metadata,\n        canonicalKey,\n        customizedLegacy: !String(metadata.key || '').startsWith('game:')\n          && isLegacyCatalogEdit(metadata, data),\n      });",
+      'custom legacy template migration',
+    );
+  }
+
   text = replaceRequired(
     text,
-    "      groups.get(identity).push({ message, index, embed, metadata, canonicalKey });",
-    "      groups.get(identity).push({\n        message,\n        index,\n        embed,\n        metadata,\n        canonicalKey,\n        customizedLegacy: !String(metadata.key || '').startsWith('game:')\n          && isLegacyCatalogEdit(metadata, data),\n      });",
-    'custom legacy template migration',
+    "      if (!isCuratedCasinoContext(metadata.context)) continue;\n\n      const data = cloneData(embed);\n      const inferredGameKey = getSystemEmbedTemplateKey(\n        metadata.kind,\n        data.title,\n        data.description,\n        metadata.context,\n      );",
+    "      const data = cloneData(embed);\n      const canonicalContext = curatedCasinoContext(metadata, data);\n      if (!isCuratedCasinoContext(canonicalContext)) continue;\n\n      const inferredGameKey = getSystemEmbedTemplateKey(\n        metadata.kind,\n        data.title,\n        data.description,\n        canonicalContext,\n      );",
+    'structural casino catalog context',
+  );
+
+  text = replaceRequired(
+    text,
+    "      const legacyBaccaratResult = normalize(metadata.context) === 'gambling/baccarat'\n        && normalize(metadata.key) === 'game:baccarat:result'",
+    "      const legacyBaccaratResult = canonicalContext === 'gambling/baccarat'\n        && normalize(metadata.key) === 'game:baccarat:result'",
+    'canonical baccarat cleanup context',
+  );
+
+  text = replaceRequired(
+    text,
+    "          && isEditableSystemCatalogTemplate(metadata.key, metadata.context)",
+    "          && isEditableSystemCatalogTemplate(metadata.key, canonicalContext)",
+    'canonical stable game context',
+  );
+
+  text = replaceRequired(
+    text,
+    "        || legacyCasinoTemplateKey(metadata.key, metadata.context)",
+    "        || legacyCasinoTemplateKey(metadata.key, canonicalContext)",
+    'canonical legacy game context',
+  );
+
+  text = replaceRequired(
+    text,
+    "      if (!canonicalKey || !isEditableSystemCatalogTemplate(canonicalKey, metadata.context)) {",
+    "      if (!canonicalKey || !isEditableSystemCatalogTemplate(canonicalKey, canonicalContext)) {",
+    'canonical editable game context',
+  );
+
+  text = replaceRequired(
+    text,
+    "      const identity = cacheIdentity(canonicalKey, metadata.context);",
+    "      const identity = cacheIdentity(canonicalKey, canonicalContext);",
+    'canonical cleanup identity',
+  );
+
+  text = replaceRequired(
+    text,
+    "        canonicalKey,\n        customizedLegacy:",
+    "        canonicalKey,\n        canonicalContext,\n        customizedLegacy:",
+    'canonical cleanup record context',
+  );
+
+  text = replaceRequired(
+    text,
+    "      winner.metadata.context,\n      winner.metadata.kind,",
+    "      winner.canonicalContext,\n      winner.metadata.kind,",
+    'canonical cleanup rewrite context',
+  );
+
+  text = replaceRequired(
+    text,
+    "export async function cleanupSystemCatalogEntries(messages) {\n  const groups = new Map();",
+    "export async function cleanupSystemCatalogEntries(messages) {\n  const groups = new Map();\n  let mergedCasinoDuplicates = 0;",
+    'casino cleanup counter',
+  );
+
+  text = replaceRequired(
+    text,
+    "    for (const duplicate of ordered.slice(1)) {\n      merged = mergeCatalogShape(merged, duplicate.embed);",
+    "    for (const duplicate of ordered.slice(1)) {\n      mergedCasinoDuplicates += 1;\n      merged = mergeCatalogShape(merged, duplicate.embed);",
+    'casino duplicate counter',
+  );
+
+  text = replaceRequired(
+    text,
+    "  messages.splice(0, messages.length, ...nextMessages);\n  return true;",
+    "  messages.splice(0, messages.length, ...nextMessages);\n  if (mergedCasinoDuplicates > 0) {\n    logger.warn(`[EMBED_BUILDER] Casino catalog merged ${mergedCasinoDuplicates} duplicate template(s).`);\n  }\n  return true;",
+    'casino cleanup result log',
   );
 
   text = replaceRequired(
@@ -390,6 +494,69 @@ function baccaratDecorationFallback(template, runtimeData) {
     'baccarat fallback capture',
   );
 
+  text = replaceRequired(
+    text,
+    "    await saveCatalogIds(guild.id, messages);\n    await registerCatalogMessages(messages).catch(error => logger.warn(`Failed to register response catalog messages: ${error.message}`));",
+    "    await saveCatalogIds(guild.id, messages);\n    await registerCatalogMessages(messages, true).catch(error => logger.warn(`Failed to replace response catalog registry: ${error.message}`));",
+    'complete startup catalog registry',
+  );
+
+  text = replaceRequired(
+    text,
+    "    await saveCatalogIds(context.guild.id, messages);\n  }\n}",
+    "    await saveCatalogIds(context.guild.id, messages);\n    await registerCatalogMessages(messages, true).catch(error => {\n      logger.warn(`Failed to replace flushed response catalog registry: ${error.message}`);\n    });\n  }\n}",
+    'complete flushed catalog registry',
+  );
+
+  return text;
+});
+
+const registryChanged = patchFile('src/services/embedRegistryService.js', source => {
+  let text = source;
+  if (!text.includes('export async function replaceSystemCatalogEmbedMessages(')) {
+    const marker = "export async function registerCloudyEmbedMessage(message, source = 'cloudy') {";
+    if (!text.includes(marker)) throw new Error('[CASINO_EMBEDS] registry replacement marker was not found.');
+    const helper = `export async function replaceSystemCatalogEmbedMessages(messages) {
+    const grouped = new Map();
+
+    for (const message of Array.isArray(messages) ? messages : []) {
+        if (!message?.guildId || !isSystemCatalogMessage(message)) continue;
+        const additions = message.embeds.map((embed, embedIndex) => {
+            const location = recordLocationForEmbed(message, embed);
+            const addition = {
+                guildId: message.guildId,
+                ...location,
+                messageId: message.id,
+                embedIndex,
+                source: 'system-catalog',
+                title: embed?.title || '',
+                name: embedName(embed),
+                createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
+            };
+            rememberEmbedSnapshot(addition, embed);
+            return addition;
+        });
+        if (!grouped.has(message.guildId)) grouped.set(message.guildId, []);
+        grouped.get(message.guildId).push(...additions);
+    }
+
+    if (!grouped.size) return false;
+    await Promise.all([...grouped.entries()].map(([guildId, additions]) => mutateRegistry(guildId, async () => {
+        const retained = cleanStoredRecords(await readStoredRecords(guildId))
+            .filter(record => String(record?.source || '') !== 'system-catalog');
+        const next = new Map(retained.map(record => [recordKey(record), record]));
+        for (const addition of additions) {
+            const record = normalizeRecord(addition);
+            if (record) next.set(recordKey(record), record);
+        }
+        return setInDb(registryKey(guildId), sortRecords([...next.values()]));
+    })));
+    return true;
+}
+
+`;
+    text = text.replace(marker, helper + marker);
+  }
   return text;
 });
 
@@ -495,8 +662,23 @@ const managerChanged = patchFile('src/services/embedManagerService.js', source =
     const helper = `function curatedGameTemplateIdentity(value) {
     const data = value && typeof value === 'object' ? value : { title: value };
     const stableContext = stableSystemTemplateContext(data);
-    const contexts = /^gambling\\/(?:roulette|blackjack|baccarat)$/.test(stableContext)
-        ? [stableContext]
+    const fieldNames = new Set((Array.isArray(data.fields) ? data.fields : [])
+        .map(field => String(field?.name || '').replace(/<a?:[^:>]+:\\d+>/g, ' ').trim().toLowerCase()));
+    const description = String(data.description || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+    const structuralContext = fieldNames.has('player hand') && fieldNames.has('banker hand')
+        || (/\\byou chose\\b/.test(description) && /\\bwinner\\b/.test(description))
+        ? 'gambling/baccarat'
+        : fieldNames.has('your hand') && fieldNames.has('dealer hand')
+            || (/\\bpayout\\b/.test(description) && /\\bcash balance\\b/.test(description))
+            ? 'gambling/blackjack'
+            : /\\bwheel landed on\\b/.test(description)
+                ? 'gambling/roulette'
+                : '';
+    const preferredContext = /^gambling\\/(?:roulette|blackjack|baccarat)$/.test(stableContext)
+        ? stableContext
+        : structuralContext;
+    const contexts = preferredContext
+        ? [preferredContext]
         : ['gambling/roulette', 'gambling/blackjack', 'gambling/baccarat'];
     for (const context of contexts) {
         const key = getSystemEmbedTemplateKey('embed', data.title || '', data.description || '', context);
@@ -704,4 +886,5 @@ console.log(`[CASINO_EMBEDS] ${[
   responseCatalogChanged,
   builderTitleDisplayChanged,
   managerChanged,
+  registryChanged,
 ].some(Boolean) ? 'patched distinct per-game outcomes + safe catalog Save targeting' : 'already current'}`);
