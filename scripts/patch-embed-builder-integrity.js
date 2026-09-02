@@ -153,3 +153,80 @@ if (!managerText.includes('builderRecordsForChannel(guild, channelId, rawChannel
 
 if (managerText !== managerBefore) fs.writeFileSync(managerPath, managerText);
 console.log(`[EMBED_BUILDER_INTEGRITY] ${managerText === managerBefore ? 'manager already current' : 'patched strict ticket logs + fast preview discovery + Cloudy Assistant dedupe'}`);
+
+// The private response catalog can contain dozens of active catalog messages.
+// Fetching every stored message id individually serializes all requests onto the
+// same Discord REST route and can block Builder/catalog startup for a long time.
+// Read the channel history in pages of 100 instead. This changes only how the
+// same stored catalog ids are loaded; template contents and save behavior stay
+// exactly the same.
+const catalogPath = 'src/services/systemEmbedCatalogService.js';
+const catalogBefore = fs.readFileSync(catalogPath, 'utf8');
+let catalogText = catalogBefore;
+
+const serialCatalogLoader = `async function loadCatalogMessages(context) {
+  const ids = await getFromDb(storageKey(context.guild.id), []);
+  const messages = [];
+  for (const id of Array.isArray(ids) ? ids : []) {
+    const message = await context.channel.messages.fetch(id).catch(() => null);
+    if (message) messages.push(message);
+  }
+  return messages;
+}`;
+
+const batchedCatalogLoader = `async function loadCatalogMessages(context) {
+  const storedIds = await getFromDb(storageKey(context.guild.id), []);
+  const ids = Array.isArray(storedIds) ? storedIds.map(String).filter(Boolean) : [];
+  if (!ids.length) return [];
+
+  const wanted = new Set(ids);
+  const found = new Map();
+  let before;
+  let oldestWanted = null;
+  try {
+    oldestWanted = ids.reduce((oldest, id) => {
+      const value = BigInt(id);
+      return oldest === null || value < oldest ? value : oldest;
+    }, null);
+  } catch {
+    oldestWanted = null;
+  }
+
+  while (wanted.size) {
+    const batch = await context.channel.messages.fetch({
+      limit: 100,
+      ...(before ? { before } : {}),
+    }).catch(() => null);
+    if (!batch?.size) break;
+
+    for (const message of batch.values()) {
+      const id = String(message.id);
+      if (!wanted.has(id)) continue;
+      wanted.delete(id);
+      found.set(id, message);
+    }
+
+    const oldestMessage = batch.last();
+    if (!oldestMessage || batch.size < 100) break;
+    before = oldestMessage.id;
+
+    if (oldestWanted !== null) {
+      try {
+        if (BigInt(oldestMessage.id) < oldestWanted) break;
+      } catch {
+        // Keep paging if a non-snowflake id ever reaches this internal channel.
+      }
+    }
+  }
+
+  return ids.map(id => found.get(id)).filter(Boolean);
+}`;
+
+if (catalogText.includes(serialCatalogLoader)) {
+    catalogText = catalogText.replace(serialCatalogLoader, batchedCatalogLoader);
+}
+if (!catalogText.includes('const wanted = new Set(ids);')) {
+    throw new Error('Batched response catalog loader was not applied.');
+}
+if (catalogText !== catalogBefore) fs.writeFileSync(catalogPath, catalogText);
+console.log(`[EMBED_BUILDER_INTEGRITY] ${catalogText === catalogBefore ? 'catalog loader already current' : 'patched batched response catalog loading'}`);
