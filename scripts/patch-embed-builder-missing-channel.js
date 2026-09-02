@@ -262,3 +262,52 @@ text = text.replaceAll(
 
 if (text !== before) fs.writeFileSync(path, text);
 console.log(`[EMBED_BUILDER_MISSING] ${text === before ? 'already current' : 'patched complete discovery + strict ticket history dedupe + latest-wins preview'}`);
+
+// Keep contact/support panel catalog embeds in their own visible channel. Some
+// of these templates originate from ticket code and therefore carry a
+// `tickets/...` catalog context; content-specific routing must win before the
+// generic ticket-logs placement so unrelated fixed embeds never appear there.
+const registryPath = 'src/services/embedRegistryService.js';
+const registryBefore = fs.readFileSync(registryPath, 'utf8');
+let registryText = registryBefore;
+
+if (!registryText.includes("'contact-us': ['contact-us']")) {
+  registryText = registryText.replace(
+`        tickets: ['ticket-logs', 'ticket-panel', 'tickets'],`,
+`        tickets: ['ticket-logs', 'ticket-panel', 'tickets'],
+        'contact-us': ['contact-us'],
+        contact: ['contact-us'],
+        support: ['contact-us'],`);
+}
+
+if (!registryText.includes('function contactUsCatalogChannel(message, embed)')) {
+  const marker = 'function catalogDisplayChannelId(message, embed) {';
+  const helper = `function contactUsCatalogChannel(message, embed) {
+    const text = cleanName(systemTemplateSearchText(embed));
+    const contactPanel = /\\b(?:contact the staff team|contact staff team|contact us|support & help|get assistance)\\b/.test(text);
+    const context = systemTemplateContext(embed);
+    const explicitContext = /^(?:contact-us|contact|support)(?:\\/|$)/.test(context);
+    if (!contactPanel && !explicitContext) return null;
+    return findFeatureChannel(message.guild, ['contact-us']);
+}
+
+`;
+  if (!registryText.includes(marker)) throw new Error('Embed registry catalog placement marker was not found.');
+  registryText = registryText.replace(marker, helper + marker);
+}
+
+registryText = registryText.replace(
+`function catalogDisplayChannelId(message, embed) {
+    if (!isSystemCatalogMessage(message)) return String(message.channelId);
+
+    // A saved custom title can remove every keyword from the visible embed.`,
+`function catalogDisplayChannelId(message, embed) {
+    if (!isSystemCatalogMessage(message)) return String(message.channelId);
+
+    const contactChannel = contactUsCatalogChannel(message, embed);
+    if (contactChannel?.id) return String(contactChannel.id);
+
+    // A saved custom title can remove every keyword from the visible embed.`);
+
+if (registryText !== registryBefore) fs.writeFileSync(registryPath, registryText);
+console.log(`[EMBED_BUILDER_ROUTING] ${registryText === registryBefore ? 'already current' : 'patched contact-us catalog routing'}`);
