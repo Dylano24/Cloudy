@@ -1,5 +1,6 @@
 import { Events } from 'discord.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
+import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
 import { CLOUDY_TICKET_FOOTER } from '../utils/ticket/ticketBranding.js';
 
 export default {
@@ -18,6 +19,11 @@ export default {
       || message.channelId === config.ticketTranscriptChannelId;
 
     if (!isTicketLogChannel) return;
+
+    // A Builder template is authoritative, including an intentionally changed
+    // or removed footer. New logs are already decorated before send; this also
+    // protects older matching logs from being forced back to the default footer.
+    if (await applySavedEmbedTemplates(message)) return;
 
     const embeds = message.embeds.map(embed => {
       const raw = embed.toJSON();

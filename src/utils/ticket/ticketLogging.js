@@ -2,6 +2,7 @@
 
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
+import { decorateEmbedWithSavedTemplate } from '../../services/embedTemplateService.js';
 import { logger } from '../logger.js';
 import {
   buildStandardLogEmbed,
@@ -52,8 +53,11 @@ export async function logTicketEvent({ client, guildId, event }) {
     const missing = getMissingPermissions(channel, guild.members.me, { attachments: hasAttachments });
     if (missing.length > 0) return false;
     const embed = await createTicketLogEmbed(guild, event);
+    // Apply the saved Builder template before Discord receives the log. This
+    // avoids a visible default embed followed by a delayed restyle.
+    const decorated = await decorateEmbedWithSavedTemplate(guild.id, channel.id, embed);
     const messageOptions = {
-      embeds: [embed],
+      embeds: [decorated.embed],
       ...(event.type === 'transcript' ? { allowedMentions: { parse: [] } } : {}),
     };
     if (hasAttachments) messageOptions.files = event.attachments;

@@ -113,6 +113,10 @@ export default {
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${state.id}`), time: 10 * 60 * 1000 });
     let busy = false;
     collector.on('collect', async component => {
+      // Collector interactions can arrive before another InteractionCreate
+      // listener has decorated them. Patch here as well so Win/Loss/Bust always
+      // use the saved template on the first and only visible update.
+      InteractionHelper.patchInteractionResponses(component);
       if (busy || state.finished) return; busy = true;
       try {
         const action = component.customId.split(':')[1];

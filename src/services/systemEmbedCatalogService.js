@@ -808,6 +808,23 @@ export function primeSystemEmbedCatalogMessage(message) {
   return true;
 }
 
+// Embed Builder can edit a reusable game template through either its catalog
+// record or a real game message. Prime the canonical cache in the same tick as
+// Save so the very next component update cannot reuse the previous styling.
+export function primeSystemEmbedTemplateData(key, context, embedData) {
+  const normalizedKey = normalize(key);
+  const normalizedContext = normalize(context);
+  if (!normalizedKey || !normalizedContext || !embedData) return false;
+
+  const sourceData = cloneData(embedData);
+  const data = isBlackjackContext(normalizedContext)
+    ? stripBlackjackCardsRemaining(sourceData)
+    : sourceData;
+  rememberTemplate(normalizedKey, data, normalizedContext);
+  catalogEntries.add(cacheIdentity(normalizedKey, normalizedContext));
+  return true;
+}
+
 export async function syncSystemEmbedCatalogMessage(message) {
   if (!primeSystemEmbedCatalogMessage(message)) return false;
 

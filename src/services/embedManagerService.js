@@ -24,8 +24,11 @@ import {
     migrateCloudyLogoEmbedData,
 } from './cloudyLogoService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
+import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';
+import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
     primeSystemEmbedCatalogMessage,
+    primeSystemEmbedTemplateData,
     syncSystemEmbedCatalogMessage,
 } from './systemEmbedCatalogService.js';
 
@@ -155,6 +158,31 @@ function stableSystemTemplateKey(value) {
         .toLowerCase();
 }
 
+function stableSystemTemplateContext(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const authorName = String(data.author?.name || '').trim();
+    const prefix = 'cloudy template key:';
+    if (!authorName.toLowerCase().startsWith(prefix)) return '';
+
+    const match = authorName.match(/\|\|\s*Cloudy context:\s*([^|]+)/i);
+    return String(match?.[1] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function curatedGameTemplateContext(templateKey) {
+    const match = String(templateKey || '').match(/^game:(blackjack|baccarat|roulette):/i);
+    return match ? `gambling/${match[1].toLowerCase()}` : '';
+}
+
+export function prefersCatalogPreview(records) {
+    const catalogRecords = records.filter(record => String(record?.source || '') === 'system-catalog');
+    if (catalogRecords.length > 1) return true;
+
+    return catalogRecords.some(record => {
+        const context = stableSystemTemplateContext(getEmbedRegistrySnapshot(record));
+        return /^(?:gambling|tickets)(?:\/|$)/.test(context);
+    });
+}
+
 function standardDynamicTemplateName(value) {
     const title = String(value || '').replace(/\s+/g, ' ').trim();
     if (/^blackjack\s*[—-]\s*bet\b/i.test(title)) return 'Blackjack — Bet';
@@ -251,6 +279,14 @@ function compareChannelsByDiscordOrder(a, b) {
 
 function buildChannelGroups(guild, records) {
     const groups = new Map();
+
+    // Show every real text/announcement channel, even when it does not have a
+    // registered embed yet. The Modify browser is a channel browser first.
+    for (const channel of guild.channels.cache.values()) {
+        if (![0, 5].includes(channel?.type) || !channel?.messages?.fetch) continue;
+        groups.set(String(channel.id), []);
+    }
+
     for (const record of records) {
         const channelId = String(record.channelId);
         if (!groups.has(channelId)) groups.set(channelId, []);
@@ -263,7 +299,7 @@ function buildChannelGroups(guild, records) {
             channel: guild.channels.cache.get(channelId) || null,
             records: channelRecords.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)),
         }))
-        .filter(group => collapseDisplayRecords(group.records, group.channelId).length > 0)
+        .filter(group => Boolean(group.channel))
         .sort(compareChannelsByDiscordOrder);
 }
 
@@ -305,8 +341,8 @@ export function buildChannelPayload(guild, records, page = 0) {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
                 const count = collapseDisplayRecords(group.records, group.channelId).length;
                 return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(`${name} • ${count} ${count === 1 ? 'embed' : 'embeds'}`))
-                    .setDescription('Open the embeds in this channel')
+                    .setLabel(shortLabel(name))
+                    .setDescription(count ? 'Open the saved embed' : 'No saved embed yet')
                     .setValue(group.channelId);
             }));
         components.push(new ActionRowBuilder().addComponents(select));
@@ -386,6 +422,49 @@ export function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setColor(0xFFFFFF)],
         components,
     };
+}
+
+function loadRecordSnapshotIntoState(state, guild, record) {
+    const snapshot = getEmbedRegistrySnapshot(record);
+    if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
+
+    const data = migrateCloudyLogoEmbedData(snapshot).data || {};
+    const footerText = cleanFooter(data.footer?.text || '');
+    const logicalChannelId = String(record.channelId || '');
+    const backingChannelId = String(record.backingChannelId || record.channelId || '');
+    const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
+
+    state.title = data.title || null;
+    state.message = data.description || null;
+    state.embedFields = Array.isArray(data.fields)
+        ? data.fields.map(field => ({
+            name: String(field.name || '').slice(0, 256),
+            value: String(field.value || '').slice(0, 1024),
+            inline: Boolean(field.inline),
+        }))
+        : [];
+    state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
+    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);
+    state.removeExistingLogo = false;
+    state.bottomLine = footerText || null;
+    state.mediaUrl = data.image?.url || null;
+    state.mediaBuffer = null;
+    state.mediaName = null;
+    state.mediaConvertedFromVideo = false;
+    state.modifyTarget = {
+        guildId: guild.id,
+        channelId: logicalChannelId,
+        backingChannelId,
+        messageId: String(record.messageId),
+        embedIndex: Number(record.embedIndex || 0),
+        source: record.source || 'cloudy',
+        sourceEmbedData: data,
+        hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
+        templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
+        templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
+        cachedMessage: null,
+    };
+    return true;
 }
 
 function loadEmbedIntoState(state, resolved) {
@@ -580,25 +659,97 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 });
             if (!acknowledged) return;
 
-            session.queue = session.queue.then(async () => {
+            const selectionVersion = (session.selectionVersion || 0) + 1;
+            session.selectionVersion = selectionVersion;
+            discardPendingEmbedEditorUpdates(state.colorSessionToken);
+
+            void (async () => {
                 if (session.closed || state.activeEmbedManager !== session) return;
+                if (selectionVersion !== session.selectionVersion) return;
 
                 if (interaction.customId === 'simple_embed_modify_back') {
-                    records = await getEmbedRegistry(guild.id);
                     await updateEmbedManager(interaction, buildChannelPayload(guild, records, 0), state, session);
                     return;
                 }
 
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
-                    records = await getEmbedRegistry(guild.id);
                     await updateEmbedManager(interaction, buildChannelPayload(guild, records, page), state, session);
                     return;
                 }
 
                 if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
-                    records = await getEmbedRegistry(guild.id);
+                    const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
+                    const catalogRecords = channelRecords.filter(record =>
+                        String(record.source || '') === 'system-catalog'
+                    );
+                    const realChannelRecords = channelRecords.filter(record =>
+                        String(record.source || '') !== 'system-catalog'
+                        && String(record.backingChannelId || record.channelId || '') === String(channelId)
+                    );
+                    const useCatalogPreview = prefersCatalogPreview(channelRecords);
+                    const previewRecords = useCatalogPreview
+                        ? catalogRecords
+                        : (realChannelRecords.length ? realChannelRecords : channelRecords);
+                    let firstRecord = collapseDisplayRecords(
+                        previewRecords,
+                        channelId,
+                    )[0] || null;
+
+                    if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
+                        if (selectionVersion !== session.selectionVersion) return;
+                        void Promise.resolve(refreshBuilder()).catch(error => {
+                            logger.debug(`Immediate channel preview refresh skipped: ${error?.message || error}`);
+                        });
+                    } else if (useCatalogPreview && firstRecord) {
+                        const resolved = await resolveEmbedRegistryRecord(guild, firstRecord).catch(() => null);
+                        if (selectionVersion !== session.selectionVersion) return;
+                        if (resolved) {
+                            loadEmbedIntoState(state, resolved);
+                            void Promise.resolve(refreshBuilder()).catch(error => {
+                                logger.debug(`Resolved catalog preview refresh skipped: ${error?.message || error}`);
+                            });
+                        }
+                    } else {
+                        // If this channel only has a virtual system-catalog entry,
+                        // fetch the real panel from the selected channel instead of
+                        // showing a {dynamic} placeholder in the preview.
+                        const discovered = await discoverMissingChannelEmbed(
+                            guild,
+                            channelId,
+                            buttonInteraction.client.user.id,
+                        ).catch(error => {
+                            logger.debug(`On-demand channel embed discovery skipped: ${error?.message || error}`);
+                            return null;
+                        });
+
+                        // A slower older channel lookup must never overwrite the
+                        // newest selection in the live preview.
+                        if (selectionVersion !== session.selectionVersion) return;
+
+                        if (discovered) {
+                            loadEmbedIntoState(state, discovered);
+                            firstRecord = discovered.record;
+                            records = [
+                                ...records.filter(record => !(
+                                    String(record.channelId) === String(channelId)
+                                    && String(record.source || '') === 'embed-builder'
+                                    && String(record.messageId) !== String(discovered.record.messageId)
+                                )),
+                                discovered.record,
+                            ];
+                            void Promise.resolve(refreshBuilder()).catch(error => {
+                                logger.debug(`Discovered channel preview refresh skipped: ${error?.message || error}`);
+                            });
+                        } else if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
+                            void Promise.resolve(refreshBuilder()).catch(error => {
+                                logger.debug(`Catalog fallback preview refresh skipped: ${error?.message || error}`);
+                            });
+                        }
+                    }
+
+                    if (selectionVersion !== session.selectionVersion) return;
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
                     return;
                 }
@@ -607,7 +758,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     const parts = interaction.customId.split(':');
                     const channelId = parts[1];
                     const page = Number(parts[2]) || 0;
-                    records = await getEmbedRegistry(guild.id);
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
                     return;
                 }
@@ -637,26 +787,29 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     );
                 }
 
-                const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
-                if (!resolved) {
-                    records = await getEmbedRegistry(guild.id);
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
-                    return;
+                let loaded = record ? loadRecordSnapshotIntoState(state, guild, record) : false;
+                if (loaded) {
+                    void Promise.resolve(refreshBuilder()).catch(error => {
+                        logger.debug(`Immediate embed preview refresh skipped: ${error?.message || error}`);
+                    });
+                } else {
+                    const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
+                    if (selectionVersion !== session.selectionVersion) return;
+                    if (!resolved) {
+                        await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
+                        return;
+                    }
+                    loadEmbedIntoState(state, resolved);
+                    loaded = true;
+                    void Promise.resolve(refreshBuilder()).catch(error => {
+                        logger.debug(`Resolved embed preview refresh skipped: ${error?.message || error}`);
+                    });
                 }
 
-                loadEmbedIntoState(state, resolved);
-                const refreshed = await refreshBuilder();
-                if (refreshed === false) {
-                    throw new Error('The message builder could not refresh after loading the selected embed.');
-                }
-
-                records = await getEmbedRegistry(guild.id);
                 await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
-            }).catch(error => {
+            })().catch(error => {
                 logger.error('Embed manager selection failed:', error);
             });
-
-            await session.queue;
         });
 
         collector.on('end', () => {
@@ -1034,6 +1187,11 @@ export async function saveModifiedEmbed(guild, state) {
         const sourceRule = getTemplateRuleByKey(target.channelId, target.templateTitle)
             || getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
         const aliases = [sourceData.title, current.title, sourceRule?.label].filter(Boolean);
+        const gameContext = curatedGameTemplateContext(target.templateTitle);
+
+        if (gameContext) {
+            primeSystemEmbedTemplateData(target.templateTitle, gameContext, current);
+        }
 
         // The selected embed is already saved above. Persist the reusable
         // template without holding the Save interaction open on a DB roundtrip.
