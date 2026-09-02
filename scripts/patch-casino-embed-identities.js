@@ -105,20 +105,30 @@ ${marker}`;
     'baccarat editable keys',
   );
 
-  text = replaceRequired(
-    text,
-    "  const result = normalize(value).replace(/^result\\s*:\\s*/, '');",
-    "  const result = normalize(value)\n    .replace(/^result\\s*:\\s*/, '')\n    .replace(/^blackjack\\s+/, '');",
-    'blackjack canonical prefix',
-  );
+  const formerBlackjackCanonical = "  const result = normalize(value)\n    .replace(/^result\\s*:\\s*/, '')\n    .replace(/^blackjack\\s+/, '');";
+  const blackjackCanonical = "  const result = normalize(value)\n    .replace(/^result\\s*:\\s*/, '')\n    .replace(/^blackjack\\s+/, '')\n    .replace(/^you\\s+/, '')\n    .replace(/^won!?$/, 'win')\n    .replace(/^lost$/, 'loss')\n    .replace(/^tie$/, 'push');";
+  if (text.includes(formerBlackjackCanonical) && !text.includes(blackjackCanonical)) {
+    text = text.replace(formerBlackjackCanonical, blackjackCanonical);
+  } else {
+    text = replaceRequired(
+      text,
+      "  const result = normalize(value).replace(/^result\\s*:\\s*/, '');",
+      blackjackCanonical,
+      'blackjack canonical aliases',
+    );
+  }
 
   if (!text.includes('function baccaratOutcomeFromText(')) {
     const marker = '// Game messages change their money, cards and text every time.';
     if (!text.includes(marker)) throw new Error('[CASINO_EMBEDS] catalog game-key helper marker was not found.');
     const helper = `function baccaratOutcomeFromText(title = '', description = '') {
-  const normalizedTitle = normalize(title);
-  const titleMatch = normalizedTitle.match(/^baccarat\\s+(win|loss|tie|expired)$/);
-  if (titleMatch) return titleMatch[1];
+  const normalizedTitle = normalize(String(title || '').replace(/<a?:[^:>]+:\\d+>/g, ' '));
+  const titleMatch = normalizedTitle.match(/^(?:baccarat\\s+)?(?:you\\s+)?(win|won|loss|lost|tie|expired)$/);
+  if (titleMatch) {
+    if (titleMatch[1] === 'won') return 'win';
+    if (titleMatch[1] === 'lost') return 'loss';
+    return titleMatch[1];
+  }
 
   if (!/^baccarat\\s*[—-]\\s*result\\b/.test(normalizedTitle)) return '';
   const body = normalize(description);
@@ -145,7 +155,11 @@ function defaultGameTitle(key) {
 }
 
 function isLegacyDefaultGameTitle(title, key) {
-  const value = normalize(title);
+  const rawTitle = String(title || '');
+  // An emoji in an administrator-saved title is intentional decoration. Never
+  // rewrite that title to a default game name or the emoji disappears on Save.
+  if (/<a?:[^:>]+:\\d+>/.test(rawTitle)) return false;
+  const value = normalize(rawTitle);
   const normalizedKey = normalize(key);
   if (!value) return false;
 
@@ -274,16 +288,29 @@ function baccaratDecorationFallback(template, runtimeData) {
   text = replaceRequired(
     text,
     "    if (/^roulette\\s*[—-]\\s*you\\s+won!?$/.test(normalizedTitle)) return 'game:roulette:won';\n    if (/^roulette\\s*[—-]\\s*you\\s+lost$/.test(normalizedTitle)) return 'game:roulette:lost';",
-    "    if (/^(?:roulette\\s*[—-]\\s*you\\s+won!?|roulette\\s+win)$/.test(normalizedTitle)) return 'game:roulette:won';\n    if (/^(?:roulette\\s*[—-]\\s*you\\s+lost|roulette\\s+loss)$/.test(normalizedTitle)) return 'game:roulette:lost';",
+    "    if (/^(?:(?:roulette|roulet)\\s*(?:[—-]\\s*)?)?(?:you\\s+)?(?:won!?|win)$/.test(normalizedTitle)) return 'game:roulette:won';\n    if (/^(?:(?:roulette|roulet)\\s*(?:[—-]\\s*)?)?(?:you\\s+)?(?:lost|loss)$/.test(normalizedTitle)) return 'game:roulette:lost';",
     'roulette key aliases',
   );
 
   text = replaceRequired(
     text,
-    "    if (/^result\\s*:/.test(normalizedTitle)) {\n      const result = canonicalBlackjackResult(normalizedTitle);",
-    "    if (/^result\\s*:/.test(normalizedTitle) || /^blackjack\\s+/.test(normalizedTitle)) {\n      const result = canonicalBlackjackResult(normalizedTitle);",
-    'blackjack key aliases',
+    "  const normalizedTitle = dynamicParts(title).pattern;",
+    "  const normalizedTitle = dynamicParts(String(title || '').replace(/<a?:[^:>]+:\\d+>/g, ' ')).pattern;",
+    'custom emoji title identity',
   );
+
+  const formerBlackjackKey = "    if (/^result\\s*:/.test(normalizedTitle) || /^blackjack\\s+/.test(normalizedTitle)) {\n      const result = canonicalBlackjackResult(normalizedTitle);\n      return result ? `game:blackjack:result:${result}` : '';\n    }\n    return '';";
+  const blackjackKey = "    const result = canonicalBlackjackResult(normalizedTitle);\n    return result ? `game:blackjack:result:${result}` : '';";
+  if (text.includes(formerBlackjackKey) && !text.includes(blackjackKey)) {
+    text = text.replace(formerBlackjackKey, blackjackKey);
+  } else {
+    text = replaceRequired(
+      text,
+      "    if (/^result\\s*:/.test(normalizedTitle)) {\n      const result = canonicalBlackjackResult(normalizedTitle);\n      return result ? `game:blackjack:result:${result}` : '';\n    }\n    return '';",
+      blackjackKey,
+      'blackjack key aliases',
+    );
+  }
 
   text = replaceRequired(
     text,
@@ -311,6 +338,28 @@ function baccaratDecorationFallback(template, runtimeData) {
     "    const canonicalData = withStableKey(\n      merged,\n      winner.canonicalKey,",
     "    const canonicalData = withStableKey(\n      normalizeCuratedGameTemplate(merged, winner.canonicalKey),\n      winner.canonicalKey,",
     'catalog cleanup repair',
+  );
+
+  text = replaceRequired(
+    text,
+    `function catalogEntryPriority(location) {
+  const stableKey = String(location.metadata?.key || '');
+  return (stableKey.startsWith('game:') ? 1_000_000_000_000_000 : 0) + catalogEntryTimestamp(location);
+}`,
+    `function catalogEntryPriority(location) {
+  const stableKey = String(location.metadata?.key || '');
+  const customizedLegacyPriority = location.customizedLegacy ? 2_000_000_000_000_000 : 0;
+  const stableGamePriority = stableKey.startsWith('game:') ? 1_000_000_000_000_000 : 0;
+  return customizedLegacyPriority + stableGamePriority + catalogEntryTimestamp(location);
+}`,
+    'custom legacy template priority',
+  );
+
+  text = replaceRequired(
+    text,
+    "      groups.get(identity).push({ message, index, embed, metadata, canonicalKey });",
+    "      groups.get(identity).push({\n        message,\n        index,\n        embed,\n        metadata,\n        canonicalKey,\n        customizedLegacy: !String(metadata.key || '').startsWith('game:')\n          && isLegacyCatalogEdit(metadata, data),\n      });",
+    'custom legacy template migration',
   );
 
   text = replaceRequired(
@@ -445,7 +494,11 @@ const managerChanged = patchFile('src/services/embedManagerService.js', source =
     if (!text.includes(marker)) throw new Error('[CASINO_EMBEDS] manager identity marker was not found.');
     const helper = `function curatedGameTemplateIdentity(value) {
     const data = value && typeof value === 'object' ? value : { title: value };
-    for (const context of ['gambling/roulette', 'gambling/blackjack', 'gambling/baccarat']) {
+    const stableContext = stableSystemTemplateContext(data);
+    const contexts = /^gambling\\/(?:roulette|blackjack|baccarat)$/.test(stableContext)
+        ? [stableContext]
+        : ['gambling/roulette', 'gambling/blackjack', 'gambling/baccarat'];
+    for (const context of contexts) {
         const key = getSystemEmbedTemplateKey('embed', data.title || '', data.description || '', context);
         if (String(key || '').startsWith('game:')) return key;
     }
@@ -456,12 +509,18 @@ const managerChanged = patchFile('src/services/embedManagerService.js', source =
     text = text.replace(marker, helper + marker);
   }
 
-  text = replaceRequired(
-    text,
-    "    const stableKey = stableSystemTemplateKey(data);\n    if (stableKey) return stableKey;\n    const title = String(data.title || '');",
-    "    const stableKey = stableSystemTemplateKey(data);\n    if (stableKey) return stableKey;\n    const curatedGameKey = curatedGameTemplateIdentity(data);\n    if (curatedGameKey) return curatedGameKey;\n    const title = String(data.title || '');",
-    'manager curated identity',
-  );
+  const formerManagerIdentity = "    const stableKey = stableSystemTemplateKey(data);\n    if (stableKey) return stableKey;\n    const curatedGameKey = curatedGameTemplateIdentity(data);\n    if (curatedGameKey) return curatedGameKey;\n    const title = String(data.title || '');";
+  const managerIdentity = "    const stableKey = stableSystemTemplateKey(data);\n    if (String(stableKey || '').startsWith('game:')) return stableKey;\n    const curatedGameKey = curatedGameTemplateIdentity(data);\n    if (curatedGameKey) return curatedGameKey;\n    if (stableKey) return stableKey;\n    const title = String(data.title || '');";
+  if (text.includes(formerManagerIdentity) && !text.includes(managerIdentity)) {
+    text = text.replace(formerManagerIdentity, managerIdentity);
+  } else {
+    text = replaceRequired(
+      text,
+      "    const stableKey = stableSystemTemplateKey(data);\n    if (stableKey) return stableKey;\n    const title = String(data.title || '');",
+      managerIdentity,
+      'manager curated identity',
+    );
+  }
 
   text = replaceRequired(
     text,
@@ -492,13 +551,25 @@ const managerChanged = patchFile('src/services/embedManagerService.js', source =
         const realRecords = group.records.filter(record => record.source !== 'system-catalog');
         const catalogRecords = group.records.filter(record => record.source === 'system-catalog');
         const liveRepresentative = realRecords.at(-1) || null;
-        const catalogRepresentative = catalogRecords.at(-1) || null;
+        const groupIdentity = String(group.identity || '');
+        const canonicalCatalogRepresentative = catalogRecords.filter(record =>
+            stableSystemTemplateKey(recordEmbedData(record)) === groupIdentity).at(-1) || null;
+        const legacyCatalogRepresentative = catalogRecords.filter(record => {
+            const data = recordEmbedData(record);
+            const stableKey = stableSystemTemplateKey(data);
+            return groupIdentity.startsWith('game:')
+                && !stableKey.startsWith('game:')
+                && curatedGameTemplateIdentity(data) === groupIdentity;
+        }).at(-1) || null;
+        const catalogRepresentative = canonicalCatalogRepresentative || catalogRecords.at(-1) || null;
+        const previewRepresentative = liveRepresentative || legacyCatalogRepresentative;
         let representative = (realRecords.length ? realRecords : group.records).at(-1);
 
-        if (catalogRepresentative && liveRepresentative) {
-            const liveSnapshot = recordEmbedData(liveRepresentative);
+        if (catalogRepresentative && previewRepresentative) {
+            const liveSnapshot = recordEmbedData(previewRepresentative);
             const saveSnapshot = recordEmbedData(catalogRepresentative);
-            const stableTemplateKey = stableSystemTemplateKey(saveSnapshot)
+            const stableTemplateKey = groupIdentity
+                || stableSystemTemplateKey(saveSnapshot)
                 || curatedGameTemplateIdentity(liveSnapshot);
             if (String(stableTemplateKey || '').startsWith('game:')) {
                 representative = {
@@ -586,6 +657,7 @@ function gameTemplateDisplayName(identity) {
         const emoji = customEmojiOption(recordData.title || rawName);
         if (!groups.has(key)) groups.set(key, {
             label: name,
+            identity,
             records: [],
             templateMode: false,
             optionEmoji: emoji,

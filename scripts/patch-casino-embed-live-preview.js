@@ -32,20 +32,30 @@ if (!text.includes(newBlock)) {
 if (text !== before) fs.writeFileSync(path, text);
 console.log(`[CASINO_EMBEDS] ${text === before ? 'live casino preview already current' : 'kept live casino preview on canonical Save target'}`);
 
-// Older catalog rows can contain the former default title with an animated
-// emoji injected into the text. Only normalize those known legacy defaults;
-// genuinely custom administrator titles remain untouched.
+// A custom emoji in a saved title is administrator decoration. It must never
+// be mistaken for an old default title and removed during catalog cleanup.
 const catalogPath = 'src/services/systemEmbedCatalogService.js';
 const catalogBefore = fs.readFileSync(catalogPath, 'utf8');
 let catalogText = catalogBefore;
 
 const oldTitleValue = `function isLegacyDefaultGameTitle(title, key) {
   const value = normalize(title);`;
-const newTitleValue = `function isLegacyDefaultGameTitle(title, key) {
+const formerTitleValue = `function isLegacyDefaultGameTitle(title, key) {
   const value = normalize(String(title || '').replace(/<a?:[^:>]+:\\d+>/g, ' '));`;
+const newTitleValue = `function isLegacyDefaultGameTitle(title, key) {
+  const rawTitle = String(title || '');
+  // An emoji in an administrator-saved title is intentional decoration. Never
+  // rewrite that title to a default game name or the emoji disappears on Save.
+  if (/<a?:[^:>]+:\\d+>/.test(rawTitle)) return false;
+  const value = normalize(rawTitle);`;
 if (!catalogText.includes(newTitleValue)) {
-  if (!catalogText.includes(oldTitleValue)) throw new Error('[CASINO_EMBEDS] legacy title normalization marker was not found.');
-  catalogText = catalogText.replace(oldTitleValue, newTitleValue);
+  if (catalogText.includes(formerTitleValue)) {
+    catalogText = catalogText.replace(formerTitleValue, newTitleValue);
+  } else if (catalogText.includes(oldTitleValue)) {
+    catalogText = catalogText.replace(oldTitleValue, newTitleValue);
+  } else {
+    throw new Error('[CASINO_EMBEDS] legacy title normalization marker was not found.');
+  }
 }
 
 catalogText = catalogText.replace(
@@ -58,4 +68,4 @@ catalogText = catalogText.replace(
 );
 
 if (catalogText !== catalogBefore) fs.writeFileSync(catalogPath, catalogText);
-console.log(`[CASINO_EMBEDS] ${catalogText === catalogBefore ? 'legacy casino titles already current' : 'normalized only known legacy casino outcome titles'}`);
+console.log(`[CASINO_EMBEDS] ${catalogText === catalogBefore ? 'saved casino emoji titles already protected' : 'protected saved casino emoji titles'}`);
