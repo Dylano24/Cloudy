@@ -46,6 +46,7 @@ import {
 import { fetchRecentAuditEntry } from '../src/services/recentAuditLogService.js';
 import { logTicketEvent } from '../src/utils/ticket/ticketLogging.js';
 import ticketLogFooterEnforcer from '../src/events/ticketLogFooterEnforcer.js';
+import { applySavedBlackjackPayloadTemplates } from '../src/events/fullResponseCatalogReady.js';
 
 function installTestStorage() {
   const values = new Map();
@@ -624,6 +625,45 @@ test('a saved Blackjack Win template is authoritative on the next runtime result
   assert.equal(rendered.title, 'Saved Blackjack Win');
   assert.equal(rendered.color, 0x123456);
   assert.equal(rendered.description, 'Payout: **$44**\nCash balance: **$144**');
+  assert.equal(rendered.fields[0].value, '<:ace:500000000000000021> <:king:500000000000000022>\nValue: **21**');
+});
+
+test('an already persisted Blackjack Win channel template is applied before the component update', async () => {
+  installTestStorage();
+  const guildId = '100000000000000013';
+  const channelId = '200000000000000013';
+
+  await saveEmbedTemplateDecoration(
+    guildId,
+    channelId,
+    ['Result: Win', 'Old Blackjack Win'],
+    {
+      title: 'Saved Blackjack Win',
+      description: 'Payout: **$20**\nCash balance: **$120**',
+      color: 0x654321,
+      fields: [
+        { name: 'Your Hand', value: '<:ten:400000000000000020> <:king:400000000000000021>\nValue: **20**', inline: true },
+        { name: 'Dealer Hand', value: '<:nine:400000000000000018> <:nine:400000000000000019>\nValue: **18**', inline: true },
+      ],
+    },
+  );
+
+  const payload = await applySavedBlackjackPayloadTemplates({
+    embeds: [new EmbedBuilder({
+      title: 'Result: Win',
+      description: 'Payout: **$60**\nCash balance: **$160**',
+      color: 0x57F287,
+      fields: [
+        { name: 'Your Hand', value: '<:ace:500000000000000021> <:king:500000000000000022>\nValue: **21**', inline: true },
+        { name: 'Dealer Hand', value: '<:ten:500000000000000019> <:nine:500000000000000020>\nValue: **19**', inline: true },
+      ],
+    })],
+  }, { commandName: 'blackjack', guildId, channelId });
+
+  const rendered = payload.embeds[0].toJSON();
+  assert.equal(rendered.title, 'Saved Blackjack Win');
+  assert.equal(rendered.color, 0x654321);
+  assert.equal(rendered.description, 'Payout: **$60**\nCash balance: **$160**');
   assert.equal(rendered.fields[0].value, '<:ace:500000000000000021> <:king:500000000000000022>\nValue: **21**');
 });
 
