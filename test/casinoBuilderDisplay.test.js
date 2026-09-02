@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EmbedBuilder } from 'discord.js';
 
 import { buildEmbedPayload } from '../src/services/embedManagerService.js';
 import {
   applyRuntimeEmbedTemplateData,
+  cleanupSystemCatalogEntries,
   primeSystemEmbedTemplateData,
 } from '../src/services/systemEmbedCatalogService.js';
 
-function catalogRecord(index, key, title) {
-  const game = key.split(':')[1];
+function catalogRecord(index, key, title, context = null) {
+  const gameContext = context || `gambling/${key.split(':')[1]}`;
   return {
     guildId: 'guild-casino-labels',
     channelId: 'channel-gambling',
@@ -22,7 +24,7 @@ function catalogRecord(index, key, title) {
     snapshot: {
       title,
       author: {
-        name: `Cloudy template key: ${key} || Cloudy context: gambling/${game} || Cloudy kind: embed`,
+        name: `Cloudy template key: ${key} || Cloudy context: ${gameContext} || Cloudy kind: embed`,
       },
     },
   };
@@ -88,6 +90,75 @@ test('casino templates use stable game names and render custom emoji without exp
   assert.equal(options.some(option => /W85animatedarrowred|<a?:/i.test(option.label)), false);
 });
 
+test('legacy casino loss copies collapse into one canonical Save target per game', () => {
+  const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
+  const cases = [
+    ['game:roulette:lost', 'Roulette loss', 'gambling/roulette'],
+    ['game:blackjack:result:loss', 'Blackjack loss', 'gambling/blackjack'],
+    ['game:baccarat:loss', 'Baccarat loss', 'gambling/baccarat'],
+  ];
+
+  for (const [key, name, context] of cases) {
+    const records = [
+      catalogRecord(0, key, name, context),
+      catalogRecord(1, 'embed:legacy-one', emojiTitle, context),
+      catalogRecord(2, 'embed:legacy-two', emojiTitle, context),
+    ];
+    const options = menuOptions(buildEmbedPayload(
+      gamblingGuild(),
+      records,
+      'channel-gambling',
+    ));
+
+    assert.equal(options.length, 1, context);
+    assert.equal(options[0].label, name, context);
+    assert.equal(options[0].value, 'catalog-0:0', context);
+    assert.deepEqual(options[0].emoji, {
+      id: '1543290732331270124',
+      name: 'W85animatedarrowred',
+      animated: true,
+    }, context);
+  }
+});
+
+test('catalog cleanup migrates old Roulette copies without deleting the saved emoji title', async () => {
+  const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
+  const makeMessage = (id, title, key, createdTimestamp) => ({
+    id,
+    createdTimestamp,
+    embeds: [new EmbedBuilder({
+      title,
+      description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
+      fields: [
+        { name: 'Your bet', value: '**{dynamic}** on **{dynamic}**', inline: true },
+        { name: 'Result', value: 'Lost **{dynamic}**', inline: true },
+        { name: 'Cash balance', value: '**{dynamic}**', inline: true },
+      ],
+      author: {
+        name: `Cloudy template key: ${key} || Cloudy context: gambling/roulette || Cloudy kind: embed`,
+      },
+    })],
+    async edit(payload) {
+      this.embeds = payload.embeds;
+      return this;
+    },
+    async delete() {
+      this.deleted = true;
+    },
+  });
+  const messages = [
+    makeMessage('roulette-canonical', 'Roulette loss', 'game:roulette:lost', 1),
+    makeMessage('roulette-legacy-one', emojiTitle, 'embed:legacy-one', 2),
+    makeMessage('roulette-legacy-two', emojiTitle, 'embed:legacy-two', 3),
+  ];
+
+  assert.equal(await cleanupSystemCatalogEntries(messages), true);
+  assert.equal(messages.length, 1);
+  const migrated = messages[0].embeds[0].toJSON();
+  assert.equal(migrated.title, emojiTitle);
+  assert.match(migrated.author.name, /game:roulette:lost/);
+});
+
 test('saved casino titles are applied to the next real channel result while live values stay dynamic', () => {
   const cases = [
     {
@@ -103,7 +174,7 @@ test('saved casino titles are applied to the next real channel result while live
           { name: 'Cash balance', value: '**$90**', inline: true },
         ],
       },
-      title: '<a:W85animatedarrowred:1543290732331270124> My roulette loss',
+      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
     },
     {
       key: 'game:blackjack:result:loss',
@@ -113,7 +184,7 @@ test('saved casino titles are applied to the next real channel result while live
         title: 'Blackjack loss',
         description: 'Payout: **$0**\nCash balance: **$80**',
       },
-      title: 'My blackjack loss',
+      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
     },
     {
       key: 'game:baccarat:loss',
@@ -123,7 +194,7 @@ test('saved casino titles are applied to the next real channel result while live
         title: 'Baccarat loss',
         description: 'You chose **player**. Winner: **banker**\nYou lost **$10**\nCash balance: **$70**',
       },
-      title: 'My baccarat loss',
+      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
     },
   ];
 
