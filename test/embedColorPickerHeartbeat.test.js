@@ -7,28 +7,22 @@ import {
   deleteEmbedColorPickerSession,
 } from '../src/services/embedColorPickerSessionService.js';
 
-test('web editor heartbeat touches the active Discord builder without changing content', async () => {
+test('web editor heartbeat keeps the session alive without editing the Discord preview', async () => {
   let updates = 0;
-  let lastField = null;
-  let lastValue = null;
 
   const token = createEmbedColorPickerSession({
     userId: '1',
     onColor: async () => {},
     getEditorState: () => ({ title: 'Existing title' }),
-    onEditorUpdate: async (field, value) => {
+    onEditorUpdate: async () => {
       updates += 1;
-      lastField = field;
-      lastValue = value;
     },
   });
 
   try {
     const result = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
     assert.equal(result.ok, true);
-    assert.equal(updates, 1);
-    assert.equal(lastField, '__heartbeat__');
-    assert.equal(lastValue, '');
+    assert.equal(updates, 0);
   } finally {
     deleteEmbedColorPickerSession(token);
   }

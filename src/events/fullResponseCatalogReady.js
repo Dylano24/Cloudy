@@ -8,6 +8,7 @@ import {
 import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
 import { logger } from '../utils/logger.js';
+import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
@@ -211,6 +212,10 @@ async function applyTemplatesToExistingMessage(message) {
   if (autoApplyingMessageIds.has(message.id)) return false;
 
   const source = messageContext(message);
+  // Blackjack already receives its stored styling before Discord gets the
+  // component reply. A late generic rewrite can otherwise replay a previous
+  // hand after the final Win/Loss update.
+  if (String(source.commandName || '').toLowerCase() === 'blackjack') return false;
   const runtimePayload = {
     content: message.content || '',
     embeds: message.embeds || [],
@@ -274,7 +279,7 @@ function seedKnownGameResponses() {
 
   captureSystemEmbedData({
     title: 'Blackjack — Bet $100',
-    description: 'Cards remaining: **48**',
+    description: '',
     color: 0x5865F2,
     fields: [
       { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
@@ -285,7 +290,7 @@ function seedKnownGameResponses() {
   for (const title of ['Win', 'Loss', 'Push', 'Bust', 'Blackjack', 'Expired']) {
     captureSystemEmbedData({
       title: `Result: ${title}`,
-      description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**\n\nCards remaining: **{dynamic}**',
+      description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**',
       color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0x5865F2,
       fields: [
         { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
@@ -368,7 +373,9 @@ async function scanRecentBotResponses(client) {
         try {
           // Reapply Builder styling to recent interaction replies too. These
           // replies do not pass through the normal registry on creation.
-          await applySavedEmbedTemplates(message);
+          if (!isBlackjackEmbed(message.embeds?.[0])) {
+            await applySavedEmbedTemplates(message);
+          }
           if (captureMessage(message)) responsesCaptured += 1;
         } catch (error) {
           logger.debug(`[EMBED_BUILDER] Historical response capture skipped: ${error?.message || error}`);

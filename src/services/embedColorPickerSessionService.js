@@ -5,7 +5,7 @@ const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const SESSION_TTL_MS = 14 * 60_000;
-const EDIT_FLUSH_DELAY_MS = 220;
+const EDIT_FLUSH_DELAY_MS = 0;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -55,9 +55,11 @@ function scheduleEditorFlush(token, session) {
     if (session.editFlushRunning) return;
 
     if (session.editFlushTimer) clearTimeout(session.editFlushTimer);
+    const generation = session.editGeneration;
     session.editFlushTimer = setTimeout(async () => {
         session.editFlushTimer = null;
         if (!sessions.has(token) || typeof session.onEditorUpdate !== 'function') return;
+        if (generation !== session.editGeneration) return;
 
         const pending = [...session.pendingEditorUpdates.entries()];
         session.pendingEditorUpdates.clear();
@@ -65,10 +67,10 @@ function scheduleEditorFlush(token, session) {
 
         session.editFlushRunning = true;
         try {
-            // Apply only the newest value for each field after a very short
-            // typing pause. This prevents Discord edit-rate queues from leaving
-            // the preview tens of seconds behind the selected/current embed.
+            // No artificial preview cooldown. The Embed Builder already keeps
+            // only the newest Discord preview while an edit is in flight.
             for (const [field, value] of pending) {
+                if (generation !== session.editGeneration) break;
                 await session.onEditorUpdate(field, value);
             }
         } catch (error) {
@@ -117,8 +119,20 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         pendingEditorUpdates: new Map(),
         editFlushTimer: null,
         editFlushRunning: false,
+        editGeneration: 0,
     });
     return token;
+}
+
+export function discardPendingEmbedEditorUpdates(token) {
+    const session = sessions.get(token);
+    if (!session) return false;
+
+    session.editGeneration += 1;
+    session.pendingEditorUpdates.clear();
+    if (session.editFlushTimer) clearTimeout(session.editFlushTimer);
+    session.editFlushTimer = null;
+    return true;
 }
 
 export async function applyEmbedColorPickerSession(token, value) {

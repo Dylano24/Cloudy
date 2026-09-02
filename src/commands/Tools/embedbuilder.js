@@ -473,7 +473,41 @@ function buildControls(state) {
     return [contentRow, actionRow];
 }
 
-async function refreshBuilder(interaction, state) {
+function getPreviewUpdateQueue(state) {
+    if (!state.previewUpdateQueue) {
+        state.previewUpdateQueue = {
+            pending: null,
+            running: false,
+        };
+    }
+    return state.previewUpdateQueue;
+}
+
+async function flushPreviewUpdateQueue(state) {
+    const queue = getPreviewUpdateQueue(state);
+    if (queue.running) return;
+    queue.running = true;
+
+    try {
+        while (queue.pending) {
+            const update = queue.pending;
+            queue.pending = null;
+            let updated = false;
+            try {
+                updated = await InteractionHelper.safeEditReply(update.interaction, update.payload);
+            } catch {
+                updated = false;
+            }
+            // A newer state is already queued. Its edit is authoritative, so a
+            // failed/superseded older update must not make the editor look dead.
+            update.resolve(updated || Boolean(queue.pending));
+        }
+    } finally {
+        queue.running = false;
+    }
+}
+
+function refreshBuilder(interaction, state) {
     if (state.colorSessionToken) {
         state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${state.colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
     }
@@ -488,7 +522,15 @@ async function refreshBuilder(interaction, state) {
         payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
     }
 
-    return InteractionHelper.safeEditReply(interaction, payload);
+    const queue = getPreviewUpdateQueue(state);
+    return new Promise(resolve => {
+        // Keep only the newest complete preview while one Discord edit is in
+        // flight. This preserves all state, but prevents an older selected
+        // embed from rendering after the user has already switched again.
+        if (queue.pending) queue.pending.resolve(true);
+        queue.pending = { interaction, payload, resolve };
+        void flushPreviewUpdateQueue(state);
+    });
 }
 
 async function editContent(buttonInteraction, state) {

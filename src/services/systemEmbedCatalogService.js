@@ -3,6 +3,7 @@ import { getFromDb, setInDb } from '../utils/database.js';
 import { getTraceContext, logger } from '../utils/logger.js';
 import { discoverEmbedDefinitions } from './embedDefinitionDiscoveryService.js';
 import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
+import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentation.js';
 
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
 const CATALOG_CONTENT = 'System & error embed templates';
@@ -155,20 +156,10 @@ function legacyCasinoTemplateKey(key, context) {
   const definitions = [
     ['gambling/roulette', 'Roulette — You won!', 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**', 'game:roulette:won'],
     ['gambling/roulette', 'Roulette — You lost', 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**', 'game:roulette:lost'],
-    ['gambling/blackjack', 'Blackjack — Bet $100', 'Cards remaining: **48**', 'game:blackjack:bet'],
     ['gambling/baccarat', 'Baccarat — Bet $100', 'Choose where to place your bet.', 'game:baccarat:bet'],
     ['gambling/baccarat', 'Baccarat — Result', 'Choose where to place your bet.', 'game:baccarat:result'],
     ['gambling/baccarat', 'Baccarat — Result', 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**', 'game:baccarat:result'],
   ];
-
-  for (const result of ['Win', 'Loss', 'Push', 'Bust', 'Blackjack', 'Expired']) {
-    definitions.push([
-      'gambling/blackjack',
-      `Result: ${result}`,
-      'Payout: **{dynamic}**\nCash balance: **{dynamic}**\n\nCards remaining: **{dynamic}**',
-      `game:blackjack:result:${result.toLowerCase()}`,
-    ]);
-  }
 
   return definitions.find(([definitionContext, title, description]) =>
     normalizedContext === definitionContext
@@ -399,6 +390,10 @@ function mergeCatalogShape(existingData, incomingData) {
   return next;
 }
 
+function isBlackjackContext(context) {
+  return normalize(context) === 'gambling/blackjack';
+}
+
 function catalogDataChanged(left, right) {
   return JSON.stringify(cloneData(left || {})) !== JSON.stringify(cloneData(right || {}));
 }
@@ -447,7 +442,13 @@ async function appendCatalogEntry(context, entry, messages) {
   const existingLocation = findCatalogEntry(messages, entry);
 
   if (existingLocation) {
-    const currentData = cloneData(existingLocation.embed);
+    // Catalog entries are the styling source for future games. Remove only
+    // the retired Blackjack presentation line from legacy entries while
+    // preserving their administrator-saved title, color, footer, media and
+    // fields exactly as they are.
+    const currentData = isBlackjackContext(entry.context)
+      ? stripBlackjackCardsRemaining(existingLocation.embed)
+      : cloneData(existingLocation.embed);
     const mergedData = withStableKey(
       mergeCatalogShape(currentData, entry.data),
       entry.key,
@@ -661,9 +662,12 @@ export function registerDiscoveredEmbedDefinition(definition = {}) {
 }
 
 export function captureSystemEmbedData(embedData, contextSource = null) {
-  const data = cloneData(embedData);
-  if (isInternalTemplate(data)) return false;
+  const sourceData = cloneData(embedData);
   const context = inferContextHint(contextSource);
+  const data = isBlackjackContext(context)
+    ? stripBlackjackCardsRemaining(sourceData)
+    : sourceData;
+  if (isInternalTemplate(data)) return false;
   if (!context) return false;
   const key = getSystemEmbedTemplateKey('embed', data.title, data.description, context);
   return queueRuntimeEntry({
@@ -684,7 +688,7 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
 
   if (!template) {
     if (context) captureSystemEmbedData(data, contextSource);
-    return data;
+    return isBlackjackContext(context) ? stripBlackjackCardsRemaining(data) : data;
   }
 
   const next = { ...data };
@@ -723,7 +727,7 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   else delete next.thumbnail;
   if (template.image?.url) next.image = { ...template.image };
   else delete next.image;
-  return next;
+  return isBlackjackContext(context) ? stripBlackjackCardsRemaining(next) : next;
 }
 
 export function applySystemEmbedTemplate(embed) {

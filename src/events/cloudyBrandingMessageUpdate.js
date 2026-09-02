@@ -9,6 +9,7 @@ import {
   registerCloudyEmbedMessage,
 } from '../services/embedRegistryService.js';
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
+import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 
 function isWelcomeEmbed(embed) {
   const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
@@ -57,7 +58,10 @@ export default {
       );
     }
 
-    const matchedTemplate = await applySavedEmbedTemplates(message);
+    // The latest Blackjack payload has already been styled before Discord
+    // receives it; skipping this late generic edit prevents a flash back to an
+    // earlier hand or result.
+    const matchedTemplate = isBlackjackEmbed(message.embeds?.[0]) || await applySavedEmbedTemplates(message);
     if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
     if (isRegistrableCloudyEmbedMessage(message)) {
       await registerCloudyEmbedMessage(message, 'automatic-update');
