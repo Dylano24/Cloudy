@@ -9,10 +9,6 @@ import {
   registerCloudyEmbedMessage,
 } from '../services/embedRegistryService.js';
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
-import {
-  applyTicketRuntimeTemplates,
-  persistTicketRuntimeTemplates,
-} from '../services/ticketRuntimeEmbedTemplateService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 
 function isWelcomeEmbed(embed) {
@@ -34,14 +30,7 @@ export default {
     if (!message) return;
     if (message.author?.id !== message.client.user.id) return;
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return;
-
-    // A Builder Save is deliberately ignored by the normal MessageUpdate
-    // restyling path. For ticket channels, persist that exact edit first in a
-    // stable ticket-runtime scope so future ticket channels inherit it too.
-    if (isEmbedManagerSaveInProgress(message.id)) {
-      await persistTicketRuntimeTemplates(oldMessage, message);
-      return;
-    }
+    if (isEmbedManagerSaveInProgress(message.id)) return;
 
     const oldEmbeds = oldMessage?.embeds || [];
     const welcomeEmbed = message.embeds?.find(isWelcomeEmbed) || null;
@@ -69,14 +58,10 @@ export default {
       );
     }
 
-    const ticketTemplateMatched = await applyTicketRuntimeTemplates(message);
-
     // The latest Blackjack payload has already been styled before Discord
     // receives it; skipping this late generic edit prevents a flash back to an
     // earlier hand or result.
-    const matchedTemplate = isBlackjackEmbed(message.embeds?.[0])
-      || ticketTemplateMatched
-      || await applySavedEmbedTemplates(message);
+    const matchedTemplate = isBlackjackEmbed(message.embeds?.[0]) || await applySavedEmbedTemplates(message);
     if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
     if (isRegistrableCloudyEmbedMessage(message)) {
       await registerCloudyEmbedMessage(message, 'automatic-update');
