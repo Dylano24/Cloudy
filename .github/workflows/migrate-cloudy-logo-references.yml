@@ -45,8 +45,8 @@ jobs:
               raise SystemExit('Central Cloudy media service is not pinned to the approved immutable CDN URLs')
 
           migration = Path('src/events/cloudyLogoMigrationReady.js').read_text(encoding='utf-8')
-          if 'const LOGO_MIGRATION_VERSION = 2;' not in migration:
-              raise SystemExit('Cloudy media migration version must remain at version 2')
+          if 'const LOGO_MIGRATION_VERSION = 4;' not in migration:
+              raise SystemExit('Cloudy animated GIF restoration migration must remain at version 4')
 
           builder = Path('src/commands/Tools/embedbuilder.js').read_text(encoding='utf-8')
           if 'CLOUDY_LOGO_URL' not in builder:

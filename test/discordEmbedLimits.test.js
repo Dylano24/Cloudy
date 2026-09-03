@@ -98,6 +98,7 @@ test('posted builder messages preserve all text while respecting the per-message
 test('Cloudy runtime media uses immutable CDN URLs and migrates direct GitHub media', () => {
   const legacyLogo = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif';
   const legacyBanner = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-dynamic-banner.gif';
+  const temporaryStaticLogo = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@646fdaacabd0811da7ef2eca6df82ce32c078552/assets/cloudy-c-logo-static.png';
   const migrated = migrateCloudyLogoEmbedData({
     thumbnail: { url: legacyLogo },
     image: { url: legacyBanner },
@@ -106,6 +107,10 @@ test('Cloudy runtime media uses immutable CDN URLs and migrates direct GitHub me
   assert.equal(migrated.changed, true);
   assert.equal(migrated.data.thumbnail.url, CLOUDY_LOGO_URL);
   assert.equal(migrated.data.image.url, CLOUDY_BANNER_URL);
+  const restoredStatic = migrateCloudyLogoEmbedData({ thumbnail: { url: temporaryStaticLogo } });
+  assert.equal(restoredStatic.changed, true);
+  assert.equal(restoredStatic.data.thumbnail.url, CLOUDY_LOGO_URL);
+  assert.match(restoredStatic.data.thumbnail.url, /cloudy-c-logo-auf-auf\.gif$/);
   assert.doesNotMatch(CLOUDY_LOGO_URL, /raw\.githubusercontent\.com/);
   assert.doesNotMatch(CLOUDY_BANNER_URL, /raw\.githubusercontent\.com/);
   assert.match(CLOUDY_LOGO_URL, /@[0-9a-f]{40}\//);
