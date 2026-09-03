@@ -2,6 +2,7 @@ import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
+import { peekGuildConfigCache } from './config/guildConfig.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const SCAN_BATCH_SIZE = 100;
@@ -297,6 +298,8 @@ function placementSlugsForTemplateContext(context) {
     const placements = {
         gambling: ['gambling'],
         tickets: ['ticket-logs', 'ticket-panel', 'tickets'],
+        'ticket-logs': ['ticket-logs'],
+        'ticket-transcripts': ['ticket-transcripts', 'ticket-transcript', 'transcripts'],
         'ban-appeal': ['ban-appeal', 'appeal'],
         reports: ['reports', 'report'],
         shop: ['shop', 'purchases'],
@@ -336,14 +339,48 @@ function findFeatureChannel(guild, slugs = []) {
     return candidates[0]?.channel || null;
 }
 
+function contactUsCatalogChannel(message, embed) {
+    const text = cleanName(systemTemplateSearchText(embed));
+    const contactPanel = /\b(?:contact the staff team|contact staff team|contact us|support & help|get assistance)\b/.test(text);
+    const context = systemTemplateContext(embed);
+    const explicitContext = /^(?:contact-us|contact|support)(?:\/|$)/.test(context);
+    if (!contactPanel && !explicitContext) return null;
+    return findFeatureChannel(message.guild, ['contact-us']);
+}
+
+function ticketPanelCatalogChannel(message, embed) {
+    const text = cleanName(systemTemplateSearchText(embed));
+    const panelMessage = /\b(?:change panel message|ticket panel message|ticket panel|create a ticket)\b/.test(text);
+    const context = systemTemplateContext(embed);
+    const explicitContext = /^tickets\/(?:panel|ticket-panel|change-panel|panel-message)(?:\/|$)/.test(context);
+    if (!panelMessage && !explicitContext) return null;
+    return findFeatureChannel(message.guild, ['ticket-panel', 'tickets']);
+}
+
 function catalogDisplayChannelId(message, embed) {
     if (!isSystemCatalogMessage(message)) return String(message.channelId);
+
+    const contactChannel = contactUsCatalogChannel(message, embed);
+    if (contactChannel?.id) return String(contactChannel.id);
+
+    const ticketPanelChannel = ticketPanelCatalogChannel(message, embed);
+    if (ticketPanelChannel?.id) return String(ticketPanelChannel.id);
+
+    const templateContext = systemTemplateContext(embed);
+    const contextRoot = cleanName(templateContext).split('/')[0];
+    const config = peekGuildConfigCache(message.guildId);
+    const configuredTicketChannelId = contextRoot === 'ticket-logs'
+        ? config?.ticketLogsChannelId
+        : (contextRoot === 'ticket-transcripts' ? config?.ticketTranscriptChannelId : null);
+    if (configuredTicketChannelId && message.guild?.channels?.cache?.has?.(String(configuredTicketChannelId))) {
+        return String(configuredTicketChannelId);
+    }
 
     // A saved custom title can remove every keyword from the visible embed.
     // Its stable catalog context still identifies the real destination scope.
     const contextualChannel = findFeatureChannel(
         message.guild,
-        placementSlugsForTemplateContext(systemTemplateContext(embed)),
+        placementSlugsForTemplateContext(templateContext),
     );
     if (contextualChannel?.id) return String(contextualChannel.id);
 

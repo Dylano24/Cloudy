@@ -4,6 +4,7 @@ import { getTraceContext, logger } from '../utils/logger.js';
 import { discoverEmbedDefinitions } from './embedDefinitionDiscoveryService.js';
 import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
 import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentation.js';
+import { getGuildConfig } from './config/guildConfig.js';
 
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
 const CATALOG_CONTENT = 'System & error embed templates';
@@ -42,6 +43,22 @@ const DEFAULT_TEMPLATES = [
   { key: 'input error', context: 'botlog', kind: 'embed', title: 'Input Error', description: 'There was a problem with your request. Check your input and try again.', color: 0xED4245 },
   { key: 'too fast', context: 'botlog', kind: 'embed', title: 'Too Fast', description: "You're doing that too quickly. Wait a moment and try again.", color: 0xFEE75C },
   { key: 'something went wrong', context: 'botlog', kind: 'embed', title: 'Something Went Wrong', description: 'Something went wrong. Please try again in a moment.', color: 0xED4245 },
+];
+
+// Deliberate Builder masters, never captured runtime ticket messages. Their
+// backing messages live in the private catalog, so purging a public ticket log
+// channel cannot remove these lifecycle templates from the Builder.
+export const TICKET_LOG_CATALOG_TEMPLATES = [
+  { key: 'ticket-log:open', context: 'ticket-logs/open', title: 'Ticket created', color: 0xFFFFFF, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Creator', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:close', context: 'ticket-logs/close', title: 'Ticket closed', color: 0xFF7A00, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Closed by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:delete', context: 'ticket-logs/delete', title: 'Ticket deleted', color: 0xED4245, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Deleted by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:claim', context: 'ticket-logs/claim', title: 'Ticket claimed', color: 0x57F287, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Claimed by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:unclaim', context: 'ticket-logs/unclaim', title: 'Ticket unclaimed', color: 0x000000, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Unclaimed by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:priority', context: 'ticket-logs/priority', title: 'Priority updated', color: 0xFF1493, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Priority', value: 'Urgent', inline: true }, { name: 'Updated by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:pin', context: 'ticket-logs/pin', title: 'Ticket pinned', color: 0x8A2BE2, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Pinned by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:unpin', context: 'ticket-logs/unpin', title: 'Ticket unpinned', color: 0x95A5A6, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Unpinned by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:transcript', context: 'ticket-transcripts/transcript', title: 'Transcript generated', color: 0xFFFFFF, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Creator', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:feedback', context: 'ticket-logs/feedback', title: '⭐ Feedback received', color: 0x57F287, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Rating', value: '⭐⭐⭐⭐⭐', inline: true }] },
 ];
 
 const BLACKJACK_RESULT_STATES = new Set([
@@ -843,6 +860,9 @@ export async function ensureSystemEmbedCatalogs(client) {
       continue;
     }
 
+    // Warm configuration before registry placement so custom-named ticket log
+    // destinations receive the virtual catalog records by configured ID.
+    await getGuildConfig(client, guild.id).catch(() => null);
     const context = { guild, channel };
     contexts.set(guild.id, context);
     const messages = await loadCatalogMessages(context);
@@ -851,6 +871,7 @@ export async function ensureSystemEmbedCatalogs(client) {
 
     const entries = [
       ...DEFAULT_TEMPLATES.map(definitionToCatalog),
+      ...TICKET_LOG_CATALOG_TEMPLATES.map(definitionToCatalog),
       ...definitions.map(definitionToCatalog),
     ];
 

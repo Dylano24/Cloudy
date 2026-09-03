@@ -1211,6 +1211,9 @@ export async function saveModifiedEmbed(guild, state) {
             aliases,
             current,
             {
+                // Ticket fields contain event data and must never be replaced
+                // by the fixed examples shown in the durable catalog master.
+                applyFields: !String(target.templateTitle || '').startsWith('ticket-log:'),
                 applyThumbnail: mediaChanges.thumbnailChanged,
                 applyImage: mediaChanges.imageChanged,
             },

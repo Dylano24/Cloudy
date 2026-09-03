@@ -124,8 +124,9 @@ function aliasKeys(value) {
 function pickTemplate(data = {}, options = {}) {
   const applyThumbnail = options.applyThumbnail === true;
   const applyImage = options.applyImage === true;
+  const applyFields = options.applyFields !== false;
   const hasDescription = Object.prototype.hasOwnProperty.call(data, 'description');
-  const fields = Array.isArray(data.fields)
+  const fields = applyFields && Array.isArray(data.fields)
     ? data.fields.slice(0, 25).map(field => ({
         name: String(field?.name || '\u200B').slice(0, 256),
         value: String(field?.value || '\u200B').slice(0, 1024),
@@ -138,7 +139,7 @@ function pickTemplate(data = {}, options = {}) {
     // Omitted means "leave the live description alone". An explicit empty
     // string/null is a deliberate removal from Embed Builder.
     description: hasDescription ? data.description : undefined,
-    fields,
+    ...(applyFields ? { fields } : {}),
     color: Number.isInteger(data.color) ? data.color : null,
     footer: data.footer?.text ? { ...data.footer } : null,
     applyThumbnail,
@@ -307,9 +308,12 @@ function decorateEmbedData(embed, stored) {
     else delete data.thumbnail;
   }
 
+  const isOfficialRustPatch = /^https:\/\/rust\.facepunch\.com\/news\//i.test(String(original.url || ''));
   if (template.applyImage === true) {
     if (template.image?.url) data.image = { url: template.image.url };
-    else delete data.image;
+    // The article hero is live patch data, just like a ticket number or user.
+    // An older empty Builder media value may not erase that official banner.
+    else if (!isOfficialRustPatch) delete data.image;
   }
 
   const finalData = stripBlackjackCardsRemaining(data);
