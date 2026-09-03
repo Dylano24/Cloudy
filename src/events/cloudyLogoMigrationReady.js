@@ -6,7 +6,7 @@ installCloudyLogoEmbedPatch();
 // Keep the CDN swap separate from older image cleanups. Some databases have a
 // newer legacy-migration marker already, but still contain the direct GitHub
 // URL that flickers in the desktop Discord client.
-const LOGO_MIGRATION_VERSION = 1;
+const LOGO_MIGRATION_VERSION = 2;
 const LOGO_MIGRATION_STATE_KEY = 'global:cloudy:logo-cdn-migration-version';
 const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 150;
@@ -74,13 +74,13 @@ export function scheduleCloudyLogoMigration(client) {
     void (async () => {
       const completedVersion = Number(await client.db?.get?.(LOGO_MIGRATION_STATE_KEY, 0).catch(() => 0) || 0);
       if (completedVersion >= LOGO_MIGRATION_VERSION) {
-        console.log('[CLOUDY_LOGO] CDN logo migration already completed.');
+        console.log('[CLOUDY_LOGO] CDN media migration already completed.');
         return;
       }
 
       const guilds = [...client.guilds.cache.values()];
       if (!guilds.length) {
-        console.warn('[CLOUDY_LOGO] CDN logo migration deferred: no guild cache is available yet.');
+        console.warn('[CLOUDY_LOGO] CDN media migration deferred: no guild cache is available yet.');
         scheduledClients.delete(client);
         return;
       }
@@ -93,7 +93,7 @@ export function scheduleCloudyLogoMigration(client) {
       if (allGuildsCompleted) {
         await client.db?.set?.(LOGO_MIGRATION_STATE_KEY, LOGO_MIGRATION_VERSION).catch(() => null);
       }
-    })().catch(error => console.error('[CLOUDY_LOGO] Existing-message logo migration failed:', error));
+    })().catch(error => console.error('[CLOUDY_LOGO] Existing-message media migration failed:', error));
   }, START_DELAY_MS);
   timer.unref?.();
   return true;

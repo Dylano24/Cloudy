@@ -10,9 +10,7 @@ import { enforceProtectedIdentityProfile } from '../services/protectedIdentitySe
 import { trackMemberInvite } from '../services/inviteTrackingService.js';
 import { decorateEmbedWithSavedTemplate } from '../services/embedTemplateService.js';
 import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
-
-const CLOUDY_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
-const CLOUDY_BANNER_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-dynamic-banner.gif';
+import { CLOUDY_BANNER_URL, CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
 
 function getOrdinalSuffix(number) {
     const value = Math.abs(Number(number));
