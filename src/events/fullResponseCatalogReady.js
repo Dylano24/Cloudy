@@ -281,7 +281,7 @@ function seedKnownGameResponses() {
   const baccarat = { commandName: 'baccarat' };
 
   captureSystemEmbedData({
-    title: 'Roulette — You won!',
+    title: 'Roulette win',
     description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
     color: 0x57F287,
     fields: [
@@ -292,7 +292,7 @@ function seedKnownGameResponses() {
   }, roulette);
 
   captureSystemEmbedData({
-    title: 'Roulette — You lost',
+    title: 'Roulette loss',
     description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
     color: 0xFEE75C,
     fields: [
@@ -314,7 +314,7 @@ function seedKnownGameResponses() {
 
   for (const title of ['Win', 'Loss', 'Push', 'Bust', 'Blackjack', 'Expired']) {
     captureSystemEmbedData({
-      title: `Result: ${title}`,
+      title: `Blackjack ${title.toLowerCase()}`,
       description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**',
       color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0x5865F2,
       fields: [
@@ -330,15 +330,24 @@ function seedKnownGameResponses() {
     color: 0x5865F2,
   }, baccarat);
 
-  captureSystemEmbedData({
-    title: 'Baccarat — Result',
-    description: 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**',
-    color: 0x57F287,
-    fields: [
-      { name: 'Player Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
-      { name: 'Banker Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
-    ],
-  }, baccarat);
+  const baccaratFields = [
+    { name: 'Player Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+    { name: 'Banker Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+  ];
+  const baccaratResults = [
+    ['win', 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
+    ['loss', 'You chose **{dynamic}**. Winner: **{dynamic}**\nYou lost **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
+    ['tie', 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie — your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**', baccaratFields],
+    ['expired', 'Game expired — **{dynamic}** was returned.', []],
+  ];
+  for (const [outcome, description, fields] of baccaratResults) {
+    captureSystemEmbedData({
+      title: `Baccarat ${outcome}`,
+      description,
+      color: 0x57F287,
+      ...(fields.length ? { fields } : {}),
+    }, baccarat);
+  }
 }
 
 function patchInteractionCapture() {
