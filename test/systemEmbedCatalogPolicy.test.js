@@ -6,6 +6,7 @@ import {
   cleanupSystemCatalogEntries,
   getSystemEmbedTemplateKey,
   isEditableSystemCatalogTemplate,
+  TICKET_LOG_CATALOG_TEMPLATES,
 } from '../src/services/systemEmbedCatalogService.js';
 
 test('Blackjack result templates accept only real final game states', () => {
@@ -64,6 +65,30 @@ test('ticket runtime output is never promoted into the system template catalog',
   );
 });
 
+test('only the ten explicit ticket lifecycle masters are permanent catalog templates', () => {
+  assert.equal(TICKET_LOG_CATALOG_TEMPLATES.length, 10);
+  assert.equal(new Set(TICKET_LOG_CATALOG_TEMPLATES.map(template => template.key)).size, 10);
+  assert.deepEqual(
+    TICKET_LOG_CATALOG_TEMPLATES.map(template => template.key).sort(),
+    [
+      'ticket-log:claim',
+      'ticket-log:close',
+      'ticket-log:delete',
+      'ticket-log:feedback',
+      'ticket-log:open',
+      'ticket-log:pin',
+      'ticket-log:priority',
+      'ticket-log:transcript',
+      'ticket-log:unclaim',
+      'ticket-log:unpin',
+    ],
+  );
+  for (const template of TICKET_LOG_CATALOG_TEMPLATES) {
+    assert.equal(isEditableSystemCatalogTemplate(template.key, template.context), true);
+  }
+  assert.equal(isEditableSystemCatalogTemplate('embed:deadbeef', 'tickets/temporary-status'), false);
+});
+
 test('malformed casino runtime output is rejected before it can queue a catalog write', () => {
   assert.equal(
     captureSystemEmbedData(
@@ -74,7 +99,7 @@ test('malformed casino runtime output is rejected before it can queue a catalog 
   );
 });
 
-test('catalog cleanup removes existing partial Blackjack and ticket templates but keeps the real Bust template', async () => {
+test('catalog cleanup removes partial Blackjack and legacy runtime tickets but keeps curated masters', async () => {
   const template = (title, key, context) => new EmbedBuilder({
     title,
     description: 'Template body',
@@ -90,6 +115,7 @@ test('catalog cleanup removes existing partial Blackjack and ticket templates bu
       template('Result: Bus', 'game:blackjack:result:bus', 'gambling/blackjack'),
       template('Result: Bu', 'game:blackjack:result:bu', 'gambling/blackjack'),
       template('Ticket closed', 'embed:deadbeef', 'tickets/close'),
+      template('Ticket deleted', 'ticket-log:delete', 'ticket-logs/delete'),
     ],
     async edit(payload) {
       this.embeds = payload.embeds;
@@ -100,7 +126,9 @@ test('catalog cleanup removes existing partial Blackjack and ticket templates bu
 
   assert.equal(await cleanupSystemCatalogEntries(messages), true);
   assert.equal(messages.length, 1);
-  assert.equal(message.embeds.length, 1);
+  assert.equal(message.embeds.length, 2);
   assert.equal(message.embeds[0].toJSON().title, 'Blackjack bust');
   assert.match(message.embeds[0].toJSON().author.name, /game:blackjack:result:bust/);
+  assert.equal(message.embeds[1].toJSON().title, 'Ticket deleted');
+  assert.match(message.embeds[1].toJSON().author.name, /ticket-log:delete/);
 });

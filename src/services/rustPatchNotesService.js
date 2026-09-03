@@ -17,7 +17,7 @@ const LATEST_KNOWN_PATCH = {
     link: 'https://rust.facepunch.com/news/power-trip',
     description: "This month's update brings Player Maintained Monuments, including a Satellite Crash, Dome Pumping and a restorable Power Plant, plus balances, bug fixes, optimisations and improvements.",
     publishedAt: '2026-08-06T18:00:00Z',
-    image: null,
+    image: 'https://files.facepunch.com/lewis/2026/August/pt_hero.jpg',
     body: [
         '### Player Maintained Monuments',
         'Restore and power key monuments across the island, including Power Plant production and new monument interactions.',
@@ -92,7 +92,7 @@ function readImage(xml) {
     return image?.[1] ? decodeXml(image[1]) : null;
 }
 
-function parseLatestPatch(feed) {
+export function parseLatestPatch(feed) {
     const items = feed.match(/<item\b[\s\S]*?<\/item>/gi) || [];
 
     for (const item of items) {
@@ -165,12 +165,21 @@ async function checkForRustPatch(client) {
 
         try {
             const recentMessages = await channel.messages.fetch({ limit: 100 });
-            const isAlreadyPosted = recentMessages.some(message =>
+            const existingMessage = recentMessages.find(message =>
                 message.author.id === client.user.id &&
                 message.embeds.some(embed => embed.url === patch.link)
             );
 
-            if (isAlreadyPosted) {
+            if (existingMessage) {
+                const existingEmbed = existingMessage.embeds.find(embed => embed.url === patch.link);
+                if (patch.image && !existingEmbed?.image?.url && existingMessage.edit) {
+                    const repairedEmbeds = existingMessage.embeds.map(embed =>
+                        embed === existingEmbed ? EmbedBuilder.from(embed).setImage(patch.image) : EmbedBuilder.from(embed)
+                    );
+                    await existingMessage.edit({ embeds: repairedEmbeds }).catch(error => {
+                        logger.warn('Could not restore the missing Rust patch banner.', error);
+                    });
+                }
                 if (previousLink !== patch.link) {
                     await client.db.set(LAST_PATCH_KEY, patch.link);
                 }
