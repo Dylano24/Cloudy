@@ -30,8 +30,8 @@ const SYSTEM_TEMPLATE_PLACEMENTS = [
         channelSlugs: ['gambling'],
     },
     {
-        match: /\b(?:ticket\s+(?:created|claimed|unclaimed|closed|deleted|pinned|unpinned)|priority updated|transcript generated|feedback received)\b/i,
-        channelSlugs: ['ticket-logs'],
+        match: /\b(ticket|transcript|claim ticket|close ticket|reopen ticket)\b/i,
+        channelSlugs: ['ticket-logs', 'ticket-panel', 'tickets'],
     },
     {
         match: /\b(appeal|ban appeal)\b/i,
@@ -287,10 +287,7 @@ function placementSlugsForTemplateContext(context) {
     const root = cleanName(context).split('/')[0];
     const placements = {
         gambling: ['gambling'],
-        tickets: [],
-        'contact-us': ['contact-us'],
-        contact: ['contact-us'],
-        support: ['contact-us'],
+        tickets: ['ticket-logs', 'ticket-panel', 'tickets'],
         'ban-appeal': ['ban-appeal', 'appeal'],
         reports: ['reports', 'report'],
         shop: ['shop', 'purchases'],
@@ -330,32 +327,8 @@ function findFeatureChannel(guild, slugs = []) {
     return candidates[0]?.channel || null;
 }
 
-function contactUsCatalogChannel(message, embed) {
-    const text = cleanName(systemTemplateSearchText(embed));
-    const contactPanel = /\b(?:contact the staff team|contact staff team|contact us|support & help|get assistance)\b/.test(text);
-    const context = systemTemplateContext(embed);
-    const explicitContext = /^(?:contact-us|contact|support)(?:\/|$)/.test(context);
-    if (!contactPanel && !explicitContext) return null;
-    return findFeatureChannel(message.guild, ['contact-us']);
-}
-
-function ticketPanelCatalogChannel(message, embed) {
-    const text = cleanName(systemTemplateSearchText(embed));
-    const panelMessage = /\b(?:change panel message|ticket panel message|ticket panel|create a ticket)\b/.test(text);
-    const context = systemTemplateContext(embed);
-    const explicitContext = /^tickets\/(?:panel|ticket-panel|change-panel|panel-message)(?:\/|$)/.test(context);
-    if (!panelMessage && !explicitContext) return null;
-    return findFeatureChannel(message.guild, ['ticket-panel', 'tickets']);
-}
-
 function catalogDisplayChannelId(message, embed) {
     if (!isSystemCatalogMessage(message)) return String(message.channelId);
-
-    const contactChannel = contactUsCatalogChannel(message, embed);
-    if (contactChannel?.id) return String(contactChannel.id);
-
-    const ticketPanelChannel = ticketPanelCatalogChannel(message, embed);
-    if (ticketPanelChannel?.id) return String(ticketPanelChannel.id);
 
     // A saved custom title can remove every keyword from the visible embed.
     // Its stable catalog context still identifies the real destination scope.
@@ -479,44 +452,6 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
         logger.error('Failed to register Cloudy embed messages:', error);
         return false;
     }
-}
-
-export async function replaceSystemCatalogEmbedMessages(messages) {
-    const grouped = new Map();
-
-    for (const message of Array.isArray(messages) ? messages : []) {
-        if (!message?.guildId || !isSystemCatalogMessage(message)) continue;
-        const additions = message.embeds.map((embed, embedIndex) => {
-            const location = recordLocationForEmbed(message, embed);
-            const addition = {
-                guildId: message.guildId,
-                ...location,
-                messageId: message.id,
-                embedIndex,
-                source: 'system-catalog',
-                title: embed?.title || '',
-                name: embedName(embed),
-                createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
-            };
-            rememberEmbedSnapshot(addition, embed);
-            return addition;
-        });
-        if (!grouped.has(message.guildId)) grouped.set(message.guildId, []);
-        grouped.get(message.guildId).push(...additions);
-    }
-
-    if (!grouped.size) return false;
-    await Promise.all([...grouped.entries()].map(([guildId, additions]) => mutateRegistry(guildId, async () => {
-        const retained = cleanStoredRecords(await readStoredRecords(guildId))
-            .filter(record => String(record?.source || '') !== 'system-catalog');
-        const next = new Map(retained.map(record => [recordKey(record), record]));
-        for (const addition of additions) {
-            const record = normalizeRecord(addition);
-            if (record) next.set(recordKey(record), record);
-        }
-        return setInDb(registryKey(guildId), sortRecords([...next.values()]));
-    })));
-    return true;
 }
 
 export async function registerCloudyEmbedMessage(message, source = 'cloudy') {

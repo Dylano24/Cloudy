@@ -75,13 +75,6 @@ function shortValue(value, maxLength) {
     return `\`${value.length > maxLength ? `${value.slice(0, maxLength)}…` : value}\``;
 }
 
-function visibleBuilderTitle(value) {
-    if (!value) return '`Not set`';
-    // Custom emoji markup must stay outside a code span so Discord renders the
-    // emoji itself instead of exposing its internal name and numeric ID.
-    return String(value).replace(/\s+/g, ' ').trim();
-}
-
 function isPublicToEveryone(guild, channel) {
     try {
         return Boolean(channel.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel));
@@ -212,35 +205,49 @@ async function replaceSaveFeedback(interaction, message, payload) {
 // Acknowledging the click immediately makes Save feel instant, while the
 // actual message edit still remains the source of truth before we confirm it.
 async function saveExistingEmbed(buttonInteraction, guild, state) {
+    const feedbackPromise = buttonInteraction.followUp({
+        content: 'Saving changes…',
+        flags: MessageFlags.Ephemeral,
+        fetchReply: true,
+    }).catch(() => null);
+
     const saved = await saveModifiedEmbed(guild, state);
+    const feedbackMessage = await feedbackPromise;
 
     if (!saved.ok) {
-        const failure = await buttonInteraction.followUp({
+        const failureMessage = saved.reason === 'embed-too-large'
+            ? 'This embed is over Discord’s 6,000-character limit. Shorten the title, message, fields, or footer and try again.'
+            : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
+        const failure = await replaceSaveFeedback(buttonInteraction, feedbackMessage, {
             content: null,
             embeds: [new EmbedBuilder()
                 .setTitle('Could not save changes')
-                .setDescription('The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.')
+                .setDescription(failureMessage)
                 .setColor(getColor('error'))],
-            flags: MessageFlags.Ephemeral,
-            fetchReply: true,
-        }).catch(() => null);
+        });
         if (failure) removeTransientMessage(buttonInteraction, failure);
         else {
             await replyUserError(buttonInteraction, {
-                type: ErrorTypes.UNKNOWN,
-                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
+                type: saved.reason === 'embed-too-large' ? ErrorTypes.VALIDATION : ErrorTypes.UNKNOWN,
+                message: failureMessage,
             });
         }
         return saved;
     }
 
     void refreshBuilder(buttonInteraction, state).catch(() => {});
-    const confirmation = await buttonInteraction.followUp({
+    const confirmationPayload = {
         content: null,
         embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
-        flags: MessageFlags.Ephemeral,
-        fetchReply: true,
-    }).catch(() => null);
+    };
+    let confirmation = await replaceSaveFeedback(buttonInteraction, feedbackMessage, confirmationPayload);
+    if (!confirmation) {
+        confirmation = await buttonInteraction.followUp({
+            ...confirmationPayload,
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
+    }
     if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
     return saved;
 }
@@ -406,7 +413,7 @@ function buildControlEmbed(state) {
         .setTitle('Message builder')
         .setDescription([
             `**Mode** › ${state.modifyTarget ? 'Editing existing embed' : 'New embed'}`,
-            `**Title** › ${visibleBuilderTitle(state.title)}`,
+            `**Title** › ${shortValue(state.title, 40)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
             `**Side color** › \`${colorToHex(state.sideColor)}\``,
             `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
