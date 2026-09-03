@@ -58,8 +58,8 @@ function buildTermsEmbed(titleIcon = '') {
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
     .setTitle(title)
-    .addFields(TERMS_SECTIONS.map((section, index) => ({
-      name: `${index > 0 ? '\u200b\n' : ''}${section.name}`,
+    .addFields(TERMS_SECTIONS.map(section => ({
+      name: `\u200b\n${section.name}`,
       value: `\u200b\n${section.value}`,
       inline: false
     })))
