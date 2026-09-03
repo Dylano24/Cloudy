@@ -108,6 +108,7 @@ test('Cloudy runtime media uses immutable CDN URLs and migrates direct GitHub me
   assert.equal(migrated.data.image.url, CLOUDY_BANNER_URL);
   assert.doesNotMatch(CLOUDY_LOGO_URL, /raw\.githubusercontent\.com/);
   assert.doesNotMatch(CLOUDY_BANNER_URL, /raw\.githubusercontent\.com/);
+  assert.match(CLOUDY_LOGO_URL, /cloudy-c-logo-static\.png$/);
   assert.match(CLOUDY_LOGO_URL, /@[0-9a-f]{40}\//);
   assert.match(CLOUDY_BANNER_URL, /@[0-9a-f]{40}\//);
 });
