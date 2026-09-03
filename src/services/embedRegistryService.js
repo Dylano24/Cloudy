@@ -1,6 +1,7 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const SCAN_BATCH_SIZE = 100;
@@ -208,7 +209,12 @@ function isInternalEmbedRecord(record) {
 }
 
 function isFixedCloudyEmbed(embed) {
-    if (isCloudyWelcomeEmbed(embed) || isInviteCreatedEmbed(embed) || isInviteJoinEmbed(embed)) return true;
+    if (
+        isCloudyWelcomeEmbed(embed)
+        || isInviteCreatedEmbed(embed)
+        || isInviteJoinEmbed(embed)
+        || getTicketLogTemplate(embed)
+    ) return true;
     const title = cleanName(embed?.title);
     return /^(?:kick|ban|unban|timeout|untimeout|report)\s+log\b/.test(title)
         || /^(?:invite created|member joined using invite)$/.test(title);
@@ -219,7 +225,8 @@ function isFixedCloudyRecord(record) {
     const names = [record?.title, record?.name].map(cleanName).filter(Boolean);
     return names.some(title =>
         /^(?:welcome to cloudy(?: inc\.?)?|kick|ban|unban|timeout|untimeout|report)\b/.test(title)
-        || /^(?:invite created|member joined using invite)$/.test(title),
+        || /^(?:invite created|member joined using invite)$/.test(title)
+        || /^(?:ticket (?:created|closed|deleted|claimed|unclaimed|pinned|unpinned)|priority updated|transcript generated|feedback received)$/.test(title),
     );
 }
 
@@ -240,6 +247,8 @@ function embedName(embed) {
     if (isCloudyWelcomeEmbed(embed)) return 'Welcome to Cloudy Inc.';
     if (isInviteCreatedEmbed(embed)) return 'Invite created';
     if (isInviteJoinEmbed(embed)) return 'Member joined using invite';
+    const ticketLog = getTicketLogTemplate(embed);
+    if (ticketLog) return ticketLog.label;
 
     const title = canonicalEmbedName(embed?.title || '');
     if (title) return title.slice(0, 256);
