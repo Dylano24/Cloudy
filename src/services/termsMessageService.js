@@ -53,13 +53,13 @@ function formatLastUpdated(date = new Date()) {
 
 function buildTermsEmbed(titleIcon = '') {
   const footerText = `© Cloudy Inc. • Last updated: ${formatLastUpdated()}`;
-  const title = titleIcon ? `${titleIcon} Terms of service` : 'Terms of service';
+  const title = titleIcon ? `\u200b\n${titleIcon} Terms of service` : '\u200b\nTerms of service';
 
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
     .setTitle(title)
     .addFields(TERMS_SECTIONS.map((section, index) => ({
-      name: `\u200b\n${section.name}`,
+      name: `${index > 0 ? '\u200b\n' : ''}${section.name}`,
       value: `\u200b\n${section.value}`,
       inline: false
     })))
