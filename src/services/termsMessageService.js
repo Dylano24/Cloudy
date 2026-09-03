@@ -59,8 +59,8 @@ function buildTermsEmbed(titleIcon = '') {
     .setColor('#FFFFFF')
     .setTitle(title)
     .addFields(TERMS_SECTIONS.map((section, index) => ({
-      name: `${index > 0 ? '\u200b\n' : ''}${section.name}`,
-      value: section.value,
+      name: `\u200b\n${section.name}`,
+      value: `\u200b\n${section.value}`,
       inline: false
     })))
     .setFooter({ text: footerText });
