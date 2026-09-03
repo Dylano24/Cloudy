@@ -1,91 +1,62 @@
-name: Migrate Cloudy logo references
+name: Verify Cloudy media references
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/migrate-cloudy-logo-references.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrate-cloudy-logo-references.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  migrate:
-    if: github.actor != 'github-actions[bot]'
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Replace old C logo references safely
+      - name: Verify immutable Cloudy media URLs
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          OLD = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png'
-          NEW = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif'
-          roots = [Path('src'), Path('scripts'), Path('test')]
-          changed = []
+          revision = 'f2fc2ba3873d420bcdda0e3ea260cf5d312e528a'
+          base = f'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@{revision}/assets/'
+          logo = base + 'cloudy-c-logo-auf-auf.gif'
+          banner = base + 'cloudy-dynamic-banner.gif'
 
-          for root in roots:
-              if not root.exists():
-                  continue
-              for path in root.rglob('*'):
-                  if not path.is_file() or path.suffix not in {'.js', '.mjs', '.cjs', '.json'}:
-                      continue
-                  text = path.read_text(encoding='utf-8')
-                  updated = text.replace(OLD, NEW)
-                  if updated != text:
-                      path.write_text(updated, encoding='utf-8')
-                      changed.append(str(path))
-
-          migration = Path('src/events/cloudyLogoMigrationReady.js')
-          text = migration.read_text(encoding='utf-8')
-          old_version = 'const LOGO_MIGRATION_VERSION = 1;'
-          new_version = 'const LOGO_MIGRATION_VERSION = 2;'
-          if old_version in text:
-              text = text.replace(old_version, new_version, 1)
-              migration.write_text(text, encoding='utf-8')
-              changed.append(str(migration))
-          elif new_version not in text:
-              raise SystemExit('Unexpected Cloudy logo migration version')
-
-          builder = Path('src/commands/Tools/embedbuilder.js').read_text(encoding='utf-8')
-          if OLD in builder:
-              raise SystemExit('Embed builder still contains old Cloudy C logo URL')
-          if 'CLOUDY_LOGO_URL' not in builder:
-              raise SystemExit('Embed builder does not use the central Cloudy logo URL')
+          runtime_files = list(Path('src').rglob('*.js'))
+          direct_github = [
+              str(path) for path in runtime_files
+              if 'https://raw.githubusercontent.com/Dylano24/Cloudy/' in path.read_text(encoding='utf-8')
+          ]
+          if direct_github:
+              raise SystemExit(f'Direct GitHub runtime media URL found in: {direct_github}')
 
           service = Path('src/services/cloudyLogoService.js').read_text(encoding='utf-8')
-          if NEW not in service:
-              raise SystemExit('Central Cloudy logo service does not use AUF AUF GIF')
+          if logo not in service or banner not in service:
+              raise SystemExit('Central Cloudy media service is not pinned to the approved immutable CDN URLs')
 
-          migration_after = migration.read_text(encoding='utf-8')
-          if new_version not in migration_after:
-              raise SystemExit('Old-log migration was not bumped to version 2')
+          migration = Path('src/events/cloudyLogoMigrationReady.js').read_text(encoding='utf-8')
+          if 'const LOGO_MIGRATION_VERSION = 2;' not in migration:
+              raise SystemExit('Cloudy media migration version must remain at version 2')
 
-          print('Changed files:')
-          for item in changed:
-              print(' -', item)
+          builder = Path('src/commands/Tools/embedbuilder.js').read_text(encoding='utf-8')
+          if 'CLOUDY_LOGO_URL' not in builder:
+              raise SystemExit('Embed Builder does not use the central Cloudy logo URL')
+
+          print('Cloudy runtime media references are immutable and centrally managed.')
           PY
 
-      - name: Syntax-check changed logo code
+      - name: Syntax-check media migration code
         run: |
           node --check src/services/cloudyLogoService.js
           node --check src/events/cloudyLogoMigrationReady.js
           node --check src/commands/Tools/embedbuilder.js
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Run full regression suite
-        continue-on-error: true
-        run: npm test
-
-      - name: Commit logo reference migration
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src scripts test
-          git diff --cached --quiet && exit 0
-          git commit -m "Use AUF AUF logo across Cloudy embeds"
-          git push
