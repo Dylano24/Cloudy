@@ -152,7 +152,12 @@ text = text.replace(
                 templateMode: false,
                 preventTemplateMode: true,
             });
-            groups.get(key).records.push(record);
+            const group = groups.get(key);
+            if (String(record.source || '') === 'ticket-log') {
+                group.templateMode = true;
+                group.preventTemplateMode = false;
+            }
+            group.records.push(record);
             continue;
         }
         if (isLegacyTicketLog(recordData)) continue;

@@ -1,5 +1,10 @@
 import { MessageFlags } from 'discord.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
+import { getGuildConfig } from './config/guildConfig.js';
+import {
+    getTicketLogTemplate,
+    isTicketLogTemplateChannel,
+} from '../utils/ticket/ticketLogTemplates.js';
 
 const DISCOVERY_PAGE_SIZE = 100;
 const INTERNAL_TITLES = new Set([
@@ -58,11 +63,14 @@ function embedSnapshot(embed) {
     return data && typeof data === 'object' ? data : null;
 }
 
-function buildRecords(guild, channel, message) {
+function buildRecords(guild, channel, message, guildConfig = null) {
     return message.embeds
         .map((embed, embedIndex) => {
             const title = String(embed?.title || '').trim().toLowerCase();
             if (INTERNAL_TITLES.has(title)) return null;
+
+            const isReusableTicketLog = isTicketLogTemplateChannel(guildConfig, channel.id)
+                && Boolean(getTicketLogTemplate(embed));
 
             return {
                 guildId: String(guild.id),
@@ -70,9 +78,10 @@ function buildRecords(guild, channel, message) {
                 backingChannelId: null,
                 messageId: String(message.id),
                 embedIndex,
-                // Session-only discovery records deliberately behave as direct
-                // editable embeds, not as persistent/system templates.
-                source: 'embed-builder',
+                // Only structurally verified logs in the configured ticket log
+                // destinations are reusable. All other discovery records stay
+                // session-only/direct editable embeds.
+                source: isReusableTicketLog ? 'ticket-log' : 'embed-builder',
                 title: String(embed?.title || '').slice(0, 256),
                 name: recordName(embed),
                 createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
@@ -150,13 +159,21 @@ async function resolveChannel(guild, channelId) {
         || await guild.channels.fetch(String(channelId)).catch(() => null);
 }
 
+async function resolveGuildConfig(guild) {
+    if (!guild?.client || !guild?.id) return null;
+    return getGuildConfig(guild.client, guild.id).catch(() => null);
+}
+
 export async function discoverRecentChannelEmbeds(guild, channelId, botUserId) {
     if (!guild || !channelId || !botUserId) return [];
     const channel = await resolveChannel(guild, channelId);
     if (!channel?.messages?.fetch) return [];
 
-    const messages = await getRecentUsableMessages(channel, botUserId, { fullHistory: false });
-    return messages.flatMap(message => buildRecords(guild, channel, message));
+    const [messages, guildConfig] = await Promise.all([
+        getRecentUsableMessages(channel, botUserId, { fullHistory: false }),
+        resolveGuildConfig(guild),
+    ]);
+    return messages.flatMap(message => buildRecords(guild, channel, message, guildConfig));
 }
 
 export async function discoverMissingChannelEmbeds(guild, channelId, botUserId) {
@@ -165,13 +182,16 @@ export async function discoverMissingChannelEmbeds(guild, channelId, botUserId) 
     const channel = await resolveChannel(guild, channelId);
     if (!channel?.messages?.fetch) return [];
 
-    const messages = await getRecentUsableMessages(channel, botUserId, { fullHistory: true });
+    const [messages, guildConfig] = await Promise.all([
+        getRecentUsableMessages(channel, botUserId, { fullHistory: true }),
+        resolveGuildConfig(guild),
+    ]);
     if (!messages.length) return [];
 
     // Do not persist historical discovery as manual Embed Builder records.
     // The inline snapshot is enough for instant preview and prevents old log
     // history from permanently polluting the registry/menu again.
-    return messages.flatMap(message => buildRecords(guild, channel, message));
+    return messages.flatMap(message => buildRecords(guild, channel, message, guildConfig));
 }
 
 export async function discoverMissingChannelEmbed(guild, channelId, botUserId) {
