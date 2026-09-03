@@ -28,10 +28,8 @@ jobs:
           from pathlib import Path
           import hashlib
 
-          revision = '646fdaacabd0811da7ef2eca6df82ce32c078552'
-          base = f'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@{revision}/assets/'
-          logo = base + 'cloudy-c-logo-static.png'
-          banner = base + 'cloudy-dynamic-banner.gif'
+          logo = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@646fdaacabd0811da7ef2eca6df82ce32c078552/assets/cloudy-c-logo-static.png'
+          banner = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-dynamic-banner.gif'
 
           runtime_files = list(Path('src').rglob('*.js'))
           direct_github = [
