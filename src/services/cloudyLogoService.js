@@ -2,9 +2,13 @@ import { EmbedBuilder } from 'discord.js';
 
 export const CLOUDY_LOGO_URL =
   'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
+export const CLOUDY_BANNER_URL =
+  'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-dynamic-banner.gif';
 
 const LEGACY_RAW_GITHUB_LOGO_PATTERN =
   /^https:\/\/raw\.githubusercontent\.com\/Dylano24\/Cloudy\/[^/]+\/assets\/cloudy-c-logo-auf-auf\.gif(?:[?#].*)?$/i;
+const LEGACY_RAW_GITHUB_BANNER_PATTERN =
+  /^https:\/\/raw\.githubusercontent\.com\/Dylano24\/Cloudy\/[^/]+\/assets\/cloudy-dynamic-banner\.gif(?:[?#].*)?$/i;
 
 const LEGACY_CLOUDY_LOGO_FILENAMES = new Set([
   'cloudy-c-logo.png',
@@ -58,10 +62,14 @@ export function isCloudyLogoUrl(value) {
 }
 
 function migrateMediaNode(node) {
-  if (!node || typeof node !== 'object' || !isLegacyCloudyLogoUrl(node.url)) {
-    return { node, changed: false };
+  if (!node || typeof node !== 'object') return { node, changed: false };
+  if (isLegacyCloudyLogoUrl(node.url)) {
+    return { node: { ...node, url: CLOUDY_LOGO_URL }, changed: true };
   }
-  return { node: { ...node, url: CLOUDY_LOGO_URL }, changed: true };
+  if (LEGACY_RAW_GITHUB_BANNER_PATTERN.test(cleanUrl(node.url))) {
+    return { node: { ...node, url: CLOUDY_BANNER_URL }, changed: true };
+  }
+  return { node, changed: false };
 }
 
 function migrateIconNode(node) {

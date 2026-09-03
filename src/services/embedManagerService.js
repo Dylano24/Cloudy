@@ -10,6 +10,10 @@ import {
 import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 import {
+    DISCORD_EMBED_TOTAL_TEXT_LIMIT,
+    getEmbedsTextLength,
+} from '../utils/discordEmbedLimits.js';
+import {
     getEmbedRegistry,
     getEmbedRegistrySnapshot,
     reconcileEmbedRegistry,
@@ -1166,6 +1170,10 @@ export async function saveModifiedEmbed(guild, state) {
     const embeds = message.embeds.map((embed, embedIndex) =>
         embedIndex === index ? new EmbedBuilder(applyStateToExistingEmbed(state)) : new EmbedBuilder(embed.toJSON()),
     );
+
+    if (getEmbedsTextLength(embeds) > DISCORD_EMBED_TOTAL_TEXT_LIMIT) {
+        return { ok: false, reason: 'embed-too-large' };
+    }
 
     const payload = { embeds };
     if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
