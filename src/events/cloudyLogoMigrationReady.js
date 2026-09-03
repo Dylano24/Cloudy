@@ -3,10 +3,10 @@ import { installCloudyLogoEmbedPatch, normalizeCloudyLogoMessage } from '../serv
 
 installCloudyLogoEmbedPatch();
 
-// Keep the CDN swap separate from older image cleanups. Some databases have a
-// newer legacy-migration marker already, but still contain the direct GitHub
-// URL that flickers in the desktop Discord client.
-const LOGO_MIGRATION_VERSION = 2;
+// Version 4 restores the approved animated GIF everywhere after the brief
+// static-logo rollout. It forces one fresh pass over existing bot embeds,
+// including welcome messages and saved/template-decorated messages.
+const LOGO_MIGRATION_VERSION = 4;
 const LOGO_MIGRATION_STATE_KEY = 'global:cloudy:logo-cdn-migration-version';
 const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 150;
@@ -62,7 +62,7 @@ async function migrateGuild(guild, botUserId) {
     if (!result.completed) completed = false;
     await wait(CHANNEL_DELAY_MS);
   }
-  console.log(`[CLOUDY_LOGO] CDN migration ${guild.name}: scanned ${scanned} messages, updated ${updated} bot messages.`);
+  console.log(`[CLOUDY_LOGO] GIF restore ${guild.name}: scanned ${scanned} messages, updated ${updated} bot messages.`);
   return { scanned, updated, completed };
 }
 
@@ -74,13 +74,13 @@ export function scheduleCloudyLogoMigration(client) {
     void (async () => {
       const completedVersion = Number(await client.db?.get?.(LOGO_MIGRATION_STATE_KEY, 0).catch(() => 0) || 0);
       if (completedVersion >= LOGO_MIGRATION_VERSION) {
-        console.log('[CLOUDY_LOGO] CDN media migration already completed.');
+        console.log('[CLOUDY_LOGO] Animated GIF restore already completed.');
         return;
       }
 
       const guilds = [...client.guilds.cache.values()];
       if (!guilds.length) {
-        console.warn('[CLOUDY_LOGO] CDN media migration deferred: no guild cache is available yet.');
+        console.warn('[CLOUDY_LOGO] Animated GIF restore deferred: no guild cache is available yet.');
         scheduledClients.delete(client);
         return;
       }
