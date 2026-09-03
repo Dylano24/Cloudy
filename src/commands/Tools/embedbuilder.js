@@ -27,6 +27,11 @@ import {
 import { MESSAGE_BUILDER_FOOTER_MARKER } from '../../services/cloudyBrandingService.js';
 import { CLOUDY_LOGO_URL, isCloudyLogoUrl } from '../../services/cloudyLogoService.js';
 import {
+    DISCORD_EMBED_TOTAL_TEXT_LIMIT,
+    fitEmbedToTextBudget,
+    getEmbedTextLength,
+} from '../../utils/discordEmbedLimits.js';
+import {
     getEveryGuildChannel,
     refreshAllTicketChannels,
 } from '../../services/ticketChannelBrowserService.js';
@@ -210,18 +215,21 @@ async function saveExistingEmbed(buttonInteraction, guild, state) {
     const feedbackMessage = await feedbackPromise;
 
     if (!saved.ok) {
+        const failureMessage = saved.reason === 'embed-too-large'
+            ? 'This embed is over Discord’s 6,000-character limit. Shorten the title, message, fields, or footer and try again.'
+            : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
         const failure = await replaceSaveFeedback(buttonInteraction, feedbackMessage, {
             content: null,
             embeds: [new EmbedBuilder()
                 .setTitle('Could not save changes')
-                .setDescription('The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.')
+                .setDescription(failureMessage)
                 .setColor(getColor('error'))],
         });
         if (failure) removeTransientMessage(buttonInteraction, failure);
         else {
             await replyUserError(buttonInteraction, {
-                type: ErrorTypes.UNKNOWN,
-                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
+                type: saved.reason === 'embed-too-large' ? ErrorTypes.VALIDATION : ErrorTypes.UNKNOWN,
+                message: failureMessage,
             });
         }
         return saved;
@@ -339,8 +347,16 @@ function buildPreviewEmbed(state) {
     return embed;
 }
 
-function buildPostedEmbeds(state) {
-    const chunks = splitLongText(state.message);
+export function buildPostedEmbeds(state) {
+    const baseEmbed = buildSingleEmbed(state, null, { posted: true });
+    const descriptionLimit = Math.max(
+        1,
+        Math.min(
+            DISCORD_EMBED_DESCRIPTION_LIMIT,
+            DISCORD_EMBED_TOTAL_TEXT_LIMIT - getEmbedTextLength(baseEmbed),
+        ),
+    );
+    const chunks = splitLongText(state.message, descriptionLimit);
     const descriptions = chunks.length > 0 ? chunks : [null];
 
     return descriptions.map((description, index) => {
@@ -406,6 +422,13 @@ function buildControlEmbed(state) {
         ].join('\n'))
         .setColor(0xFFFFFF)
         .setFooter({ text: 'Preview the embed above live' });
+}
+
+export function buildBuilderEmbeds(state) {
+    const controlEmbed = buildControlEmbed(state);
+    const previewBudget = DISCORD_EMBED_TOTAL_TEXT_LIMIT - getEmbedTextLength(controlEmbed);
+    const previewData = fitEmbedToTextBudget(buildPreviewEmbed(state), previewBudget);
+    return [new EmbedBuilder(previewData), controlEmbed];
 }
 
 function buildControls(state) {
@@ -513,7 +536,7 @@ function refreshBuilder(interaction, state) {
     }
 
     const payload = {
-        embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],
+        embeds: buildBuilderEmbeds(state),
         components: buildControls(state),
         attachments: [],
     };

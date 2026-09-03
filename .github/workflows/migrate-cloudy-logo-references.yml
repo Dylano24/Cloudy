@@ -22,7 +22,7 @@ jobs:
           from pathlib import Path
 
           OLD = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo.png'
-          NEW = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-c-logo-auf-auf.gif'
+          NEW = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif'
           roots = [Path('src'), Path('scripts'), Path('test')]
           changed = []
 
@@ -52,8 +52,8 @@ jobs:
           builder = Path('src/commands/Tools/embedbuilder.js').read_text(encoding='utf-8')
           if OLD in builder:
               raise SystemExit('Embed builder still contains old Cloudy C logo URL')
-          if NEW not in builder:
-              raise SystemExit('Embed builder does not contain new AUF AUF logo URL')
+          if 'CLOUDY_LOGO_URL' not in builder:
+              raise SystemExit('Embed builder does not use the central Cloudy logo URL')
 
           service = Path('src/services/cloudyLogoService.js').read_text(encoding='utf-8')
           if NEW not in service:

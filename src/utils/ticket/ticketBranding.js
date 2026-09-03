@@ -5,7 +5,7 @@ export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
 
 // Kept for compatibility with existing imports. The current ticket layout is logo-free.
 export const CLOUDY_TICKET_C_IMAGE =
-  'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-ticket-c-layout.png?v=right-layout-20260822';
+  'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-ticket-c-layout.png';
 
 export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...(embed || {}) };

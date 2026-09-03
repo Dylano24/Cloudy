@@ -1,11 +1,10 @@
 import { Events, EmbedBuilder } from 'discord.js';
+import { CLOUDY_BANNER_URL, CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
 
 const LEGACY_NAMES = new Set([
   'cloudy-c-logo.png',
   'cloudy-dynamic-banner.gif',
 ]);
-const CLOUDY_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
-const CLOUDY_BANNER_URL = 'https://raw.githubusercontent.com/Dylano24/Cloudy/main/assets/cloudy-dynamic-banner.gif';
 
 function isWelcomeEmbed(embed) {
   const data = embed?.toJSON?.() || embed || {};
