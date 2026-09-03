@@ -62,8 +62,8 @@ function buildStoreTermsEmbed(titleIcon = '') {
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
     .setTitle(title)
-    .addFields(STORE_TERMS_SECTIONS.map((section, index) => ({
-      name: `${index > 0 ? '\u200b\n' : ''}${section.name}`,
+    .addFields(STORE_TERMS_SECTIONS.map(section => ({
+      name: `\u200b\n${section.name}`,
       value: section.value,
       inline: false
     })))
