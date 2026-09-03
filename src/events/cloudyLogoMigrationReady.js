@@ -6,7 +6,7 @@ installCloudyLogoEmbedPatch();
 // Keep the CDN swap separate from older image cleanups. Some databases have a
 // newer legacy-migration marker already, but still contain the direct GitHub
 // URL that flickers in the desktop Discord client.
-const LOGO_MIGRATION_VERSION = 2;
+const LOGO_MIGRATION_VERSION = 3;
 const LOGO_MIGRATION_STATE_KEY = 'global:cloudy:logo-cdn-migration-version';
 const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 150;
