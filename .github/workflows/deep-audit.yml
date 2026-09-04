@@ -1,0 +1,205 @@
+name: Deep Audit
+
+on:
+  push:
+    branches:
+      - audit-deep-scan-2026-09-04
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Repository inventory
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "=== HEAD ==="
+          git rev-parse HEAD
+          echo "=== FILE COUNT ==="
+          find . -type f -not -path './.git/*' | sort | tee /tmp/all-files.txt | wc -l
+          echo "=== TRACKED FILE COUNT ==="
+          git ls-files | sort | tee /tmp/tracked-files.txt | wc -l
+          echo "=== TRACKED BYTES ==="
+          git ls-files -z | xargs -0 -r wc -c | tail -n 1 || true
+          echo "=== FILE TYPES ==="
+          git ls-files | awk -F. 'NF>1{print tolower($NF)} NF==1{print "[no-ext]"}' | sort | uniq -c | sort -nr | head -100
+          echo "=== LARGEST TRACKED FILES ==="
+          git ls-files -z | xargs -0 -r du -b | sort -nr | head -50
+
+      - name: Install dependencies exactly
+        run: npm ci
+
+      - name: Package and dependency integrity
+        shell: bash
+        run: |
+          set +e
+          echo "=== NODE/NPM ==="
+          node --version
+          npm --version
+          echo "=== NPM LS ==="
+          npm ls --all
+          echo "NPM_LS_EXIT=$?"
+          echo "=== NPM AUDIT ==="
+          npm audit --audit-level=low
+          echo "NPM_AUDIT_EXIT=$?"
+          echo "=== NPM OUTDATED ==="
+          npm outdated
+          echo "NPM_OUTDATED_EXIT=$?"
+          echo "=== NPM DEDUPE DRY RUN ==="
+          npm dedupe --dry-run
+          echo "NPM_DEDUPE_EXIT=$?"
+          exit 0
+
+      - name: Syntax check every JavaScript file
+        shell: bash
+        run: |
+          set -uo pipefail
+          failures=0
+          count=0
+          while IFS= read -r -d '' file; do
+            count=$((count+1))
+            if ! node --check "$file" >/tmp/node-check.out 2>&1; then
+              echo "SYNTAX_FAIL $file"
+              cat /tmp/node-check.out
+              failures=$((failures+1))
+            fi
+          done < <(find . -type f -name '*.js' -not -path './node_modules/*' -not -path './.git/*' -print0)
+          echo "JS_CHECKED=$count"
+          echo "JS_SYNTAX_FAILURES=$failures"
+          test "$failures" -eq 0
+
+      - name: Lint full repository
+        shell: bash
+        run: |
+          set +e
+          npm run lint
+          code=$?
+          echo "LINT_EXIT=$code"
+          exit 0
+
+      - name: Run full test suite
+        shell: bash
+        run: |
+          set +e
+          npm test
+          code=$?
+          echo "TEST_EXIT=$code"
+          exit 0
+
+      - name: Security and correctness pattern scan
+        shell: bash
+        run: |
+          set +e
+          echo "=== POSSIBLE SECRETS / CREDENTIALS IN TRACKED TEXT ==="
+          git grep -nEI '(discord[_-]?(token|secret)|bot[_-]?token|api[_-]?key|client[_-]?secret|private[_-]?key|password\s*[:=]|postgres(ql)?://[^[:space:]]+:[^[:space:]]+@)' -- ':!package-lock.json' ':!*.map' || true
+          echo "=== DYNAMIC CODE EXECUTION / PROCESS SPAWNS ==="
+          git grep -nEI '\beval\s*\(|new Function\s*\(|child_process|execSync\s*\(|spawnSync\s*\(|exec\s*\(|spawn\s*\(' -- '*.js' '*.mjs' '*.cjs' || true
+          echo "=== EMPTY CATCHES / SWALLOWED FAILURES ==="
+          git grep -nE 'catch\s*\([^)]*\)\s*\{\s*\}|catch\s*\{\s*\}|\.catch\(\(\)\s*=>\s*\{\s*\}\)' -- '*.js' '*.mjs' '*.cjs' || true
+          echo "=== TODO/FIXME/HACK ==="
+          git grep -nEI '\b(TODO|FIXME|HACK|XXX)\b' || true
+          echo "=== TIMERS ==="
+          git grep -nE '\bset(Time|Interval|Timeout)\s*\(' -- '*.js' '*.mjs' '*.cjs' || true
+          echo "=== PROCESS EXIT ==="
+          git grep -nE 'process\.exit\s*\(' -- '*.js' '*.mjs' '*.cjs' || true
+          echo "=== CONSOLE USAGE ==="
+          git grep -nE '\bconsole\.(log|warn|error|debug|trace)\s*\(' -- '*.js' '*.mjs' '*.cjs' || true
+          exit 0
+
+      - name: Import graph and duplicate heuristics
+        shell: bash
+        run: |
+          set +e
+          echo "=== DUPLICATE BASENAMES ==="
+          git ls-files | awk -F/ '{print $NF}' | sort | uniq -d
+          echo "=== DUPLICATE EXACT TEXT FILES ==="
+          python3 - <<'PY'
+          import hashlib, subprocess
+          files=subprocess.check_output(['git','ls-files'], text=True).splitlines()
+          groups={}
+          for p in files:
+              try:b=open(p,'rb').read()
+              except Exception:continue
+              if b'\0' in b: continue
+              groups.setdefault(hashlib.sha256(b).hexdigest(),[]).append(p)
+          for ps in groups.values():
+              if len(ps)>1: print(' | '.join(ps))
+          PY
+          echo "=== RELATIVE IMPORT TARGET CHECK ==="
+          python3 - <<'PY'
+          import os,re,subprocess
+          files=[p for p in subprocess.check_output(['git','ls-files'], text=True).splitlines() if p.endswith(('.js','.mjs','.cjs'))]
+          rx=re.compile(r'''(?:from\s+|import\s*\(|require\s*\()\s*['\"](\.{1,2}/[^'\"]+)''')
+          bad=[]
+          for p in files:
+              try:s=open(p,encoding='utf-8').read()
+              except:continue
+              for m in rx.finditer(s):
+                  target=os.path.normpath(os.path.join(os.path.dirname(p),m.group(1)))
+                  candidates=[target,target+'.js',target+'.mjs',target+'.cjs',os.path.join(target,'index.js'),os.path.join(target,'index.mjs'),os.path.join(target,'index.cjs')]
+                  if not any(os.path.exists(c) for c in candidates): bad.append((p,m.group(1)))
+          print('BROKEN_RELATIVE_IMPORTS='+str(len(bad)))
+          for p,t in bad: print(f'{p}: {t}')
+          PY
+          exit 0
+
+      - name: Git hygiene and generated artifacts
+        shell: bash
+        run: |
+          set +e
+          echo "=== IGNORED BUT TRACKED ==="
+          git ls-files -ci --exclude-standard || true
+          echo "=== COMMON TEMP/BACKUP ARTIFACTS ==="
+          git ls-files | grep -Ei '(^|/)(tmp|temp|backup|backups|old|archive)(/|$)|\.(bak|old|orig|tmp|swp)$|~$' || true
+          echo "=== CASE-COLLISION CHECK ==="
+          python3 - <<'PY'
+          import subprocess,collections
+          ps=subprocess.check_output(['git','ls-files'],text=True).splitlines(); d=collections.defaultdict(list)
+          for p in ps:d[p.lower()].append(p)
+          x=[v for v in d.values() if len(v)>1]
+          print('CASE_COLLISIONS='+str(len(x)))
+          for v in x:print(' | '.join(v))
+          PY
+          exit 0
+
+      - name: Create compact audit artifact
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p audit-output
+          git ls-files > audit-output/tracked-files.txt
+          git status --short > audit-output/git-status.txt
+          npm ls --all > audit-output/npm-ls.txt 2>&1 || true
+          npm audit --json > audit-output/npm-audit.json 2>&1 || true
+          npm outdated --json > audit-output/npm-outdated.json 2>&1 || true
+          npm run lint > audit-output/lint.txt 2>&1 || true
+          npm test > audit-output/tests.txt 2>&1 || true
+          {
+            echo "HEAD=$(git rev-parse HEAD)"
+            echo "TRACKED_FILES=$(git ls-files | wc -l)"
+            echo "JS_FILES=$(git ls-files '*.js' | wc -l)"
+            echo "TOTAL_BYTES=$(git ls-files -z | xargs -0 -r wc -c | tail -n 1 | awk '{print $1}')"
+          } > audit-output/summary.txt
+
+      - name: Upload audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudy-deep-audit
+          path: audit-output/
+          if-no-files-found: error
