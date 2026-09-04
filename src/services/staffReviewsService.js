@@ -201,29 +201,31 @@ export async function isOwnerReviewTarget(guild, memberId) {
 }
 
 export async function ensureStaffReviewStarEmoji(guild) {
-  if (!guild?.emojis) return null;
+  if (!guild) return null;
 
-  let emoji = guild.emojis.cache.find(entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME) || null;
-  if (!emoji && guild.emojis.fetch) {
-    const emojis = await guild.emojis.fetch().catch(() => null);
-    emoji = emojis?.find?.(entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME) || null;
+  const emojiManagers = [guild.client?.application?.emojis, guild.emojis].filter(Boolean);
+  for (const emojiManager of emojiManagers) {
+    let emoji = emojiManager.cache?.find?.(
+      entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME,
+    ) || null;
+
+    if (!emoji && emojiManager.fetch) {
+      const emojis = await emojiManager.fetch().catch(() => null);
+      emoji = emojis?.find?.(entry => entry.name === STAFF_REVIEW_STAR_EMOJI_NAME) || null;
+    }
+
+    if (!emoji && emojiManager.create) {
+      emoji = await emojiManager.create({
+        attachment: Buffer.from(STAFF_REVIEW_STAR_PNG_BASE64, 'base64'),
+        name: STAFF_REVIEW_STAR_EMOJI_NAME,
+        reason: 'Yellow version of the W84starwhite review star',
+      }).catch(() => null);
+    }
+
+    if (emoji) return emoji.toString();
   }
 
-  if (!emoji) {
-    emoji = await guild.emojis.create({
-      attachment: Buffer.from(STAFF_REVIEW_STAR_PNG_BASE64, 'base64'),
-      name: STAFF_REVIEW_STAR_EMOJI_NAME,
-      reason: 'Yellow version of the W84starwhite review star',
-    }).catch(() => null);
-  }
-
-  if (emoji) return emoji.toString();
-
-  const originalEmoji = guild.emojis.cache.get(STAFF_REVIEW_STAR_EMOJI_ID)
-    || (guild.emojis.fetch
-      ? await guild.emojis.fetch(STAFF_REVIEW_STAR_EMOJI_ID).catch(() => null)
-      : null);
-  return originalEmoji?.toString?.() || null;
+  return null;
 }
 
 export function buildPublishedReview(interaction, rating, comment, memberId, starEmoji = null) {
