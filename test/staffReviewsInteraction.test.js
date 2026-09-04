@@ -8,10 +8,26 @@ import {
   STAFF_REVIEW_STAR_EMOJI_ID,
   STAFF_REVIEW_STAR_EMOJI_NAME,
   buildPublishedReview,
+  buildStaffReviewsPanel,
   createReviewContext,
   ensureStaffReviewStarEmoji,
   takeReviewContext,
 } from '../src/services/staffReviewsService.js';
+
+test('rating choices use the exact white glowing custom star', () => {
+  const panel = buildStaffReviewsPanel([]);
+  const ratingOptions = panel.components[1].components[0].toJSON().options;
+
+  assert.deepEqual(ratingOptions.map(option => option.label), [
+    '1 star',
+    '2 stars',
+    '3 stars',
+    '4 stars',
+    '5 stars',
+  ]);
+  assert.ok(ratingOptions.every(option => option.emoji.id === STAFF_REVIEW_STAR_EMOJI_ID));
+  assert.ok(ratingOptions.every(option => option.emoji.name === STAFF_REVIEW_STAR_EMOJI_NAME));
+});
 
 function buildGuild({ cachedHasOwner = false, freshHasOwner }) {
   const ownerRole = { id: 'owner-role-id', name: 'Owner' };
