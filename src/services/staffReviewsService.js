@@ -44,21 +44,16 @@ function pruneExpiredReviews() {
 }
 
 function buildRatingMenu(disabled = false, memberId = '') {
-  const ratingEmoji = {
-    id: STAFF_REVIEW_STAR_EMOJI_ID,
-    name: STAFF_REVIEW_STAR_EMOJI_NAME,
-  };
-
   return new StringSelectMenuBuilder()
     .setCustomId(memberId ? `${STAFF_REVIEW_RATING_ID}:${memberId}` : STAFF_REVIEW_RATING_ID)
     .setPlaceholder('Choose your rating')
     .setDisabled(disabled)
     .addOptions(
-      new StringSelectMenuOptionBuilder().setEmoji(ratingEmoji).setLabel('1 star').setValue('1'),
-      new StringSelectMenuOptionBuilder().setEmoji(ratingEmoji).setLabel('2 stars').setValue('2'),
-      new StringSelectMenuOptionBuilder().setEmoji(ratingEmoji).setLabel('3 stars').setValue('3'),
-      new StringSelectMenuOptionBuilder().setEmoji(ratingEmoji).setLabel('4 stars').setValue('4'),
-      new StringSelectMenuOptionBuilder().setEmoji(ratingEmoji).setLabel('5 stars').setValue('5'),
+      new StringSelectMenuOptionBuilder().setLabel('★').setValue('1'),
+      new StringSelectMenuOptionBuilder().setLabel('★★').setValue('2'),
+      new StringSelectMenuOptionBuilder().setLabel('★★★').setValue('3'),
+      new StringSelectMenuOptionBuilder().setLabel('★★★★').setValue('4'),
+      new StringSelectMenuOptionBuilder().setLabel('★★★★★').setValue('5'),
     );
 }
 
