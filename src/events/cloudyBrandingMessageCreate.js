@@ -6,6 +6,7 @@ import {
 } from '../services/embedRegistryService.js';
 import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
+import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
 
 export default {
   name: Events.MessageCreate,
@@ -21,9 +22,14 @@ export default {
 
     // Blackjack is styled before its component reply is sent. Do not rewrite
     // it later from a stale opening-hand snapshot.
-    const matchedTemplate = isBlackjackEmbed(message.embeds?.[0]) || await applySavedEmbedTemplates(message);
+    // Published reviews contain a live custom emoji. Reapplying a saved
+    // template here can strip its emoji ID and leave only `:emoji_name:`.
+    const isPublishedStaffReview = message.channelId === COMMUNITY_REVIEWS_CHANNEL_ID;
+    const matchedTemplate = isBlackjackEmbed(message.embeds?.[0])
+      || isPublishedStaffReview
+      || await applySavedEmbedTemplates(message);
     if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
-    if (isRegistrableCloudyEmbedMessage(message)) {
+    if (!isPublishedStaffReview && isRegistrableCloudyEmbedMessage(message)) {
       await registerCloudyEmbedMessage(message, 'automatic');
     }
   },
