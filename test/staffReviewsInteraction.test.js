@@ -5,8 +5,10 @@ import staffReviewsInteraction from '../src/events/staffReviewsInteraction.js';
 import {
   STAFF_REVIEW_MODAL_ID,
   STAFF_REVIEW_RATING_ID,
+  STAFF_REVIEW_STAR_EMOJI_NAME,
   buildPublishedReview,
   createReviewContext,
+  ensureStaffReviewStarEmoji,
   takeReviewContext,
 } from '../src/services/staffReviewsService.js';
 
@@ -142,7 +144,7 @@ test('two review contexts from one reviewer stay bound to their own modals', () 
   assert.deepEqual(takeReviewContext(userId, secondReviewId)?.memberId, 'owner-b');
 });
 
-test('published staff reviews always render ratings as visible Unicode stars', () => {
+test('published staff reviews repeat the live custom emoji for the selected rating', () => {
   const interaction = {
     user: {
       globalName: 'Reviewer',
@@ -151,9 +153,55 @@ test('published staff reviews always render ratings as visible Unicode stars', (
     },
   };
 
-  const embed = buildPublishedReview(interaction, 5, 'Great support', '123456789012345678');
+  const animatedStar = '<a:cloudy_review_star_glow_v1:123456789012345678>';
+  const embed = buildPublishedReview(
+    interaction,
+    3,
+    'Great support',
+    '123456789012345678',
+    animatedStar,
+  );
   const description = embed.toJSON().description;
 
-  assert.match(description, /\*\*Rating\*\*\n⭐⭐⭐⭐⭐\n/);
-  assert.doesNotMatch(description, /cloudy_review_star/);
+  assert.match(description, new RegExp(`\\*\\*Rating\\*\\*\\n${animatedStar.repeat(3)}\\n`));
+});
+
+test('published staff reviews fall back to visible Unicode stars', () => {
+  const interaction = {
+    user: {
+      globalName: 'Reviewer',
+      username: 'reviewer',
+      displayAvatarURL: () => 'https://example.com/avatar.png',
+    },
+  };
+
+  const embed = buildPublishedReview(interaction, 2, 'Great support', '123456789012345678');
+  assert.match(embed.toJSON().description, /\*\*Rating\*\*\n⭐⭐\n/);
+});
+
+test('staff review star is provisioned as a compact animated GIF emoji', async () => {
+  let created = null;
+  const animatedEmoji = {
+    id: 'animated-star-id',
+    toString: () => '<a:cloudy_review_star_glow_v1:animated-star-id>',
+  };
+  const guild = {
+    id: 'animated-star-guild',
+    emojis: {
+      cache: new Map(),
+      fetch: async () => ({ find: () => null }),
+      create: async options => {
+        created = options;
+        return animatedEmoji;
+      },
+    },
+  };
+  guild.emojis.cache.find = () => null;
+
+  const rendered = await ensureStaffReviewStarEmoji(guild);
+
+  assert.equal(created.name, STAFF_REVIEW_STAR_EMOJI_NAME);
+  assert.equal(created.attachment.subarray(0, 6).toString('ascii'), 'GIF89a');
+  assert.ok(created.attachment.length < 256 * 1024);
+  assert.equal(rendered, animatedEmoji.toString());
 });
