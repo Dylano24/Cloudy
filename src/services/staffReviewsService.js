@@ -23,7 +23,6 @@ export const STAFF_REVIEW_LOGO_PATH = join(MODULE_DIR, '../../assets/cloudy-c-lo
 export const STAFF_REVIEW_STAR_EMOJI_NAME = 'W84starwhite';
 export const STAFF_REVIEW_STAR_EMOJI_ID = '1543289625035022346';
 const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
-const CLOUDY_FOOTER_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-footer.png';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const OWNER_ROLE_NAME = 'owner';
 const PENDING_REVIEW_TTL_MS = 15 * 60 * 1000;
@@ -231,6 +230,6 @@ export function buildPublishedReview(interaction, rating, comment, memberId, sta
       + `**Rating**\n${stars}\n\n`
       + `**Experience**\n${comment}`,
     )
-    .setFooter({ text: FOOTER, iconURL: CLOUDY_FOOTER_LOGO_URL })
+    .setFooter({ text: FOOTER })
     .setTimestamp();
 }
