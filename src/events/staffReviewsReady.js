@@ -63,7 +63,10 @@ async function refreshStaffReviewsPanel(client) {
 
   const payload = buildStaffReviewsPanel(ownerMembers);
   if (lookup.message) {
-    await lookup.message.edit(payload).catch(() => {});
+    // Owner membership changes only require fresh selectors. Never rebuild the
+    // existing embed here: Embed Builder owns its saved text, custom emojis,
+    // color, footer and other presentation.
+    await lookup.message.edit({ components: payload.components }).catch(() => {});
     if (!lookup.message.pinned) {
       await channel.messages.pin(lookup.message, 'Cloudy staff reviews panel').catch(() => {});
     }
