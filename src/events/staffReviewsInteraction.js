@@ -8,8 +8,10 @@ import {
   COMMUNITY_REVIEWS_CHANNEL_ID,
   STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_MODAL_ID,
+  STAFF_REVIEW_RATING_BUTTON_ID,
   STAFF_REVIEW_RATING_ID,
   buildPublishedReview,
+  buildStaffReviewRatingPicker,
   buildStaffReviewModal,
   ensureStaffReviewStarEmoji,
   isOwnerReviewTarget,
@@ -67,17 +69,6 @@ function buildSelectedOwnerRow(interaction, memberId) {
   return new ActionRowBuilder().addComponents(memberMenu);
 }
 
-function buildEnabledRatingRow(interaction) {
-  const existingRating = interaction.message?.components?.[1]?.components?.[0];
-  if (!existingRating) return null;
-
-  const ratingMenu = StringSelectMenuBuilder.from(existingRating)
-    .setCustomId(STAFF_REVIEW_RATING_ID)
-    .setDisabled(false);
-
-  return new ActionRowBuilder().addComponents(ratingMenu);
-}
-
 function resolveModalContext(interaction) {
   const modalPrefix = `${STAFF_REVIEW_MODAL_ID}:`;
   if (!interaction.customId.startsWith(modalPrefix)) return null;
@@ -113,8 +104,7 @@ export default {
       rememberSelectedOwner(interaction, memberId);
 
       const selectedOwnerRow = buildSelectedOwnerRow(interaction, memberId);
-      const enabledRatingRow = buildEnabledRatingRow(interaction);
-      if (!selectedOwnerRow || !enabledRatingRow) {
+      if (!selectedOwnerRow) {
         await interaction.followUp({
           content: 'The review selectors could not be updated. Please try again.',
           flags: MessageFlags.Ephemeral,
@@ -123,8 +113,33 @@ export default {
       }
 
       await interaction.editReply({
-        components: [selectedOwnerRow, enabledRatingRow],
+        components: [selectedOwnerRow],
       }).catch(() => {});
+
+      await interaction.followUp({
+        components: buildStaffReviewRatingPicker(memberId),
+        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+      }).catch(() => {});
+      return;
+    }
+
+    const ratingButtonPrefix = `${STAFF_REVIEW_RATING_BUTTON_ID}:`;
+    if (interaction.isButton?.() && interaction.customId.startsWith(ratingButtonPrefix)) {
+      const [memberId, rawRating] = interaction.customId.slice(ratingButtonPrefix.length).split(':');
+      const rating = Number(rawRating);
+      if (!memberId || !Number.isInteger(rating) || rating < 1 || rating > 5) return;
+
+      const validTarget = await isOwnerReviewTarget(interaction.guild, memberId);
+      if (!validTarget) {
+        await interaction.reply({
+          content: 'That member is no longer available for staff reviews. Please start again.',
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+        return;
+      }
+
+      clearSelectedOwner(interaction);
+      await interaction.showModal(buildStaffReviewModal(memberId, rating)).catch(() => {});
       return;
     }
 

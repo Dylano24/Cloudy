@@ -3,10 +3,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ContainerBuilder,
   EmbedBuilder,
   ModalBuilder,
+  SectionBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  TextDisplayBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
@@ -17,6 +22,7 @@ export const STAFF_REVIEWS_CHANNEL_ID = '1533965979682476082';
 export const COMMUNITY_REVIEWS_CHANNEL_ID = '1540625438601379961';
 export const STAFF_REVIEW_MEMBER_ID = 'staff_review_member';
 export const STAFF_REVIEW_RATING_ID = 'staff_review_rating';
+export const STAFF_REVIEW_RATING_BUTTON_ID = 'staff_review_rating_button';
 export const STAFF_REVIEW_MODAL_ID = 'staff_review_modal';
 export const STAFF_REVIEW_LOGO_NAME = 'cloudy-c-logo.png';
 export const STAFF_REVIEW_LOGO_PATH = join(MODULE_DIR, '../../assets/cloudy-c-logo.png');
@@ -27,18 +33,6 @@ const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const OWNER_ROLE_NAME = 'owner';
 const PENDING_REVIEW_TTL_MS = 15 * 60 * 1000;
 const STAFF_REVIEW_STAR_EMOJI = `<:${STAFF_REVIEW_STAR_EMOJI_NAME}:${STAFF_REVIEW_STAR_EMOJI_ID}>`;
-const STAFF_REVIEW_RATING_EMOJI_SPECS = Array.from({ length: 5 }, (_, index) => {
-  const rating = index + 1;
-  return {
-    rating,
-    name: `W84starwhite_rating_${rating}`,
-    attachment: join(
-      MODULE_DIR,
-      `../../assets/review-rating-emojis/W84starwhite_${rating}.png`,
-    ),
-  };
-});
-const staffReviewRatingEmojis = new Map();
 
 const pendingReviews = new Map();
 
@@ -56,51 +50,42 @@ function pruneExpiredReviews() {
 }
 
 function buildRatingMenu(disabled = false, memberId = '') {
-  const options = STAFF_REVIEW_RATING_EMOJI_SPECS.map(({ rating }) => {
-    const option = new StringSelectMenuOptionBuilder().setValue(String(rating));
-    const emoji = staffReviewRatingEmojis.get(rating);
-
-    return emoji
-      ? option.setLabel('\u200B').setEmoji(emoji)
-      : option.setLabel('★'.repeat(rating));
-  });
-
   return new StringSelectMenuBuilder()
     .setCustomId(memberId ? `${STAFF_REVIEW_RATING_ID}:${memberId}` : STAFF_REVIEW_RATING_ID)
     .setPlaceholder('Choose your rating')
     .setDisabled(disabled)
-    .addOptions(options);
+    .addOptions(
+      new StringSelectMenuOptionBuilder().setLabel('★').setValue('1'),
+      new StringSelectMenuOptionBuilder().setLabel('★★').setValue('2'),
+      new StringSelectMenuOptionBuilder().setLabel('★★★').setValue('3'),
+      new StringSelectMenuOptionBuilder().setLabel('★★★★').setValue('4'),
+      new StringSelectMenuOptionBuilder().setLabel('★★★★★').setValue('5'),
+    );
 }
 
-export async function ensureStaffReviewRatingEmojis(client) {
-  const emojiManager = client?.application?.emojis;
-  if (!emojiManager) return [];
+export function buildStaffReviewRatingPicker(memberId) {
+  const container = new ContainerBuilder()
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent('## Choose your rating'),
+    );
 
-  const fetched = emojiManager.fetch
-    ? await emojiManager.fetch().catch(() => null)
-    : null;
+  container.addSectionComponents(
+    ...Array.from({ length: 5 }, (_, index) => {
+      const rating = index + 1;
+      return new SectionBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(STAFF_REVIEW_STAR_EMOJI.repeat(rating)),
+        )
+        .setButtonAccessory(
+          new ButtonBuilder()
+            .setCustomId(`${STAFF_REVIEW_RATING_BUTTON_ID}:${memberId}:${rating}`)
+            .setLabel('Select')
+            .setStyle(ButtonStyle.Secondary),
+        );
+    }),
+  );
 
-  for (const spec of STAFF_REVIEW_RATING_EMOJI_SPECS) {
-    let emoji = emojiManager.cache?.find?.(entry => entry.name === spec.name)
-      || fetched?.find?.(entry => entry.name === spec.name)
-      || null;
-
-    if (!emoji && emojiManager.create) {
-      emoji = await emojiManager.create({
-        attachment: spec.attachment,
-        name: spec.name,
-      }).catch(() => null);
-    }
-
-    if (emoji?.id) {
-      staffReviewRatingEmojis.set(spec.rating, {
-        id: emoji.id,
-        name: emoji.name || spec.name,
-      });
-    }
-  }
-
-  return [...staffReviewRatingEmojis.values()];
+  return [container];
 }
 
 function buildMemberMenu(ownerMembers = []) {
@@ -153,7 +138,6 @@ export function buildStaffReviewsPanel(ownerMembers = []) {
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(buildMemberMenu(ownerMembers)),
-      new ActionRowBuilder().addComponents(buildRatingMenu(true)),
     ],
   };
 }
