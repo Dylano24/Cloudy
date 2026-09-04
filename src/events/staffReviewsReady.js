@@ -5,6 +5,7 @@ import {
   STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_RATING_ID,
   buildStaffReviewsPanel,
+  ensureStaffReviewRatingEmojis,
   getOwnerMembers,
 } from '../services/staffReviewsService.js';
 
@@ -57,6 +58,7 @@ async function refreshStaffReviewsPanel(client) {
   const channel = await client.channels.fetch(STAFF_REVIEWS_CHANNEL_ID).catch(() => null);
   if (!channel?.isSendable?.()) return;
 
+  await ensureStaffReviewRatingEmojis(client);
   const ownerMembers = await getOwnerMembers(channel.guild);
   const lookup = await findStaffReviewsPanel(channel, client);
   if (!lookup.lookupSucceeded) return;
