@@ -1,6 +1,5 @@
 import { Events } from 'discord.js';
 import {
-  COMMUNITY_REVIEWS_CHANNEL_ID,
   STAFF_REVIEWS_CHANNEL_ID,
   STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_RATING_ID,
@@ -9,17 +8,6 @@ import {
 } from '../services/staffReviewsService.js';
 
 const PANEL_REFRESH_MS = 5 * 60 * 1000;
-const POSTED_REVIEWS_CHANNEL_NAME = '★丨posted-reviews';
-
-async function syncPostedReviewsChannelName(client) {
-  const channel = await client.channels.fetch(COMMUNITY_REVIEWS_CHANNEL_ID).catch(() => null);
-  if (!channel?.setName || channel.name === POSTED_REVIEWS_CHANNEL_NAME) return;
-
-  await channel.setName(
-    POSTED_REVIEWS_CHANNEL_NAME,
-    'Use the white staff-review star in the channel name',
-  ).catch(() => {});
-}
 
 /** Return whether a bot message is the persistent staff-review panel. */
 function isStaffReviewsPanel(message, client) {
@@ -85,8 +73,6 @@ export default {
 
   /** Build the panel after startup and refresh it as Owner membership changes. */
   async execute(client) {
-    await syncPostedReviewsChannelName(client);
-
     const timer = setTimeout(async () => {
       await refreshStaffReviewsPanel(client);
 
