@@ -17,6 +17,15 @@ export function channelNameFromEmbedTitle(title) {
         .replace(/-+$/g, '');
 }
 
+function existingChannelEmojiPrefix(channelName) {
+    const value = String(channelName || '');
+    const firstTextCharacter = value.search(/[a-zA-Z0-9]/);
+    if (firstTextCharacter <= 0) return '';
+
+    const prefix = value.slice(0, firstTextCharacter);
+    return /\p{Extended_Pictographic}/u.test(prefix) ? prefix : '';
+}
+
 function changedEmbedTitle(oldMessage, newMessage) {
     if (!oldMessage || oldMessage.partial || !Array.isArray(oldMessage.embeds)) return '';
 
@@ -56,8 +65,14 @@ export default {
         const channel = message.channel;
         if (!channel || channel.isThread?.() || typeof channel.setName !== 'function') return;
 
-        const nextName = channelNameFromEmbedTitle(title);
-        if (!nextName || String(channel.name || '') === nextName) return;
+        const titleName = channelNameFromEmbedTitle(title);
+        if (!titleName) return;
+
+        // The Embed Builder may sync the text part of a channel name from the
+        // embed title, but it must never remove an existing channel emoji.
+        const prefix = existingChannelEmojiPrefix(channel.name);
+        const nextName = `${prefix}${titleName}`.slice(0, 100).replace(/-+$/g, '');
+        if (String(channel.name || '') === nextName) return;
 
         await channel.setName(nextName, 'Embed Builder title sync').catch(error => {
             logger.warn(`Failed to sync channel name from Embed Builder title in ${message.guildId}: ${error.message}`);
