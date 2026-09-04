@@ -5,6 +5,7 @@ import staffReviewsInteraction from '../src/events/staffReviewsInteraction.js';
 import {
   STAFF_REVIEW_MODAL_ID,
   STAFF_REVIEW_RATING_ID,
+  STAFF_REVIEW_STAR_EMOJI_ID,
   STAFF_REVIEW_STAR_EMOJI_NAME,
   buildPublishedReview,
   createReviewContext,
@@ -153,17 +154,17 @@ test('published staff reviews repeat the live custom emoji for the selected rati
     },
   };
 
-  const animatedStar = '<a:cloudy_review_star_glow_v2:123456789012345678>';
+  const reviewStar = '<:W84starwhite:1543289625035022346>';
   const embed = buildPublishedReview(
     interaction,
     3,
     'Great support',
     '123456789012345678',
-    animatedStar,
+    reviewStar,
   );
   const description = embed.toJSON().description;
 
-  assert.match(description, new RegExp(`\\*\\*Rating\\*\\*\\n${animatedStar.repeat(3)}\\n`));
+  assert.match(description, new RegExp(`\\*\\*Rating\\*\\*\\n${reviewStar.repeat(3)}\\n`));
 });
 
 test('published staff reviews fall back to visible Unicode stars', () => {
@@ -179,29 +180,20 @@ test('published staff reviews fall back to visible Unicode stars', () => {
   assert.match(embed.toJSON().description, /\*\*Rating\*\*\n⭐⭐\n/);
 });
 
-test('staff review star is provisioned as a compact animated GIF emoji', async () => {
-  let created = null;
-  const animatedEmoji = {
-    id: 'animated-star-id',
-    toString: () => '<a:cloudy_review_star_glow_v2:animated-star-id>',
+test('staff reviews use the existing white glowing star without changing it', async () => {
+  const reviewEmoji = {
+    id: STAFF_REVIEW_STAR_EMOJI_ID,
+    toString: () => '<:W84starwhite:1543289625035022346>',
   };
   const guild = {
-    id: 'animated-star-guild',
     emojis: {
-      cache: new Map(),
-      fetch: async () => ({ find: () => null }),
-      create: async options => {
-        created = options;
-        return animatedEmoji;
-      },
+      cache: new Map([[STAFF_REVIEW_STAR_EMOJI_ID, reviewEmoji]]),
+      fetch: async () => reviewEmoji,
     },
   };
-  guild.emojis.cache.find = () => null;
 
   const rendered = await ensureStaffReviewStarEmoji(guild);
 
-  assert.equal(created.name, STAFF_REVIEW_STAR_EMOJI_NAME);
-  assert.equal(created.attachment.subarray(0, 6).toString('ascii'), 'GIF89a');
-  assert.ok(created.attachment.length < 256 * 1024);
-  assert.equal(rendered, animatedEmoji.toString());
+  assert.equal(STAFF_REVIEW_STAR_EMOJI_NAME, 'W84starwhite');
+  assert.equal(rendered, reviewEmoji.toString());
 });
