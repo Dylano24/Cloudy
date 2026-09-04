@@ -3,17 +3,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ContainerBuilder,
   EmbedBuilder,
   ModalBuilder,
-  SectionBuilder,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-  TextDisplayBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
@@ -24,7 +17,6 @@ export const STAFF_REVIEWS_CHANNEL_ID = '1533965979682476082';
 export const COMMUNITY_REVIEWS_CHANNEL_ID = '1540625438601379961';
 export const STAFF_REVIEW_MEMBER_ID = 'staff_review_member';
 export const STAFF_REVIEW_RATING_ID = 'staff_review_rating';
-export const STAFF_REVIEW_RATING_BUTTON_ID = 'staff_review_rating_button';
 export const STAFF_REVIEW_MODAL_ID = 'staff_review_modal';
 export const STAFF_REVIEW_LOGO_NAME = 'cloudy-c-logo.png';
 export const STAFF_REVIEW_LOGO_PATH = join(MODULE_DIR, '../../assets/cloudy-c-logo.png');
@@ -63,38 +55,6 @@ function buildRatingMenu(disabled = false, memberId = '') {
       new StringSelectMenuOptionBuilder().setLabel('★★★★').setValue('4'),
       new StringSelectMenuOptionBuilder().setLabel('★★★★★').setValue('5'),
     );
-}
-
-export function buildStaffReviewRatingPicker(memberId) {
-  const container = new ContainerBuilder()
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent('## Choose your rating'),
-    );
-
-  for (let rating = 1; rating <= 5; rating += 1) {
-    container.addSectionComponents(
-      new SectionBuilder()
-        .addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(STAFF_REVIEW_STAR_EMOJI.repeat(rating)),
-        )
-        .setButtonAccessory(
-          new ButtonBuilder()
-            .setCustomId(`${STAFF_REVIEW_RATING_BUTTON_ID}:${memberId}:${rating}`)
-            .setLabel('›')
-            .setStyle(ButtonStyle.Secondary),
-        ),
-    );
-
-    if (rating < 5) {
-      container.addSeparatorComponents(
-        new SeparatorBuilder()
-          .setDivider(true)
-          .setSpacing(SeparatorSpacingSize.Small),
-      );
-    }
-  }
-
-  return [container];
 }
 
 function buildMemberMenu(ownerMembers = []) {
@@ -147,6 +107,7 @@ export function buildStaffReviewsPanel(ownerMembers = []) {
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(buildMemberMenu(ownerMembers)),
+      new ActionRowBuilder().addComponents(buildRatingMenu(true)),
     ],
   };
 }
