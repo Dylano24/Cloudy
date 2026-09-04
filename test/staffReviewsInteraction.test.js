@@ -10,6 +10,7 @@ import {
   buildPublishedReview,
   buildStaffReviewsPanel,
   createReviewContext,
+  ensureStaffReviewRatingEmojis,
   ensureStaffReviewStarEmoji,
   takeReviewContext,
 } from '../src/services/staffReviewsService.js';
@@ -26,6 +27,34 @@ test('rating choices show one through five white stars without text', () => {
     '★★★★★',
   ]);
   assert.ok(ratingOptions.every(option => option.emoji === undefined));
+});
+
+test('rating choices use one custom emoji containing the complete star row', async () => {
+  const created = [];
+  const emojiManager = {
+    cache: { find: () => null },
+    fetch: async () => ({ find: () => null }),
+    create: async options => {
+      created.push(options);
+      return { id: `id-${created.length}`, name: options.name };
+    },
+  };
+
+  await ensureStaffReviewRatingEmojis({ application: { emojis: emojiManager } });
+  const panel = buildStaffReviewsPanel([]);
+  const ratingOptions = panel.components[1].components[0].toJSON().options;
+
+  assert.equal(created.length, 5);
+  assert.deepEqual(ratingOptions.map(option => option.label), Array(5).fill('\u200B'));
+  assert.deepEqual(ratingOptions.map(option => option.emoji.id), [
+    'id-1',
+    'id-2',
+    'id-3',
+    'id-4',
+    'id-5',
+  ]);
+  assert.ok(created.every(({ attachment }, index) =>
+    attachment.endsWith(`W84starwhite_${index + 1}.png`)));
 });
 
 function buildGuild({ cachedHasOwner = false, freshHasOwner }) {
