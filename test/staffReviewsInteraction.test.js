@@ -14,19 +14,18 @@ import {
   takeReviewContext,
 } from '../src/services/staffReviewsService.js';
 
-test('rating choices use the exact white glowing custom star', () => {
+test('rating choices show one through five white stars without text', () => {
   const panel = buildStaffReviewsPanel([]);
   const ratingOptions = panel.components[1].components[0].toJSON().options;
 
   assert.deepEqual(ratingOptions.map(option => option.label), [
-    '1 star',
-    '2 stars',
-    '3 stars',
-    '4 stars',
-    '5 stars',
+    '★',
+    '★★',
+    '★★★',
+    '★★★★',
+    '★★★★★',
   ]);
-  assert.ok(ratingOptions.every(option => option.emoji.id === STAFF_REVIEW_STAR_EMOJI_ID));
-  assert.ok(ratingOptions.every(option => option.emoji.name === STAFF_REVIEW_STAR_EMOJI_NAME));
+  assert.ok(ratingOptions.every(option => option.emoji === undefined));
 });
 
 function buildGuild({ cachedHasOwner = false, freshHasOwner }) {
