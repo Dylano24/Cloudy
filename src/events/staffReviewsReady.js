@@ -9,7 +9,7 @@ import {
 } from '../services/staffReviewsService.js';
 
 const PANEL_REFRESH_MS = 5 * 60 * 1000;
-const POSTED_REVIEWS_CHANNEL_NAME = '★⠀│posted-reviews';
+const POSTED_REVIEWS_CHANNEL_NAME = '★丨posted-reviews';
 
 async function syncPostedReviewsChannelName(client) {
   const channel = await client.channels.fetch(COMMUNITY_REVIEWS_CHANNEL_ID).catch(() => null);
