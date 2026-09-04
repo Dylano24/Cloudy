@@ -10,6 +10,7 @@ import {
 } from '../services/embedRegistryService.js';
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
+import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
 
 function isWelcomeEmbed(embed) {
   const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
@@ -61,9 +62,14 @@ export default {
     // The latest Blackjack payload has already been styled before Discord
     // receives it; skipping this late generic edit prevents a flash back to an
     // earlier hand or result.
-    const matchedTemplate = isBlackjackEmbed(message.embeds?.[0]) || await applySavedEmbedTemplates(message);
+    // Published staff reviews already carry their fixed Cloudy Inc. footer and
+    // live custom star emoji. Never reapply a saved Builder template on update.
+    const isPublishedStaffReview = message.channelId === COMMUNITY_REVIEWS_CHANNEL_ID;
+    const matchedTemplate = isBlackjackEmbed(message.embeds?.[0])
+      || isPublishedStaffReview
+      || await applySavedEmbedTemplates(message);
     if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
-    if (isRegistrableCloudyEmbedMessage(message)) {
+    if (!isPublishedStaffReview && isRegistrableCloudyEmbedMessage(message)) {
       await registerCloudyEmbedMessage(message, 'automatic-update');
     }
   },
