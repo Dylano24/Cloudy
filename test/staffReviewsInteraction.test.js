@@ -153,7 +153,7 @@ test('published staff reviews repeat the live custom emoji for the selected rati
     },
   };
 
-  const animatedStar = '<a:cloudy_review_star_glow_v1:123456789012345678>';
+  const animatedStar = '<a:cloudy_review_star_glow_v2:123456789012345678>';
   const embed = buildPublishedReview(
     interaction,
     3,
@@ -183,7 +183,7 @@ test('staff review star is provisioned as a compact animated GIF emoji', async (
   let created = null;
   const animatedEmoji = {
     id: 'animated-star-id',
-    toString: () => '<a:cloudy_review_star_glow_v1:animated-star-id>',
+    toString: () => '<a:cloudy_review_star_glow_v2:animated-star-id>',
   };
   const guild = {
     id: 'animated-star-guild',
