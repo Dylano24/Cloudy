@@ -4,63 +4,48 @@ import assert from 'node:assert/strict';
 import staffReviewsInteraction from '../src/events/staffReviewsInteraction.js';
 import {
   STAFF_REVIEW_MODAL_ID,
+  STAFF_REVIEW_RATING_BUTTON_ID,
   STAFF_REVIEW_RATING_ID,
   STAFF_REVIEW_STAR_EMOJI_ID,
   STAFF_REVIEW_STAR_EMOJI_NAME,
   buildPublishedReview,
+  buildStaffReviewRatingPicker,
   buildStaffReviewsPanel,
   createReviewContext,
-  ensureStaffReviewRatingEmojis,
   ensureStaffReviewStarEmoji,
   takeReviewContext,
 } from '../src/services/staffReviewsService.js';
 
-test('rating choices show one through five white stars without text', () => {
+test('staff review panel keeps only the staff member selector', () => {
   const panel = buildStaffReviewsPanel([]);
-  const ratingOptions = panel.components[1].components[0].toJSON().options;
-
-  assert.deepEqual(ratingOptions.map(option => option.label), [
-    '★',
-    '★★',
-    '★★★',
-    '★★★★',
-    '★★★★★',
-  ]);
-  assert.ok(ratingOptions.every(option => option.emoji === undefined));
+  assert.equal(panel.components.length, 1);
 });
 
-test('rating choices use one custom emoji containing the complete star row', async () => {
-  const created = [];
-  const emojiManager = {
-    cache: { find: () => null },
-    fetch: async () => ({ find: () => null }),
-    create: async options => {
-      created.push(options);
-      return { id: `id-${created.length}`, name: options.name };
-    },
-  };
+test('rating picker repeats the exact custom star at one consistent size', () => {
+  const memberId = '123456789012345678';
+  const [container] = buildStaffReviewRatingPicker(memberId);
+  const components = container.toJSON().components;
+  const sections = components.slice(1);
+  const reviewStar = '<:W84starwhite:1543289625035022346>';
 
-  await ensureStaffReviewRatingEmojis({ application: { emojis: emojiManager } });
-  const panel = buildStaffReviewsPanel([]);
-  const ratingOptions = panel.components[1].components[0].toJSON().options;
-
-  assert.equal(created.length, 5);
-  assert.deepEqual(ratingOptions.map(option => option.label), Array(5).fill('\u200B'));
-  assert.deepEqual(ratingOptions.map(option => option.emoji.id), [
-    'id-1',
-    'id-2',
-    'id-3',
-    'id-4',
-    'id-5',
-  ]);
-  assert.ok(created.every(({ attachment }, index) =>
-    attachment.endsWith(`W84starwhite_${index + 1}.png`)));
+  assert.equal(sections.length, 5);
+  assert.deepEqual(
+    sections.map(section => section.components[0].content),
+    Array.from({ length: 5 }, (_, index) => reviewStar.repeat(index + 1)),
+  );
+  assert.deepEqual(
+    sections.map(section => section.accessory.custom_id),
+    Array.from(
+      { length: 5 },
+      (_, index) => `${STAFF_REVIEW_RATING_BUTTON_ID}:${memberId}:${index + 1}`,
+    ),
+  );
 });
 
-function buildGuild({ cachedHasOwner = false, freshHasOwner }) {
+function buildGuild({ cachedHasOwner = false, freshHasOwner, memberId = 'owner-member-id' }) {
   const ownerRole = { id: 'owner-role-id', name: 'Owner' };
   const buildMember = hasOwner => ({
-    id: 'owner-member-id',
+    id: memberId,
     user: { bot: false },
     roles: {
       cache: {
@@ -142,6 +127,25 @@ test('rating selection rejects stale cached Owner membership', async () => {
 
   assert.match(replyContent, /no longer available/i);
   assert.equal(modalShown, false);
+});
+
+test('clicking a custom-star rating row opens the existing review modal', async () => {
+  let modal = null;
+  const memberId = '123456789012345678';
+  const interaction = {
+    isButton: () => true,
+    isStringSelectMenu: () => false,
+    customId: `${STAFF_REVIEW_RATING_BUTTON_ID}:${memberId}:4`,
+    user: { id: 'rating-button-user' },
+    guild: buildGuild({ cachedHasOwner: true, freshHasOwner: true, memberId }),
+    showModal: async value => {
+      modal = value.toJSON();
+    },
+  };
+
+  await staffReviewsInteraction.execute(interaction);
+
+  assert.equal(modal.custom_id, `${STAFF_REVIEW_MODAL_ID}:${memberId}:4`);
 });
 
 test('modal submission revalidates fresh Owner membership before publishing', async () => {
