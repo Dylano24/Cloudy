@@ -230,6 +230,6 @@ export function buildPublishedReview(interaction, rating, comment, memberId, sta
       + `**Rating**\n${stars}\n\n`
       + `**Experience**\n${comment}`,
     )
-    .setFooter({ text: FOOTER })
+    .setFooter({ text: FOOTER, iconURL: CLOUDY_C_LOGO_URL })
     .setTimestamp();
 }
