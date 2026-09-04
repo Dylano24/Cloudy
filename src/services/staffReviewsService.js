@@ -9,6 +9,8 @@ import {
   EmbedBuilder,
   ModalBuilder,
   SectionBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   TextDisplayBuilder,
@@ -69,21 +71,28 @@ export function buildStaffReviewRatingPicker(memberId) {
       new TextDisplayBuilder().setContent('## Choose your rating'),
     );
 
-  container.addSectionComponents(
-    ...Array.from({ length: 5 }, (_, index) => {
-      const rating = index + 1;
-      return new SectionBuilder()
+  for (let rating = 1; rating <= 5; rating += 1) {
+    container.addSectionComponents(
+      new SectionBuilder()
         .addTextDisplayComponents(
           new TextDisplayBuilder().setContent(STAFF_REVIEW_STAR_EMOJI.repeat(rating)),
         )
         .setButtonAccessory(
           new ButtonBuilder()
             .setCustomId(`${STAFF_REVIEW_RATING_BUTTON_ID}:${memberId}:${rating}`)
-            .setLabel('Select')
+            .setLabel('›')
             .setStyle(ButtonStyle.Secondary),
-        );
-    }),
-  );
+        ),
+    );
+
+    if (rating < 5) {
+      container.addSeparatorComponents(
+        new SeparatorBuilder()
+          .setDivider(true)
+          .setSpacing(SeparatorSpacingSize.Small),
+      );
+    }
+  }
 
   return [container];
 }
