@@ -154,7 +154,7 @@ test('published staff reviews repeat the live custom emoji for the selected rati
     },
   };
 
-  const reviewStar = '<a:W84starwhite_pulse_v3:123456789012345678>';
+  const reviewStar = '<:W84starwhite:1543289625035022346>';
   const embed = buildPublishedReview(
     interaction,
     3,
@@ -180,29 +180,21 @@ test('published staff reviews fall back to visible Unicode stars', () => {
   assert.match(embed.toJSON().description, /\*\*Rating\*\*\n⭐⭐\n/);
 });
 
-test('staff reviews provision the existing white star as a pulsing animated emoji', async () => {
-  let created = null;
+test('staff reviews use the exact existing white glowing star', async () => {
   const reviewEmoji = {
-    id: 'animated-review-star-id',
-    toString: () => '<a:W84starwhite_pulse_v3:animated-review-star-id>',
+    id: STAFF_REVIEW_STAR_EMOJI_ID,
+    toString: () => '<:W84starwhite:1543289625035022346>',
   };
   const guild = {
     emojis: {
-      cache: new Map(),
-      fetch: async () => ({ find: () => null }),
-      create: async options => {
-        created = options;
-        return reviewEmoji;
-      },
+      cache: new Map([[STAFF_REVIEW_STAR_EMOJI_ID, reviewEmoji]]),
+      fetch: async () => reviewEmoji,
     },
   };
-  guild.emojis.cache.find = () => null;
 
   const rendered = await ensureStaffReviewStarEmoji(guild);
 
-  assert.equal(STAFF_REVIEW_STAR_EMOJI_NAME, 'W84starwhite_pulse_v3');
+  assert.equal(STAFF_REVIEW_STAR_EMOJI_NAME, 'W84starwhite');
   assert.equal(STAFF_REVIEW_STAR_EMOJI_ID, '1543289625035022346');
-  assert.equal(created.attachment.subarray(0, 6).toString('ascii'), 'GIF89a');
-  assert.ok(created.attachment.length < 256 * 1024);
   assert.equal(rendered, reviewEmoji.toString());
 });
