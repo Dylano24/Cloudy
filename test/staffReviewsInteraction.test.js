@@ -5,6 +5,7 @@ import staffReviewsInteraction from '../src/events/staffReviewsInteraction.js';
 import {
   STAFF_REVIEW_MODAL_ID,
   STAFF_REVIEW_RATING_ID,
+  buildPublishedReview,
   createReviewContext,
   takeReviewContext,
 } from '../src/services/staffReviewsService.js';
@@ -139,4 +140,20 @@ test('two review contexts from one reviewer stay bound to their own modals', () 
   assert.notEqual(firstReviewId, secondReviewId);
   assert.deepEqual(takeReviewContext(userId, firstReviewId)?.memberId, 'owner-a');
   assert.deepEqual(takeReviewContext(userId, secondReviewId)?.memberId, 'owner-b');
+});
+
+test('published staff reviews always render ratings as visible Unicode stars', () => {
+  const interaction = {
+    user: {
+      globalName: 'Reviewer',
+      username: 'reviewer',
+      displayAvatarURL: () => 'https://example.com/avatar.png',
+    },
+  };
+
+  const embed = buildPublishedReview(interaction, 5, 'Great support', '123456789012345678');
+  const description = embed.toJSON().description;
+
+  assert.match(description, /\*\*Rating\*\*\n⭐⭐⭐⭐⭐\n/);
+  assert.doesNotMatch(description, /cloudy_review_star/);
 });

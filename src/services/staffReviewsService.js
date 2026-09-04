@@ -230,11 +230,11 @@ export async function ensureStaffReviewStarEmoji(guild) {
   return emoji.toString();
 }
 
-export function buildPublishedReview(interaction, rating, comment, memberId, starEmoji = null) {
+export function buildPublishedReview(interaction, rating, comment, memberId) {
   const normalizedRating = Math.max(1, Math.min(5, Number(rating) || 1));
-  const stars = starEmoji
-    ? Array.from({ length: normalizedRating }, () => starEmoji).join('')
-    : '★'.repeat(normalizedRating);
+  // Unicode stars remain visible even when a guild emoji is renamed, deleted,
+  // or unavailable to the client rendering the published review.
+  const stars = '⭐'.repeat(normalizedRating);
   const randomSideColor = Math.floor(Math.random() * 0x1000000);
 
   return new EmbedBuilder()
