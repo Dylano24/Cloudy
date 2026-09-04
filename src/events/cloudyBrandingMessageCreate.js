@@ -8,6 +8,30 @@ import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
 
+const REVIEW_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const REVIEW_FOOTER_ICON_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-footer.png';
+
+async function ensurePublishedReviewFooter(message) {
+  const embed = message.embeds?.[0];
+  if (!embed) return;
+
+  const data = embed.toJSON?.() || {};
+  const footerText = String(data.footer?.text || '');
+  const footerIcon = String(data.footer?.icon_url || '');
+
+  if (footerText === REVIEW_FOOTER_TEXT && footerIcon === REVIEW_FOOTER_ICON_URL) return;
+
+  await message.edit({
+    embeds: [{
+      ...data,
+      footer: {
+        text: REVIEW_FOOTER_TEXT,
+        icon_url: REVIEW_FOOTER_ICON_URL,
+      },
+    }],
+  }).catch(() => {});
+}
+
 export default {
   name: Events.MessageCreate,
   once: false,
@@ -25,11 +49,15 @@ export default {
     // Published reviews contain a live custom emoji. Reapplying a saved
     // template here can strip its emoji ID and leave only `:emoji_name:`.
     const isPublishedStaffReview = message.channelId === COMMUNITY_REVIEWS_CHANNEL_ID;
+    if (isPublishedStaffReview) {
+      await ensurePublishedReviewFooter(message);
+      return;
+    }
+
     const matchedTemplate = isBlackjackEmbed(message.embeds?.[0])
-      || isPublishedStaffReview
       || await applySavedEmbedTemplates(message);
     if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
-    if (!isPublishedStaffReview && isRegistrableCloudyEmbedMessage(message)) {
+    if (isRegistrableCloudyEmbedMessage(message)) {
       await registerCloudyEmbedMessage(message, 'automatic');
     }
   },
