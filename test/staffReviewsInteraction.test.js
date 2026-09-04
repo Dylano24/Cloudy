@@ -25,10 +25,12 @@ test('rating picker repeats the exact custom star at one consistent size', () =>
   const memberId = '123456789012345678';
   const [container] = buildStaffReviewRatingPicker(memberId);
   const components = container.toJSON().components;
-  const sections = components.slice(1);
+  const sections = components.filter(component => component.type === 9);
+  const separators = components.filter(component => component.type === 14);
   const reviewStar = '<:W84starwhite:1543289625035022346>';
 
   assert.equal(sections.length, 5);
+  assert.equal(separators.length, 4);
   assert.deepEqual(
     sections.map(section => section.components[0].content),
     Array.from({ length: 5 }, (_, index) => reviewStar.repeat(index + 1)),
@@ -40,6 +42,7 @@ test('rating picker repeats the exact custom star at one consistent size', () =>
       (_, index) => `${STAFF_REVIEW_RATING_BUTTON_ID}:${memberId}:${index + 1}`,
     ),
   );
+  assert.ok(sections.every(section => section.accessory.label === '›'));
 });
 
 function buildGuild({ cachedHasOwner = false, freshHasOwner, memberId = 'owner-member-id' }) {
