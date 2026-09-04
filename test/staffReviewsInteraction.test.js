@@ -154,7 +154,7 @@ test('published staff reviews repeat the live custom emoji for the selected rati
     },
   };
 
-  const reviewStar = '<a:W84starwhite_pulse_v1:123456789012345678>';
+  const reviewStar = '<a:W84starwhite_pulse_v2:123456789012345678>';
   const embed = buildPublishedReview(
     interaction,
     3,
@@ -184,7 +184,7 @@ test('staff reviews provision the existing white star as a pulsing animated emoj
   let created = null;
   const reviewEmoji = {
     id: 'animated-review-star-id',
-    toString: () => '<a:W84starwhite_pulse_v1:animated-review-star-id>',
+    toString: () => '<a:W84starwhite_pulse_v2:animated-review-star-id>',
   };
   const guild = {
     emojis: {
@@ -200,7 +200,7 @@ test('staff reviews provision the existing white star as a pulsing animated emoj
 
   const rendered = await ensureStaffReviewStarEmoji(guild);
 
-  assert.equal(STAFF_REVIEW_STAR_EMOJI_NAME, 'W84starwhite_pulse_v1');
+  assert.equal(STAFF_REVIEW_STAR_EMOJI_NAME, 'W84starwhite_pulse_v2');
   assert.equal(STAFF_REVIEW_STAR_EMOJI_ID, '1543289625035022346');
   assert.equal(created.attachment.subarray(0, 6).toString('ascii'), 'GIF89a');
   assert.ok(created.attachment.length < 256 * 1024);
