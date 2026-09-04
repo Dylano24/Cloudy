@@ -187,15 +187,25 @@ test('staff reviews provision the exact glowing star shape in yellow', async () 
     toString: () => '<:W84staryellow_v1:yellow-review-star-id>',
   };
   const guild = {
+    client: {
+      application: {
+        emojis: {
+          cache: new Map(),
+          fetch: async () => ({ find: () => null }),
+          create: async options => {
+            created = options;
+            return reviewEmoji;
+          },
+        },
+      },
+    },
     emojis: {
       cache: new Map(),
       fetch: async () => ({ find: () => null }),
-      create: async options => {
-        created = options;
-        return reviewEmoji;
-      },
+      create: async () => assert.fail('guild emoji fallback should not be used'),
     },
   };
+  guild.client.application.emojis.cache.find = () => null;
   guild.emojis.cache.find = () => null;
 
   const rendered = await ensureStaffReviewStarEmoji(guild);
