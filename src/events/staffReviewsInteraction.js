@@ -11,7 +11,6 @@ import {
   STAFF_REVIEW_RATING_ID,
   buildPublishedReview,
   buildStaffReviewModal,
-  ensureStaffReviewStarEmoji,
   isOwnerReviewTarget,
   takeReviewContext,
 } from '../services/staffReviewsService.js';
@@ -205,15 +204,12 @@ export default {
       return;
     }
 
-    const starEmoji = await ensureStaffReviewStarEmoji(interaction.guild);
-
     const publishedMessage = await channel.send({
       embeds: [buildPublishedReview(
         interaction,
         reviewContext.rating,
         comment,
         reviewContext.memberId,
-        starEmoji,
       )],
       allowedMentions: { parse: [] },
     }).catch(() => null);
