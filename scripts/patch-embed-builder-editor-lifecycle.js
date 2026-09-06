@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const target = path.resolve(__dirname, '../src/web/embedColorPickerPage.js');
+const pageTarget = path.resolve(__dirname, '../src/web/embedColorPickerPage.js');
+const builderTarget = path.resolve(__dirname, '../src/commands/Tools/embedbuilder.js');
 
-const original = fs.readFileSync(target, 'utf8');
 const oldLine = "    window.addEventListener('pagehide', () => clearInterval(heartbeatTimer), { once: true });";
 const replacement = `    function closeEditorSession() {
       clearInterval(heartbeatTimer);
@@ -33,15 +33,48 @@ const replacement = `    function closeEditorSession() {
     // Discord builder hold and restart its five-minute inactivity timer.
     window.addEventListener('beforeunload', closeEditorSession, { once: true });`;
 
-if (original.includes(replacement)) {
-  console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] already current');
-  process.exit(0);
+let pageSource = fs.readFileSync(pageTarget, 'utf8');
+if (!pageSource.includes(replacement)) {
+  if (!pageSource.includes(oldLine)) {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected heartbeat lifecycle marker not found');
+    process.exit(1);
+  }
+  pageSource = pageSource.replace(oldLine, replacement);
+  fs.writeFileSync(pageTarget, pageSource, 'utf8');
 }
 
-if (!original.includes(oldLine)) {
-  console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected heartbeat lifecycle marker not found');
-  process.exit(1);
+const oldCollectorEnd = `            collector.on('end', async () => {
+                if (state.activeEmbedManager) {
+                    state.activeEmbedManager.closed = true;
+                    state.activeEmbedManager.collector?.stop('builder-ended');
+                    state.activeEmbedManager = null;
+                }
+                deleteEmbedColorPickerSession(colorSessionToken);
+            });`;
+
+const newCollectorEnd = `            collector.on('end', async (_collected, reason) => {
+                if (state.activeEmbedManager) {
+                    state.activeEmbedManager.closed = true;
+                    state.activeEmbedManager.collector?.stop('builder-ended');
+                    state.activeEmbedManager = null;
+                }
+
+                // The browser editor/picker owns its session lifetime. A collector
+                // ending for cleanup/replacement must not silently kill a still-open
+                // web editor. Only an intentional Post completes the builder here.
+                if (reason === 'posted') {
+                    deleteEmbedColorPickerSession(colorSessionToken);
+                }
+            });`;
+
+let builderSource = fs.readFileSync(builderTarget, 'utf8');
+if (!builderSource.includes(newCollectorEnd)) {
+  if (!builderSource.includes(oldCollectorEnd)) {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected builder collector lifecycle marker not found');
+    process.exit(1);
+  }
+  builderSource = builderSource.replace(oldCollectorEnd, newCollectorEnd);
+  fs.writeFileSync(builderTarget, builderSource, 'utf8');
 }
 
-fs.writeFileSync(target, original.replace(oldLine, replacement), 'utf8');
-console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched background-safe editor hold + explicit unload release');
+console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup');
