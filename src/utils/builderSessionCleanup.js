@@ -67,12 +67,6 @@ export function linkBuilderSessionMessages(parentMessage, childMessage) {
   return true;
 }
 
-function resetBuilderSessionCollector(messageId, idle = BUILDER_SESSION_IDLE_MS) {
-  const collector = sessionCollectors.get(String(messageId || ''));
-  if (!collector || collector.ended) return;
-  collector.resetTimer?.({ idle });
-}
-
 function isBuilderSessionHeld(messageId) {
   return (sessionHoldIds.get(String(messageId || ''))?.size || 0) > 0;
 }
@@ -97,11 +91,10 @@ function holdBuilderSessionMessage(message, holdId, deleteMessage = null) {
   }
   messages.set(key, message);
 
+  // While the browser editor/picker exists there is literally no inactivity
+  // deletion timer. The Discord.js collector is created without its own idle
+  // timer, so Cloudy's timer below is the single source of truth.
   clearBuilderSessionTimer(key);
-  // null clears Discord.js' existing collector idle timeout without starting a
-  // replacement timer. While the browser editor/picker is open there is
-  // therefore literally no inactivity timer that can end the builder.
-  resetBuilderSessionCollector(key, null);
   return true;
 }
 
@@ -180,11 +173,17 @@ export async function deleteBuilderSessionMessage(message) {
 
   const key = String(message.id);
   clearBuilderSessionTimer(key);
+  const collector = sessionCollectors.get(key);
   sessionCollectors.delete(key);
   parentSessions.delete(key);
   removeMessageFromHolds(key);
   const deleteThroughWebhook = sessionDeleters.get(key);
   sessionDeleters.delete(key);
+
+  // Managed collectors intentionally have no idle timeout. Stop them only when
+  // Cloudy is actually cleaning up the builder so their normal end handlers can
+  // release the associated editor session without creating a second delete path.
+  if (collector && !collector.ended) collector.stop?.('builder-cleanup');
 
   if (deleteThroughWebhook) {
     const deleted = await Promise.resolve()
@@ -213,13 +212,10 @@ export function touchBuilderSessionMessage(message, deleteMessage = null, visite
     holdBuilderSessionMessage(message, activeHoldId, deleteMessage);
   } else if (isBuilderSessionHeld(key)) {
     // Background tabs/apps can suspend JavaScript and network activity for an
-    // arbitrary amount of time. A held session therefore keeps NO Discord
-    // collector idle timer and NO local five-minute deletion timer at all.
+    // arbitrary amount of time. A held session therefore has NO deletion timer.
     clearBuilderSessionTimer(key);
-    resetBuilderSessionCollector(key, null);
   } else {
     clearBuilderSessionTimer(key);
-    resetBuilderSessionCollector(key);
 
     const timer = setTimeout(() => {
       sessionTimers.delete(key);
@@ -267,7 +263,7 @@ export function installBuilderSessionCleanup() {
     const managedBuilder = isBuilderSessionMessage(this)
       && (requestedIdle === LEGACY_BUILDER_IDLE_MS || requestedIdle === BUILDER_SESSION_IDLE_MS);
     const collectorOptions = managedBuilder
-      ? { ...options, idle: BUILDER_SESSION_IDLE_MS }
+      ? { ...options, idle: undefined }
       : options;
     const collector = originalCreateCollector.call(this, collectorOptions);
 
