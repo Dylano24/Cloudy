@@ -9,7 +9,6 @@ const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
-const SESSION_TTL_MS = 14 * 60_000;
 const EDIT_FLUSH_DELAY_MS = 0;
 
 function parseColor(value) {
@@ -47,27 +46,6 @@ function sanitizeEmojis(emojis = []) {
     }
 
     return [...unique.values()].slice(0, 500);
-}
-
-function clearSessionExpiry(session) {
-    if (session.expiryTimer) clearTimeout(session.expiryTimer);
-    session.expiryTimer = null;
-}
-
-function extendSessionLifetime(token, session) {
-    // Once the browser editor/picker is actually open, its lifetime is tied to
-    // the explicit browser close signal rather than a timer. This matters on
-    // mobile where browsers suspend JavaScript/network timers in background.
-    if (session.holdActive) {
-        clearSessionExpiry(session);
-        session.expiresAt = Number.POSITIVE_INFINITY;
-        return;
-    }
-
-    session.expiresAt = Date.now() + SESSION_TTL_MS;
-    clearSessionExpiry(session);
-    session.expiryTimer = setTimeout(() => deleteEmbedColorPickerSession(token), SESSION_TTL_MS);
-    session.expiryTimer.unref?.();
 }
 
 function scheduleEditorFlush(token, session) {
@@ -116,14 +94,11 @@ async function ensureEditorHold(token, session) {
     }
 
     try {
-        // One unchanged preview refresh is enough to capture the Message Builder
-        // (and linked Modify Embed parent/child) inside the held session. From
-        // this point there is NO five-minute deletion timer while the web editor
-        // remains open, even if a phone/browser suspends heartbeats entirely.
+        // One unchanged preview refresh captures the Message Builder (and linked
+        // Modify Embed parent/child) inside the held session. There is no idle
+        // or fixed web-session expiry while the editor/picker remains open.
         await runWithBuilderSessionHold(token, () => session.onEditorUpdate('__heartbeat__', ''));
         session.holdActive = true;
-        clearSessionExpiry(session);
-        session.expiresAt = Number.POSITIVE_INFINITY;
     } catch (error) {
         releaseBuilderSessionHold(token);
         if (error?.code === 'EMBED_BUILDER_EXPIRED') {
@@ -139,29 +114,23 @@ async function ensureEditorHold(token, session) {
 async function touchEditorSession(token, session) {
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
-    extendSessionLifetime(token, session);
     return { ok: true };
 }
 
 export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, emojis = [] }) {
     const token = randomBytes(32).toString('hex');
-    const expiresAt = Date.now() + SESSION_TTL_MS;
     const session = {
         userId,
         onColor,
         getEditorState,
         onEditorUpdate,
         emojis: sanitizeEmojis(emojis),
-        expiresAt,
-        expiryTimer: null,
         holdActive: false,
         pendingEditorUpdates: new Map(),
         editFlushTimer: null,
         editFlushRunning: false,
         editGeneration: 0,
     };
-    session.expiryTimer = setTimeout(() => deleteEmbedColorPickerSession(token), SESSION_TTL_MS);
-    session.expiryTimer.unref?.();
     sessions.set(token, session);
     return token;
 }
@@ -179,8 +148,7 @@ export function discardPendingEmbedEditorUpdates(token) {
 
 export async function applyEmbedColorPickerSession(token, value) {
     const session = sessions.get(token);
-    if (!session || Date.now() >= session.expiresAt) {
-        deleteEmbedColorPickerSession(token);
+    if (!session) {
         return { ok: false, reason: 'expired' };
     }
 
@@ -196,10 +164,9 @@ export async function applyEmbedColorPickerSession(token, value) {
     }
 
     // Loading state, editing content and using the picker all prove that the
-    // browser editor is open. Establish the hold before doing any of them.
+    // browser editor is open. Establish the builder hold before doing any of them.
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
-    extendSessionLifetime(token, session);
 
     if (value === STATE_PREFIX) {
         const state = sanitizeEditorState(await session.getEditorState?.() || {});
@@ -258,7 +225,6 @@ export async function applyEmbedColorPickerSession(token, value) {
 
 export function deleteEmbedColorPickerSession(token) {
     const session = sessions.get(token);
-    if (session?.expiryTimer) clearTimeout(session.expiryTimer);
     if (session?.editFlushTimer) clearTimeout(session.editFlushTimer);
     sessions.delete(token);
     releaseBuilderSessionHold(token);
