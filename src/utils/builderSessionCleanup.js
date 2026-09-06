@@ -1,6 +1,6 @@
 import { InteractionWebhook, Message } from 'discord.js';
 
-export const BUILDER_SESSION_IDLE_MS = 60_000;
+export const BUILDER_SESSION_IDLE_MS = 5 * 60_000;
 const LEGACY_BUILDER_IDLE_MS = 30 * 60_000;
 const PENDING_MANAGER_PARENT_TTL_MS = 15_000;
 const PATCH_MARKER = Symbol.for('cloudy.builder-session-cleanup');
