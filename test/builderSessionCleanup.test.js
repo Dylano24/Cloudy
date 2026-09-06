@@ -11,8 +11,8 @@ import {
   touchBuilderSessionMessage,
 } from '../src/utils/builderSessionCleanup.js';
 
-test('builder inactivity timeout is exactly one minute', () => {
-  assert.equal(BUILDER_SESSION_IDLE_MS, 60_000);
+test('builder inactivity timeout is exactly five minutes', () => {
+  assert.equal(BUILDER_SESSION_IDLE_MS, 5 * 60_000);
 });
 
 test('session cleanup only targets Message Builder and Modify Embed messages', () => {
