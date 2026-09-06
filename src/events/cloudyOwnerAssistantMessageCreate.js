@@ -6,9 +6,18 @@ import {
 } from '../services/ownerAssistantService.js';
 import { logger } from '../utils/logger.js';
 
-const ASSISTANT_CHANNEL_ID = '1546229542027534478';
+const OWNER_ASSISTANT_CHANNEL_NAME = 'botlog-commands';
+const FIX_GUIDE_CHANNEL_ID = '1546229542027534478';
 const MAX_QUESTION_LENGTH = 3000;
 const EMBED_CHUNK_SIZE = 3900;
+
+function isFixGuideChannel(message) {
+  return message.channel?.id === FIX_GUIDE_CHANNEL_ID;
+}
+
+function isOwnerAssistantChannel(message) {
+  return String(message.channel?.name || '').toLowerCase() === OWNER_ASSISTANT_CHANNEL_NAME;
+}
 
 function splitText(value, maxLength = EMBED_CHUNK_SIZE) {
   const text = String(value || '').trim();
@@ -28,11 +37,14 @@ function splitText(value, maxLength = EMBED_CHUNK_SIZE) {
 }
 
 function buildPacketEmbeds(message, result) {
+  const fixGuide = isFixGuideChannel(message);
+  const label = fixGuide ? 'Cloudy Fix Guide' : 'Cloudy Assistant';
   const chunks = splitText(result.text);
+
   return chunks.slice(0, 3).map((chunk, index) => {
     const embed = new EmbedBuilder()
       .setColor(0xFFFFFF)
-      .setTitle(index === 0 ? 'Cloudy Assistant • ChatGPT handoff' : `Cloudy Assistant • Handoff ${index + 1}`)
+      .setTitle(index === 0 ? `${label} • ChatGPT handoff` : `${label} • Handoff ${index + 1}`)
       .setDescription(chunk);
 
     if (index === chunks.length - 1 || index === 2) {
@@ -50,7 +62,10 @@ export default {
 
   async execute(message) {
     if (!message.guild || message.author?.bot) return;
-    if (message.channel?.id !== ASSISTANT_CHANNEL_ID) return;
+
+    const fixGuide = isFixGuideChannel(message);
+    const ownerAssistant = isOwnerAssistantChannel(message);
+    if (!fixGuide && !ownerAssistant) return;
     if (!isCloudyOwner(message)) return;
 
     const question = String(message.content || '').trim();
@@ -60,7 +75,7 @@ export default {
     if (cooldown > 0) {
       const seconds = Math.max(1, Math.ceil(cooldown / 1000));
       const cooldownMessage = await message.reply({
-        content: `Cloudy Assistant is still processing requests. Try again in ${seconds}s.`,
+        content: `${fixGuide ? 'Cloudy Fix Guide' : 'Cloudy Assistant'} is still processing requests. Try again in ${seconds}s.`,
         allowedMentions: { repliedUser: false },
       }).catch(() => null);
       if (cooldownMessage) {
@@ -72,7 +87,9 @@ export default {
 
     const normalizedQuestion = question.slice(0, MAX_QUESTION_LENGTH);
     const status = await message.reply({
-      content: 'Cloudy Assistant is reading the available Discord context and preparing a technical handoff…',
+      content: fixGuide
+        ? 'Cloudy Fix Guide is reading the available Discord context and preparing a technical handoff…'
+        : 'Cloudy Assistant is reading the available Discord context and preparing a technical handoff…',
       allowedMentions: { repliedUser: false },
     }).catch(() => null);
 
@@ -98,13 +115,13 @@ export default {
       }
 
       logger.info(
-        `[OWNER_ASSISTANT] owner=${message.author.id} guild=${message.guild.id} `
+        `[OWNER_ASSISTANT] mode=${fixGuide ? 'fix-guide' : 'owner-assistant'} owner=${message.author.id} guild=${message.guild.id} `
         + `channel=${message.channel.id} evidence=${result.diagnostics?.evidenceItems || 0}`,
       );
     } catch (error) {
       logger.error('[OWNER_ASSISTANT] Failed to prepare owner handoff:', error);
       const failure = {
-        content: 'Cloudy Assistant could not prepare the handoff. No bot settings, embeds, code, or server data were changed.',
+        content: `${fixGuide ? 'Cloudy Fix Guide' : 'Cloudy Assistant'} could not prepare the handoff. No bot settings, embeds, code, or server data were changed.`,
         embeds: [],
       };
       if (status) await status.edit(failure).catch(() => {});
