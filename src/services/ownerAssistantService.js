@@ -10,7 +10,7 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
 const FALLBACK_GROQ_MODELS = ['qwen/qwen3.6-27b', 'openai/gpt-oss-20b'];
-const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
+const DEFAULT_OPENAI_MODEL = 'gpt-6-astra';
 const OWNER_COOLDOWN_MS = 15_000;
 const RECENT_MESSAGES_PER_CHANNEL = 50;
 const DEEP_CHANNEL_COUNT = 10;
@@ -337,7 +337,7 @@ async function requestOpenAI({ apiKey, systemPrompt, userPrompt }) {
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
-      reasoning: { effort: 'high' },
+      reasoning: { effort: 'max' },
       tools: [{ type: 'web_search' }],
       input: [
         { role: 'system', content: [{ type: 'input_text', text: systemPrompt }] },
@@ -345,7 +345,7 @@ async function requestOpenAI({ apiKey, systemPrompt, userPrompt }) {
       ],
       max_output_tokens: 5000,
     }),
-    signal: AbortSignal.timeout(90000),
+    signal: AbortSignal.timeout(120000),
   });
   const data = await response.json().catch(() => ({}));
   return {
