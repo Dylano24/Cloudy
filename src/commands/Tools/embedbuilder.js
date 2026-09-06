@@ -47,7 +47,7 @@ const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
 const CHANNEL_PAGE_SIZE = 100;
 const CHANNEL_SELECT_SIZE = 25;
 const OWNER_SERVER_LIMIT = 125;
-const BUILDER_IDLE_TIMEOUT = 30 * 60_000;
+const BUILDER_IDLE_TIMEOUT = 5 * 60_000;
 
 function getMediaKind(attachment) {
     if (!attachment) return null;
