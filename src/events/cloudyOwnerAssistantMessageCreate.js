@@ -6,7 +6,7 @@ import {
 } from '../services/ownerAssistantService.js';
 import { logger } from '../utils/logger.js';
 
-const ASSISTANT_CHANNEL_NAME = 'botlog-commands';
+const ASSISTANT_CHANNEL_ID = '1546229542027534478';
 const MAX_QUESTION_LENGTH = 3000;
 const EMBED_CHUNK_SIZE = 3900;
 
@@ -50,7 +50,7 @@ export default {
 
   async execute(message) {
     if (!message.guild || message.author?.bot) return;
-    if (String(message.channel?.name || '').toLowerCase() !== ASSISTANT_CHANNEL_NAME) return;
+    if (message.channel?.id !== ASSISTANT_CHANNEL_ID) return;
     if (!isCloudyOwner(message)) return;
 
     const question = String(message.content || '').trim();
