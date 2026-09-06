@@ -23,10 +23,6 @@ import { logger } from '../utils/logger.js';
 const MAX_QUESTION_LENGTH = 4000;
 const EMBED_CHUNK_SIZE = 3900;
 
-// Use the strongest public OpenAI API model available for this agent.
-// GPT-5.6 Sol supports max reasoning and live web search in the Responses API.
-process.env.OPENAI_OWNER_ASSISTANT_MODEL = 'gpt-5.6-sol';
-
 function splitText(value, maxLength = EMBED_CHUNK_SIZE) {
   const text = String(value || '').trim();
   if (!text) return [];
@@ -136,7 +132,7 @@ export default {
     await interaction.reply({
       content: 'Cloudy is investigating this now…',
       flags: MessageFlags.Ephemeral,
-    }).catch(() => {});
+    });
 
     try {
       const result = await createOwnerAssistantHandoff(
