@@ -1,7 +1,9 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { InteractionWebhook, Message } from 'discord.js';
 
 export const BUILDER_SESSION_IDLE_MS = 5 * 60_000;
 const LEGACY_BUILDER_IDLE_MS = 30 * 60_000;
+const HELD_COLLECTOR_IDLE_MS = 2_147_000_000;
 const PENDING_MANAGER_PARENT_TTL_MS = 15_000;
 const PATCH_MARKER = Symbol.for('cloudy.builder-session-cleanup');
 const BUILDER_TITLES = new Set(['message builder', 'modify embed']);
@@ -10,6 +12,9 @@ const sessionDeleters = new Map();
 const sessionCollectors = new Map();
 const parentSessions = new Map();
 const pendingManagerParents = new Map();
+const sessionHoldIds = new Map();
+const holdMessages = new Map();
+const editorHoldContext = new AsyncLocalStorage();
 
 function embedTitle(embed) {
   return String(embed?.title ?? embed?.data?.title ?? '').trim().toLowerCase();
@@ -63,10 +68,65 @@ export function linkBuilderSessionMessages(parentMessage, childMessage) {
   return true;
 }
 
-function resetBuilderSessionCollector(messageId) {
+function resetBuilderSessionCollector(messageId, idle = BUILDER_SESSION_IDLE_MS) {
   const collector = sessionCollectors.get(String(messageId || ''));
   if (!collector || collector.ended) return;
-  collector.resetTimer?.({ idle: BUILDER_SESSION_IDLE_MS });
+  collector.resetTimer?.({ idle });
+}
+
+function isBuilderSessionHeld(messageId) {
+  return (sessionHoldIds.get(String(messageId || ''))?.size || 0) > 0;
+}
+
+function holdBuilderSessionMessage(message, holdId, deleteMessage = null) {
+  if (!isBuilderSessionMessage(message) || !holdId) return false;
+
+  const key = String(message.id);
+  if (deleteMessage) registerSessionDeleter(message, deleteMessage);
+
+  let holds = sessionHoldIds.get(key);
+  if (!holds) {
+    holds = new Set();
+    sessionHoldIds.set(key, holds);
+  }
+  holds.add(String(holdId));
+
+  let messages = holdMessages.get(String(holdId));
+  if (!messages) {
+    messages = new Map();
+    holdMessages.set(String(holdId), messages);
+  }
+  messages.set(key, message);
+
+  clearBuilderSessionTimer(key);
+  resetBuilderSessionCollector(key, HELD_COLLECTOR_IDLE_MS);
+  return true;
+}
+
+export async function runWithBuilderSessionHold(holdId, callback) {
+  if (!holdId || typeof callback !== 'function') {
+    return typeof callback === 'function' ? callback() : undefined;
+  }
+  return editorHoldContext.run({ holdId: String(holdId) }, callback);
+}
+
+export function releaseBuilderSessionHold(holdId) {
+  const id = String(holdId || '');
+  const messages = holdMessages.get(id);
+  holdMessages.delete(id);
+  if (!messages?.size) return false;
+
+  for (const [key, message] of messages) {
+    const holds = sessionHoldIds.get(key);
+    holds?.delete(id);
+    if (holds?.size) continue;
+    sessionHoldIds.delete(key);
+
+    // The editor/picker has actually closed. Only now does the normal
+    // five-minute inactivity period begin again from zero.
+    touchBuilderSessionMessage(message);
+  }
+  return true;
 }
 
 function interactionWebhookKey(value) {
@@ -101,6 +161,18 @@ function linkPendingManagerParent(webhook, message) {
   return parentMessage;
 }
 
+function removeMessageFromHolds(messageId) {
+  const key = String(messageId || '');
+  const holds = sessionHoldIds.get(key);
+  if (!holds) return;
+  for (const holdId of holds) {
+    const messages = holdMessages.get(holdId);
+    messages?.delete(key);
+    if (messages && messages.size === 0) holdMessages.delete(holdId);
+  }
+  sessionHoldIds.delete(key);
+}
+
 export async function deleteBuilderSessionMessage(message) {
   if (!message?.id) return false;
 
@@ -108,6 +180,7 @@ export async function deleteBuilderSessionMessage(message) {
   clearBuilderSessionTimer(key);
   sessionCollectors.delete(key);
   parentSessions.delete(key);
+  removeMessageFromHolds(key);
   const deleteThroughWebhook = sessionDeleters.get(key);
   sessionDeleters.delete(key);
 
@@ -132,15 +205,26 @@ export function touchBuilderSessionMessage(message, deleteMessage = null, visite
   visited.add(key);
 
   if (deleteMessage) registerSessionDeleter(message, deleteMessage);
-  clearBuilderSessionTimer(key);
-  resetBuilderSessionCollector(key);
 
-  const timer = setTimeout(() => {
-    sessionTimers.delete(key);
-    void deleteBuilderSessionMessage(message);
-  }, BUILDER_SESSION_IDLE_MS);
-  timer.unref?.();
-  sessionTimers.set(key, timer);
+  const activeHoldId = editorHoldContext.getStore()?.holdId || null;
+  if (activeHoldId) {
+    holdBuilderSessionMessage(message, activeHoldId, deleteMessage);
+  } else if (isBuilderSessionHeld(key)) {
+    // A mobile browser can suspend JavaScript timers while the editor is still
+    // open. Held sessions therefore have no five-minute deletion timer at all.
+    clearBuilderSessionTimer(key);
+    resetBuilderSessionCollector(key, HELD_COLLECTOR_IDLE_MS);
+  } else {
+    clearBuilderSessionTimer(key);
+    resetBuilderSessionCollector(key);
+
+    const timer = setTimeout(() => {
+      sessionTimers.delete(key);
+      if (!isBuilderSessionHeld(key)) void deleteBuilderSessionMessage(message);
+    }, BUILDER_SESSION_IDLE_MS);
+    timer.unref?.();
+    sessionTimers.set(key, timer);
+  }
 
   const parentMessage = parentSessions.get(key);
   if (parentMessage) {
@@ -195,7 +279,7 @@ export function installBuilderSessionCleanup() {
 
     collector.on('end', (_collected, reason) => {
       sessionCollectors.delete(String(this.id));
-      if (shouldDeleteBuilderSessionOnCollectorEnd(reason)) {
+      if (shouldDeleteBuilderSessionOnCollectorEnd(reason) && !isBuilderSessionHeld(this.id)) {
         void deleteBuilderSessionMessage(this);
       }
     });
