@@ -62,6 +62,8 @@ test('OpenAI network failure reaches small Groq fallback; repeat is rate-gated',
     groqCalls++;
     const body = JSON.parse(options.body);
     assert.ok(Buffer.byteLength(options.body) + body.max_completion_tokens + 512 <= 7000);
+    assert.doesNotMatch(body.messages[0].content, /retrieve_context/);
+    assert.match(body.messages[0].content, /Never attempt tool calls/);
     return response({ choices: [{ message: { content: 'Fallback answer' } }] });
   });
   const args = { question: '😀'.repeat(10000), systemPrompt: 'x'.repeat(4000), retrieve: async () => '' };
