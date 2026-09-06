@@ -44,14 +44,19 @@ function buildPacketEmbeds(message, result) {
   return chunks.slice(0, 3).map((chunk, index) => {
     const embed = new EmbedBuilder()
       .setColor(0xFFFFFF)
-      .setTitle(index === 0 ? `${label} • ChatGPT handoff` : `${label} • Handoff ${index + 1}`)
+      .setTitle(index === 0 ? label : `${label} • ${index + 1}`)
       .setDescription(chunk);
 
     if (index === chunks.length - 1 || index === 2) {
       const diagnostics = result.diagnostics || {};
-      embed.setFooter({
-        text: `Owner: ${message.author.username} • Evidence: ${diagnostics.evidenceItems || 0} • Embed records: ${diagnostics.embedRecordsConsidered || 0}`.slice(0, 2048),
-      });
+      const footerParts = [
+        `Owner: ${message.author.username}`,
+        `Channels: ${diagnostics.readableChannelsScanned || 0}`,
+        `Evidence: ${diagnostics.evidenceItems || 0}`,
+        `Code files: ${diagnostics.githubFilesRead || 0}`,
+        `Logs: ${diagnostics.runtimeLogLines || 0}`,
+      ];
+      embed.setFooter({ text: footerParts.join(' • ').slice(0, 2048) });
     }
     return embed;
   });
@@ -88,8 +93,8 @@ export default {
     const normalizedQuestion = question.slice(0, MAX_QUESTION_LENGTH);
     const status = await message.reply({
       content: fixGuide
-        ? 'Cloudy Fix Guide is reading the available Discord context and preparing a technical handoff…'
-        : 'Cloudy Assistant is reading the available Discord context and preparing a technical handoff…',
+        ? 'Cloudy Fix Guide is checking live server data, code, logs and relevant sources…'
+        : 'Cloudy Assistant is checking live server data, code, logs and relevant sources…',
       allowedMentions: { repliedUser: false },
     }).catch(() => null);
 
@@ -101,27 +106,23 @@ export default {
       );
 
       const embeds = buildPacketEmbeds(message, result);
-      if (!embeds.length) throw new Error('Owner Assistant generated an empty handoff packet.');
+      if (!embeds.length) throw new Error('Owner Assistant generated an empty response.');
 
       if (status) {
         await status.edit({ content: null, embeds: [embeds[0]] });
-        for (const embed of embeds.slice(1)) {
-          await message.channel.send({ embeds: [embed] });
-        }
+        for (const embed of embeds.slice(1)) await message.channel.send({ embeds: [embed] });
       } else {
-        for (const embed of embeds) {
-          await message.channel.send({ embeds: [embed] });
-        }
+        for (const embed of embeds) await message.channel.send({ embeds: [embed] });
       }
 
       logger.info(
         `[OWNER_ASSISTANT] mode=${fixGuide ? 'fix-guide' : 'owner-assistant'} owner=${message.author.id} guild=${message.guild.id} `
-        + `channel=${message.channel.id} evidence=${result.diagnostics?.evidenceItems || 0}`,
+        + `channel=${message.channel.id} evidence=${result.diagnostics?.evidenceItems || 0} provider=${result.diagnostics?.provider || 'unknown'}`,
       );
     } catch (error) {
-      logger.error('[OWNER_ASSISTANT] Failed to prepare owner handoff:', error);
+      logger.error('[OWNER_ASSISTANT] Failed to answer owner request:', error);
       const failure = {
-        content: `${fixGuide ? 'Cloudy Fix Guide' : 'Cloudy Assistant'} could not prepare the handoff. No bot settings, embeds, code, or server data were changed.`,
+        content: `${fixGuide ? 'Cloudy Fix Guide' : 'Cloudy Assistant'} could not complete this request. No bot settings, embeds, code or server data were changed.`,
         embeds: [],
       };
       if (status) await status.edit(failure).catch(() => {});
