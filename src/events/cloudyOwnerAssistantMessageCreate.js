@@ -2,8 +2,8 @@ import { EmbedBuilder, Events } from 'discord.js';
 import {
   createOwnerAssistantHandoff,
   getOwnerAssistantCooldown,
-  isCloudyOwner,
 } from '../services/ownerAssistantService.js';
+import { hasCloudyOwnerRole } from '../services/ownerRoleAccess.js';
 import { logger } from '../utils/logger.js';
 
 const OWNER_ASSISTANT_CHANNEL_NAME = 'botlog-commands';
@@ -61,7 +61,7 @@ export default {
   async execute(message) {
     if (!message.guild || message.author?.bot) return;
     if (!isOwnerAssistantChannel(message)) return;
-    if (!isCloudyOwner(message)) return;
+    if (!hasCloudyOwnerRole(message)) return;
 
     const question = String(message.content || '').trim();
     if (question.length < 3) return;
