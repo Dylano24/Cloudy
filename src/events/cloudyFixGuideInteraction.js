@@ -23,11 +23,8 @@ import { logger } from '../utils/logger.js';
 const MAX_QUESTION_LENGTH = 4000;
 const EMBED_CHUNK_SIZE = 3900;
 
-// Use Cloudy's strongest OpenAI route by default. An explicit deployment
-// override remains possible without changing source code.
-if (!process.env.OPENAI_OWNER_ASSISTANT_MODEL?.trim()) {
-  process.env.OPENAI_OWNER_ASSISTANT_MODEL = 'gpt-6-astra';
-}
+// FIX-GUIDE intentionally runs the strongest configured Cloudy intelligence.
+process.env.OPENAI_OWNER_ASSISTANT_MODEL = 'gpt-6-astra';
 
 function splitText(value, maxLength = EMBED_CHUNK_SIZE) {
   const text = String(value || '').trim();
