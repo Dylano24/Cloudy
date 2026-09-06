@@ -37,7 +37,7 @@ import {
 } from './systemEmbedCatalogService.js';
 
 const PAGE_SIZE = 25;
-const MANAGER_IDLE_TIMEOUT = 30 * 60_000;
+const MANAGER_IDLE_TIMEOUT = 5 * 60_000;
 const HISTORY_SCAN_TTL = 5 * 60_000;
 const CLOSED_MANAGER_ERROR_CODES = new Set([10008, 10062, 50027]);
 const historyScanTimes = new Map();
