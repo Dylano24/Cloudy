@@ -12,10 +12,9 @@ function buildPanel() {
         .setColor(0xFFFFFF)
         .setTitle(PANEL_TITLE)
         .setDescription(
-          'Owners can send a technical question directly in this channel.\n\n' +
-          'Cloudy Assistant will read the available Discord context, bot diagnostics and Embed Builder information, then prepare a precise ChatGPT handoff with the problem, evidence, affected systems, likely cause, what must not be changed, required checks and success criteria.\n\n' +
-          '**How to use:** Just type your request below. No command is required.\n\n' +
-          'The assistant is diagnostic/read-only and will not change code, settings, embeds, server data or deployments by itself.'
+          'Owners can send any technical problem or request directly in this channel.\n\n' +
+          'Cloudy Assistant can investigate issues across the server and bot, check relevant context, diagnostics and settings, and help you fix problems with clear steps and targeted guidance.\n\n' +
+          '**How to use:** Just type what is wrong or what you want fixed below. No command is required.'
         )
         .setFooter({ text: '© Cloudy Inc. • Quality. Innovation. Performance.' }),
     ],
