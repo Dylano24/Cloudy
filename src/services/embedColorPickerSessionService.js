@@ -97,9 +97,20 @@ async function touchEditorSession(token, session) {
         return { ok: false, reason: 'editor_unavailable' };
     }
 
-    // A heartbeat only keeps the web editor alive. It must never cause a
-    // Discord message edit or it can push the visible preview behind.
+    // While the web editor/color picker is visibly open, its heartbeat is real
+    // Embed Builder activity. Refreshing the unchanged preview resets the same
+    // five-minute Discord idle timer, so the builder is only removed five
+    // minutes after the editor is actually left/closed.
     extendSessionLifetime(token, session);
+    try {
+        await session.onEditorUpdate('__heartbeat__', '');
+    } catch (error) {
+        if (error?.code === 'EMBED_BUILDER_EXPIRED') {
+            deleteEmbedColorPickerSession(token);
+            return { ok: false, reason: 'expired' };
+        }
+        throw error;
+    }
     return { ok: true };
 }
 
