@@ -1,5 +1,5 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { getFromDb, setInDb } from '../utils/database.js';
+import { getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
 import { peekGuildConfigCache } from './config/guildConfig.js';
@@ -12,6 +12,7 @@ const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
 const SYSTEM_TEMPLATE_KEY_PREFIX = 'Cloudy template key:';
 const SYSTEM_TEMPLATE_CONTEXT_SEPARATOR = ' || Cloudy context:';
 const SYSTEM_TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
+const joinToCreateCatalogChannels = new Map();
 const registryMutationQueues = new Map();
 const embedSnapshotCache = new Map();
 const EMBED_SNAPSHOT_CACHE_LIMIT = 2000;
@@ -357,6 +358,11 @@ function ticketPanelCatalogChannel(message, embed) {
     return findFeatureChannel(message.guild, ['ticket-panel', 'tickets']);
 }
 
+function isJoinToCreateCatalogEmbed(embed) {
+    const context = systemTemplateContext(embed).split(/\s+\|\|/)[0].trim();
+    return /^(?:botlog\/(?:jointocreate|config-setup|join-to-create-service)|join-to-create)(?:\/|$)/i.test(context);
+}
+
 function catalogDisplayChannelId(message, embed) {
     if (!isSystemCatalogMessage(message)) return String(message.channelId);
 
@@ -365,6 +371,11 @@ function catalogDisplayChannelId(message, embed) {
 
     const ticketPanelChannel = ticketPanelCatalogChannel(message, embed);
     if (ticketPanelChannel?.id) return String(ticketPanelChannel.id);
+
+    if (isJoinToCreateCatalogEmbed(embed)) {
+        const channelId = joinToCreateCatalogChannels.get(String(message.guildId));
+        if (channelId && message.guild?.channels?.cache?.has(channelId)) return channelId;
+    }
 
     const templateContext = systemTemplateContext(embed);
     const contextRoot = cleanName(templateContext).split('/')[0];
@@ -461,10 +472,22 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
     // template and must remain editable even when its title is custom. Normal
     // bot traffic stays restricted to the fixed template types below.
     const isManualBuilderMessage = source === 'embed-builder';
+    const loadedJoinToCreateGuilds = new Set();
 
     try {
         for (const message of Array.isArray(messages) ? messages : []) {
             if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;
+
+            if (isSystemCatalogMessage(message)
+                && message.embeds.some(isJoinToCreateCatalogEmbed)
+                && !loadedJoinToCreateGuilds.has(String(message.guildId))) {
+                loadedJoinToCreateGuilds.add(String(message.guildId));
+                const config = await getJoinToCreateConfig(message.client || message.guild.client, message.guildId);
+                const channelId = (config.triggerChannels || [])
+                    .map(String).find(id => message.guild?.channels?.cache?.has(id));
+                if (channelId) joinToCreateCatalogChannels.set(String(message.guildId), channelId);
+                else joinToCreateCatalogChannels.delete(String(message.guildId));
+            }
 
             const additions = message.embeds
                 .map((embed, embedIndex) => {
