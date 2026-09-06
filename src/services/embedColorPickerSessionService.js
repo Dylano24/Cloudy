@@ -69,8 +69,12 @@ function scheduleEditorFlush(token, session) {
                 await session.onEditorUpdate(field, value);
             }
         } catch (error) {
-            if (error?.code === 'EMBED_BUILDER_EXPIRED') {
-                deleteEmbedColorPickerSession(token);
+            // The original Discord interaction/webhook can expire while the web
+            // editor is still legitimately open. The editor state has already
+            // been applied before its live preview refresh is attempted, so an
+            // unavailable Discord preview must never destroy the browser session.
+            if (error?.code !== 'EMBED_BUILDER_EXPIRED') {
+                throw error;
             }
         } finally {
             session.editFlushRunning = false;
@@ -102,7 +106,6 @@ async function ensureEditorHold(token, session) {
     } catch (error) {
         releaseBuilderSessionHold(token);
         if (error?.code === 'EMBED_BUILDER_EXPIRED') {
-            deleteEmbedColorPickerSession(token);
             return { ok: false, reason: 'expired' };
         }
         throw error;
@@ -214,11 +217,11 @@ export async function applyEmbedColorPickerSession(token, value) {
     try {
         await session.onColor(color);
     } catch (error) {
-        if (error?.code === 'EMBED_BUILDER_EXPIRED') {
-            deleteEmbedColorPickerSession(token);
-            return { ok: false, reason: 'expired' };
+        // Keep the web editor alive if only the old Discord interaction can no
+        // longer refresh. The selected color is already stored in builder state.
+        if (error?.code !== 'EMBED_BUILDER_EXPIRED') {
+            throw error;
         }
-        throw error;
     }
     return { ok: true, color: `#${color.toString(16).padStart(6, '0').toUpperCase()}` };
 }
