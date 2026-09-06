@@ -10,8 +10,8 @@ import {
 import {
   createOwnerAssistantHandoff,
   getOwnerAssistantCooldown,
-  isCloudyOwner,
 } from '../services/ownerAssistantService.js';
+import { hasCloudyOwnerRole } from '../services/ownerRoleAccess.js';
 import {
   FIX_GUIDE_ASK_BUTTON_ID,
   FIX_GUIDE_ASK_MODAL_ID,
@@ -86,7 +86,7 @@ function buildQuestionModal() {
 
 async function denyNonOwner(interaction) {
   const payload = {
-    content: 'This Fix Guide is available to Cloudy owners only.',
+    content: 'This Fix Guide is available to members with the Owner role only.',
     flags: MessageFlags.Ephemeral,
   };
   if (interaction.replied || interaction.deferred) {
@@ -105,7 +105,7 @@ export default {
     if (!isAskButton && !isAskModal) return;
     if (!interaction.guild || String(interaction.channelId || '') !== FIX_GUIDE_CHANNEL_ID) return;
 
-    if (!isCloudyOwner(interaction)) {
+    if (!hasCloudyOwnerRole(interaction)) {
       await denyNonOwner(interaction);
       return;
     }
