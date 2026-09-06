@@ -280,7 +280,7 @@ async function collectGithubContext(question, commands) {
       const pathText = String(item.path || '');
       let score = relevanceScore(pathText, tokens);
       if (commandPaths.has(pathText)) score += 50;
-      
+
       return { path: pathText, score };
     })
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
