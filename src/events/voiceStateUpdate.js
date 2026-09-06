@@ -62,7 +62,7 @@ export default {
             const now = Date.now();
             if (channelCreationCooldown.has(cooldownKey)) {
                 const lastCreation = channelCreationCooldown.get(cooldownKey);
-if (now - lastCreation < VOICE_CREATE_COOLDOWN_MS) {
+                if (now - lastCreation < VOICE_CREATE_COOLDOWN_MS) {
                     logger.warn(`User ${member.id} is on cooldown for channel creation`);
                     return;
                 }
@@ -166,27 +166,13 @@ if (now - lastCreation < VOICE_CREATE_COOLDOWN_MS) {
 
                 logger.info(`Creating temporary channel for user ${member.id} with user limit: ${userLimit}`);
 
-                const existingChannels = guild.channels.cache.filter(c =>
-                    c.parentId === triggerChannel.parentId &&
-                    c.name.startsWith(triggerChannel.name)
-                ).size;
-
-                let finalName;
-
-                if (
-                    nameTemplate.includes('{username}') ||
-                    nameTemplate.includes('{displayName}')
-                ) {
-                    finalName = formatChannelName(nameTemplate, {
-                        username: member.user.username,
-                        userTag: member.user.tag,
-                        displayName: member.displayName,
-                        guildName: guild.name,
-                        channelName: triggerChannel.name
-                    });
-                } else {
-                    finalName = `${triggerChannel.name} ${existingChannels + 1}`;
-                }
+                const finalName = formatChannelName(nameTemplate, {
+                    username: member.user.username,
+                    userTag: member.user.tag,
+                    displayName: member.displayName,
+                    guildName: guild.name,
+                    channelName: triggerChannel.name
+                });
 
                 const channelName = sanitizeVoiceChannelName(finalName);
 
@@ -198,9 +184,9 @@ if (now - lastCreation < VOICE_CREATE_COOLDOWN_MS) {
 
                 const tempChannel = await guild.channels.create({
                     name: channelName,
-type: ChannelType.GuildVoice,
+                    type: ChannelType.GuildVoice,
                     parent: triggerChannel.parentId,
-userLimit: userLimit === 0 ? undefined : userLimit,
+                    userLimit: userLimit === 0 ? undefined : userLimit,
                     bitrate: bitrate,
                     permissionOverwrites: [
                         {
