@@ -12,9 +12,9 @@ function buildPanel() {
         .setColor(0xFFFFFF)
         .setTitle(PANEL_TITLE)
         .setDescription(
-          'Owners can send any technical problem or request directly in this channel.\n\n' +
-          'Cloudy Assistant can investigate issues across the server and bot, check relevant context, diagnostics and settings, and help you fix problems with clear steps and targeted guidance.\n\n' +
-          '**How to use:** Just type what is wrong or what you want fixed below. No command is required.'
+          'Owners can ask Cloudy Assistant anything directly in this channel.\n\n' +
+          'It can investigate Cloudy problems using live server data, current code, embeds and runtime information, help with fixes, and also answer normal questions or current internet-based questions when live web access is available.\n\n' +
+          '**How to use:** Just type your question, problem or request below. No command is required.'
         )
         .setFooter({ text: '© Cloudy Inc. • Quality. Innovation. Performance.' }),
     ],
@@ -56,10 +56,7 @@ export default {
         ? await panelMessage.edit(buildPanel())
         : await channel.send(buildPanel());
 
-      if (client.db?.set) {
-        await client.db.set(PANEL_STATE_KEY, panelMessage.id).catch(() => {});
-      }
-
+      if (client.db?.set) await client.db.set(PANEL_STATE_KEY, panelMessage.id).catch(() => {});
       logger.info(`[OWNER_ASSISTANT] FIX-GUIDE panel ready in channel ${ASSISTANT_CHANNEL_ID}`);
     } catch (error) {
       logger.error('[OWNER_ASSISTANT] Failed to reconcile FIX-GUIDE panel:', error);
