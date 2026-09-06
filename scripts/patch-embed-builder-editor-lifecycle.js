@@ -27,12 +27,11 @@ const replacement = `    function closeEditorSession() {
         }).catch(() => {});
       } catch {}
     }
-    window.addEventListener('pagehide', event => {
-      // Switching apps/tabs on mobile only makes the page hidden and MUST NOT
-      // release the Discord builder. A real page leave/close starts the normal
-      // five-minute Discord inactivity period again.
-      if (!event.persisted) closeEditorSession();
-    }, { once: true });`;
+    // IMPORTANT: visibilitychange/pagehide are NOT close signals. Mobile and
+    // desktop browsers can fire/suspend those while the editor is still open
+    // in another tab/app. Only an actual document unload/leave may release the
+    // Discord builder hold and restart its five-minute inactivity timer.
+    window.addEventListener('beforeunload', closeEditorSession, { once: true });`;
 
 if (original.includes(replacement)) {
   console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] already current');
@@ -45,4 +44,4 @@ if (!original.includes(oldLine)) {
 }
 
 fs.writeFileSync(target, original.replace(oldLine, replacement), 'utf8');
-console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + close release');
+console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched background-safe editor hold + explicit unload release');
