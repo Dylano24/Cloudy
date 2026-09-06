@@ -156,11 +156,14 @@ export default {
                     return;
                 }
 
-                const channelOptions = config.channelOptions?.[triggerChannel.id] || {};
-                const nameTemplate = channelOptions.nameTemplate || config.channelNameTemplate || "{username}'s Room";
+                // Fetch again at the exact moment the bot creates the channel. This makes the
+                // database the single source of truth even when an admin had an older dashboard open.
+                const latestConfig = await getJoinToCreateConfig(client, guild.id);
+                const channelOptions = latestConfig.channelOptions?.[triggerChannel.id] || {};
+                const nameTemplate = channelOptions.nameTemplate || latestConfig.channelNameTemplate || "{username}'s Room";
                 
-                let userLimit = channelOptions.userLimit ?? config.userLimit ?? 0;
-                const bitrate = clampVoiceBitrate(channelOptions.bitrate ?? config.bitrate ?? DEFAULT_VOICE_BITRATE);
+                let userLimit = channelOptions.userLimit ?? latestConfig.userLimit ?? 0;
+                const bitrate = clampVoiceBitrate(channelOptions.bitrate ?? latestConfig.bitrate ?? DEFAULT_VOICE_BITRATE);
 
                 userLimit = Math.max(0, Math.min(99, userLimit || 0));
 
