@@ -74,6 +74,7 @@ const retrievalTool = {
 export async function answerWithProviders({ question, systemPrompt, retrieve, technical = false, probe = false }) {
   let evidence = '';
   const key = process.env.OPENAI_API_KEY?.trim();
+  if (!key) log({ event: 'openai_unavailable', reason: 'missing_or_empty_api_key' });
   if (key) {
     try {
       for (const model of await availableModels(key)) {
@@ -111,7 +112,6 @@ export async function answerWithProviders({ question, systemPrompt, retrieve, te
       }
     } catch (error) { log({ event: 'openai_unavailable', reason: error.message.replace(/[^\w: _.-]/g, '').slice(0, 100) }); }
   }
-  if (probe) throw new Error('openai: startup_probe_failed');
   if (!process.env.GROQ_API_KEY?.trim()) throw new Error('assistant: no_available_provider');
   if (!evidence && technical) evidence = clipBytes(await retrieve('commands', question), 1200);
   const body = { model: 'openai/gpt-oss-20b', messages: [

@@ -156,7 +156,9 @@ export default {
     } catch (error) {
       logger.error('[OWNER_ASSISTANT] FIX-GUIDE request failed:', error);
       const payload = {
-        content: 'Cloudy could not complete this request. No bot settings, embeds, code or server data were changed.',
+        content: /local_rate_budget|rate_limit|429/.test(error.message)
+          ? 'Cloudy is temporarily at capacity. Please try again in about one minute.'
+          : 'Cloudy is temporarily unavailable. Please try again shortly. Your request did not change any server data.',
         embeds: [],
       };
       if (interaction.replied || interaction.deferred) await interaction.editReply(payload).catch(() => {});
