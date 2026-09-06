@@ -127,7 +127,7 @@ test('live Message Builder refresh activity resets its collector', async () => {
   await deleteBuilderSessionMessage(parent);
 });
 
-test('open web editor pauses the five-minute collector and close starts a fresh five minutes', async () => {
+test('open web editor removes the collector idle timer completely and close starts a fresh five minutes', async () => {
   const resetValues = [];
   const message = {
     id: 'held-builder-session',
@@ -147,8 +147,11 @@ test('open web editor pauses the five-minute collector and close starts a fresh 
     touchBuilderSessionMessage(message);
   });
 
-  assert.equal(resetValues.length, 1);
-  assert.ok(resetValues[0] > BUILDER_SESSION_IDLE_MS);
+  assert.deepEqual(resetValues, [null]);
+
+  // Background activity while the editor remains held must keep the timer off.
+  touchBuilderSessionMessage(message);
+  assert.equal(resetValues.at(-1), null);
 
   releaseBuilderSessionHold('editor-session-1');
   assert.equal(resetValues.at(-1), BUILDER_SESSION_IDLE_MS);
