@@ -7,6 +7,8 @@ import {
   isBuilderSessionMessage,
   linkBuilderSessionMessages,
   registerBuilderSessionCollector,
+  releaseBuilderSessionHold,
+  runWithBuilderSessionHold,
   shouldDeleteBuilderSessionOnCollectorEnd,
   touchBuilderSessionMessage,
 } from '../src/utils/builderSessionCleanup.js';
@@ -123,4 +125,33 @@ test('live Message Builder refresh activity resets its collector', async () => {
 
   assert.equal(resets, 2);
   await deleteBuilderSessionMessage(parent);
+});
+
+test('open web editor pauses the five-minute collector and close starts a fresh five minutes', async () => {
+  const resetValues = [];
+  const message = {
+    id: 'held-builder-session',
+    embeds: [{ title: 'Message builder' }],
+    delete: async () => {},
+  };
+  const collector = {
+    ended: false,
+    resetTimer(options) {
+      resetValues.push(options.idle);
+    },
+  };
+
+  assert.equal(registerBuilderSessionCollector(message, collector), true);
+
+  await runWithBuilderSessionHold('editor-session-1', async () => {
+    touchBuilderSessionMessage(message);
+  });
+
+  assert.equal(resetValues.length, 1);
+  assert.ok(resetValues[0] > BUILDER_SESSION_IDLE_MS);
+
+  releaseBuilderSessionHold('editor-session-1');
+  assert.equal(resetValues.at(-1), BUILDER_SESSION_IDLE_MS);
+
+  await deleteBuilderSessionMessage(message);
 });
