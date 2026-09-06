@@ -14,7 +14,7 @@ import {
     getConfiguration
 } from '../../services/joinToCreateService.js';
 
-const TRANSIENT_RESPONSE_TTL_MS = 15_000;
+const TRANSIENT_RESPONSE_TTL_MS = 10_000;
 
 function buildConfigEmbed(triggerChannel, currentConfig) {
     const channelConfig = currentConfig.channelConfig || {};
