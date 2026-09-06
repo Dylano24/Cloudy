@@ -222,6 +222,16 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
     const strictTemplateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
     const groups = new Map();
 
+    // Source-discovered plain review replies are helper text, not editable embeds.
+    // Filter the picker only: preserve stored records and live review behavior.
+    channelRecords = channelRecords.filter(record => {
+        if (String(record.source || '') !== 'system-catalog') return true;
+        const data = getEmbedRegistrySnapshot(record) || {};
+        const context = stableSystemTemplateContext(data);
+        const plainText = /\|\|\s*Cloudy kind:\s*content\s*$/i.test(String(data.author?.name || ''));
+        return !(plainText && /^staff-reviews(?:\/|$)/i.test(context));
+    });
+
     for (const record of channelRecords) {
         const rawName = recordName(record);
         const rule = strictTemplateMode
