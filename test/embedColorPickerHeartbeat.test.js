@@ -73,3 +73,56 @@ test('loading editor state does not create a phantom content update after the ho
     deleteEmbedColorPickerSession(token);
   }
 });
+
+test('expired Discord preview does not expire the open web editor session', async () => {
+  let currentTitle = 'Existing title';
+  let previewAvailable = true;
+
+  const token = createEmbedColorPickerSession({
+    userId: '1',
+    onColor: async () => {
+      if (!previewAvailable) {
+        const error = new Error('The message builder session has expired.');
+        error.code = 'EMBED_BUILDER_EXPIRED';
+        throw error;
+      }
+    },
+    getEditorState: () => ({ title: currentTitle }),
+    onEditorUpdate: async (field, value) => {
+      if (field === 'title') currentTitle = value;
+      if (!previewAvailable && field !== '__heartbeat__') {
+        const error = new Error('The message builder session has expired.');
+        error.code = 'EMBED_BUILDER_EXPIRED';
+        throw error;
+      }
+    },
+  });
+
+  try {
+    const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
+    assert.equal(heartbeat.ok, true);
+
+    previewAvailable = false;
+
+    const editPayload = '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({
+      field: 'title',
+      value: 'Still saved after preview expiry',
+    });
+    const edit = await applyEmbedColorPickerSession(token, editPayload);
+    assert.equal(edit.ok, true);
+
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__');
+    assert.equal(stateResult.ok, true);
+    assert.equal(JSON.parse(stateResult.color).title, 'Still saved after preview expiry');
+
+    const color = await applyEmbedColorPickerSession(token, '#123456');
+    assert.equal(color.ok, true);
+
+    const heartbeatAfterExpiry = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
+    assert.equal(heartbeatAfterExpiry.ok, true);
+  } finally {
+    deleteEmbedColorPickerSession(token);
+  }
+});
