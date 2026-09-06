@@ -1,5 +1,5 @@
 import { getColor } from '../../config/bot.js';
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, LabelBuilder } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder } from 'discord.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes, replyUserError } from '../../utils/errorHandler.js';
@@ -258,22 +258,22 @@ async function handleConfigSubcommand(interaction, client) {
 
         const nameButton = new ButtonBuilder()
             .setCustomId(`jtc_config_name_${triggerChannel.id}`)
-            .setLabel('📝 Name Template')
-            .setStyle(ButtonStyle.Primary);
+            .setLabel('📝 Name template')
+            .setStyle(ButtonStyle.Secondary);
 
         const limitButton = new ButtonBuilder()
             .setCustomId(`jtc_config_limit_${triggerChannel.id}`)
-            .setLabel('👥 User Limit')
-            .setStyle(ButtonStyle.Primary);
+            .setLabel('👥 User limit')
+            .setStyle(ButtonStyle.Secondary);
 
         const bitrateButton = new ButtonBuilder()
             .setCustomId(`jtc_config_bitrate_${triggerChannel.id}`)
             .setLabel('🎵 Bitrate')
-            .setStyle(ButtonStyle.Primary);
+            .setStyle(ButtonStyle.Secondary);
 
         const deleteButton = new ButtonBuilder()
             .setCustomId(`jtc_config_delete_${triggerChannel.id}`)
-            .setLabel('🗑️ Remove Channel')
+            .setLabel('🗑️ Remove channel')
             .setStyle(ButtonStyle.Danger);
 
         const row = new ActionRowBuilder().addComponents(nameButton, limitButton, bitrateButton, deleteButton);
@@ -366,42 +366,26 @@ async function handleConfigSubcommand(interaction, client) {
 
 async function handleNameTemplateModal(interaction, triggerChannel, currentConfig, client) {
     try {
-        const TEMPLATE_OPTIONS = [
-            { label: "{username}'s Room (Default)", value: "{username}'s Room" },
-            { label: "{username}'s Channel",        value: "{username}'s Channel" },
-            { label: "{username}'s Lounge",         value: "{username}'s Lounge" },
-            { label: "{username}'s Space",          value: "{username}'s Space" },
-            { label: "{displayName}'s Room",        value: "{displayName}'s Room" },
-            { label: "{username}'s VC",             value: "{username}'s VC" },
-            { label: "{username}'s Music Room",  value: "{username}'s Music Room" },
-            { label: "{username}'s Gaming Room", value: "{username}'s Gaming Room" },
-            { label: "{username}'s Chat Room",   value: "{username}'s Chat Room" },
-            { label: "{username}'s Private Room",   value: "{username}'s Private Room" },
-        ];
-
         const currentTemplate = currentConfig.channelConfig?.nameTemplate
             || currentConfig.channelNameTemplate
             || "{username}'s Room";
 
-        const templateSelect = new StringSelectMenuBuilder()
-            .setCustomId('template')
-            .setPlaceholder('Pick a name template...')
-            .setOptions(
-                TEMPLATE_OPTIONS.map(o => ({
-                    label: o.label,
-                    value: o.value,
-                    default: o.value === currentTemplate,
-                })),
-            );
-
-        const templateLabel = new LabelBuilder()
-            .setLabel('Channel name template')
-            .setStringSelectMenuComponent(templateSelect);
-
         const modal = new ModalBuilder()
             .setCustomId(`jtc_name_modal_${triggerChannel.id}`)
             .setTitle('Channel Name Template')
-            .addLabelComponents(templateLabel);
+            .addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('name_template')
+                        .setLabel('Channel name template')
+                        .setPlaceholder("Example: {username}'s Room")
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                        .setMinLength(1)
+                        .setMaxLength(100)
+                        .setValue(String(currentTemplate).substring(0, 100))
+                )
+            );
 
         await interaction.showModal(modal);
 
@@ -418,7 +402,15 @@ async function handleNameTemplateModal(interaction, triggerChannel, currentConfi
             return;
         }
 
-        const [newTemplate] = modalSubmission.fields.getStringSelectValues('template');
+        const newTemplate = modalSubmission.fields.getTextInputValue('name_template').trim();
+
+        if (!newTemplate) {
+            throw new TitanBotError(
+                'Channel name template cannot be empty',
+                ErrorTypes.VALIDATION,
+                'Channel name template cannot be empty.'
+            );
+        }
 
         await updateChannelConfig(client, interaction.guild.id, triggerChannel.id, {
             nameTemplate: newTemplate
