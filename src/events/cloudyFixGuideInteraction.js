@@ -23,8 +23,9 @@ import { logger } from '../utils/logger.js';
 const MAX_QUESTION_LENGTH = 4000;
 const EMBED_CHUNK_SIZE = 3900;
 
-// FIX-GUIDE intentionally runs the strongest configured Cloudy intelligence.
-process.env.OPENAI_OWNER_ASSISTANT_MODEL = 'gpt-6-astra';
+// Use the strongest public OpenAI API model available for this agent.
+// GPT-5.6 Sol supports max reasoning and live web search in the Responses API.
+process.env.OPENAI_OWNER_ASSISTANT_MODEL = 'gpt-5.6-sol';
 
 function splitText(value, maxLength = EMBED_CHUNK_SIZE) {
   const text = String(value || '').trim();
@@ -132,7 +133,10 @@ export default {
       return;
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.reply({
+      content: 'Cloudy is investigating this now…',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
 
     try {
       const result = await createOwnerAssistantHandoff(
@@ -159,7 +163,7 @@ export default {
         content: 'Cloudy could not complete this request. No bot settings, embeds, code or server data were changed.',
         embeds: [],
       };
-      if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
+      if (interaction.replied || interaction.deferred) await interaction.editReply(payload).catch(() => {});
       else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
     }
   },
