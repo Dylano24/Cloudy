@@ -3,7 +3,6 @@ import { InteractionWebhook, Message } from 'discord.js';
 
 export const BUILDER_SESSION_IDLE_MS = 5 * 60_000;
 const LEGACY_BUILDER_IDLE_MS = 30 * 60_000;
-const HELD_COLLECTOR_IDLE_MS = 2_147_000_000;
 const PENDING_MANAGER_PARENT_TTL_MS = 15_000;
 const PATCH_MARKER = Symbol.for('cloudy.builder-session-cleanup');
 const BUILDER_TITLES = new Set(['message builder', 'modify embed']);
@@ -99,7 +98,10 @@ function holdBuilderSessionMessage(message, holdId, deleteMessage = null) {
   messages.set(key, message);
 
   clearBuilderSessionTimer(key);
-  resetBuilderSessionCollector(key, HELD_COLLECTOR_IDLE_MS);
+  // null clears Discord.js' existing collector idle timeout without starting a
+  // replacement timer. While the browser editor/picker is open there is
+  // therefore literally no inactivity timer that can end the builder.
+  resetBuilderSessionCollector(key, null);
   return true;
 }
 
@@ -210,10 +212,11 @@ export function touchBuilderSessionMessage(message, deleteMessage = null, visite
   if (activeHoldId) {
     holdBuilderSessionMessage(message, activeHoldId, deleteMessage);
   } else if (isBuilderSessionHeld(key)) {
-    // A mobile browser can suspend JavaScript timers while the editor is still
-    // open. Held sessions therefore have no five-minute deletion timer at all.
+    // Background tabs/apps can suspend JavaScript and network activity for an
+    // arbitrary amount of time. A held session therefore keeps NO Discord
+    // collector idle timer and NO local five-minute deletion timer at all.
     clearBuilderSessionTimer(key);
-    resetBuilderSessionCollector(key, HELD_COLLECTOR_IDLE_MS);
+    resetBuilderSessionCollector(key, null);
   } else {
     clearBuilderSessionTimer(key);
     resetBuilderSessionCollector(key);
@@ -260,8 +263,9 @@ export function installBuilderSessionCleanup() {
   });
 
   Message.prototype.createMessageComponentCollector = function createBuilderAwareCollector(options = {}) {
+    const requestedIdle = Number(options?.idle);
     const managedBuilder = isBuilderSessionMessage(this)
-      && Number(options?.idle) === LEGACY_BUILDER_IDLE_MS;
+      && (requestedIdle === LEGACY_BUILDER_IDLE_MS || requestedIdle === BUILDER_SESSION_IDLE_MS);
     const collectorOptions = managedBuilder
       ? { ...options, idle: BUILDER_SESSION_IDLE_MS }
       : options;
