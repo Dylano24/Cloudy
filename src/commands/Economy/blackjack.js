@@ -9,6 +9,7 @@ import { cardEmoji, cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const RESULT_COLORS = { win: 0x00C49D, loss: 0x670102, bust: 0x670102, push: 0x336699 };
 const makeDeck = () => {
   const cards = SUITS.flatMap(suit => RANKS.map(rank => ({ rank, suit, text: `${rank}${suit}` })));
   for (let i = cards.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
@@ -63,6 +64,18 @@ async function embed(state, result = null) {
     inline: true,
   });
 
+  const outcome = String(result?.title || '').trim().toLowerCase();
+  if (RESULT_COLORS[outcome] != null) {
+    return {
+      title: `Blackjack ${outcome}`,
+      description: result.text || '',
+      color: RESULT_COLORS[outcome],
+      author: { name: state.user.username, icon_url: state.user.displayAvatarURL() },
+      fields,
+      thumbnail: { url: CLOUDY_LOGO_URL },
+    };
+  }
+
   const gameEmbed = createEmbed({
     title: liveTitle(state, result),
     description: result?.text || '',
@@ -71,10 +84,6 @@ async function embed(state, result = null) {
     fields,
   });
   gameEmbed.setThumbnail(CLOUDY_LOGO_URL);
-
-  // Runtime hand data stays authoritative. The global embed template layer now
-  // replaces only dynamic values, so a saved example bet/card value can never
-  // freeze the live game while Embed Builder styling/text remains editable.
   gameEmbed.data.fields = fields;
   return gameEmbed;
 }
@@ -87,17 +96,19 @@ function dealerDraw(state) { while (score(state.dealer) < 17) state.dealer.push(
 
 async function settle(state, component, collector) {
   state.finished = true; dealerDraw(state);
-  const dealerScore = score(state.dealer); let payout = 0; const outcomes = [];
+  const dealerScore = score(state.dealer); let payout = 0;
   for (const hand of state.hands) {
     const handScore = score(hand.cards);
-    if (handScore > 21) outcomes.push('Bust');
-    else if (isBlackjack(hand.cards) && state.hands.length === 1) { payout += Math.floor(hand.bet * 2.5); outcomes.push('Blackjack'); }
-    else if (dealerScore > 21 || handScore > dealerScore) { payout += hand.bet * 2; outcomes.push('Win'); }
-    else if (handScore === dealerScore) { payout += hand.bet; outcomes.push('Push'); }
-    else outcomes.push('Loss');
+    if (handScore > 21) continue;
+    if (isBlackjack(hand.cards) && state.hands.length === 1) payout += Math.floor(hand.bet * 2.5);
+    else if (dealerScore > 21 || handScore > dealerScore) payout += hand.bet * 2;
+    else if (handScore === dealerScore) payout += hand.bet;
   }
   state.data.wallet += payout; await setEconomyData(state.client, state.guildId, state.user.id, state.data);
-  const result = { title: outcomes.join(' / '), color: payout > state.totalBet ? 'success' : payout === state.totalBet ? 'primary' : 'error', text: `Payout: **${money(payout)}**\nCash balance: **${money(state.data.wallet)}**` };
+
+  const allBust = state.hands.length > 0 && state.hands.every(hand => score(hand.cards) > 21);
+  const outcome = allBust ? 'bust' : payout > state.totalBet ? 'win' : payout === state.totalBet ? 'push' : 'loss';
+  const result = { title: outcome, text: `Payout: **${money(payout)}**\nCash balance: **${money(state.data.wallet)}**` };
   await component.update(await payload(state, result, true)); collector.stop('finished');
 }
 
@@ -116,9 +127,6 @@ export default {
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${state.id}`), time: 10 * 60 * 1000 });
     let busy = false;
     collector.on('collect', async component => {
-      // Collector interactions can arrive before another InteractionCreate
-      // listener has decorated them. Patch here as well so Win/Loss/Bust always
-      // use the saved template on the first and only visible update.
       InteractionHelper.patchInteractionResponses(component);
       if (busy || state.finished) return; busy = true;
       try {
