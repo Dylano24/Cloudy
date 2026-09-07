@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
+import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { withErrorHandling } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
@@ -35,6 +36,7 @@ async function gameEmbed(client, user, amount, player = null, banker = null, res
     author: { name: user.username, iconURL: user.displayAvatarURL() },
     fields,
   });
+  game.setThumbnail(CLOUDY_LOGO_URL);
 
   // Preserve exact application-emoji markup in Discord while the complete fields
   // are also registered in the automatic system embed catalog / embed builder.
