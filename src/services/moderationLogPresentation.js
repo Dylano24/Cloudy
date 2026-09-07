@@ -6,7 +6,6 @@ export const MODERATION_RESTORE_COLOR = 0x00C49D;
 
 const RESTRICT_TYPES = new Set(['moderation.kick', 'moderation.timeout']);
 const RESTORE_TYPES = new Set(['moderation.unban', 'moderation.untimeout']);
-const CLOUDY_LOGO_TYPES = new Set(['moderation.ban', 'moderation.kick', 'moderation.timeout']);
 
 export function enforceFixedLogPresentation(embed, { eventType = null, inviteType = null } = {}) {
   const data = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...(embed || {}) };
@@ -15,7 +14,7 @@ export function enforceFixedLogPresentation(embed, { eventType = null, inviteTyp
   if (RESTORE_TYPES.has(eventType)) data.color = MODERATION_RESTORE_COLOR;
   if (inviteType === 'created') data.color = 0xFFFFFF;
   if (inviteType === 'joined') data.color = MODERATION_RESTORE_COLOR;
-  if (inviteType || CLOUDY_LOGO_TYPES.has(eventType)) data.thumbnail = { url: CLOUDY_LOGO_URL };
+  if (inviteType || eventType) data.thumbnail = { url: CLOUDY_LOGO_URL };
 
   return new EmbedBuilder(data);
 }

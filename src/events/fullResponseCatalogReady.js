@@ -20,6 +20,13 @@ const HISTORY_LIMIT = 100;
 const STARTUP_SCAN_DELAY_MS = 7000;
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
 const autoApplyingMessageIds = new Set();
+const FIXED_NON_TICKET_LOG_CHANNEL_IDS = new Set([
+  '1539375620885323826',
+  '1539371111240831078',
+  '1539259457404412036',
+  '1539371572442435646',
+  '1539372511089926244',
+]);
 
 function canonicalComponentCommand(customId = '') {
   const value = String(customId || '').toLowerCase();
@@ -237,6 +244,10 @@ async function applyTemplatesToExistingMessage(message, { initialCreation = fals
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
   if (isEmbedManagerSaveInProgress(message.id)) return false;
   if (autoApplyingMessageIds.has(message.id)) return false;
+  // These logs are styled in their own send path. Applying the generic system
+  // catalog afterward restores stale colors and user avatars. Ticket logs are
+  // intentionally not part of this exemption.
+  if (FIXED_NON_TICKET_LOG_CHANNEL_IDS.has(message.channelId)) return false;
 
   const source = messageContext(message);
   // Blackjack already receives its stored styling before Discord gets the
@@ -283,7 +294,7 @@ function seedKnownGameResponses() {
   const baccarat = { commandName: 'baccarat' };
 
   captureSystemEmbedData({
-    title: 'Roulette — You won!',
+    title: 'Roulette win',
     description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
     color: 0x57F287,
     fields: [
@@ -294,7 +305,7 @@ function seedKnownGameResponses() {
   }, roulette);
 
   captureSystemEmbedData({
-    title: 'Roulette — You lost',
+    title: 'Roulette loss',
     description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
     color: 0xFEE75C,
     fields: [
@@ -316,7 +327,7 @@ function seedKnownGameResponses() {
 
   for (const title of ['Win', 'Loss', 'Push', 'Bust', 'Blackjack', 'Expired']) {
     captureSystemEmbedData({
-      title: `Result: ${title}`,
+      title: `Blackjack ${title.toLowerCase()}`,
       description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**',
       color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0x5865F2,
       fields: [
@@ -332,15 +343,24 @@ function seedKnownGameResponses() {
     color: 0x5865F2,
   }, baccarat);
 
-  captureSystemEmbedData({
-    title: 'Baccarat — Result',
-    description: 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**',
-    color: 0x57F287,
-    fields: [
-      { name: 'Player Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
-      { name: 'Banker Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
-    ],
-  }, baccarat);
+  const baccaratFields = [
+    { name: 'Player Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+    { name: 'Banker Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
+  ];
+  const baccaratResults = [
+    ['win', 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
+    ['loss', 'You chose **{dynamic}**. Winner: **{dynamic}**\nYou lost **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
+    ['tie', 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie — your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**', baccaratFields],
+    ['expired', 'Game expired — **{dynamic}** was returned.', []],
+  ];
+  for (const [outcome, description, fields] of baccaratResults) {
+    captureSystemEmbedData({
+      title: `Baccarat ${outcome}`,
+      description,
+      color: 0x57F287,
+      ...(fields.length ? { fields } : {}),
+    }, baccarat);
+  }
 }
 
 function patchInteractionCapture() {
