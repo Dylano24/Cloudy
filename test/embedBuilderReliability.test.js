@@ -226,7 +226,7 @@ test('private builder previews and command replies never enter the editable embe
   assert.deepEqual(await getEmbedRegistry(guildId), []);
 });
 
-test('emoji editor preserves animated emoji data and keeps only the latest live field update', async () => {
+test('emoji editor preserves animated emoji data and saves every live field update synchronously', async () => {
   const updates = [];
   const token = createEmbedColorPickerSession({
     userId: 'owner-user',
@@ -262,15 +262,17 @@ test('emoji editor preserves animated emoji data and keeps only the latest live 
 
   assert.equal(update.ok, true);
   assert.equal(latestUpdate.ok, true);
-  await new Promise(resolve => { setTimeout(resolve, 10); });
-  assert.deepEqual(updates, [{ field: 'message', value: `Latest ${markup}` }]);
+  assert.deepEqual(updates, [
+    { field: '__heartbeat__', value: '' },
+    { field: 'message', value: `Hi ${markup}` },
+    { field: 'message', value: `Latest ${markup}` },
+  ]);
 
   const fieldUpdate = await applyEmbedColorPickerSession(
     token,
     `__CLOUDY_EMBED_EDIT__:${JSON.stringify({ field: 'embed_field_value:0', value: `Updated ${markup}` })}`,
   );
   assert.equal(fieldUpdate.ok, true);
-  await new Promise(resolve => { setTimeout(resolve, 10); });
   assert.deepEqual(updates.at(-1), { field: 'embed_field_value:0', value: `Updated ${markup}` });
   deleteEmbedColorPickerSession(token);
   assert.equal((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__')).reason, 'expired');
@@ -681,7 +683,7 @@ test('legacy Blackjack styling cannot restore Cards Remaining', () => {
   assert.equal(result.description, 'Payout: **$20**\nCash balance: **$120**');
 });
 
-test('embed manager shows one editable casino template for repeated dynamic results', () => {
+test('embed manager keeps one editable target per repeated dynamic casino state', () => {
   const guildId = '100000000000000011';
   const channelId = '200000000000000011';
   const guild = buildGuild({ guildId, channelId, messages: new Map() });
@@ -708,9 +710,11 @@ test('embed manager shows one editable casino template for repeated dynamic resu
 
   const options = payload.components[0].toJSON().components[0].options;
   assert.equal(options.length, 2);
-  assert.ok(options.some(option => option.label === 'Blackjack bet'));
-  assert.ok(options.some(option => option.label === 'Blackjack loss'));
-  assert.ok(options.some(option => /applies to 2 matching embed\(s\)/.test(option.description)));
+  assert.deepEqual(
+    options.map(option => option.value).sort(),
+    ['300000000000000022:0', '300000000000000024:0'],
+  );
+  assert.ok(options.every(option => /applies to 2 matching embed\(s\)/.test(option.description)));
 });
 
 test('audit log lookup returns immediately when Discord already has the entry', async () => {
