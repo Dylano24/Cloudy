@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
+import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { getEconomyData, setEconomyData } from '../../utils/economy.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 import { buildGamblingCommandListText } from '../../config/gamblingCommands.js';
@@ -16,7 +17,7 @@ function buildGamblingCommandList() {
     return infoEmbed(
         'Gambling & Games',
         buildGamblingCommandListText(),
-    );
+    ).setThumbnail(CLOUDY_LOGO_URL);
 }
 
 export default {
@@ -119,6 +120,7 @@ export default {
             );
         }
 
+        resultEmbed.setThumbnail(CLOUDY_LOGO_URL);
         userData.wallet = (userData.wallet || 0) + cashChange;
         userData.lastGamble = now;
 
