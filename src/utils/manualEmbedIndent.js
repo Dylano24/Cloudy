@@ -57,10 +57,10 @@ function renderBullet(parts, continuationBodies = []) {
   const wrapped = wrapWords(fullBody, BULLET_WRAP_COLUMNS);
   if (wrapped.length <= 1) return [`${normalizedPrefix}${parts.marker} ${wrapped[0]}`];
 
-  // Compact preserved spacing only: no normal spaces and no wide braille blank.
-  // Three hair spaces approximate the marker+gap width without creating the
-  // oversized mobile indent seen with U+2800. The marker itself is untouched.
-  const continuation = normalizedPrefix + HAIR.repeat(3);
+  // Compact preserved offset for wrapped lines. Four hair spaces moves the
+  // continuation one micro-step right from the previous result while keeping
+  // the original dot/emoji and text untouched.
+  const continuation = normalizedPrefix + HAIR.repeat(4);
   return [
     `${normalizedPrefix}${parts.marker} ${wrapped[0]}`,
     ...wrapped.slice(1).map(text => `${continuation}${text}`),
