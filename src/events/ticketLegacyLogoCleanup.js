@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from '../services/existingEmbedPolicy.js';
 import { Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
@@ -12,6 +13,7 @@ function isOldLogoAttachment(attachment) {
 }
 
 export async function cleanMainTicketMessage(message) {
+  if (PRESERVE_EXISTING_EMBEDS) return false;
   if (!message || !Array.isArray(message.embeds) || message.embeds.length === 0) {
     return false;
   }

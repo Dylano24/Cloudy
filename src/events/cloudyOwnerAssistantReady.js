@@ -80,7 +80,7 @@ export default {
       }
 
       panelMessage = panelMessage
-        ? await panelMessage.edit(buildPanel())
+        ? panelMessage
         : await channel.send(buildPanel());
 
       if (client.db?.set) await client.db.set(PANEL_STATE_KEY, panelMessage.id).catch(() => {});

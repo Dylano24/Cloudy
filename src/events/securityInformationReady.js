@@ -51,9 +51,7 @@ export default {
         components: [buildContactButton(securityChannel.guildId)],
       };
 
-      if (existing) {
-        await existing.edit(payload).catch(() => {});
-      } else {
+      if (!existing) {
         await securityChannel.send(payload).catch(() => {});
       }
     }, 2500);

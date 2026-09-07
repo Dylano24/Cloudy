@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { EmbedBuilder } from 'discord.js';
 
 export const CLOUDY_BRANDING = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -100,6 +101,7 @@ export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
 }
 
 export async function normalizeCloudyMessage(message, options = {}) {
+  if (PRESERVE_EXISTING_EMBEDS && !options.initialCreation) return false;
   if (!message?.editable || !message.embeds?.length) return false;
 
   let changed = false;

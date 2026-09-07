@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { EmbedBuilder } from 'discord.js';
 import {
   getEmbedRegistry,
@@ -156,6 +157,7 @@ function groupCandidateRecords(records, userId, oldAvatarUrl) {
 }
 
 async function updateMessageGroup(guild, records, userId, oldAvatarUrl, newAvatarUrl) {
+  if (PRESERVE_EXISTING_EMBEDS) return 0;
   const first = records[0];
   if (!first) return 0;
 

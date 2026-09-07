@@ -104,7 +104,7 @@ export async function reconcileFaqAiPanel(client) {
       panelMessage = recent?.find(message => isFaqPanelMessage(message, client.user.id)) || null;
     }
 
-    panelMessage = panelMessage ? await panelMessage.edit(payload) : await channel.send(payload);
+    panelMessage = panelMessage || await channel.send(payload);
     if (client.db?.set) await client.db.set(FAQ_PANEL_STATE_KEY, panelMessage.id).catch(() => {});
     return panelMessage;
   } catch (error) {

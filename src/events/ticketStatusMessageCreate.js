@@ -6,6 +6,6 @@ export default {
   once: false,
 
   async execute(message, client) {
-    await brandTicketStatusMessage(message, client).catch(() => {});
+    await brandTicketStatusMessage(message, client, { initialCreation: true }).catch(() => {});
   },
 };

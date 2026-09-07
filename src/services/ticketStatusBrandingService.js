@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import {
   CLOUDY_TICKET_FOOTER,
 } from '../utils/ticket/ticketBranding.js';
@@ -12,7 +13,8 @@ const TICKET_STATUS_TITLES = new Set([
   'Ticket unpinned',
 ]);
 
-export async function brandTicketStatusMessage(message, client) {
+export async function brandTicketStatusMessage(message, client, { initialCreation = false } = {}) {
+  if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return false;
   if (!message?.guild?.id || !message?.id) return false;
   if (message.author?.id !== client.user?.id) return false;
 

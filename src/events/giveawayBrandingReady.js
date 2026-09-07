@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from '../services/existingEmbedPolicy.js';
 import { EmbedBuilder, Events } from 'discord.js';
 import { getGuildGiveaways } from '../utils/giveaways.js';
 
@@ -5,6 +6,7 @@ const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba38
 const CLOUDY_EMBED_COLOR = 0xFFFFFF;
 
 async function restoreGiveawayBranding(client, guild, giveaway) {
+  if (PRESERVE_EXISTING_EMBEDS) return undefined;
   if (!giveaway?.channelId || !giveaway?.messageId) return;
 
   const controller = new AbortController();
