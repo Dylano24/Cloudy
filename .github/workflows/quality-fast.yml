@@ -34,7 +34,8 @@ permissions:
   contents: read
 
 jobs:
-  quality:
+  lint:
+    name: Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -60,23 +61,47 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
 
-      - name: Lint and tests in parallel
-        shell: bash
-        run: |
-          set +e
-          npm run lint:fast &
-          LINT_PID=$!
-          npm test &
-          TEST_PID=$!
+      - name: Lint
+        run: npm run lint:fast
 
-          LINT_STATUS=0
-          TEST_STATUS=0
-          wait "$LINT_PID" || LINT_STATUS=$?
-          wait "$TEST_PID" || TEST_STATUS=$?
+  tests:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
-          if [ "$LINT_STATUS" -ne 0 ] || [ "$TEST_STATUS" -ne 0 ]; then
-            exit 1
-          fi
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Dependency audit
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Test
+        run: npm test
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Audit high and critical vulnerabilities
         run: npm audit --audit-level=high

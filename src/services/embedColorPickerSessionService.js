@@ -228,7 +228,11 @@ export async function applyEmbedColorPickerSession(token, value) {
         }
 
         const nextValue = payload.value.slice(0, limit);
-        queueEditorUpdate(token, session, field, nextValue);
+        try {
+            await session.onEditorUpdate(field, nextValue);
+        } catch (error) {
+            if (error?.code !== 'EMBED_BUILDER_EXPIRED') throw error;
+        }
         return { ok: true, color: JSON.stringify({ type: 'editor_saved', field, value: nextValue }) };
     }
 
