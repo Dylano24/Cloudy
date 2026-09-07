@@ -59,12 +59,16 @@ const indentHelper = `      function preserveManualIndentSpaces(editor, syncFn, 
           beforeRange.selectNodeContents(editor);
           beforeRange.setEnd(range.startContainer, range.startOffset);
           const before = beforeRange.toString();
-          const preserve = !before || before.endsWith(String.fromCharCode(10)) || before.endsWith(' ') || before.endsWith(' ');
-          if (!preserve) return;
+          const atLineStart = !before || before.endsWith(String.fromCharCode(10));
+          if (!atLineStart) return;
 
+          // iOS/Safari can drop a normal leading space in contenteditable.
+          // Anchor only the first leading space with a zero-width character,
+          // then keep every following space as a normal BREAKABLE space.
+          // This avoids the large gaps/non-wrapping caused by NBSP on mobile.
           event.preventDefault();
           range.deleteContents();
-          const node = document.createTextNode(' ');
+          const node = document.createTextNode(String.fromCharCode(8203) + ' ');
           range.insertNode(node);
           range.setStartAfter(node);
           range.collapse(true);
@@ -166,4 +170,4 @@ if (!sessionSource.includes(newEditorSaveAck)) {
   fs.writeFileSync(sessionTarget, sessionSource, 'utf8');
 }
 
-console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save + preserved manual indentation');
+console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save + mobile-safe manual indentation');
