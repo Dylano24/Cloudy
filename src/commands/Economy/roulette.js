@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
+import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { takeBet, settleBet, money } from './modules/casinoGameUtils.js';
@@ -55,6 +56,7 @@ export default {
         { name: 'Cash balance', value: `**${money(result.balance)}**`, inline: true },
       ],
     });
+    embed.setThumbnail(CLOUDY_LOGO_URL);
 
     await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components: [] });
   }, { command: 'roulette' }),
