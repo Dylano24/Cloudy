@@ -21,8 +21,10 @@ client.once('ready', async () => {
     await guild.channels.fetch();
     await guild.emojis.fetch().catch(() => null);
 
-    const channel = guild.channels.cache.find(ch => ch?.name === 'zorp-off-raid-protection' && ch?.messages?.fetch);
-    if (!channel) throw new Error('Channel #zorp-off-raid-protection not found');
+    const channel = guild.channels.cache.find(ch =>
+      String(ch?.name || '').includes('zorp-off-raid-protection') && ch?.messages?.fetch
+    );
+    if (!channel) throw new Error('Channel containing zorp-off-raid-protection not found');
 
     const messages = await channel.messages.fetch({ limit: 50 });
     const target = messages.find(message =>
