@@ -430,16 +430,61 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
             );
         }
 
-        await updateChannelConfig(client, interaction.guild.id, triggerChannel.id, { nameTemplate: newTemplate });
+        const updatedChannelConfig = await updateChannelConfig(
+            client,
+            interaction.guild.id,
+            triggerChannel.id,
+            { nameTemplate: newTemplate }
+        );
+        const updatedConfig = {
+            ...latestConfig,
+            channelConfig: {
+                ...(latestConfig.channelConfig || {}),
+                ...updatedChannelConfig,
+                nameTemplate: newTemplate
+            }
+        };
+        const dashboardPayload = {
+            embeds: [buildConfigEmbed(triggerChannel, updatedConfig)],
+            components: dashboardMessage?.components || []
+        };
+
+        // A modal opened from this dashboard can update its source message
+        // directly. This is reliable for ephemeral replies and makes the saved
+        // value visible immediately instead of relying on a swallowed Message.edit.
+        let dashboardUpdated = false;
+        if (!modalSubmission.replied && !modalSubmission.deferred) {
+            dashboardUpdated = await modalSubmission.update(dashboardPayload)
+                .then(() => true)
+                .catch(() => false);
+        }
+        if (!dashboardUpdated && dashboardMessage?.edit) {
+            dashboardUpdated = await dashboardMessage.edit(dashboardPayload)
+                .then(() => true)
+                .catch(() => false);
+        }
+        if (!dashboardUpdated) {
+            throw new TitanBotError(
+                'Saved channel name template but dashboard refresh failed',
+                ErrorTypes.DISCORD_API,
+                'The channel name was saved, but the dashboard could not be refreshed. Run the dashboard command again.'
+            );
+        }
+
         await logConfigurationChange(client, interaction.guild.id, interaction.user.id, 'Updated channel name template', {
             channelId: triggerChannel.id,
             newTemplate
         });
 
-        await refreshDashboard(dashboardMessage, triggerChannel, client);
-        await replyTransient(modalSubmission, {
-            embeds: [successEmbed('Updated', `Channel name template changed to \`${newTemplate}\``)]
-        });
+        const successPayload = {
+            embeds: [successEmbed('Updated', `Channel name template changed to \`${newTemplate}\``)],
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true
+        };
+        const successMessage = modalSubmission.replied || modalSubmission.deferred
+            ? await modalSubmission.followUp(successPayload).catch(() => null)
+            : await modalSubmission.reply(successPayload).catch(() => null);
+        if (successMessage) scheduleTransientDeletion(modalSubmission, successMessage);
     } catch (error) {
         if (error.code === 'INTERACTION_COLLECTOR_ERROR') return;
         if (error instanceof TitanBotError) throw error;
