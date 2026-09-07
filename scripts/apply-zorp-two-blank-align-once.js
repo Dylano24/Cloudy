@@ -2,6 +2,7 @@ import { REST, Routes } from 'discord.js';
 
 const channelId = '1533212973034770462';
 const token = process.env.DISCORD_TOKEN;
+const HANG = '\u2800\u2800';
 if (!token) process.exit(0);
 
 const rest = new REST({ version: '10' }).setToken(token);
@@ -35,23 +36,28 @@ if (!message || embedIndex < 0) {
 const embeds = message.embeds.map(embed => ({ ...embed }));
 const source = { ...embeds[embedIndex] };
 const fields = (source.fields || []).map(field => ({ ...field }));
-const targetNames = new Set(['important information', 'how to remove a zorp zone']);
+const continuationText = /^(the team is online\.|that overlaps with another team’s|zone\.|existing ZORP zone will be removed|to prevent abuse\.|removal\.)$/u;
 let changed = false;
 
 for (const field of fields) {
-  if (!targetNames.has(String(field?.name || '').toLowerCase())) continue;
-  const before = String(field.value || '');
-  // Change only the existing three-braille continuation prefix to two.
-  // Text, glowing-dot emoji, field names, and every other embed property stay untouched.
-  const after = before.replace(/^\u2800\u2800\u2800(?=\S)/gmu, '\u2800\u2800');
-  if (after !== before) {
-    field.value = after;
-    changed = true;
-  }
+  const name = String(field?.name || '').toLowerCase();
+  if (name !== 'important information' && name !== 'how to remove a zorp zone') continue;
+
+  const lines = String(field.value || '').split('\n');
+  const next = lines.map(line => {
+    // Strip only leading spacing/invisible indentation for the known continuation
+    // lines, then apply one exact two-braille prefix. The text itself is untouched.
+    const body = line.replace(/^(?:\u2063[\u2002\u2009\u200A]|[ \t\u00a0\u2002\u2009\u200A\u2800])+/u, '');
+    if (!continuationText.test(body)) return line;
+    const aligned = `${HANG}${body}`;
+    if (aligned !== line) changed = true;
+    return aligned;
+  });
+  field.value = next.join('\n');
 }
 
 if (!changed) {
-  console.log('[ZORP_ALIGN_ONCE] No three-blank continuation prefixes found; nothing changed');
+  console.log('[ZORP_ALIGN_ONCE] Continuation lines already use exact two-blank alignment');
   process.exit(0);
 }
 
@@ -79,4 +85,4 @@ await rest.patch(Routes.channelMessage(channelId, message.id), {
   body: { embeds: embeds.map(sendableEmbed) },
 });
 
-console.log(`[ZORP_ALIGN_ONCE] Shifted only continuation prefixes left by one braille blank message=${message.id}`);
+console.log(`[ZORP_ALIGN_ONCE] Applied exact two-blank continuation alignment message=${message.id}`);
