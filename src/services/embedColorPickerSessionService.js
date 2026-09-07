@@ -10,6 +10,7 @@ const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
 const EDIT_FLUSH_DELAY_MS = 0;
+const SESSION_IDLE_MS = 14 * 60_000;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -48,6 +49,23 @@ function sanitizeEmojis(emojis = []) {
     return [...unique.values()].slice(0, 500);
 }
 
+function clearSessionIdleTimer(session) {
+    if (session?.idleTimer) clearTimeout(session.idleTimer);
+    if (session) session.idleTimer = null;
+}
+
+function scheduleSessionIdleExpiry(token, session) {
+    clearSessionIdleTimer(session);
+    session.idleTimer = setTimeout(() => {
+        if (sessions.get(token) === session) deleteEmbedColorPickerSession(token);
+    }, SESSION_IDLE_MS);
+    session.idleTimer.unref?.();
+}
+
+function touchSession(token, session) {
+    scheduleSessionIdleExpiry(token, session);
+}
+
 function scheduleEditorFlush(token, session) {
     if (session.editFlushRunning) return;
 
@@ -69,10 +87,6 @@ function scheduleEditorFlush(token, session) {
                 await session.onEditorUpdate(field, value);
             }
         } catch (error) {
-            // The original Discord interaction/webhook can expire while the web
-            // editor is still legitimately open. The editor state has already
-            // been applied before its live preview refresh is attempted, so an
-            // unavailable Discord preview must never destroy the browser session.
             if (error?.code !== 'EMBED_BUILDER_EXPIRED') {
                 throw error;
             }
@@ -98,15 +112,15 @@ async function ensureEditorHold(token, session) {
     }
 
     try {
-        // One unchanged preview refresh captures the Message Builder (and linked
-        // Modify Embed parent/child) inside the held session. There is no idle
-        // or fixed web-session expiry while the editor/picker remains open.
         await runWithBuilderSessionHold(token, () => session.onEditorUpdate('__heartbeat__', ''));
         session.holdActive = true;
     } catch (error) {
         releaseBuilderSessionHold(token);
         if (error?.code === 'EMBED_BUILDER_EXPIRED') {
-            return { ok: false, reason: 'expired' };
+            // An old Discord interaction must not invalidate the browser editor.
+            // Keep accepting/saving editor state until the real 14-minute idle timer expires.
+            session.holdActive = false;
+            return { ok: true, previewUnavailable: true };
         }
         throw error;
     }
@@ -115,6 +129,7 @@ async function ensureEditorHold(token, session) {
 }
 
 async function touchEditorSession(token, session) {
+    touchSession(token, session);
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
     return { ok: true };
@@ -133,8 +148,10 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         editFlushTimer: null,
         editFlushRunning: false,
         editGeneration: 0,
+        idleTimer: null,
     };
     sessions.set(token, session);
+    scheduleSessionIdleExpiry(token, session);
     return token;
 }
 
@@ -155,8 +172,14 @@ export async function applyEmbedColorPickerSession(token, value) {
         return { ok: false, reason: 'expired' };
     }
 
+    touchSession(token, session);
+
     if (value === CLOSE_PREFIX) {
-        deleteEmbedColorPickerSession(token);
+        // Closing/leaving the browser editor no longer destroys the token.
+        // It simply releases the Discord hold and starts a fresh 14-minute idle window.
+        session.holdActive = false;
+        releaseBuilderSessionHold(token);
+        scheduleSessionIdleExpiry(token, session);
         return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };
     }
 
@@ -166,8 +189,6 @@ export async function applyEmbedColorPickerSession(token, value) {
         return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
     }
 
-    // Loading state, editing content and using the picker all prove that the
-    // browser editor is open. Establish the builder hold before doing any of them.
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
 
@@ -217,8 +238,6 @@ export async function applyEmbedColorPickerSession(token, value) {
     try {
         await session.onColor(color);
     } catch (error) {
-        // Keep the web editor alive if only the old Discord interaction can no
-        // longer refresh. The selected color is already stored in builder state.
         if (error?.code !== 'EMBED_BUILDER_EXPIRED') {
             throw error;
         }
@@ -229,6 +248,7 @@ export async function applyEmbedColorPickerSession(token, value) {
 export function deleteEmbedColorPickerSession(token) {
     const session = sessions.get(token);
     if (session?.editFlushTimer) clearTimeout(session.editFlushTimer);
+    clearSessionIdleTimer(session);
     sessions.delete(token);
     releaseBuilderSessionHold(token);
 }
