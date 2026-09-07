@@ -31,7 +31,11 @@ test('ban and invite logs use the Cloudy logo without changing unrelated colors'
   assert.equal(ban.color, 0x520808);
   assert.equal(ban.thumbnail.url, CLOUDY_LOGO_URL);
 
-  const invite = enforceFixedLogPresentation(new EmbedBuilder().setColor(0xFFFFFF), { invite: true }).toJSON();
-  assert.equal(invite.color, 0xFFFFFF);
-  assert.equal(invite.thumbnail.url, CLOUDY_LOGO_URL);
+  const created = enforceFixedLogPresentation(new EmbedBuilder().setColor(0x123456), { inviteType: 'created' }).toJSON();
+  assert.equal(created.color, 0xFFFFFF);
+  assert.equal(created.thumbnail.url, CLOUDY_LOGO_URL);
+
+  const joined = enforceFixedLogPresentation(new EmbedBuilder().setColor(0x123456), { inviteType: 'joined' }).toJSON();
+  assert.equal(joined.color, MODERATION_RESTORE_COLOR);
+  assert.equal(joined.thumbnail.url, CLOUDY_LOGO_URL);
 });
