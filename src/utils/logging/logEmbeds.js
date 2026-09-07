@@ -137,7 +137,8 @@ export function buildStandardLogEmbed({
   timestamp = true,
   footer,
 }) {
-  const embed = new EmbedBuilder().setColor(color);
+  const embed = new EmbedBuilder();
+  if (color != null) embed.setColor(color);
 
   if (title) embed.setTitle(title.slice(0, 256));
   if (description) embed.setDescription(description);

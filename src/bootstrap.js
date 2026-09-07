@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { installBuilderSessionCleanup } from './utils/builderSessionCleanup.js';
+import { installDefaultEmbedColorPolicy } from './utils/embedColorPolicy.js';
+import { installInteractionMessageLifecycle } from './utils/interactionMessageLifecycle.js';
 
 function firstTrimmedEnv(...names) {
   for (const name of names) {
@@ -60,7 +62,9 @@ function prepareDiscordConfig() {
 
 try {
   prepareDiscordConfig();
+  installDefaultEmbedColorPolicy();
   installBuilderSessionCleanup();
+  installInteractionMessageLifecycle();
   await import('./app.js');
 } catch (error) {
   console.error(`[PREFLIGHT] Fatal startup validation failed: ${error?.message || error}`);

@@ -1,5 +1,4 @@
-import { ComponentType, EmbedBuilder } from 'discord.js';
-import { getColor } from '../config/bot.js';
+import { ComponentType } from 'discord.js';
 import { TitanBotError, ErrorTypes, replyUserError } from './errorHandler.js';
 import { InteractionHelper } from './interactionHelper.js';
 import { logger } from './logger.js';
@@ -48,7 +47,7 @@ export async function startDashboardSession({
     embeds,
     components,
     flags,
-    timeoutMs = 600_000,
+    timeoutMs = 300_000,
     selectMenuId,
     buttonMatcher,
     onSelect,
@@ -70,7 +69,7 @@ export async function startDashboardSession({
         const selectCollector = interaction.channel.createMessageComponentCollector({
             componentType: ComponentType.StringSelect,
             filter: (i) => belongsToDashboard(i) && i.customId === selectMenuId,
-            time: timeoutMs,
+            idle: timeoutMs,
         });
 
         selectCollector.on('collect', wrapHandler(onSelect, 'dashboard select'));
@@ -81,7 +80,7 @@ export async function startDashboardSession({
         const buttonCollector = interaction.channel.createMessageComponentCollector({
             componentType: ComponentType.Button,
             filter: (i) => belongsToDashboard(i) && matchesCustomId(i.customId, buttonMatcher),
-            time: timeoutMs,
+            idle: timeoutMs,
         });
 
         buttonCollector.on('collect', wrapHandler(onButton, 'dashboard button'));
@@ -93,25 +92,14 @@ export async function startDashboardSession({
     if (collectors.length > 0) {
         collectors[0].on('end', async (_collected, reason) => {
             stopAll();
-            if (reason !== 'time') return;
+            if (reason !== 'idle') return;
 
             if (onTimeout) {
                 await onTimeout(interaction).catch(() => {});
                 return;
             }
 
-            const timeoutEmbed = new EmbedBuilder()
-                .setTitle('Dashboard Timed Out')
-                .setDescription(
-                    'This dashboard has been closed due to inactivity. Please run the command again to continue.',
-                )
-                .setColor(getColor('error'));
-
-            await InteractionHelper.safeEditReply(interaction, {
-                embeds: [timeoutEmbed],
-                components: [],
-                flags,
-            }).catch(() => {});
+            await interaction.deleteReply().catch(() => {});
         });
     }
 

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { InteractionWebhook, Message } from 'discord.js';
 
-export const BUILDER_SESSION_IDLE_MS = 14 * 60_000;
+export const BUILDER_SESSION_IDLE_MS = 5 * 60_000;
 const PREVIOUS_BUILDER_IDLE_MS = 5 * 60_000;
 const LEGACY_BUILDER_IDLE_MS = 30 * 60_000;
 const PENDING_MANAGER_PARENT_TTL_MS = 15_000;
@@ -115,7 +115,7 @@ export function releaseBuilderSessionHold(holdId) {
     if (holds?.size) continue;
     sessionHoldIds.delete(key);
 
-    // Closing/leaving the editor starts a fresh 14-minute inactivity window.
+    // Closing/leaving the editor starts a fresh five-minute inactivity window.
     touchBuilderSessionMessage(message);
   }
   return true;
@@ -200,13 +200,17 @@ export function touchBuilderSessionMessage(message, deleteMessage = null, visite
   visited.add(key);
 
   if (deleteMessage) registerSessionDeleter(message, deleteMessage);
+  const collector = sessionCollectors.get(key);
 
   const activeHoldId = editorHoldContext.getStore()?.holdId || null;
   if (activeHoldId) {
+    collector?.resetTimer?.({ idle: null });
     holdBuilderSessionMessage(message, activeHoldId, deleteMessage);
   } else if (isBuilderSessionHeld(key)) {
+    collector?.resetTimer?.({ idle: null });
     clearBuilderSessionTimer(key);
   } else {
+    collector?.resetTimer?.({ idle: BUILDER_SESSION_IDLE_MS });
     clearBuilderSessionTimer(key);
 
     const timer = setTimeout(() => {

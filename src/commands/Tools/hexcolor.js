@@ -2,6 +2,7 @@ import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { createEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { getColor } from '../../config/bot.js';
+import { setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -54,9 +55,9 @@ export default {
                     `**RGB:** \`rgb(${r}, ${g}, ${b})\`\n` +
                     `**HSL:** \`${rgbToHsl(r, g, b)}\`\n` +
                     `**Name:** ${colorName || 'Custom Color'}`
-                )
-                    .setColor(hexColor)
-                    .setImage(colorPreviewUrl);
+                );
+                setPreservedEmbedColor(embed, hexColor);
+                embed.setImage(colorPreviewUrl);
 
                 if (isRandom) {
                     embed.setFooter({ text: 'Randomly generated color' });
