@@ -34,7 +34,7 @@ export default {
           const reason = timeoutEntry?.reason || 'No reason provided';
           const isAutoModAction =
             executor?.id === newMember.client.user?.id &&
-            reason.startsWith('Automatic protection:');
+            /^(?:Automatic protection|Automod):/i.test(reason);
           const durationMs = Math.max(0, newTimeout - Date.now());
           const durationMinutes = Math.max(1, Math.ceil(durationMs / 60_000));
 

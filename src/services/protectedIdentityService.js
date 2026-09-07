@@ -1,6 +1,7 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
+import { CLOUDY_LOGO_URL } from './moderationLogPresentation.js';
 
 const TARGET_GUILD_ID = '1532882647838228723';
 const LOG_CHANNEL_ID = '1539259457404412036';
@@ -105,7 +106,7 @@ async function sendPermanentLog(member, detection, source, banned, error = null)
                 inline: false,
             }
         )
-        .setThumbnail(member.user.displayAvatarURL({ size: 512 }))
+        .setThumbnail(CLOUDY_LOGO_URL)
         .setFooter({ text: 'Cloudy Protected Identity System' })
         .setTimestamp();
 
