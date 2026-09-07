@@ -44,11 +44,10 @@ test('ZORP restart reconciliation preserves the complete current guide', async (
   assert.deepEqual(await reconcileZorpGuide(client), { ok: true, action: 'preserved', messageId: 'guide' });
 });
 
-test('future Save spacing is idempotent, keeps interior spaces, emoji, markdown and code blocks', () => {
+test('future Save spacing is byte-preserving and idempotent', () => {
   const input = '  • **Text**  <:emoji:123>\n\u2063\u2002\u2800Text\n```js\n  code();\n```\n\tEnd';
-  const expected = '⠀⠀• **Text**  <:emoji:123>\n⠀⠀Text\n```js\n  code();\n```\n⠀⠀⠀⠀End';
-  assert.equal(normalizeManualIndent(input), expected);
-  assert.equal(normalizeManualIndent(expected), expected);
+  assert.equal(normalizeManualIndent(input), input);
+  assert.equal(normalizeManualIndent(normalizeManualIndent(input)), input);
 });
 
 test('manual Save changes the selected embed and keeps sibling embeds byte-for-byte', async () => {
