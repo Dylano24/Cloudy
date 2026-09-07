@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { EmbedBuilder } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
@@ -339,8 +340,9 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed) 
   }
 }
 
-export async function applySavedEmbedTemplates(message) {
+export async function applySavedEmbedTemplates(message, { initialCreation = false } = {}) {
   if (!message?.guildId || !message?.channelId || !message?.editable || !message?.embeds?.length) return false;
+  if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return true;
 
   try {
     const stored = await loadMergedTemplates(message.guildId, message.channelId);

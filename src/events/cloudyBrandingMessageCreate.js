@@ -53,8 +53,8 @@ export default {
     }
 
     const matchedTemplate = isBlackjackEmbed(message.embeds?.[0])
-      || await applySavedEmbedTemplates(message);
-    if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
+      || await applySavedEmbedTemplates(message, { initialCreation: true });
+    if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true, initialCreation: true });
     if (isRegistrableCloudyEmbedMessage(message)) {
       await registerCloudyEmbedMessage(message, 'automatic');
     }

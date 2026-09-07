@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { EmbedBuilder } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { getTraceContext, logger } from '../utils/logger.js';
@@ -513,6 +514,12 @@ async function appendCatalogEntry(context, entry, messages) {
   const identity = entryIdentity(entry);
   const existingLocation = findCatalogEntry(messages, entry);
 
+  if (existingLocation && PRESERVE_EXISTING_EMBEDS) {
+    catalogEntries.add(identity);
+    rememberTemplate(entry.key, cloneData(existingLocation.embed), entry.context);
+    return false;
+  }
+
   if (existingLocation) {
     // Catalog entries are the styling source for future games. Remove only
     // the retired Blackjack presentation line from legacy entries while
@@ -545,7 +552,7 @@ async function appendCatalogEntry(context, entry, messages) {
   }
 
   let target = messages.at(-1) || null;
-  let embeds = target ? target.embeds.map(embed => new EmbedBuilder(embed.toJSON())) : [];
+  let embeds = target ? target.embeds.map(embed => embed.toJSON()) : [];
   if (!target || embeds.length >= MAX_EMBEDS_PER_MESSAGE) {
     target = await context.channel.send({ content: CATALOG_CONTENT, embeds: [] }).catch(() => null);
     if (!target) return false;
@@ -590,6 +597,7 @@ function catalogEntryPriority(location) {
 // (never player messages, ticket messages, or normal log history).
 export async function cleanupSystemCatalogEntries(messages) {
   const groups = new Map();
+  if (PRESERVE_EXISTING_EMBEDS) return false;
   const removals = new Map();
   const rewrites = new Map();
 

@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { EmbedBuilder } from 'discord.js';
 
 export const CLOUDY_LOGO_URL =
@@ -113,6 +114,7 @@ export function installCloudyLogoEmbedPatch() {
 }
 
 export async function normalizeCloudyLogoMessage(message) {
+  if (PRESERVE_EXISTING_EMBEDS) return false;
   if (!message?.editable || !message.embeds?.length) return false;
   let changed = false;
   const embeds = message.embeds.map(embed => {

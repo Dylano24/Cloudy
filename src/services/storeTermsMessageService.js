@@ -115,9 +115,7 @@ export async function reconcileStoreTermsMessage(client) {
       : null;
 
     if (existing) {
-      await existing.edit({ embeds: [embed] });
-      logger.info(`[STORE_TERMS] Updated Store terms of sale message ${existing.id}.`);
-      return { ok: true, action: 'updated', messageId: existing.id };
+      return { ok: true, action: 'preserved', messageId: existing.id };
     }
 
     const sent = await channel.send({ embeds: [embed] });

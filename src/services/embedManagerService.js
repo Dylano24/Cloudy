@@ -1,3 +1,4 @@
+import { normalizeManualIndent } from '../utils/manualEmbedIndent.js';
 import {
     ActionRowBuilder,
     ButtonBuilder,
@@ -837,12 +838,12 @@ function applyStateToExistingEmbed(state) {
 
     if (state.title) data.title = state.title.slice(0, 256);
     else delete data.title;
-    if (state.message) data.description = state.message.slice(0, 4096);
+    if (state.message) data.description = normalizeManualIndent(state.message).slice(0, 4096);
     else delete data.description;
     if (Array.isArray(state.embedFields) && state.embedFields.length) {
         data.fields = state.embedFields.slice(0, 25).map(field => ({
             name: String(field.name || '\u200B').slice(0, 256),
-            value: String(field.value || '\u200B').slice(0, 1024),
+            value: normalizeManualIndent(String(field.value || '\u200B')).slice(0, 1024),
             inline: Boolean(field.inline),
         }));
     } else {
@@ -1168,7 +1169,7 @@ export async function saveModifiedEmbed(guild, state) {
 
     const sourceData = { ...(target.sourceEmbedData || {}) };
     const embeds = message.embeds.map((embed, embedIndex) =>
-        embedIndex === index ? new EmbedBuilder(applyStateToExistingEmbed(state)) : new EmbedBuilder(embed.toJSON()),
+        embedIndex === index ? applyStateToExistingEmbed(state) : embed.toJSON(),
     );
 
     if (getEmbedsTextLength(embeds) > DISCORD_EMBED_TOTAL_TEXT_LIMIT) {

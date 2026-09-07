@@ -176,20 +176,20 @@ export async function reconcileZorpGuide(client) {
       return { ok: false, reason: 'missing_permissions' };
     }
 
-    const [titleIcon, colorEmojis] = await Promise.all([
-      getTermsTitleIcon(client),
-      getZorpColorEmojis(client)
-    ]);
-    const embed = buildZorpGuideEmbed(titleIcon, colorEmojis);
     const existing = permissions.has(PermissionFlagsBits.ReadMessageHistory)
       ? await findExistingGuide(channel, client.user.id)
       : null;
 
     if (existing) {
-      await existing.edit({ embeds: [embed], attachments: [] });
-      logger.info(`[ZORP] Updated ZORP Guide message ${existing.id}.`);
-      return { ok: true, action: 'updated', messageId: existing.id };
+      logger.info(`[ZORP] Preserved existing ZORP Guide message ${existing.id}.`);
+      return { ok: true, action: 'preserved', messageId: existing.id };
     }
+
+    const [titleIcon, colorEmojis] = await Promise.all([
+      getTermsTitleIcon(client),
+      getZorpColorEmojis(client)
+    ]);
+    const embed = buildZorpGuideEmbed(titleIcon, colorEmojis);
 
     const sent = await channel.send({ embeds: [embed] });
     logger.info(`[ZORP] Sent ZORP Guide message ${sent.id}.`);

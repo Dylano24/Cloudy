@@ -66,9 +66,7 @@ export default {
         && message.embeds?.[0]?.title === 'Appeal form',
       );
 
-      if (existing) {
-        await existing.edit(payload).catch(() => {});
-      } else {
+      if (!existing) {
         await channel.send(payload).catch(() => {});
       }
     }, 2500);

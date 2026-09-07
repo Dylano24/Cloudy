@@ -171,15 +171,6 @@ async function checkForRustPatch(client) {
             );
 
             if (existingMessage) {
-                const existingEmbed = existingMessage.embeds.find(embed => embed.url === patch.link);
-                if (patch.image && !existingEmbed?.image?.url && existingMessage.edit) {
-                    const repairedEmbeds = existingMessage.embeds.map(embed =>
-                        embed === existingEmbed ? EmbedBuilder.from(embed).setImage(patch.image) : EmbedBuilder.from(embed)
-                    );
-                    await existingMessage.edit({ embeds: repairedEmbeds }).catch(error => {
-                        logger.warn('Could not restore the missing Rust patch banner.', error);
-                    });
-                }
                 if (previousLink !== patch.link) {
                     await client.db.set(LAST_PATCH_KEY, patch.link);
                 }

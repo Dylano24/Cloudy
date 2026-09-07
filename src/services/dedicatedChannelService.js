@@ -161,7 +161,6 @@ async function ensureGuideMessage(guild, key) {
 
   const payload = { embeds: [buildGuideEmbed(rule)] };
   if (existing) {
-    await existing.edit(payload).catch(() => {});
     return true;
   }
 

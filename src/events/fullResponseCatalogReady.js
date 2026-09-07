@@ -1,3 +1,4 @@
+import { PRESERVE_EXISTING_EMBEDS } from '../services/existingEmbedPolicy.js';
 import { Events, Message } from 'discord.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import {
@@ -229,7 +230,8 @@ function embedJson(embed) {
   return embed?.toJSON ? embed.toJSON() : embed || null;
 }
 
-async function applyTemplatesToExistingMessage(message) {
+async function applyTemplatesToExistingMessage(message, { initialCreation = false } = {}) {
+  if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return false;
   if (!message?.client?.user?.id || !message.guildId || !message.editable) return false;
   if (message.author?.id !== message.client.user.id) return false;
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
@@ -428,7 +430,7 @@ export default {
       if (String(message?.content || '').trim() === SYSTEM_CATALOG_CONTENT) return;
       try {
         captureMessage(message);
-        void applyTemplatesToExistingMessage(message);
+        void applyTemplatesToExistingMessage(message, { initialCreation: true });
       } catch (error) {
         logger.debug(`[EMBED_BUILDER] Live message processing skipped: ${error?.message || error}`);
       }
