@@ -2,7 +2,7 @@
 // for leading indentation so Discord does not collapse Markdown whitespace.
 // Font metrics and line wrapping can still differ between Discord clients.
 const BLANK = '\u2800';
-const BULLET_WRAP_COLUMNS = 42;
+const BULLET_WRAP_COLUMNS = 38;
 
 function normalizeLeadingIndent(line) {
   return line.replace(/^(?:\u2063[\u2002\u2009]|[ \t\u00a0\u2002\u2009\u2800])+/, indent =>
