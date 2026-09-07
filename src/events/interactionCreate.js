@@ -19,6 +19,7 @@ import { resolveSlashAccessKey } from '../utils/messageAdapter.js';
 import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
 import { enforceDefaultCommandPermissions } from '../utils/permissionGuard.js';
+import { scheduleTransientInteractionReplyDeletion } from '../utils/transientResponse.js';
 
 const COMMAND_ERROR_SUBTYPES = {
   warn: 'warn_failed',
@@ -163,6 +164,7 @@ export default {
             }
 
             await command.execute(interaction, guildConfig, client);
+            await scheduleTransientInteractionReplyDeletion(interaction);
           } catch (error) {
             await handleInteractionError(interaction, error, withTraceContext({
               type: 'command',

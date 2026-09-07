@@ -233,10 +233,10 @@ export async function saveGlobalEmbedTemplate(guildId, matchNames = [], embedDat
   return saveTemplate(guildId, GLOBAL_SCOPE, matchNames, embedData, options);
 }
 
-function findStoredTemplate(data, stored) {
+function findStoredTemplate(data, stored, { strictTitle = false } = {}) {
   const candidates = [
     data.title,
-    String(data.description || '').split('\n').find(Boolean),
+    ...(strictTitle ? [] : [String(data.description || '').split('\n').find(Boolean)]),
   ]
     .flatMap(aliasKeys)
     .filter(Boolean);
@@ -244,10 +244,10 @@ function findStoredTemplate(data, stored) {
   return candidates.map(candidate => stored[candidate]).find(Boolean) || null;
 }
 
-function decorateEmbedData(embed, stored) {
+function decorateEmbedData(embed, stored, options = {}) {
   const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
   const data = { ...original };
-  const template = findStoredTemplate(data, stored);
+  const template = findStoredTemplate(data, stored, options);
   if (!template) return { matched: false, changed: false, data };
 
   if (template.title) {
@@ -325,10 +325,10 @@ function decorateEmbedData(embed, stored) {
   };
 }
 
-export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed) {
+export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed, options = {}) {
   try {
     const stored = await loadMergedTemplates(guildId, channelId);
-    const result = decorateEmbedData(embed, stored);
+    const result = decorateEmbedData(embed, stored, options);
     return {
       matched: result.matched,
       changed: result.changed,
@@ -342,6 +342,12 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed) 
 
 export async function applySavedEmbedTemplates(message, { initialCreation = false } = {}) {
   if (!message?.guildId || !message?.channelId || !message?.editable || !message?.embeds?.length) return false;
+
+  // ZORP Guide is owner-authored content. Never rewrite it from background
+  // template/catalog/normalization passes. A manual Embed Builder Save still
+  // edits the message and persists its template through the normal save path.
+  const isProtectedZorpGuide = message.embeds.some(embed => /^\s*(?:☑️\s*)?ZORP Guide\s*$/i.test(String(embed?.title || '')));
+  if (isProtectedZorpGuide) return true;
   if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return true;
 
   try {

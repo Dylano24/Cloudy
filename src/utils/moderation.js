@@ -24,6 +24,14 @@ const ACTION_TO_EVENT_TYPE = {
   'Case Updated': EVENT_TYPES.MODERATION_CONFIG,
 };
 
+const DEDICATED_GATEWAY_LOG_ACTIONS = new Set([
+  'Member Banned',
+  'Member Kicked',
+  'Member Timed Out',
+  'Member Untimeouted',
+  'Member Unbanned',
+]);
+
 function buildModerationLogData(event) {
   const targetIdMatch = event.target?.match(/\((\d+)\)/);
   const targetId = targetIdMatch?.[1];
@@ -211,7 +219,9 @@ export async function logModerationAction({ client, guild, event, skipChannelLog
     }
   }
 
-  const logPromise = !skipChannelLog && !commandUnbanSuppressed
+  const logPromise = !skipChannelLog
+    && !commandUnbanSuppressed
+    && !DEDICATED_GATEWAY_LOG_ACTIONS.has(event.action)
     ? logEvent({
       client,
       guild,

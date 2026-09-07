@@ -134,7 +134,7 @@ test('invite records keep canonical template identities after title edits', asyn
   ]));
 });
 
-test('new invite logs apply saved template color before send', async () => {
+test('invite-created logs keep their required white color after saved template styling', async () => {
   installTestStorage();
   const guildId = '100000000000000102';
   const sentPayloads = [];
@@ -171,7 +171,7 @@ test('new invite logs apply saved template color before send', async () => {
 
   assert.equal(sentPayloads.length, 1);
   const sent = sentPayloads[0].embeds[0].toJSON();
-  assert.equal(sent.color, 0x123456);
+  assert.equal(sent.color, 0xFFFFFF);
 });
 
 test('one-use invite deletion is retained long enough to identify the joining member', async () => {
