@@ -15,10 +15,10 @@ const SMART_INDENT_EMOJI_NAMES = new Set([
 // deliberately independent from the emoji markup length because Discord
 // renders a custom emoji as one visual icon, not as its raw <:name:id> text.
 const SMART_TEXT_COLUMNS = 79;
-// Discord can trim/collapse ordinary and non-breaking whitespace at the start
-// of embed lines. Braille blank is visually empty but survives Discord's
-// markdown renderer, so wrapped text keeps the intended hanging indent.
-const CONTINUATION_INDENT = '\u2800'.repeat(3);
+// Discord can discard whitespace that begins a rendered embed line. Start the
+// continuation with a zero-width word joiner, then use visible-width Unicode
+// spaces to match the custom emoji + gap text column without showing a glyph.
+const CONTINUATION_INDENT = '\u2060\u2003\u2009';
 const CUSTOM_EMOJI_LINE = /^(\s*)(<a?:([^:>]+):\d+>)[ \t]+(.*)$/;
 const ANY_CUSTOM_EMOJI_LINE = /^\s*<a?:[^:>]+:\d+>/;
 
