@@ -49,6 +49,26 @@ pageSource = pageSource
 
 const indentHelperMarker = `      function bindFieldEditor(editor, input, options) {`;
 const indentHelper = `      function preserveManualIndentSpaces(editor, syncFn, rememberFn) {
+        function previousCharacterRange(range) {
+          const probe = range.cloneRange();
+          const container = range.startContainer;
+          const offset = range.startOffset;
+
+          if (container?.nodeType === Node.TEXT_NODE && offset > 0) {
+            probe.setStart(container, offset - 1);
+            probe.setEnd(container, offset);
+            return probe;
+          }
+
+          let node = container;
+          if (node?.nodeType === Node.ELEMENT_NODE && offset > 0) node = node.childNodes[offset - 1];
+          while (node?.lastChild) node = node.lastChild;
+          if (node?.nodeType !== Node.TEXT_NODE || !node.nodeValue?.length) return null;
+          probe.setStart(node, node.nodeValue.length - 1);
+          probe.setEnd(node, node.nodeValue.length);
+          return probe;
+        }
+
         editor.addEventListener('beforeinput', event => {
           if (event.inputType !== 'insertText' || event.data !== ' ') return;
           const selection = window.getSelection();
@@ -61,23 +81,22 @@ const indentHelper = `      function preserveManualIndentSpaces(editor, syncFn, 
           const before = beforeRange.toString();
           const lineStart = before.lastIndexOf(String.fromCharCode(10)) + 1;
           const currentLinePrefix = before.slice(lineStart);
-
-          const caretRect = range.getBoundingClientRect();
-          const editorRect = editor.getBoundingClientRect();
-          const computed = getComputedStyle(editor);
-          const contentLeft = editorRect.left + (parseFloat(computed.paddingLeft) || 0);
-          const atVisualWrapStart = Boolean(
-            currentLinePrefix &&
-            caretRect &&
-            Number.isFinite(caretRect.left) &&
-            caretRect.left <= contentLeft + 10
-          );
           const onlyIndent = !currentLinePrefix || /^[\\u2063\\u2002\\u2009 ]+$/.test(currentLinePrefix);
 
-          // On a narrow mobile screen a visually wrapped line is still part of
-          // the same logical line. Pressing space there used to store spaces in
-          // the middle of the sentence, which caused giant gaps in Discord.
-          // Convert that visual wrap point to a real newline first, then indent.
+          let atVisualWrapStart = false;
+          if (!onlyIndent && range.collapsed) {
+            const previousRange = previousCharacterRange(range);
+            const previousRect = previousRange?.getBoundingClientRect?.();
+            const caretRect = range.getBoundingClientRect?.();
+            if (previousRect && caretRect && previousRect.height && caretRect.height) {
+              const threshold = Math.max(2, Math.min(previousRect.height, caretRect.height) * 0.35);
+              atVisualWrapStart = caretRect.top - previousRect.top > threshold;
+            }
+          }
+
+          // A normal mid-sentence space must stay untouched. We only intervene
+          // for real logical-line indentation or when the caret has genuinely
+          // wrapped onto a lower visual line than the preceding character.
           if (!onlyIndent && !atVisualWrapStart) return;
 
           event.preventDefault();
@@ -95,58 +114,22 @@ const indentHelper = `      function preserveManualIndentSpaces(editor, syncFn, 
       }
 
       function bindFieldEditor(editor, input, options) {`;
+
 if (!pageSource.includes('function preserveManualIndentSpaces(editor, syncFn, rememberFn)')) {
   if (!pageSource.includes(indentHelperMarker)) {
     console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected field editor marker not found');
     process.exit(1);
   }
   pageSource = pageSource.replace(indentHelperMarker, indentHelper);
+} else {
+  const helperStart = pageSource.indexOf('      function preserveManualIndentSpaces(editor, syncFn, rememberFn) {');
+  const helperEnd = pageSource.indexOf('\n      function bindFieldEditor(editor, input, options) {', helperStart);
+  if (helperStart === -1 || helperEnd === -1) {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] existing mobile indentation helper could not be replaced safely');
+    process.exit(1);
+  }
+  pageSource = pageSource.slice(0, helperStart) + indentHelper.replace(indentHelperMarker, '') + pageSource.slice(helperEnd);
 }
-
-// Upgrade earlier mobile-spacing implementations in already-patched source.
-pageSource = pageSource.replace(
-`          const beforeRange = range.cloneRange();
-          beforeRange.selectNodeContents(editor);
-          beforeRange.setEnd(range.startContainer, range.startOffset);
-          const before = beforeRange.toString();
-          const lineStart = before.lastIndexOf(String.fromCharCode(10)) + 1;
-          const currentLinePrefix = before.slice(lineStart);
-
-          // Only special-case indentation at the start of a logical line.
-          // Each tap inserts exactly one preserved space-width token so iOS
-          // shows movement immediately. Mid-sentence spaces stay completely
-          // normal, preventing large gaps such as "while     the".
-          if (currentLinePrefix && !/^[\\u2063\\u2009 ]+$/.test(currentLinePrefix)) return;
-
-          event.preventDefault();
-          range.deleteContents();
-          const node = document.createTextNode(String.fromCharCode(8291) + String.fromCharCode(8201));`,
-`          const beforeRange = range.cloneRange();
-          beforeRange.selectNodeContents(editor);
-          beforeRange.setEnd(range.startContainer, range.startOffset);
-          const before = beforeRange.toString();
-          const lineStart = before.lastIndexOf(String.fromCharCode(10)) + 1;
-          const currentLinePrefix = before.slice(lineStart);
-
-          const caretRect = range.getBoundingClientRect();
-          const editorRect = editor.getBoundingClientRect();
-          const computed = getComputedStyle(editor);
-          const contentLeft = editorRect.left + (parseFloat(computed.paddingLeft) || 0);
-          const atVisualWrapStart = Boolean(
-            currentLinePrefix &&
-            caretRect &&
-            Number.isFinite(caretRect.left) &&
-            caretRect.left <= contentLeft + 10
-          );
-          const onlyIndent = !currentLinePrefix || /^[\\u2063\\u2002\\u2009 ]+$/.test(currentLinePrefix);
-
-          if (!onlyIndent && !atVisualWrapStart) return;
-
-          event.preventDefault();
-          range.deleteContents();
-          const prefix = atVisualWrapStart ? String.fromCharCode(10) : '';
-          const node = document.createTextNode(prefix + String.fromCharCode(8291) + String.fromCharCode(8194));`
-);
 
 const fieldBindMarker = `        editor.addEventListener('paste', event => {`;
 const fieldBindReplacement = `        if (state.allowNewlines) {
@@ -230,4 +213,4 @@ if (!sessionSource.includes(newEditorSaveAck)) {
   fs.writeFileSync(sessionTarget, sessionSource, 'utf8');
 }
 
-console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save + wrapped-line mobile indentation');
+console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save + reliable mobile wrap indentation');
