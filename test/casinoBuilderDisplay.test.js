@@ -47,7 +47,7 @@ function menuOptions(payload) {
   return rows.flatMap(row => row.components || []).find(component => component.type === 3)?.options || [];
 }
 
-test('casino templates use stable game names and render custom emoji without exposing its name', () => {
+test('casino Builder preserves saved display names and stable catalog targets', () => {
   const definitions = [
     ['game:roulette:won', 'Roulette win'],
     ['game:roulette:lost', 'Roulette loss'],
@@ -77,21 +77,16 @@ test('casino templates use stable game names and render custom emoji without exp
     records,
     'channel-gambling',
   ));
-  const byLabel = new Map(options.map(option => [option.label, option]));
 
-  assert.deepEqual(
-    [...byLabel.keys()].sort(),
-    definitions.map(([, label]) => label).sort(),
-  );
-  assert.deepEqual(byLabel.get('Roulette loss').emoji, {
-    id: '1543290732331270124',
-    name: 'W85animatedarrowred',
-    animated: true,
-  });
-  assert.equal(options.some(option => /W85animatedarrowred|<a?:/i.test(option.label)), false);
+  assert.equal(options.length, records.length);
+  for (const [index, record] of records.entries()) {
+    const option = options.find(item => item.value === `catalog-${index}:0`);
+    assert.ok(option, record.snapshot.author.name);
+    assert.equal(option.label, record.title);
+  }
 });
 
-test('legacy casino loss copies collapse into one canonical Save target per game', () => {
+test('existing legacy casino records stay available while preservation policy is active', () => {
   const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
   const cases = [
     ['game:roulette:lost', 'Roulette loss', 'gambling/roulette', {
@@ -130,18 +125,16 @@ test('legacy casino loss copies collapse into one canonical Save target per game
       'channel-gambling',
     ));
 
-    assert.equal(options.length, 1, context);
-    assert.equal(options[0].label, name, context);
-    assert.equal(options[0].value, 'catalog-0:0', context);
-    assert.deepEqual(options[0].emoji, {
-      id: '1543290732331270124',
-      name: 'W85animatedarrowred',
-      animated: true,
-    }, context);
+    assert.equal(options.length, 3, context);
+    assert.deepEqual(
+      options.map(option => option.value).sort(),
+      ['catalog-0:0', 'catalog-1:0', 'catalog-2:0'],
+      context,
+    );
   }
 });
 
-test('catalog cleanup migrates old Roulette copies without deleting the saved emoji title', async () => {
+test('catalog cleanup leaves existing Roulette copies untouched while preservation policy is active', async () => {
   const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
   const makeMessage = (id, title, key, createdTimestamp) => ({
     id,
@@ -158,12 +151,11 @@ test('catalog cleanup migrates old Roulette copies without deleting the saved em
         name: `Cloudy template key: ${key} || Cloudy context: ${key.startsWith('game:') ? 'gambling/roulette' : 'gambling'} || Cloudy kind: embed`,
       },
     })],
-    async edit(payload) {
-      this.embeds = payload.embeds;
-      return this;
+    async edit() {
+      assert.fail('Existing Roulette catalog message was rewritten');
     },
     async delete() {
-      this.deleted = true;
+      assert.fail('Existing Roulette catalog message was deleted');
     },
   });
   const messages = [
@@ -171,22 +163,20 @@ test('catalog cleanup migrates old Roulette copies without deleting the saved em
     makeMessage('roulette-legacy-one', emojiTitle, 'embed:legacy-one', 2),
     makeMessage('roulette-legacy-two', emojiTitle, 'embed:legacy-two', 3),
   ];
+  const before = JSON.stringify(messages.map(message => ({
+    id: message.id,
+    embeds: message.embeds.map(embed => embed.toJSON()),
+  })));
 
-  assert.equal(await cleanupSystemCatalogEntries(messages), true);
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].id, 'roulette-canonical');
-  const migrated = messages[0].embeds[0].toJSON();
-  assert.equal(migrated.title, emojiTitle);
-  assert.match(migrated.author.name, /game:roulette:lost/);
-
-  messages.push(makeMessage('roulette-new-default-copy', 'Roulette loss', 'game:roulette:lost', 4));
-  assert.equal(await cleanupSystemCatalogEntries(messages), true);
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].id, 'roulette-canonical');
-  assert.equal(messages[0].embeds[0].toJSON().title, emojiTitle);
+  assert.equal(await cleanupSystemCatalogEntries(messages), false);
+  assert.equal(messages.length, 3);
+  assert.equal(JSON.stringify(messages.map(message => ({
+    id: message.id,
+    embeds: message.embeds.map(embed => embed.toJSON()),
+  }))), before);
 });
 
-test('saved casino titles are applied to the next real channel result while live values stay dynamic', () => {
+test('saved casino styling cannot change the semantic identity of a real result', () => {
   const cases = [
     {
       key: 'game:roulette:lost',
@@ -201,7 +191,6 @@ test('saved casino titles are applied to the next real channel result while live
           { name: 'Cash balance', value: '**$90**', inline: true },
         ],
       },
-      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
     },
     {
       key: 'game:blackjack:result:loss',
@@ -211,7 +200,6 @@ test('saved casino titles are applied to the next real channel result while live
         title: 'Blackjack loss',
         description: 'Payout: **$0**\nCash balance: **$80**',
       },
-      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
     },
     {
       key: 'game:baccarat:loss',
@@ -221,14 +209,13 @@ test('saved casino titles are applied to the next real channel result while live
         title: 'Baccarat loss',
         description: 'You chose **player**. Winner: **banker**\nYou lost **$10**\nCash balance: **$70**',
       },
-      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
     },
   ];
 
   for (const item of cases) {
     primeSystemEmbedTemplateData(item.key, item.context, {
       ...item.runtime,
-      title: item.title,
+      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
       color: 0x900003,
     });
 
@@ -236,8 +223,8 @@ test('saved casino titles are applied to the next real channel result while live
       commandName: item.commandName,
     });
 
-    assert.equal(rendered.title, item.title);
-    assert.equal(rendered.color, 0x900003);
+    assert.equal(rendered.title, item.runtime.title);
+    assert.equal(rendered.color, 0x670102);
     assert.equal(rendered.description, item.runtime.description);
   }
 });
