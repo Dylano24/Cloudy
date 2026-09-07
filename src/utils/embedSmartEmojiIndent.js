@@ -11,78 +11,41 @@ const SMART_INDENT_EMOJI_NAMES = new Set([
     'W86arrow3',
 ]);
 
-// Fixed wrap width for Embed Builder descriptions only. Discord itself cannot
-// provide a real hanging indent, so Cloudy inserts the hard line break first.
-const SMART_TEXT_COLUMNS = 79;
-
-// U+3164 is a glyph-like blank character, not leading whitespace, so Discord
-// does not trim it from the start of an embed line. The following spacing is
-// tuned to the visual width of one custom emoji plus its normal text gap.
-const CONTINUATION_INDENT = '\u3164\u2002\u200A';
-const CUSTOM_EMOJI_LINE = /^(\s*)(<a?:([^:>]+):\d+>)[ \t]+(.*)$/;
+const CUSTOM_EMOJI_LINE = /^(\s*)(<a?:([^:>]+):\d+>)(?:[ \t]+|$)/;
 const ANY_CUSTOM_EMOJI_LINE = /^\s*<a?:[^:>]+:\d+>/;
+const LEADING_INDENT = /^([ \t]+)/;
 
-function markdownVisibleLength(value) {
-    return String(value || '')
-        .replace(/<a?:[^:>]+:\d+>/g, '██')
-        .replace(/\*\*|__|~~|\|\||`/g, '')
-        .length;
-}
+// Discord may collapse/trim whitespace that begins an embed description line.
+// Keep the exact spacing the user typed by anchoring every leading space with a
+// zero-width character. Visually the normal space width remains unchanged, but
+// Markdown no longer sees a removable run of leading whitespace.
+function preserveLeadingIndent(line) {
+    const match = String(line || '').match(LEADING_INDENT);
+    if (!match) return line;
 
-function wrapTextColumn(value, maxColumns = SMART_TEXT_COLUMNS) {
-    const words = String(value || '').trim().split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
+    const anchored = [...match[1]].map(character => {
+        if (character === '\t') return '\u200B \u200B \u200B \u200B ';
+        return '\u200B ';
+    }).join('');
 
-    const lines = [];
-    let current = '';
-
-    for (const word of words) {
-        const candidate = current ? `${current} ${word}` : word;
-        if (current && markdownVisibleLength(candidate) > maxColumns) {
-            lines.push(current);
-            current = word;
-        } else {
-            current = candidate;
-        }
-    }
-
-    if (current) lines.push(current);
-    return lines;
+    return anchored + line.slice(match[1].length);
 }
 
 /**
- * Applies a hanging-indent workaround only to Embed Builder description blocks
- * beginning with one of the selected Cloudy custom emojis. Blank lines end the
- * block immediately. Other text and all other emojis remain untouched.
+ * Embed Builder description-only workaround for the selected Cloudy custom
+ * emojis. Cloudy does not guess wrapping anymore: the user's own line breaks
+ * and indentation are authoritative. A blank line ends the special block.
  */
 export function formatSmartEmojiIndent(value) {
     if (!value) return value;
 
     const sourceLines = String(value).split('\n');
     const output = [];
-    let activeBlock = null;
-
-    const flushActiveBlock = () => {
-        if (!activeBlock) return;
-
-        const text = activeBlock.parts.join(' ').replace(/\s+/g, ' ').trim();
-        const wrapped = wrapTextColumn(text);
-
-        if (!wrapped.length) {
-            output.push(activeBlock.emoji);
-        } else {
-            output.push(`${activeBlock.emoji} ${wrapped[0]}`);
-            for (const line of wrapped.slice(1)) {
-                output.push(`${CONTINUATION_INDENT}${line}`);
-            }
-        }
-
-        activeBlock = null;
-    };
+    let activeBlock = false;
 
     for (const line of sourceLines) {
         if (!line.trim()) {
-            flushActiveBlock();
+            activeBlock = false;
             output.push(line);
             continue;
         }
@@ -90,30 +53,22 @@ export function formatSmartEmojiIndent(value) {
         const emojiMatch = line.match(CUSTOM_EMOJI_LINE);
         const emojiName = emojiMatch?.[3] || '';
 
-        if (emojiMatch && SMART_INDENT_EMOJI_NAMES.has(emojiName)) {
-            flushActiveBlock();
-            activeBlock = {
-                emoji: emojiMatch[2],
-                parts: [emojiMatch[4]],
-            };
+        if (emojiMatch) {
+            activeBlock = SMART_INDENT_EMOJI_NAMES.has(emojiName);
+            output.push(line);
             continue;
         }
 
-        if (activeBlock) {
-            if (ANY_CUSTOM_EMOJI_LINE.test(line)) {
-                flushActiveBlock();
-                output.push(line);
-            } else {
-                activeBlock.parts.push(line.trim());
-            }
+        if (activeBlock && ANY_CUSTOM_EMOJI_LINE.test(line)) {
+            activeBlock = false;
+            output.push(line);
             continue;
         }
 
-        output.push(line);
+        output.push(activeBlock ? preserveLeadingIndent(line) : line);
     }
 
-    flushActiveBlock();
     return output.join('\n');
 }
 
-export const SMART_INDENT_CONTINUATION = CONTINUATION_INDENT;
+export const SMART_INDENT_CONTINUATION = '\u200B ';
