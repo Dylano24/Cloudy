@@ -40,6 +40,12 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Small status replies such as Success, Warning, Error, Invalid, Information, Wrong channel, Not enough, Expired, Failed, and similar acknowledgements must delete automatically after exactly 10 seconds.
 - Permanent logs, normal content embeds, games, guides, panels, and ticket logs are not transient status replies.
 
+## Default embed colors and dashboard lifetime
+
+- Ticket logs, fixed non-ticket log rules above, manually saved Embed Builder colors, and explicitly user-selected color previews are excluded from default color normalization.
+- For every other newly generated embed, green defaults normalize to `#00C49D`; any non-green default color normalizes to `#FFFFFF`.
+- Interactive configuration/dashboard messages (including Ticket Dashboard, Join to Create, and Embed Builder) delete after five minutes of inactivity. Activity resets the five-minute window.
+
 ## Current verified state
 
 - Baseline before this handoff: `61fad81ced310c2860ffa6b68d3b702f446917a7`.

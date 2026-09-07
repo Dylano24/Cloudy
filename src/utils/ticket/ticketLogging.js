@@ -8,6 +8,7 @@ import {
   buildStandardLogEmbed,
   formatRatingStars,
 } from '../logging/logEmbeds.js';
+import { setPreservedEmbedColor } from '../embedColorPolicy.js';
 
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
@@ -139,7 +140,8 @@ async function createTicketLogEmbed(guild, event) {
   }
   const titlePrefix = event.type === 'feedback' ? '⭐ ' : '';
   const author = await resolveTicketMemberAuthor(guild, event);
-  const embed = buildStandardLogEmbed({ color:style.color,title:`${titlePrefix}${style.title}`,inlineFields,fields,author,footer });
+  const embed = buildStandardLogEmbed({ color:null,title:`${titlePrefix}${style.title}`,inlineFields,fields,author,footer });
+  setPreservedEmbedColor(embed, style.color);
   embed.setFooter({ text: CLOUDY_FOOTER });
   embed.setThumbnail(CLOUDY_C_LOGO_URL);
   return embed;
