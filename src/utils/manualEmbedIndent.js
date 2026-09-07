@@ -1,13 +1,12 @@
 // Only called while preparing an explicit Embed Builder Save. Existing
 // published embeds are never migrated by this helper.
-const BLANK = '\u2800';
-const THIN = '\u2063\u2009';
+const HAIR = '\u2063\u200A';
 const BULLET_WRAP_COLUMNS = 38;
 
 function normalizeLeadingIndent(line) {
-  return line.replace(/^(?:\u2063[\u2002\u2009]|[ \t\u00a0\u2002\u2009\u2800])+/, indent =>
-    indent.replace(/\u2063[\u2002\u2009]|[ \u00a0\u2002\u2009\u2800]|\t/g,
-      token => BLANK.repeat(token === '\t' ? 4 : 1)),
+  return line.replace(/^(?:\u2063[\u2002\u2009\u200A]|[ \t\u00a0\u2002\u2009\u200A\u2800])+/, indent =>
+    indent.replace(/\u2063[\u2002\u2009\u200A]|[ \u00a0\u2002\u2009\u200A\u2800]|\t/g,
+      token => HAIR.repeat(token === '\t' ? 4 : 1)),
   );
 }
 
@@ -24,19 +23,18 @@ function bulletParts(line) {
 }
 
 function stripContinuationIndent(line) {
-  return String(line || '').replace(/^(?:\u2063[\u2002\u2009]|[ \t\u00a0\u2002\u2009\u2800])+/, '').trim();
+  return String(line || '').replace(/^(?:\u2063[\u2002\u2009\u200A]|[ \t\u00a0\u2002\u2009\u200A\u2800])+/, '').trim();
 }
 
 function isContinuationLine(line) {
   if (!line || !String(line).trim()) return false;
   if (bulletParts(line)) return false;
-  return /^(?:\u2063[\u2002\u2009]|[ \t\u00a0\u2002\u2009\u2800])+/u.test(String(line));
+  return /^(?:\u2063[\u2002\u2009\u200A]|[ \t\u00a0\u2002\u2009\u200A\u2800])+/u.test(String(line));
 }
 
 function wrapWords(text, columns) {
   const words = String(text || '').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [''];
-
   const lines = [];
   let current = '';
   for (const word of words) {
@@ -44,9 +42,7 @@ function wrapWords(text, columns) {
     if (current && candidate.length > columns) {
       lines.push(current);
       current = word;
-    } else {
-      current = candidate;
-    }
+    } else current = candidate;
   }
   if (current) lines.push(current);
   return lines;
@@ -61,10 +57,10 @@ function renderBullet(parts, continuationBodies = []) {
   const wrapped = wrapWords(fullBody, BULLET_WRAP_COLUMNS);
   if (wrapped.length <= 1) return [`${normalizedPrefix}${parts.marker} ${wrapped[0]}`];
 
-  // Fine-tuned Discord-visible hanging indent: one braille blank plus one
-  // preserved thin space. This sits between the too-narrow one-blank offset
-  // and the too-wide two-blank offset, while leaving the marker untouched.
-  const continuation = normalizedPrefix + BLANK + THIN;
+  // Compact preserved spacing only: no normal spaces and no wide braille blank.
+  // Three hair spaces approximate the marker+gap width without creating the
+  // oversized mobile indent seen with U+2800. The marker itself is untouched.
+  const continuation = normalizedPrefix + HAIR.repeat(3);
   return [
     `${normalizedPrefix}${parts.marker} ${wrapped[0]}`,
     ...wrapped.slice(1).map(text => `${continuation}${text}`),
@@ -75,7 +71,6 @@ export function normalizeManualIndent(value) {
   let fence = null;
   const source = String(value ?? '').split('\n');
   const output = [];
-
   for (let index = 0; index < source.length; index += 1) {
     const line = source[index];
     const fenceMarker = line.match(/^\s*(`{3,}|~{3,})/);
@@ -85,16 +80,10 @@ export function normalizeManualIndent(value) {
       output.push(line);
       continue;
     }
-    if (fence) {
-      output.push(line);
-      continue;
-    }
+    if (fence) { output.push(line); continue; }
 
     const parts = bulletParts(line);
-    if (!parts) {
-      output.push(normalizeLeadingIndent(line));
-      continue;
-    }
+    if (!parts) { output.push(normalizeLeadingIndent(line)); continue; }
 
     const continuationBodies = [];
     let cursor = index + 1;
@@ -102,10 +91,8 @@ export function normalizeManualIndent(value) {
       continuationBodies.push(stripContinuationIndent(source[cursor]));
       cursor += 1;
     }
-
     output.push(...renderBullet(parts, continuationBodies));
     index = cursor - 1;
   }
-
   return output.join('\n');
 }
