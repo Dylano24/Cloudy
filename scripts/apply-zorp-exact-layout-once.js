@@ -1,7 +1,6 @@
 import { REST, Routes } from 'discord.js';
 
 const channelId = '1533212973034770462';
-const messageId = '1540279973691007048';
 const token = process.env.DISCORD_TOKEN;
 const HAIR = '\u2063\u200A';
 const CONT = HAIR.repeat(8);
@@ -12,19 +11,29 @@ if (!token) {
 }
 
 const rest = new REST({ version: '10' }).setToken(token);
-const message = await rest.get(Routes.channelMessage(channelId, messageId));
-const embeds = Array.isArray(message?.embeds) ? message.embeds : [];
+const messages = await rest.get(Routes.channelMessages(channelId), { query: new URLSearchParams({ limit: '100' }) });
 
-const targetIndex = embeds.findIndex(embed => {
-  const haystack = `${embed?.title || ''}\n${embed?.description || ''}`.toLowerCase();
-  return haystack.includes('zorp') && haystack.includes('important information') && haystack.includes('how to remove a zorp zone');
-});
+let message = null;
+let targetIndex = -1;
+for (const candidate of Array.isArray(messages) ? messages : []) {
+  const embeds = Array.isArray(candidate?.embeds) ? candidate.embeds : [];
+  const index = embeds.findIndex(embed => {
+    const haystack = `${embed?.title || ''}\n${embed?.description || ''}`.toLowerCase();
+    return haystack.includes('zorp') && haystack.includes('important information') && haystack.includes('how to remove a zorp zone');
+  });
+  if (index >= 0) {
+    message = candidate;
+    targetIndex = index;
+    break;
+  }
+}
 
-if (targetIndex < 0) {
-  console.error('[ZORP_EXACT_ONCE] Target embed not found; leaving unchanged');
+if (!message || targetIndex < 0) {
+  console.error('[ZORP_EXACT_ONCE] Current ZORP embed not found; leaving unchanged');
   process.exit(0);
 }
 
+const embeds = Array.isArray(message.embeds) ? message.embeds : [];
 const source = embeds[targetIndex];
 if (typeof source.description !== 'string') {
   console.error('[ZORP_EXACT_ONCE] Target description missing; leaving unchanged');
@@ -99,7 +108,7 @@ const nextDescription = [
 ].join('\n');
 
 if (nextDescription === source.description) {
-  console.log('[ZORP_EXACT_ONCE] Exact layout already present');
+  console.log(`[ZORP_EXACT_ONCE] Exact layout already present message=${message.id}`);
   process.exit(0);
 }
 
@@ -108,7 +117,7 @@ function sendableEmbed(embed, description) {
   for (const key of ['title', 'url', 'timestamp', 'color']) {
     if (embed?.[key] !== undefined) out[key] = embed[key];
   }
-  out.description = description;
+  if (description !== undefined) out.description = description;
   if (embed?.footer) out.footer = embed.footer;
   if (embed?.image?.url) out.image = { url: embed.image.url };
   if (embed?.thumbnail?.url) out.thumbnail = { url: embed.thumbnail.url };
@@ -125,5 +134,5 @@ const nextEmbeds = embeds.map((embed, index) =>
   index === targetIndex ? sendableEmbed(embed, nextDescription) : sendableEmbed(embed, embed.description),
 );
 
-await rest.patch(Routes.channelMessage(channelId, messageId), { body: { embeds: nextEmbeds } });
-console.log(`[ZORP_EXACT_ONCE] Updated exact ZORP layout message=${messageId}`);
+await rest.patch(Routes.channelMessage(channelId, message.id), { body: { embeds: nextEmbeds } });
+console.log(`[ZORP_EXACT_ONCE] Updated exact ZORP layout message=${message.id}`);
