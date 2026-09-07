@@ -87,7 +87,7 @@ async function getLogChannel(guild) {
   return channel;
 }
 
-async function sendInviteLog(guild, embed) {
+async function sendInviteLog(guild, embed, inviteType) {
   const channel = await getLogChannel(guild);
   if (!channel) return null;
 
@@ -99,7 +99,7 @@ async function sendInviteLog(guild, embed) {
     logger.error('Failed to apply saved invite log template:', error);
   }
 
-  finalEmbed = enforceFixedLogPresentation(finalEmbed, { invite: true });
+  finalEmbed = enforceFixedLogPresentation(finalEmbed, { inviteType });
 
   const sent = await channel.send({
     embeds: [finalEmbed],
@@ -199,7 +199,7 @@ export async function recordInviteCreated(invite) {
     .setTimestamp();
 
   if (inviter) embed.setThumbnail(inviter.displayAvatarURL({ size: 256 }));
-  await sendInviteLog(guild, embed);
+  await sendInviteLog(guild, embed, 'created');
 }
 
 export async function recordInviteDeleted(invite) {
@@ -354,5 +354,5 @@ export async function trackMemberInvite(member) {
     .setFooter({ text: `Cloudy Invite Tracking • Members: ${guild.memberCount}` })
     .setTimestamp();
 
-  await sendInviteLog(guild, embed);
+  await sendInviteLog(guild, embed, 'joined');
 }
