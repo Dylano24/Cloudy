@@ -30,24 +30,35 @@ test('web editor heartbeat establishes its builder hold once without changing co
   }
 });
 
-test('explicit web editor close releases the held session cleanly', async () => {
+test('closing and reopening editor refreshes the same session instead of expiring it', async () => {
+  const fields = [];
   const token = createEmbedColorPickerSession({
     userId: '1',
     onColor: async () => {},
-    getEditorState: () => ({}),
-    onEditorUpdate: async () => {},
+    getEditorState: () => ({ title: 'Still here' }),
+    onEditorUpdate: async field => {
+      fields.push(field);
+    },
   });
 
-  const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
-  assert.equal(heartbeat.ok, true);
+  try {
+    const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
+    assert.equal(heartbeat.ok, true);
 
-  const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__');
-  assert.equal(closed.ok, true);
-  assert.equal(JSON.parse(closed.color).type, 'editor_closed');
+    const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__');
+    assert.equal(closed.ok, true);
+    assert.equal(JSON.parse(closed.color).type, 'editor_closed');
 
-  const afterClose = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
-  assert.equal(afterClose.ok, false);
-  assert.equal(afterClose.reason, 'expired');
+    const reopened = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
+    assert.equal(reopened.ok, true);
+
+    const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__');
+    assert.equal(stateResult.ok, true);
+    assert.equal(JSON.parse(stateResult.color).title, 'Still here');
+    assert.deepEqual(fields, ['__heartbeat__', '__heartbeat__']);
+  } finally {
+    deleteEmbedColorPickerSession(token);
+  }
 });
 
 test('loading editor state does not create a phantom content update after the hold handshake', async () => {
@@ -90,7 +101,7 @@ test('expired Discord preview does not expire the open web editor session', asyn
     getEditorState: () => ({ title: currentTitle }),
     onEditorUpdate: async (field, value) => {
       if (field === 'title') currentTitle = value;
-      if (!previewAvailable && field !== '__heartbeat__') {
+      if (!previewAvailable) {
         const error = new Error('The message builder session has expired.');
         error.code = 'EMBED_BUILDER_EXPIRED';
         throw error;
@@ -103,6 +114,12 @@ test('expired Discord preview does not expire the open web editor session', asyn
     assert.equal(heartbeat.ok, true);
 
     previewAvailable = false;
+
+    const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__');
+    assert.equal(closed.ok, true);
+
+    const reopened = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
+    assert.equal(reopened.ok, true);
 
     const editPayload = '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({
       field: 'title',
