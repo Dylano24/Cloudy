@@ -1,6 +1,7 @@
 // Only called while preparing an explicit Embed Builder Save. Existing
 // published embeds are never migrated by this helper.
 const BLANK = '\u2800';
+const THIN = '\u2063\u2009';
 const BULLET_WRAP_COLUMNS = 38;
 
 function normalizeLeadingIndent(line) {
@@ -60,10 +61,10 @@ function renderBullet(parts, continuationBodies = []) {
   const wrapped = wrapWords(fullBody, BULLET_WRAP_COLUMNS);
   if (wrapped.length <= 1) return [`${normalizedPrefix}${parts.marker} ${wrapped[0]}`];
 
-  // One Discord-visible blank is the continuation offset used by the working
-  // How-to-claim layout. Keep the marker/emoji itself byte-for-byte unchanged.
-  // Re-saving rebuilds the same output, so indentation cannot accumulate.
-  const continuation = normalizedPrefix + BLANK;
+  // Fine-tuned Discord-visible hanging indent: one braille blank plus one
+  // preserved thin space. This sits between the too-narrow one-blank offset
+  // and the too-wide two-blank offset, while leaving the marker untouched.
+  const continuation = normalizedPrefix + BLANK + THIN;
   return [
     `${normalizedPrefix}${parts.marker} ${wrapped[0]}`,
     ...wrapped.slice(1).map(text => `${continuation}${text}`),
