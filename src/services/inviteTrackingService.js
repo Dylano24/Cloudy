@@ -1,5 +1,6 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
+import { enforceFixedLogPresentation } from './moderationLogPresentation.js';
 import { registerCloudyEmbedMessage } from './embedRegistryService.js';
 import { logger } from '../utils/logger.js';
 
@@ -97,6 +98,8 @@ async function sendInviteLog(guild, embed) {
   } catch (error) {
     logger.error('Failed to apply saved invite log template:', error);
   }
+
+  finalEmbed = enforceFixedLogPresentation(finalEmbed, { invite: true });
 
   const sent = await channel.send({
     embeds: [finalEmbed],
