@@ -39,3 +39,13 @@ test('ban and invite logs use the Cloudy logo without changing unrelated colors'
   assert.equal(joined.color, MODERATION_RESTORE_COLOR);
   assert.equal(joined.thumbnail.url, CLOUDY_LOGO_URL);
 });
+
+test('every non-ticket logging event replaces a user thumbnail with the Cloudy logo', () => {
+  for (const eventType of ['message.delete', 'role.update', 'member.leave', 'report.file']) {
+    const embed = enforceFixedLogPresentation(
+      new EmbedBuilder().setThumbnail('https://example.com/user.png'),
+      { eventType },
+    ).toJSON();
+    assert.equal(embed.thumbnail.url, CLOUDY_LOGO_URL);
+  }
+});
