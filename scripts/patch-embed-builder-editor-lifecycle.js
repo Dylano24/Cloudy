@@ -6,6 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const pageTarget = path.resolve(__dirname, '../src/web/embedColorPickerPage.js');
 const builderTarget = path.resolve(__dirname, '../src/commands/Tools/embedbuilder.js');
+const sessionTarget = path.resolve(__dirname, '../src/services/embedColorPickerSessionService.js');
 
 const oldLine = "    window.addEventListener('pagehide', () => clearInterval(heartbeatTimer), { once: true });";
 const replacement = `    function closeEditorSession() {
@@ -77,4 +78,26 @@ if (!builderSource.includes(newCollectorEnd)) {
   fs.writeFileSync(builderTarget, builderSource, 'utf8');
 }
 
-console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup');
+const oldEditorSaveAck = `        const nextValue = payload.value.slice(0, limit);
+        queueEditorUpdate(token, session, field, nextValue);
+        return { ok: true, color: JSON.stringify({ type: 'editor_saved', field, value: nextValue }) };`;
+
+const newEditorSaveAck = `        const nextValue = payload.value.slice(0, limit);
+        try {
+            await session.onEditorUpdate(field, nextValue);
+        } catch (error) {
+            if (error?.code !== 'EMBED_BUILDER_EXPIRED') throw error;
+        }
+        return { ok: true, color: JSON.stringify({ type: 'editor_saved', field, value: nextValue }) };`;
+
+let sessionSource = fs.readFileSync(sessionTarget, 'utf8');
+if (!sessionSource.includes(newEditorSaveAck)) {
+  if (!sessionSource.includes(oldEditorSaveAck)) {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected editor save acknowledgement marker not found');
+    process.exit(1);
+  }
+  sessionSource = sessionSource.replace(oldEditorSaveAck, newEditorSaveAck);
+  fs.writeFileSync(sessionTarget, sessionSource, 'utf8');
+}
+
+console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save');
