@@ -1,6 +1,5 @@
-// Only called while preparing an explicit Embed Builder Save. Use real glyphs
-// for leading indentation so Discord does not collapse Markdown whitespace.
-// Font metrics and line wrapping can still differ between Discord clients.
+// Only called while preparing an explicit Embed Builder Save. Existing
+// published embeds are never migrated by this helper.
 const BLANK = '\u2800';
 const BULLET_WRAP_COLUMNS = 38;
 
@@ -23,6 +22,16 @@ function bulletParts(line) {
   return null;
 }
 
+function stripContinuationIndent(line) {
+  return String(line || '').replace(/^(?:\u2063[\u2002\u2009]|[ \t\u00a0\u2002\u2009\u2800])+/, '').trim();
+}
+
+function isContinuationLine(line) {
+  if (!line || !String(line).trim()) return false;
+  if (bulletParts(line)) return false;
+  return /^(?:\u2063[\u2002\u2009]|[ \t\u00a0\u2002\u2009\u2800])+/u.test(String(line));
+}
+
 function wrapWords(text, columns) {
   const words = String(text || '').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [''];
@@ -42,17 +51,17 @@ function wrapWords(text, columns) {
   return lines;
 }
 
-function applyBulletHangingIndent(line) {
-  const parts = bulletParts(line);
-  if (!parts) return [normalizeLeadingIndent(line)];
-
+function renderBullet(parts, continuationBodies = []) {
   const normalizedPrefix = normalizeLeadingIndent(parts.indent);
-  const wrapped = wrapWords(parts.body, BULLET_WRAP_COLUMNS);
+  const fullBody = [parts.body, ...continuationBodies]
+    .map(part => String(part || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  const wrapped = wrapWords(fullBody, BULLET_WRAP_COLUMNS);
   if (wrapped.length <= 1) return [`${normalizedPrefix}${parts.marker} ${wrapped[0]}`];
 
-  // Use Discord-visible blank glyphs for continuation indentation. Explicit
-  // newlines make the logical layout the same on desktop and mobile instead
-  // of relying on each Discord client's automatic wrapping width.
+  // One stable hanging indent. Re-saving an already formatted bullet rebuilds
+  // this exact output instead of nesting/accumulating previous indentation.
   const continuation = normalizedPrefix + BLANK.repeat(2);
   return [
     `${normalizedPrefix}${parts.marker} ${wrapped[0]}`,
@@ -62,13 +71,15 @@ function applyBulletHangingIndent(line) {
 
 export function normalizeManualIndent(value) {
   let fence = null;
+  const source = String(value ?? '').split('\n');
   const output = [];
 
-  for (const line of String(value ?? '').split('\n')) {
-    const marker = line.match(/^\s*(`{3,}|~{3,})/);
-    if (marker) {
-      if (!fence) fence = marker[1];
-      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const line = source[index];
+    const fenceMarker = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fenceMarker) {
+      if (!fence) fence = fenceMarker[1];
+      else if (fenceMarker[1][0] === fence[0] && fenceMarker[1].length >= fence.length) fence = null;
       output.push(line);
       continue;
     }
@@ -77,7 +88,21 @@ export function normalizeManualIndent(value) {
       continue;
     }
 
-    output.push(...applyBulletHangingIndent(line));
+    const parts = bulletParts(line);
+    if (!parts) {
+      output.push(normalizeLeadingIndent(line));
+      continue;
+    }
+
+    const continuationBodies = [];
+    let cursor = index + 1;
+    while (cursor < source.length && isContinuationLine(source[cursor])) {
+      continuationBodies.push(stripContinuationIndent(source[cursor]));
+      cursor += 1;
+    }
+
+    output.push(...renderBullet(parts, continuationBodies));
+    index = cursor - 1;
   }
 
   return output.join('\n');
