@@ -94,22 +94,60 @@ async function payload(state, result = null, ended = false) {
 
 function dealerDraw(state) { while (score(state.dealer) < 17) state.dealer.push(draw(state)); }
 
-async function settle(state, component, collector) {
-  state.finished = true; dealerDraw(state);
-  const dealerScore = score(state.dealer); let payout = 0;
-  for (const hand of state.hands) {
-    const handScore = score(hand.cards);
-    if (handScore > 21) continue;
-    if (isBlackjack(hand.cards) && state.hands.length === 1) payout += Math.floor(hand.bet * 2.5);
-    else if (dealerScore > 21 || handScore > dealerScore) payout += hand.bet * 2;
-    else if (handScore === dealerScore) payout += hand.bet;
-  }
-  state.data.wallet += payout; await setEconomyData(state.client, state.guildId, state.user.id, state.data);
+function evaluateHandOutcome(hand, dealerScore, isSingleHand) {
+  const handScore = score(hand.cards);
+  if (handScore > 21) return 'bust';
+  if (isBlackjack(hand.cards) && isSingleHand) return 'win';
+  if (dealerScore > 21 || handScore > dealerScore) return 'win';
+  if (handScore === dealerScore) return 'push';
+  return 'loss';
+}
 
-  const allBust = state.hands.length > 0 && state.hands.every(hand => score(hand.cards) > 21);
-  const outcome = allBust ? 'bust' : payout > state.totalBet ? 'win' : payout === state.totalBet ? 'push' : 'loss';
-  const result = { title: outcome, text: `Payout: **${money(payout)}**\nCash balance: **${money(state.data.wallet)}**` };
-  await component.update(await payload(state, result, true)); collector.stop('finished');
+async function settle(state, component, collector) {
+  state.finished = true;
+  dealerDraw(state);
+
+  const dealerScore = score(state.dealer);
+  const isSingleHand = state.hands.length === 1;
+  const handOutcomes = [];
+  let payout = 0;
+
+  for (const hand of state.hands) {
+    const outcome = evaluateHandOutcome(hand, dealerScore, isSingleHand);
+    handOutcomes.push(outcome);
+
+    if (outcome === 'win') {
+      payout += isBlackjack(hand.cards) && isSingleHand
+        ? Math.floor(hand.bet * 2.5)
+        : hand.bet * 2;
+    } else if (outcome === 'push') {
+      payout += hand.bet;
+    }
+  }
+
+  state.data.wallet += payout;
+  await setEconomyData(state.client, state.guildId, state.user.id, state.data);
+
+  let outcome;
+  if (isSingleHand) {
+    outcome = handOutcomes[0];
+  } else if (handOutcomes.every(value => value === 'bust')) {
+    outcome = 'bust';
+  } else if (payout > state.totalBet) {
+    outcome = 'win';
+  } else if (payout === state.totalBet) {
+    outcome = 'push';
+  } else {
+    outcome = 'loss';
+  }
+
+  const result = {
+    title: outcome,
+    text: `Payout: **${money(payout)}**\nCash balance: **${money(state.data.wallet)}**`,
+  };
+
+  await component.update(await payload(state, result, true));
+  collector.stop('finished');
 }
 
 export default {
