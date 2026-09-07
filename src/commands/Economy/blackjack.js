@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
+import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
@@ -69,6 +70,7 @@ async function embed(state, result = null) {
     author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
     fields,
   });
+  gameEmbed.setThumbnail(CLOUDY_LOGO_URL);
 
   // Runtime hand data stays authoritative. The global embed template layer now
   // replaces only dynamic values, so a saved example bet/card value can never
