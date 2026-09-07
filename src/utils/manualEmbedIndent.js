@@ -1,7 +1,7 @@
 // Only called while preparing an explicit Embed Builder Save. Existing
 // published embeds are never migrated by this helper.
 const HAIR = '\u2063\u200A';
-const HANG = '\u2800\u2800\u2800';
+const HANG = '\u2800\u2800';
 const BULLET_WRAP_COLUMNS = 38;
 
 function normalizeLeadingIndent(line) {
@@ -58,9 +58,9 @@ function renderBullet(parts, continuationBodies = []) {
   const wrapped = wrapWords(fullBody, BULLET_WRAP_COLUMNS);
   if (wrapped.length <= 1) return [`${normalizedPrefix}${parts.marker} ${wrapped[0]}`];
 
-  // Discord preserves braille blanks at line starts consistently. Three blanks
-  // match the custom glowing-dot body column much more reliably than ordinary,
-  // thin, or hair spaces on both mobile and desktop.
+  // Discord preserves braille blanks at line starts consistently. Two blanks
+  // align continuation text with the custom glowing-dot body column on mobile
+  // while avoiding the extra right shift produced by three blanks.
   const continuation = normalizedPrefix + (parts.custom ? HANG : '\u2800');
   return [
     `${normalizedPrefix}${parts.marker} ${wrapped[0]}`,
