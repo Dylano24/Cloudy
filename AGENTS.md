@@ -26,7 +26,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Every non-ticket log uses the Cloudy logo as its thumbnail, never a member/user avatar.
 - Cloudy logo URL:
   `https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif`
-- Kick and timeout logs, including AutoMod: `#A9AF00`.
+- Kick and timeout logs, including AutoMod: `#FCFFA1`.
 - Unban and untimeout logs, including AutoMod: `#00C49D`.
 - `Invite created`: `#FFFFFF`.
 - `Member joined using invite`: `#00C49D`.

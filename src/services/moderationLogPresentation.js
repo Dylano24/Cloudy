@@ -1,7 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 
 export const CLOUDY_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
-export const MODERATION_RESTRICT_COLOR = 0xA9AF00;
+export const MODERATION_RESTRICT_COLOR = 0xFCFFA1;
 export const MODERATION_RESTORE_COLOR = 0x00C49D;
 
 const RESTRICT_TYPES = new Set(['moderation.kick', 'moderation.timeout']);
