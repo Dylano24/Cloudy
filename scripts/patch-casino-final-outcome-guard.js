@@ -17,7 +17,7 @@ const guard = `  if (template.thumbnail?.url) next.thumbnail = { ...template.thu
       || (game === 'baccarat' && ['win', 'loss', 'push'].includes(outcome))
       || (game === 'roulette' && ['win', 'loss'].includes(outcome));
     if (allowed) {
-      next.title = \\`\\${game.charAt(0).toUpperCase() + game.slice(1)} \\${outcome}\\`;
+      next.title = game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome;
       next.color = outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0x336699 : 0x670102;
       if (data.thumbnail?.url) next.thumbnail = { ...data.thumbnail };
     }
