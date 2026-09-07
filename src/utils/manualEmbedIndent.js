@@ -51,6 +51,13 @@ function wrapWords(text, columns) {
   return lines;
 }
 
+function markerTextIndent(marker) {
+  // A normal bullet glyph plus its following space occupies roughly one text
+  // column in Discord. Custom emoji are wider, so reserve two. Keep the
+  // original marker itself untouched; this only controls continuation lines.
+  return /^<a?:/u.test(marker) ? 2 : 1;
+}
+
 function renderBullet(parts, continuationBodies = []) {
   const normalizedPrefix = normalizeLeadingIndent(parts.indent);
   const fullBody = [parts.body, ...continuationBodies]
@@ -60,9 +67,9 @@ function renderBullet(parts, continuationBodies = []) {
   const wrapped = wrapWords(fullBody, BULLET_WRAP_COLUMNS);
   if (wrapped.length <= 1) return [`${normalizedPrefix}${parts.marker} ${wrapped[0]}`];
 
-  // One stable hanging indent. Re-saving an already formatted bullet rebuilds
-  // this exact output instead of nesting/accumulating previous indentation.
-  const continuation = normalizedPrefix + BLANK.repeat(2);
+  // Align continuation text with the first body character after the marker.
+  // Re-saving rebuilds the same output, so indentation cannot accumulate.
+  const continuation = normalizedPrefix + BLANK.repeat(markerTextIndent(parts.marker));
   return [
     `${normalizedPrefix}${parts.marker} ${wrapped[0]}`,
     ...wrapped.slice(1).map(text => `${continuation}${text}`),
