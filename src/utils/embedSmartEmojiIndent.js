@@ -11,15 +11,14 @@ const SMART_INDENT_EMOJI_NAMES = new Set([
     'W86arrow3',
 ]);
 
-// Tuned to the normal Discord embed description width. The text column is
-// deliberately independent from the emoji markup length because Discord
-// renders a custom emoji as one visual icon, not as its raw <:name:id> text.
+// Fixed wrap width for Embed Builder descriptions only. Discord itself cannot
+// provide a real hanging indent, so Cloudy inserts the hard line break first.
 const SMART_TEXT_COLUMNS = 79;
-// Discord trims whitespace at the beginning of embed text lines. Put a
-// zero-width-space anchor first, then normal spaces. The spaces are no longer
-// leading whitespace and Discord keeps their visual width, placing wrapped
-// text under the first character after the custom emoji.
-const CONTINUATION_INDENT = '\u200B     ';
+
+// U+3164 is a glyph-like blank character, not leading whitespace, so Discord
+// does not trim it from the start of an embed line. The following spacing is
+// tuned to the visual width of one custom emoji plus its normal text gap.
+const CONTINUATION_INDENT = '\u3164\u2002\u200A';
 const CUSTOM_EMOJI_LINE = /^(\s*)(<a?:([^:>]+):\d+>)[ \t]+(.*)$/;
 const ANY_CUSTOM_EMOJI_LINE = /^\s*<a?:[^:>]+:\d+>/;
 
@@ -52,9 +51,9 @@ function wrapTextColumn(value, maxColumns = SMART_TEXT_COLUMNS) {
 }
 
 /**
- * Applies a hanging-indent style only to blocks that begin with one of the
- * selected Cloudy custom emojis. Blank lines end the block immediately.
- * Other text and all other emojis remain untouched.
+ * Applies a hanging-indent workaround only to Embed Builder description blocks
+ * beginning with one of the selected Cloudy custom emojis. Blank lines end the
+ * block immediately. Other text and all other emojis remain untouched.
  */
 export function formatSmartEmojiIndent(value) {
     if (!value) return value;
