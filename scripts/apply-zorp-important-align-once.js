@@ -14,19 +14,21 @@ const rest = new REST({ version: '10' }).setToken(token);
 const message = await rest.get(Routes.channelMessage(channelId, messageId));
 
 const embeds = Array.isArray(message?.embeds) ? message.embeds : [];
-const targetIndex = embeds.findIndex(embed => /^\s*(?:☑️\s*)?ZORP Guide\s*$/i.test(String(embed?.title || '')));
+const targetIndex = embeds.findIndex(embed => {
+  const fields = Array.isArray(embed?.fields) ? embed.fields : [];
+  const hasImportant = fields.some(field => String(field?.name || '').trim().toLowerCase() === 'important information');
+  const haystack = `${embed?.title || ''}\n${embed?.description || ''}`.toLowerCase();
+  return hasImportant && haystack.includes('zorp');
+});
+
 if (targetIndex < 0) {
-  console.error('[ZORP_ALIGN_ONCE] ZORP Guide embed not found');
+  console.error('[ZORP_ALIGN_ONCE] ZORP embed with Important information field not found');
   process.exit(1);
 }
 
 const source = embeds[targetIndex];
 const fields = Array.isArray(source.fields) ? source.fields.map(field => ({ ...field })) : [];
 const importantIndex = fields.findIndex(field => String(field?.name || '').trim().toLowerCase() === 'important information');
-if (importantIndex < 0) {
-  console.error('[ZORP_ALIGN_ONCE] Important information field not found');
-  process.exit(1);
-}
 
 const before = String(fields[importantIndex].value || '');
 const after = normalizeManualIndent(before);
@@ -44,9 +46,9 @@ function sendableEmbed(embed, nextFields) {
     if (embed?.[key] !== undefined) out[key] = embed[key];
   }
   if (embed?.footer) out.footer = embed.footer;
-  if (embed?.image) out.image = { url: embed.image.url };
-  if (embed?.thumbnail) out.thumbnail = { url: embed.thumbnail.url };
-  if (embed?.author) out.author = {
+  if (embed?.image?.url) out.image = { url: embed.image.url };
+  if (embed?.thumbnail?.url) out.thumbnail = { url: embed.thumbnail.url };
+  if (embed?.author?.name) out.author = {
     name: embed.author.name,
     ...(embed.author.url ? { url: embed.author.url } : {}),
     ...(embed.author.icon_url ? { icon_url: embed.author.icon_url } : {}),
