@@ -67,6 +67,6 @@ test('manual Save changes the selected embed and keeps sibling embeds byte-for-b
       sourceEmbedData: message.embeds[0].toJSON(), cachedMessage: message, templateMode: false },
   });
   assert.equal(result.ok, true);
-  assert.equal(payload.embeds[0].description, '⠀⠀Saved text');
+  assert.equal(payload.embeds[0].description, '  Saved text');
   assert.deepEqual(payload.embeds[1], sibling);
 });
