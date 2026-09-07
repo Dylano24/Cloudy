@@ -59,16 +59,18 @@ const indentHelper = `      function preserveManualIndentSpaces(editor, syncFn, 
           beforeRange.selectNodeContents(editor);
           beforeRange.setEnd(range.startContainer, range.startOffset);
           const before = beforeRange.toString();
-          const atLineStart = !before || before.endsWith(String.fromCharCode(10));
-          if (!atLineStart) return;
+          const lineStart = before.lastIndexOf(String.fromCharCode(10)) + 1;
+          const currentLinePrefix = before.slice(lineStart);
 
-          // iOS/Safari can drop a normal leading space in contenteditable.
-          // Anchor only the first leading space with a zero-width character,
-          // then keep every following space as a normal BREAKABLE space.
-          // This avoids the large gaps/non-wrapping caused by NBSP on mobile.
+          // Only special-case indentation at the start of a logical line.
+          // Each tap inserts exactly one preserved space-width token so iOS
+          // shows movement immediately. Mid-sentence spaces stay completely
+          // normal, preventing large gaps such as "while     the".
+          if (currentLinePrefix && !/^[\u2063\u2009 ]+$/.test(currentLinePrefix)) return;
+
           event.preventDefault();
           range.deleteContents();
-          const node = document.createTextNode(String.fromCharCode(8203) + ' ');
+          const node = document.createTextNode(String.fromCharCode(8291) + String.fromCharCode(8201));
           range.insertNode(node);
           range.setStartAfter(node);
           range.collapse(true);
@@ -87,6 +89,40 @@ if (!pageSource.includes('function preserveManualIndentSpaces(editor, syncFn, re
   }
   pageSource = pageSource.replace(indentHelperMarker, indentHelper);
 }
+
+// Upgrade the previous mobile-spacing implementation in already-patched source.
+pageSource = pageSource.replace(
+`          const beforeRange = range.cloneRange();
+          beforeRange.selectNodeContents(editor);
+          beforeRange.setEnd(range.startContainer, range.startOffset);
+          const before = beforeRange.toString();
+          const atLineStart = !before || before.endsWith(String.fromCharCode(10));
+          if (!atLineStart) return;
+
+          // iOS/Safari can drop a normal leading space in contenteditable.
+          // Anchor only the first leading space with a zero-width character,
+          // then keep every following space as a normal BREAKABLE space.
+          // This avoids the large gaps/non-wrapping caused by NBSP on mobile.
+          event.preventDefault();
+          range.deleteContents();
+          const node = document.createTextNode(String.fromCharCode(8203) + ' ');`,
+`          const beforeRange = range.cloneRange();
+          beforeRange.selectNodeContents(editor);
+          beforeRange.setEnd(range.startContainer, range.startOffset);
+          const before = beforeRange.toString();
+          const lineStart = before.lastIndexOf(String.fromCharCode(10)) + 1;
+          const currentLinePrefix = before.slice(lineStart);
+
+          // Only special-case indentation at the start of a logical line.
+          // Each tap inserts exactly one preserved space-width token so iOS
+          // shows movement immediately. Mid-sentence spaces stay completely
+          // normal, preventing large gaps such as "while     the".
+          if (currentLinePrefix && !/^[\\u2063\\u2009 ]+$/.test(currentLinePrefix)) return;
+
+          event.preventDefault();
+          range.deleteContents();
+          const node = document.createTextNode(String.fromCharCode(8291) + String.fromCharCode(8201));`
+);
 
 const fieldBindMarker = `        editor.addEventListener('paste', event => {`;
 const fieldBindReplacement = `        if (state.allowNewlines) {
@@ -170,4 +206,4 @@ if (!sessionSource.includes(newEditorSaveAck)) {
   fs.writeFileSync(sessionTarget, sessionSource, 'utf8');
 }
 
-console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save + mobile-safe manual indentation');
+console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save + one-tap mobile indentation');
