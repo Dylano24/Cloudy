@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { InteractionWebhook, Message } from 'discord.js';
 
-export const BUILDER_SESSION_IDLE_MS = 5 * 60_000;
+export const BUILDER_SESSION_IDLE_MS = 14 * 60_000;
+const PREVIOUS_BUILDER_IDLE_MS = 5 * 60_000;
 const LEGACY_BUILDER_IDLE_MS = 30 * 60_000;
 const PENDING_MANAGER_PARENT_TTL_MS = 15_000;
 const PATCH_MARKER = Symbol.for('cloudy.builder-session-cleanup');
@@ -91,9 +92,6 @@ function holdBuilderSessionMessage(message, holdId, deleteMessage = null) {
   }
   messages.set(key, message);
 
-  // While the browser editor/picker exists there is literally no inactivity
-  // deletion timer. The Discord.js collector is created without its own idle
-  // timer, so Cloudy's timer below is the single source of truth.
   clearBuilderSessionTimer(key);
   return true;
 }
@@ -117,8 +115,7 @@ export function releaseBuilderSessionHold(holdId) {
     if (holds?.size) continue;
     sessionHoldIds.delete(key);
 
-    // The editor/picker has actually closed. Only now does the normal
-    // five-minute inactivity period begin again from zero.
+    // Closing/leaving the editor starts a fresh 14-minute inactivity window.
     touchBuilderSessionMessage(message);
   }
   return true;
@@ -180,9 +177,6 @@ export async function deleteBuilderSessionMessage(message) {
   const deleteThroughWebhook = sessionDeleters.get(key);
   sessionDeleters.delete(key);
 
-  // Managed collectors intentionally have no idle timeout. Stop them only when
-  // Cloudy is actually cleaning up the builder so their normal end handlers can
-  // release the associated editor session without creating a second delete path.
   if (collector && !collector.ended) collector.stop?.('builder-cleanup');
 
   if (deleteThroughWebhook) {
@@ -211,8 +205,6 @@ export function touchBuilderSessionMessage(message, deleteMessage = null, visite
   if (activeHoldId) {
     holdBuilderSessionMessage(message, activeHoldId, deleteMessage);
   } else if (isBuilderSessionHeld(key)) {
-    // Background tabs/apps can suspend JavaScript and network activity for an
-    // arbitrary amount of time. A held session therefore has NO deletion timer.
     clearBuilderSessionTimer(key);
   } else {
     clearBuilderSessionTimer(key);
@@ -261,7 +253,11 @@ export function installBuilderSessionCleanup() {
   Message.prototype.createMessageComponentCollector = function createBuilderAwareCollector(options = {}) {
     const requestedIdle = Number(options?.idle);
     const managedBuilder = isBuilderSessionMessage(this)
-      && (requestedIdle === LEGACY_BUILDER_IDLE_MS || requestedIdle === BUILDER_SESSION_IDLE_MS);
+      && (
+        requestedIdle === PREVIOUS_BUILDER_IDLE_MS
+        || requestedIdle === LEGACY_BUILDER_IDLE_MS
+        || requestedIdle === BUILDER_SESSION_IDLE_MS
+      );
     const collectorOptions = managedBuilder
       ? { ...options, idle: undefined }
       : options;
