@@ -1,5 +1,4 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { createEmbed } from '../../utils/embeds.js';
 import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -42,21 +41,25 @@ export default {
     const multiplier = numberBet ? (won ? 36 : 0) : (won ? 2 : 0);
     const result = await settleBet(interaction, client, userData, amount, multiplier);
 
-    const embed = createEmbed({
-      title: won ? 'Roulette win' : 'Roulette loss',
-      description: `The wheel landed on ${tile}\n**${number} • ${color.charAt(0).toUpperCase() + color.slice(1)}**`,
-      color: won ? 'success' : 'warning',
-      fields: [
-        { name: 'Your bet', value: `**${money(amount)}** on **${choice}**`, inline: true },
-        {
-          name: won ? 'Payout' : 'Result',
-          value: won ? `**${money(result.payout)}**` : `Lost **${money(amount)}**`,
-          inline: true,
-        },
-        { name: 'Cash balance', value: `**${money(result.balance)}**`, inline: true },
-      ],
-    });
-    embed.setThumbnail(CLOUDY_LOGO_URL);
+    const title = won ? 'Roulette win' : 'Roulette loss';
+    const description = `The wheel landed on ${tile}\n**${number} • ${color.charAt(0).toUpperCase() + color.slice(1)}**`;
+    const fields = [
+      { name: 'Your bet', value: `**${money(amount)}** on **${choice}**`, inline: true },
+      {
+        name: won ? 'Payout' : 'Result',
+        value: won ? `**${money(result.payout)}**` : `Lost **${money(amount)}**`,
+        inline: true,
+      },
+      { name: 'Cash balance', value: `**${money(result.balance)}**`, inline: true },
+    ];
+
+    const embed = {
+      title,
+      description,
+      color: won ? 0x00C49D : 0x670102,
+      fields,
+      thumbnail: { url: CLOUDY_LOGO_URL },
+    };
 
     await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components: [] });
   }, { command: 'roulette' }),
