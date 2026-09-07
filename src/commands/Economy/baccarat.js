@@ -9,6 +9,7 @@ import { cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const RESULT_COLORS = { win: 0x00C49D, loss: 0x670102, push: 0x336699 };
 const value = card => card.rank === 'A' ? 1 : ['10', 'J', 'Q', 'K'].includes(card.rank) ? 0 : Number(card.rank);
 const score = cards => cards.reduce((total, card) => total + value(card), 0) % 10;
 function deck() {
@@ -29,17 +30,26 @@ async function gameEmbed(client, user, amount, player = null, banker = null, res
     { name: 'Banker Hand', value: `${await cardsEmojiLine(client, banker)}\nValue: **${score(banker)}**`, inline: true },
   ] : [];
 
+  const normalizedOutcome = String(outcome || '').trim().toLowerCase();
+  if (RESULT_COLORS[normalizedOutcome] != null) {
+    return {
+      title: `Baccarat ${normalizedOutcome}`,
+      description: result || '',
+      color: RESULT_COLORS[normalizedOutcome],
+      author: { name: user.username, icon_url: user.displayAvatarURL() },
+      fields,
+      thumbnail: { url: CLOUDY_LOGO_URL },
+    };
+  }
+
   const game = createEmbed({
-    title: result ? `Baccarat ${outcome || 'result'}` : `Baccarat — Bet ${money(amount)}` ,
+    title: result ? `Baccarat ${normalizedOutcome || 'result'}` : `Baccarat — Bet ${money(amount)}`,
     description: result || 'Choose where to place your bet.',
-    color: result ? 'success' : 'primary',
+    color: 'primary',
     author: { name: user.username, iconURL: user.displayAvatarURL() },
     fields,
   });
   game.setThumbnail(CLOUDY_LOGO_URL);
-
-  // Preserve exact application-emoji markup in Discord while the complete fields
-  // are also registered in the automatic system embed catalog / embed builder.
   if (fields.length) game.data.fields = fields;
   return game;
 }
@@ -65,7 +75,7 @@ export default {
       let outcome = 'loss';
       let outcomeText = '';
       if (winner === 'tie' && pick !== 'tie') {
-        outcome = 'tie';
+        outcome = 'push';
         payout = amount;
         outcomeText = `Tie — your **${money(amount)}** bet was returned.`;
       } else if (pick === winner) {
