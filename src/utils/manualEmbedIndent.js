@@ -12,11 +12,11 @@ function normalizeLeadingIndent(line) {
 
 function bulletParts(line) {
   const standard = line.match(/^(\s*)([•◦▪▫‣⁃●○])\s+(.*)$/u);
-  if (standard) return { indent: standard[1], marker: standard[2], body: standard[3] };
+  if (standard) return { indent: standard[1], marker: standard[2], body: standard[3], custom: false };
 
   const custom = line.match(/^(\s*)(<a?:([^:>]+):\d+>)\s+(.*)$/u);
   if (custom && /(?:glowing)?dot|bullet/i.test(custom[3])) {
-    return { indent: custom[1], marker: custom[2], body: custom[4] };
+    return { indent: custom[1], marker: custom[2], body: custom[4], custom: true };
   }
 
   return null;
@@ -57,10 +57,10 @@ function renderBullet(parts, continuationBodies = []) {
   const wrapped = wrapWords(fullBody, BULLET_WRAP_COLUMNS);
   if (wrapped.length <= 1) return [`${normalizedPrefix}${parts.marker} ${wrapped[0]}`];
 
-  // Compact preserved offset for wrapped lines. Four hair spaces moves the
-  // continuation one micro-step right from the previous result while keeping
-  // the original dot/emoji and text untouched.
-  const continuation = normalizedPrefix + HAIR.repeat(4);
+  // Custom glowing dots occupy more horizontal space than a text bullet in
+  // Discord. Use a calibrated preserved offset so continuation text starts
+  // directly under the first body character on mobile and desktop.
+  const continuation = normalizedPrefix + HAIR.repeat(parts.custom ? 8 : 4);
   return [
     `${normalizedPrefix}${parts.marker} ${wrapped[0]}`,
     ...wrapped.slice(1).map(text => `${continuation}${text}`),
