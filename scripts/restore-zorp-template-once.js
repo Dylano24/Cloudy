@@ -27,7 +27,6 @@ client.once('ready', async () => {
     const index = target.embeds.findIndex(embed => /ZORP Guide/i.test(embed.title || ''));
     const current = target.embeds[index].toJSON();
     const redDot = customEmoji(guild, 'W8733476glowingdotred', '🔴');
-    const whiteDot = customEmoji(guild, 'W87205667glowingdotwhite', '⚪');
 
     const restoredData = {
       ...current,
@@ -37,7 +36,7 @@ client.once('ready', async () => {
         { name: 'How to claim a ZORP zone', value: ['To create a ZORP zone, the player must:','','• Be part of a team.','• Be the Team Leader.','• Use `Can I build around here?`','• Confirm the zone by selecting `Yes`.','','*You can find `Can I build around here?` and `Yes` in the Emote Wheel.*'].join('\n'), inline: false },
         { name: 'Important information', value: ['• ZORP zones expire after 24 hours.','• The timer is automatically reset while the team is online.','• A team cannot create a ZORP zone that overlaps with another team’s zone.','• If a player switches teams, their existing ZORP zone will be removed to prevent abuse.'].join('\n'), inline: false },
         { name: 'How to remove a ZORP zone', value: ['To delete an existing ZORP zone:','',`${redDot} Use \`Can I build around here?\``,`${redDot} Select \`Good Bye\` to confirm the removal.`].join('\n'), inline: false },
-        { name: 'Zone colors', value: [`${whiteDot} **White**`,'Newly created zone that will turn green shortly.','🟢 **Green**','Team is currently online.','🟡 **Yellow**','Team is offline; zone is about to turn red.','🔴 **Red**','Team is offline and the zone is protected.'].join('\n'), inline: false },
+        { name: 'Zone colors', value: ['⚪ **White**','Newly created zone that will turn green shortly.','🟢 **Green**','Team is currently online.','🟡 **Yellow**','Team is offline; zone is about to turn red.','🔴 **Red**','Team is offline and the zone is protected.'].join('\n'), inline: false },
       ],
     };
 
