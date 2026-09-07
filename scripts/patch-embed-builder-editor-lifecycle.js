@@ -41,8 +41,74 @@ if (!pageSource.includes(replacement)) {
     process.exit(1);
   }
   pageSource = pageSource.replace(oldLine, replacement);
-  fs.writeFileSync(pageTarget, pageSource, 'utf8');
 }
+
+pageSource = pageSource
+  .replace('white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }', 'white-space: break-spaces; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }')
+  .replace('white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }', 'white-space: break-spaces; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }');
+
+const indentHelperMarker = `      function bindFieldEditor(editor, input, options) {`;
+const indentHelper = `      function preserveManualIndentSpaces(editor, syncFn, rememberFn) {
+        editor.addEventListener('beforeinput', event => {
+          if (event.inputType !== 'insertText' || event.data !== ' ') return;
+          const selection = window.getSelection();
+          const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+          if (!range || !selectionIsInside(range, editor)) return;
+
+          const beforeRange = range.cloneRange();
+          beforeRange.selectNodeContents(editor);
+          beforeRange.setEnd(range.startContainer, range.startOffset);
+          const before = beforeRange.toString();
+          const preserve = !before || before.endsWith(String.fromCharCode(10)) || before.endsWith(' ') || before.endsWith(' ');
+          if (!preserve) return;
+
+          event.preventDefault();
+          range.deleteContents();
+          const node = document.createTextNode(' ');
+          range.insertNode(node);
+          range.setStartAfter(node);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          syncFn();
+          rememberFn?.();
+        });
+      }
+
+      function bindFieldEditor(editor, input, options) {`;
+if (!pageSource.includes('function preserveManualIndentSpaces(editor, syncFn, rememberFn)')) {
+  if (!pageSource.includes(indentHelperMarker)) {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected field editor marker not found');
+    process.exit(1);
+  }
+  pageSource = pageSource.replace(indentHelperMarker, indentHelper);
+}
+
+const fieldBindMarker = `        editor.addEventListener('paste', event => {`;
+const fieldBindReplacement = `        if (state.allowNewlines) {
+          preserveManualIndentSpaces(editor, () => syncFieldFromEditor(editor), () => rememberFieldRange(editor));
+        }
+        editor.addEventListener('paste', event => {`;
+if (!pageSource.includes('preserveManualIndentSpaces(editor, () => syncFieldFromEditor(editor)')) {
+  if (!pageSource.includes(fieldBindMarker)) {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected field paste marker not found');
+    process.exit(1);
+  }
+  pageSource = pageSource.replace(fieldBindMarker, fieldBindReplacement);
+}
+
+const messageBindMarker = `      messageEditor.addEventListener('paste', event => {`;
+const messageBindReplacement = `      preserveManualIndentSpaces(messageEditor, () => syncMessageFromEditor(), () => rememberRange(messageEditor, 'message'));
+      messageEditor.addEventListener('paste', event => {`;
+if (!pageSource.includes("preserveManualIndentSpaces(messageEditor, () => syncMessageFromEditor()")) {
+  if (!pageSource.includes(messageBindMarker)) {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected message paste marker not found');
+    process.exit(1);
+  }
+  pageSource = pageSource.replace(messageBindMarker, messageBindReplacement);
+}
+
+fs.writeFileSync(pageTarget, pageSource, 'utf8');
 
 const oldCollectorEnd = `            collector.on('end', async () => {
                 if (state.activeEmbedManager) {
@@ -100,4 +166,4 @@ if (!sessionSource.includes(newEditorSaveAck)) {
   fs.writeFileSync(sessionTarget, sessionSource, 'utf8');
 }
 
-console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save');
+console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save + preserved manual indentation');
