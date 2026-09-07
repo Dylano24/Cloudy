@@ -28,7 +28,7 @@ import { getGamblingResponsePolicy } from '../services/dedicatedChannelPolicy.js
 export { ErrorCodes, getErrorMetadata, resolveErrorCode, getDefaultErrorCodeByType } from './errorRegistry.js';
 export { ensureTypedServiceError, wrapServiceBoundary, wrapServiceClassMethods } from './serviceErrorBoundary.js';
 
-const ERROR_RESPONSE_TTL_MS = 15_000;
+const ERROR_RESPONSE_TTL_MS = 10_000;
 
 export const ErrorTypes = {
     VALIDATION: 'validation',

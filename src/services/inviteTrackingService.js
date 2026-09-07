@@ -93,7 +93,9 @@ async function sendInviteLog(guild, embed, inviteType) {
 
   let finalEmbed = embed;
   try {
-    const decorated = await decorateEmbedWithSavedTemplate(guild.id, channel.id, embed);
+    const decorated = await decorateEmbedWithSavedTemplate(guild.id, channel.id, embed, {
+      strictTitle: true,
+    });
     finalEmbed = decorated.embed || embed;
   } catch (error) {
     logger.error('Failed to apply saved invite log template:', error);
