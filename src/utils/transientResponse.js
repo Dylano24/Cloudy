@@ -1,5 +1,5 @@
 const TRANSIENT_TTL_MS = 10_000;
-const TRANSIENT_TITLE = /^(?:success|warning|error|system error|invalid\b.*|failed\b.*|failure\b.*|not found\b.*|missing\b.*|access denied\b.*|permission denied\b.*|unavailable\b.*|expired\b.*|could not\b.*)/i;
+const TRANSIENT_TITLE = /^(?:success|warning|error|system error|information|info|notice|done|saved\b.*|updated\b.*|removed\b.*|enabled\b.*|disabled\b.*|cancelled\b.*|canceled\b.*|invalid\b.*|failed\b.*|failure\b.*|wrong\b.*|not found\b.*|not enough\b.*|already\b.*|missing\b.*|access denied\b.*|permission denied\b.*|unavailable\b.*|expired\b.*|could not\b.*|cannot\b.*|can't\b.*)/i;
 
 export function isTransientStatusEmbed(embed) {
   const data = embed?.toJSON?.() || embed || {};
