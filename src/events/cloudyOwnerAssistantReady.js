@@ -6,7 +6,6 @@ import {
   Events,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
-import { answerWithProviders } from '../services/ownerAssistantProvider.js';
 
 export const FIX_GUIDE_CHANNEL_ID = '1546229542027534478';
 export const FIX_GUIDE_ASK_BUTTON_ID = 'cloudy_fix_guide_ask';
@@ -32,7 +31,7 @@ function buildPanel() {
         .setTitle(PANEL_TITLE)
         .setDescription(
           'Ask Cloudy anything — from technical Cloudy problems and bot errors to programming, troubleshooting, research and current information.\n\n' +
-          'Cloudy can investigate the live server, current bot context, embeds, runtime diagnostics, relevant source code and current public information when needed.\n\n' +
+          'Cloudy reads only the context you explicitly select with scan, analyze or prepare. Type help for instructions. Proposals are not executed. No live web access.\n\n' +
           '**How to use:** Click **❔ Ask** below and describe exactly what you want to know or fix.'
         )
         .setFooter({ text: '© Cloudy Inc. • Quality. Innovation. Performance.' }),
@@ -53,10 +52,6 @@ export default {
   once: true,
 
   async execute(client) {
-    // Safe provider code-path check: no server data and no Discord output.
-    void answerWithProviders({ question: 'Reply with OK.', systemPrompt: 'Reply briefly.', probe: true })
-      .then(result => logger.warn(`[OWNER_ASSISTANT] startup_probe=SUCCESS provider=${result.diagnostics.provider} model=${result.diagnostics.model}`))
-      .catch(error => logger.warn(`[OWNER_ASSISTANT] startup_probe=FAILED reason=${error.message}`));
     try {
       const channel = await client.channels.fetch(FIX_GUIDE_CHANNEL_ID).catch(() => null);
       if (!channel?.isTextBased?.() || channel.isThread?.() || !channel.messages?.fetch) {
@@ -84,10 +79,6 @@ export default {
         : await channel.send(buildPanel());
 
       if (client.db?.set) await client.db.set(PANEL_STATE_KEY, panelMessage.id).catch(() => {});
-      const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-      for (const message of recent?.values() || []) {
-        if (message.id !== panelMessage.id && isAssistantPanel(message, client.user.id)) await message.delete().catch(() => {});
-      }
       logger.warn(`[OWNER_ASSISTANT] FIX-GUIDE panel ready in channel ${FIX_GUIDE_CHANNEL_ID}`);
     } catch (error) {
       logger.error('[OWNER_ASSISTANT] Failed to reconcile FIX-GUIDE panel:', error);

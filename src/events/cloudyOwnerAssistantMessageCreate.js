@@ -5,6 +5,7 @@ import {
 } from '../services/ownerAssistantService.js';
 import { hasCloudyOwnerRole } from '../services/ownerRoleAccess.js';
 import { logger } from '../utils/logger.js';
+import { aiErrorMessage } from '../services/aiSafety.js';
 
 const OWNER_ASSISTANT_CHANNEL_NAME = 'botlog-commands';
 const MAX_QUESTION_LENGTH = 3000;
@@ -63,7 +64,8 @@ export default {
     if (!isOwnerAssistantChannel(message)) return;
     if (!hasCloudyOwnerRole(message)) return;
 
-    const question = String(message.content || '').trim();
+    if (message.webhookId || !/^!ai\s/.test(String(message.content || ''))) return;
+    const question = String(message.content || '').replace(/^!ai\s+/, '').trim();
     if (question.length < 3) return;
 
     const cooldown = getOwnerAssistantCooldown(message.author.id);
@@ -71,7 +73,7 @@ export default {
       const seconds = Math.max(1, Math.ceil(cooldown / 1000));
       const cooldownMessage = await message.reply({
         content: `Cloudy Assistant is still processing requests. Try again in ${seconds}s.`,
-        allowedMentions: { repliedUser: false },
+        allowedMentions: { parse: [], repliedUser: false },
       }).catch(() => null);
       if (cooldownMessage) {
         const timer = setTimeout(() => cooldownMessage.delete().catch(() => {}), 10_000);
@@ -82,8 +84,8 @@ export default {
 
     const normalizedQuestion = question.slice(0, MAX_QUESTION_LENGTH);
     const status = await message.reply({
-      content: 'Cloudy Assistant is checking live server data, code, logs and relevant sources…',
-      allowedMentions: { repliedUser: false },
+      content: 'Cloudy Assistant is processing your explicit request…',
+      allowedMentions: { parse: [], repliedUser: false },
     }).catch(() => null);
 
     try {
@@ -91,16 +93,17 @@ export default {
         message.client,
         message.guild,
         normalizedQuestion,
+        message,
       );
 
       const embeds = buildPacketEmbeds(message, result);
       if (!embeds.length) throw new Error('Owner Assistant generated an empty response.');
 
       if (status) {
-        await status.edit({ content: null, embeds: [embeds[0]] });
-        for (const embed of embeds.slice(1)) await message.channel.send({ embeds: [embed] });
+        await status.edit({ content: null, embeds: [embeds[0]], allowedMentions: { parse: [], repliedUser: false } });
+        for (const embed of embeds.slice(1)) await message.channel.send({ embeds: [embed], allowedMentions: { parse: [], repliedUser: false } });
       } else {
-        for (const embed of embeds) await message.channel.send({ embeds: [embed] });
+        for (const embed of embeds) await message.channel.send({ embeds: [embed], allowedMentions: { parse: [], repliedUser: false } });
       }
 
       logger.info(
@@ -110,11 +113,11 @@ export default {
     } catch (error) {
       logger.error('[OWNER_ASSISTANT] Failed to answer owner request:', error);
       const failure = {
-        content: 'Cloudy Assistant could not complete this request. No bot settings, embeds, code or server data were changed.',
+        content: aiErrorMessage(error),
         embeds: [],
       };
       if (status) await status.edit(failure).catch(() => {});
-      else await message.reply({ ...failure, allowedMentions: { repliedUser: false } }).catch(() => {});
+      else await message.reply({ ...failure, allowedMentions: { parse: [], repliedUser: false } }).catch(() => {});
     }
   },
 };
