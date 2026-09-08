@@ -486,6 +486,17 @@ async function handleSearchButton(interaction) {
   }).catch(() => null);
   if (!submitted) return true;
 
+  // A registry reconciliation can take longer than Discord's interaction ACK
+  // window. Acknowledge the modal first, then do the search and edit the same
+  // manager message with the results.
+  const acknowledged = await submitted.deferUpdate()
+    .then(() => true)
+    .catch(error => {
+      logger.error('[EMBED_BUILDER] Search acknowledgement failed:', error);
+      return submitted.deferred || submitted.replied;
+    });
+  if (!acknowledged) return true;
+
   const query = submitted.fields.getTextInputValue(SEARCH_INPUT_ID).trim();
   const records = await refreshRecords(interaction);
   const matches = findSearchMatches(interaction.guild, records, query);
@@ -493,12 +504,8 @@ async function handleSearchButton(interaction) {
   searchSessions.set(sessionKey(interaction), { query, matches, updatedAt: Date.now() });
 
   const payload = buildSearchResultsPayload(interaction.guild, query, matches, 0);
-  await submitted.update(payload).catch(async error => {
+  await submitted.editReply(payload).catch(error => {
     logger.error('[EMBED_BUILDER] Search result update failed:', error);
-    if (!submitted.replied && !submitted.deferred) {
-      await submitted.deferUpdate().catch(() => {});
-      await submitted.editReply(payload).catch(() => {});
-    }
   });
   return true;
 }
