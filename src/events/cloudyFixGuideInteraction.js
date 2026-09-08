@@ -19,6 +19,7 @@ import {
   FIX_GUIDE_QUESTION_INPUT_ID,
 } from './cloudyOwnerAssistantReady.js';
 import { logger } from '../utils/logger.js';
+import { aiErrorMessage } from '../services/aiSafety.js';
 
 const MAX_QUESTION_LENGTH = 4000;
 const EMBED_CHUNK_SIZE = 3900;
@@ -69,7 +70,7 @@ function buildQuestionModal() {
   const question = new TextInputBuilder()
     .setCustomId(FIX_GUIDE_QUESTION_INPUT_ID)
     .setLabel('What do you want Cloudy to investigate?')
-    .setPlaceholder('Describe the problem, question or task in as much detail as you want...')
+    .setPlaceholder('Ask a question, or type help for explicit scan/analyze/prepare commands. Do not submit secrets.')
     .setStyle(TextInputStyle.Paragraph)
     .setMinLength(3)
     .setMaxLength(MAX_QUESTION_LENGTH)
@@ -139,13 +140,14 @@ export default {
         interaction.client,
         interaction.guild,
         question,
+        interaction,
       );
       const embeds = buildAnswerEmbeds(interaction, result);
       if (!embeds.length) throw new Error('Fix Guide generated an empty response.');
 
-      await interaction.editReply({ content: null, embeds: [embeds[0]] });
+      await interaction.editReply({ content: null, embeds: [embeds[0]], allowedMentions: { parse: [], repliedUser: false } });
       for (const embed of embeds.slice(1)) {
-        await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [], repliedUser: false } });
       }
 
       logger.info(
@@ -156,9 +158,7 @@ export default {
     } catch (error) {
       logger.error('[OWNER_ASSISTANT] FIX-GUIDE request failed:', error);
       const payload = {
-        content: /local_rate_budget|rate_limit|429/.test(error.message)
-          ? 'Cloudy is temporarily at capacity. Please try again in about one minute.'
-          : 'Cloudy is temporarily unavailable. Please try again shortly. Your request did not change any server data.',
+        content: aiErrorMessage(error),
         embeds: [],
       };
       if (interaction.replied || interaction.deferred) await interaction.editReply(payload).catch(() => {});

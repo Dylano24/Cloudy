@@ -275,6 +275,10 @@ TitanBot requires the following Discord intents:
 - **Moderate Members**
 - **Connect**
 
+## Cloudy AI
+
+See [explicit AI setup, commands, permissions and limitations](docs/AI_INTEGRATION.md). The existing FAQ and Fix Guide forms share a local Ollama or explicitly enabled Groq provider. Questions do not automatically scan channels or source files; change proposals are not executed.
+
 ## License
 
 TitanBot is released under the MIT License. See [LICENSE](LICENSE) for details.
