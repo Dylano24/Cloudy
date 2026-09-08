@@ -29,8 +29,10 @@ Open the existing **Fix Guide → Ask** or **FAQ → Ask a question** form. Type
 | --- | --- | --- |
 | `What is a JavaScript promise?` or `ask QUESTION` | Answer only the supplied question; no context read | Existing form access |
 | `scan CHANNEL_ID 20 \| Summarize the discussion` | Read only that channel's last 1–50 messages, including embed text | Current Administrator permission or `OWNER_IDS`, current membership and both user/bot View Channel + Read Message History |
+| `history CHANNEL_ID 500 \| Find older relevant information` | Search up to 500 recent messages in one selected channel and send only bounded relevant evidence | Same current permissions as scan |
+| `code \| Find the ticket timeout implementation` | Search the current deployed `src/**/*.js` tree for bounded relevant snippets | Current membership plus user ID in `OWNER_IDS` |
 | `analyze src/config/bot.js \| Explain this configuration` | Read one allowed local file, up to 12 KB | Current guild membership plus user ID in `OWNER_IDS` |
-| `prepare src/config/bot.js \| Describe a minimal proposed change` | Produce a labelled, unapplied code suggestion and validation steps | Same bot-owner checks as analyze |
+| `prepare src/config/bot.js \| Describe a minimal proposed change` or `fix ...` | Produce a labelled, unapplied code suggestion and validation steps | Same bot-owner checks as analyze |
 | `help` | Explain syntax and limitations; no provider request | Existing form access |
 
 `!ai ask QUESTION` and `!ai help` work in `#botlog-commands` for its existing Owner-role users. Sensitive commands must use a private form; the public message route refuses them before reading data. A natural-language request such as “investigate all channels” is just a question: it cannot grant a retrieval scope. Put `ask` before text that begins with a reserved command word if it is only a question.
@@ -38,6 +40,8 @@ Open the existing **Fix Guide → Ask** or **FAQ → Ask a question** form. Type
 Source analysis permits `src/**/*.js`, `package.json` and `README.md`. It rejects traversal, absolute paths, backslashes/alternate streams, symlinks/junctions, secret-named files, missing files and oversized files. It does not read `.env`, logs, attachments, arbitrary URLs or remote repositories. The source shown is the local deployed checkout, potentially including the project's existing startup patches, not guaranteed current GitHub `main`. Each source result includes its path and SHA-256. The existing “Code files” footer counts local source reads.
 
 Proposals are suggestions, not validated patches. `apply` and `execute` are intentionally unsupported. Arbitrary generated code cannot safely run inside a bot holding a Discord token and database credentials. Review the proposal against current GitHub HEAD, implement only the requested change on a branch, run tests, and deploy only an explicitly approved change. This integration does not create commits or deploy from Discord.
+
+Identity questions use an application-owned answer without contacting a model: Cloudy identifies itself as an AI created, set up and managed by Dylano. Questions about model/provider/API keys/system prompts/hidden instructions receive the same privacy-safe identity answer. Provider/model identifiers and internal diagnostics are not included in user-visible replies.
 
 ## Provider selection and research (8 September 2026)
 
@@ -98,7 +102,7 @@ Set `CLOUDY_AI_PROVIDER=disabled` to stop model requests. No new dependency, dat
 - Prompt/evidence/output secret redaction is defense in depth, not a guarantee for arbitrary documents. Do not submit secrets. Model output is untrusted advice and can be incorrect. Prompt injection cannot invoke tools or writes because there are no execution capabilities, even if it affects answer quality.
 - Mentions are disabled in AI outputs. Audit logs store IDs, action, outcome, provider and byte counts, never question/evidence/answer bodies. Pre-existing non-AI logs are outside this change.
 
-Targeted command: `node --test test/ownerAssistantProvider.test.js test/ownerAssistantInteraction.test.js test/explicitAiService.test.js` — 26 tests passed on Node 24.19.0. Covers authentication, revoked permissions, cross-guild/denied-channel access, path traversal, junctions, size bounds, malicious evidence, tool-call refusal, provider failures, cloud opt-in, rate/concurrency budgets, secret redaction and private acknowledgement before provider calls.
+Targeted command: `node --test test/ownerAssistantProvider.test.js test/ownerAssistantInteraction.test.js test/explicitAiService.test.js` — 29 tests passed on Node 24.19.0. Covers authentication, identity/privacy answers, broad source search, history scans, revoked permissions, cross-guild/denied-channel access, path traversal, junctions, size bounds, malicious evidence, tool-call refusal, provider failures, cloud opt-in, rate/concurrency budgets, secret redaction and private acknowledgement before provider calls.
 
 Full suite was run in disposable copies because `npm test` executes source-rewriting patch scripts. Baseline: 154 tests, 144 pass, 10 fail. Integration: 171 tests, 161 pass, the **same 10 failures** in existing casino/embed/indent/catalog behavior. No additional failing test names. Lint has no errors (legacy warnings remain). Dependency audit: no high/critical vulnerabilities; one existing moderate transitive `qs` package finding. Lockfile/dependencies are unchanged.
 
