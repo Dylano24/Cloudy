@@ -6,7 +6,7 @@ export class AiError extends Error {
 
 export function aiErrorMessage(error) {
   const messages = {
-    invalid_request: 'Use help, ask QUESTION, scan CHANNEL_ID 20 | QUESTION, analyze src/path.js | QUESTION, or prepare src/path.js | CHANGE. Applying code is not supported inside Discord.',
+    invalid_request: 'Use help, ask QUESTION, scan CHANNEL_ID 20 | QUESTION, history CHANNEL_ID 500 | QUESTION, code | QUESTION, analyze src/path.js | QUESTION, or fix src/path.js | CHANGE. Applying code is not supported inside Discord.',
     forbidden: 'This action requires administrator rights (channel scans) or an OWNER_IDS bot owner (source files), plus access to the selected channel.',
     private_form_required: 'Use the private Fix Guide Ask form for scans and source analysis.',
     configuration: 'AI is not configured. Ask the bot owner to configure local Ollama or explicitly enable Groq in CLOUDY_AI_PROVIDER.',
@@ -46,16 +46,25 @@ export function parseAiRequest(input) {
   const text = String(input || '').trim();
   if (!text || text.length > 4000) throw new AiError('invalid_request');
   if (text === 'help') return { action: 'help' };
-  const scan = /^scan\s+(\d{17,20})\s+(\d{1,2})\s*\|\s*([\s\S]+)$/.exec(text);
+  const scan = /^(scan|history)\s+(\d{17,20})\s+(\d{1,3})\s*\|\s*([\s\S]+)$/.exec(text);
   if (scan) {
-    const limit = Number(scan[2]);
-    if (limit < 1 || limit > 50) throw new AiError('invalid_request');
-    return { action: 'scan', channelId: scan[1], limit, question: scan[3] };
+    const limit = Number(scan[3]);
+    const max = scan[1] === 'history' ? 500 : 50;
+    if (limit < 1 || limit > max) throw new AiError('invalid_request');
+    return { action: 'scan', channelId: scan[2], limit, question: scan[4] };
   }
-  const file = /^(analyze|prepare)\s+(\S+)\s*\|\s*([\s\S]+)$/.exec(text);
-  if (file) return { action: file[1], path: file[2], question: file[3] };
-  if (/^(scan|analyze|prepare|apply|execute)\b/i.test(text)) throw new AiError('invalid_request');
+  const file = /^(analyze|prepare|fix)\s+(\S+)\s*\|\s*([\s\S]+)$/.exec(text);
+  if (file) return { action: file[1] === 'fix' ? 'prepare' : file[1], path: file[2], question: file[3] };
+  const code = /^code\s*\|\s*([\s\S]+)$/.exec(text);
+  if (code) return { action: 'code', question: code[1] };
+  if (/^(scan|history|code|analyze|prepare|fix|apply|execute)\b/i.test(text)) throw new AiError('invalid_request');
   return { action: 'ask', question: text.replace(/^ask\s+/, '') };
+}
+
+export function aiIdentityAnswer(input) {
+  const text = String(input || '').toLowerCase();
+  if (!/(wie.*(gemaakt|gebouwd|opgezet)|door wie|who (made|built|created)|how (were|are) you (made|built)|welk model|which model|provider|api.?key|system prompt|hidden prompt|interne instruct|internal instruction|broncode van de ai|ai source code)/i.test(text)) return null;
+  return 'Ik ben een AI die is opgezet en beheerd door Dylano. Mijn interne configuratie, beveiligingsregels, providers, modellen, prompts en technische systeemdetails deel ik niet.';
 }
 
 export async function authorizeAiRequest(actor, request) {
