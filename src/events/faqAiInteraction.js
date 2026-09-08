@@ -2,9 +2,10 @@ import {
   EmbedBuilder,
   Events,
   MessageFlags,
-  PermissionFlagsBits,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { aiErrorMessage, redactAiText } from '../services/aiSafety.js';
+import { getAiProvider } from '../services/explicitAiProvider.js';
 import {
   FAQ_AI_BUTTON_ID,
   FAQ_AI_CHANNEL_ID,
@@ -135,7 +136,9 @@ export default {
           return;
         }
 
-        if (!process.env.GROQ_API_KEY?.trim()) {
+        let configured = true;
+        try { getAiProvider(); } catch { configured = false; }
+        if (!configured) {
           await interaction.reply({
             content: 'The private FAQ assistant is temporarily unavailable. Please open a support ticket.',
             flags: MessageFlags.Ephemeral,
@@ -202,7 +205,7 @@ export default {
     }
 
     try {
-      const answer = await answerFaqQuestion(client, question);
+      const answer = await answerFaqQuestion(client, question, interaction);
       const questionLabel = getLocalizedQuestionLabel(question, answer);
       const embed = new EmbedBuilder()
         .setColor('#000000')
@@ -210,7 +213,7 @@ export default {
         .setDescription(answer)
         .addFields({
           name: questionLabel,
-          value: question.length > 1000 ? `${question.slice(0, 997)}...` : question,
+          value: redactAiText(question).slice(0, 1000),
           inline: false,
         })
         .setFooter({ text: CLOUDY_FOOTER });
@@ -222,6 +225,7 @@ export default {
         content: '',
         embeds: [embedPayload],
         components: [],
+        allowedMentions: { parse: [], repliedUser: false },
       });
       scheduleEphemeralDeletion(interaction);
     } catch (error) {
@@ -233,14 +237,9 @@ export default {
         userId: interaction.user?.id,
       });
 
-      const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
-      const technicalError = String(error?.message || 'Unknown Groq API error').slice(0, 1200);
-
       await replyEphemeral(
         interaction,
-        isAdmin
-          ? `The FAQ AI request failed.\n\n**Admin diagnostic:** ${technicalError}\n\nCheck that \`GROQ_API_KEY\` is set in Railway. If the error mentions rate limits, wait briefly and try again.`
-          : 'The private FAQ assistant could not answer right now. Please open a support ticket.'
+        aiErrorMessage(error)
       );
     }
   },

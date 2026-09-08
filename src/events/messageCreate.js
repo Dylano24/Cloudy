@@ -30,7 +30,8 @@ export default {
     try {
       if (!message.guild || message.author.id === client.user?.id) return;
 
-      logger.debug(`Message received from ${message.author.tag}: ${message.content}`);
+      const isAiRequest = String(message.channel?.name || '').toLowerCase() === 'botlog-commands' && /^!ai\s/.test(message.content || '');
+      logger.debug(`Message received from ${message.author.tag}: ${isAiRequest ? '[AI request omitted]' : message.content}`);
 
       const identityBlocked = await enforceProtectedIdentityMessage(message);
       if (identityBlocked) {
@@ -63,6 +64,8 @@ export default {
 
 async function handlePrefixCommand(message, client) {
   try {
+    // The dedicated AI handler owns these requests; do not log prompt arguments.
+    if (String(message.channel?.name || '').toLowerCase() === 'botlog-commands' && /^!ai\s/.test(message.content || '')) return;
     const guildConfig = await getGuildConfig(client, message.guild.id);
     const prefix = guildConfig?.prefix || getCommandPrefix();
     const parsed = parsePrefixCommand(message.content, prefix);

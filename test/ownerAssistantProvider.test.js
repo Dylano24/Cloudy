@@ -1,93 +1,137 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasCloudyOwnerRole } from '../src/services/ownerRoleAccess.js';
+import { createAiProvider, getAiProvider } from '../src/services/explicitAiProvider.js';
+import { redactAiText, createAiGate, parseAiRequest, AiError } from '../src/services/aiSafety.js';
 
-const originalFetch = globalThis.fetch;
-const originalOpenAI = process.env.OPENAI_API_KEY;
-const originalGroq = process.env.GROQ_API_KEY;
-let version = 0;
-async function setup(t, mock) {
-  process.env.OPENAI_API_KEY = 'test'; process.env.GROQ_API_KEY = 'test';
-  globalThis.fetch = mock;
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-    if (originalOpenAI === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = originalOpenAI;
-    if (originalGroq === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = originalGroq;
-  });
-  return import(`../src/services/ownerAssistantProvider.js?test=${++version}`);
-}
-const response = (data, status = 200) => ({ ok: status === 200, status, headers: new Headers(), json: async () => data });
-const answer = text => ({ output: [{ type: 'message', content: [{ type: 'output_text', text }] }] });
+const local = getAiProvider({ CLOUDY_AI_MODEL: 'qwen3:4b' });
+const response = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), { status, headers });
+const args = { question: 'Hello', config: local };
 
-test('Owner role required: administrator and server ownership do not grant access', () => {
-  const make = names => ({ member: { roles: { cache: { some: fn => names.some(name => fn({ name })) } } }, guild: { ownerId: '1' }, user: { id: '1' } });
-  assert.equal(hasCloudyOwnerRole(make(['Admin', 'Founder'])), false);
-  assert.equal(hasCloudyOwnerRole(make(['OWNER'])), true);
-  assert.equal(hasCloudyOwnerRole(make(['Owner Assistant'])), false);
-  assert.equal(hasCloudyOwnerRole({}), false);
+test('local provider requires no key and rejects cloud model tags and arbitrary URLs', () => {
+  assert.equal(local.url, 'http://127.0.0.1:11434/api/chat');
+  assert.equal(local.key, undefined);
+  for (const env of [{}, { CLOUDY_AI_MODEL: 'test-cloud' }, { CLOUDY_AI_PROVIDER: 'evil' },
+    { CLOUDY_AI_PROVIDER: 'groq', GROQ_API_KEY: 'test' },
+    { CLOUDY_AI_PROVIDER: 'groq', GROQ_API_KEY: 'test', CLOUDY_AI_ALLOW_CLOUD: 'true', CLOUDY_AI_MODEL: 'groq/compound' }]) {
+    assert.throws(() => getAiProvider(env), /configuration/);
+  }
+  assert.throws(() => getAiProvider({ CLOUDY_AI_PROVIDER: 'disabled' }), /disabled/);
 });
 
-test('general question answers without context retrieval and uses account-discovered model', async t => {
-  const { answerWithProviders } = await setup(t, async (url, options) => {
-    if (url.endsWith('/models')) return response({ data: [{ id: 'gpt-4.1' }] });
+test('Ollama payload has no tools, no auth, no streaming and a bounded timeout', async () => {
+  const answer = createAiProvider({ fetchImpl: async (url, options) => {
+    assert.equal(url, local.url);
+    assert.equal(options.headers.Authorization, undefined);
+    assert.equal(options.redirect, 'error');
+    assert.ok(options.signal instanceof AbortSignal);
     const body = JSON.parse(options.body);
-    assert.equal(body.model, 'gpt-4.1'); assert.equal(body.reasoning, undefined);
-    return response(answer('4'));
-  });
-  const result = await answerWithProviders({ question: '2+2?', systemPrompt: 'Be helpful', retrieve: () => assert.fail('Unnecessary retrieval') });
-  assert.equal(result.text, '4');
-});
-
-test('targeted retrieval is bounded even with huge Unicode evidence', async t => {
-  let round = 0;
-  const { answerWithProviders } = await setup(t, async (url, options) => {
-    if (url.endsWith('/models')) return response({ data: [{ id: 'gpt-4.1' }] });
-    const body = JSON.parse(options.body);
-    assert.ok(Buffer.byteLength(body.input) <= 8000);
-    if (!round++) return response({ output: [{ type: 'function_call', name: 'retrieve_context', arguments: JSON.stringify({ section: 'logs', query: 'ticket timeout' }) }] });
-    assert.match(body.input, /Retrieved evidence/);
-    return response(answer('Diagnosis'));
-  });
-  let retrievals = 0;
-  const result = await answerWithProviders({ question: 'Cloudy ticket timeout', systemPrompt: 'Be helpful', retrieve: async (section, query) => {
-    retrievals++; assert.equal(section, 'logs'); assert.equal(query, 'ticket timeout'); return '😀'.repeat(100000);
+    assert.equal(body.tools, undefined); assert.equal(body.stream, false);
+    assert.equal(body.options.num_predict, 1200);
+    assert.equal(body.messages[1].role, 'user');
+    assert.match(body.messages[0].content, /untrusted data/);
+    return response({ message: { content: 'Hallo' } });
   } });
-  assert.equal(result.text, 'Diagnosis'); assert.equal(retrievals, 1);
+  assert.equal((await answer(args)).text, 'Hallo');
 });
 
-test('OpenAI network failure reaches small Groq fallback; repeat is rate-gated', async t => {
-  let groqCalls = 0;
-  const { answerWithProviders } = await setup(t, async (url, options) => {
-    if (url.includes('openai.com')) throw new TypeError('network failure');
-    groqCalls++;
+test('Groq requires explicit cloud opt-in, fixed endpoint and disabled tool use', async () => {
+  const config = getAiProvider({ CLOUDY_AI_PROVIDER: 'groq', CLOUDY_AI_ALLOW_CLOUD: 'true', GROQ_API_KEY: 'test-key' });
+  const answer = createAiProvider({ fetchImpl: async (url, options) => {
+    assert.equal(url, 'https://api.groq.com/openai/v1/chat/completions');
+    assert.equal(options.headers.Authorization, 'Bearer test-key');
     const body = JSON.parse(options.body);
-    assert.ok(Buffer.byteLength(options.body) + body.max_completion_tokens + 512 <= 7000);
-    assert.doesNotMatch(body.messages[0].content, /retrieve_context/);
-    assert.match(body.messages[0].content, /Never attempt tool calls/);
-    return response({ choices: [{ message: { content: 'Fallback answer' } }] });
-  });
-  const args = { question: '😀'.repeat(10000), systemPrompt: 'x'.repeat(4000), retrieve: async () => '' };
-  assert.equal((await answerWithProviders(args)).diagnostics.provider, 'groq');
-  await assert.rejects(answerWithProviders(args), /local_rate_budget/);
-  assert.equal(groqCalls, 1);
-});
-
-test('OpenAI 404 tries another discovered model', async t => {
-  const { answerWithProviders } = await setup(t, async (url, options) => {
-    if (url.endsWith('/models')) return response({ data: [{ id: 'gpt-5.6-sol' }, { id: 'gpt-4.1' }] });
-    const body = JSON.parse(options.body);
-    return body.model === 'gpt-5.6-sol' ? response({ error: { code: 'model_not_found' } }, 404) : response(answer('OK'));
-  });
-  assert.equal((await answerWithProviders({ question: 'Hi', systemPrompt: 'Help', retrieve: async () => '' })).diagnostics.model, 'gpt-4.1');
-});
-
-test('429 is not retried and empty responses can fall back', async t => {
-  let openCalls = 0;
-  const { answerWithProviders } = await setup(t, async (url) => {
-    if (url.endsWith('/models')) return response({ data: [{ id: 'gpt-4.1' }, { id: 'gpt-4.1-mini' }] });
-    if (url.includes('openai.com')) { openCalls++; return response({ error: { code: 'rate_limit_exceeded' } }, 429); }
+    assert.equal(body.tool_choice, 'none'); assert.equal(body.tools, undefined);
+    assert.equal(body.model, 'openai/gpt-oss-20b');
     return response({ choices: [{ message: { content: 'OK' } }] });
-  });
-  assert.equal((await answerWithProviders({ question: 'Hi', systemPrompt: 'Help', retrieve: async () => '' })).diagnostics.provider, 'groq');
-  assert.equal(openCalls, 1);
+  } });
+  assert.equal((await answer({ ...args, config })).diagnostics.provider, 'groq');
+});
+
+test('429 is not retried, respects retry-after and never falls back to another provider', async () => {
+  let calls = 0, time = 0;
+  const answer = createAiProvider({ now: () => time, fetchImpl: async () => {
+    calls++; return response({ error: 'secret provider error' }, 429, { 'retry-after': '120' });
+  } });
+  await assert.rejects(answer(args), /rate_limit/);
+  time = 90_000;
+  await assert.rejects(answer(args), /rate_limit/);
+  assert.equal(calls, 1);
+  time = 121_000;
+  await assert.rejects(answer(args), /rate_limit/);
+  assert.equal(calls, 2);
+});
+
+test('provider failures never expose raw network or HTTP error bodies', async () => {
+  for (const failure of [async () => { throw new Error('PRIVATE_KEY=secret'); }, async () => response({ error: 'secret' }, 401),
+    async () => response({ error: 'secret' }, 500)]) {
+    const answer = createAiProvider({ fetchImpl: failure });
+    await assert.rejects(answer(args), error => error instanceof AiError && error.message === 'provider_unavailable');
+  }
+  const timeout = createAiProvider({ fetchImpl: async () => { throw new DOMException('secret', 'TimeoutError'); } });
+  await assert.rejects(timeout(args), /timeout/);
+});
+
+test('concurrent 429 responses cannot shorten an existing backoff', async () => {
+  let time = 0;
+  const pending = [];
+  const answer = createAiProvider({ now: () => time, fetchImpl: () => new Promise(resolve => { pending.push(resolve); }) });
+  const first = answer(args), second = answer(args);
+  pending[0](response({}, 429, { 'retry-after': '300' }));
+  await assert.rejects(first, /rate_limit/);
+  pending[1](response({}, 429, { 'retry-after': '60' }));
+  await assert.rejects(second, /rate_limit/);
+  time = 120_000;
+  await assert.rejects(answer(args), /rate_limit/);
+  assert.equal(pending.length, 2);
+});
+
+test('malformed, empty, oversized and tool-call responses fail closed', async () => {
+  for (const [data, expected] of [
+    [{ message: { content: '' } }, /empty_response/],
+    [{ message: { content: 'x'.repeat(100_000) } }, /response_too_large/],
+    [{ message: { content: 'Do it', tool_calls: [{ function: { name: 'shell' } }] } }, /unexpected_tool_call/],
+  ]) {
+    await assert.rejects(createAiProvider({ fetchImpl: async () => response(data) })(args), expected);
+  }
+  await assert.rejects(createAiProvider({ fetchImpl: async () => new Response('invalid json') })(args), /invalid_response/);
+});
+
+test('Unicode context is byte-bounded before any network call', async () => {
+  const answer = createAiProvider({ fetchImpl: () => assert.fail('must not call provider') });
+  await assert.rejects(answer({ ...args, evidence: '😀'.repeat(10_000) }), /context_too_large/);
+});
+
+test('secrets are redacted in questions, evidence and model output', async t => {
+  const old = process.env.TEST_AI_SECRET;
+  process.env.TEST_AI_SECRET = 'a-unique-long-secret-value';
+  t.after(() => { if (old === undefined) delete process.env.TEST_AI_SECRET; else process.env.TEST_AI_SECRET = old; });
+  const answer = createAiProvider({ fetchImpl: async (_url, options) => {
+    assert.doesNotMatch(options.body, /a-unique-long-secret-value|supersecret/);
+    return response({ message: { content: 'a-unique-long-secret-value password="supersecret"' } });
+  } });
+  assert.doesNotMatch((await answer({ ...args, question: 'a-unique-long-secret-value', evidence: 'password="supersecret"' })).text, /supersecret|a-unique/);
+  assert.doesNotMatch(redactAiText('-----BEGIN PRIVATE KEY-----\nprivate\n-----END PRIVATE KEY-----'), /private/);
+});
+
+test('rate gate bounds parallelism, per-user cooldown, global budget and expiry', () => {
+  let time = 0;
+  const reserve = createAiGate(() => time);
+  const one = reserve('a'), two = reserve('b');
+  assert.throws(() => reserve('c'), /rate_limit/);
+  one(); one();
+  assert.throws(() => reserve('a'), /rate_limit/);
+  two();
+  for (let i = 0; i < 8; i++) reserve(`user${i}`)();
+  assert.throws(() => reserve('x'), /rate_limit/);
+  time = 61_000;
+  reserve('a')();
+});
+
+test('only exact structured commands grant a scope; quoted instructions remain questions', () => {
+  assert.equal(parseAiRequest('Please scan every channel').action, 'ask');
+  assert.equal(parseAiRequest('ask scan 123456789012345678 20 | hello').action, 'ask');
+  assert.equal(parseAiRequest('scan 123456789012345678 20 | hello').limit, 20);
+  for (const text of ['scan all', 'scan 123456789012345678 99 | hi', 'apply 123', 'execute code', '']) {
+    assert.throws(() => parseAiRequest(text), /invalid_request/);
+  }
 });
