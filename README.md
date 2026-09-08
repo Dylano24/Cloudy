@@ -275,6 +275,10 @@ TitanBot requires the following Discord intents:
 - **Moderate Members**
 - **Connect**
 
+## Cloudy AI
+
+See [explicit AI setup, commands, permissions and limitations](docs/AI_INTEGRATION.md). Cloudy identifies itself as an AI set up by Dylano. The existing FAQ and Fix Guide forms share a local Ollama or explicitly enabled Groq provider. Questions do not automatically scan channels or source files; owners can explicitly search channel history and bot source, while change proposals remain reviewable and are not executed automatically.
+
 ## License
 
 TitanBot is released under the MIT License. See [LICENSE](LICENSE) for details.

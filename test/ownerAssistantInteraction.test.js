@@ -15,11 +15,11 @@ function interaction(names = ['Owner']) {
 
 test('Ask acknowledges ephemerally before API calls and edits the answer', async t => {
   const previous = globalThis.fetch;
-  const previousKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test';
+  const previousKey = process.env.CLOUDY_AI_MODEL;
+  process.env.CLOUDY_AI_MODEL = 'qwen3:4b';
   t.after(() => {
     globalThis.fetch = previous;
-    if (previousKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previousKey;
+    if (previousKey === undefined) delete process.env.CLOUDY_AI_MODEL; else process.env.CLOUDY_AI_MODEL = previousKey;
   });
   const item = interaction();
   let acknowledged = false, answered = false;
@@ -32,9 +32,8 @@ test('Ask acknowledges ephemerally before API calls and edits the answer', async
   item.followUp = async () => assert.fail('Unexpected followup');
   globalThis.fetch = async url => {
     assert.equal(acknowledged, true);
-    return { ok: true, status: 200, headers: new Headers(), json: async () => url.endsWith('/models')
-      ? { data: [{ id: 'gpt-4.1' }] }
-      : { output: [{ type: 'message', content: [{ type: 'output_text', text: '4' }] }] } };
+    assert.equal(url, 'http://127.0.0.1:11434/api/chat');
+    return new Response(JSON.stringify({ message: { content: '4' } }));
   };
   await handler.execute(item);
   assert.equal(answered, true);
