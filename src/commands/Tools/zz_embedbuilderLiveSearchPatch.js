@@ -12,7 +12,7 @@ import {
 
 const RUNTIME_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchRuntime');
 const RESPONSE_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchResponses');
-const OLD_SEARCH_BUTTON_ID = 'simple_embed_title_search';
+const OLD_SEARCH_BUTTON_ID = '__cloudy_removed_builder_search_button__';
 const PENDING_TTL = 5 * 60_000;
 const pendingSelections = globalThis.__cloudyEmbedBuilderSearchSelections
     || (globalThis.__cloudyEmbedBuilderSearchSelections = new Map());
