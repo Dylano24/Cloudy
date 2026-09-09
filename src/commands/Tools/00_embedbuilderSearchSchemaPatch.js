@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { SlashCommandBuilder } from 'discord.js';
 
-const SOURCE_PATCH_SENTINEL = 'const pendingSearchKey = `${interaction.guildId || interaction.guild?.id || \'dm\'}:${interaction.user?.id || \'unknown\'}`;';
+const SOURCE_PATCH_SENTINEL = "const pendingSearchKey = String(interaction.guildId || interaction.guild?.id || 'dm')";
 
 function patchEmbedBuilderSearchPreviewSource() {
     try {
@@ -60,7 +60,8 @@ function patchEmbedBuilderSearchPreviewSource() {
             // A selected /embedbuilder search result must behave exactly like a
             // normal Modify selection: load the real embed state before the first
             // builder render so the live preview and Save target are immediately correct.
-            const pendingSearchKey = \`${interaction.guildId || interaction.guild?.id || 'dm'}:${interaction.user?.id || 'unknown'}\`;
+            const pendingSearchKey = String(interaction.guildId || interaction.guild?.id || 'dm')
+                + ':' + String(interaction.user?.id || 'unknown');
             const pendingSearch = globalThis.__cloudyEmbedBuilderSearchSelections?.get?.(pendingSearchKey) || null;
             const pendingRecord = pendingSearch?.record || null;
             if (pendingRecord && interaction.guild) {
