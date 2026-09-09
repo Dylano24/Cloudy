@@ -49,6 +49,11 @@ patchFile(builderPath, [
     replace: "            .setLabel('Edit title & message')\n",
   },
   {
+    label: 'media button label',
+    find: "            .setLabel('Set picture/video GIF')\n",
+    replace: "            .setLabel('Add media')\n",
+  },
+  {
     label: 'button controls row',
     find: "    return [contentRow, actionRow];\n}",
     replace: "    const buttonRow = new ActionRowBuilder().addComponents(\n        new ButtonBuilder()\n            .setCustomId('simple_embed_buttons')\n            .setLabel('Edit buttons')\n            .setStyle(ButtonStyle.Secondary)\n            .setEmoji('🔘'),\n    );\n\n    return [contentRow, actionRow, buttonRow];\n}",
