@@ -411,7 +411,7 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
         await interaction.showModal(modal);
         const modalSubmission = await interaction.awaitModalSubmit({
             filter: (i) => i.customId === `jtc_name_modal_${triggerChannel.id}` && i.user.id === interaction.user.id,
-            time: 60000
+            time: 300000
         });
 
         if (!hasManageGuildPermission(modalSubmission.member)) {
@@ -419,6 +419,10 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
                 content: '❌ You need **Manage Server** permission to modify these settings.'
             });
             return;
+        }
+
+        if (!modalSubmission.replied && !modalSubmission.deferred) {
+            await modalSubmission.deferUpdate();
         }
 
         const newTemplate = modalSubmission.fields.getTextInputValue('name_template').trim();
@@ -430,34 +434,30 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
             );
         }
 
-        const updatedChannelConfig = await updateChannelConfig(
+        await updateChannelConfig(
             client,
             interaction.guild.id,
             triggerChannel.id,
             { nameTemplate: newTemplate }
         );
-        const updatedConfig = {
-            ...latestConfig,
-            channelConfig: {
-                ...(latestConfig.channelConfig || {}),
-                ...updatedChannelConfig,
-                nameTemplate: newTemplate
-            }
-        };
+
+        const savedConfig = await getChannelConfiguration(client, interaction.guild.id, triggerChannel.id);
+        if (savedConfig.channelConfig?.nameTemplate !== newTemplate) {
+            throw new TitanBotError(
+                'Channel name template did not persist',
+                ErrorTypes.DATABASE,
+                'The channel name could not be saved. Please try again.'
+            );
+        }
+
         const dashboardPayload = {
-            embeds: [buildConfigEmbed(triggerChannel, updatedConfig)],
+            embeds: [buildConfigEmbed(triggerChannel, savedConfig)],
             components: dashboardMessage?.components || []
         };
 
-        // A modal opened from this dashboard can update its source message
-        // directly. This is reliable for ephemeral replies and makes the saved
-        // value visible immediately instead of relying on a swallowed Message.edit.
-        let dashboardUpdated = false;
-        if (!modalSubmission.replied && !modalSubmission.deferred) {
-            dashboardUpdated = await modalSubmission.update(dashboardPayload)
-                .then(() => true)
-                .catch(() => false);
-        }
+        let dashboardUpdated = await modalSubmission.editReply(dashboardPayload)
+            .then(() => true)
+            .catch(() => false);
         if (!dashboardUpdated && dashboardMessage?.edit) {
             dashboardUpdated = await dashboardMessage.edit(dashboardPayload)
                 .then(() => true)
@@ -481,9 +481,7 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
             flags: MessageFlags.Ephemeral,
             fetchReply: true
         };
-        const successMessage = modalSubmission.replied || modalSubmission.deferred
-            ? await modalSubmission.followUp(successPayload).catch(() => null)
-            : await modalSubmission.reply(successPayload).catch(() => null);
+        const successMessage = await modalSubmission.followUp(successPayload).catch(() => null);
         if (successMessage) scheduleTransientDeletion(modalSubmission, successMessage);
     } catch (error) {
         if (error.code === 'INTERACTION_COLLECTOR_ERROR') return;
