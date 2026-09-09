@@ -798,7 +798,12 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
           name: templateField.name
             ? renderDynamic(templateField.name, runtimeField.name, { fallbackToRuntimeOnMismatch: true })
             : runtimeField.name,
-          value: templateField.value
+          // The JTC dashboard reads this value from channelOptions, just like
+          // its modal. A catalog snapshot must not replace the saved setting.
+          value: normalize(data.title) === 'join to create configuration'
+            && runtimeField.name === 'Channel name template'
+            ? runtimeField.value
+            : templateField.value
             ? renderDynamic(templateField.value, runtimeField.value, { fallbackToRuntimeOnMismatch: true })
             : runtimeField.value,
           inline: typeof templateField.inline === 'boolean' ? templateField.inline : runtimeField.inline,
