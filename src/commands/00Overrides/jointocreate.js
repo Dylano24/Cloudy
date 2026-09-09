@@ -2,10 +2,6 @@ import { ChannelType, MessageFlags, SlashCommandBuilder, PermissionFlagsBits } f
 import originalCommand from '../JoinToCreate/jointocreate.js';
 import { getConfiguration } from '../../services/joinToCreateService.js';
 
-// IMPORTANT: Discord validates CHANNEL options in the client before the bot receives
-// the interaction. Discord iOS can reject a selected channel with "A specified channel
-// ID is invalid". Publish dashboard without a CHANNEL option and resolve the single
-// persisted JTC trigger in the bot instead. Setup keeps its original options unchanged.
 const originalJson = originalCommand.data.toJSON();
 const setupJson = originalJson.options?.find(option => option.name === 'setup');
 
@@ -48,7 +44,14 @@ if (setupJson) {
 data.addSubcommand(subcommand =>
     subcommand
         .setName('dashboard')
-        .setDescription('Configure the active Join to Create system.')
+        .setDescription('Configure an existing Join to Create system.')
+        .addChannelOption(option =>
+            option
+                .setName('trigger_channel')
+                .setDescription('Voice channel to configure. Leave empty to use the active Join to Create channel.')
+                .setRequired(false)
+                .addChannelTypes(ChannelType.GuildVoice)
+        )
 );
 
 async function fetchVoiceChannel(guild, channelId) {
@@ -68,6 +71,14 @@ async function resolveConfiguredTrigger(interaction, client) {
     return null;
 }
 
+async function resolveDashboardChannel(interaction, client) {
+    const selectedChannel = interaction.options.getChannel('trigger_channel', false);
+    if (selectedChannel?.type === ChannelType.GuildVoice) {
+        return selectedChannel;
+    }
+    return resolveConfiguredTrigger(interaction, client);
+}
+
 export default {
     ...originalCommand,
     data,
@@ -77,7 +88,7 @@ export default {
             return originalCommand.execute(interaction, config, client);
         }
 
-        const triggerChannel = await resolveConfiguredTrigger(interaction, client);
+        const triggerChannel = await resolveDashboardChannel(interaction, client);
         if (!triggerChannel) {
             const content = 'No active Join to Create channel is configured for this server. Run `/jointocreate setup` first.';
             if (interaction.deferred || interaction.replied) {
@@ -86,8 +97,6 @@ export default {
             return interaction.reply({ content, flags: MessageFlags.Ephemeral });
         }
 
-        // Keep the existing dashboard implementation, including persisted name-template
-        // display/update behavior. It receives the resolved configured trigger exactly as before.
         const originalGetChannel = interaction.options.getChannel.bind(interaction.options);
         interaction.options.getChannel = (name, required = false) => {
             if (name === 'trigger_channel') return triggerChannel;
