@@ -10,6 +10,15 @@ import { Mutex } from '../../utils/mutex.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const OVERRIDE_DIRECTORY_SEGMENT = '/00Overrides/';
+
+function normalizedPath(filePath) {
+  return String(filePath || '').replace(/\\/g, '/');
+}
+
+function isOverrideCommandPath(filePath) {
+  return normalizedPath(filePath).includes(OVERRIDE_DIRECTORY_SEGMENT);
+}
 
 function getSubcommandInfo(commandData) {
   const subcommands = [];
@@ -112,7 +121,7 @@ export async function loadCommands(client) {
   client.commands = new Collection();
   const commandsPath = path.join(__dirname, '../../commands');
   const commandFiles = await getAllFiles(commandsPath);
-  const seen = new Set();
+  const loadedFrom = new Map();
   const loadErrors = [];
 
   logger.info(`[COMMAND_LOAD] Found ${commandFiles.length} command files.`);
@@ -131,14 +140,26 @@ export async function loadCommands(client) {
         logger.info(`[COMMAND_LOAD] /${commandName} is retired and was skipped.`);
         continue;
       }
-      if (!commandName || seen.has(commandName)) {
-        if (commandName) logger.warn(`[COMMAND_LOAD] Duplicate /${commandName} ignored: ${filePath}`);
+
+      if (!commandName) continue;
+
+      const existingPath = loadedFrom.get(commandName);
+      if (existingPath) {
+        if (isOverrideCommandPath(existingPath) && !isOverrideCommandPath(filePath)) {
+          logger.info(`[COMMAND_LOAD] Base /${commandName} skipped; 00Overrides implementation is authoritative.`);
+        } else {
+          logger.warn(
+            `[COMMAND_LOAD] Unexpected duplicate /${commandName} ignored: ${normalizedPath(filePath)} ` +
+            `(already loaded from ${normalizedPath(existingPath)})`
+          );
+        }
         continue;
       }
-      seen.add(commandName);
+
+      loadedFrom.set(commandName, filePath);
 
       command.category = command.category || path.basename(path.dirname(filePath));
-      command.filePath = filePath.replace(/\\/g, '/');
+      command.filePath = normalizedPath(filePath);
       if (typeof command.adminOnly !== 'boolean') {
         command.adminOnly = !isPlayerCommand(commandName);
       }
