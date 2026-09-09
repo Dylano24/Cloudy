@@ -4,7 +4,13 @@ import { getConfiguration } from '../../services/joinToCreateService.js';
 
 const dashboardSubcommand = originalCommand.data.options?.find(option => option?.name === 'dashboard');
 const triggerChannelOption = dashboardSubcommand?.options?.find(option => option?.name === 'trigger_channel');
-triggerChannelOption?.setRequired(false);
+if (triggerChannelOption) {
+    triggerChannelOption.setRequired(false);
+    // Do not publish a Discord-side channel-type restriction here. Discord mobile can
+    // reject an otherwise valid selected channel before the interaction reaches the bot.
+    // The bot validates/resolves the actual configured voice trigger below instead.
+    triggerChannelOption.channel_types = undefined;
+}
 
 function getRawTriggerChannelId(interaction) {
     const dashboardOption = interaction.options?.data?.find(option => option?.name === 'dashboard');
@@ -15,26 +21,30 @@ function getRawTriggerChannelId(interaction) {
     return /^\d{17,20}$/.test(id) ? id : null;
 }
 
-async function fetchVoiceChannel(guild, channelId) {
+async function fetchChannel(guild, channelId) {
     if (!guild || !channelId) return null;
-    const cached = guild.channels.cache?.get(channelId);
-    const channel = cached || await guild.channels.fetch(channelId).catch(() => null);
+    return guild.channels.cache?.get(channelId)
+        || await guild.channels.fetch(channelId).catch(() => null);
+}
+
+async function fetchVoiceChannel(guild, channelId) {
+    const channel = await fetchChannel(guild, channelId);
     return channel?.type === ChannelType.GuildVoice ? channel : null;
 }
 
 async function resolveDashboardTriggerChannel(interaction, client) {
-    // Prefer Discord.js' resolved channel. This is the canonical path on desktop
-    // and on mobile clients that hydrate the selected option correctly.
+    // Accept the selected channel object when Discord supplied it correctly.
     const hydrated = interaction.options.getChannel('trigger_channel', false);
     if (hydrated?.type === ChannelType.GuildVoice) return hydrated;
 
-    // Some Discord mobile interactions contain only the selected channel snowflake.
-    // Resolve that exact selected ID ourselves instead of treating it as invalid.
+    // Resolve the raw selected snowflake ourselves. This covers Discord mobile where
+    // the option can arrive without the same resolved-channel hydration as desktop.
     const selectedId = getRawTriggerChannelId(interaction);
     const selected = await fetchVoiceChannel(interaction.guild, selectedId);
     if (selected) return selected;
 
-    // Last-resort fallback for the one-trigger-per-guild JTC configuration.
+    // If mobile supplied no usable selection, use the persisted JTC trigger. The
+    // service supports one active trigger per guild, so this opens the same dashboard.
     const configuration = await getConfiguration(client, interaction.guild.id).catch(() => null);
     const triggerIds = Array.isArray(configuration?.triggerChannels) ? configuration.triggerChannels : [];
     for (const triggerId of triggerIds) {
@@ -62,8 +72,6 @@ export default {
             return interaction.reply({ content, flags: MessageFlags.Ephemeral });
         }
 
-        // Normalize only trigger_channel for the existing implementation. Everything
-        // else, including persisted name-template display/update behavior, stays intact.
         const originalGetChannel = interaction.options.getChannel.bind(interaction.options);
         interaction.options.getChannel = (name, required = false) => {
             if (name === 'trigger_channel') return triggerChannel;
