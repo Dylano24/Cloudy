@@ -44,6 +44,11 @@ patchFile(builderPath, [
     replace: "            `**Media** › ${mediaLabel}`,\n            `**Buttons** › ${countBuilderButtons(state)}`,\n",
   },
   {
+    label: 'edit title message label',
+    find: "            .setLabel('Edit title and message')\n",
+    replace: "            .setLabel('Edit title & message')\n",
+  },
+  {
     label: 'button controls row',
     find: "    return [contentRow, actionRow];\n}",
     replace: "    const buttonRow = new ActionRowBuilder().addComponents(\n        new ButtonBuilder()\n            .setCustomId('simple_embed_buttons')\n            .setLabel('Edit buttons')\n            .setStyle(ButtonStyle.Secondary)\n            .setEmoji('🔘'),\n    );\n\n    return [contentRow, actionRow, buttonRow];\n}",
