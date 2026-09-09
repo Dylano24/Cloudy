@@ -2,9 +2,6 @@ import { ChannelType, MessageFlags } from 'discord.js';
 import originalCommand from '../JoinToCreate/jointocreate.js';
 import { getConfiguration } from '../../services/joinToCreateService.js';
 
-// Keep the channel selector available on desktop and mobile, but never depend on
-// Discord.js channel hydration alone. If mobile does not resolve the selection,
-// fall back to the single persisted Join to Create trigger for this guild.
 const dashboardSubcommand = originalCommand.data.options?.find(option => option?.name === 'dashboard');
 const triggerChannelOption = dashboardSubcommand?.options?.find(option => option?.name === 'trigger_channel');
 triggerChannelOption?.setRequired(false);
@@ -12,32 +9,38 @@ triggerChannelOption?.setRequired(false);
 function getRawTriggerChannelId(interaction) {
     const dashboardOption = interaction.options?.data?.find(option => option?.name === 'dashboard');
     const triggerOption = dashboardOption?.options?.find(option => option?.name === 'trigger_channel');
-    return triggerOption?.value ? String(triggerOption.value) : null;
+    const value = triggerOption?.value;
+    if (value == null) return null;
+    const id = String(value).trim();
+    return /^\d{17,20}$/.test(id) ? id : null;
 }
 
 async function fetchVoiceChannel(guild, channelId) {
     if (!guild || !channelId) return null;
-    const channel = await guild.channels.fetch(String(channelId)).catch(() => null);
+    const cached = guild.channels.cache?.get(channelId);
+    const channel = cached || await guild.channels.fetch(channelId).catch(() => null);
     return channel?.type === ChannelType.GuildVoice ? channel : null;
 }
 
 async function resolveDashboardTriggerChannel(interaction, client) {
-    // Desktop and correctly hydrated mobile interactions: honor the selected channel.
-    const selectedChannelId = getRawTriggerChannelId(interaction);
-    const selectedChannel = await fetchVoiceChannel(interaction.guild, selectedChannelId);
-    if (selectedChannel) return selectedChannel;
+    // Prefer Discord.js' resolved channel. This is the canonical path on desktop
+    // and on mobile clients that hydrate the selected option correctly.
+    const hydrated = interaction.options.getChannel('trigger_channel', false);
+    if (hydrated?.type === ChannelType.GuildVoice) return hydrated;
 
-    // Mobile fallback: use the persisted JTC trigger instead of returning an invalid-ID error.
+    // Some Discord mobile interactions contain only the selected channel snowflake.
+    // Resolve that exact selected ID ourselves instead of treating it as invalid.
+    const selectedId = getRawTriggerChannelId(interaction);
+    const selected = await fetchVoiceChannel(interaction.guild, selectedId);
+    if (selected) return selected;
+
+    // Last-resort fallback for the one-trigger-per-guild JTC configuration.
     const configuration = await getConfiguration(client, interaction.guild.id).catch(() => null);
-    const triggerIds = Array.isArray(configuration?.triggerChannels)
-        ? configuration.triggerChannels
-        : [];
-
+    const triggerIds = Array.isArray(configuration?.triggerChannels) ? configuration.triggerChannels : [];
     for (const triggerId of triggerIds) {
-        const configuredChannel = await fetchVoiceChannel(interaction.guild, triggerId);
-        if (configuredChannel) return configuredChannel;
+        const configured = await fetchVoiceChannel(interaction.guild, String(triggerId));
+        if (configured) return configured;
     }
-
     return null;
 }
 
@@ -52,19 +55,15 @@ export default {
 
         const triggerChannel = await resolveDashboardTriggerChannel(interaction, client);
         if (!triggerChannel) {
-            const payload = {
-                content: 'No active Join to Create channel is configured for this server. Run `/jointocreate setup` first.',
-                flags: MessageFlags.Ephemeral,
-            };
-
+            const content = 'No active Join to Create channel is configured for this server. Run `/jointocreate setup` first.';
             if (interaction.deferred || interaction.replied) {
-                return interaction.editReply({ content: payload.content, embeds: [], components: [] });
+                return interaction.editReply({ content, embeds: [], components: [] });
             }
-            return interaction.reply(payload);
+            return interaction.reply({ content, flags: MessageFlags.Ephemeral });
         }
 
-        // Feed the resolved/fallback channel into the existing dashboard implementation.
-        // This leaves the dashboard embed, name-template saving and all controls unchanged.
+        // Normalize only trigger_channel for the existing implementation. Everything
+        // else, including persisted name-template display/update behavior, stays intact.
         const originalGetChannel = interaction.options.getChannel.bind(interaction.options);
         interaction.options.getChannel = (name, required = false) => {
             if (name === 'trigger_channel') return triggerChannel;
