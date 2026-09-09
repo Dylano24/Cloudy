@@ -794,9 +794,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
                 let loaded = record ? loadRecordSnapshotIntoState(state, guild, record) : false;
                 if (loaded) {
-                    void Promise.resolve(refreshBuilder()).catch(error => {
+                    await Promise.resolve(refreshBuilder()).catch(error => {
                         logger.debug(`Immediate embed preview refresh skipped: ${error?.message || error}`);
                     });
+                    if (selectionVersion !== session.selectionVersion) return;
                 } else {
                     const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                     if (selectionVersion !== session.selectionVersion) return;
@@ -806,9 +807,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     }
                     loadEmbedIntoState(state, resolved);
                     loaded = true;
-                    void Promise.resolve(refreshBuilder()).catch(error => {
+                    await Promise.resolve(refreshBuilder()).catch(error => {
                         logger.debug(`Resolved embed preview refresh skipped: ${error?.message || error}`);
                     });
+                    if (selectionVersion !== session.selectionVersion) return;
                 }
 
                 await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
