@@ -122,6 +122,11 @@ patchFile('src/services/embedManagerService.js', text => {
   }
 
   text = text.replace(
+    'function loadRecordSnapshotIntoState(state, guild, record) {',
+    'export function loadRecordSnapshotIntoState(state, guild, record) {'
+  );
+
+  text = text.replace(
 `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
                     records = await getEmbedRegistry(guild.id);
@@ -194,8 +199,34 @@ patchFile('src/services/embedManagerService.js', text => {
 });
 
 patchFile('src/commands/Tools/embedbuilder.js', text => {
-  if (text.includes('Latest-preview-wins: never build a long Discord edit queue')) return text;
-  return text.replace(/async function refreshBuilder\(interaction, state\) \{[\s\S]*?\n\}\n\nasync function editContent/, `async function refreshBuilder(interaction, state) {
+  if (!text.includes('loadRecordSnapshotIntoState, openEmbedManager, saveModifiedEmbed')) {
+    text = text.replace(
+      "import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';",
+      "import { loadRecordSnapshotIntoState, openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';"
+    );
+  }
+
+  if (!text.includes("const pendingSearchKey = String(interaction.guildId || interaction.guild?.id || 'dm')")) {
+    const guildEmojiMarker = '            const guildEmojis = interaction.guild';
+    const searchPreload = `            // Search selection uses the exact same state loader as Modify so the
+            // first live preview, editor fields and Save target all point to the selected embed.
+            const pendingSearchKey = String(interaction.guildId || interaction.guild?.id || 'dm')
+                + ':' + String(interaction.user?.id || 'unknown');
+            const pendingSearch = globalThis.__cloudyEmbedBuilderSearchSelections?.get?.(pendingSearchKey) || null;
+            if (
+                pendingSearch?.record
+                && interaction.guild
+                && loadRecordSnapshotIntoState(state, interaction.guild, pendingSearch.record)
+            ) {
+                globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
+            }
+
+`;
+    text = text.replace(guildEmojiMarker, searchPreload + guildEmojiMarker);
+  }
+
+  if (!text.includes('Latest-preview-wins: never build a long Discord edit queue')) {
+    text = text.replace(/async function refreshBuilder\(interaction, state\) \{[\s\S]*?\n\}\n\nasync function editContent/, `async function refreshBuilder(interaction, state) {
     if (state.colorSessionToken) {
         state.colorPickerUrl = \`\${COLOR_PICKER_URL}/embed-color?session=\${state.colorSessionToken}&color=\${encodeURIComponent(colorToHex(state.sideColor))}\`;
     }
@@ -230,6 +261,9 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
 }
 
 async function editContent`);
+  }
+
+  return text;
 });
 
 patchFile('src/services/embedColorPickerSessionService.js', text =>
