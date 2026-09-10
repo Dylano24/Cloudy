@@ -7,6 +7,9 @@ import { applySystemEmbedTemplate } from '../services/systemEmbedCatalogService.
 const EMOJI_REGEX = /[\p{Extended_Pictographic}\uFE0F]/gu;
 const EMBED_FOOTER_SYMBOL = Symbol('titanbotFooterText');
 const EMBED_BASE_DESCRIPTION_SYMBOL = Symbol('titanbotBaseDescription');
+const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
+const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const WRONG_CHANNEL_COLOR = 0x7A1712;
 
 function sanitizeEmbedText(text = '') {
   if (typeof text !== 'string') {
@@ -261,8 +264,18 @@ export function buildUserErrorEmbed(errorType, description = '', options = {}) {
   // System error titles follow sentence case even when an older saved/default
   // response template still contains the previous Title Case spelling.
   data.title = title;
-  const exactShopWrongChannel = title === 'Wrong channel' && body?.includes('🛒│shop');
-  if ((options.preserveText === true || exactShopWrongChannel) && body) {
+
+  // Dedicated-channel errors must render identically for gambling and shop.
+  // Keep the live channel mention/text dynamic, but force the same Cloudy
+  // wrong-channel presentation used by the gambling flow.
+  const dedicatedWrongChannel = title === 'Wrong channel'
+    && body?.startsWith('This command can only be used in the dedicated channel.');
+  if (dedicatedWrongChannel) {
+    data.description = body;
+    data.color = WRONG_CHANNEL_COLOR;
+    data.thumbnail = { url: CLOUDY_C_LOGO_URL };
+    data.footer = { text: CLOUDY_FOOTER };
+  } else if (options.preserveText === true && body) {
     data.description = body;
   }
 
@@ -398,7 +411,7 @@ export function formatDuration(ms) {
 
 export function formatProgressBar(current, max, size = 10) {
   const progress = Math.min(Math.max(0, current / max), 1);
-  const filled = Math.round(size * progress);
+  const filled = Math.round(progress * size);
   const empty = size - filled;
   return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${Math.round(progress * 100)}%`;
 }
