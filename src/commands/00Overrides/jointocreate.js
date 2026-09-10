@@ -79,6 +79,30 @@ async function resolveDashboardChannel(interaction, client) {
     return resolveConfiguredTrigger(interaction, client);
 }
 
+function createDashboardInteractionView(interaction, triggerChannel) {
+    const optionView = new Proxy(interaction.options, {
+        get(target, property) {
+            if (property === 'getChannel') {
+                return (name, required = false) => {
+                    if (name === 'trigger_channel') return triggerChannel;
+                    return target.getChannel(name, required);
+                };
+            }
+
+            const value = Reflect.get(target, property, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+        },
+    });
+
+    return new Proxy(interaction, {
+        get(target, property) {
+            if (property === 'options') return optionView;
+            const value = Reflect.get(target, property, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+        },
+    });
+}
+
 export default {
     ...originalCommand,
     data,
@@ -97,16 +121,10 @@ export default {
             return interaction.reply({ content, flags: MessageFlags.Ephemeral });
         }
 
-        const originalGetChannel = interaction.options.getChannel.bind(interaction.options);
-        interaction.options.getChannel = (name, required = false) => {
-            if (name === 'trigger_channel') return triggerChannel;
-            return originalGetChannel(name, required);
-        };
-
-        try {
-            return await originalCommand.execute(interaction, config, client);
-        } finally {
-            interaction.options.getChannel = originalGetChannel;
-        }
+        // Delegate through a read-only interaction/options view instead of mutating
+        // Discord.js interaction state. The original dashboard therefore receives
+        // the resolved voice channel exactly as before without a shared-state race.
+        const dashboardInteraction = createDashboardInteractionView(interaction, triggerChannel);
+        return originalCommand.execute(dashboardInteraction, config, client);
     },
 };
