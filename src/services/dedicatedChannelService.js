@@ -17,7 +17,7 @@ const CHANNEL_RULES = {
     slug: 'shop',
     guideTitle: 'Shop commands',
     guideDescription: 'All Cloudy shop and purchase commands must be used in this channel. Use `/shop` to browse and `/buy` to purchase items. These commands will not work in other channels.',
-    wrongChannelMessage: 'This command can only be used in the dedicated channel. Please use **⁠🛒│shop**',
+    wrongChannelMessage: 'Shop commands can only be used in the dedicated shop channel.',
   },
   gambling: {
     slug: 'gambling',
@@ -52,17 +52,19 @@ export async function enforceDedicatedCommandChannel(interaction, key) {
   const currentChannelId = interaction.channelId || interaction.channel?.id;
   if (currentChannelId === targetChannel.id) return true;
 
+  const useGamblingFlow = ['gambling', 'shop'].includes(key);
+
   throw createError(
     `Command used outside dedicated ${key} channel`,
     ErrorTypes.VALIDATION,
-    key === 'gambling'
+    useGamblingFlow
       ? `This command can only be used in the dedicated channel. Please use <#${targetChannel.id}> to play.`
       : rule.wrongChannelMessage,
     {
       expectedChannelId: targetChannel.id,
       currentChannelId,
       dedicatedChannel: key,
-      ...(['gambling', 'shop'].includes(key) ? { titleOverride: 'Wrong channel', showCloseButton: false } : {}),
+      ...(useGamblingFlow ? { titleOverride: 'Wrong channel', showCloseButton: false } : {}),
     },
   );
 }
