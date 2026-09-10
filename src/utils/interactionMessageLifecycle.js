@@ -20,9 +20,9 @@ function componentIds(components = []) {
   });
 }
 function isDashboardPayload(payload, message) {
-  if (!payload || typeof payload !== 'object') return false;
-  const embeds = payload.embeds || message?.embeds || [];
-  const components = payload.components || message?.components || [];
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const embeds = source.embeds || message?.embeds || [];
+  const components = source.components || message?.components || [];
   return components.length > 0 && (componentIds(components).some(id => DASHBOARD_CUSTOM_ID.test(id))
     || embeds.some(embed => DASHBOARD_TITLE.test(String(embedData(embed).title || ''))));
 }
@@ -54,6 +54,13 @@ export function installInteractionMessageLifecycle() {
   InteractionHelper.patchInteractionResponses = function patchMessageLifecycles(interaction) {
     previousPatch(interaction);
     if (!interaction || interaction.__cloudyMessageLifecyclePatched) return;
+
+    // Any component interaction counts as activity and restarts the 5-minute idle timer,
+    // including deferUpdate-only interactions that do not send or edit a response.
+    if (interaction.message && isDashboardPayload(null, interaction.message)) {
+      schedule(dashboardTimers, interaction.message, interaction, DASHBOARD_IDLE_MS);
+    }
+
     for (const method of ['reply', 'editReply', 'followUp', 'update']) {
       const original = interaction[method]?.bind(interaction);
       if (!original) continue;
