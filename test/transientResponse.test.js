@@ -24,6 +24,10 @@ test('small status replies are transient', () => {
     'Command disabled',
     'Command cooldown',
     'Wrong channel',
+    '✅ Success',
+    '❌ Error',
+    '⚠️ Warning',
+    'ℹ️ Information',
   ]) {
     assert.equal(isTransientStatusEmbed(new EmbedBuilder().setTitle(title).setDescription('Short reply')), true);
   }
@@ -33,6 +37,8 @@ test('content-only command feedback is transient', () => {
   for (const content of [
     '✅ Saved successfully.',
     '❌ You need Manage Server permission to use these controls.',
+    '⚠️ Warning: this action is unavailable.',
+    'ℹ️ Information: setting updated.',
     'Invalid value. Try again.',
     'Could not update the setting.',
     'No active Join to Create channel is configured.',
