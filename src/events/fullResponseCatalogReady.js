@@ -112,6 +112,51 @@ function messageContext(message) {
   };
 }
 
+// Final Discord payload guard for casino outcomes. This uses the ORIGINAL
+// runtime payload as authority after every catalog and saved-template layer.
+function enforceCasinoOutcomePresentation(runtimePayload, outgoing, source, method = 'unknown') {
+  const command = String(source?.commandName || '').trim().toLowerCase();
+  if (!['blackjack', 'baccarat', 'roulette'].includes(command)) return outgoing;
+  if (!runtimePayload || typeof runtimePayload !== 'object' || !Array.isArray(runtimePayload.embeds)) return outgoing;
+  if (!outgoing || typeof outgoing !== 'object' || !Array.isArray(outgoing.embeds)) return outgoing;
+
+  let protectedCount = 0;
+  const embeds = outgoing.embeds.map((embed, index) => {
+    const runtimeEmbed = runtimePayload.embeds[index];
+    const runtimeData = runtimeEmbed?.toJSON ? runtimeEmbed.toJSON() : runtimeEmbed;
+    if (!runtimeData || typeof runtimeData !== 'object') return embed;
+
+    const match = String(runtimeData.title || '').replace(/\s+/g, ' ').trim().toLowerCase()
+      .match(/^(blackjack|baccarat|roulette)\s+(win|loss|bust|push)$/);
+    if (!match) return embed;
+
+    const [, game, outcome] = match;
+    const allowed = game === command && (
+      (game === 'blackjack' && ['win', 'loss', 'bust', 'push'].includes(outcome))
+      || (game === 'baccarat' && ['win', 'loss', 'push'].includes(outcome))
+      || (game === 'roulette' && ['win', 'loss'].includes(outcome))
+    );
+    if (!allowed) return embed;
+
+    const decorated = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
+    const protectedEmbed = {
+      ...decorated,
+      title: game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome,
+      color: outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0x336699 : 0x670102,
+      ...(runtimeData.thumbnail?.url ? { thumbnail: { ...runtimeData.thumbnail } } : {}),
+    };
+    protectedCount += 1;
+    return protectedEmbed;
+  });
+
+  if (protectedCount) {
+    logger.warn(
+      `[CASINO_OUTGOING] command=${command} method=${method} protected=${protectedCount} title=${embeds[0]?.title || ''} color=${embeds[0]?.color ?? ''}`,
+    );
+  }
+  return { ...outgoing, embeds };
+}
+
 function applyPayloadTemplates(payload, source) {
   if (payload == null) return payload;
 
@@ -296,7 +341,7 @@ function seedKnownGameResponses() {
   captureSystemEmbedData({
     title: 'Roulette win',
     description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
-    color: 0x57F287,
+    color: 0x00C49D,
     fields: [
       { name: 'Your bet', value: '**{dynamic}** on **{dynamic}**', inline: true },
       { name: 'Payout', value: '**{dynamic}**', inline: true },
@@ -307,7 +352,7 @@ function seedKnownGameResponses() {
   captureSystemEmbedData({
     title: 'Roulette loss',
     description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
-    color: 0xFEE75C,
+    color: 0x670102,
     fields: [
       { name: 'Your bet', value: '**{dynamic}** on **{dynamic}**', inline: true },
       { name: 'Result', value: 'Lost **{dynamic}**', inline: true },
@@ -329,7 +374,7 @@ function seedKnownGameResponses() {
     captureSystemEmbedData({
       title: `Blackjack ${title.toLowerCase()}`,
       description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**',
-      color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0x5865F2,
+      color: title === 'Win' || title === 'Blackjack' ? 0x00C49D : title === 'Loss' || title === 'Bust' ? 0x670102 : title === 'Push' ? 0x336699 : 0x5865F2,
       fields: [
         { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
         { name: 'Dealer Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
@@ -350,14 +395,14 @@ function seedKnownGameResponses() {
   const baccaratResults = [
     ['win', 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
     ['loss', 'You chose **{dynamic}**. Winner: **{dynamic}**\nYou lost **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
-    ['tie', 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie — your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**', baccaratFields],
+    ['push', 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie — your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**', baccaratFields],
     ['expired', 'Game expired — **{dynamic}** was returned.', []],
   ];
   for (const [outcome, description, fields] of baccaratResults) {
     captureSystemEmbedData({
       title: `Baccarat ${outcome}`,
       description,
-      color: 0x57F287,
+      color: outcome === 'win' ? 0x00C49D : outcome === 'loss' ? 0x670102 : outcome === 'push' ? 0x336699 : 0x5865F2,
       ...(fields.length ? { fields } : {}),
     }, baccarat);
   }
@@ -382,6 +427,7 @@ function patchInteractionCapture() {
           capturePayload(payload, source);
           outgoing = applyPayloadTemplates(payload, source);
           outgoing = await applySavedBlackjackPayloadTemplates(outgoing, source);
+          outgoing = enforceCasinoOutcomePresentation(payload, outgoing, source, method);
         } catch (error) {
           logger.debug(`[EMBED_BUILDER] Response template processing skipped for ${method}: ${error?.message || error}`);
         }

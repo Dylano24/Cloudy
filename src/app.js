@@ -20,6 +20,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
 import { applyEmbedColorPickerSession } from './services/embedColorPickerSessionService.js';
 import { embedColorPickerPage } from './web/embedColorPickerPage.js';
+import { registerAppealsApi } from './web/appealsApi.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 
 class TitanBot extends Client {
@@ -139,6 +140,8 @@ class TitanBot extends Client {
     });
 
     app.use(express.json({ limit: '8kb' }));
+
+    registerAppealsApi(app, this);
 
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;

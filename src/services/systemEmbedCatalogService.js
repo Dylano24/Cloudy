@@ -18,6 +18,9 @@ const contexts = new Map();
 const templateCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
+const plainSourceAliases = new Map();
+const SOURCE_BASELINE_PREFIX = 'cloudy:system-embed-source-baseline:';
+// SOURCE_RESPONSE_SYNC_V1: source-discovered plain responses have durable identities.
 let flushTimer = null;
 let discoveryPromise = null;
 
@@ -45,6 +48,28 @@ const DEFAULT_TEMPLATES = [
   { key: 'too fast', context: 'botlog', kind: 'embed', title: 'Too Fast', description: "You're doing that too quickly. Wait a moment and try again.", color: 0xFEE75C },
   { key: 'something went wrong', context: 'botlog', kind: 'embed', title: 'Something Went Wrong', description: 'Something went wrong. Please try again in a moment.', color: 0xED4245 },
 ];
+
+const TICKET_MAIN_CATALOG_TEMPLATE = {
+  key: 'ticket-main',
+  context: 'tickets/main',
+  kind: 'embed',
+  title: 'Ticket #{dynamic}',
+  description: [
+    '{dynamic}, we’ve received your request!',
+    '',
+    'To help us process your ticket as quickly as possible, please provide any additional details you believe may be useful, along with any screenshots or files that could help us better understand your situation.',
+    '',
+    '**Please do not tag or spam our staff members for updates.** We can see your messages and have received all the information you’ve provided. If you don’t receive an immediate response, it simply means that we may be busy elsewhere or handling other requests.',
+    '',
+    'Please be patient and allow us some time to review your ticket and get back to you.',
+    '',
+    'We appreciate your understanding!',
+    '',
+    '**Reason:** {dynamic}',
+  ].join('\n'),
+  color: 0xFFFFFF,
+  footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+};
 
 // Deliberate Builder masters, never captured runtime ticket messages. Their
 // backing messages live in the private catalog, so purging a public ticket log
@@ -79,6 +104,10 @@ function isTicketContext(context) {
   return /^tickets(?:\/|$)/.test(normalize(context));
 }
 
+function isTicketMainTemplate(key, context) {
+  return normalize(key) === 'ticket-main' && normalize(context) === 'tickets/main';
+}
+
 function isValidBlackjackResultSlug(value) {
   const parts = normalize(value).split('-').filter(Boolean);
   return parts.length >= 1
@@ -89,14 +118,22 @@ function isValidBlackjackResultSlug(value) {
 export function isEditableSystemCatalogTemplate(key, context = null) {
   const normalizedKey = normalize(key);
   const normalizedContext = normalize(context);
-  if (!normalizedKey || isTicketContext(normalizedContext)) return false;
+  if (!normalizedKey || (isTicketContext(normalizedContext) && !isTicketMainTemplate(normalizedKey, normalizedContext))) return false;
+  if (isTicketMainTemplate(normalizedKey, normalizedContext)) return true;
   if (!normalizedKey.startsWith('game:')) return true;
 
   if (normalizedContext === 'gambling/roulette') {
     return normalizedKey === 'game:roulette:won' || normalizedKey === 'game:roulette:lost';
   }
   if (normalizedContext === 'gambling/baccarat') {
-    return normalizedKey === 'game:baccarat:bet' || normalizedKey === 'game:baccarat:result';
+    return new Set([
+      'game:baccarat:bet',
+      'game:baccarat:result',
+      'game:baccarat:win',
+      'game:baccarat:loss',
+      'game:baccarat:push',
+      'game:baccarat:expired',
+    ]).has(normalizedKey);
   }
   if (normalizedContext === 'gambling/blackjack') {
     if (normalizedKey === 'game:blackjack:bet') return true;
@@ -128,6 +165,57 @@ function shortHash(value) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function sourceBaselineStorageKey(guildId) {
+  return `${SOURCE_BASELINE_PREFIX}${guildId}`;
+}
+
+function sourceDefinitionKey(definition = {}) {
+  const variantId = String(definition.variantId || '').trim();
+  if (normalize(definition.kind) !== 'content' || !variantId) return null;
+  return `source:${shortHash(variantId)}`;
+}
+
+function normalizeDiscoveredDefinition(definition = {}) {
+  const key = sourceDefinitionKey(definition);
+  return key ? { ...definition, key } : definition;
+}
+
+function plainSourceAliasIdentity(context, content) {
+  return cacheIdentity(responseSignature('content', '', content), context);
+}
+
+function registerPlainSourceAlias(definition, entry = null) {
+  if (normalize(definition?.kind) !== 'content') return false;
+  const normalized = entry || definitionToCatalog(normalizeDiscoveredDefinition(definition));
+  if (!normalized?.key || !normalized?.context) return false;
+  const content = definition.description || definition.content || '';
+  if (!String(content).trim()) return false;
+  plainSourceAliases.set(plainSourceAliasIdentity(normalized.context, content), normalized.key);
+  return true;
+}
+
+function plainManagementHint(content = '') {
+  const value = String(content || '').replace(/<a?:[^:>]+:\d+>/g, '').replace(/\{dynamic\}/gi, '').replace(/\s+/g, ' ').trim();
+  const rules = [
+    [/choose one of the (?:staff members|owners) first.*select your rating/i, 'Select staff first'],
+    [/that member is no longer available for staff reviews/i, 'Member unavailable'],
+    [/review selectors could not be updated/i, 'Selector update failed'],
+    [/review session expired/i, 'Session expired'],
+    [/community reviews channel .*unavailable/i, 'Reviews channel unavailable'],
+    [/staff review could not be published/i, 'Publish failed'],
+    [/staff review has been published/i, 'Review published'],
+    [/wrong channel/i, 'Wrong channel'],
+    [/permission denied|access denied/i, 'Permission denied'],
+    [/could not|failed|failure|error/i, 'Error'],
+    [/expired/i, 'Expired'],
+    [/saved|updated/i, 'Saved'],
+    [/success|completed|done/i, 'Success'],
+  ];
+  const explicit = rules.find(([pattern]) => pattern.test(value));
+  if (explicit) return explicit[1];
+  return (value.split(/[.!?]/)[0].split(/\s+/).filter(Boolean).slice(0, 5).join(' ') || 'Message').slice(0, 48);
 }
 
 function dynamicParts(value = '') {
@@ -177,7 +265,9 @@ function responseSignature(kind, title = '', description = '') {
 }
 
 function canonicalBlackjackResult(value) {
-  const result = normalize(value).replace(/^result\s*:\s*/, '');
+  const result = normalize(value)
+    .replace(/^blackjack\s+/, '')
+    .replace(/^result\s*:\s*/, '');
   const outcomes = result.split(/\s*\/\s*/).map(item => normalize(item)).filter(Boolean);
   if (!outcomes.length || outcomes.length > 2 || outcomes.some(item => !BLACKJACK_RESULT_STATES.has(item))) {
     return '';
@@ -195,22 +285,21 @@ export function getSystemEmbedTemplateKey(kind, title = '', description = '', co
   const normalizedTitle = dynamicParts(title).pattern;
 
   if (normalizedKind === 'embed' && normalizedContext === 'gambling/roulette') {
-    if (/^roulette\s*[—-]\s*you\s+won!?$/.test(normalizedTitle)) return 'game:roulette:won';
-    if (/^roulette\s*[—-]\s*you\s+lost$/.test(normalizedTitle)) return 'game:roulette:lost';
+    if (/^roulette\s+win$/.test(normalizedTitle) || /^roulette\s*[—-]\s*you\s+won!?$/.test(normalizedTitle)) return 'game:roulette:won';
+    if (/^roulette\s+loss$/.test(normalizedTitle) || /^roulette\s*[—-]\s*you\s+lost$/.test(normalizedTitle)) return 'game:roulette:lost';
     return '';
   }
 
   if (normalizedKind === 'embed' && normalizedContext === 'gambling/blackjack') {
     if (/^blackjack\s*[—-]\s*bet\b/.test(normalizedTitle)) return 'game:blackjack:bet';
-    if (/^result\s*:/.test(normalizedTitle)) {
-      const result = canonicalBlackjackResult(normalizedTitle);
-      return result ? `game:blackjack:result:${result}` : '';
-    }
-    return '';
+    const result = canonicalBlackjackResult(normalizedTitle);
+    return result ? `game:blackjack:result:${result}` : '';
   }
 
   if (normalizedKind === 'embed' && normalizedContext === 'gambling/baccarat') {
     if (/^baccarat\s*[—-]\s*bet\b/.test(normalizedTitle)) return 'game:baccarat:bet';
+    const result = normalizedTitle.match(/^baccarat\s+(win|loss|push|expired)$/);
+    if (result) return `game:baccarat:${result[1]}`;
     if (/^baccarat\s*[—-]\s*result\b/.test(normalizedTitle)) return 'game:baccarat:result';
     return '';
   }
@@ -372,13 +461,51 @@ function rememberCatalogMessage(message) {
 }
 
 async function loadCatalogMessages(context) {
-  const ids = await getFromDb(storageKey(context.guild.id), []);
-  const messages = [];
-  for (const id of Array.isArray(ids) ? ids : []) {
-    const message = await context.channel.messages.fetch(id).catch(() => null);
-    if (message) messages.push(message);
+  const storedIds = await getFromDb(storageKey(context.guild.id), []);
+  const ids = Array.isArray(storedIds) ? storedIds.map(String).filter(Boolean) : [];
+  if (!ids.length) return [];
+
+  const wanted = new Set(ids);
+  const found = new Map();
+  let before;
+  let oldestWanted = null;
+  try {
+    oldestWanted = ids.reduce((oldest, id) => {
+      const value = BigInt(id);
+      return oldest === null || value < oldest ? value : oldest;
+    }, null);
+  } catch {
+    oldestWanted = null;
   }
-  return messages;
+
+  while (wanted.size) {
+    const batch = await context.channel.messages.fetch({
+      limit: 100,
+      ...(before ? { before } : {}),
+    }).catch(() => null);
+    if (!batch?.size) break;
+
+    for (const message of batch.values()) {
+      const id = String(message.id);
+      if (!wanted.has(id)) continue;
+      wanted.delete(id);
+      found.set(id, message);
+    }
+
+    const oldestMessage = batch.last();
+    if (!oldestMessage || batch.size < 100) break;
+    before = oldestMessage.id;
+
+    if (oldestWanted !== null) {
+      try {
+        if (BigInt(oldestMessage.id) < oldestWanted) break;
+      } catch {
+        // Keep paging if a non-snowflake id ever reaches this internal channel.
+      }
+    }
+  }
+
+  return ids.map(id => found.get(id)).filter(Boolean);
 }
 
 async function saveCatalogIds(guildId, messages) {
@@ -393,14 +520,10 @@ async function registerCatalogMessages(messages) {
 
 function friendlyPlainTitle(context, content) {
   const command = normalize(context).split('/')[1] || normalize(context).split('/')[0] || 'bot';
-  const prefix = command ? command.charAt(0).toUpperCase() + command.slice(1) : 'Bot';
-  const preview = String(content || '')
-    .replace(/<a?:[^:>]+:\d+>/g, '')
-    .replace(/\{dynamic\}/gi, '…')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 65);
-  return `${prefix} • ${preview || 'Message'}`.slice(0, 256);
+  const prefix = command
+    ? command.split(/[-_]+/).filter(Boolean).map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+    : 'Bot';
+  return `${prefix} • ${plainManagementHint(content)}`.slice(0, 256);
 }
 
 function definitionToCatalog(definition) {
@@ -509,6 +632,154 @@ function findCatalogEntry(messages, entry) {
   return null;
 }
 
+function jsonEqual(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function copySourceField(next, current, previous, incoming, field) {
+  if (!jsonEqual(current?.[field], previous?.[field])) return;
+  if (Object.prototype.hasOwnProperty.call(incoming || {}, field)) next[field] = structuredClone(incoming[field]);
+  else delete next[field];
+}
+
+function mergeSourceDefinitionData(currentData, previousSourceData, incomingSourceData, entry) {
+  const current = cloneData(currentData || {});
+  const previous = cloneData(previousSourceData || {});
+  const incoming = cloneData(incomingSourceData || {});
+  const next = { ...current };
+
+  for (const field of ['title', 'description', 'color', 'fields', 'footer', 'thumbnail', 'image']) {
+    copySourceField(next, current, previous, incoming, field);
+  }
+
+  // Stable metadata is internal identity, not administrator-authored presentation.
+  return withStableKey(next, entry.key, entry.context, entry.kind);
+}
+
+function normalizedWords(value = '') {
+  return new Set(normalize(value).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(word => word.length > 1));
+}
+
+function textSimilarity(left, right) {
+  const a = normalizedWords(left);
+  const b = normalizedWords(right);
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  for (const word of a) if (b.has(word)) intersection += 1;
+  return intersection / new Set([...a, ...b]).size;
+}
+
+function isGeneratedLegacyPlainTitle(data = {}) {
+  const title = normalize(data.title);
+  const description = normalize(data.description);
+  if (!title || !description || !title.includes(' • ')) return false;
+  const suffix = title.split(' • ').slice(1).join(' • ');
+  return description.startsWith(suffix) || suffix.startsWith(description.slice(0, Math.min(40, description.length)));
+}
+
+function findLegacyPlainSourceCandidate(messages, entry, claimed = new Set()) {
+  const base = normalize(entry.data?.title).split(' • ')[0];
+  let winner = null;
+  let bestScore = 0;
+
+  for (const message of messages) {
+    for (let index = 0; index < (message?.embeds?.length || 0); index += 1) {
+      const claimKey = `${message.id}:${index}`;
+      if (claimed.has(claimKey)) continue;
+      const embed = message.embeds[index];
+      const metadata = parseTemplateMetadata(embed);
+      if (metadata.kind !== 'content' || normalize(metadata.context) !== normalize(entry.context)) continue;
+      if (String(metadata.key || '').startsWith('source:')) continue;
+
+      const data = cloneData(embed);
+      if (!isGeneratedLegacyPlainTitle(data)) continue;
+      const candidateBase = normalize(data.title).split(' • ')[0];
+      const score = textSimilarity(data.description, entry.data?.description)
+        + (base && candidateBase === base ? 0.35 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        winner = { message, index, embed, metadata, claimKey };
+      }
+    }
+  }
+
+  return bestScore >= 0.62 ? winner : null;
+}
+
+async function editCatalogLocation(location, data) {
+  const embeds = location.message.embeds.map(embed => new EmbedBuilder(embed.toJSON()));
+  embeds[location.index] = new EmbedBuilder(data);
+  return location.message.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
+}
+
+async function syncSourceDefinitionEntries(context, messages, sourceDefinitions = []) {
+  if (!sourceDefinitions.length) return 0;
+  const baselineKey = sourceBaselineStorageKey(context.guild.id);
+  const previousBaseline = await getFromDb(baselineKey, {});
+  const nextBaseline = {};
+  const claimedLegacy = new Set();
+  let changedCount = 0;
+
+  for (const definition of sourceDefinitions) {
+    const normalizedDefinition = normalizeDiscoveredDefinition(definition);
+    const entry = definitionToCatalog(normalizedDefinition);
+    if (!entry.key || !String(entry.key).startsWith('source:')) continue;
+    registerPlainSourceAlias(normalizedDefinition, entry);
+
+    let location = findCatalogEntry(messages, entry);
+    let migratedLegacy = false;
+    if (!location) {
+      location = findLegacyPlainSourceCandidate(messages, entry, claimedLegacy);
+      migratedLegacy = Boolean(location);
+      if (location?.claimKey) claimedLegacy.add(location.claimKey);
+    }
+
+    if (!location) {
+      if (await appendCatalogEntry(context, entry, messages)) changedCount += 1;
+      nextBaseline[entry.key] = { variantId: normalizedDefinition.variantId, data: cloneData(entry.data) };
+      continue;
+    }
+
+    const current = cloneData(location.embed);
+    const previousSource = previousBaseline?.[entry.key]?.data || null;
+    let next = current;
+
+    if (previousSource) {
+      next = mergeSourceDefinitionData(current, previousSource, entry.data, entry);
+    } else if (migratedLegacy && isGeneratedLegacyPlainTitle(current)) {
+      // Bootstrap old response-signature catalogs into stable source identities.
+      // Only auto-generated title/body values are replaced; Builder styling survives.
+      next = withStableKey({
+        ...current,
+        title: entry.data.title,
+        description: entry.data.description,
+      }, entry.key, entry.context, entry.kind);
+    } else {
+      next = withStableKey(current, entry.key, entry.context, entry.kind);
+    }
+
+    if (!catalogDataChanged(current, next)) {
+      catalogEntries.add(cacheIdentity(entry.key, entry.context));
+      rememberTemplate(entry.key, current, entry.context);
+    } else {
+      const edited = await editCatalogLocation(location, next);
+      if (edited) {
+        changedCount += 1;
+        location.message = edited;
+        location.embed = edited.embeds?.[location.index] || new EmbedBuilder(next);
+        catalogEntries.add(cacheIdentity(entry.key, entry.context));
+        rememberTemplate(entry.key, next, entry.context);
+        await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register migrated source response: ${error.message}`));
+      }
+    }
+
+    nextBaseline[entry.key] = { variantId: normalizedDefinition.variantId, data: cloneData(entry.data) };
+  }
+
+  await setInDb(baselineKey, nextBaseline);
+  return changedCount;
+}
+
 async function appendCatalogEntry(context, entry, messages) {
   if (!entry?.key || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
   const identity = entryIdentity(entry);
@@ -611,7 +882,7 @@ export async function cleanupSystemCatalogEntries(messages) {
       const embed = message.embeds[index];
       const metadata = parseTemplateMetadata(embed);
 
-      if (isTicketContext(metadata.context)) {
+      if (isTicketContext(metadata.context) && !isTicketMainTemplate(metadata.key, metadata.context)) {
         markRemoval(message, index);
         continue;
       }
@@ -745,7 +1016,9 @@ function queueRuntimeEntry(entry) {
 }
 
 export function registerDiscoveredEmbedDefinition(definition = {}) {
-  const entry = definitionToCatalog(definition);
+  const normalizedDefinition = normalizeDiscoveredDefinition(definition);
+  const entry = definitionToCatalog(normalizedDefinition);
+  registerPlainSourceAlias(normalizedDefinition, entry);
   if (!entry.key || isInternalTemplate(entry.data) || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
   return queueRuntimeEntry(entry);
 }
@@ -823,7 +1096,62 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   else delete next.thumbnail;
   if (template.image?.url) next.image = { ...template.image };
   else delete next.image;
+
+  // Casino result semantics are runtime-owned. Embed Builder may style the rest,
+  // but it must never turn a real win/push/bust into another outcome or color.
+  const runtimeTitle = normalize(data.title);
+  const casinoMatch = runtimeTitle.match(/^(blackjack|baccarat|roulette)\s+(win|loss|bust|push)$/);
+  if (casinoMatch) {
+    const [, game, outcome] = casinoMatch;
+    const allowed = (game === 'blackjack' && ['win', 'loss', 'bust', 'push'].includes(outcome))
+      || (game === 'baccarat' && ['win', 'loss', 'push'].includes(outcome))
+      || (game === 'roulette' && ['win', 'loss'].includes(outcome));
+    if (allowed) {
+      next.title = game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome;
+      next.color = outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0x336699 : 0x670102;
+      if (data.thumbnail?.url) next.thumbnail = { ...data.thumbnail };
+    }
+  }
+
   return isBlackjackContext(context) ? stripBlackjackCardsRemaining(next) : next;
+}
+
+function renderTicketMainDynamic(templateValue, values = []) {
+  let index = 0;
+  return String(templateValue || '').replace(/\{dynamic\}/gi, () => String(values[index++] ?? ''));
+}
+
+export function applyTicketMainTemplateData(embedData, { ticketNumber = 'Unknown', userId = null, reason = 'No reason provided' } = {}) {
+  const data = cloneData(embedData);
+  const template = findTemplate('ticket-main', 'tickets/main');
+  if (!template) return data;
+
+  const next = { ...data };
+
+  if (template.title) {
+    next.title = renderTicketMainDynamic(template.title, [ticketNumber]).slice(0, 256);
+  } else {
+    delete next.title;
+  }
+
+  if (template.description) {
+    next.description = renderTicketMainDynamic(
+      template.description,
+      [userId ? `<@${userId}>` : 'A member', reason],
+    ).slice(0, 4096);
+  } else {
+    delete next.description;
+  }
+
+  if (Number.isInteger(template.color)) next.color = template.color;
+  if (template.footer?.text) next.footer = { ...template.footer };
+  else delete next.footer;
+  if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
+  else delete next.thumbnail;
+  if (template.image?.url) next.image = { ...template.image };
+  else delete next.image;
+
+  return next;
 }
 
 export function applySystemEmbedTemplate(embed) {
@@ -842,8 +1170,10 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
 
   const context = inferContextHint(contextSource);
   if (!context || isTicketContext(context)) return payload;
-  const key = responseSignature('content', '', content);
-  const template = findTemplate(key, context);
+  const signature = responseSignature('content', '', content);
+  const stableKey = plainSourceAliases.get(plainSourceAliasIdentity(context, content)) || null;
+  const key = stableKey || signature;
+  const template = findTemplate(key, context) || (stableKey ? findTemplate(signature, context) : null);
 
   if (!template) {
     const entry = definitionToCatalog({ kind: 'content', context, content, key });
@@ -857,7 +1187,8 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
 }
 
 export async function ensureSystemEmbedCatalogs(client) {
-  const discoveredDefinitions = await discoverStaticTemplates();
+  const discoveredDefinitions = (await discoverStaticTemplates()).map(normalizeDiscoveredDefinition);
+  plainSourceAliases.clear();
   // Blackjack, baccarat and roulette are explicitly learned from their real
   // runtime shapes. Ticket runtime output is intentionally not an Embed
   // Builder template. This prevents parser/runtime noise from polluting the
@@ -882,10 +1213,14 @@ export async function ensureSystemEmbedCatalogs(client) {
     await cleanupSystemCatalogEntries(messages);
     for (const message of messages) rememberCatalogMessage(message);
 
+    const sourceDefinitions = definitions.filter(definition => normalize(definition.kind) === 'content');
+    totalAdded += await syncSourceDefinitionEntries(context, messages, sourceDefinitions);
+
     const entries = [
       ...DEFAULT_TEMPLATES.map(definitionToCatalog),
+      definitionToCatalog(TICKET_MAIN_CATALOG_TEMPLATE),
       ...TICKET_LOG_CATALOG_TEMPLATES.map(definitionToCatalog),
-      ...definitions.map(definitionToCatalog),
+      ...definitions.filter(definition => normalize(definition.kind) !== 'content').map(definitionToCatalog),
     ];
 
     for (const entry of entries) {

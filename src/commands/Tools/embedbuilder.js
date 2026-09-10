@@ -36,8 +36,13 @@ import {
     refreshAllTicketChannels,
 } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
-import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
+import { loadRecordSnapshotIntoState, openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
 import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
+import {
+    countBuilderButtons,
+    getBuilderMessageComponents,
+    openEmbedButtonEditor,
+} from '../../services/embedBuilderButtonEditorService.js';
 
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
 const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
@@ -205,49 +210,35 @@ async function replaceSaveFeedback(interaction, message, payload) {
 // Acknowledging the click immediately makes Save feel instant, while the
 // actual message edit still remains the source of truth before we confirm it.
 async function saveExistingEmbed(buttonInteraction, guild, state) {
-    const feedbackPromise = buttonInteraction.followUp({
-        content: 'Saving changes…',
-        flags: MessageFlags.Ephemeral,
-        fetchReply: true,
-    }).catch(() => null);
-
     const saved = await saveModifiedEmbed(guild, state);
-    const feedbackMessage = await feedbackPromise;
 
     if (!saved.ok) {
-        const failureMessage = saved.reason === 'embed-too-large'
-            ? 'This embed is over Discord’s 6,000-character limit. Shorten the title, message, fields, or footer and try again.'
-            : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
-        const failure = await replaceSaveFeedback(buttonInteraction, feedbackMessage, {
+        const failure = await buttonInteraction.followUp({
             content: null,
             embeds: [new EmbedBuilder()
                 .setTitle('Could not save changes')
-                .setDescription(failureMessage)
+                .setDescription('The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.')
                 .setColor(getColor('error'))],
-        });
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
         if (failure) removeTransientMessage(buttonInteraction, failure);
         else {
             await replyUserError(buttonInteraction, {
-                type: saved.reason === 'embed-too-large' ? ErrorTypes.VALIDATION : ErrorTypes.UNKNOWN,
-                message: failureMessage,
+                type: ErrorTypes.UNKNOWN,
+                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
             });
         }
         return saved;
     }
 
     void refreshBuilder(buttonInteraction, state).catch(() => {});
-    const confirmationPayload = {
+    const confirmation = await buttonInteraction.followUp({
         content: null,
         embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
-    };
-    let confirmation = await replaceSaveFeedback(buttonInteraction, feedbackMessage, confirmationPayload);
-    if (!confirmation) {
-        confirmation = await buttonInteraction.followUp({
-            ...confirmationPayload,
-            flags: MessageFlags.Ephemeral,
-            fetchReply: true,
-        }).catch(() => null);
-    }
+        flags: MessageFlags.Ephemeral,
+        fetchReply: true,
+    }).catch(() => null);
     if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
     return saved;
 }
@@ -390,6 +381,10 @@ async function postBuiltMessage(channel, state, guild) {
     for (let index = 0; index < embeds.length; index += 1) {
         const isLast = index === embeds.length - 1;
         const payload = { embeds: [embeds[index]] };
+        if (isLast) {
+            const components = getBuilderMessageComponents(state);
+            if (components.length) payload.components = components;
+        }
 
         if (isLast && state.mediaBuffer && state.mediaName) {
             payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
@@ -419,6 +414,7 @@ function buildControlEmbed(state) {
             `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Media** › ${mediaLabel}`,
+            `**Buttons** › ${countBuilderButtons(state)}`,
         ].join('\n'))
         .setColor(0xFFFFFF)
         .setFooter({ text: 'Preview the embed above live' });
@@ -434,15 +430,19 @@ export function buildBuilderEmbeds(state) {
 function buildControls(state) {
     const sourceHasLogo = Boolean(state.modifyTarget?.sourceEmbedData?.thumbnail?.url);
     const hasLogo = !state.removeExistingLogo && (state.showLogo || sourceHasLogo);
-    const contentRow = new ActionRowBuilder().addComponents(
+
+    const titleRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setURL(state.contentEditorUrl)
-            .setLabel('Edit title and message')
+            .setLabel('Edit title & message')
             .setStyle(ButtonStyle.Link)
             .setEmoji('✍🏼'),
+    );
+
+    const logoMediaRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('simple_embed_logo')
-            .setLabel('Add Cloudy logo')
+            .setLabel('Add logo')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('☁️')
             .setDisabled(state.showLogo && !state.removeExistingLogo),
@@ -453,6 +453,20 @@ function buildControls(state) {
             .setEmoji('🗑️')
             .setDisabled(!hasLogo),
         new ButtonBuilder()
+            .setCustomId('simple_embed_media')
+            .setLabel('Add media')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📷'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_clear_media')
+            .setLabel('Remove media')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('❌')
+            .setDisabled(!hasMedia(state)),
+    );
+
+    const styleButtonsRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
             .setCustomId('simple_embed_footer')
             .setLabel('Edit footer')
             .setStyle(ButtonStyle.Secondary)
@@ -462,38 +476,40 @@ function buildControls(state) {
             .setLabel('Set side color')
             .setStyle(ButtonStyle.Link)
             .setEmoji('🎨'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_buttons')
+            .setLabel('Edit buttons')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🔘'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_remove_buttons')
+            .setLabel('Remove buttons')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('⛔'),
     );
 
-    const actionRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('simple_embed_media')
-            .setLabel('Set picture/video GIF')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📷'),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_clear_media')
-            .setLabel('Remove media')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🗑️')
-            .setDisabled(!hasMedia(state)),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_post')
-            .setLabel(state.modifyTarget ? 'Save changes' : 'Post message')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji(state.modifyTarget ? '💾' : '📤'),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_reset')
-            .setLabel('Reset everything')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('♻️'),
+    const modifyResetRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('simple_embed_modify')
             .setLabel('Modify embed')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🛠️'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_reset')
+            .setLabel('Reset')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('♻️'),
     );
 
-    return [contentRow, actionRow];
+    const saveRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('simple_embed_post')
+            .setLabel(state.modifyTarget ? 'Save change' : 'Post message')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji(state.modifyTarget ? '💾' : '📤'),
+    );
+
+    return [titleRow, logoMediaRow, styleButtonsRow, modifyResetRow, saveRow];
 }
 
 function getPreviewUpdateQueue(state) {
@@ -1023,8 +1039,24 @@ export default {
                 mediaName: null,
                 mediaConvertedFromVideo: false,
                 modifyTarget: null,
+                componentRows: [],
+                componentRowsSourceMessageId: 'new',
+                componentsDirty: false,
                 colorSessionToken: null,
             };
+
+            // Search selection uses the exact same state loader as Modify so the
+            // first live preview, editor fields and Save target all point to the selected embed.
+            const pendingSearchKey = String(interaction.guildId || interaction.guild?.id || 'dm')
+                + ':' + String(interaction.user?.id || 'unknown');
+            const pendingSearch = globalThis.__cloudyEmbedBuilderSearchSelections?.get?.(pendingSearchKey) || null;
+            if (
+                pendingSearch?.record
+                && interaction.guild
+                && loadRecordSnapshotIntoState(state, interaction.guild, pendingSearch.record)
+            ) {
+                globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
+            }
 
             const guildEmojis = interaction.guild
                 ? await interaction.guild.emojis.fetch().catch(() => interaction.guild.emojis.cache)
@@ -1043,7 +1075,16 @@ export default {
                     message: state.message || '',
                     footer: state.bottomLine || '',
                     fields: Array.isArray(state.embedFields) ? state.embedFields : [],
+                    templateKind: state.modifyTarget?.templateKind || 'embed', // CONTENT_TEMPLATE_EDITOR_V1
                 }),
+                onEditorHold: async () => { // EDITOR_UPDATE_COALESCING_V1
+                    const refreshed = await refreshBuilder(interaction, state);
+                    if (!refreshed) {
+                        const error = new Error('The message builder session has expired.');
+                        error.code = 'EMBED_BUILDER_EXPIRED';
+                        throw error;
+                    }
+                },
                 onEditorUpdate: async (field, value) => {
                     if (field === 'title') state.title = value.trim() || null;
                     if (field === 'message') state.message = value || null;
@@ -1116,6 +1157,22 @@ export default {
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
                             break;
+                        case 'simple_embed_buttons':
+                            await openEmbedButtonEditor(
+                                buttonInteraction,
+                                state,
+                                (editorInteraction, editorState) => refreshBuilder(editorInteraction, editorState),
+                            );
+                            break;
+                        case 'simple_embed_remove_buttons':
+                            state.componentRows = [];
+                            state.componentRowsSourceMessageId = state.modifyTarget?.messageId
+                                ? String(state.modifyTarget.messageId)
+                                : 'new';
+                            state.componentsDirty = true;
+                            await buttonInteraction.deferUpdate();
+                            await refreshBuilder(buttonInteraction, state);
+                            break;
                         case 'simple_embed_modify':
                             await openEmbedManager(
                                 buttonInteraction,
@@ -1144,6 +1201,9 @@ export default {
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
                             state.modifyTarget = null;
+                            state.componentRows = [];
+                            state.componentRowsSourceMessageId = 'new';
+                            state.componentsDirty = false;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
                             break;
@@ -1162,13 +1222,19 @@ export default {
                 }
             });
 
-            collector.on('end', async () => {
+            collector.on('end', async (_collected, reason) => {
                 if (state.activeEmbedManager) {
                     state.activeEmbedManager.closed = true;
                     state.activeEmbedManager.collector?.stop('builder-ended');
                     state.activeEmbedManager = null;
                 }
-                deleteEmbedColorPickerSession(colorSessionToken);
+
+                // The browser editor/picker owns its session lifetime. A collector
+                // ending for cleanup/replacement must not silently kill a still-open
+                // web editor. Only an intentional Post completes the builder here.
+                if (reason === 'posted') {
+                    deleteEmbedColorPickerSession(colorSessionToken);
+                }
             });
         } catch (error) {
             if (error instanceof TitanBotError) throw error;

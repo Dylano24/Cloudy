@@ -19,10 +19,10 @@ export function embedColorPickerPage() {
     #titleEditor, .field-name-editor { min-height: 43px; line-height: 1.2; white-space: nowrap; overflow-x: auto; overflow-y: hidden; cursor: text; }
     #titleEditor:empty::before, #messageEditor:empty::before, .field-rich-editor:empty::before { content: attr(data-placeholder); color: #949ba4; pointer-events: none; }
     #titleEditor .title-emoji, #messageEditor .message-emoji, .field-rich-editor .field-emoji { width: 24px; height: 24px; object-fit: contain; vertical-align: -6px; margin: 0 1px; user-select: all; cursor: pointer; }
-    #messageEditor { min-height: 170px; max-height: 520px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }
+    #messageEditor { min-height: 170px; max-height: 520px; line-height: 1.45; white-space: break-spaces; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }
     #embedFields:empty { display: none; }
     .embed-field { margin-top: 18px; padding-top: 2px; border-top: 1px solid #35363e; }
-    .field-value-editor { min-height: 110px; max-height: 420px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }
+    .field-value-editor { min-height: 110px; max-height: 420px; line-height: 1.45; white-space: break-spaces; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; }
     .row { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
     .count { color: #949ba4; font-size: 12px; }
     #emojiSection { margin-top: 18px; }
@@ -134,7 +134,30 @@ export function embedColorPickerPage() {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') void keepEditorSessionActive();
     });
-    window.addEventListener('pagehide', () => clearInterval(heartbeatTimer), { once: true });
+    function closeEditorSession() {
+      clearInterval(heartbeatTimer);
+      if (!token) return;
+      const payload = JSON.stringify({ color: '__CLOUDY_EMBED_CLOSE__' });
+      try {
+        if (typeof navigator.sendBeacon === 'function') {
+          const blob = new Blob([payload], { type: 'application/json' });
+          if (navigator.sendBeacon(apiUrl, blob)) return;
+        }
+      } catch {}
+      try {
+        void fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      } catch {}
+    }
+    // IMPORTANT: visibilitychange/pagehide are NOT close signals. Mobile and
+    // desktop browsers can fire/suspend those while the editor is still open
+    // in another tab/app. Only an actual document unload/leave may release the
+    // Discord builder hold and restart its five-minute inactivity timer.
+    window.addEventListener('beforeunload', closeEditorSession, { once: true });
     void keepEditorSessionActive();
 
     if (mode === 'content' || mode === 'footer') {
@@ -318,6 +341,26 @@ export function embedColorPickerPage() {
           output = output.split(String.fromCharCode(10)).join(' ');
         }
         while (allowNewlines && output.endsWith(newline)) output = output.slice(0, -1);
+        if (allowNewlines) {
+          output = output.split(newline).map(line => {
+            let index = 0;
+            let indent = '';
+            while (index < line.length) {
+              if (line.charCodeAt(index) === 10240) {
+                indent += String.fromCharCode(10240);
+                index += 1;
+                continue;
+              }
+              if (line.charCodeAt(index) === 8291 && (line.charCodeAt(index + 1) === 8194 || line.charCodeAt(index + 1) === 8201)) {
+                indent += String.fromCharCode(10240);
+                index += 2;
+                continue;
+              }
+              break;
+            }
+            return indent + line.slice(index);
+          }).join(newline);
+        }
         return output;
       }
 
@@ -417,6 +460,71 @@ export function embedColorPickerPage() {
         return true;
       }
 
+      function preserveManualIndentSpaces(editor, syncFn, rememberFn) {
+        function previousCharacterRange(range) {
+          const probe = range.cloneRange();
+          const container = range.startContainer;
+          const offset = range.startOffset;
+
+          if (container?.nodeType === Node.TEXT_NODE && offset > 0) {
+            probe.setStart(container, offset - 1);
+            probe.setEnd(container, offset);
+            return probe;
+          }
+
+          let node = container;
+          if (node?.nodeType === Node.ELEMENT_NODE && offset > 0) node = node.childNodes[offset - 1];
+          while (node?.lastChild) node = node.lastChild;
+          if (node?.nodeType !== Node.TEXT_NODE || !node.nodeValue?.length) return null;
+          probe.setStart(node, node.nodeValue.length - 1);
+          probe.setEnd(node, node.nodeValue.length);
+          return probe;
+        }
+
+        editor.addEventListener('beforeinput', event => {
+          if (event.inputType !== 'insertText' || event.data !== ' ') return;
+          const selection = window.getSelection();
+          const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+          if (!range || !selectionIsInside(range, editor)) return;
+
+          const beforeRange = range.cloneRange();
+          beforeRange.selectNodeContents(editor);
+          beforeRange.setEnd(range.startContainer, range.startOffset);
+          const before = beforeRange.toString();
+          const lineStart = before.lastIndexOf(String.fromCharCode(10)) + 1;
+          const currentLinePrefix = before.slice(lineStart);
+          const onlyIndent = !currentLinePrefix || /^[\u2800\u2063\u2002\u2009 ]+$/.test(currentLinePrefix);
+
+          let atVisualWrapStart = false;
+          if (!onlyIndent && range.collapsed) {
+            const previousRange = previousCharacterRange(range);
+            const previousRect = previousRange?.getBoundingClientRect?.();
+            const caretRect = range.getBoundingClientRect?.();
+            if (previousRect && caretRect && previousRect.height && caretRect.height) {
+              const threshold = Math.max(2, Math.min(previousRect.height, caretRect.height) * 0.35);
+              atVisualWrapStart = caretRect.top - previousRect.top > threshold;
+            }
+          }
+
+          // A normal mid-sentence space must stay untouched. We only intervene
+          // for real logical-line indentation or when the caret has genuinely
+          // wrapped onto a lower visual line than the preceding character.
+          if (!onlyIndent && !atVisualWrapStart) return;
+
+          event.preventDefault();
+          range.deleteContents();
+          const prefix = atVisualWrapStart ? String.fromCharCode(10) : '';
+          const node = document.createTextNode(prefix + String.fromCharCode(10240));
+          range.insertNode(node);
+          range.setStartAfter(node);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          syncFn();
+          rememberFn?.();
+        });
+      }
+
       function bindFieldEditor(editor, input, options) {
         const state = {
           input,
@@ -458,6 +566,9 @@ export function embedColorPickerPage() {
           state.range = range.cloneRange();
           syncFieldFromEditor(editor);
         });
+        if (state.allowNewlines) {
+          preserveManualIndentSpaces(editor, () => syncFieldFromEditor(editor), () => rememberFieldRange(editor));
+        }
         editor.addEventListener('paste', event => {
           event.preventDefault();
           let text = (event.clipboardData || window.clipboardData).getData('text/plain');
@@ -605,6 +716,7 @@ export function embedColorPickerPage() {
         messageRange = range.cloneRange();
         syncMessageFromEditor();
       });
+      preserveManualIndentSpaces(messageEditor, () => syncMessageFromEditor(), () => rememberRange(messageEditor, 'message'));
       messageEditor.addEventListener('paste', event => {
         event.preventDefault();
         const text = (event.clipboardData || window.clipboardData).getData('text/plain');
@@ -778,6 +890,15 @@ export function embedColorPickerPage() {
         try {
           const raw = await callSession('__CLOUDY_EMBED_STATE__');
           const data = JSON.parse(raw || '{}');
+          const plainResponseTemplate = data.templateKind === 'content'; // CONTENT_TEMPLATE_EDITOR_V1
+          if (plainResponseTemplate && mode === 'content') {
+            const titleRow = titleInput.previousElementSibling;
+            titleRow?.classList.add('hidden');
+            titleEditor.classList.add('hidden');
+            document.getElementById('editorTitle').textContent = 'Edit message';
+            document.getElementById('editorDescription').textContent = 'Edit the bot response here. The template name is internal and is not duplicated into the Discord message.';
+            activeField = messageEditor;
+          }
           titleInput.value = data.title || '';
           messageInput.value = data.message || '';
           footerInput.value = data.footer || '';
