@@ -200,7 +200,7 @@ export function createEmbed({
       if (typeof image === 'string' && image.length > 0) {
         embed.setImage(image);
       } else if (image && typeof image.url === 'string') {
-        embed.setImage(embed.image.url);
+        embed.setImage(image.url);
       }
     } catch (error) {
     }
