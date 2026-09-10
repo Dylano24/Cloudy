@@ -1,0 +1,10 @@
+Requested visual order (single Discord message):
+1 Edit title & message
+2 Add logo | Remove logo
+3 Add media | Remove media
+4 Edit footer | Set side color
+5 Edit buttons | Remove buttons
+6 Modify embed | Reset
+7 Save change / Post message
+
+Implementation keeps five Discord ActionRows and relies on the same mobile wrapping behavior shown in the user's reference screenshot. No secondary bot message is used.
