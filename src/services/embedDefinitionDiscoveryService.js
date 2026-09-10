@@ -107,14 +107,38 @@ function commandLabel(relativePath) {
     .join(' ') || 'Bot';
 }
 
-function plainLabel(relativePath, content) {
-  const preview = String(content || '')
+function plainIntentLabel(content, ordinal = 0) {
+  const value = String(content || '')
     .replace(/<a?:[^:>]+:\d+>/g, '')
-    .replace(/\{dynamic\}/gi, '…')
+    .replace(/\{dynamic\}/gi, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 60);
-  return `${commandLabel(relativePath)} • ${preview || 'Message'}`.slice(0, 256);
+    .trim();
+
+  const explicit = [
+    [/choose one of the (?:staff members|owners) first.*select your rating/i, 'Select staff first'],
+    [/that member is no longer available for staff reviews/i, 'Member unavailable'],
+    [/review selectors could not be updated/i, 'Selector update failed'],
+    [/review session expired/i, 'Session expired'],
+    [/community reviews channel .*unavailable/i, 'Reviews channel unavailable'],
+    [/staff review could not be published/i, 'Publish failed'],
+    [/staff review has been published/i, 'Review published'],
+    [/wrong channel/i, 'Wrong channel'],
+    [/permission denied|access denied/i, 'Permission denied'],
+    [/not enough/i, 'Not enough'],
+    [/could not|failed|failure|error/i, 'Error'],
+    [/expired/i, 'Expired'],
+    [/saved|updated/i, 'Saved'],
+    [/success|completed|done/i, 'Success'],
+  ].find(([pattern]) => pattern.test(value));
+  if (explicit) return explicit[1];
+
+  const firstLine = value.split(/[\r\n]+/).find(Boolean) || '';
+  const words = firstLine.split(/\s+/).filter(Boolean).slice(0, 6).join(' ');
+  return (words || `Message ${ordinal + 1}`).slice(0, 48);
+}
+
+function plainLabel(relativePath, content, ordinal = 0) {
+  return `${commandLabel(relativePath)} • ${plainIntentLabel(content, ordinal)}`.slice(0, 256);
 }
 
 function findDescription(lines, startIndex) {
@@ -215,23 +239,29 @@ function extractPlainDefinitions(source, relativePath, results, seen) {
     /\.(?:reply|followUp|editReply|send|respond)\s*\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/gs,
   ];
 
-  for (const pattern of patterns) {
+  patterns.forEach((pattern, patternIndex) => {
     let match;
+    let ordinal = 0;
     while ((match = pattern.exec(source))) {
+      const currentOrdinal = ordinal;
+      ordinal += 1;
       const raw = literalFromText(match[1]);
       const content = decodeString(raw, { allowDynamic: true });
       if (!content || content.length > 4000) continue;
       if (/^(?:https?:\/\/|attachment:\/\/)/i.test(content) && !content.includes(' ')) continue;
       addDefinition(results, seen, {
         kind: 'content',
-        label: plainLabel(relativePath, content),
+        label: plainLabel(relativePath, content, currentOrdinal),
         description: content,
         color: inferColor(content, 'content'),
         context,
-        variantId: `${relativePath}:content:${match.index}`,
+        // Stable across copy edits. Inserting/reordering a response may change
+        // its ordinal, but editing the response itself no longer creates a new
+        // template identity just because its text changed.
+        variantId: `${relativePath}:content:${patternIndex}:${currentOrdinal}`,
       });
     }
-  }
+  });
 }
 
 function extractDefinitions(source, relativePath) {
