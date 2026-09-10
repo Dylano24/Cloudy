@@ -17,7 +17,7 @@ const CHANNEL_RULES = {
     slug: 'shop',
     guideTitle: 'Shop commands',
     guideDescription: 'All Cloudy shop and purchase commands must be used in this channel. Use `/shop` to browse and `/buy` to purchase items. These commands will not work in other channels.',
-    wrongChannelMessage: 'Shop commands can only be used in the dedicated shop channel.',
+    wrongChannelMessage: 'This command can only be used in the dedicated channel. Please use **⁠🛒│shop**',
   },
   gambling: {
     slug: 'gambling',
@@ -57,12 +57,12 @@ export async function enforceDedicatedCommandChannel(interaction, key) {
     ErrorTypes.VALIDATION,
     key === 'gambling'
       ? `This command can only be used in the dedicated channel. Please use <#${targetChannel.id}> to play.`
-      : `${rule.wrongChannelMessage} Use <#${targetChannel.id}>.`,
+      : rule.wrongChannelMessage,
     {
       expectedChannelId: targetChannel.id,
       currentChannelId,
       dedicatedChannel: key,
-      ...(key === 'gambling' ? { titleOverride: 'Wrong channel', showCloseButton: false } : {}),
+      ...(['gambling', 'shop'].includes(key) ? { titleOverride: 'Wrong channel', showCloseButton: false } : {}),
     },
   );
 }
@@ -74,6 +74,13 @@ function buildGuideEmbed(rule) {
     .setDescription(rule.guideDescription)
     .setThumbnail(CLOUDY_C_LOGO_URL)
     .setFooter({ text: FOOTER });
+}
+
+function isShopGuide(message) {
+  return message.embeds?.some(embed =>
+    String(embed.title || '').toLowerCase() === 'shop commands'
+    || embed.description === CHANNEL_RULES.shop.guideDescription
+  ) || false;
 }
 
 function isGamblingGuide(message) {
@@ -89,13 +96,40 @@ function isOutdatedGamblingGuideDescription(description = '') {
     || /\/(?:eleaderboard|count|slots|fish|mine|fight|flip|roll)\b/.test(description);
 }
 
-function gamblingGuideStorageKey(channel) {
+function guideStorageKey(channel) {
   return `cloudy:dedicated-guide:${channel.guild.id}:${channel.id}`;
 }
 
+const shopGuideManager = createStickyGuideManager({
+  loadState: channel => getFromDb(guideStorageKey(channel), null),
+  saveState: (channel, state) => setInDb(guideStorageKey(channel), state),
+  isGuide: isShopGuide,
+  onError: error => logger.warn(`Shop guide refresh failed: ${error.message}`),
+  everyNMessages: 5,
+  async buildPayload(channel, existing) {
+    if (existing?.embeds?.length) {
+      return {
+        content: existing.content || undefined,
+        embeds: existing.embeds.map(embed => embed.toJSON()),
+        files: [...(existing.attachments?.values() || [])].map(attachment => ({
+          attachment: attachment.url,
+          name: attachment.name,
+        })),
+        allowedMentions: { parse: [] },
+      };
+    }
+    const { embed } = await decorateEmbedWithSavedTemplate(
+      channel.guild.id,
+      channel.id,
+      buildGuideEmbed(CHANNEL_RULES.shop),
+    );
+    return { embeds: [embed], allowedMentions: { parse: [] } };
+  },
+});
+
 const gamblingGuideManager = createStickyGuideManager({
-  loadState: channel => getFromDb(gamblingGuideStorageKey(channel), null),
-  saveState: (channel, state) => setInDb(gamblingGuideStorageKey(channel), state),
+  loadState: channel => getFromDb(guideStorageKey(channel), null),
+  saveState: (channel, state) => setInDb(guideStorageKey(channel), state),
   isGuide: isGamblingGuide,
   onError: error => logger.warn(`Gambling guide refresh failed: ${error.message}`),
   everyNMessages: 5,
@@ -133,15 +167,31 @@ const gamblingGuideManager = createStickyGuideManager({
 
 export function scheduleDedicatedChannelGuide(message) {
   if (!message?.guild || !message.channel) return false;
-  const channel = findBySlug(message.guild, CHANNEL_RULES.gambling.slug);
-  if (!channel || message.channel.id !== channel.id) return false;
-  return gamblingGuideManager.schedule(message);
+
+  const shopChannel = findBySlug(message.guild, CHANNEL_RULES.shop.slug);
+  if (shopChannel && message.channel.id === shopChannel.id) {
+    return shopGuideManager.schedule(message);
+  }
+
+  const gamblingChannel = findBySlug(message.guild, CHANNEL_RULES.gambling.slug);
+  if (gamblingChannel && message.channel.id === gamblingChannel.id) {
+    return gamblingGuideManager.schedule(message);
+  }
+
+  return false;
 }
 
 async function ensureGuideMessage(guild, key) {
   const rule = CHANNEL_RULES[key];
   const channel = await resolveDedicatedChannel(guild, key);
   if (!rule || !channel?.messages?.fetch) return false;
+
+  if (key === 'shop') {
+    return shopGuideManager.refresh(channel).catch(error => {
+      logger.warn(`Shop guide setup failed: ${error.message}`);
+      return false;
+    });
+  }
 
   if (key === 'gambling') {
     return gamblingGuideManager.refresh(channel).catch(error => {
@@ -153,10 +203,7 @@ async function ensureGuideMessage(guild, key) {
   const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
   const existing = recent?.find(message =>
     message.author?.id === guild.client.user?.id
-    && message.embeds?.some(embed =>
-      embed.title === rule.guideTitle
-      || (key === 'gambling' && embed.title === 'Gambling & games')
-    )
+    && message.embeds?.some(embed => embed.title === rule.guideTitle)
   ) || null;
 
   const payload = { embeds: [buildGuideEmbed(rule)] };
