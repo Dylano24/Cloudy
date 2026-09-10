@@ -24,8 +24,7 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
             if (!deferred) return;
 `,
 `            // Do not spend a Discord round-trip on a defer before rendering a
-            // panel that can be built locally. refreshBuilder sends the first
-            // ephemeral reply directly and edits it on later updates.
+            // panel that can be built locally. The first panel is sent directly.
 `,
     'Embed Builder initial defer',
   );
@@ -43,16 +42,18 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
 
   text = replaceRequired(
     text,
-`            result = await InteractionHelper.safeEditReply(next.interaction, next.payload);`,
-`            if (!next.interaction.deferred && !next.interaction.replied) {
-                result = await InteractionHelper.safeReply(next.interaction, {
-                    ...next.payload,
-                    flags: MessageFlags.Ephemeral,
-                });
-            } else {
-                result = await InteractionHelper.safeEditReply(next.interaction, next.payload);
-            }`,
-    'Embed Builder first-render fast reply',
+`            await refreshBuilder(interaction, state);
+
+            const dashboardMessage = await interaction.fetchReply();`,
+`            const initialShown = await InteractionHelper.safeReply(interaction, {
+                embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],
+                components: buildControls(state),
+                flags: MessageFlags.Ephemeral,
+            });
+            if (!initialShown) return;
+
+            const dashboardMessage = await interaction.fetchReply();`,
+    'Embed Builder direct initial reply',
   );
 
   text = replaceRequired(
