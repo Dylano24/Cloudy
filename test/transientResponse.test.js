@@ -42,6 +42,7 @@ test('content-only command feedback is transient', () => {
     'Invalid value. Try again.',
     'Could not update the setting.',
     'No active Join to Create channel is configured.',
+    'Choose one of the Staff members first, then select your rating.',
   ]) {
     assert.equal(isTransientStatusContent(content), true);
     assert.equal(isTransientStatusPayload({ content }), true);
