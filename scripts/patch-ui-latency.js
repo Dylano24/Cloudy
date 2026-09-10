@@ -139,6 +139,49 @@ patchFile('src/commands/Logging/modules/logging_dashboard.js', text => {
   return text;
 });
 
+patchFile('src/commands/Economy/modules/economy_dashboard.js', text => {
+  text = replaceRequired(
+    text,
+`        if (economyKeys && economyKeys.length > 0) {
+            for (const key of economyKeys) {
+                const userId = key.split(':').pop();
+
+                const member = await guild.members.fetch(userId).catch(() => null);
+                if (member?.user?.bot) continue;
+
+                const userData = await client.db.get(key, {});
+                if (userData) {
+                    totalInCirculation += (userData.wallet || 0) + (userData.bank || 0);
+                    userCount++;
+                }
+            }
+        }`,
+`        if (economyKeys && economyKeys.length > 0) {
+            // The old dashboard did one Discord member fetch and one DB read per
+            // account in series. Use READY's member cache and bounded parallel
+            // DB batches so account count does not translate into UI latency.
+            const batchSize = 20;
+            for (let offset = 0; offset < economyKeys.length; offset += batchSize) {
+                const batch = economyKeys.slice(offset, offset + batchSize);
+                const rows = await Promise.all(batch.map(async key => {
+                    const userId = key.split(':').pop();
+                    const member = guild.members.cache.get(userId);
+                    if (member?.user?.bot) return null;
+                    return client.db.get(key, {});
+                }));
+
+                for (const userData of rows) {
+                    if (!userData) continue;
+                    totalInCirculation += (userData.wallet || 0) + (userData.bank || 0);
+                    userCount++;
+                }
+            }
+        }`,
+    'economy dashboard serial account scan',
+  );
+  return text;
+});
+
 patchFile('src/commands/Core/modules/commands_dashboard.js', text => {
   text = replaceRequired(
     text,
