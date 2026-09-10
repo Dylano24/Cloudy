@@ -139,7 +139,7 @@ export default {
       const memberId = embeddedMemberId || getSelectedOwner(interaction);
       if (!memberId) {
         await interaction.reply({
-          content: 'Choose one of the Owners first, then select your rating.',
+          content: 'Choose one of the Staff members first, then select your rating.',
           flags: MessageFlags.Ephemeral,
         }).catch(() => {});
         return;
