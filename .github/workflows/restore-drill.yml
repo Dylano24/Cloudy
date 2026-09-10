@@ -4,16 +4,6 @@ on:
   schedule:
     - cron: '0 4 * * 1'
   workflow_dispatch:
-  push:
-    branches:
-      - chatgpt-commercial-hardening-20260910
-    paths:
-      - '.github/workflows/restore-drill.yml'
-      - 'scripts/restore-drill.js'
-      - 'scripts/migrate.js'
-      - 'src/utils/database/**'
-      - 'package.json'
-      - 'package-lock.json'
 
 jobs:
   restore-drill:
