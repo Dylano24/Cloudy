@@ -10,6 +10,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
+import { setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -218,8 +219,7 @@ export function buildPublishedReview(interaction, rating, comment, memberId, sta
     : '⭐'.repeat(normalizedRating);
   const randomSideColor = Math.floor(Math.random() * 0x1000000);
 
-  return new EmbedBuilder()
-    .setColor(randomSideColor)
+  return setPreservedEmbedColor(new EmbedBuilder(), randomSideColor)
     .setAuthor({
       name: interaction.user.globalName || interaction.user.username,
       iconURL: interaction.user.displayAvatarURL(),
