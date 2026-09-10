@@ -50,8 +50,8 @@ test('normal and detailed embeds are not classified as transient', () => {
   assert.equal(isTransientStatusContent('Your current balance is $10,000.'), false);
 });
 
-test('log and review channels are protected from generic bot-message cleanup', () => {
-  for (const channelName of ['botlog', 'ticket-logs', 'ticket-transcripts', 'posted-reviews', 'staff-reviews']) {
+test('log, report and review channels are protected from generic bot-message cleanup', () => {
+  for (const channelName of ['botlog', 'ticket-logs', 'ticket-transcripts', 'reports', 'posted-reviews', 'staff-reviews']) {
     assert.equal(isPersistentBotMessage({ channel: { name: channelName } }), true);
   }
   assert.equal(isPersistentBotMessage({ channel: { name: 'general' } }), false);
