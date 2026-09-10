@@ -142,7 +142,7 @@ function getCleanTicketChannelName(name = '') {
     .replace(/^[\s-]+|[\s-]+$/g, '')
     .replace(/[\s-]+/g, '-');
 
-  const ticketMatch = cleanName.match(/ticket-\d+/i);
+  const ticketMatch = cleanName.match(/ticket-(\d+)/i);
   return ticketMatch?.[0]?.toLowerCase() || cleanName || 'ticket';
 }
 
@@ -461,6 +461,31 @@ async function sendPublicClaimStatus(channel, claimer) {
   });
 }
 
+async function sendPublicUnclaimStatus(channel, unclaimer) {
+  const unclaimerId = String(unclaimer?.id || unclaimer?.user?.id || '').trim();
+  const unclaimerMention = unclaimerId ? `<@${unclaimerId}>` : 'A staff member';
+
+  await withTimeout(
+    channel.send({
+      embeds: [forceCloudyTicketFooter(createEmbed({
+        title: 'Ticket unclaimed',
+        description: `${unclaimerMention} has unclaimed this ticket.`,
+        color: '#2ecc71',
+      }))],
+      allowedMentions: unclaimerId
+        ? { parse: [], users: [unclaimerId] }
+        : { parse: [] },
+    }),
+    DISCORD_TIMEOUT_MS,
+    'Unclaim ticket status message',
+  ).catch(error => {
+    logger.warn('Could not send the public unclaim status message', {
+      channelId: channel.id,
+      error: error.message,
+    });
+  });
+}
+
 export async function claimTicket(channel, claimer) {
   const ticketData = await getTicketDataFast(channel);
   if (!ticketData) {
@@ -519,6 +544,8 @@ export async function unclaimTicket(channel, unclaimer) {
   ticketData.claimedAt = null;
   await saveTicketDataFast(channel, ticketData);
   await syncCloudyTicketMessage(channel);
+
+  await sendPublicUnclaimStatus(channel, unclaimer);
 
   void logTicketEvent({
     client: channel.client,
