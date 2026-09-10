@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Collection, Embed, MessageFlags } from 'discord.js';
 import { db } from '../src/utils/database.js';
 import gamble from '../src/commands/Economy/gamble.js';
+import shopCommand from '../src/commands/Economy/shop.js';
+import buy from '../src/commands/Economy/buy.js';
 import fight from '../src/commands/Fun/fight.js';
 import flip from '../src/commands/Fun/flip.js';
 import roll from '../src/commands/Fun/roll.js';
@@ -66,6 +68,26 @@ for (const [name, command] of Object.entries({ gamble, fight, flip, roll })) {
   });
 }
 
+for (const [name, command] of Object.entries({ shop: shopCommand, buy })) {
+  test(`/${name} rejects the wrong channel before shop logic and shows the shop message`, async () => {
+    const f = fixture();
+    f.interaction.commandName = name;
+    let thrown;
+    await assert.rejects(command.execute(f.interaction), error => {
+      thrown = error;
+      return error.context?.dedicatedChannel === 'shop';
+    });
+    await handleInteractionError(f.interaction, thrown);
+    assert.equal(f.sent.length, 1);
+    const payload = f.sent[0].payload;
+    assert.equal(payload.embeds[0].toJSON().title, 'Wrong channel');
+    assert.equal(payload.embeds[0].toJSON().description,
+      'This command can only be used in the dedicated channel. Please use **⁠🛒│shop**');
+    assert.deepEqual(payload.components, []);
+    assert.equal(payload.flags, MessageFlags.Ephemeral);
+  });
+}
+
 for (const mode of ['editReply', 'followUp', 'prefixReply', 'prefixEdit']) {
   test(`wrong-channel errors have no Close button through ${mode}`, async () => {
     const f = fixture(mode);
@@ -91,10 +113,10 @@ for (const mode of ['editReply', 'followUp', 'prefixReply', 'prefixEdit']) {
   });
 }
 
-test('normal validation and shop errors keep their original title and Close button', async () => {
+test('normal validation uses sentence case while shop wrong-channel has no Close button', async () => {
   const f = fixture();
   await handleInteractionError(f.interaction, createError('Bad value', ErrorTypes.VALIDATION, 'Check the value.'));
-  assert.equal(f.sent[0].payload.embeds[0].toJSON().title, 'Invalid Input');
+  assert.equal(f.sent[0].payload.embeds[0].toJSON().title, 'Invalid input');
   assert.equal(f.sent[0].payload.components[0].toJSON().components[0].label, 'Close');
   let thrown;
   await assert.rejects(enforceDedicatedCommandChannel(f.interaction, 'shop'), error => {
@@ -102,8 +124,11 @@ test('normal validation and shop errors keep their original title and Close butt
     return true;
   });
   await handleInteractionError(f.interaction, thrown);
-  assert.equal(f.sent[1].payload.embeds[0].toJSON().title, 'Invalid Input');
-  assert.equal(f.sent[1].payload.components.length, 1);
+  assert.equal(f.sent[1].payload.embeds[0].toJSON().title, 'Wrong channel');
+  assert.equal(f.sent[1].payload.embeds[0].toJSON().description,
+    'This command can only be used in the dedicated channel. Please use **⁠🛒│shop**');
+  assert.deepEqual(f.sent[1].payload.components, []);
+  assert.equal(f.sent[1].payload.flags, MessageFlags.Ephemeral);
 });
 
 test('the gambling channel remains allowed, and other channels do not get sticky messages', async () => {
