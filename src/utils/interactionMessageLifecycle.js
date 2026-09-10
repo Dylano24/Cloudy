@@ -1,5 +1,6 @@
+import { MessageFlags } from 'discord.js';
 import { InteractionHelper } from './interactionHelper.js';
-import { isTransientStatusEmbed } from './transientResponse.js';
+import { isTransientStatusPayload } from './transientResponse.js';
 
 export const DASHBOARD_IDLE_MS = 5 * 60_000;
 export const TRANSIENT_MESSAGE_MS = 10_000;
@@ -10,6 +11,7 @@ const DASHBOARD_CUSTOM_ID = /^(?:ticket_dashboard_|jtc_|jointocreate_|simple_emb
 const DASHBOARD_TITLE = /(?:dashboard|configuration|configure|setup wizard|command access|message builder|modify embed)/i;
 
 const embedData = embed => embed?.toJSON?.() || embed || {};
+
 function componentIds(components = []) {
   return components.flatMap(row => {
     const data = row?.toJSON?.() || row || {};
@@ -19,64 +21,137 @@ function componentIds(components = []) {
     });
   });
 }
-function isDashboardPayload(payload, message) {
+
+function hasEphemeralFlag(flags) {
+  if (flags == null) return false;
+  if (typeof flags?.has === 'function') {
+    return flags.has(MessageFlags.Ephemeral);
+  }
+
+  const raw = typeof flags === 'number' ? flags : flags?.bitfield;
+  if (typeof raw === 'bigint') {
+    return (raw & BigInt(MessageFlags.Ephemeral)) === BigInt(MessageFlags.Ephemeral);
+  }
+  if (Number.isFinite(Number(raw))) {
+    return (Number(raw) & MessageFlags.Ephemeral) === MessageFlags.Ephemeral;
+  }
+  return false;
+}
+
+export function isEphemeralLifecycleMessage(payload = null, message = null) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  return hasEphemeralFlag(source.flags) || hasEphemeralFlag(message?.flags);
+}
+
+export function isDashboardSessionPayload(payload = null, message = null) {
   const source = payload && typeof payload === 'object' ? payload : {};
   const embeds = source.embeds || message?.embeds || [];
   const components = source.components || message?.components || [];
-  return components.length > 0 && (componentIds(components).some(id => DASHBOARD_CUSTOM_ID.test(id))
-    || embeds.some(embed => DASHBOARD_TITLE.test(String(embedData(embed).title || ''))));
+  if (!components.length) return false;
+
+  return componentIds(components).some(id => DASHBOARD_CUSTOM_ID.test(id))
+    || embeds.some(embed => DASHBOARD_TITLE.test(String(embedData(embed).title || '')));
 }
+
 function clearTimer(store, messageId) {
   const key = String(messageId || '');
   const timer = store.get(key);
   if (timer) clearTimeout(timer);
   store.delete(key);
 }
+
+export async function deleteLifecycleMessage(message, interaction) {
+  if (!message?.id) return false;
+
+  // Ephemeral interaction messages must be removed through the webhook route.
+  // Try it first, then fall back to a normal Message#delete for public replies.
+  if (interaction?.webhook?.deleteMessage) {
+    const deleted = await interaction.webhook.deleteMessage(message.id)
+      .then(() => true)
+      .catch(() => false);
+    if (deleted) return true;
+  }
+
+  if (typeof message.delete === 'function') {
+    const deleted = await message.delete()
+      .then(() => true)
+      .catch(() => false);
+    if (deleted) return true;
+  }
+
+  if (interaction?.deleteReply) {
+    return interaction.deleteReply()
+      .then(() => true)
+      .catch(() => false);
+  }
+
+  return false;
+}
+
 function schedule(store, message, interaction, delay) {
-  if (!message?.id) return;
+  if (!message?.id) return false;
   const key = String(message.id);
   clearTimer(store, key);
+
   const timer = setTimeout(() => {
     store.delete(key);
-    Promise.resolve(message.delete?.() || interaction.webhook?.deleteMessage?.(message.id)).catch(() => {});
+    void deleteLifecycleMessage(message, interaction);
   }, delay);
   timer.unref?.();
   store.set(key, timer);
+  return true;
 }
+
+function scheduleDashboardIfNeeded(payload, message, interaction) {
+  if (!isEphemeralLifecycleMessage(payload, message)) return false;
+  if (!isDashboardSessionPayload(payload, message)) return false;
+  return schedule(dashboardTimers, message, interaction, DASHBOARD_IDLE_MS);
+}
+
 async function resolveResponseMessage(interaction, result) {
   if (result?.id) return result;
   if (interaction?.message?.id) return interaction.message;
   return interaction.fetchReply?.().catch(() => null) || null;
 }
+
 export function installInteractionMessageLifecycle() {
   if (InteractionHelper[PATCH_MARKER]) return;
   const previousPatch = InteractionHelper.patchInteractionResponses.bind(InteractionHelper);
+
   InteractionHelper.patchInteractionResponses = function patchMessageLifecycles(interaction) {
     previousPatch(interaction);
     if (!interaction || interaction.__cloudyMessageLifecyclePatched) return;
 
-    // Any component interaction counts as activity and restarts the 5-minute idle timer,
-    // including deferUpdate-only interactions that do not send or edit a response.
-    if (interaction.message && isDashboardPayload(null, interaction.message)) {
-      schedule(dashboardTimers, interaction.message, interaction, DASHBOARD_IDLE_MS);
+    // Every click/select interaction on an ephemeral dashboard counts as activity.
+    // This makes the five-minute lifetime an inactivity timeout instead of a fixed age.
+    if (interaction.message) {
+      scheduleDashboardIfNeeded(null, interaction.message, interaction);
     }
 
     for (const method of ['reply', 'editReply', 'followUp', 'update']) {
       const original = interaction[method]?.bind(interaction);
       if (!original) continue;
+
       interaction[method] = async (payload, ...args) => {
         const result = await original(payload, ...args);
         const message = await resolveResponseMessage(interaction, result);
         if (!message) return result;
-        if (isDashboardPayload(payload, message)) schedule(dashboardTimers, message, interaction, DASHBOARD_IDLE_MS);
-        const embeds = payload?.embeds || message.embeds || [];
-        if (embeds.some(isTransientStatusEmbed)) schedule(transientTimers, message, interaction, TRANSIENT_MESSAGE_MS);
+
+        scheduleDashboardIfNeeded(payload, message, interaction);
+        if (isTransientStatusPayload(payload, message)) {
+          schedule(transientTimers, message, interaction, TRANSIENT_MESSAGE_MS);
+        }
         return result;
       };
     }
+
     interaction.__cloudyMessageLifecyclePatched = true;
   };
+
   Object.defineProperty(InteractionHelper, PATCH_MARKER, {
-    value: true, enumerable: false, configurable: false, writable: false,
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
   });
 }
