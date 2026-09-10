@@ -4,7 +4,7 @@ const path = 'src/commands/Tools/embedbuilder.js';
 const before = fs.readFileSync(path, 'utf8');
 let text = before;
 
-const controlsMarker = 'function buildSecondaryControls(state) {';
+const controlsMarker = 'function buildSecondaryControls() {';
 if (!text.includes(controlsMarker)) {
     const controlsPattern = /function buildControls\(state\) \{[\s\S]*?\n\}\n\nfunction getPreviewUpdateQueue/;
     if (!controlsPattern.test(text)) {
