@@ -47,7 +47,8 @@ function canonicalCasinoBuilderTemplate(value) {
 
     let game = context.match(/^gambling\\/(blackjack|baccarat|roulette)$/)?.[1] || '';
     if (!game) {
-        if (/\\bblackjack\\b/.test(title) || (fields.has('your hand') && fields.has('dealer hand'))) game = 'blackjack';
+        if (/^result\\s*:\\s*(?:bust|blackjack|win|push|loss|expired)$/.test(title)) game = 'blackjack';
+        else if (/\\bblackjack\\b/.test(title) || (fields.has('your hand') && fields.has('dealer hand'))) game = 'blackjack';
         else if (/\\bbaccarat\\b/.test(title) || (fields.has('player hand') && fields.has('banker hand'))) game = 'baccarat';
         else if (/\\broulette\\b|wheel landed/.test(\`${'${title} ${description}'}\`) || (fields.has('your bet') && fields.has('result'))) game = 'roulette';
     }
@@ -92,15 +93,39 @@ const loopReplacement = `        const recordData = recordEmbedData(record);
                 label: casinoTemplate.label,
                 records: [],
                 templateMode: true,
+                canonicalCasinoKey: casinoTemplate.key,
             });
             groups.get(key).records.push(record);
             continue;
         }
 
         const ticketLog = canonicalTicketLogTemplate(recordData);`;
-if (!text.includes('const casinoTemplate = canonicalCasinoBuilderTemplate(recordData);')) {
+if (!text.includes('canonicalCasinoKey: casinoTemplate.key')) {
   if (!text.includes(loopMarker)) throw new Error('Embed Manager record grouping marker was not found.');
   text = text.replace(loopMarker, loopReplacement);
+}
+
+const representativeMarker = `        const realRecords = group.records.filter(record => record.source !== 'system-catalog');
+        const representative = (realRecords.length ? realRecords : group.records).at(-1);
+        return {
+            ...representative,
+            name: group.label,`;
+const representativeReplacement = `        const realRecords = group.records.filter(record => record.source !== 'system-catalog');
+        const canonicalCatalogRecords = group.canonicalCasinoKey
+            ? group.records.filter(record => stableSystemTemplateKey(recordEmbedData(record)) === group.canonicalCasinoKey)
+            : [];
+        const representative = canonicalCatalogRecords.at(-1)
+            || (realRecords.length ? realRecords : group.records).at(-1);
+        const displayEmojiSource = group.records
+            .map(record => recordEmbedData(record).title || record.title || record.name || '')
+            .find(value => customEmojiOption(value)) || '';
+        return {
+            ...representative,
+            name: group.label,
+            displayEmojiSource,`;
+if (!text.includes('const canonicalCatalogRecords = group.canonicalCasinoKey')) {
+  if (!text.includes(representativeMarker)) throw new Error('Embed Manager representative marker was not found.');
+  text = text.replace(representativeMarker, representativeReplacement);
 }
 
 const optionMarker = `                return new StringSelectMenuOptionBuilder()
@@ -111,13 +136,20 @@ const optionReplacement = `                const option = new StringSelectMenuOp
                     .setLabel(shortLabel(displayName, 'Untitled embed'))
                     .setDescription(description.slice(0, 100))
                     .setValue(\`${'${record.messageId}:${record.embedIndex || 0}'}\`);
-                const emoji = customEmojiOption(recordEmbedData(record).title || record.title || record.name);
+                const emoji = customEmojiOption(record.displayEmojiSource || recordEmbedData(record).title || record.title || record.name);
                 if (emoji) option.setEmoji(emoji);
                 return option;`;
-if (!text.includes('const emoji = customEmojiOption(recordEmbedData(record).title')) {
-  if (!text.includes(optionMarker)) throw new Error('Embed Manager select option marker was not found.');
-  text = text.replace(optionMarker, optionReplacement);
+if (!text.includes('customEmojiOption(record.displayEmojiSource')) {
+  if (text.includes('const emoji = customEmojiOption(recordEmbedData(record).title || record.title || record.name);')) {
+    text = text.replace(
+      'const emoji = customEmojiOption(recordEmbedData(record).title || record.title || record.name);',
+      'const emoji = customEmojiOption(record.displayEmojiSource || recordEmbedData(record).title || record.title || record.name);',
+    );
+  } else {
+    if (!text.includes(optionMarker)) throw new Error('Embed Manager select option marker was not found.');
+    text = text.replace(optionMarker, optionReplacement);
+  }
 }
 
 if (text !== before) fs.writeFileSync(path, text, 'utf8');
-console.log(`[CASINO_BUILDER_CANONICAL] ${text === before ? 'already current' : 'patched canonical labels, grouping and emoji icons'}`);
+console.log(`[CASINO_BUILDER_CANONICAL] ${text === before ? 'already current' : 'patched canonical labels, Save targets and emoji icons'}`);
