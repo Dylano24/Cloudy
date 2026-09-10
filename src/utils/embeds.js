@@ -231,15 +231,15 @@ const NOTIFICATION_DEFAULT_TITLES = {
 };
 
 export const USER_ERROR_TITLES = {
-  validation: 'Invalid Input',
-  permission: 'Permission Denied',
-  configuration: 'Configuration Error',
-  database: 'Database Error',
-  network: 'Network Error',
-  discord_api: 'Discord API Error',
-  user_input: 'Input Error',
-  rate_limit: 'Too Fast',
-  unknown: 'Something Went Wrong',
+  validation: 'Invalid input',
+  permission: 'Permission denied',
+  configuration: 'Configuration error',
+  database: 'Database error',
+  network: 'Network error',
+  discord_api: 'Discord API error',
+  user_input: 'Input error',
+  rate_limit: 'Too fast',
+  unknown: 'Something went wrong',
 };
 
 const USER_ERROR_COLORS = {
@@ -251,12 +251,21 @@ export function buildUserErrorEmbed(errorType, description = '', options = {}) {
   const title = options.titleOverride || USER_ERROR_TITLES[type] || USER_ERROR_TITLES.unknown;
   const color = USER_ERROR_COLORS[type] || 'error';
   const body = description ? String(description).trim() : undefined;
-
-  return createEmbed({
+  const templatedEmbed = createEmbed({
     title,
     description: body,
     color,
   });
+  const data = templatedEmbed.toJSON();
+
+  // System error titles follow sentence case even when an older saved/default
+  // response template still contains the previous Title Case spelling.
+  data.title = title;
+  if (options.preserveText === true && body) {
+    data.description = body;
+  }
+
+  return new EmbedBuilder(data);
 }
 
 function containsDiscordRenderable(content = '') {
