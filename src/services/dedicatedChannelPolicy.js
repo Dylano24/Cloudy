@@ -1,6 +1,7 @@
 import { isGamblingGameCommand } from '../config/gamblingCommands.js';
 
 const resolvedChannels = new WeakMap();
+const SHOP_COMMANDS = new Set(['shop', 'buy']);
 
 export function rememberDedicatedCommandChannel(interaction, key, channelId) {
   resolvedChannels.set(interaction, { key, channelId });
@@ -17,19 +18,24 @@ export function findDedicatedChannelBySlug(guild, slug) {
 export function getGamblingResponsePolicy(interaction, context = {}) {
   const resolved = resolvedChannels.get(interaction);
   const commandName = String(interaction?.commandName || context.commandName || context.command || '').toLowerCase();
-  if (resolved?.key !== 'gambling' && !isGamblingGameCommand(commandName)) return null;
+  const dedicatedKey = resolved?.key
+    || (isGamblingGameCommand(commandName) ? 'gambling' : null)
+    || (SHOP_COMMANDS.has(commandName) ? 'shop' : null);
 
-  // Also covers validation and cooldown errors raised before command.execute.
-  const targetId = resolved?.key === 'gambling'
+  if (!['gambling', 'shop'].includes(dedicatedKey)) return null;
+
+  // Gambling and shop use the exact same response policy; only the target
+  // dedicated channel differs.
+  const targetId = resolved?.key === dedicatedKey
     ? resolved.channelId
-    : findDedicatedChannelBySlug(interaction?.guild, 'gambling')?.id;
+    : findDedicatedChannelBySlug(interaction?.guild, dedicatedKey)?.id;
   const currentId = interaction?.channelId || interaction?.channel?.id;
-  const inGamblingChannel = Boolean(targetId && currentId === targetId);
+  const inDedicatedChannel = Boolean(targetId && currentId === targetId);
 
   return {
     showCloseButton: false,
     // Keep errors visible in the dedicated channel; elsewhere they are temporary.
-    autoDelete: !inGamblingChannel,
-    ephemeral: !inGamblingChannel,
+    autoDelete: !inDedicatedChannel,
+    ephemeral: !inDedicatedChannel,
   };
 }
