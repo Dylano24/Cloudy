@@ -43,14 +43,14 @@ function createDashboardInteraction(guild, getChannel) {
   return { interaction, getPayload: () => payload };
 }
 
-test('JoinToCreate dashboard keeps every voice channel selectable without mutating interaction options', async () => {
+test('JoinToCreate dashboard exposes the optional voice-channel selector without mutating interaction options', async () => {
   const guild = { id: 'guild-a', channels: { cache: new Map(), fetch: async () => null } };
   const selected = { id: 'voice-a', type: ChannelType.GuildVoice, guild, toString: () => '<#voice-a>' };
   const originalGetChannel = () => selected;
   const { interaction, getPayload } = createDashboardInteraction(guild, originalGetChannel);
   const client = createClient({
     'guild-a': {
-      triggerChannels: ['configured-trigger'],
+      triggerChannels: ['voice-a'],
       channelOptions: { 'voice-a': { nameTemplate: '{username} selected', userLimit: 0, bitrate: 64000 } },
     },
   });
