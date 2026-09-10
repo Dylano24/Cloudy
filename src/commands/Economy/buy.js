@@ -1,5 +1,6 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -21,6 +22,8 @@ export default {
         ),
 
     async execute(interaction) {
+        await enforceDedicatedCommandChannel(interaction, 'shop');
+
         const embed = new EmbedBuilder()
             .setColor(0xFFFFFF)
             .setTitle('Shop unavailable')
