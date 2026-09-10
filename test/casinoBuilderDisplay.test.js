@@ -141,7 +141,7 @@ test('legacy casino loss copies collapse into one canonical Save target per game
   }
 });
 
-test('catalog cleanup migrates old Roulette copies without deleting the saved emoji title', async () => {
+test('background catalog cleanup preserves legacy Roulette copies and saved titles', async () => {
   const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
   const makeMessage = (id, title, key, createdTimestamp) => ({
     id,
@@ -158,12 +158,11 @@ test('catalog cleanup migrates old Roulette copies without deleting the saved em
         name: `Cloudy template key: ${key} || Cloudy context: ${key.startsWith('game:') ? 'gambling/roulette' : 'gambling'} || Cloudy kind: embed`,
       },
     })],
-    async edit(payload) {
-      this.embeds = payload.embeds;
-      return this;
+    async edit() {
+      assert.fail('Background cleanup must not rewrite an existing catalog message');
     },
     async delete() {
-      this.deleted = true;
+      assert.fail('Background cleanup must not delete an existing catalog message');
     },
   });
   const messages = [
@@ -171,22 +170,14 @@ test('catalog cleanup migrates old Roulette copies without deleting the saved em
     makeMessage('roulette-legacy-one', emojiTitle, 'embed:legacy-one', 2),
     makeMessage('roulette-legacy-two', emojiTitle, 'embed:legacy-two', 3),
   ];
+  const before = JSON.stringify(messages.map(message => message.embeds[0].toJSON()));
 
-  assert.equal(await cleanupSystemCatalogEntries(messages), true);
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].id, 'roulette-canonical');
-  const migrated = messages[0].embeds[0].toJSON();
-  assert.equal(migrated.title, emojiTitle);
-  assert.match(migrated.author.name, /game:roulette:lost/);
-
-  messages.push(makeMessage('roulette-new-default-copy', 'Roulette loss', 'game:roulette:lost', 4));
-  assert.equal(await cleanupSystemCatalogEntries(messages), true);
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].id, 'roulette-canonical');
-  assert.equal(messages[0].embeds[0].toJSON().title, emojiTitle);
+  assert.equal(await cleanupSystemCatalogEntries(messages), false);
+  assert.equal(messages.length, 3);
+  assert.equal(JSON.stringify(messages.map(message => message.embeds[0].toJSON())), before);
 });
 
-test('saved casino titles are applied to the next real channel result while live values stay dynamic', () => {
+test('casino runtime outcome identity stays authoritative while live values remain dynamic', () => {
   const cases = [
     {
       key: 'game:roulette:lost',
@@ -201,7 +192,7 @@ test('saved casino titles are applied to the next real channel result while live
           { name: 'Cash balance', value: '**$90**', inline: true },
         ],
       },
-      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
+      expectedTitle: 'Roulette loss',
     },
     {
       key: 'game:blackjack:result:loss',
@@ -211,7 +202,7 @@ test('saved casino titles are applied to the next real channel result while live
         title: 'Blackjack loss',
         description: 'Payout: **$0**\nCash balance: **$80**',
       },
-      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
+      expectedTitle: 'Blackjack loss',
     },
     {
       key: 'game:baccarat:loss',
@@ -221,14 +212,14 @@ test('saved casino titles are applied to the next real channel result while live
         title: 'Baccarat loss',
         description: 'You chose **player**. Winner: **banker**\nYou lost **$10**\nCash balance: **$70**',
       },
-      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
+      expectedTitle: 'Baccarat loss',
     },
   ];
 
   for (const item of cases) {
     primeSystemEmbedTemplateData(item.key, item.context, {
       ...item.runtime,
-      title: item.title,
+      title: '<a:W85animatedarrowred:1543290732331270124> You lost',
       color: 0x900003,
     });
 
@@ -236,8 +227,8 @@ test('saved casino titles are applied to the next real channel result while live
       commandName: item.commandName,
     });
 
-    assert.equal(rendered.title, item.title);
-    assert.equal(rendered.color, 0x900003);
+    assert.equal(rendered.title, item.expectedTitle);
+    assert.equal(rendered.color, 0x670102);
     assert.equal(rendered.description, item.runtime.description);
   }
 });
