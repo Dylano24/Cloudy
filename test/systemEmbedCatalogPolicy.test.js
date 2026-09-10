@@ -99,7 +99,7 @@ test('malformed casino runtime output is rejected before it can queue a catalog 
   );
 });
 
-test('catalog cleanup removes partial Blackjack and legacy runtime tickets but keeps curated masters', async () => {
+test('background catalog cleanup preserves every existing embed until an explicit Builder Save', async () => {
   const template = (title, key, context) => new EmbedBuilder({
     title,
     description: 'Template body',
@@ -117,18 +117,15 @@ test('catalog cleanup removes partial Blackjack and legacy runtime tickets but k
       template('Ticket closed', 'embed:deadbeef', 'tickets/close'),
       template('Ticket deleted', 'ticket-log:delete', 'ticket-logs/delete'),
     ],
-    async edit(payload) {
-      this.embeds = payload.embeds;
-      return this;
+    async edit() {
+      assert.fail('Background catalog cleanup must not rewrite an existing embed');
     },
   };
   const messages = [message];
+  const before = JSON.stringify(message.embeds.map(embed => embed.toJSON()));
 
-  assert.equal(await cleanupSystemCatalogEntries(messages), true);
+  assert.equal(await cleanupSystemCatalogEntries(messages), false);
   assert.equal(messages.length, 1);
-  assert.equal(message.embeds.length, 2);
-  assert.equal(message.embeds[0].toJSON().title, 'Blackjack bust');
-  assert.match(message.embeds[0].toJSON().author.name, /game:blackjack:result:bust/);
-  assert.equal(message.embeds[1].toJSON().title, 'Ticket deleted');
-  assert.match(message.embeds[1].toJSON().author.name, /ticket-log:delete/);
+  assert.equal(message.embeds.length, 5);
+  assert.equal(JSON.stringify(message.embeds.map(embed => embed.toJSON())), before);
 });
