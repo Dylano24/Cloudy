@@ -27,6 +27,8 @@ async function getAllInteractionFiles(directory, fileList = []) {
 }
 
 export default async (client) => {
+  const loadErrors = [];
+
   try {
     const interactionsPath = join(__dirname, '../../interactions');
 
@@ -48,13 +50,17 @@ export default async (client) => {
             const interactions = Array.isArray(moduleExport) ? moduleExport : [moduleExport];
 
             for (const interaction of interactions) {
-              if (!interaction?.name || !interaction?.execute) {
-                logger.warn(`Interaction ${relativePath} in ${type} is missing required properties.`);
+              if (!interaction?.name || typeof interaction.execute !== 'function') {
+                const message = `Interaction ${relativePath} in ${type} is missing required properties.`;
+                loadErrors.push({ type, source: relativePath, message });
+                logger.error(message);
                 continue;
               }
 
               const existingSource = registeredSources.get(interaction.name);
               if (existingSource || client[type].has(interaction.name)) {
+                const message = `Duplicate ${type} handler "${interaction.name}" blocked: ${relativePath}`;
+                loadErrors.push({ type, source: relativePath, message });
                 logger.error('Duplicate interaction handler blocked', {
                   type,
                   name: interaction.name,
@@ -70,6 +76,7 @@ export default async (client) => {
               logger.info(`Loaded ${type.slice(0, -1)}: ${interaction.name} (${fileName})`);
             }
           } catch (error) {
+            loadErrors.push({ type, source: relativePath, message: error?.message || String(error) });
             logger.error(`Error loading interaction ${relativePath} in ${type}:`, error);
           }
         }
@@ -77,6 +84,7 @@ export default async (client) => {
         logger.info(`Loaded ${loadedCount} ${type}`);
       } catch (error) {
         if (error.code !== 'ENOENT') {
+          loadErrors.push({ type, source: typePath, message: error?.message || String(error) });
           logger.error(`Error loading ${type}:`, error);
         } else {
           logger.debug(`No ${type} directory found, skipping...`);
@@ -84,6 +92,12 @@ export default async (client) => {
       }
     }
   } catch (error) {
+    loadErrors.push({ type: 'interactions', source: 'loader', message: error?.message || String(error) });
     logger.error('Error loading interactions:', error);
+  }
+
+  if (loadErrors.length > 0) {
+    const sources = loadErrors.map(error => error.source).join(', ');
+    throw new Error(`[INTERACTION_LOAD] Aborting startup because ${loadErrors.length} interaction handler error(s) were found: ${sources}`);
   }
 };
