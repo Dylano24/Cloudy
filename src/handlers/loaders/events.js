@@ -12,6 +12,7 @@ export default async function loadEvents(client) {
     const eventFiles = await readdir(eventsPath).then(files =>
         files.filter(file => file.endsWith('.js')).sort((a, b) => a.localeCompare(b))
     );
+    const loadErrors = [];
 
     logger.info(`Found ${eventFiles.length} event files to load`);
 
@@ -32,7 +33,9 @@ export default async function loadEvents(client) {
             const { default: event } = await import(`file://${filePath}`);
 
             if (!event?.name || typeof event.execute !== 'function') {
-                logger.warn(`Event ${file} is missing required "name" or "execute" properties.`);
+                const message = `Event ${file} is missing required "name" or "execute" properties.`;
+                loadErrors.push({ file, message });
+                logger.error(message);
                 continue;
             }
 
@@ -52,7 +55,13 @@ export default async function loadEvents(client) {
                 logger.info(`✅ Registered event: ${event.name}`);
             }
         } catch (error) {
+            loadErrors.push({ file, message: error?.message || String(error) });
             logger.error(`Error loading event ${file}:`, error);
         }
+    }
+
+    if (loadErrors.length > 0) {
+        const files = loadErrors.map(error => error.file).join(', ');
+        throw new Error(`[EVENT_LOAD] Aborting startup because ${loadErrors.length} event file(s) failed validation/loading: ${files}`);
     }
 }
