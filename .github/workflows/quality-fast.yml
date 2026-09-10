@@ -60,7 +60,10 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
 
-      - name: Lint and tests in parallel
+      - name: Clean-source regression tests
+        run: node --test
+
+      - name: Lint and patched-start regression tests in parallel
         shell: bash
         run: |
           set +e
@@ -78,5 +81,8 @@ jobs:
             exit 1
           fi
 
+      - name: Commercial dependency license audit
+        run: node scripts/commercial-license-audit.js
+
       - name: Dependency audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
