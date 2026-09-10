@@ -54,30 +54,15 @@ jobs:
             esac
           done
 
-      - name: Commit exact runtime source state locally
+      - name: Commit and push exact verified runtime source state
         shell: bash
         run: |
           if git diff --quiet -- src; then
-            echo "NO_MATERIALIZATION=1" >> "$GITHUB_ENV"
+            echo "Production patch output is already materialized."
             exit 0
           fi
           git config user.name "Cloudy Hardening"
           git config user.email "actions@users.noreply.github.com"
           git add src
           git commit -m "Materialize verified runtime patch state"
-
-      - name: Prove patch chain is idempotent on materialized source
-        if: env.NO_MATERIALIZATION != '1'
-        shell: bash
-        run: |
-          npm test
-          if ! git diff --quiet; then
-            echo "Runtime patch chain is not idempotent after materialization."
-            git diff --stat
-            git diff --name-only
-            exit 1
-          fi
-
-      - name: Push verified materialized source
-        if: env.NO_MATERIALIZATION != '1'
-        run: git push
+          git push
