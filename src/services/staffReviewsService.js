@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -28,8 +28,11 @@ const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const OWNER_ROLE_NAME = 'owner';
 const PENDING_REVIEW_TTL_MS = 15 * 60 * 1000;
 const STAFF_REVIEW_STAR_EMOJI = `<:${STAFF_REVIEW_STAR_EMOJI_NAME}:${STAFF_REVIEW_STAR_EMOJI_ID}>`;
+const REVIEW_COLOR_HISTORY_LIMIT = 10;
+const REVIEW_COLOR_CANDIDATE_COUNT = 24;
 
 const pendingReviews = new Map();
+const recentReviewColors = [];
 
 function reviewContextKey(userId, reviewId) {
   return `${userId}:${reviewId}`;
@@ -42,6 +45,49 @@ function pruneExpiredReviews() {
       pendingReviews.delete(key);
     }
   }
+}
+
+function colorDistanceSquared(left, right) {
+  const leftRed = (left >> 16) & 0xFF;
+  const leftGreen = (left >> 8) & 0xFF;
+  const leftBlue = left & 0xFF;
+  const rightRed = (right >> 16) & 0xFF;
+  const rightGreen = (right >> 8) & 0xFF;
+  const rightBlue = right & 0xFF;
+
+  return ((leftRed - rightRed) ** 2)
+    + ((leftGreen - rightGreen) ** 2)
+    + ((leftBlue - rightBlue) ** 2);
+}
+
+function nextReviewSideColor() {
+  if (!recentReviewColors.length) {
+    const firstColor = randomInt(0x1000000);
+    recentReviewColors.push(firstColor);
+    return firstColor;
+  }
+
+  let bestColor = randomInt(0x1000000);
+  let bestDistance = -1;
+
+  for (let index = 0; index < REVIEW_COLOR_CANDIDATE_COUNT; index += 1) {
+    const candidate = index === 0 ? bestColor : randomInt(0x1000000);
+    const nearestDistance = Math.min(
+      ...recentReviewColors.map(previousColor => colorDistanceSquared(candidate, previousColor)),
+    );
+
+    if (nearestDistance > bestDistance) {
+      bestColor = candidate;
+      bestDistance = nearestDistance;
+    }
+  }
+
+  recentReviewColors.push(bestColor);
+  if (recentReviewColors.length > REVIEW_COLOR_HISTORY_LIMIT) {
+    recentReviewColors.splice(0, recentReviewColors.length - REVIEW_COLOR_HISTORY_LIMIT);
+  }
+
+  return bestColor;
 }
 
 function buildRatingMenu(disabled = false, memberId = '') {
@@ -217,7 +263,7 @@ export function buildPublishedReview(interaction, rating, comment, memberId, sta
   const stars = starEmoji
     ? Array.from({ length: normalizedRating }, () => starEmoji).join('')
     : '⭐'.repeat(normalizedRating);
-  const randomSideColor = Math.floor(Math.random() * 0x1000000);
+  const randomSideColor = nextReviewSideColor();
 
   return setPreservedEmbedColor(new EmbedBuilder(), randomSideColor)
     .setAuthor({
