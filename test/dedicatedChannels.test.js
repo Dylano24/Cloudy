@@ -69,7 +69,7 @@ for (const [name, command] of Object.entries({ gamble, fight, flip, roll })) {
 }
 
 for (const [name, command] of Object.entries({ shop: shopCommand, buy })) {
-  test(`/${name} rejects the wrong channel before shop logic and shows the shop message`, async () => {
+  test(`/${name} rejects the wrong channel before shop logic and uses the same flow as gambling`, async () => {
     const f = fixture();
     f.interaction.commandName = name;
     let thrown;
@@ -82,7 +82,7 @@ for (const [name, command] of Object.entries({ shop: shopCommand, buy })) {
     const payload = f.sent[0].payload;
     assert.equal(payload.embeds[0].toJSON().title, 'Wrong channel');
     assert.equal(payload.embeds[0].toJSON().description,
-      'This command can only be used in the dedicated channel. Please use **⁠🛒│shop**');
+      `This command can only be used in the dedicated channel. Please use <#${f.shop.id}> to play.`);
     assert.deepEqual(payload.components, []);
     assert.equal(payload.flags, MessageFlags.Ephemeral);
   });
@@ -126,16 +126,17 @@ test('normal validation uses sentence case while shop wrong-channel has no Close
   await handleInteractionError(f.interaction, thrown);
   assert.equal(f.sent[1].payload.embeds[0].toJSON().title, 'Wrong channel');
   assert.equal(f.sent[1].payload.embeds[0].toJSON().description,
-    'This command can only be used in the dedicated channel. Please use **⁠🛒│shop**');
+    `This command can only be used in the dedicated channel. Please use <#${f.shop.id}> to play.`);
   assert.deepEqual(f.sent[1].payload.components, []);
   assert.equal(f.sent[1].payload.flags, MessageFlags.Ephemeral);
 });
 
-test('the gambling channel remains allowed, and other channels do not get sticky messages', async () => {
+test('gambling and shop schedule their sticky guides while unrelated channels do not', async () => {
   const f = fixture();
   f.interaction.channelId = f.gambling.id;
   assert.equal(await enforceDedicatedCommandChannel(f.interaction, 'gambling'), true);
-  assert.equal(scheduleDedicatedChannelGuide({ guild: f.guild, channel: f.shop }), false);
+  assert.equal(scheduleDedicatedChannelGuide({ guild: f.guild, channel: f.shop }), true);
+  assert.equal(scheduleDedicatedChannelGuide({ guild: f.guild, channel: { id: '100000000000000003', name: 'general' } }), false);
   assert.equal(scheduleDedicatedChannelGuide({ channel: f.gambling }), false);
   assert.equal(scheduleDedicatedChannelGuide({
     guild: f.guild, channel: f.gambling, author: f.guild.client.user,
