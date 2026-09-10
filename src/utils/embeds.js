@@ -200,7 +200,7 @@ export function createEmbed({
       if (typeof image === 'string' && image.length > 0) {
         embed.setImage(image);
       } else if (image && typeof image.url === 'string') {
-        embed.setImage(image.url);
+        embed.setImage(embed.image.url);
       }
     } catch (error) {
     }
@@ -261,7 +261,8 @@ export function buildUserErrorEmbed(errorType, description = '', options = {}) {
   // System error titles follow sentence case even when an older saved/default
   // response template still contains the previous Title Case spelling.
   data.title = title;
-  if (options.preserveText === true && body) {
+  const exactShopWrongChannel = title === 'Wrong channel' && body?.includes('🛒│shop');
+  if ((options.preserveText === true || exactShopWrongChannel) && body) {
     data.description = body;
   }
 
