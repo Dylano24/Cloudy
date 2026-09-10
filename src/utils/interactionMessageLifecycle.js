@@ -1,10 +1,11 @@
-import { MessageFlags } from 'discord.js';
+import { Message, MessageFlags } from 'discord.js';
 import { InteractionHelper } from './interactionHelper.js';
 import { isTransientStatusPayload } from './transientResponse.js';
 
 export const DASHBOARD_IDLE_MS = 5 * 60_000;
 export const TRANSIENT_MESSAGE_MS = 10_000;
 const PATCH_MARKER = Symbol.for('cloudy.interaction-message-lifecycle');
+const COLLECTOR_PATCH_MARKER = Symbol.for('cloudy.dashboard-collector-lifecycle');
 const dashboardTimers = new Map();
 const transientTimers = new Map();
 const DASHBOARD_CUSTOM_ID = /^(?:ticket_dashboard_|jtc_|jointocreate_|simple_embed_|cmdaccess_|config_|verification_|verify_|autoverify_|greet_|welcome_|goodbye_|level_|logging_|log_|economy_|application_|app_admin_|reactroles?_|reaction_role_)/i;
@@ -51,6 +52,36 @@ export function isDashboardSessionPayload(payload = null, message = null) {
 
   return componentIds(components).some(id => DASHBOARD_CUSTOM_ID.test(id))
     || embeds.some(embed => DASHBOARD_TITLE.test(String(embedData(embed).title || '')));
+}
+
+export function normalizeDashboardCollectorOptions(message, options = {}) {
+  if (!isEphemeralLifecycleMessage(null, message)) return options;
+  if (!isDashboardSessionPayload(null, message)) return options;
+  if (options?.idle != null) return options;
+  if (Number(options?.time) !== DASHBOARD_IDLE_MS) return options;
+
+  const normalized = { ...options, idle: DASHBOARD_IDLE_MS };
+  delete normalized.time;
+  return normalized;
+}
+
+function installDashboardCollectorLifecycle() {
+  const prototype = Message?.prototype;
+  if (!prototype || prototype[COLLECTOR_PATCH_MARKER]) return;
+
+  const originalCreateCollector = prototype.createMessageComponentCollector;
+  if (typeof originalCreateCollector !== 'function') return;
+
+  prototype.createMessageComponentCollector = function createManagedDashboardCollector(options = {}) {
+    return originalCreateCollector.call(this, normalizeDashboardCollectorOptions(this, options));
+  };
+
+  Object.defineProperty(prototype, COLLECTOR_PATCH_MARKER, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
 }
 
 function clearTimer(store, messageId) {
@@ -115,6 +146,7 @@ async function resolveResponseMessage(interaction, result) {
 }
 
 export function installInteractionMessageLifecycle() {
+  installDashboardCollectorLifecycle();
   if (InteractionHelper[PATCH_MARKER]) return;
   const previousPatch = InteractionHelper.patchInteractionResponses.bind(InteractionHelper);
 
