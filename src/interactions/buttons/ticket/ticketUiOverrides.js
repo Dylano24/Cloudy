@@ -146,20 +146,30 @@ const createTicketHandler = {
 const claimTicketHandler = {
   name: 'ticket_claim',
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
-
     try {
       const context = await requireStaff(interaction, client, 'claim tickets');
       if (!context) return;
 
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferUpdate();
+      }
+
       await claimTicket(interaction.channel, interaction.user);
-      await editBasicTicketReply(interaction, 'Ticket claimed', 'You have claimed this ticket.');
     } catch (error) {
       logger.error('Ticket claim button failed', { error: error.message, channelId: interaction.channelId });
+      const message = error?.userMessage || 'An error occurred while claiming the ticket.';
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({
+          embeds: [buildCloudyTicketEmbed({ title: 'Error', description: message })],
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+        return;
+      }
+
       await replyUserError(interaction, {
         type: ErrorTypes.UNKNOWN,
-        message: error?.userMessage || 'An error occurred while claiming the ticket.',
+        message,
       });
     }
   },
@@ -334,20 +344,30 @@ const closeTicketHandler = {
 const unclaimTicketHandler = {
   name: 'ticket_unclaim',
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
-
     try {
       const context = await requireStaff(interaction, client, 'unclaim tickets');
       if (!context) return;
 
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferUpdate();
+      }
+
       await unclaimTicket(interaction.channel, interaction.member);
-      await editBasicTicketReply(interaction, 'Ticket unclaimed', 'This ticket has been unclaimed.');
     } catch (error) {
       logger.error('Ticket unclaim button failed', { error: error.message, channelId: interaction.channelId });
+      const message = error?.userMessage || 'An error occurred while unclaiming the ticket.';
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({
+          embeds: [buildCloudyTicketEmbed({ title: 'Error', description: message })],
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+        return;
+      }
+
       await replyUserError(interaction, {
         type: ErrorTypes.UNKNOWN,
-        message: error?.userMessage || 'An error occurred while unclaiming the ticket.',
+        message,
       });
     }
   },
