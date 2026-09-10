@@ -106,10 +106,10 @@ async function handlePrefixCommand(message, client) {
     ) {
       await message.channel.send({
         embeds: [createEmbed({
-          title: 'Staff Only',
+          title: 'Staff only',
           description: 'This command is only available to authorized staff members.',
           color: 'error',
-        })],
+        }).setTitle('Staff only')],
       }).catch(() => {});
       return;
     }
@@ -117,10 +117,10 @@ async function handlePrefixCommand(message, client) {
     if (isMaintenanceMode() && !isBotOwner(message.author.id)) {
       await message.channel.send({
         embeds: [createEmbed({
-          title: 'Maintenance Mode',
+          title: 'Maintenance mode',
           description: getBotMessage('maintenanceMode'),
           color: 'warning',
-        })],
+        }).setTitle('Maintenance mode')],
       }).catch(() => {});
       return;
     }
@@ -128,10 +128,10 @@ async function handlePrefixCommand(message, client) {
     if (!isCommandCategoryEnabled(command.category)) {
       await message.channel.send({
         embeds: [createEmbed({
-          title: 'Feature Disabled',
+          title: 'Feature disabled',
           description: getBotMessage('commandDisabled'),
           color: 'error',
-        })],
+        }).setTitle('Feature disabled')],
       }).catch(() => {});
       return;
     }
@@ -140,10 +140,10 @@ async function handlePrefixCommand(message, client) {
     if (!supportsPrefixExecution(command) || restriction.blocked) {
       if (restriction.blocked && restriction.reason) {
         const embed = createEmbed({
-          title: 'Slash Command Only',
+          title: 'Slash command only',
           description: `${restriction.reason}\nUse \`/${resolvedCommandName}\` instead.`,
           color: 'info',
-        });
+        }).setTitle('Slash command only');
         await message.channel.send({ embeds: [embed] }).catch(() => {});
       }
       return;
@@ -151,10 +151,10 @@ async function handlePrefixCommand(message, client) {
 
     if (!isCommandEnabledInConfig(guildConfig, resolvePrefixAccessKey(command.data, args), command.category)) {
       const embed = createEmbed({
-        title: 'Command Disabled',
+        title: 'Command disabled',
         description: 'This command has been disabled for this server.',
         color: 'error',
-      });
+      }).setTitle('Command disabled');
       await message.channel.send({ embeds: [embed] }).catch(() => {});
       return;
     }
@@ -171,10 +171,10 @@ async function handlePrefixCommand(message, client) {
     if (!abuseProtection.allowed) {
       const formattedCooldown = formatCooldownDuration(abuseProtection.remainingMs);
       const embed = createEmbed({
-        title: 'Command Cooldown',
+        title: 'Command cooldown',
         description: `This command is on cooldown. Please wait ${formattedCooldown} before trying again.`,
         color: 'error',
-      });
+      }).setTitle('Command cooldown');
       await message.channel.send({ embeds: [embed] }).catch(() => {});
       return;
     }
