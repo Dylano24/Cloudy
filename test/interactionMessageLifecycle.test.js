@@ -7,6 +7,7 @@ import {
   deleteLifecycleMessage,
   isDashboardSessionPayload,
   isEphemeralLifecycleMessage,
+  normalizeDashboardCollectorOptions,
 } from '../src/utils/interactionMessageLifecycle.js';
 
 test('dashboard and transient lifetimes use the requested values', () => {
@@ -38,6 +39,27 @@ test('join to create configuration is a managed dashboard session', () => {
     embeds: [{ title: 'Join to create configuration' }],
     components: [{ components: [{ custom_id: 'jtc_config_name_123' }] }],
   }), true);
+});
+
+test('five minute dashboard collectors become inactivity collectors', () => {
+  const dashboard = {
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+    embeds: [{ title: 'Join to create configuration' }],
+    components: [{ components: [{ customId: 'jtc_config_name_123' }] }],
+  };
+  const original = { componentType: 2, time: DASHBOARD_IDLE_MS };
+  const normalized = normalizeDashboardCollectorOptions(dashboard, original);
+
+  assert.equal(normalized.time, undefined);
+  assert.equal(normalized.idle, DASHBOARD_IDLE_MS);
+  assert.equal(original.time, DASHBOARD_IDLE_MS);
+
+  const publicPanel = {
+    flags: { has: () => false },
+    embeds: [{ title: 'Join to create configuration' }],
+    components: dashboard.components,
+  };
+  assert.equal(normalizeDashboardCollectorOptions(publicPanel, original), original);
 });
 
 test('ephemeral cleanup uses webhook deletion before normal message deletion', async () => {
