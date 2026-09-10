@@ -445,7 +445,7 @@ async function sendPublicClaimStatus(channel, claimer) {
       embeds: [forceCloudyTicketFooter(createEmbed({
         title: 'Ticket claimed',
         description: `${claimerMention} has claimed this ticket.`,
-        color: '#2ecc71',
+        color: '#FFFFFF',
       }))],
       allowedMentions: claimerId
         ? { parse: [], users: [claimerId] }
@@ -470,7 +470,7 @@ async function sendPublicUnclaimStatus(channel, unclaimer) {
       embeds: [forceCloudyTicketFooter(createEmbed({
         title: 'Ticket unclaimed',
         description: `${unclaimerMention} has unclaimed this ticket.`,
-        color: '#2ecc71',
+        color: '#FFFFFF',
       }))],
       allowedMentions: unclaimerId
         ? { parse: [], users: [unclaimerId] }

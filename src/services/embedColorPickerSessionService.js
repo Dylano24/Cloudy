@@ -9,7 +9,7 @@ const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
-const EDIT_FLUSH_DELAY_MS = 0;
+const EDIT_FLUSH_DELAY_MS = 2; // EDITOR_UPDATE_COALESCING_V1: collapse same-field bursts without visible UI delay
 const SESSION_IDLE_MS = 14 * 60_000;
 
 function parseColor(value) {
@@ -29,6 +29,7 @@ function sanitizeEditorState(value = {}) {
                 inline: Boolean(field?.inline),
             }))
             : [],
+        templateKind: value.templateKind === 'content' ? 'content' : 'embed', // CONTENT_TEMPLATE_EDITOR_V1
     };
 }
 
@@ -112,7 +113,9 @@ async function ensureEditorHold(token, session) {
     }
 
     try {
-        await runWithBuilderSessionHold(token, () => session.onEditorUpdate('__heartbeat__', ''));
+        await runWithBuilderSessionHold(token, async () => {
+            if (typeof session.onEditorHold === 'function') await session.onEditorHold();
+        });
         session.holdActive = true;
     } catch (error) {
         releaseBuilderSessionHold(token);
@@ -135,13 +138,14 @@ async function touchEditorSession(token, session) {
     return { ok: true };
 }
 
-export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, emojis = [] }) {
+export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, onEditorHold, emojis = [] }) {
     const token = randomBytes(32).toString('hex');
     const session = {
         userId,
         onColor,
         getEditorState,
         onEditorUpdate,
+        onEditorHold,
         emojis: sanitizeEmojis(emojis),
         holdActive: false,
         pendingEditorUpdates: new Map(),

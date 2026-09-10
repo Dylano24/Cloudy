@@ -247,7 +247,28 @@ function findStoredTemplate(data, stored, { strictTitle = false } = {}) {
 function decorateEmbedData(embed, stored, options = {}) {
   const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
   const data = { ...original };
-  const template = findStoredTemplate(data, stored, options);
+
+  const runtimeTitle = normalizeKey(original.title);
+  const casinoMatch = runtimeTitle.match(/^(blackjack|baccarat|roulette)\s+(win|loss|bust|push)$/);
+  const casinoRuntime = (() => {
+    if (!casinoMatch) return null;
+    const [, game, outcome] = casinoMatch;
+    const allowed = (game === 'blackjack' && ['win', 'loss', 'bust', 'push'].includes(outcome))
+      || (game === 'baccarat' && ['win', 'loss', 'push'].includes(outcome))
+      || (game === 'roulette' && ['win', 'loss'].includes(outcome));
+    if (!allowed) return null;
+    return {
+      title: game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome,
+      color: outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0x336699 : 0x670102,
+    };
+  })();
+
+  // Win/loss/push/bust share very similar descriptions. Never let the generic
+  // description alias select another casino outcome's saved template.
+  const template = findStoredTemplate(data, stored, {
+    ...options,
+    strictTitle: options.strictTitle === true || Boolean(casinoRuntime),
+  });
   if (!template) return { matched: false, changed: false, data };
 
   if (template.title) {
@@ -315,6 +336,15 @@ function decorateEmbedData(embed, stored, options = {}) {
     // The article hero is live patch data, just like a ticket number or user.
     // An older empty Builder media value may not erase that official banner.
     else if (!isOfficialRustPatch) delete data.image;
+  }
+
+  // Casino result titles/colors are semantic runtime data. A correctly matched
+  // Builder template may still style fields/footer/media, but cannot change the
+  // actual result identity, side color, or live Cloudy logo.
+  if (casinoRuntime) {
+    data.title = casinoRuntime.title;
+    data.color = casinoRuntime.color;
+    if (original.thumbnail?.url) data.thumbnail = { ...original.thumbnail };
   }
 
   const finalData = stripBlackjackCardsRemaining(data);

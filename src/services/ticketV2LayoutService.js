@@ -8,6 +8,7 @@ import {
 import { getTicketData, saveTicketData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_TICKET_FOOTER } from '../utils/ticket/ticketBranding.js';
+import { applyTicketMainTemplateData } from './systemEmbedCatalogService.js';
 
 const PIN_EMOJI = '📌';
 const renderQueues = new Map();
@@ -76,7 +77,7 @@ function makeTicketActionRow(ticketData) {
 function buildTicketEmbed(ticketData, number) {
   const reason = String(ticketData.reason || 'No reason provided').slice(0, 1024);
 
-  return new EmbedBuilder()
+  const baseEmbed = new EmbedBuilder()
     .setColor(0xFFFFFF)
     .setTitle(`Ticket #${number}`)
     .setDescription(
@@ -88,6 +89,12 @@ function buildTicketEmbed(ticketData, number) {
       + `\n\n**Reason:** ${reason}`,
     )
     .setFooter({ text: CLOUDY_TICKET_FOOTER });
+
+  return new EmbedBuilder(applyTicketMainTemplateData(baseEmbed.toJSON(), {
+    ticketNumber: number,
+    userId: ticketData.userId,
+    reason,
+  }));
 }
 
 async function findMainTicketMessage(channel, ticketData, preferredMessage = null) {
