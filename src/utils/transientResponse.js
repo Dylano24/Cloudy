@@ -1,7 +1,7 @@
 const TRANSIENT_TTL_MS = 10_000;
 const TRANSIENT_TITLE = /^(?:success|warning|error|system error|information|info|notice|done|saved\b.*|updated\b.*|removed\b.*|enabled\b.*|disabled\b.*|cancelled\b.*|canceled\b.*|invalid\b.*|failed\b.*|failure\b.*|wrong\b.*|not found\b.*|not enough\b.*|already\b.*|missing\b.*|access denied\b.*|permission denied\b.*|unavailable\b.*|expired\b.*|could not\b.*|cannot\b.*|can't\b.*|shop unavailable\b.*|staff only\b.*|maintenance mode\b.*|feature disabled\b.*|slash command only\b.*|command disabled\b.*|command cooldown\b.*)/i;
 const TRANSIENT_CONTENT = /^(?:[✅❌⚠️ℹ️☑️🟢🔴🟡]\s*)?(?:success(?:fully)?\b|warning\b|error\b|invalid\b|wrong channel\b|failed\b|failure\b|could not\b|cannot\b|can't\b|permission denied\b|access denied\b|not found\b|not enough\b|already\b|missing\b|unavailable\b|expired\b|saved\b|updated\b|removed\b|enabled\b|disabled\b|cancelled\b|canceled\b|done\b|you need\b|you do not have\b|you don't have\b|no active\b)/i;
-const PERSISTENT_CHANNEL = /(?:^|[-_\s│])(?:bot-?logs?|logs?|transcripts?|ticket-logs?|ticket-transcripts?|posted-reviews|staff-reviews)(?:$|[-_\s│])/i;
+const PERSISTENT_CHANNEL = /(?:^|[-_\s│])(?:bot-?logs?|logs?|transcripts?|ticket-logs?|ticket-transcripts?|reports?|posted-reviews|staff-reviews)(?:$|[-_\s│])/i;
 
 function cleanLeadingStatusText(value = '') {
   return String(value || '')
