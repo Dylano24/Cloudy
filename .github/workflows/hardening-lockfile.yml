@@ -1,0 +1,58 @@
+name: Commercial Hardening Lockfile Fix
+
+on:
+  push:
+    branches:
+      - chatgpt-commercial-hardening-20260910
+    paths:
+      - '.github/workflows/hardening-lockfile.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: commercial-hardening-lockfile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-lockfile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout hardening branch
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt-commercial-hardening-20260910
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Apply compatible npm security fixes to lockfile only
+        run: npm audit fix --package-lock-only --ignore-scripts
+
+      - name: Verify moderate-and-higher audit is clean
+        run: npm audit --audit-level=moderate
+
+      - name: Commit lockfile only when changed
+        shell: bash
+        run: |
+          if git diff --quiet -- package-lock.json package.json; then
+            echo "Lockfile already clean."
+            exit 0
+          fi
+          if ! git diff --quiet -- package.json; then
+            echo "Refusing to auto-commit package.json changes; manual review required."
+            git diff -- package.json
+            exit 1
+          fi
+          git config user.name "Cloudy Hardening"
+          git config user.email "actions@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "Update audited dependency lockfile"
+          git push
