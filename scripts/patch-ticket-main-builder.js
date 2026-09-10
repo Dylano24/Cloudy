@@ -76,7 +76,7 @@ patchFile('src/services/embedManagerService.js', [
   {
     label: 'friendly Ticket template label',
     find: "        const name = standardDynamicTemplateName(rawName) || 'Untitled embed';\n        const key = `template:${templateIdentity(channelId, recordEmbedData(record))}`;",
-    replace: "        const recordData = recordEmbedData(record);\n        const stableKey = stableSystemTemplateKey(recordData);\n        const name = stableKey === 'ticket-main'\n            ? 'Ticket'\n            : (standardDynamicTemplateName(rawName) || 'Untitled embed');\n        const key = `template:${templateIdentity(channelId, recordData)}`;",
+    replace: "        const stableKey = stableSystemTemplateKey(recordData);\n        const name = stableKey === 'ticket-main'\n            ? 'Ticket'\n            : (standardDynamicTemplateName(rawName) || 'Untitled embed');\n        const key = `template:${templateIdentity(channelId, recordData)}`;",
   },
   {
     label: 'refresh active tickets after Ticket template save',
