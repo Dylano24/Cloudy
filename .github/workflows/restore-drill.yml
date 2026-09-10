@@ -4,10 +4,20 @@ on:
   schedule:
     - cron: '0 4 * * 1'
   workflow_dispatch:
+  push:
+    branches:
+      - chatgpt-commercial-hardening-20260910
+    paths:
+      - '.github/workflows/restore-drill.yml'
+      - 'scripts/restore-drill.js'
+      - 'scripts/migrate.js'
+      - 'src/utils/database/**'
+      - 'package.json'
+      - 'package-lock.json'
 
 jobs:
   restore-drill:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     services:
       postgres:
@@ -43,7 +53,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install PostgreSQL client tools
@@ -55,5 +65,5 @@ jobs:
       - name: Apply migrations
         run: npm run migrate
 
-      - name: Run restore drill
-        run: npm run backup:drill
+      - name: Run isolated backup and restore drill
+        run: npm run restore:db
