@@ -78,4 +78,4 @@ jobs:
           fi
 
       - name: Dependency audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
