@@ -7,25 +7,25 @@ import {
   deleteEmbedColorPickerSession,
 } from '../src/services/embedColorPickerSessionService.js';
 
-test('web editor heartbeat establishes its builder hold once without changing content state', async () => {
+const page = id => ({ editorInstanceId: id });
+const openValue = id => `__CLOUDY_EMBED_OPEN__:${id}`;
+
+test('one editor page establishes its Builder hold once and heartbeat does not recreate it', async () => {
   const contentUpdates = [];
   const holds = [];
-
   const token = createEmbedColorPickerSession({
     userId: '1',
     onColor: async () => {},
     getEditorState: () => ({ title: 'Existing title' }),
-    onEditorHold: async () => {
-      holds.push('hold');
-    },
-    onEditorUpdate: async field => {
-      contentUpdates.push(field);
-    },
+    onEditorHold: async () => { holds.push('hold'); },
+    onEditorUpdate: async field => { contentUpdates.push(field); },
   });
 
   try {
-    const first = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
-    const second = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
+    const opened = await applyEmbedColorPickerSession(token, openValue('page-a'), page('page-a'));
+    const first = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('page-a'));
+    const second = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('page-a'));
+    assert.equal(opened.ok, true);
     assert.equal(first.ok, true);
     assert.equal(second.ok, true);
     assert.deepEqual(holds, ['hold']);
@@ -35,72 +35,97 @@ test('web editor heartbeat establishes its builder hold once without changing co
   }
 });
 
-test('closing and reopening editor refreshes the same session instead of expiring it', async () => {
-  const contentUpdates = [];
+test('closing returns to Builder mode and reopening with a new page gets one fresh editor lease', async () => {
   const holds = [];
   const token = createEmbedColorPickerSession({
     userId: '1',
     onColor: async () => {},
     getEditorState: () => ({ title: 'Still here' }),
-    onEditorHold: async () => {
-      holds.push('hold');
-    },
-    onEditorUpdate: async field => {
-      contentUpdates.push(field);
-    },
+    onEditorHold: async () => { holds.push('hold'); },
+    onEditorUpdate: async () => {},
   });
 
   try {
-    const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
-    assert.equal(heartbeat.ok, true);
+    const firstOpen = await applyEmbedColorPickerSession(token, openValue('page-one'), page('page-one'));
+    assert.equal(firstOpen.ok, true);
 
-    const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__');
+    const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__', page('page-one'));
     assert.equal(closed.ok, true);
     assert.equal(JSON.parse(closed.color).type, 'editor_closed');
 
-    const reopened = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
-    assert.equal(reopened.ok, true);
+    // The same already-closed document may not silently restart its 14 minutes.
+    const staleHeartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('page-one'));
+    assert.equal(staleHeartbeat.ok, false);
 
-    const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__');
+    const secondOpen = await applyEmbedColorPickerSession(token, openValue('page-two'), page('page-two'));
+    assert.equal(secondOpen.ok, true);
+
+    const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__', page('page-two'));
     assert.equal(stateResult.ok, true);
     assert.equal(JSON.parse(stateResult.color).title, 'Still here');
     assert.deepEqual(holds, ['hold', 'hold']);
-    assert.deepEqual(contentUpdates, []);
   } finally {
     deleteEmbedColorPickerSession(token);
   }
 });
 
-test('loading editor state does not create a phantom content update after the hold handshake', async () => {
-  const contentUpdates = [];
+test('duplicate OPEN, typing, state, color and heartbeat never create a second hold for the same page', async () => {
   const holds = [];
-
+  let currentTitle = 'Existing title';
   const token = createEmbedColorPickerSession({
     userId: '1',
     onColor: async () => {},
-    getEditorState: () => ({ title: 'Existing title', message: 'Existing message' }),
-    onEditorHold: async () => {
-      holds.push('hold');
-    },
-    onEditorUpdate: async field => {
-      contentUpdates.push(field);
+    getEditorState: () => ({ title: currentTitle }),
+    onEditorHold: async () => { holds.push('hold'); },
+    onEditorUpdate: async (field, value) => {
+      if (field === 'title') currentTitle = value;
     },
   });
 
   try {
-    const result = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__');
-    assert.equal(result.ok, true);
+    assert.equal((await applyEmbedColorPickerSession(token, openValue('fixed-page'), page('fixed-page'))).ok, true);
+    assert.equal((await applyEmbedColorPickerSession(token, openValue('fixed-page'), page('fixed-page'))).ok, true);
+    assert.equal((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__', page('fixed-page'))).ok, true);
+    assert.equal((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('fixed-page'))).ok, true);
+
+    const editPayload = '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'title', value: 'Changed' });
+    assert.equal((await applyEmbedColorPickerSession(token, editPayload, page('fixed-page'))).ok, true);
+    assert.equal((await applyEmbedColorPickerSession(token, '#123456', page('fixed-page'))).ok, true);
+
+    await new Promise(resolve => { setTimeout(resolve, 5); });
     assert.deepEqual(holds, ['hold']);
-    assert.deepEqual(contentUpdates, []);
-    const state = JSON.parse(result.color);
-    assert.equal(state.title, 'Existing title');
-    assert.equal(state.message, 'Existing message');
   } finally {
     deleteEmbedColorPickerSession(token);
   }
 });
 
-test('expired Discord preview does not expire the open web editor session', async () => {
+test('a stale close from the previous page cannot close a newly reopened editor', async () => {
+  const holds = [];
+  const token = createEmbedColorPickerSession({
+    userId: '1',
+    onColor: async () => {},
+    getEditorState: () => ({ title: 'Current' }),
+    onEditorHold: async () => { holds.push('hold'); },
+    onEditorUpdate: async () => {},
+  });
+
+  try {
+    assert.equal((await applyEmbedColorPickerSession(token, openValue('old-page'), page('old-page'))).ok, true);
+    assert.equal((await applyEmbedColorPickerSession(token, openValue('new-page'), page('new-page'))).ok, true);
+
+    const staleClose = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__', page('old-page'));
+    assert.equal(staleClose.ok, true);
+    assert.equal(JSON.parse(staleClose.color).type, 'editor_close_ignored');
+
+    const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('new-page'));
+    assert.equal(heartbeat.ok, true);
+    assert.deepEqual(holds, ['hold']);
+  } finally {
+    deleteEmbedColorPickerSession(token);
+  }
+});
+
+test('expired Discord preview does not corrupt editor state while the page lease itself is active', async () => {
   let currentTitle = 'Existing title';
   let previewAvailable = true;
 
@@ -124,35 +149,24 @@ test('expired Discord preview does not expire the open web editor session', asyn
   });
 
   try {
-    const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
-    assert.equal(heartbeat.ok, true);
-
+    assert.equal((await applyEmbedColorPickerSession(token, openValue('preview-page'), page('preview-page'))).ok, true);
     previewAvailable = false;
-
-    const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__');
-    assert.equal(closed.ok, true);
-
-    const reopened = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
-    assert.equal(reopened.ok, true);
 
     const editPayload = '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({
       field: 'title',
       value: 'Still saved after preview expiry',
     });
-    const edit = await applyEmbedColorPickerSession(token, editPayload);
+    const edit = await applyEmbedColorPickerSession(token, editPayload, page('preview-page'));
     assert.equal(edit.ok, true);
 
     await new Promise(resolve => { setTimeout(resolve, 5); });
 
-    const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__');
+    const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__', page('preview-page'));
     assert.equal(stateResult.ok, true);
     assert.equal(JSON.parse(stateResult.color).title, 'Still saved after preview expiry');
 
-    const color = await applyEmbedColorPickerSession(token, '#123456');
+    const color = await applyEmbedColorPickerSession(token, '#123456', page('preview-page'));
     assert.equal(color.ok, true);
-
-    const heartbeatAfterExpiry = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
-    assert.equal(heartbeatAfterExpiry.ok, true);
   } finally {
     deleteEmbedColorPickerSession(token);
   }
