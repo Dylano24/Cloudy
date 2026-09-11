@@ -22,17 +22,21 @@ test('Builder is five minutes outside editor and editor lease is fixed fourteen 
   assert.doesNotMatch(source, /real editor activity[\s\S]*reset 14 minutes/i);
 });
 
-test('browser close is authoritative but visibility changes are not', () => {
+test('leaving or hiding editor pauses Builder hold without ending the fixed editor lease', () => {
   const page = fs.readFileSync('src/web/embedColorPickerPage.js', 'utf8');
   assert.match(page, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
+  assert.match(page, /EMBED_EDITOR_VISIBLE_PRESENCE_V3/);
   assert.match(page, /editorInstanceId/);
   assert.match(page, /__CLOUDY_EMBED_OPEN__:/);
-  assert.match(page, /pagehide', closeEditorSession/);
-  assert.match(page, /beforeunload', closeEditorSession/);
-  assert.doesNotMatch(page, /visibilitychange[^\n]*closeEditorSession/);
+  assert.match(page, /__CLOUDY_EMBED_PAUSE__/);
+  assert.match(page, /pagehide', pauseEditorSession/);
+  assert.match(page, /beforeunload', pauseEditorSession/);
+  assert.match(page, /visibilityState === 'hidden'[\s\S]*pauseEditorSession/);
+  assert.doesNotMatch(page, /pagehide', closeEditorSession/);
+  assert.doesNotMatch(page, /beforeunload', closeEditorSession/);
 });
 
-test('API forwards editor page identity so stale closes cannot release a reopened editor', () => {
+test('API forwards editor page identity so stale page events cannot release a reopened editor', () => {
   const app = fs.readFileSync('src/app.js', 'utf8');
   assert.match(app, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
   assert.match(app, /editorInstanceId: req\.body\?\.editorInstanceId/);
