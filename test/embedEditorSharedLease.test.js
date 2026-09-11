@@ -18,7 +18,7 @@ test('Builder is five minutes outside editor and editor lease is fixed fourteen 
   assert.match(source, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
   assert.match(source, /scheduleSessionIdleExpiry\(token, session, instanceId\)/);
   assert.match(source, /releaseBuilderSessionHold\(token\)/);
-  assert.match(source, /activity inside[\s\S]*do NOT restart its fixed 14m/i);
+  assert.match(source, /State, typing, emoji and color requests do NOT restart the fixed 14m/i);
   assert.doesNotMatch(source, /real editor activity[\s\S]*reset 14 minutes/i);
 });
 
