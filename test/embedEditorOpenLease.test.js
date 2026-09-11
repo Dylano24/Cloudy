@@ -107,21 +107,39 @@ test('stale unload arriving after the new page heartbeat cannot close the new ed
   }
 });
 
-test('active editor hold has no inactivity expiry', () => {
+test('active editor hold keeps the requested fourteen-minute inactivity expiry', () => {
   const serviceSource = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
 
-  assert.match(serviceSource, /EDITOR_OPEN_LEASE_V2/);
+  assert.equal(EMBED_EDITOR_IDLE_MS, 14 * 60_000);
+  assert.match(serviceSource, /EDITOR_14_MINUTE_LEASE_V1/);
   assert.match(
     serviceSource,
-    /if \(session\.holdActive\) \{\s*clearSessionIdleTimer\(session\);\s*\} else \{\s*scheduleSessionIdleExpiry\(token, session\);/s,
+    /session\.idleTimer = setTimeout\(\(\) => \{[\s\S]*deleteEmbedColorPickerSession\(token, \{ expireBuilder: true \}\);[\s\S]*\}, EMBED_EDITOR_IDLE_MS\);/,
   );
-  assert.match(
+  assert.doesNotMatch(
+    serviceSource,
+    /if \(session\.holdActive\) \{\s*session\.idleTimer = null;\s*return;/s,
+  );
+  assert.doesNotMatch(
     serviceSource,
     /session\.holdActive = true;\s*clearSessionIdleTimer\(session\);/s,
   );
   assert.match(
     serviceSource,
-    /if \(session\.holdActive\) \{\s*session\.idleTimer = null;\s*return;\s*\}/s,
+    /async function touchEditorSession\(token, session, \{ activity = false \} = \{\}\)/,
+  );
+});
+
+test('opening or reopening a browser editor starts a fresh fourteen-minute window', () => {
+  const serviceSource = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
+
+  assert.match(
+    serviceSource,
+    /const openedNewEditorPage = session\.activeEditorInstanceId !== instanceId;/,
+  );
+  assert.match(
+    serviceSource,
+    /if \(openedNewEditorPage\) touchSession\(token, session\);/,
   );
 });
 
