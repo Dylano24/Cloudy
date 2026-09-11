@@ -2,8 +2,11 @@ import fs from 'node:fs';
 
 const servicePath = 'src/services/embedColorPickerSessionService.js';
 const pagePath = 'src/web/embedColorPickerPage.js';
+const cleanupPath = 'src/utils/builderSessionCleanup.js';
+const builderPath = 'src/commands/Tools/embedbuilder.js';
 const marker = 'EDITOR_OPEN_LEASE_V2';
 const pageMarker = 'EDITOR_OPEN_HEARTBEAT_V1';
+const holdRaceMarker = 'EDITOR_OPEN_HOLD_RACE_V3';
 
 function replaceRequired(text, find, replace, label) {
   if (!text.includes(find)) {
@@ -103,6 +106,59 @@ if (!page.includes(pageMarker)) {
   console.log('[EMBED_EDITOR_OPEN_LEASE] page heartbeat no longer stops merely because the tab is hidden');
 } else {
   console.log('[EMBED_EDITOR_OPEN_LEASE] page heartbeat already current');
+}
+
+let cleanup = fs.readFileSync(cleanupPath, 'utf8');
+if (!cleanup.includes(holdRaceMarker)) {
+  cleanup = replaceRequired(
+    cleanup,
+    `export async function runWithBuilderSessionHold(holdId, callback) {`,
+    `// ${holdRaceMarker}: bind the editor hold directly to the canonical Builder\n// message. Do not infer hold ownership from a preview edit, because a preview\n// queue can return before the actual edit runs and otherwise leave the Builder\n// timer unprotected.\nexport function acquireCurrentBuilderSessionHold(message, deleteMessage = null) {\n  const holdId = editorHoldContext.getStore()?.holdId || null;\n  if (!holdId) return false;\n  return holdBuilderSessionMessage(message, holdId, deleteMessage);\n}\n\nexport async function runWithBuilderSessionHold(holdId, callback) {`,
+    'direct builder hold helper',
+  );
+
+  cleanup = replaceRequired(
+    cleanup,
+    `export async function deleteBuilderSessionMessage(message) {\n  if (!message?.id) return false;\n\n  const key = String(message.id);`,
+    `export async function deleteBuilderSessionMessage(message) {\n  if (!message?.id) return false;\n\n  const key = String(message.id);\n  // ${holdRaceMarker}: no timer/collector path is allowed to delete a Builder\n  // while an editor hold is actually registered on that canonical message.\n  if (isBuilderSessionHeld(key)) return false;`,
+    'hard held-message delete guard',
+  );
+
+  fs.writeFileSync(cleanupPath, cleanup, 'utf8');
+  console.log('[EMBED_EDITOR_OPEN_LEASE] direct builder hold + held-message delete guard patched');
+} else {
+  console.log('[EMBED_EDITOR_OPEN_LEASE] direct builder hold guard already current');
+}
+
+let builder = fs.readFileSync(builderPath, 'utf8');
+if (!builder.includes(holdRaceMarker)) {
+  if (!builder.includes("import { acquireCurrentBuilderSessionHold } from '../../utils/builderSessionCleanup.js';")) {
+    builder = replaceRequired(
+      builder,
+      `import { InteractionHelper } from '../../utils/interactionHelper.js';`,
+      `import { InteractionHelper } from '../../utils/interactionHelper.js';\nimport { acquireCurrentBuilderSessionHold } from '../../utils/builderSessionCleanup.js';`,
+      'builder direct hold import',
+    );
+  }
+
+  builder = replaceRequired(
+    builder,
+    `                onEditorHold: async () => { // EDITOR_UPDATE_COALESCING_V1\n                    const refreshed = await refreshBuilder(interaction, state);\n                    if (!refreshed) {\n                        const error = new Error('The message builder session has expired.');\n                        error.code = 'EMBED_BUILDER_EXPIRED';\n                        throw error;\n                    }\n                },`,
+    `                onEditorHold: async () => { // ${holdRaceMarker}\n                    const held = acquireCurrentBuilderSessionHold(\n                        state.builderMessage,\n                        state.builderWebhook && state.builderMessageId\n                            ? () => state.builderWebhook.deleteMessage(state.builderMessageId)\n                            : null,\n                    );\n                    if (!held) {\n                        const error = new Error('The message builder session has expired.');\n                        error.code = 'EMBED_BUILDER_EXPIRED';\n                        throw error;\n                    }\n                },`,
+    'direct builder hold callback',
+  );
+
+  builder = replaceRequired(
+    builder,
+    `            state.builderMessageId = dashboardMessage.id;\n            state.builderWebhook = interaction.webhook;\n            state.builderPreviewUnavailable = false;`,
+    `            state.builderMessageId = dashboardMessage.id;\n            state.builderMessage = dashboardMessage;\n            state.builderWebhook = interaction.webhook;\n            state.builderPreviewUnavailable = false;`,
+    'canonical builder message reference',
+  );
+
+  fs.writeFileSync(builderPath, builder, 'utf8');
+  console.log('[EMBED_EDITOR_OPEN_LEASE] editor hold now binds directly to canonical Builder message');
+} else {
+  console.log('[EMBED_EDITOR_OPEN_LEASE] direct canonical Builder hold already current');
 }
 
 console.log('[EMBED_EDITOR_OPEN_LEASE] complete');
