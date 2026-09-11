@@ -140,6 +140,15 @@ export function shouldUseGenericDashboardTimer(payload, message) {
   return isDashboardSessionPayload(payload, message);
 }
 
+export function shouldUseTransientTimer(payload, message) {
+  // The Message Builder renders the selected embed as its first embed. Titles
+  // such as Success, Warning, Information or Could not... are valid preview
+  // content and must never make the whole Builder look like a 10-second status
+  // reply. Builder lifetime is owned exclusively by builderSessionCleanup.
+  if (isBuilderSessionMessage(message)) return false;
+  return isTransientStatusPayload(payload, message);
+}
+
 function scheduleDashboardIfNeeded(payload, message, interaction) {
   // Message Builder / Modify Embed have a dedicated lifecycle manager that can
   // pause the five-minute timer while the browser editor owns a 14-minute hold.
@@ -181,7 +190,7 @@ export function installInteractionMessageLifecycle() {
         if (!message) return result;
 
         scheduleDashboardIfNeeded(payload, message, interaction);
-        if (isTransientStatusPayload(payload, message)) {
+        if (shouldUseTransientTimer(payload, message)) {
           schedule(transientTimers, message, interaction, TRANSIENT_MESSAGE_MS);
         }
         return result;
