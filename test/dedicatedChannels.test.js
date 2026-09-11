@@ -198,7 +198,7 @@ const settle = () => new Promise(resolve => { setImmediate(resolve); });
 
 for (const inGambling of [false, true]) {
   for (const mode of ['reply', 'editReply', 'followUp', 'prefixReply', 'prefixEdit']) {
-    test(`${mode}: game errors ${inGambling ? 'remain in #gambling' : 'disappear elsewhere after 10 seconds'} without Close`, async t => {
+    test(`${mode}: game errors ${inGambling ? 'remain in #gambling' : 'disappear elsewhere after 5 seconds'} without Close`, async t => {
       t.mock.timers.enable({ apis: ['setTimeout'] });
       const f = fixture(mode);
       if (inGambling) f.interaction.channelId = f.gambling.id;
@@ -227,7 +227,7 @@ for (const inGambling of [false, true]) {
       assert.deepEqual(f.sent[0].payload.components, []);
       if (inGambling) assert.equal((f.sent[0].payload.flags || 0) & MessageFlags.Ephemeral, 0);
 
-      t.mock.timers.tick(9999);
+      t.mock.timers.tick(4999);
       await settle();
       assert.deepEqual(f.deleted, []);
       t.mock.timers.tick(1);
