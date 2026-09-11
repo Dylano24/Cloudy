@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
+    expireBuilderSessionHold,
     releaseBuilderSessionHold,
     runWithBuilderSessionHold,
 } from '../utils/builderSessionCleanup.js';
@@ -10,7 +11,7 @@ const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
 const EDIT_FLUSH_DELAY_MS = 0;
-const SESSION_IDLE_MS = 14 * 60_000;
+export const EMBED_EDITOR_IDLE_MS = 14 * 60_000;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -57,8 +58,13 @@ function clearSessionIdleTimer(session) {
 function scheduleSessionIdleExpiry(token, session) {
     clearSessionIdleTimer(session);
     session.idleTimer = setTimeout(() => {
-        if (sessions.get(token) === session) deleteEmbedColorPickerSession(token);
-    }, SESSION_IDLE_MS);
+        if (sessions.get(token) === session) {
+            // While the editor owns the Builder, both share the same 14-minute
+            // lease. Expiry removes the held Builder immediately instead of
+            // stacking another five-minute Builder timer on top.
+            deleteEmbedColorPickerSession(token, { expireBuilder: true });
+        }
+    }, EMBED_EDITOR_IDLE_MS);
     session.idleTimer.unref?.();
 }
 
@@ -172,11 +178,15 @@ export async function applyEmbedColorPickerSession(token, value) {
         return { ok: false, reason: 'expired' };
     }
 
+    // Entering/re-entering the editor and every live editor request renew the
+    // shared 14-minute lease. On mobile, if the browser is suspended, the lease
+    // still remains 14 minutes from the final request instead of falling back to
+    // the Builder's normal five-minute inactivity timer.
     touchSession(token, session);
 
     if (value === CLOSE_PREFIX) {
-        // Closing/leaving the browser editor no longer destroys the token.
-        // It simply releases the Discord hold and starts a fresh 14-minute idle window.
+        // A real editor close releases the shared hold. From this point onward
+        // the Builder owns its normal five-minute inactivity timer again.
         session.holdActive = false;
         releaseBuilderSessionHold(token);
         scheduleSessionIdleExpiry(token, session);
@@ -245,10 +255,15 @@ export async function applyEmbedColorPickerSession(token, value) {
     return { ok: true, color: `#${color.toString(16).padStart(6, '0').toUpperCase()}` };
 }
 
-export function deleteEmbedColorPickerSession(token) {
+export function deleteEmbedColorPickerSession(token, { expireBuilder = false } = {}) {
     const session = sessions.get(token);
     if (session?.editFlushTimer) clearTimeout(session.editFlushTimer);
     clearSessionIdleTimer(session);
     sessions.delete(token);
-    releaseBuilderSessionHold(token);
+
+    if (expireBuilder) {
+        void expireBuilderSessionHold(token);
+    } else {
+        releaseBuilderSessionHold(token);
+    }
 }
