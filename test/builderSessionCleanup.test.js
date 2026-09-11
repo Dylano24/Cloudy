@@ -79,6 +79,7 @@ test('Modify Embed activity resets both its own and the parent Message Builder i
   };
   const parentCollector = {
     ended: false,
+    options: {},
     resetTimer(options) {
       assert.equal(options.idle, BUILDER_SESSION_IDLE_MS);
       parentResets += 1;
@@ -86,6 +87,7 @@ test('Modify Embed activity resets both its own and the parent Message Builder i
   };
   const managerCollector = {
     ended: false,
+    options: {},
     resetTimer(options) {
       assert.equal(options.idle, BUILDER_SESSION_IDLE_MS);
       managerResets += 1;
@@ -114,6 +116,7 @@ test('live Message Builder refresh activity resets its collector', async () => {
   };
   const collector = {
     ended: false,
+    options: {},
     resetTimer(options) {
       assert.equal(options.idle, BUILDER_SESSION_IDLE_MS);
       resets += 1;
@@ -128,8 +131,9 @@ test('live Message Builder refresh activity resets its collector', async () => {
   await deleteBuilderSessionMessage(parent);
 });
 
-test('open web editor removes the collector idle timer completely and close starts a fresh five minutes', async () => {
+test('open web editor removes native collector idle completely and close starts a fresh five minutes', async () => {
   const resetValues = [];
+  const nativeIdle = setTimeout(() => {}, 60_000);
   const message = {
     id: 'held-builder-session',
     embeds: [{ title: 'Message builder' }],
@@ -137,27 +141,64 @@ test('open web editor removes the collector idle timer completely and close star
   };
   const collector = {
     ended: false,
+    _idletimeout: nativeIdle,
+    options: { idle: BUILDER_SESSION_IDLE_MS },
     resetTimer(options) {
       resetValues.push(options.idle);
     },
   };
 
   assert.equal(registerBuilderSessionCollector(message, collector), true);
+  assert.equal(collector._idletimeout, null);
+  assert.equal(Object.hasOwn(collector.options, 'idle'), false);
 
   await runWithBuilderSessionHold('editor-session-1', async () => {
     touchBuilderSessionMessage(message);
   });
 
-  assert.deepEqual(resetValues, [null]);
-
-  // Background activity while the editor remains held must keep the timer off.
+  // Background activity while the editor remains held must not re-arm five minutes.
   touchBuilderSessionMessage(message);
-  assert.equal(resetValues.at(-1), null);
+  assert.deepEqual(resetValues, []);
 
   releaseBuilderSessionHold('editor-session-1');
   assert.equal(resetValues.at(-1), BUILDER_SESSION_IDLE_MS);
 
   await deleteBuilderSessionMessage(message);
+});
+
+test('active editor hold is a hard deletion lock until the shared lease is released or expired', async () => {
+  let deletes = 0;
+  let stops = 0;
+  const message = {
+    id: 'hard-locked-builder-session',
+    embeds: [{ title: 'Message builder' }],
+    delete: async () => {
+      deletes += 1;
+    },
+  };
+  const collector = {
+    ended: false,
+    options: {},
+    resetTimer() {},
+    stop() {
+      stops += 1;
+      this.ended = true;
+    },
+  };
+
+  registerBuilderSessionCollector(message, collector);
+  await runWithBuilderSessionHold('editor-hard-lock', async () => {
+    touchBuilderSessionMessage(message);
+  });
+
+  assert.equal(await deleteBuilderSessionMessage(message), false);
+  assert.equal(deletes, 0);
+  assert.equal(stops, 0);
+
+  releaseBuilderSessionHold('editor-hard-lock');
+  assert.equal(await deleteBuilderSessionMessage(message), true);
+  assert.equal(deletes, 1);
+  assert.equal(stops, 1);
 });
 
 test('14-minute editor expiry deletes the held builder instead of starting another five-minute window', async () => {
@@ -173,6 +214,7 @@ test('14-minute editor expiry deletes the held builder instead of starting anoth
   };
   const collector = {
     ended: false,
+    options: {},
     resetTimer(options) {
       resetValues.push(options.idle);
     },
@@ -186,10 +228,10 @@ test('14-minute editor expiry deletes the held builder instead of starting anoth
   await runWithBuilderSessionHold('editor-session-expire', async () => {
     touchBuilderSessionMessage(message);
   });
-  assert.deepEqual(resetValues, [null]);
+  assert.deepEqual(resetValues, []);
 
   assert.equal(await expireBuilderSessionHold('editor-session-expire'), true);
   assert.equal(deletes, 1);
   assert.equal(stops, 1);
-  assert.deepEqual(resetValues, [null]);
+  assert.deepEqual(resetValues, []);
 });
