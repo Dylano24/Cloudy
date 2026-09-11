@@ -246,10 +246,10 @@ const newCollectorEnd = `            collector.on('end', async (_collected, reas
                     state.activeEmbedManager = null;
                 }
 
-                // The browser editor/picker owns its session lifetime. A collector
-                // ending for cleanup/replacement must not silently kill a still-open
-                // web editor. Only an intentional Post completes the builder here.
-                if (reason === 'posted') {
+                // A still-open editor hold prevents builder-cleanup. Therefore a
+                // builder-cleanup end means the Discord builder is actually gone;
+                // invalidate its web token too so browser history cannot recreate it.
+                if (reason === 'posted' || reason === 'builder-cleanup') {
                     deleteEmbedColorPickerSession(colorSessionToken);
                 }
             });`;
