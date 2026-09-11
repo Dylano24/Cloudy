@@ -3,7 +3,7 @@ import { InteractionHelper } from './interactionHelper.js';
 import { isTransientStatusPayload } from './transientResponse.js';
 
 export const DASHBOARD_IDLE_MS = 5 * 60_000;
-export const TRANSIENT_MESSAGE_MS = 10_000;
+export const TRANSIENT_MESSAGE_MS = 5_000;
 const PATCH_MARKER = Symbol.for('cloudy.interaction-message-lifecycle');
 const COLLECTOR_PATCH_MARKER = Symbol.for('cloudy.dashboard-collector-lifecycle');
 const dashboardTimers = new Map();
