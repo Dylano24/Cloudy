@@ -24,7 +24,8 @@ replaceOnce(
 const plainSourceAliases = new Map();
 const SOURCE_BASELINE_PREFIX = 'cloudy:system-embed-source-baseline:';
 // SOURCE_RESPONSE_SYNC_V1: source-discovered plain responses have durable identities.
-let flushTimer = null;`,
+let flushTimer = null;
+let catalogEnsurePromise = null;`,
   'state constants',
 );
 
@@ -334,10 +335,10 @@ replaceOnce(
 replaceOnce(
   `export async function ensureSystemEmbedCatalogs(client) {
   const discoveredDefinitions = await discoverStaticTemplates();`,
-  `export async function ensureSystemEmbedCatalogs(client) {
+  `async function buildSystemEmbedCatalogs(client) {
   const discoveredDefinitions = (await discoverStaticTemplates()).map(normalizeDiscoveredDefinition);
   plainSourceAliases.clear();`,
-  'normalize discovered definitions',
+  'normalize discovered definitions and isolate catalog build',
 );
 
 replaceOnce(
@@ -357,6 +358,32 @@ replaceOnce(
   `      ...definitions.map(definitionToCatalog),`,
   `      ...definitions.filter(definition => normalize(definition.kind) !== 'content').map(definitionToCatalog),`,
   'avoid duplicate source append',
+);
+
+replaceOnce(
+  `  return { definitions: definitions.length, added: totalAdded };
+}
+
+export function primeSystemEmbedCatalogMessage(message) {`,
+  `  return { definitions: definitions.length, added: totalAdded };
+}
+
+export function ensureSystemEmbedCatalogs(client) {
+  // Catalog discovery is startup initialization. Runtime captures are handled by
+  // flushPendingTemplates(), so re-running the full static scan only duplicates
+  // Discord/DB work. Reuse the successful initialization for this process while
+  // still allowing a clean retry if initialization itself fails.
+  if (catalogEnsurePromise) return catalogEnsurePromise;
+
+  catalogEnsurePromise = buildSystemEmbedCatalogs(client).catch(error => {
+    catalogEnsurePromise = null;
+    throw error;
+  });
+  return catalogEnsurePromise;
+}
+
+export function primeSystemEmbedCatalogMessage(message) {`,
+  'single catalog initialization per process',
 );
 
 if (!text.includes(marker)) {
