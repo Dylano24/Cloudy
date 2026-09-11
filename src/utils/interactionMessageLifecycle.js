@@ -92,8 +92,23 @@ function clearTimer(store, messageId) {
   store.delete(key);
 }
 
+function clearBuilderLifecycleTimers(message) {
+  if (!isBuilderSessionMessage(message)) return false;
+  clearTimer(dashboardTimers, message.id);
+  clearTimer(transientTimers, message.id);
+  return true;
+}
+
 export async function deleteLifecycleMessage(message, interaction) {
   if (!message?.id) return false;
+
+  // Builder messages have their own hold-aware deletion path. This is the final
+  // generic lifecycle boundary: even a stale timer created before the message
+  // became a Builder is not allowed to delete it.
+  if (isBuilderSessionMessage(message)) {
+    clearBuilderLifecycleTimers(message);
+    return false;
+  }
 
   // Ephemeral interaction messages must be removed through the webhook route.
   // Try it first, then fall back to a normal Message#delete for public replies.
@@ -151,10 +166,9 @@ export function shouldUseTransientTimer(payload, message) {
 
 function scheduleDashboardIfNeeded(payload, message, interaction) {
   // Message Builder / Modify Embed have a dedicated lifecycle manager that can
-  // pause the five-minute timer while the browser editor owns a 14-minute hold.
-  // Never attach the generic dashboard timer as well, otherwise it can delete
-  // the original reply underneath the web editor and safeEditReply may create a
-  // duplicate follow-up on the next preview refresh.
+  // pause the five-minute timer while the browser editor owns a hold. Clear any
+  // stale generic timers that may have been attached before the Builder render.
+  if (clearBuilderLifecycleTimers(message)) return false;
   if (!shouldUseGenericDashboardTimer(payload, message)) return false;
   return schedule(dashboardTimers, message, interaction, DASHBOARD_IDLE_MS);
 }
@@ -189,6 +203,9 @@ export function installInteractionMessageLifecycle() {
         const message = await resolveResponseMessage(interaction, result);
         if (!message) return result;
 
+        // Rendering/re-rendering a Builder cancels any generic lifecycle timer
+        // left on this same ephemeral message ID.
+        clearBuilderLifecycleTimers(message);
         scheduleDashboardIfNeeded(payload, message, interaction);
         if (shouldUseTransientTimer(payload, message)) {
           schedule(transientTimers, message, interaction, TRANSIENT_MESSAGE_MS);
