@@ -1,5 +1,6 @@
 import { Message, MessageFlags } from 'discord.js';
 import { InteractionHelper } from './interactionHelper.js';
+import { isBuilderSessionMessage } from './builderSessionCleanup.js';
 import { isTransientStatusPayload } from './transientResponse.js';
 
 export const DASHBOARD_IDLE_MS = 5 * 60_000;
@@ -133,9 +134,19 @@ function schedule(store, message, interaction, delay) {
   return true;
 }
 
-function scheduleDashboardIfNeeded(payload, message, interaction) {
+export function shouldUseGenericDashboardTimer(payload, message) {
+  if (isBuilderSessionMessage(message)) return false;
   if (!isEphemeralLifecycleMessage(payload, message)) return false;
-  if (!isDashboardSessionPayload(payload, message)) return false;
+  return isDashboardSessionPayload(payload, message);
+}
+
+function scheduleDashboardIfNeeded(payload, message, interaction) {
+  // Message Builder / Modify Embed have a dedicated lifecycle manager that can
+  // pause the five-minute timer while the browser editor owns a 14-minute hold.
+  // Never attach the generic dashboard timer as well, otherwise it can delete
+  // the original reply underneath the web editor and safeEditReply may create a
+  // duplicate follow-up on the next preview refresh.
+  if (!shouldUseGenericDashboardTimer(payload, message)) return false;
   return schedule(dashboardTimers, message, interaction, DASHBOARD_IDLE_MS);
 }
 
