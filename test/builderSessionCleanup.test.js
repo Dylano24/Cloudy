@@ -105,7 +105,7 @@ test('Modify Embed activity resets both its own and the parent Message Builder i
   await deleteBuilderSessionMessage(parent);
 });
 
-test('live Message Builder refresh activity resets its collector', async () => {
+test('live Message Builder activity resets its five-minute inactivity window', async () => {
   let resets = 0;
   const parent = {
     id: 'live-builder-session',
@@ -128,7 +128,7 @@ test('live Message Builder refresh activity resets its collector', async () => {
   await deleteBuilderSessionMessage(parent);
 });
 
-test('open web editor removes the collector idle timer completely and close starts a fresh five minutes', async () => {
+test('open web editor disables Builder idle completely and close starts a fresh five minutes', async () => {
   const resetValues = [];
   const message = {
     id: 'held-builder-session',
@@ -137,22 +137,25 @@ test('open web editor removes the collector idle timer completely and close star
   };
   const collector = {
     ended: false,
+    options: { idle: BUILDER_SESSION_IDLE_MS },
+    _idletimeout: setTimeout(() => {}, 60_000),
     resetTimer(options) {
       resetValues.push(options.idle);
     },
   };
 
   assert.equal(registerBuilderSessionCollector(message, collector), true);
+  assert.equal(collector._idletimeout, null);
+  assert.equal('idle' in collector.options, false);
 
   await runWithBuilderSessionHold('editor-session-1', async () => {
     touchBuilderSessionMessage(message);
   });
 
-  assert.deepEqual(resetValues, [null]);
-
-  // Background activity while the editor remains held must keep the timer off.
+  // While held there is no native resetTimer-based five-minute path at all.
+  assert.deepEqual(resetValues, []);
   touchBuilderSessionMessage(message);
-  assert.equal(resetValues.at(-1), null);
+  assert.deepEqual(resetValues, []);
 
   releaseBuilderSessionHold('editor-session-1');
   assert.equal(resetValues.at(-1), BUILDER_SESSION_IDLE_MS);
@@ -160,12 +163,12 @@ test('open web editor removes the collector idle timer completely and close star
   await deleteBuilderSessionMessage(message);
 });
 
-test('14-minute editor expiry deletes the held builder instead of starting another five-minute window', async () => {
+test('explicit forced hold expiry can still remove a held Builder when intentionally requested', async () => {
   const resetValues = [];
   let deletes = 0;
   let stops = 0;
   const message = {
-    id: 'expired-held-builder-session',
+    id: 'forced-expired-held-builder-session',
     embeds: [{ title: 'Message builder' }],
     delete: async () => {
       deletes += 1;
@@ -183,13 +186,12 @@ test('14-minute editor expiry deletes the held builder instead of starting anoth
   };
 
   assert.equal(registerBuilderSessionCollector(message, collector), true);
-  await runWithBuilderSessionHold('editor-session-expire', async () => {
+  await runWithBuilderSessionHold('editor-session-force-expire', async () => {
     touchBuilderSessionMessage(message);
   });
-  assert.deepEqual(resetValues, [null]);
+  assert.deepEqual(resetValues, []);
 
-  assert.equal(await expireBuilderSessionHold('editor-session-expire'), true);
+  assert.equal(await expireBuilderSessionHold('editor-session-force-expire'), true);
   assert.equal(deletes, 1);
   assert.equal(stops, 1);
-  assert.deepEqual(resetValues, [null]);
 });
