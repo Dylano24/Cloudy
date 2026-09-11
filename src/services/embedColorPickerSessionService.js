@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import {
-    expireBuilderSessionHold,
     releaseBuilderSessionHold,
     runWithBuilderSessionHold,
 } from '../utils/builderSessionCleanup.js';
@@ -9,10 +8,9 @@ const sessions = new Map();
 const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
-const ACTIVITY_PREFIX = '__CLOUDY_EMBED_ACTIVITY__';
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
 const EDIT_FLUSH_DELAY_MS = 0;
-export const EMBED_EDITOR_IDLE_MS = 14 * 60_000;
+const SESSION_IDLE_MS = 14 * 60_000;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -59,20 +57,13 @@ function clearSessionIdleTimer(session) {
 function scheduleSessionIdleExpiry(token, session) {
     clearSessionIdleTimer(session);
     session.idleTimer = setTimeout(() => {
-        if (sessions.get(token) === session) {
-            // An editor that has had no real user activity for 14 minutes owns
-            // the builder lifetime at that point. Expire the held builder now;
-            // do not add another five-minute window on top.
-            deleteEmbedColorPickerSession(token, { expireBuilder: true });
-        }
-    }, EMBED_EDITOR_IDLE_MS);
+        if (sessions.get(token) === session) deleteEmbedColorPickerSession(token);
+    }, SESSION_IDLE_MS);
     session.idleTimer.unref?.();
 }
 
 function touchSession(token, session) {
-    if (sessions.get(token) !== session) return false;
     scheduleSessionIdleExpiry(token, session);
-    return true;
 }
 
 function scheduleEditorFlush(token, session) {
@@ -116,44 +107,29 @@ function queueEditorUpdate(token, session, field, value) {
 
 async function ensureEditorHold(token, session) {
     if (session.holdActive) return { ok: true };
-    if (session.holdPromise) return session.holdPromise;
     if (typeof session.onEditorUpdate !== 'function') {
         return { ok: false, reason: 'editor_unavailable' };
     }
 
-    session.holdPromise = (async () => {
-        try {
-            await runWithBuilderSessionHold(token, () => session.onEditorUpdate('__heartbeat__', ''));
-            if (sessions.get(token) !== session) {
-                releaseBuilderSessionHold(token);
-                return { ok: false, reason: 'expired' };
-            }
-            session.holdActive = true;
-        } catch (error) {
-            releaseBuilderSessionHold(token);
-            if (error?.code === 'EMBED_BUILDER_EXPIRED') {
-                // An old Discord interaction must not invalidate the browser editor.
-                // Keep accepting/saving editor state until the real 14-minute idle timer expires.
-                session.holdActive = false;
-                return { ok: true, previewUnavailable: true };
-            }
-            throw error;
-        }
-
-        return { ok: true };
-    })();
-
     try {
-        return await session.holdPromise;
-    } finally {
-        session.holdPromise = null;
+        await runWithBuilderSessionHold(token, () => session.onEditorUpdate('__heartbeat__', ''));
+        session.holdActive = true;
+    } catch (error) {
+        releaseBuilderSessionHold(token);
+        if (error?.code === 'EMBED_BUILDER_EXPIRED') {
+            // An old Discord interaction must not invalidate the browser editor.
+            // Keep accepting/saving editor state until the real 14-minute idle timer expires.
+            session.holdActive = false;
+            return { ok: true, previewUnavailable: true };
+        }
+        throw error;
     }
+
+    return { ok: true };
 }
 
-async function touchEditorSession(token, session, { activity = false } = {}) {
-    if (activity && !touchSession(token, session)) {
-        return { ok: false, reason: 'expired' };
-    }
+async function touchEditorSession(token, session) {
+    touchSession(token, session);
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
     return { ok: true };
@@ -168,7 +144,6 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         onEditorUpdate,
         emojis: sanitizeEmojis(emojis),
         holdActive: false,
-        holdPromise: null,
         pendingEditorUpdates: new Map(),
         editFlushTimer: null,
         editFlushRunning: false,
@@ -197,9 +172,11 @@ export async function applyEmbedColorPickerSession(token, value) {
         return { ok: false, reason: 'expired' };
     }
 
+    touchSession(token, session);
+
     if (value === CLOSE_PREFIX) {
-        // Closing/leaving the browser editor releases the Discord hold. The
-        // normal five-minute builder inactivity timer starts again immediately.
+        // Closing/leaving the browser editor no longer destroys the token.
+        // It simply releases the Discord hold and starts a fresh 14-minute idle window.
         session.holdActive = false;
         releaseBuilderSessionHold(token);
         scheduleSessionIdleExpiry(token, session);
@@ -207,17 +184,9 @@ export async function applyEmbedColorPickerSession(token, value) {
     }
 
     if (value === HEARTBEAT_PREFIX) {
-        // Heartbeats prove the page is still connected, but they are not user
-        // activity and therefore must not keep the 14-minute idle timer alive.
-        const held = await touchEditorSession(token, session);
-        if (!held.ok) return held;
-        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
-    }
-
-    if (value === ACTIVITY_PREFIX) {
-        const touched = await touchEditorSession(token, session, { activity: true });
+        const touched = await touchEditorSession(token, session);
         if (!touched.ok) return touched;
-        return { ok: true, color: JSON.stringify({ type: 'activity' }) };
+        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
     }
 
     const held = await ensureEditorHold(token, session);
@@ -258,7 +227,6 @@ export async function applyEmbedColorPickerSession(token, value) {
             return { ok: false, reason: 'invalid_editor_payload' };
         }
 
-        touchSession(token, session);
         const nextValue = payload.value.slice(0, limit);
         queueEditorUpdate(token, session, field, nextValue);
         return { ok: true, color: JSON.stringify({ type: 'editor_saved', field, value: nextValue }) };
@@ -267,7 +235,6 @@ export async function applyEmbedColorPickerSession(token, value) {
     const color = parseColor(value);
     if (color === null) return { ok: false, reason: 'invalid_color' };
 
-    touchSession(token, session);
     try {
         await session.onColor(color);
     } catch (error) {
@@ -278,15 +245,10 @@ export async function applyEmbedColorPickerSession(token, value) {
     return { ok: true, color: `#${color.toString(16).padStart(6, '0').toUpperCase()}` };
 }
 
-export function deleteEmbedColorPickerSession(token, { expireBuilder = false } = {}) {
+export function deleteEmbedColorPickerSession(token) {
     const session = sessions.get(token);
     if (session?.editFlushTimer) clearTimeout(session.editFlushTimer);
     clearSessionIdleTimer(session);
     sessions.delete(token);
-
-    if (expireBuilder) {
-        void expireBuilderSessionHold(token);
-    } else {
-        releaseBuilderSessionHold(token);
-    }
+    releaseBuilderSessionHold(token);
 }

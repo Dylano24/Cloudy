@@ -1,9 +1,9 @@
+import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { editBuilderPreviewMessage } from '../src/commands/Tools/embedbuilder.js';
 import { BUILDER_SESSION_IDLE_MS } from '../src/utils/builderSessionCleanup.js';
-import { EMBED_EDITOR_IDLE_MS } from '../src/services/embedColorPickerSessionService.js';
 
 test('Embed Builder preview always edits the original fixed message target', async () => {
   const edits = [];
@@ -61,13 +61,12 @@ test('a missing original Builder preview never creates a replacement follow-up',
   assert.equal(directEdits, 0);
   assert.equal(followUps, 0);
 
-  // Once the original preview is gone, later editor/button updates stay dead
-  // instead of creating another copy of the Builder.
   assert.equal(await editBuilderPreviewMessage(state, interaction, { content: 'later state' }), false);
   assert.equal(followUps, 0);
 });
 
-test('single-preview fix leaves Builder and editor inactivity timers unchanged', () => {
+test('single-preview fix leaves the restored Builder/editor timers unchanged', () => {
+  const serviceSource = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
   assert.equal(BUILDER_SESSION_IDLE_MS, 5 * 60_000);
-  assert.equal(EMBED_EDITOR_IDLE_MS, 14 * 60_000);
+  assert.match(serviceSource, /const SESSION_IDLE_MS = 14 \* 60_000;/);
 });
