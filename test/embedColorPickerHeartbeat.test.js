@@ -98,17 +98,33 @@ test('closing and reopening editor refreshes the same session instead of expirin
   });
 
   try {
-    const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__');
+    const heartbeat = await applyEmbedColorPickerSession(
+      token,
+      '__CLOUDY_EMBED_HEARTBEAT__',
+      { editorInstanceId: 'page-before-close' },
+    );
     assert.equal(heartbeat.ok, true);
 
-    const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__');
+    const closed = await applyEmbedColorPickerSession(
+      token,
+      '__CLOUDY_EMBED_CLOSE__',
+      { editorInstanceId: 'page-before-close' },
+    );
     assert.equal(closed.ok, true);
     assert.equal(JSON.parse(closed.color).type, 'editor_closed');
 
-    const reopened = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_ACTIVITY__');
+    const reopened = await applyEmbedColorPickerSession(
+      token,
+      '__CLOUDY_EMBED_ACTIVITY__',
+      { editorInstanceId: 'page-after-reopen' },
+    );
     assert.equal(reopened.ok, true);
 
-    const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__');
+    const stateResult = await applyEmbedColorPickerSession(
+      token,
+      '__CLOUDY_EMBED_STATE__',
+      { editorInstanceId: 'page-after-reopen' },
+    );
     assert.equal(stateResult.ok, true);
     assert.equal(JSON.parse(stateResult.color).title, 'Still here');
     assert.deepEqual(holds, ['hold', 'hold']);
