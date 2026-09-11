@@ -2,10 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  EMBED_EDITOR_IDLE_MS,
   applyEmbedColorPickerSession,
   createEmbedColorPickerSession,
   deleteEmbedColorPickerSession,
 } from '../src/services/embedColorPickerSessionService.js';
+
+test('editor and held Builder use exactly fourteen minutes while the editor is open', () => {
+  assert.equal(EMBED_EDITOR_IDLE_MS, 14 * 60_000);
+});
 
 test('web editor heartbeat establishes its builder hold once without changing content state', async () => {
   const contentUpdates = [];
