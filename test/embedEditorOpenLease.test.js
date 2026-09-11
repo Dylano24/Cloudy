@@ -107,22 +107,48 @@ test('stale unload arriving after the new page heartbeat cannot close the new ed
   }
 });
 
-test('active editor hold has no inactivity expiry', () => {
+test('active editor hold owns the requested fourteen-minute inactivity lease', () => {
   const serviceSource = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
 
-  assert.match(serviceSource, /EDITOR_OPEN_LEASE_V2/);
+  assert.equal(EMBED_EDITOR_IDLE_MS, 14 * 60_000);
+  assert.match(serviceSource, /EDITOR_14_MINUTE_LEASE_V1/);
   assert.match(
     serviceSource,
-    /if \(session\.holdActive\) \{\s*clearSessionIdleTimer\(session\);\s*\} else \{\s*scheduleSessionIdleExpiry\(token, session\);/s,
+    /session\.idleTimer = setTimeout\(\(\) => \{[\s\S]*deleteEmbedColorPickerSession\(token, \{ expireBuilder: true \}\);[\s\S]*\}, EMBED_EDITOR_IDLE_MS\);/,
   );
-  assert.match(
+  assert.doesNotMatch(
+    serviceSource,
+    /if \(session\.holdActive\) \{\s*session\.idleTimer = null;\s*return;/s,
+  );
+  assert.doesNotMatch(
     serviceSource,
     /session\.holdActive = true;\s*clearSessionIdleTimer\(session\);/s,
   );
+});
+
+test('opening or reopening a browser editor starts a fresh fourteen-minute window', () => {
+  const serviceSource = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
+
   assert.match(
     serviceSource,
-    /if \(session\.holdActive\) \{\s*session\.idleTimer = null;\s*return;\s*\}/s,
+    /const openedNewEditorPage = session\.activeEditorInstanceId !== instanceId;/,
   );
+  assert.match(
+    serviceSource,
+    /if \(openedNewEditorPage\) touchSession\(token, session\);/,
+  );
+});
+
+test('all Builder delete routes respect the active editor hold', () => {
+  const cleanupSource = fs.readFileSync('src/utils/builderSessionCleanup.js', 'utf8');
+
+  assert.match(cleanupSource, /EDITOR_AUTHORITATIVE_LEASE_V1/);
+  assert.match(cleanupSource, /export function isBuilderSessionHeld\(messageId\)/);
+  assert.match(cleanupSource, /deleteBuilderLeaseAware\(messageId, \.\.\.args\)/);
+  assert.match(cleanupSource, /targetId === '@original'/);
+  assert.match(cleanupSource, /isBuilderSessionHeld\(targetId\)/);
+  assert.match(cleanupSource, /Message\.prototype\.delete = function deleteBuilderLeaseAware/);
+  assert.match(cleanupSource, /isBuilderSessionMessage\(this\) && isBuilderSessionHeld\(this\.id\)/);
 });
 
 test('browser heartbeat is not disabled merely because the editor tab is hidden', () => {
