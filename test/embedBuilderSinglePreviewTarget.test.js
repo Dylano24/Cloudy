@@ -65,8 +65,8 @@ test('a missing original Builder preview never creates a replacement follow-up',
   assert.equal(followUps, 0);
 });
 
-test('single-preview fix leaves the restored Builder/editor timers unchanged', () => {
+test('single-preview fix keeps normal Builder at five minutes and editor lease at fourteen minutes', () => {
   const serviceSource = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
   assert.equal(BUILDER_SESSION_IDLE_MS, 5 * 60_000);
-  assert.match(serviceSource, /const SESSION_IDLE_MS = 14 \* 60_000;/);
+  assert.match(serviceSource, /export const EMBED_EDITOR_IDLE_MS = 14 \* 60_000;/);
 });
