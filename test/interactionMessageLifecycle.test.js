@@ -12,7 +12,7 @@ import {
 
 test('dashboard and transient lifetimes use the requested values', () => {
   assert.equal(DASHBOARD_IDLE_MS, 5 * 60_000);
-  assert.equal(TRANSIENT_MESSAGE_MS, 10_000);
+  assert.equal(TRANSIENT_MESSAGE_MS, 5_000);
 });
 
 test('ephemeral dashboard sessions are recognized without matching persistent panels by title alone', () => {
