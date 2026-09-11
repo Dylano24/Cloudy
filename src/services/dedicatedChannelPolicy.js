@@ -3,17 +3,23 @@ import { isGamblingGameCommand } from '../config/gamblingCommands.js';
 const resolvedChannels = new WeakMap();
 const SHOP_COMMANDS = new Set(['shop', 'buy']);
 
+function normalizeChannelSlug(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
 export function rememberDedicatedCommandChannel(interaction, key, channelId) {
   resolvedChannels.set(interaction, { key, channelId });
 }
 
 export function findDedicatedChannelBySlug(guild, slug) {
-  const normalizedSlug = String(slug).toLowerCase();
+  const normalizedSlug = normalizeChannelSlug(slug);
   const channels = [...(guild?.channels?.cache?.values?.() || [])]
     .filter(channel => channel?.isTextBased?.() && channel?.isSendable?.());
 
-  return channels.find(channel => String(channel.name || '').toLowerCase() === normalizedSlug)
-    || channels.find(channel => String(channel.name || '').toLowerCase().includes(normalizedSlug))
+  return channels.find(channel => normalizeChannelSlug(channel.name) === normalizedSlug)
+    || channels.find(channel => normalizeChannelSlug(channel.name).includes(normalizedSlug))
     || null;
 }
 
