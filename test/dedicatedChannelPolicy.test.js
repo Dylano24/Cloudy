@@ -29,11 +29,15 @@ test('exact dedicated shop channel wins over similarly named channels', () => {
   assert.equal(findDedicatedChannelBySlug(guild, 'shop')?.id, shop.id);
 });
 
-test('decorated channel names remain a fallback when no exact channel exists', () => {
-  const decorated = channel('4', '🛒｜shop');
+test('decorated shop channel wins over partial shop log matches', () => {
+  const shopLogs = channel('4', 'shop-logs');
+  const decorated = channel('5', '🛒｜shop');
   const guild = {
     channels: {
-      cache: new Collection([[decorated.id, decorated]]),
+      cache: new Collection([
+        [shopLogs.id, shopLogs],
+        [decorated.id, decorated],
+      ]),
     },
   };
 
