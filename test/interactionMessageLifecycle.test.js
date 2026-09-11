@@ -8,6 +8,7 @@ import {
   isDashboardSessionPayload,
   isEphemeralLifecycleMessage,
   normalizeDashboardCollectorOptions,
+  shouldUseGenericDashboardTimer,
 } from '../src/utils/interactionMessageLifecycle.js';
 
 test('dashboard and transient lifetimes use the requested values', () => {
@@ -60,6 +61,25 @@ test('five minute dashboard collectors become inactivity collectors', () => {
     components: dashboard.components,
   };
   assert.equal(normalizeDashboardCollectorOptions(publicPanel, original), original);
+});
+
+test('Message Builder is excluded from the generic dashboard timer', () => {
+  const builder = {
+    id: 'builder-message',
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+    embeds: [{ title: 'Preview' }, { title: 'Message builder' }],
+    components: [{ components: [{ customId: 'simple_embed_post' }] }],
+  };
+  const normalDashboard = {
+    id: 'normal-dashboard',
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+    embeds: [{ title: 'Ticket System Dashboard' }],
+    components: [{ components: [{ customId: 'ticket_dashboard_channel' }] }],
+  };
+
+  assert.equal(isDashboardSessionPayload(null, builder), true);
+  assert.equal(shouldUseGenericDashboardTimer(null, builder), false);
+  assert.equal(shouldUseGenericDashboardTimer(null, normalDashboard), true);
 });
 
 test('ephemeral cleanup uses webhook deletion before normal message deletion', async () => {
