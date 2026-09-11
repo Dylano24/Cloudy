@@ -11,7 +11,10 @@ if (before.includes(marker)) {
 
 let text = before;
 
-const refreshPattern = /async function refreshBuilder\(interaction, state\) \{[\s\S]*?\n\}\n\nasync function editContent/;
+// Earlier runtime patches have used both `function refreshBuilder` and
+// `async function refreshBuilder`. Match either final shape because this patch
+// deliberately runs last and owns only the preview delivery path.
+const refreshPattern = /(?:async\s+)?function refreshBuilder\(interaction, state\) \{[\s\S]*?\n\}\n\nasync function editContent/;
 if (!refreshPattern.test(text)) {
   console.error('[EMBED_BUILDER_SINGLE_PREVIEW] refreshBuilder marker not found');
   process.exit(1);
