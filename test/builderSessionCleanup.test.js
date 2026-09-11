@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   BUILDER_SESSION_IDLE_MS,
   deleteBuilderSessionMessage,
+  expireBuilderSessionHold,
   isBuilderSessionMessage,
   linkBuilderSessionMessages,
   registerBuilderSessionCollector,
@@ -157,4 +158,38 @@ test('open web editor removes the collector idle timer completely and close star
   assert.equal(resetValues.at(-1), BUILDER_SESSION_IDLE_MS);
 
   await deleteBuilderSessionMessage(message);
+});
+
+test('14-minute editor expiry deletes the held builder instead of starting another five-minute window', async () => {
+  const resetValues = [];
+  let deletes = 0;
+  let stops = 0;
+  const message = {
+    id: 'expired-held-builder-session',
+    embeds: [{ title: 'Message builder' }],
+    delete: async () => {
+      deletes += 1;
+    },
+  };
+  const collector = {
+    ended: false,
+    resetTimer(options) {
+      resetValues.push(options.idle);
+    },
+    stop() {
+      stops += 1;
+      this.ended = true;
+    },
+  };
+
+  assert.equal(registerBuilderSessionCollector(message, collector), true);
+  await runWithBuilderSessionHold('editor-session-expire', async () => {
+    touchBuilderSessionMessage(message);
+  });
+  assert.deepEqual(resetValues, [null]);
+
+  assert.equal(await expireBuilderSessionHold('editor-session-expire'), true);
+  assert.equal(deletes, 1);
+  assert.equal(stops, 1);
+  assert.deepEqual(resetValues, [null]);
 });
