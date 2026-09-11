@@ -121,6 +121,29 @@ export function releaseBuilderSessionHold(holdId) {
   return true;
 }
 
+export async function expireBuilderSessionHold(holdId) {
+  const id = String(holdId || '');
+  const messages = holdMessages.get(id);
+  holdMessages.delete(id);
+  if (!messages?.size) return false;
+
+  let expiredAny = false;
+  for (const [key, message] of messages) {
+    const holds = sessionHoldIds.get(key);
+    holds?.delete(id);
+
+    // Another editor can legitimately hold the same builder. Only expire the
+    // message when this was the final active hold.
+    if (holds?.size) continue;
+    sessionHoldIds.delete(key);
+
+    expiredAny = true;
+    await deleteBuilderSessionMessage(message);
+  }
+
+  return expiredAny;
+}
+
 function interactionWebhookKey(value) {
   return String(value?.token || value?.webhook?.token || '').trim();
 }
