@@ -48,6 +48,24 @@ test('open editor heartbeat keeps the session alive and cancels an unload/reload
   }
 });
 
+test('active editor hold has no inactivity expiry', () => {
+  const serviceSource = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
+
+  assert.match(serviceSource, /EDITOR_OPEN_LEASE_V2/);
+  assert.match(
+    serviceSource,
+    /if \(session\.holdActive\) \{\s*clearSessionIdleTimer\(session\);\s*\} else \{\s*scheduleSessionIdleExpiry\(token, session\);/s,
+  );
+  assert.match(
+    serviceSource,
+    /session\.holdActive = true;\s*clearSessionIdleTimer\(session\);/s,
+  );
+  assert.match(
+    serviceSource,
+    /if \(session\.holdActive\) \{\s*session\.idleTimer = null;\s*return;\s*\}/s,
+  );
+});
+
 test('browser heartbeat is not disabled merely because the editor tab is hidden', () => {
   const pageSource = fs.readFileSync('src/web/embedColorPickerPage.js', 'utf8');
   assert.match(pageSource, /EDITOR_OPEN_HEARTBEAT_V1/);
