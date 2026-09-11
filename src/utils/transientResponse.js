@@ -1,3 +1,5 @@
+import { isBuilderSessionMessage } from './builderSessionCleanup.js';
+
 const TRANSIENT_TTL_MS = 10_000;
 const STATUS_EMOJI_PREFIX = /^(?:(?:✅|❌|⚠️?|ℹ️?|☑️?|🟢|🔴|🟡)\s*)+/u;
 const TRANSIENT_TITLE = /^(?:success|warning|error|system error|information|info|notice|done|saved\b.*|updated\b.*|removed\b.*|enabled\b.*|disabled\b.*|cancelled\b.*|canceled\b.*|invalid\b.*|failed\b.*|failure\b.*|wrong\b.*|not found\b.*|not enough\b.*|already\b.*|missing\b.*|access denied\b.*|permission denied\b.*|unavailable\b.*|expired\b.*|could not\b.*|cannot\b.*|can't\b.*|shop unavailable\b.*|staff only\b.*|maintenance mode\b.*|feature disabled\b.*|slash command only\b.*|command disabled\b.*|command cooldown\b.*)/i;
@@ -41,7 +43,9 @@ export function isPersistentBotMessage(message) {
 }
 
 export function scheduleTransientMessageDeletion(message) {
-  if (!message || isPersistentBotMessage(message) || !isTransientStatusPayload(null, message)) return false;
+  // Message Builder / Modify Embed own their lifetime through builderSessionCleanup.
+  // Never let a status-like preview route the whole Builder into the 10s cleanup.
+  if (!message || isBuilderSessionMessage(message) || isPersistentBotMessage(message) || !isTransientStatusPayload(null, message)) return false;
   if (!message.deletable || typeof message.delete !== 'function') return false;
 
   const timer = setTimeout(() => message.delete().catch(() => {}), TRANSIENT_TTL_MS);
@@ -52,7 +56,9 @@ export function scheduleTransientMessageDeletion(message) {
 export async function scheduleTransientInteractionReplyDeletion(interaction) {
   if (!interaction?.replied && !interaction?.deferred) return false;
   const reply = await interaction.fetchReply?.().catch(() => null);
-  if (!reply || !isTransientStatusPayload(null, reply)) return false;
+  // This helper is used outside interactionMessageLifecycle too, so enforce the
+  // Builder exclusion here at the final deletion boundary as well.
+  if (!reply || isBuilderSessionMessage(reply) || !isTransientStatusPayload(null, reply)) return false;
 
   const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), TRANSIENT_TTL_MS);
   timer.unref?.();
