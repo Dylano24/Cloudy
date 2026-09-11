@@ -9,10 +9,12 @@ export function rememberDedicatedCommandChannel(interaction, key, channelId) {
 
 export function findDedicatedChannelBySlug(guild, slug) {
   const normalizedSlug = String(slug).toLowerCase();
-  return guild?.channels?.cache?.find(channel =>
-    channel?.isTextBased?.() && channel?.isSendable?.()
-    && String(channel.name || '').toLowerCase().includes(normalizedSlug)
-  ) || null;
+  const channels = [...(guild?.channels?.cache?.values?.() || [])]
+    .filter(channel => channel?.isTextBased?.() && channel?.isSendable?.());
+
+  return channels.find(channel => String(channel.name || '').toLowerCase() === normalizedSlug)
+    || channels.find(channel => String(channel.name || '').toLowerCase().includes(normalizedSlug))
+    || null;
 }
 
 export function getGamblingResponsePolicy(interaction, context = {}) {
