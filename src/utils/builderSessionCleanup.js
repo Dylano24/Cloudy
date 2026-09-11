@@ -48,6 +48,20 @@ function clearBuilderSessionTimer(messageId) {
   sessionTimers.delete(key);
 }
 
+function disableNativeBuilderCollectorIdle(collector) {
+  if (!collector) return;
+
+  // discord.js resetTimer({ idle: null }) does not reliably remove an already
+  // scheduled native idle timeout. While the web editor owns the Builder,
+  // remove that timer at the source so the custom 14-minute editor lease is
+  // authoritative.
+  if (collector._idletimeout) clearTimeout(collector._idletimeout);
+  if ('_idletimeout' in collector) collector._idletimeout = null;
+  if (collector.options && typeof collector.options === 'object') {
+    delete collector.options.idle;
+  }
+}
+
 function registerSessionDeleter(message, deleteMessage) {
   if (!message?.id || typeof deleteMessage !== 'function') return;
   sessionDeleters.set(String(message.id), deleteMessage);
@@ -55,6 +69,7 @@ function registerSessionDeleter(message, deleteMessage) {
 
 export function registerBuilderSessionCollector(message, collector) {
   if (!isBuilderSessionMessage(message) || !collector) return false;
+  disableNativeBuilderCollectorIdle(collector);
   sessionCollectors.set(String(message.id), collector);
   return true;
 }
@@ -92,6 +107,7 @@ function holdBuilderSessionMessage(message, holdId, deleteMessage = null) {
   }
   messages.set(key, message);
 
+  disableNativeBuilderCollectorIdle(sessionCollectors.get(key));
   clearBuilderSessionTimer(key);
   return true;
 }
@@ -192,6 +208,12 @@ export async function deleteBuilderSessionMessage(message) {
   if (!message?.id) return false;
 
   const key = String(message.id);
+
+  // A live editor hold is a hard deletion lock. The 5-minute Builder cleanup,
+  // collector cleanup and any shared lifecycle route must not remove the exact
+  // canonical Builder while its 14-minute editor lease is active.
+  if (isBuilderSessionHeld(key)) return false;
+
   clearBuilderSessionTimer(key);
   const collector = sessionCollectors.get(key);
   sessionCollectors.delete(key);
@@ -227,10 +249,10 @@ export function touchBuilderSessionMessage(message, deleteMessage = null, visite
 
   const activeHoldId = editorHoldContext.getStore()?.holdId || null;
   if (activeHoldId) {
-    collector?.resetTimer?.({ idle: null });
+    disableNativeBuilderCollectorIdle(collector);
     holdBuilderSessionMessage(message, activeHoldId, deleteMessage);
   } else if (isBuilderSessionHeld(key)) {
-    collector?.resetTimer?.({ idle: null });
+    disableNativeBuilderCollectorIdle(collector);
     clearBuilderSessionTimer(key);
   } else {
     collector?.resetTimer?.({ idle: BUILDER_SESSION_IDLE_MS });
