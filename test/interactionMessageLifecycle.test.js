@@ -9,6 +9,7 @@ import {
   isEphemeralLifecycleMessage,
   normalizeDashboardCollectorOptions,
   shouldUseGenericDashboardTimer,
+  shouldUseTransientTimer,
 } from '../src/utils/interactionMessageLifecycle.js';
 
 test('dashboard and transient lifetimes use the requested values', () => {
@@ -80,6 +81,27 @@ test('Message Builder is excluded from the generic dashboard timer', () => {
   assert.equal(isDashboardSessionPayload(null, builder), true);
   assert.equal(shouldUseGenericDashboardTimer(null, builder), false);
   assert.equal(shouldUseGenericDashboardTimer(null, normalDashboard), true);
+});
+
+test('Message Builder preview status titles never trigger the ten-second transient cleanup', () => {
+  const builder = {
+    id: 'builder-message',
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+    embeds: [
+      { title: 'Success', description: 'This is the editable preview.' },
+      { title: 'Message builder', description: 'Builder controls' },
+    ],
+    components: [{ components: [{ customId: 'simple_embed_post' }] }],
+  };
+  const normalTransient = {
+    id: 'status-message',
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+    embeds: [{ title: 'Success', description: 'Saved.' }],
+    components: [],
+  };
+
+  assert.equal(shouldUseTransientTimer(null, builder), false);
+  assert.equal(shouldUseTransientTimer(null, normalTransient), true);
 });
 
 test('ephemeral cleanup uses webhook deletion before normal message deletion', async () => {
