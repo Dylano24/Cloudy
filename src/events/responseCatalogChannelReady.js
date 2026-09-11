@@ -7,7 +7,7 @@ export default {
   name: Events.ClientReady,
   once: true,
   async execute(client) {
-    logger.warn('[EMBED_BUILDER] Preparing private response catalog channel.');
+    logger.info('[EMBED_BUILDER] Preparing private response catalog channel.');
     for (const guild of client.guilds.cache.values()) {
       let thread = [...guild.channels.cache.values()].find(channel =>
         channel?.isThread?.() && ['botlog', 'cloudy-response-catalog-loading'].includes(String(channel.name || '').toLowerCase()),
@@ -37,12 +37,16 @@ export default {
       // cache. The REST rename/unarchive can finish in the background without
       // blocking the Embed Builder startup path.
       if (String(thread.name || '').toLowerCase() !== 'botlog') {
-        try { thread.name = 'botlog'; } catch {}
+        try {
+          thread.name = 'botlog';
+        } catch {
+          // Local cache rename is best-effort; Discord remains authoritative.
+        }
         void thread.setName('botlog').catch(() => {});
       }
       if (thread.archived) void thread.setArchived(false).catch(() => {});
 
-      logger.warn(`[EMBED_BUILDER] Private catalog channel ready: ${thread.id}.`);
+      logger.info(`[EMBED_BUILDER] Private catalog channel ready: ${thread.id}.`);
     }
   },
 };
