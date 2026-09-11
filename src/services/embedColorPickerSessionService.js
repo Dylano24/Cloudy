@@ -9,6 +9,7 @@ const sessions = new Map();
 const EDIT_PREFIX = '__CLOUDY_EMBED_EDIT__:';
 const STATE_PREFIX = '__CLOUDY_EMBED_STATE__';
 const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
+const ACTIVITY_PREFIX = '__CLOUDY_EMBED_ACTIVITY__';
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
 const EDIT_FLUSH_DELAY_MS = 0;
 export const EMBED_EDITOR_IDLE_MS = 14 * 60_000;
@@ -59,9 +60,6 @@ function scheduleSessionIdleExpiry(token, session) {
     clearSessionIdleTimer(session);
     session.idleTimer = setTimeout(() => {
         if (sessions.get(token) === session) {
-            // While the editor owns the Builder, both share the same 14-minute
-            // lease. Expiry removes the held Builder immediately instead of
-            // stacking another five-minute Builder timer on top.
             deleteEmbedColorPickerSession(token, { expireBuilder: true });
         }
     }, EMBED_EDITOR_IDLE_MS);
@@ -69,7 +67,9 @@ function scheduleSessionIdleExpiry(token, session) {
 }
 
 function touchSession(token, session) {
+    if (sessions.get(token) !== session) return false;
     scheduleSessionIdleExpiry(token, session);
+    return true;
 }
 
 function scheduleEditorFlush(token, session) {
@@ -113,29 +113,41 @@ function queueEditorUpdate(token, session, field, value) {
 
 async function ensureEditorHold(token, session) {
     if (session.holdActive) return { ok: true };
+    if (session.holdPromise) return session.holdPromise;
     if (typeof session.onEditorUpdate !== 'function') {
         return { ok: false, reason: 'editor_unavailable' };
     }
 
-    try {
-        await runWithBuilderSessionHold(token, () => session.onEditorUpdate('__heartbeat__', ''));
-        session.holdActive = true;
-    } catch (error) {
-        releaseBuilderSessionHold(token);
-        if (error?.code === 'EMBED_BUILDER_EXPIRED') {
-            // An old Discord interaction must not invalidate the browser editor.
-            // Keep accepting/saving editor state until the real 14-minute idle timer expires.
-            session.holdActive = false;
-            return { ok: true, previewUnavailable: true };
+    session.holdPromise = (async () => {
+        try {
+            await runWithBuilderSessionHold(token, () => session.onEditorUpdate('__heartbeat__', ''));
+            if (sessions.get(token) !== session) {
+                releaseBuilderSessionHold(token);
+                return { ok: false, reason: 'expired' };
+            }
+            session.holdActive = true;
+        } catch (error) {
+            releaseBuilderSessionHold(token);
+            if (error?.code === 'EMBED_BUILDER_EXPIRED') {
+                session.holdActive = false;
+                return { ok: true, previewUnavailable: true };
+            }
+            throw error;
         }
-        throw error;
-    }
+        return { ok: true };
+    })();
 
-    return { ok: true };
+    try {
+        return await session.holdPromise;
+    } finally {
+        session.holdPromise = null;
+    }
 }
 
-async function touchEditorSession(token, session) {
-    touchSession(token, session);
+async function touchEditorSession(token, session, { activity = false } = {}) {
+    if (activity && !touchSession(token, session)) {
+        return { ok: false, reason: 'expired' };
+    }
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
     return { ok: true };
@@ -150,6 +162,7 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         onEditorUpdate,
         emojis: sanitizeEmojis(emojis),
         holdActive: false,
+        holdPromise: null,
         pendingEditorUpdates: new Map(),
         editFlushTimer: null,
         editFlushRunning: false,
@@ -178,15 +191,7 @@ export async function applyEmbedColorPickerSession(token, value) {
         return { ok: false, reason: 'expired' };
     }
 
-    // Entering/re-entering the editor and every live editor request renew the
-    // shared 14-minute lease. On mobile, if the browser is suspended, the lease
-    // still remains 14 minutes from the final request instead of falling back to
-    // the Builder's normal five-minute inactivity timer.
-    touchSession(token, session);
-
     if (value === CLOSE_PREFIX) {
-        // A real editor close releases the shared hold. From this point onward
-        // the Builder owns its normal five-minute inactivity timer again.
         session.holdActive = false;
         releaseBuilderSessionHold(token);
         scheduleSessionIdleExpiry(token, session);
@@ -194,9 +199,19 @@ export async function applyEmbedColorPickerSession(token, value) {
     }
 
     if (value === HEARTBEAT_PREFIX) {
-        const touched = await touchEditorSession(token, session);
-        if (!touched.ok) return touched;
+        const held = await touchEditorSession(token, session);
+        if (!held.ok) return held;
         return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
+    }
+
+    if (value === ACTIVITY_PREFIX) {
+        const touched = await touchEditorSession(token, session, { activity: true });
+        if (!touched.ok) return touched;
+        return { ok: true, color: JSON.stringify({ type: 'activity' }) };
+    }
+
+    if (!touchSession(token, session)) {
+        return { ok: false, reason: 'expired' };
     }
 
     const held = await ensureEditorHold(token, session);
