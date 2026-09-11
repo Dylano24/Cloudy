@@ -8,6 +8,71 @@ const pageTarget = path.resolve(__dirname, '../src/web/embedColorPickerPage.js')
 const builderTarget = path.resolve(__dirname, '../src/commands/Tools/embedbuilder.js');
 const sessionTarget = path.resolve(__dirname, '../src/services/embedColorPickerSessionService.js');
 
+const heartbeatBlock = `    let heartbeatInFlight = false;
+    async function keepEditorSessionActive() {
+      if (!token || document.visibilityState !== 'visible' || heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      try {
+        await callSession('__CLOUDY_EMBED_HEARTBEAT__');
+      } catch {
+        // Actual editor actions surface expiry/errors to the user; heartbeat stays silent.
+      } finally {
+        heartbeatInFlight = false;
+      }
+    }
+    const heartbeatTimer = setInterval(() => {
+      void keepEditorSessionActive();
+    }, 20_000);
+    window.addEventListener('focus', () => { void keepEditorSessionActive(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void keepEditorSessionActive();
+    });
+    window.addEventListener('pagehide', () => clearInterval(heartbeatTimer), { once: true });
+    void keepEditorSessionActive();`;
+
+const heartbeatReplacement = `    let heartbeatInFlight = false;
+    async function keepEditorSessionActive() {
+      if (!token || document.visibilityState !== 'visible' || heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      try {
+        await callSession('__CLOUDY_EMBED_HEARTBEAT__');
+      } catch {
+        // Actual editor actions surface expiry/errors to the user; heartbeat stays silent.
+      } finally {
+        heartbeatInFlight = false;
+      }
+    }
+
+    let activityInFlight = false;
+    let lastActivitySignalAt = 0;
+    async function signalEditorActivity(force = false) {
+      if (!token || activityInFlight) return;
+      const now = Date.now();
+      if (!force && now - lastActivitySignalAt < 15_000) return;
+      lastActivitySignalAt = now;
+      activityInFlight = true;
+      try {
+        await callSession('__CLOUDY_EMBED_ACTIVITY__');
+      } catch {
+        // Real save/apply actions show expiry to the user. Activity pings stay silent.
+      } finally {
+        activityInFlight = false;
+      }
+    }
+
+    const heartbeatTimer = setInterval(() => {
+      void keepEditorSessionActive();
+    }, 20_000);
+    window.addEventListener('focus', () => { void signalEditorActivity(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void signalEditorActivity();
+    });
+    for (const eventName of ['pointerdown', 'keydown', 'input']) {
+      window.addEventListener(eventName, () => { void signalEditorActivity(); }, { passive: true });
+    }
+    window.addEventListener('pagehide', () => clearInterval(heartbeatTimer), { once: true });
+    void signalEditorActivity(true);`;
+
 const oldLine = "    window.addEventListener('pagehide', () => clearInterval(heartbeatTimer), { once: true });";
 const replacement = `    function closeEditorSession() {
       clearInterval(heartbeatTimer);
@@ -35,6 +100,14 @@ const replacement = `    function closeEditorSession() {
     window.addEventListener('beforeunload', closeEditorSession, { once: true });`;
 
 let pageSource = fs.readFileSync(pageTarget, 'utf8');
+if (!pageSource.includes("__CLOUDY_EMBED_ACTIVITY__")) {
+  if (!pageSource.includes(heartbeatBlock)) {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected heartbeat block not found');
+    process.exit(1);
+  }
+  pageSource = pageSource.replace(heartbeatBlock, heartbeatReplacement);
+}
+
 if (!pageSource.includes(replacement)) {
   if (!pageSource.includes(oldLine)) {
     console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected heartbeat lifecycle marker not found');
@@ -204,7 +277,7 @@ const newEditorSaveAck = `        const nextValue = payload.value.slice(0, limit
         return { ok: true, color: JSON.stringify({ type: 'editor_saved', field, value: nextValue }) };`;
 
 let sessionSource = fs.readFileSync(sessionTarget, 'utf8');
-if (!sessionSource.includes(newEditorSaveAck)) {
+if (!sessionSource.includes('EDITOR_UPDATE_COALESCING_V1') && !sessionSource.includes(newEditorSaveAck)) {
   if (!sessionSource.includes(oldEditorSaveAck)) {
     console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected editor save acknowledgement marker not found');
     process.exit(1);
@@ -213,4 +286,4 @@ if (!sessionSource.includes(newEditorSaveAck)) {
   fs.writeFileSync(sessionTarget, sessionSource, 'utf8');
 }
 
-console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched persistent editor hold + explicit completion cleanup + synchronous editor save + reliable mobile wrap indentation');
+console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] patched activity-based editor hold + explicit completion cleanup + synchronous editor save + reliable mobile wrap indentation');
