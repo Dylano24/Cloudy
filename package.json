@@ -17,6 +17,7 @@
     "migrate:keys": "node scripts/migrate-keys.js",
     "migrate:keys:dry": "node scripts/migrate-keys.js --dry-run",
     "backup:db": "node scripts/backup.js",
+    "backup:drill": "node scripts/restore-drill.js",
     "restore:db": "node scripts/restore-drill.js"
   },
   "dependencies": {
@@ -42,6 +43,7 @@
   },
   "overrides": {
     "form-data": "^4.0.6",
+    "qs": "6.16.0",
     "undici": "^6.27.0"
   }
 }
