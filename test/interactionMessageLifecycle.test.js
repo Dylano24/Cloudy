@@ -11,6 +11,22 @@ import {
   shouldUseGenericDashboardTimer,
   shouldUseTransientTimer,
 } from '../src/utils/interactionMessageLifecycle.js';
+import {
+  scheduleTransientInteractionReplyDeletion,
+  scheduleTransientMessageDeletion,
+} from '../src/utils/transientResponse.js';
+
+function builderMessage(title = 'Preview') {
+  return {
+    id: 'builder-message',
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+    embeds: [
+      { title, description: 'This is the editable preview.' },
+      { title: 'Message builder', description: 'Builder controls' },
+    ],
+    components: [{ components: [{ customId: 'simple_embed_post' }] }],
+  };
+}
 
 test('dashboard and transient lifetimes use the requested values', () => {
   assert.equal(DASHBOARD_IDLE_MS, 5 * 60_000);
@@ -32,7 +48,6 @@ test('ephemeral dashboard sessions are recognized without matching persistent pa
     embeds: [{ title: 'Verification' }],
     components: [{ components: [{ customId: 'verification_start' }] }],
   };
-
   assert.equal(isEphemeralLifecycleMessage(null, publicPanel), false);
 });
 
@@ -65,12 +80,7 @@ test('five minute dashboard collectors become inactivity collectors', () => {
 });
 
 test('Message Builder is excluded from the generic dashboard timer', () => {
-  const builder = {
-    id: 'builder-message',
-    flags: { has: flag => flag === MessageFlags.Ephemeral },
-    embeds: [{ title: 'Preview' }, { title: 'Message builder' }],
-    components: [{ components: [{ customId: 'simple_embed_post' }] }],
-  };
+  const builder = builderMessage();
   const normalDashboard = {
     id: 'normal-dashboard',
     flags: { has: flag => flag === MessageFlags.Ephemeral },
@@ -84,15 +94,7 @@ test('Message Builder is excluded from the generic dashboard timer', () => {
 });
 
 test('Message Builder preview status titles never trigger the ten-second transient cleanup', () => {
-  const builder = {
-    id: 'builder-message',
-    flags: { has: flag => flag === MessageFlags.Ephemeral },
-    embeds: [
-      { title: 'Success', description: 'This is the editable preview.' },
-      { title: 'Message builder', description: 'Builder controls' },
-    ],
-    components: [{ components: [{ customId: 'simple_embed_post' }] }],
-  };
+  const builder = builderMessage('Success');
   const normalTransient = {
     id: 'status-message',
     flags: { has: flag => flag === MessageFlags.Ephemeral },
@@ -102,6 +104,47 @@ test('Message Builder preview status titles never trigger the ten-second transie
 
   assert.equal(shouldUseTransientTimer(null, builder), false);
   assert.equal(shouldUseTransientTimer(null, normalTransient), true);
+});
+
+test('generic lifecycle deletion can never delete a Message Builder', async () => {
+  let webhookDeletes = 0;
+  let directDeletes = 0;
+  const builder = {
+    ...builderMessage('Success'),
+    delete: async () => { directDeletes += 1; },
+  };
+  const interaction = {
+    webhook: {
+      deleteMessage: async () => { webhookDeletes += 1; },
+    },
+    deleteReply: async () => { webhookDeletes += 1; },
+  };
+
+  assert.equal(await deleteLifecycleMessage(builder, interaction), false);
+  assert.equal(webhookDeletes, 0);
+  assert.equal(directDeletes, 0);
+});
+
+test('all transient cleanup helpers reject Message Builder replies', async () => {
+  let directDeletes = 0;
+  let replyDeletes = 0;
+  const builder = {
+    ...builderMessage('Warning'),
+    deletable: true,
+    delete: async () => { directDeletes += 1; },
+  };
+
+  assert.equal(scheduleTransientMessageDeletion(builder), false);
+  assert.equal(directDeletes, 0);
+
+  const interaction = {
+    replied: true,
+    deferred: false,
+    fetchReply: async () => builder,
+    deleteReply: async () => { replyDeletes += 1; },
+  };
+  assert.equal(await scheduleTransientInteractionReplyDeletion(interaction), false);
+  assert.equal(replyDeletes, 0);
 });
 
 test('ephemeral cleanup uses webhook deletion before normal message deletion', async () => {
