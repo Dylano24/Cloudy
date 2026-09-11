@@ -60,6 +60,7 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
 
+      # Final gate: lint and the complete regression suite must both stay green.
       - name: Lint and tests in parallel
         shell: bash
         run: |
