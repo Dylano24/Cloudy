@@ -49,6 +49,7 @@ test('browser lifecycle events cannot release the Builder before the fixed fourt
       assert.match(ignored.color, /editor_lifecycle_ignored/);
     }
 
+    // The heartbeat refreshes the existing preview exactly once; it does not open a new lease.
     const refreshesBeforeHeartbeat = previewRefreshes;
     const heartbeat = await applyEmbedColorPickerSession(
       token,
