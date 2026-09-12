@@ -35,7 +35,7 @@ test('one editor page establishes its Builder hold once and heartbeat does not r
   }
 });
 
-test('closing returns to Builder mode and reopening with a new page gets one fresh editor lease', async () => {
+test('browser close cannot release the Builder and reopening a new page starts a fresh fixed lease', async () => {
   const holds = [];
   const token = createEmbedColorPickerSession({
     userId: '1',
@@ -51,19 +51,20 @@ test('closing returns to Builder mode and reopening with a new page gets one fre
 
     const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__', page('page-one'));
     assert.equal(closed.ok, true);
-    assert.equal(JSON.parse(closed.color).type, 'editor_closed');
+    assert.equal(JSON.parse(closed.color).type, 'editor_lifecycle_ignored');
 
-    // The same already-closed document may not silently restart its 14 minutes.
-    const staleHeartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('page-one'));
-    assert.equal(staleHeartbeat.ok, false);
+    // Browser lifecycle cannot end the active lease, so the same page remains valid.
+    const samePageHeartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('page-one'));
+    assert.equal(samePageHeartbeat.ok, true);
 
+    // A genuinely new editor document still owns a new fixed 14-minute lease.
     const secondOpen = await applyEmbedColorPickerSession(token, openValue('page-two'), page('page-two'));
     assert.equal(secondOpen.ok, true);
 
     const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__', page('page-two'));
     assert.equal(stateResult.ok, true);
     assert.equal(JSON.parse(stateResult.color).title, 'Still here');
-    assert.deepEqual(holds, ['hold', 'hold']);
+    assert.deepEqual(holds, ['hold']);
   } finally {
     deleteEmbedColorPickerSession(token);
   }
@@ -99,7 +100,7 @@ test('duplicate OPEN, typing, state, color and heartbeat never create a second h
   }
 });
 
-test('a stale close from the previous page cannot close a newly reopened editor', async () => {
+test('a stale browser close from the previous page cannot affect the current editor lease', async () => {
   const holds = [];
   const token = createEmbedColorPickerSession({
     userId: '1',
@@ -115,7 +116,7 @@ test('a stale close from the previous page cannot close a newly reopened editor'
 
     const staleClose = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__', page('old-page'));
     assert.equal(staleClose.ok, true);
-    assert.equal(JSON.parse(staleClose.color).type, 'editor_close_ignored');
+    assert.equal(JSON.parse(staleClose.color).type, 'editor_lifecycle_ignored');
 
     const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('new-page'));
     assert.equal(heartbeat.ok, true);
