@@ -16,27 +16,27 @@ test('Builder is five minutes outside editor and editor lease is fixed fourteen 
 
   const source = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
   assert.match(source, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
+  assert.match(source, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V4/);
   assert.match(source, /scheduleSessionIdleExpiry\(token, session, instanceId\)/);
   assert.match(source, /releaseBuilderSessionHold\(token\)/);
   assert.match(source, /State, typing, emoji and color requests do NOT restart the fixed 14m/i);
+  assert.match(source, /editor_lifecycle_ignored/);
   assert.doesNotMatch(source, /real editor activity[\s\S]*reset 14 minutes/i);
 });
 
-test('leaving or hiding editor pauses Builder hold without ending the fixed editor lease', () => {
+test('browser lifecycle cannot start the Builder five-minute timer before the fixed lease ends', () => {
   const page = fs.readFileSync('src/web/embedColorPickerPage.js', 'utf8');
   assert.match(page, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
-  assert.match(page, /EMBED_EDITOR_VISIBLE_PRESENCE_V3/);
+  assert.match(page, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V4/);
   assert.match(page, /editorInstanceId/);
   assert.match(page, /__CLOUDY_EMBED_OPEN__:/);
-  assert.match(page, /__CLOUDY_EMBED_PAUSE__/);
-  assert.match(page, /pagehide', pauseEditorSession/);
-  assert.match(page, /beforeunload', pauseEditorSession/);
-  assert.match(page, /visibilityState === 'hidden'[\s\S]*pauseEditorSession/);
-  assert.doesNotMatch(page, /pagehide', closeEditorSession/);
-  assert.doesNotMatch(page, /beforeunload', closeEditorSession/);
+  assert.doesNotMatch(page, /__CLOUDY_EMBED_PAUSE__/);
+  assert.doesNotMatch(page, /pagehide', (?:pause|close)EditorSession/);
+  assert.doesNotMatch(page, /beforeunload', (?:pause|close)EditorSession/);
+  assert.doesNotMatch(page, /visibilityState === 'hidden'[\s\S]*(?:pause|close)EditorSession/);
 });
 
-test('API forwards editor page identity so stale page events cannot release a reopened editor', () => {
+test('API forwards editor page identity so a reopened page owns its own fixed lease', () => {
   const app = fs.readFileSync('src/app.js', 'utf8');
   assert.match(app, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
   assert.match(app, /editorInstanceId: req\.body\?\.editorInstanceId/);
