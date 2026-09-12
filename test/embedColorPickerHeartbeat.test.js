@@ -35,7 +35,7 @@ test('one editor page establishes its Builder hold once while heartbeat refreshe
   }
 });
 
-test('browser close cannot release the Builder and reopening a new page starts a fresh fixed lease', async () => {
+test('browser close releases the Builder hold and reopening starts a fresh fixed lease', async () => {
   const holds = [];
   const token = createEmbedColorPickerSession({
     userId: '1',
@@ -51,20 +51,19 @@ test('browser close cannot release the Builder and reopening a new page starts a
 
     const closed = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__', page('page-one'));
     assert.equal(closed.ok, true);
-    assert.equal(JSON.parse(closed.color).type, 'editor_lifecycle_ignored');
+    assert.equal(JSON.parse(closed.color).type, 'editor_closed');
 
-    // Browser lifecycle cannot end the active lease, so the same page remains valid.
     const samePageHeartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('page-one'));
-    assert.equal(samePageHeartbeat.ok, true);
+    assert.equal(samePageHeartbeat.ok, false);
+    assert.equal(samePageHeartbeat.reason, 'editor_expired');
 
-    // A genuinely new editor document still owns a new fixed 14-minute lease.
     const secondOpen = await applyEmbedColorPickerSession(token, openValue('page-two'), page('page-two'));
     assert.equal(secondOpen.ok, true);
 
     const stateResult = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__', page('page-two'));
     assert.equal(stateResult.ok, true);
     assert.equal(JSON.parse(stateResult.color).title, 'Still here');
-    assert.deepEqual(holds, ['hold']);
+    assert.deepEqual(holds, ['hold', 'hold']);
   } finally {
     deleteEmbedColorPickerSession(token);
   }
@@ -116,7 +115,7 @@ test('a stale browser close from the previous page cannot affect the current edi
 
     const staleClose = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__', page('old-page'));
     assert.equal(staleClose.ok, true);
-    assert.equal(JSON.parse(staleClose.color).type, 'editor_lifecycle_ignored');
+    assert.equal(JSON.parse(staleClose.color).type, 'editor_close_ignored');
 
     const heartbeat = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('new-page'));
     assert.equal(heartbeat.ok, true);
