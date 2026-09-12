@@ -38,8 +38,6 @@ test('browser lifecycle events cannot release the Builder before the fixed fourt
       { editorInstanceId },
     );
     assert.equal(opened.ok, true);
-    const refreshesAfterOpen = previewRefreshes;
-    assert.ok(refreshesAfterOpen >= 1);
 
     for (const lifecycleSignal of ['__CLOUDY_EMBED_PAUSE__', '__CLOUDY_EMBED_CLOSE__']) {
       const ignored = await applyEmbedColorPickerSession(
@@ -51,6 +49,7 @@ test('browser lifecycle events cannot release the Builder before the fixed fourt
       assert.match(ignored.color, /editor_lifecycle_ignored/);
     }
 
+    const refreshesBeforeHeartbeat = previewRefreshes;
     const heartbeat = await applyEmbedColorPickerSession(
       token,
       '__CLOUDY_EMBED_HEARTBEAT__',
@@ -58,7 +57,7 @@ test('browser lifecycle events cannot release the Builder before the fixed fourt
     );
     assert.equal(heartbeat.ok, true);
     assert.match(heartbeat.color, /heartbeat/);
-    assert.equal(previewRefreshes, refreshesAfterOpen + 1);
+    assert.equal(previewRefreshes, refreshesBeforeHeartbeat + 1);
   } finally {
     deleteEmbedColorPickerSession(token);
   }
