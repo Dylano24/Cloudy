@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 
-const marker = 'EMBED_EDITOR_AUTHORITATIVE_HOLD_V5';
+const marker = 'EMBED_EDITOR_CLOSE_RETURNS_5M_V6';
 const pagePath = 'src/web/embedColorPickerPage.js';
 const sessionPath = 'src/services/embedColorPickerSessionService.js';
 
 function replaceRequired(text, find, replace, label) {
   if (!text.includes(find)) {
-    console.error(`[EMBED_EDITOR_AUTHORITATIVE_HOLD] marker not found (${label})`);
+    console.error(`[EMBED_EDITOR_CLOSE_RETURNS_5M] marker not found (${label})`);
     process.exit(1);
   }
   return text.replace(find, replace);
@@ -21,17 +21,15 @@ if (!page.includes(marker)) {
     'editor heartbeat guard',
   );
 
-  const closeStart = page.indexOf('    let editorCloseSent = false;');
-  const closeEndMarker = `    window.addEventListener('beforeunload', closeEditorSession, { once: true });`;
-  const closeEnd = page.indexOf(closeEndMarker, closeStart);
-  if (closeStart === -1 || closeEnd === -1) {
-    console.error('[EMBED_EDITOR_AUTHORITATIVE_HOLD] exact-open browser close lifecycle block not found');
+  // The exact-open patch already installs the authoritative browser-close path:
+  // pagehide/beforeunload sends CLOSE with this editorInstanceId. Keep that
+  // lifecycle intact so leaving the editor releases the hold to a fresh 5m.
+  if (!page.includes(`window.addEventListener('pagehide', closeEditorSession, { once: true });`)
+      || !page.includes(`window.addEventListener('beforeunload', closeEditorSession, { once: true });`)
+      || !page.includes(`color: '__CLOUDY_EMBED_CLOSE__'`)) {
+    console.error('[EMBED_EDITOR_CLOSE_RETURNS_5M] exact editor close lifecycle not found');
     process.exit(1);
   }
-
-  const afterClose = closeEnd + closeEndMarker.length;
-  const authoritativeLifecycle = `    // ${marker}: browser visibility/page lifecycle is deliberately NOT\n    // authoritative for the editor hold. Once this page opens, the Builder\n    // remains protected for the fixed server-side fourteen-minute lease.\n    // Switching back to Discord, backgrounding Safari, pagehide and unload\n    // must never start the Builder's five-minute inactivity timer early.\n`;
-  page = `${page.slice(0, closeStart)}${authoritativeLifecycle}${page.slice(afterClose)}`;
 
   fs.writeFileSync(pagePath, page, 'utf8');
 }
@@ -45,29 +43,25 @@ if (!session.includes(marker)) {
     'cached page lifecycle compatibility',
   );
 
-  const closeHandler = `    if (value === CLOSE_PREFIX) {\n        // A no-ID close can be a stale cached page, so it may never release a newer page.\n        if (!explicitInstanceId) {\n            return { ok: true, color: JSON.stringify({ type: 'editor_close_ignored' }) };\n        }\n        session.closedEditorInstanceIds.add(instanceId);\n        if (session.activeEditorInstanceId !== instanceId) {\n            return { ok: true, color: JSON.stringify({ type: 'editor_close_ignored' }) };\n        }\n\n        clearSessionIdleTimer(session);\n        session.activeEditorInstanceId = null;\n        session.holdActive = false;\n        // Closing starts a fresh normal 5m Builder inactivity window.\n        releaseBuilderSessionHold(token);\n        return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };\n    }`;
-
-  const authoritativeHandler = `    if (value === PAUSE_PREFIX || value === CLOSE_PREFIX) {\n        // ${marker}: mobile/browser lifecycle events are not reliable proof that\n        // the editor has truly ended. Ignore them completely. The fixed 14m\n        // lease created by OPEN is the only authority that can release the hold.\n        return { ok: true, color: JSON.stringify({ type: 'editor_lifecycle_ignored' }) };\n    }`;
-
   session = replaceRequired(
     session,
-    closeHandler,
-    authoritativeHandler,
-    'browser lifecycle cannot release fixed editor hold',
+    `    if (value === CLOSE_PREFIX) {`,
+    `    if (value === PAUSE_PREFIX) {\n        // A cached V3 page may still send PAUSE while merely backgrounded.\n        // PAUSE is not proof the editor was closed, so only explicit CLOSE\n        // releases the Builder hold and starts the normal fresh 5m window.\n        return { ok: true, color: JSON.stringify({ type: 'editor_lifecycle_ignored' }) };\n    }\n\n    if (value === CLOSE_PREFIX) {`,
+    'pause stays non-authoritative while close returns to five-minute mode',
   );
 
   const heartbeatBefore = `async function touchEditorSession(token, session) {\n    // Heartbeat keeps the hold attached but NEVER restarts 14m.\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;\n    return { ok: true };\n}`;
 
-  const heartbeatAfter = `async function touchEditorSession(token, session) {\n    // ${marker}: heartbeat NEVER restarts the fixed 14m lease, but it does\n    // re-edit the exact same Discord Builder preview while the web editor is\n    // open. iOS/Discord can otherwise discard a stale ephemeral panel when the\n    // in-app browser is closed after several minutes, even though the server\n    // hold is still valid.\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;\n\n    if (typeof session.onEditorUpdate !== 'function') {\n        return { ok: false, reason: 'editor_unavailable' };\n    }\n\n    try {\n        await runWithBuilderSessionHold(\n            token,\n            () => session.onEditorUpdate('__heartbeat__', ''),\n        );\n        session.holdActive = true;\n    } catch (error) {\n        if (error?.code === 'EMBED_BUILDER_EXPIRED') {\n            session.holdActive = false;\n            return { ok: true, previewUnavailable: true };\n        }\n        throw error;\n    }\n\n    return { ok: true };\n}`;
+  const heartbeatAfter = `async function touchEditorSession(token, session) {\n    // ${marker}: heartbeat NEVER restarts the fixed 14m lease. It only\n    // refreshes the same Builder preview while the editor remains open.\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;\n\n    if (typeof session.onEditorUpdate !== 'function') {\n        return { ok: false, reason: 'editor_unavailable' };\n    }\n\n    try {\n        await runWithBuilderSessionHold(\n            token,\n            () => session.onEditorUpdate('__heartbeat__', ''),\n        );\n        session.holdActive = true;\n    } catch (error) {\n        if (error?.code === 'EMBED_BUILDER_EXPIRED') {\n            session.holdActive = false;\n            return { ok: true, previewUnavailable: true };\n        }\n        throw error;\n    }\n\n    return { ok: true };\n}`;
 
   session = replaceRequired(
     session,
     heartbeatBefore,
     heartbeatAfter,
-    'heartbeat keeps the Discord Builder preview warm without resetting 14m',
+    'heartbeat keeps the existing Builder preview warm without resetting 14m',
   );
 
   fs.writeFileSync(sessionPath, session, 'utf8');
 }
 
-console.log('[EMBED_EDITOR_AUTHORITATIVE_HOLD] fixed 14m editor lease owns Builder hold; 20s heartbeat also keeps the same Discord preview visible');
+console.log('[EMBED_EDITOR_CLOSE_RETURNS_5M] editor open = fixed 14m hold; editor close = fresh 5m Builder inactivity; heartbeat does not reset 14m');
