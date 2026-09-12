@@ -10,7 +10,7 @@ import {
 const page = id => ({ editorInstanceId: id });
 const openValue = id => `__CLOUDY_EMBED_OPEN__:${id}`;
 
-test('one editor page establishes its Builder hold once and heartbeat does not recreate it', async () => {
+test('one editor page establishes its Builder hold once while heartbeat refreshes the same preview', async () => {
   const contentUpdates = [];
   const holds = [];
   const token = createEmbedColorPickerSession({
@@ -29,7 +29,7 @@ test('one editor page establishes its Builder hold once and heartbeat does not r
     assert.equal(first.ok, true);
     assert.equal(second.ok, true);
     assert.deepEqual(holds, ['hold']);
-    assert.deepEqual(contentUpdates, []);
+    assert.deepEqual(contentUpdates, ['__heartbeat__', '__heartbeat__']);
   } finally {
     deleteEmbedColorPickerSession(token);
   }

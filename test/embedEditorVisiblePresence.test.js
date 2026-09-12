@@ -18,12 +18,14 @@ test('browser lifecycle events cannot release the Builder before the fixed fourt
     embeds: [{ title: 'Message builder' }],
     delete: async () => {},
   };
+  let previewRefreshes = 0;
 
   const token = createEmbedColorPickerSession({
     userId: 'test-user',
     onColor: async () => {},
     getEditorState: () => ({}),
     onEditorUpdate: async () => {
+      previewRefreshes += 1;
       touchBuilderSessionMessage(builderMessage);
     },
   });
@@ -47,6 +49,8 @@ test('browser lifecycle events cannot release the Builder before the fixed fourt
       assert.match(ignored.color, /editor_lifecycle_ignored/);
     }
 
+    // The heartbeat refreshes the existing preview exactly once; it does not open a new lease.
+    const refreshesBeforeHeartbeat = previewRefreshes;
     const heartbeat = await applyEmbedColorPickerSession(
       token,
       '__CLOUDY_EMBED_HEARTBEAT__',
@@ -54,6 +58,7 @@ test('browser lifecycle events cannot release the Builder before the fixed fourt
     );
     assert.equal(heartbeat.ok, true);
     assert.match(heartbeat.color, /heartbeat/);
+    assert.equal(previewRefreshes, refreshesBeforeHeartbeat + 1);
   } finally {
     deleteEmbedColorPickerSession(token);
   }
@@ -61,12 +66,19 @@ test('browser lifecycle events cannot release the Builder before the fixed fourt
 
 test('pagehide, unload and hidden state cannot release the editor hold', () => {
   const page = fs.readFileSync('src/web/embedColorPickerPage.js', 'utf8');
-  assert.match(page, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V4/);
+  assert.match(page, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V5/);
   assert.doesNotMatch(page, /__CLOUDY_EMBED_PAUSE__/);
   assert.doesNotMatch(page, /color: '__CLOUDY_EMBED_CLOSE__'/);
   assert.doesNotMatch(page, /pagehide', (?:pause|close)EditorSession/);
   assert.doesNotMatch(page, /beforeunload', (?:pause|close)EditorSession/);
   assert.doesNotMatch(page, /document\.visibilityState !== 'visible'/);
+});
+
+test('heartbeat keeps the same Discord Builder preview warm without restarting fourteen minutes', () => {
+  const session = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
+  assert.match(session, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V5/);
+  assert.match(session, /session\.onEditorUpdate\('__heartbeat__', ''\)/);
+  assert.match(session, /Heartbeat keeps the Discord Builder preview warm without resetting 14m|heartbeat NEVER restarts the fixed 14m lease/i);
 });
 
 test('authoritative-hold patch runs after the exact-open lease patch', () => {

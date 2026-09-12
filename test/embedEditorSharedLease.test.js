@@ -16,18 +16,19 @@ test('Builder is five minutes outside editor and editor lease is fixed fourteen 
 
   const source = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
   assert.match(source, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
-  assert.match(source, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V4/);
+  assert.match(source, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V5/);
   assert.match(source, /scheduleSessionIdleExpiry\(token, session, instanceId\)/);
   assert.match(source, /releaseBuilderSessionHold\(token\)/);
   assert.match(source, /State, typing, emoji and color requests do NOT restart the fixed 14m/i);
   assert.match(source, /editor_lifecycle_ignored/);
+  assert.match(source, /session\.onEditorUpdate\('__heartbeat__', ''\)/);
   assert.doesNotMatch(source, /real editor activity[\s\S]*reset 14 minutes/i);
 });
 
 test('browser lifecycle cannot start the Builder five-minute timer before the fixed lease ends', () => {
   const page = fs.readFileSync('src/web/embedColorPickerPage.js', 'utf8');
   assert.match(page, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
-  assert.match(page, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V4/);
+  assert.match(page, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V5/);
   assert.match(page, /editorInstanceId/);
   assert.match(page, /__CLOUDY_EMBED_OPEN__:/);
   assert.doesNotMatch(page, /__CLOUDY_EMBED_PAUSE__/);
