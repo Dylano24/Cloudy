@@ -16,8 +16,9 @@ test('Builder is five minutes outside editor and editor lease is fixed fourteen 
 
   const source = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
   assert.match(source, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
-  assert.match(source, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V5/);
+  assert.match(source, /EMBED_EDITOR_CLOSE_RETURNS_5M_V6/);
   assert.match(source, /scheduleSessionIdleExpiry\(token, session, instanceId\)/);
+  assert.match(source, /Closing starts a fresh normal 5m Builder inactivity window/i);
   assert.match(source, /releaseBuilderSessionHold\(token\)/);
   assert.match(source, /State, typing, emoji and color requests do NOT restart the fixed 14m/i);
   assert.match(source, /editor_lifecycle_ignored/);
@@ -25,15 +26,15 @@ test('Builder is five minutes outside editor and editor lease is fixed fourteen 
   assert.doesNotMatch(source, /real editor activity[\s\S]*reset 14 minutes/i);
 });
 
-test('browser lifecycle cannot start the Builder five-minute timer before the fixed lease ends', () => {
+test('closing/leaving the editor starts Builder five-minute inactivity, but hidden state alone does not', () => {
   const page = fs.readFileSync('src/web/embedColorPickerPage.js', 'utf8');
   assert.match(page, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
-  assert.match(page, /EMBED_EDITOR_AUTHORITATIVE_HOLD_V5/);
+  assert.match(page, /EMBED_EDITOR_CLOSE_RETURNS_5M_V6/);
   assert.match(page, /editorInstanceId/);
   assert.match(page, /__CLOUDY_EMBED_OPEN__:/);
-  assert.doesNotMatch(page, /__CLOUDY_EMBED_PAUSE__/);
-  assert.doesNotMatch(page, /pagehide', (?:pause|close)EditorSession/);
-  assert.doesNotMatch(page, /beforeunload', (?:pause|close)EditorSession/);
+  assert.match(page, /color: '__CLOUDY_EMBED_CLOSE__'/);
+  assert.match(page, /pagehide', closeEditorSession/);
+  assert.match(page, /beforeunload', closeEditorSession/);
   assert.doesNotMatch(page, /visibilityState === 'hidden'[\s\S]*(?:pause|close)EditorSession/);
 });
 
