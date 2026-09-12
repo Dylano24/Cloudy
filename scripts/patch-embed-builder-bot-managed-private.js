@@ -14,13 +14,24 @@ if (!source.includes(marker)) {
   }
   source = source.replace(importMarker, importReplacement);
 
-  const deferBefore = `            const deferred = await InteractionHelper.safeDefer(interaction, {\n                flags: MessageFlags.Ephemeral,\n            });\n            if (!deferred) return;\n\n            const state = {`;
-  const deferAfter = `            // ${marker}: in a private/admin channel the Builder is a normal\n            // bot-managed temporary message, so Discord mobile cannot lose it\n            // merely because the user switches to Safari/the editor. Public\n            // channels keep the existing ephemeral behavior to avoid exposing\n            // an admin's draft content.\n            const builderBotManaged = Boolean(\n                interaction.guild\n                && interaction.channel\n                && !isPublicToEveryone(interaction.guild, interaction.channel)\n            );\n            const deferred = await InteractionHelper.safeDefer(\n                interaction,\n                builderBotManaged ? {} : { flags: MessageFlags.Ephemeral },\n            );\n            if (!deferred) return;\n\n            const state = {\n                builderBotManaged,`;
-  if (!source.includes(deferBefore)) {
-    console.error('[EMBED_BUILDER_BOT_MANAGED_PRIVATE] defer marker not found');
+  // UI_LATENCY runs earlier and deliberately replaces defer+edit with one
+  // direct safeReply. Patch that final source shape rather than restoring a
+  // second Discord round-trip.
+  const stateBefore = `            // Do not spend a Discord round-trip on a defer before rendering a\n            // panel that can be built locally. The first panel is sent directly.\n\n            const state = {`;
+  const stateAfter = `            // Do not spend a Discord round-trip on a defer before rendering a\n            // panel that can be built locally. The first panel is sent directly.\n\n            // ${marker}: in a private/admin channel the Builder is a normal\n            // bot-managed temporary message, so Discord mobile cannot lose it\n            // merely because the user switches to Safari/the editor. Public\n            // channels keep the existing ephemeral behavior to avoid exposing\n            // an admin's draft content.\n            const builderBotManaged = Boolean(\n                interaction.guild\n                && interaction.channel\n                && !isPublicToEveryone(interaction.guild, interaction.channel)\n            );\n\n            const state = {\n                builderBotManaged,`;
+  if (!source.includes(stateBefore)) {
+    console.error('[EMBED_BUILDER_BOT_MANAGED_PRIVATE] final Builder startup marker not found');
     process.exit(1);
   }
-  source = source.replace(deferBefore, deferAfter);
+  source = source.replace(stateBefore, stateAfter);
+
+  const initialBefore = `            const initialShown = await InteractionHelper.safeReply(interaction, {\n                embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],\n                components: buildControls(state),\n                flags: MessageFlags.Ephemeral,\n            });`;
+  const initialAfter = `            const initialShown = await InteractionHelper.safeReply(interaction, {\n                embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],\n                components: buildControls(state),\n                ...(builderBotManaged ? {} : { flags: MessageFlags.Ephemeral }),\n            });`;
+  if (!source.includes(initialBefore)) {
+    console.error('[EMBED_BUILDER_BOT_MANAGED_PRIVATE] final initial reply marker not found');
+    process.exit(1);
+  }
+  source = source.replace(initialBefore, initialAfter);
 
   const editStart = source.indexOf('export async function editBuilderPreviewMessage(state, interaction, payload) {');
   const editEndMarker = '\n\nasync function refreshBuilder(interaction, state) {';
