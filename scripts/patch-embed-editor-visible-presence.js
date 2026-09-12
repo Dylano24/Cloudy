@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-const marker = 'EMBED_EDITOR_AUTHORITATIVE_HOLD_V4';
+const marker = 'EMBED_EDITOR_AUTHORITATIVE_HOLD_V5';
 const pagePath = 'src/web/embedColorPickerPage.js';
 const sessionPath = 'src/services/embedColorPickerSessionService.js';
 
@@ -56,7 +56,18 @@ if (!session.includes(marker)) {
     'browser lifecycle cannot release fixed editor hold',
   );
 
+  const heartbeatBefore = `async function touchEditorSession(token, session) {\n    // Heartbeat keeps the hold attached but NEVER restarts 14m.\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;\n    return { ok: true };\n}`;
+
+  const heartbeatAfter = `async function touchEditorSession(token, session) {\n    // ${marker}: heartbeat NEVER restarts the fixed 14m lease, but it does\n    // re-edit the exact same Discord Builder preview while the web editor is\n    // open. iOS/Discord can otherwise discard a stale ephemeral panel when the\n    // in-app browser is closed after several minutes, even though the server\n    // hold is still valid.\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;\n\n    if (typeof session.onEditorUpdate !== 'function') {\n        return { ok: false, reason: 'editor_unavailable' };\n    }\n\n    try {\n        await runWithBuilderSessionHold(\n            token,\n            () => session.onEditorUpdate('__heartbeat__', ''),\n        );\n        session.holdActive = true;\n    } catch (error) {\n        if (error?.code === 'EMBED_BUILDER_EXPIRED') {\n            session.holdActive = false;\n            return { ok: true, previewUnavailable: true };\n        }\n        throw error;\n    }\n\n    return { ok: true };\n}`;
+
+  session = replaceRequired(
+    session,
+    heartbeatBefore,
+    heartbeatAfter,
+    'heartbeat keeps the Discord Builder preview warm without resetting 14m',
+  );
+
   fs.writeFileSync(sessionPath, session, 'utf8');
 }
 
-console.log('[EMBED_EDITOR_AUTHORITATIVE_HOLD] fixed 14m editor lease owns Builder hold; hidden/pagehide/unload cannot release it early');
+console.log('[EMBED_EDITOR_AUTHORITATIVE_HOLD] fixed 14m editor lease owns Builder hold; 20s heartbeat also keeps the same Discord preview visible');
