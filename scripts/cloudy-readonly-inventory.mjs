@@ -5,7 +5,12 @@ import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const GUILD = '1532882647838228723';
-const output = (kind, data) => console.log(JSON.stringify({ inventory: 'cloudy-v1', guild: GUILD, kind, data }));
+const inventoryArray = [];
+
+const output = (kind, data) => {
+  inventoryArray.push({ inventory: 'cloudy-v1', guild: GUILD, kind, data });
+};
+
 const snowflake = value => typeof value === 'string' && /^\d{17,20}$/.test(value);
 
 // Do not log complete config values, embed bodies, ticket content or credentials.
@@ -107,12 +112,21 @@ export async function main() {
   } finally {
     await client.end();
   }
+
+  // Emit the entire inventory as base64-encoded JSON in a single log line
+  const jsonStr = JSON.stringify(inventoryArray);
+  const b64 = Buffer.from(jsonStr).toString('base64');
+  console.log(`CHANNEL_INVENTORY_B64:${b64}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().catch(() => {
     // Raw driver errors can contain credentials or private connection details.
-    output('failed', { code: 'INVENTORY_INCOMPLETE' });
+    const errorArray = [{ inventory: 'cloudy-v1', guild: GUILD, kind: 'failed', data: { code: 'INVENTORY_INCOMPLETE' } }];
+    const jsonStr = JSON.stringify(errorArray);
+    const b64 = Buffer.from(jsonStr).toString('base64');
+    console.log(`CHANNEL_INVENTORY_B64:${b64}`);
     process.exitCode = 1;
   });
 }
+
