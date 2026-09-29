@@ -11,6 +11,8 @@ const CHANNELS = Object.freeze({
   nitradoPatch: { legacyId: '1539397467647377530', aliases: ['nitrado-patch-notes', 'nitrado-updates'] },
   faq: { legacyId: '1534654577385672917', aliases: ['faq'] },
   zorp: { legacyId: '1533212973034770462', aliases: ['zorp-off-raid-protection'] },
+  fixGuide: { legacyId: '1546229542027534478', aliases: ['fix-guide'] },
+  botlog: { legacyId: '1543802746866770000', aliases: ['botlog-commands', 'botlog', 'bot-logs'] },
   staffList: { legacyId: '1533198028733939722', aliases: ['staff-list'] },
   contactSupport: { legacyId: '1533197784725852181', aliases: ['contact-support', 'contact-us'] },
   security: { legacyId: '1533197569495142551', aliases: ['security-information'] },
