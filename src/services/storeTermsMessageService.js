@@ -1,6 +1,7 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getTermsTitleIcon } from './termsIconService.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 
 const STORE_TERMS_CHANNEL_ID = '1534786470790037665';
 
@@ -89,7 +90,8 @@ async function findExistingStoreTermsMessage(channel, clientUserId) {
 
 export async function reconcileStoreTermsMessage(client) {
   try {
-    const channel = await client.channels.fetch(STORE_TERMS_CHANNEL_ID).catch(() => null);
+    const channel = await resolveCloudyChannel(client, 'officialStore', { textOnly: true })
+      || await client.channels.fetch(STORE_TERMS_CHANNEL_ID).catch(() => null);
     if (!channel?.isTextBased?.() || channel.isThread?.()) {
       logger.warn(`[STORE_TERMS] Channel ${STORE_TERMS_CHANNEL_ID} is missing or is not a text channel.`);
       return { ok: false, reason: 'channel_missing' };
