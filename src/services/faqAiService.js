@@ -9,6 +9,7 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { runExplicitAi } from './explicitAiService.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 
 export const FAQ_AI_CHANNEL_ID = '1534654577385672917';
 export const FAQ_AI_BUTTON_ID = 'faq_ai_question';
@@ -70,7 +71,7 @@ function isFaqPanelMessage(message, clientUserId) {
 
 export async function reconcileFaqAiPanel(client) {
   try {
-    const channel = await client.channels.fetch(FAQ_AI_CHANNEL_ID).catch(() => null);
+    const channel = await resolveCloudyChannel(client, 'faq', { textOnly: true });
     if (!channel?.isTextBased?.() || channel.isThread?.()) return null;
 
     const payload = buildPanelPayload();
