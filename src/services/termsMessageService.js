@@ -1,6 +1,7 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getTermsTitleIcon } from './termsIconService.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 
 const TERMS_CHANNEL_ID = '1533191366190829768';
 
@@ -86,7 +87,7 @@ async function findExistingTermsMessage(channel, clientUserId) {
 
 export async function reconcileTermsMessage(client) {
   try {
-    const channel = await client.channels.fetch(TERMS_CHANNEL_ID).catch(() => null);
+    const channel = await resolveCloudyChannel(client, 'terms', { textOnly: true });
     if (!channel?.isTextBased?.() || channel.isThread?.()) {
       logger.warn(`[TERMS] Channel ${TERMS_CHANNEL_ID} is missing or is not a text channel.`);
       return { ok: false, reason: 'channel_missing' };
