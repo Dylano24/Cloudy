@@ -1,0 +1,41 @@
+name: Cloudy One-Shot Server Restore
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    if: contains(github.event.head_commit.message, '[run-cloudy-restore]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GUILD_ID: '1532882647838228723'
+      DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN || secrets.CLOUDY_DISCORD_TOKEN || secrets.BOT_TOKEN || secrets.TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify token secret exists
+        shell: bash
+        run: |
+          if [ -z "$DISCORD_TOKEN" ]; then
+            echo "No supported Discord token secret is configured in GitHub Actions."
+            exit 2
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Restore Cloudy Discord server
+        run: node scripts/restore-cloudy-server-once.js
