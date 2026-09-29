@@ -6,13 +6,14 @@ import {
   Events,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 export const FIX_GUIDE_CHANNEL_ID = '1546229542027534478';
 export const FIX_GUIDE_ASK_BUTTON_ID = 'cloudy_fix_guide_ask';
 export const FIX_GUIDE_ASK_MODAL_ID = 'cloudy_fix_guide_ask_modal';
 export const FIX_GUIDE_QUESTION_INPUT_ID = 'cloudy_fix_guide_question';
 
-const PANEL_STATE_KEY = `global:cloudy-owner-assistant:panel:${FIX_GUIDE_CHANNEL_ID}`;
+const panelStateKey = channelId => `global:cloudy-owner-assistant:panel:${channelId}`;
 const PANEL_TITLE = 'Cloudy Assistant • Fix Guide';
 
 function buildPanel() {
@@ -53,7 +54,7 @@ export default {
 
   async execute(client) {
     try {
-      const channel = await client.channels.fetch(FIX_GUIDE_CHANNEL_ID).catch(() => null);
+      const channel = await resolveCloudyChannel(client, 'fixGuide', { textOnly: true });
       if (!channel?.isTextBased?.() || channel.isThread?.() || !channel.messages?.fetch) {
         logger.warn(`[OWNER_ASSISTANT] FIX-GUIDE channel unavailable: ${FIX_GUIDE_CHANNEL_ID}`);
         return;
@@ -61,7 +62,7 @@ export default {
 
       let panelMessage = null;
       const savedMessageId = client.db?.get
-        ? await client.db.get(PANEL_STATE_KEY).catch(() => null)
+        ? await client.db.get(panelStateKey(channel.id)).catch(() => null)
         : null;
 
       if (savedMessageId) {
@@ -78,8 +79,8 @@ export default {
         ? panelMessage
         : await channel.send(buildPanel());
 
-      if (client.db?.set) await client.db.set(PANEL_STATE_KEY, panelMessage.id).catch(() => {});
-      logger.warn(`[OWNER_ASSISTANT] FIX-GUIDE panel ready in channel ${FIX_GUIDE_CHANNEL_ID}`);
+      if (client.db?.set) await client.db.set(panelStateKey(channel.id), panelMessage.id).catch(() => {});
+      logger.warn(`[OWNER_ASSISTANT] FIX-GUIDE panel ready in channel ${channel.id}`);
     } catch (error) {
       logger.error('[OWNER_ASSISTANT] Failed to reconcile FIX-GUIDE panel:', error);
     }
