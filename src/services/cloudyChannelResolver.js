@@ -3,6 +3,7 @@ import { ChannelType } from 'discord.js';
 const CHANNELS = Object.freeze({
   rules: { legacyId: '1533189582064062564', aliases: ['rules'] },
   terms: { legacyId: '1533191366190829768', aliases: ['terms-of-services', 'termes-of-services', 'terms-of-service'] },
+  termsOfSale: { legacyId: '1534786470790037665', aliases: ['terms-of-sale', 'store-terms'] },
   privacy: { legacyId: '1533188744562344016', aliases: ['privacy-policy'] },
   shop: { legacyId: '1533192856909512774', aliases: ['shop'] },
   gambling: { legacyId: '1533188412507558130', aliases: ['gambling'] },
