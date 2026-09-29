@@ -3,6 +3,7 @@
 import { ChannelType } from 'discord.js';
 import { getGuildConfig, updateGuildConfig } from './config/guildConfig.js';
 import { logger } from '../utils/logger.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import {
   appendContentSection,
   buildLogDescription,
@@ -340,8 +341,24 @@ export async function logEvent({
       return null;
     }
 
-    const channel = guild.channels.cache.get(logChannelId) ||
+    let channel = guild.channels.cache.get(logChannelId) ||
       await guild.channels.fetch(logChannelId).catch(() => null);
+
+    if (!channel) {
+      const restoredChannelKey = eventType === EVENT_TYPES.MODERATION_KICK
+        ? 'kickLogs'
+        : [EVENT_TYPES.MODERATION_TIMEOUT, EVENT_TYPES.MODERATION_UNTIMEOUT].includes(eventType)
+          ? 'timeoutLogs'
+          : [EVENT_TYPES.MODERATION_BAN, EVENT_TYPES.MODERATION_UNBAN].includes(eventType)
+            ? 'banLogs'
+            : eventType === EVENT_TYPES.REPORT_FILE
+              ? 'reports'
+              : null;
+
+      if (restoredChannelKey) {
+        channel = await resolveCloudyChannel(client, restoredChannelKey, { guild, textOnly: true });
+      }
+    }
 
     if (!channel || channel.type !== ChannelType.GuildText) {
       logger.warn(`logEvent: Invalid log channel ${logChannelId} for guild ${guildId}`);
