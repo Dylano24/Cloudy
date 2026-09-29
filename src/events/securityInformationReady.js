@@ -5,6 +5,7 @@ import {
   EmbedBuilder,
   Events,
 } from 'discord.js';
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const SECURITY_CHANNEL_ID = '1533197569495142551';
@@ -22,13 +23,13 @@ function buildSecurityEmbed() {
     .setColor(0xFFFFFF);
 }
 
-function buildContactButton(guildId) {
+function buildContactButton(guildId, contactChannelId = CONTACT_CHANNEL_ID) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setLabel('Contact us')
       .setEmoji('✉️')
       .setStyle(ButtonStyle.Link)
-      .setURL(`https://discord.com/channels/${guildId}/${CONTACT_CHANNEL_ID}`),
+      .setURL(`https://discord.com/channels/${guildId}/${contactChannelId}`),
   );
 }
 
@@ -37,7 +38,7 @@ export default {
   once: true,
   async execute(client) {
     const timer = setTimeout(async () => {
-      const securityChannel = await client.channels.fetch(SECURITY_CHANNEL_ID).catch(() => null);
+      const securityChannel = await resolveCloudyChannel(client, 'security', { textOnly: true });
       if (!securityChannel?.isSendable?.()) return;
 
       const recent = await securityChannel.messages.fetch({ limit: 50 }).catch(() => null);
@@ -46,9 +47,14 @@ export default {
         && message.embeds?.[0]?.title === 'Security information',
       );
 
+      const contactChannel = await resolveCloudyChannel(client, 'contactSupport', {
+        guild: securityChannel.guild,
+        textOnly: true,
+      });
+
       const payload = {
         embeds: [buildSecurityEmbed()],
-        components: [buildContactButton(securityChannel.guildId)],
+        components: [buildContactButton(securityChannel.guildId, contactChannel?.id || CONTACT_CHANNEL_ID)],
       };
 
       if (!existing) {
