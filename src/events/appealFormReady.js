@@ -6,6 +6,8 @@ import {
   Events,
 } from 'discord.js';
 
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
+
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const APPEAL_FORM_CHANNEL_ID = '1539407865318477844';
 
@@ -40,7 +42,7 @@ export default {
   once: true,
   async execute(client) {
     const timer = setTimeout(async () => {
-      const channel = await client.channels.fetch(APPEAL_FORM_CHANNEL_ID).catch(() => null);
+      const channel = await resolveCloudyChannel(client, 'appeal', { textOnly: true });
       if (!channel?.isSendable?.()) return;
 
       const appealUrl = getAppealUrl();

@@ -3,6 +3,7 @@ import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { enforceFixedLogPresentation } from './moderationLogPresentation.js';
 import { registerCloudyEmbedMessage } from './embedRegistryService.js';
 import { logger } from '../utils/logger.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 
 const INVITE_LOG_CHANNEL_ID = '1539371572442435646';
 const DELETED_INVITE_TTL_MS = 20_000;
@@ -66,8 +67,7 @@ function formatExpiry(invite) {
 }
 
 async function getLogChannel(guild) {
-  const channel = guild.channels.cache.get(INVITE_LOG_CHANNEL_ID)
-    || await guild.channels.fetch(INVITE_LOG_CHANNEL_ID).catch(() => null);
+  const channel = await resolveCloudyChannel(guild.client, 'inviteLogs', { guild, textOnly: true });
 
   if (!channel?.isTextBased?.()) {
     logger.warn(`Invite log channel not found: ${INVITE_LOG_CHANNEL_ID}`);

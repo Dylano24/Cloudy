@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { createSingleFlight } from '../utils/singleFlight.js';
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const NITRADO_PATCH_CHANNEL_ID = '1539397467647377530';
 const NITRADO_NEWS_SOURCES = [
@@ -277,7 +278,7 @@ function logNitradoFailure(error) {
 async function checkForNitradoUpdate(client) {
   try {
     const article = await fetchLatestNitradoRustArticle();
-    const channel = await client.channels.fetch(NITRADO_PATCH_CHANNEL_ID);
+    const channel = await resolveCloudyChannel(client, 'nitradoPatch', { textOnly: true });
     if (!channel?.isTextBased()) throw new Error(`Channel ${NITRADO_PATCH_CHANNEL_ID} is not a text channel`);
 
     const botMember = channel.guild?.members?.me;
