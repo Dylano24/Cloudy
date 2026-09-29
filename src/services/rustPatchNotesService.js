@@ -7,6 +7,7 @@ import {
     PermissionFlagsBits,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
 const RUST_NEWS_FEED = 'https://rust.facepunch.com/rss/news';
@@ -142,7 +143,7 @@ async function checkForRustPatch(client) {
             logger.warn('Could not fetch the Rust feed; posting the latest known official patch.', feedError);
         }
 
-        const channel = await client.channels.fetch(RUST_PATCH_CHANNEL_ID);
+        const channel = await resolveCloudyChannel(client, 'rustPatch', { textOnly: true });
         if (!channel?.isTextBased()) {
             throw new Error(`Channel ${RUST_PATCH_CHANNEL_ID} is not a text channel`);
         }

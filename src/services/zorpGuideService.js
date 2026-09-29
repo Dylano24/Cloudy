@@ -1,6 +1,7 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getTermsTitleIcon } from './termsIconService.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 
 export const ZORP_GUIDE_CHANNEL_ID = '1533212973034770462';
 
@@ -158,7 +159,7 @@ async function findExistingGuide(channel, clientUserId) {
 
 export async function reconcileZorpGuide(client) {
   try {
-    const channel = await client.channels.fetch(ZORP_GUIDE_CHANNEL_ID).catch(() => null);
+    const channel = await resolveCloudyChannel(client, 'zorp', { textOnly: true });
     if (!channel?.isTextBased?.() || channel.isThread?.()) {
       logger.warn(`[ZORP] Channel ${ZORP_GUIDE_CHANNEL_ID} is missing or is not a text channel.`);
       return { ok: false, reason: 'channel_missing' };
