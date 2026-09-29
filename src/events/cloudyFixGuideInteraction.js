@@ -20,6 +20,7 @@ import {
 } from './cloudyOwnerAssistantReady.js';
 import { logger } from '../utils/logger.js';
 import { aiErrorMessage } from '../services/aiSafety.js';
+import { normalizeCloudyChannelName } from '../services/cloudyChannelResolver.js';
 
 const MAX_QUESTION_LENGTH = 4000;
 const EMBED_CHUNK_SIZE = 3900;
@@ -101,7 +102,11 @@ export default {
     const isAskButton = interaction.isButton?.() && interaction.customId === FIX_GUIDE_ASK_BUTTON_ID;
     const isAskModal = interaction.isModalSubmit?.() && interaction.customId === FIX_GUIDE_ASK_MODAL_ID;
     if (!isAskButton && !isAskModal) return;
-    if (!interaction.guild || String(interaction.channelId || '') !== FIX_GUIDE_CHANNEL_ID) return;
+    if (!interaction.guild) return;
+    const isFixGuideChannel =
+      String(interaction.channelId || '') === FIX_GUIDE_CHANNEL_ID
+      || normalizeCloudyChannelName(interaction.channel?.name) === 'fix-guide';
+    if (!isFixGuideChannel) return;
 
     if (!hasCloudyOwnerRole(interaction)) {
       await denyNonOwner(interaction);
