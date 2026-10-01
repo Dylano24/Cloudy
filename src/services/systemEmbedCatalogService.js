@@ -6,6 +6,13 @@ import { discoverEmbedDefinitions } from './embedDefinitionDiscoveryService.js';
 import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
 import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentation.js';
 import { getGuildConfig } from './config/guildConfig.js';
+import {
+  CLOUDY_RED_COLOR,
+  CLOUDY_GREEN_COLOR,
+  CLOUDY_YELLOW_COLOR,
+  CLOUDY_NEUTRAL_COLOR,
+  canonicalizeKnownCloudySystemColor,
+} from '../utils/embedColorPolicy.js';
 
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
 const CATALOG_CONTENT = 'System & error embed templates';
@@ -32,34 +39,34 @@ const INTERNAL_TEMPLATE_TITLES = new Set([
 ]);
 
 const DEFAULT_TEMPLATES = [
-  { key: 'wrong channel', context: 'gambling', kind: 'embed', title: 'Wrong channel', description: 'This command can only be used in the dedicated channel. Please use {dynamic} to play.', color: 0xED4245 },
-  { key: 'not enough money', context: 'gambling', kind: 'embed', title: 'Not enough money', description: 'You only have {dynamic} cash, but you are trying to bet {dynamic}.', color: 0xED4245 },
-  { key: 'invalid input', context: 'gambling', kind: 'embed', title: 'Invalid Input', description: 'Please check your input and try again.', color: 0xED4245 },
-  { key: 'invalid code', context: 'botlog', kind: 'embed', title: 'Invalid code', description: 'That code is invalid or no longer available.', color: 0xED4245 },
-  { key: 'permission denied', context: 'botlog', kind: 'embed', title: 'Permission Denied', description: "You don't have permission to do that.", color: 0xED4245 },
-  { key: 'configuration error', context: 'botlog', kind: 'embed', title: 'Configuration Error', description: 'This feature is not set up yet. Ask a server administrator to configure it.', color: 0xED4245 },
-  { key: 'database error', context: 'botlog', kind: 'embed', title: 'Database Error', description: 'Something went wrong while saving data. Please try again in a moment.', color: 0xED4245 },
-  { key: 'network error', context: 'botlog', kind: 'embed', title: 'Network Error', description: 'I could not reach an external service. Please try again in a moment.', color: 0xED4245 },
-  { key: 'discord api error', context: 'botlog', kind: 'embed', title: 'Discord API Error', description: 'Discord rejected that request. Please try again in a moment.', color: 0xED4245 },
-  { key: 'input error', context: 'botlog', kind: 'embed', title: 'Input Error', description: 'There was a problem with your request. Check your input and try again.', color: 0xED4245 },
-  { key: 'too fast', context: 'botlog', kind: 'embed', title: 'Too Fast', description: "You're doing that too quickly. Wait a moment and try again.", color: 0xFEE75C },
-  { key: 'something went wrong', context: 'botlog', kind: 'embed', title: 'Something Went Wrong', description: 'Something went wrong. Please try again in a moment.', color: 0xED4245 },
+  { key: 'wrong channel', context: 'gambling', kind: 'embed', title: 'Wrong channel', description: 'This command can only be used in the dedicated channel. Please use {dynamic} to play.', color: CLOUDY_RED_COLOR },
+  { key: 'not enough money', context: 'gambling', kind: 'embed', title: 'Not enough money', description: 'You only have {dynamic} cash, but you are trying to bet {dynamic}.', color: CLOUDY_RED_COLOR },
+  { key: 'invalid input', context: 'gambling', kind: 'embed', title: 'Invalid Input', description: 'Please check your input and try again.', color: CLOUDY_RED_COLOR },
+  { key: 'invalid code', context: 'botlog', kind: 'embed', title: 'Invalid code', description: 'That code is invalid or no longer available.', color: CLOUDY_RED_COLOR },
+  { key: 'permission denied', context: 'botlog', kind: 'embed', title: 'Permission Denied', description: "You don't have permission to do that.", color: CLOUDY_RED_COLOR },
+  { key: 'configuration error', context: 'botlog', kind: 'embed', title: 'Configuration Error', description: 'This feature is not set up yet. Ask a server administrator to configure it.', color: CLOUDY_RED_COLOR },
+  { key: 'database error', context: 'botlog', kind: 'embed', title: 'Database Error', description: 'Something went wrong while saving data. Please try again in a moment.', color: CLOUDY_RED_COLOR },
+  { key: 'network error', context: 'botlog', kind: 'embed', title: 'Network Error', description: 'I could not reach an external service. Please try again in a moment.', color: CLOUDY_RED_COLOR },
+  { key: 'discord api error', context: 'botlog', kind: 'embed', title: 'Discord API Error', description: 'Discord rejected that request. Please try again in a moment.', color: CLOUDY_RED_COLOR },
+  { key: 'input error', context: 'botlog', kind: 'embed', title: 'Input Error', description: 'There was a problem with your request. Check your input and try again.', color: CLOUDY_RED_COLOR },
+  { key: 'too fast', context: 'botlog', kind: 'embed', title: 'Too Fast', description: "You're doing that too quickly. Wait a moment and try again.", color: CLOUDY_YELLOW_COLOR },
+  { key: 'something went wrong', context: 'botlog', kind: 'embed', title: 'Something Went Wrong', description: 'Something went wrong. Please try again in a moment.', color: CLOUDY_RED_COLOR },
 ];
 
 // Deliberate Builder masters, never captured runtime ticket messages. Their
 // backing messages live in the private catalog, so purging a public ticket log
 // channel cannot remove these lifecycle templates from the Builder.
 export const TICKET_LOG_CATALOG_TEMPLATES = [
-  { key: 'ticket-log:open', context: 'ticket-logs/open', title: 'Ticket created', color: 0xFFFFFF, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Creator', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:open', context: 'ticket-logs/open', title: 'Ticket created', color: CLOUDY_NEUTRAL_COLOR, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Creator', value: '<@123456789012345678>', inline: true }] },
   { key: 'ticket-log:close', context: 'ticket-logs/close', title: 'Ticket closed', color: 0xFF7A00, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Closed by', value: '<@123456789012345678>', inline: true }] },
-  { key: 'ticket-log:delete', context: 'ticket-logs/delete', title: 'Ticket deleted', color: 0xED4245, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Deleted by', value: '<@123456789012345678>', inline: true }] },
-  { key: 'ticket-log:claim', context: 'ticket-logs/claim', title: 'Ticket claimed', color: 0x57F287, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Claimed by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:delete', context: 'ticket-logs/delete', title: 'Ticket deleted', color: CLOUDY_RED_COLOR, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Deleted by', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:claim', context: 'ticket-logs/claim', title: 'Ticket claimed', color: CLOUDY_GREEN_COLOR, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Claimed by', value: '<@123456789012345678>', inline: true }] },
   { key: 'ticket-log:unclaim', context: 'ticket-logs/unclaim', title: 'Ticket unclaimed', color: 0x000000, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Unclaimed by', value: '<@123456789012345678>', inline: true }] },
   { key: 'ticket-log:priority', context: 'ticket-logs/priority', title: 'Priority updated', color: 0xFF1493, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Priority', value: 'Urgent', inline: true }, { name: 'Updated by', value: '<@123456789012345678>', inline: true }] },
   { key: 'ticket-log:pin', context: 'ticket-logs/pin', title: 'Ticket pinned', color: 0x8A2BE2, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Pinned by', value: '<@123456789012345678>', inline: true }] },
   { key: 'ticket-log:unpin', context: 'ticket-logs/unpin', title: 'Ticket unpinned', color: 0x95A5A6, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Unpinned by', value: '<@123456789012345678>', inline: true }] },
-  { key: 'ticket-log:transcript', context: 'ticket-transcripts/transcript', title: 'Transcript generated', color: 0xFFFFFF, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Creator', value: '<@123456789012345678>', inline: true }] },
-  { key: 'ticket-log:feedback', context: 'ticket-logs/feedback', title: '⭐ Feedback received', color: 0x57F287, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Rating', value: '⭐⭐⭐⭐⭐', inline: true }] },
+  { key: 'ticket-log:transcript', context: 'ticket-transcripts/transcript', title: 'Transcript generated', color: CLOUDY_NEUTRAL_COLOR, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Creator', value: '<@123456789012345678>', inline: true }] },
+  { key: 'ticket-log:feedback', context: 'ticket-logs/feedback', title: '⭐ Feedback received', color: CLOUDY_GREEN_COLOR, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Rating', value: '⭐⭐⭐⭐⭐', inline: true }] },
 ];
 
 const BLACKJACK_RESULT_STATES = new Set([
@@ -113,7 +120,11 @@ function compactName(value) {
 
 function cloneData(value) {
   const data = value?.toJSON ? value.toJSON() : { ...(value || {}) };
-  return migrateCloudyLogoEmbedData(data).data || data;
+  const migrated = migrateCloudyLogoEmbedData(data).data || data;
+  if (Number.isInteger(migrated.color)) {
+    migrated.color = canonicalizeKnownCloudySystemColor(migrated.color);
+  }
+  return migrated;
 }
 
 function storageKey(guildId) {
@@ -425,7 +436,7 @@ function definitionToCatalog(definition) {
     data: withStableKey({
       title,
       ...(description ? { description } : {}),
-      color: Number.isInteger(definition.color) ? definition.color : 0xFFFFFF,
+      color: canonicalizeKnownCloudySystemColor(Number.isInteger(definition.color) ? definition.color : CLOUDY_NEUTRAL_COLOR),
       ...(fields?.length ? { fields } : {}),
       ...(definition.footer?.text ? { footer: { ...definition.footer } } : {}),
       ...(definition.thumbnail?.url ? { thumbnail: { ...definition.thumbnail } } : {}),
