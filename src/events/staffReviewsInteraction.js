@@ -15,6 +15,7 @@ import {
   isOwnerReviewTarget,
   takeReviewContext,
 } from '../services/staffReviewsService.js';
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const REVIEW_CONFIRMATION_TTL_MS = 10 * 1000;
 const OWNER_SELECTION_TTL_MS = 15 * 60 * 1000;
@@ -242,7 +243,7 @@ export default {
       return;
     }
 
-    const channel = await interaction.client.channels.fetch(COMMUNITY_REVIEWS_CHANNEL_ID).catch(() => null);
+    const channel = await resolveCloudyChannel(interaction.client, 'postedReviews', { guild: interaction.guild, textOnly: true });
     if (!channel?.isSendable?.()) {
       await interaction.editReply({
         content: 'The community reviews channel is currently unavailable.',
