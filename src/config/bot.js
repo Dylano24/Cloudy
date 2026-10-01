@@ -138,7 +138,7 @@ export const botConfig = {
       // Ticket priority color mapping.
       priority: {
         none: "#95A5A6",
-        low: "#3498db",
+        low: CLOUDY_WHITE,
         medium: "#2ecc71",
         high: "#f1c40f",
         urgent: CLOUDY_RED,
