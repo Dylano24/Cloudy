@@ -105,7 +105,7 @@ export default {
     if (!interaction.guild) return;
     const isFixGuideChannel =
       String(interaction.channelId || '') === FIX_GUIDE_CHANNEL_ID
-      || normalizeCloudyChannelName(interaction.channel?.name) === 'fix-guide';
+      || ['staff-assistant', 'fix-guide'].includes(normalizeCloudyChannelName(interaction.channel?.name));
     if (!isFixGuideChannel) return;
 
     if (!hasCloudyOwnerRole(interaction)) {
