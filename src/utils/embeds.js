@@ -3,6 +3,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { getColor, botConfig } from '../config/bot.js';
 import { applySystemEmbedTemplate } from '../services/systemEmbedCatalogService.js';
+import { setPreservedEmbedColor } from './embedColorPolicy.js';
 
 const EMOJI_REGEX = /[\p{Extended_Pictographic}\uFE0F]/gu;
 const EMBED_FOOTER_SYMBOL = Symbol('titanbotFooterText');
@@ -138,10 +139,13 @@ export function createEmbed({
   }
 
   try {
-    const embedColor = getColor(color) || '#000000';
-    embed.setColor(embedColor);
+    const embedColor = getColor(color) || 0xFFFFFF;
+    const statusColor = typeof color === 'string'
+      && ['success', 'error', 'warning', 'red', 'green', 'yellow'].includes(color.toLowerCase());
+    if (statusColor) setPreservedEmbedColor(embed, embedColor);
+    else embed.setColor(embedColor);
   } catch (error) {
-    embed.setColor('#000000');
+    embed.setColor(0xFFFFFF);
   }
 
   if (Array.isArray(fields) && fields.length > 0) {
@@ -222,7 +226,22 @@ export function createEmbed({
     }
   }
 
-  return applySystemEmbedTemplate(embed);
+  const templated = applySystemEmbedTemplate(embed);
+
+  // Ordinary Cloudy messages are neutral white. Status intents keep their
+  // explicit success/error/warning colors, and manual Builder embeds do not
+  // pass through this helper.
+  const neutralIntent = typeof color === 'string'
+    && ['primary', 'info'].includes(color.toLowerCase());
+  if (neutralIntent) templated.setColor(0xFFFFFF);
+
+  // Restore the standard Cloudy C in the top-right when a normal bot embed
+  // has no feature-specific thumbnail.
+  if (!templated.data?.thumbnail?.url) {
+    templated.setThumbnail(CLOUDY_C_LOGO_URL);
+  }
+
+  return templated;
 }
 
 const NOTIFICATION_DEFAULT_TITLES = {
