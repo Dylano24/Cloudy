@@ -254,33 +254,43 @@ for (const [id,name] of categories) {
 
 const resolved=new Map();
 for (const spec of specs) {
-  channels=await fetchChannels();
   const wanted=wantedNames(spec);
   let candidates=channels.filter(c=>c.type!==4 && wanted.has(normalize(c.name)));
 
   if (spec.recreate) {
-    for (const c of candidates) await del(c.id,'replace wrong channel type with historical forum type');
+    for (const c of candidates) {
+      await del(c.id,'replace wrong channel type with historical forum type');
+      channels=channels.filter(x=>x.id!==c.id);
+    }
     candidates=[];
   }
 
   let chosen=candidates.find(c=>c.type===spec.type) || null;
   if (!chosen && candidates.length) {
-    for (const c of candidates) await del(c.id,'replace wrong historical channel type');
+    for (const c of candidates) {
+      await del(c.id,'replace wrong historical channel type');
+      channels=channels.filter(x=>x.id!==c.id);
+    }
   }
 
   if (!chosen) {
-    channels=await fetchChannels();
     const again=channels.filter(c=>c.type!==4 && wanted.has(normalize(c.name)));
     chosen=again.find(c=>c.type===spec.type) || null;
-    if (!chosen) chosen=await create(spec);
+    if (!chosen) {
+      chosen=await create(spec);
+      channels.push(chosen);
+    }
   }
 
-  channels=await fetchChannels();
   const duplicates=channels.filter(c=>c.type!==4 && wanted.has(normalize(c.name)) && c.id!==chosen.id);
-  for (const duplicate of duplicates) await del(duplicate.id,'remove semantic duplicate during exact restore');
+  for (const duplicate of duplicates) {
+    await del(duplicate.id,'remove semantic duplicate during exact restore');
+    channels=channels.filter(x=>x.id!==duplicate.id);
+  }
 
   if (!channelMatchesSpec(chosen,spec)) {
     chosen=await patch(chosen.id,channelBody(spec));
+    channels=channels.map(x=>x.id===chosen.id?chosen:x);
   } else {
     console.log(JSON.stringify({action:'unchanged',id:chosen.id,name:chosen.name,type:chosen.type,parent_id:chosen.parent_id}));
   }
