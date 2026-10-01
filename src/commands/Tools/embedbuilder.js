@@ -493,7 +493,15 @@ function buildControls(state) {
             .setEmoji('🛠️'),
     );
 
-    return [contentRow, actionRow];
+    const closeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('simple_embed_close')
+            .setLabel('Close message')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('✖️'),
+    );
+
+    return [contentRow, actionRow, closeRow];
 }
 
 function getPreviewUpdateQueue(state) {
@@ -1130,6 +1138,11 @@ export default {
                                 break;
                             }
                             await postMessage(buttonInteraction, state, interaction.guild);
+                            break;
+                        case 'simple_embed_close':
+                            await buttonInteraction.deferUpdate().catch(() => {});
+                            collector.stop('manual-close');
+                            await interaction.deleteReply().catch(() => {});
                             break;
                         case 'simple_embed_reset':
                             state.title = null;
