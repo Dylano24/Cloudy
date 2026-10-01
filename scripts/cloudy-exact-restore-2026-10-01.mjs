@@ -305,12 +305,12 @@ for (const c of channels) {
 }
 
 await api('PATCH', `/guilds/${GUILD}/channels`, categories.map(([id],position)=>({id,position})));
-let globalPosition=0;
 for (const [categoryId] of categories) {
   const group=specs.filter(s=>s.parent===categoryId);
   if (!group.length) continue;
-  await api('PATCH', `/guilds/${GUILD}/channels`, group.map(spec=>({
-    id:resolved.get(spec.slug),position:globalPosition++,parent_id:categoryId,lock_permissions:false,
+  await api('PATCH', `/guilds/${GUILD}/channels`, group.map((spec, position)=>({
+    id: resolved.get(spec.slug),
+    position,
   })));
 }
 
