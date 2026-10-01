@@ -5,10 +5,20 @@ if (!token) throw new Error('MISSING_DISCORD_TOKEN');
 const API = 'https://discord.com/api/v10';
 const headers = { Authorization: `Bot ${token}` };
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 async function get(path) {
-  const response = await fetch(API + path, { headers });
-  if (!response.ok) throw new Error(`${path} -> ${response.status}: ${await response.text()}`);
-  return response.json();
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const response = await fetch(API + path, { headers });
+    if (response.status === 429) {
+      const retry = await response.json().catch(() => ({}));
+      await sleep(Math.ceil(Number(retry.retry_after || 1) * 1000) + 200);
+      continue;
+    }
+    if (!response.ok) throw new Error(`${path} -> ${response.status}: ${await response.text()}`);
+    return response.json();
+  }
+  throw new Error(`${path} -> RATE_LIMIT`);
 }
 
 const me = await get('/users/@me');
