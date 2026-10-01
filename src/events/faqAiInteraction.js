@@ -5,6 +5,7 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { aiErrorMessage, redactAiText } from '../services/aiSafety.js';
+import { normalizeCloudyChannelName } from '../services/cloudyChannelResolver.js';
 import { getAiProvider } from '../services/explicitAiProvider.js';
 import {
   FAQ_AI_BUTTON_ID,
@@ -17,6 +18,11 @@ import {
 
 const FAQ_RESPONSE_DELETE_DELAY_MS = 5 * 60 * 1000;
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+
+function isFaqChannel(interaction) {
+  return String(interaction.channelId || '') === FAQ_AI_CHANNEL_ID
+    || normalizeCloudyChannelName(interaction.channel?.name) === 'faq';
+}
 
 const QUESTION_LABELS = {
   en: 'Your question',
@@ -127,7 +133,7 @@ export default {
   async execute(interaction, client) {
     if (interaction.isButton() && interaction.customId === FAQ_AI_BUTTON_ID) {
       try {
-        if (interaction.channelId !== FAQ_AI_CHANNEL_ID) {
+        if (!isFaqChannel(interaction)) {
           await interaction.reply({
             content: 'This FAQ assistant can only be used in the FAQ channel.',
             flags: MessageFlags.Ephemeral,
@@ -184,7 +190,7 @@ export default {
       return;
     }
 
-    if (interaction.channelId !== FAQ_AI_CHANNEL_ID) {
+    if (!isFaqChannel(interaction)) {
       await replyEphemeral(interaction, 'This FAQ assistant can only be used in the FAQ channel.');
       return;
     }
