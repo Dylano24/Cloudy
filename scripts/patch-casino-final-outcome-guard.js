@@ -36,7 +36,7 @@ patchFile('src/services/systemEmbedCatalogService.js', 'system-runtime-authority
       || (game === 'roulette' && ['win', 'loss'].includes(outcome));
     if (allowed) {
       next.title = game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome;
-      next.color = outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0x336699 : 0x670102;
+      next.color = outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0xFFFFFF : 0x7A1712;
       if (data.thumbnail?.url) next.thumbnail = { ...data.thumbnail };
     }
   }
@@ -140,7 +140,7 @@ patchFile('src/services/embedTemplateService.js', 'saved-template-outcome-isolat
     if (!allowed) return null;
     return {
       title: game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome,
-      color: outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0x336699 : 0x670102,
+      color: outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0xFFFFFF : 0x7A1712,
     };
   })();
 
@@ -206,7 +206,7 @@ function enforceCasinoOutcomePresentation(runtimePayload, outgoing, source, meth
     const protectedEmbed = {
       ...decorated,
       title: game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome,
-      color: outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0x336699 : 0x670102,
+      color: outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0xFFFFFF : 0x7A1712,
       ...(runtimeData.thumbnail?.url ? { thumbnail: { ...runtimeData.thumbnail } } : {}),
     };
     protectedCount += 1;
@@ -244,12 +244,12 @@ function enforceCasinoOutcomePresentation(runtimePayload, outgoing, source, meth
       { name: 'Your bet'`)
     .replace(`color: 0xFEE75C,
     fields: [
-      { name: 'Your bet'`, `color: 0x670102,
+      { name: 'Your bet'`, `color: 0x7A1712,
     fields: [
       { name: 'Your bet'`)
     .replace(
-      "color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0x5865F2,",
-      "color: title === 'Win' || title === 'Blackjack' ? 0x00C49D : title === 'Loss' || title === 'Bust' ? 0x670102 : title === 'Push' ? 0x336699 : 0x5865F2,",
+      "color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0xFFFFFF,",
+      "color: title === 'Win' || title === 'Blackjack' ? 0x00C49D : title === 'Loss' || title === 'Bust' ? 0x7A1712 : title === 'Push' ? 0xFFFFFF : 0xFFFFFF,",
     )
     .replace(
       `    ['tie', 'You chose **{dynamic}**. Winner: **{dynamic}**\\nTie — your **{dynamic}** bet was returned.\\nCash balance: **{dynamic}**', baccaratFields],`,
@@ -258,7 +258,7 @@ function enforceCasinoOutcomePresentation(runtimePayload, outgoing, source, meth
     .replace(
       `      color: 0x57F287,
       ...(fields.length ? { fields } : {}),`,
-      `      color: outcome === 'win' ? 0x00C49D : outcome === 'loss' ? 0x670102 : outcome === 'push' ? 0x336699 : 0x5865F2,
+      `      color: outcome === 'win' ? 0x00C49D : outcome === 'loss' ? 0x7A1712 : outcome === 'push' ? 0xFFFFFF : 0xFFFFFF,
       ...(fields.length ? { fields } : {}),`,
     );
 
