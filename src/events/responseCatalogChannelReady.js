@@ -1,5 +1,6 @@
 import { ChannelType, Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const BOT_COMMANDS_CHANNEL_ID = '1539371836570083368';
 
@@ -14,7 +15,7 @@ export default {
       );
 
       if (!thread) {
-        const parent = guild.channels.cache.get(BOT_COMMANDS_CHANNEL_ID);
+        const parent = await resolveCloudyChannel(client, 'botCommands', { guild, textOnly: true });
         if (!parent?.threads?.create) {
           logger.warn('[EMBED_BUILDER] Bot commands channel cannot create response catalog thread.');
           continue;
