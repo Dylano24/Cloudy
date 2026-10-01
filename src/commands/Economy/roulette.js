@@ -56,7 +56,7 @@ export default {
     const embed = {
       title,
       description,
-      color: won ? 0x00C49D : 0x670102,
+      color: won ? 0x00C49D : 0x7A1712,
       fields,
       thumbnail: { url: CLOUDY_LOGO_URL },
     };
