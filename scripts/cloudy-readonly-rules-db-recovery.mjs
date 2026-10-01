@@ -5,61 +5,57 @@ const url = String(process.env.POSTGRES_URL || process.env.DATABASE_URL || '').t
 if (!url) throw new Error('NO_POSTGRES_URL');
 const pool = new Pool({ connectionString:url, ssl:{rejectUnauthorized:false}, max:1, statement_timeout:30000 });
 
-const guildId='1532882647838228723';
+const messageId='1543364112019488909';
 const oldRules='1533189582064062564';
+const titleNeedle='Discord rules';
 
 const client=await pool.connect();
 try {
   await client.query('BEGIN TRANSACTION READ ONLY');
 
-  const registry = await client.query(
+  const matches = await client.query(
     `
-    SELECT t.key,
-           elem
-      FROM temp_data t
-      CROSS JOIN LATERAL jsonb_array_elements(t.value) AS elem
-     WHERE t.key LIKE $1
-       AND jsonb_typeof(t.value)='array'
-       AND (
-         elem->>'channelId' = $2
-         OR elem->>'backingChannelId' = $2
-         OR lower(COALESCE(elem->>'name','')) IN ('rules','discord rules')
-         OR lower(COALESCE(elem->>'title','')) IN ('rules','discord rules')
+    SELECT source,key,created_at,
+           jsonb_typeof(value) AS value_type,
+           value
+    FROM (
+      SELECT 'temp_data'::text AS source,key,created_at,value FROM temp_data
+      UNION ALL
+      SELECT 'cache_data'::text AS source,key,created_at,value FROM cache_data
+    ) x
+    WHERE value::text ILIKE $1
+       OR value::text ILIKE $2
+       OR (
+          key LIKE 'cloudy:recovery-backup:%'
+          AND value::text ILIKE $3
        )
-     ORDER BY t.key
+    ORDER BY source,key
+    LIMIT 200
     `,
-    [`cloudy:recovery-backup:%:cloudy:embed-registry:${guildId}%`, oldRules]
+    ['%'+messageId+'%','%'+oldRules+'%','%'+titleNeedle+'%']
   );
 
-  const templateExact = await client.query(
+  const compact = matches.rows.map(r => ({
+    source:r.source,
+    key:r.key,
+    created_at:r.created_at,
+    value_type:r.value_type,
+    value: r.value
+  }));
+  console.error('RULES_MESSAGE_ID_MATCHES ' + JSON.stringify(compact));
+
+  const keys = await client.query(
     `
-    SELECT key,value,created_at
-      FROM temp_data
-     WHERE key LIKE $1
-        OR key LIKE $2
-     ORDER BY key
-    `,
-    [
-      `cloudy:recovery-backup:%:cloudy:embed-template:${guildId}:${oldRules}%`,
-      `cloudy:recovery-backup:%:cloudy:embed-template:${guildId}:%rules%`
-    ]
-  );
-
-  const backupRowsContainingOldChannel = await client.query(
+    SELECT 'temp_data' source,key,created_at FROM temp_data
+     WHERE key ILIKE '%rule%' OR key ILIKE '%embed%' AND value::text ILIKE '%Discord rules%'
+    UNION ALL
+    SELECT 'cache_data' source,key,created_at FROM cache_data
+     WHERE key ILIKE '%rule%' OR key ILIKE '%embed%' AND value::text ILIKE '%Discord rules%'
+    ORDER BY source,key
+    LIMIT 300
     `
-    SELECT key,value,created_at
-      FROM temp_data
-     WHERE key LIKE 'cloudy:recovery-backup:%'
-       AND value::text LIKE $1
-     ORDER BY key
-     LIMIT 100
-    `,
-    [`%${oldRules}%`]
   );
-
-  console.error('RULES_RECOVERY_REGISTRY ' + JSON.stringify(registry.rows));
-  console.error('RULES_RECOVERY_TEMPLATE_EXACT ' + JSON.stringify(templateExact.rows));
-  console.error('RULES_RECOVERY_OLD_CHANNEL_ROWS ' + JSON.stringify(backupRowsContainingOldChannel.rows));
+  console.error('RULES_RELATED_KEYS ' + JSON.stringify(keys.rows));
 
   await client.query('ROLLBACK');
 } finally {
