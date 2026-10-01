@@ -425,7 +425,7 @@ function definitionToCatalog(definition) {
     data: withStableKey({
       title,
       ...(description ? { description } : {}),
-      color: Number.isInteger(definition.color) ? definition.color : 0x5865F2,
+      color: Number.isInteger(definition.color) ? definition.color : 0xFFFFFF,
       ...(fields?.length ? { fields } : {}),
       ...(definition.footer?.text ? { footer: { ...definition.footer } } : {}),
       ...(definition.thumbnail?.url ? { thumbnail: { ...definition.thumbnail } } : {}),
