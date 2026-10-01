@@ -1,6 +1,9 @@
 import { logger } from '../utils/logger.js';
 
 const CLOUDY_RED = "#7A1712";
+const CLOUDY_GREEN = "#00C49D";
+const CLOUDY_YELLOW = "#FCFFA1";
+const CLOUDY_WHITE = "#FFFFFF";
 
 export const botConfig = {
   // =========================
@@ -71,7 +74,7 @@ export const botConfig = {
     // Embed colors by application status.
     statusColors: {
       pending: "#FFA500",
-      approved: "#00FF00",
+      approved: CLOUDY_GREEN,
       denied: CLOUDY_RED,
     },
 
@@ -95,35 +98,35 @@ export const botConfig = {
   embeds: {
     colors: {
       // Main brand colors.
-      primary: "#FFFFFF",
+      primary: CLOUDY_WHITE,
       secondary: "#2F3136",
 
       // Standard status colors for success/error/warning/info messages.
-      success: "#00C49D",
+      success: CLOUDY_GREEN,
       error: CLOUDY_RED,
-      warning: "#FEE75C",
-      info: "#FFFFFF",
+      warning: CLOUDY_YELLOW,
+      info: CLOUDY_WHITE,
 
       // Neutral utility colors.
-      light: "#FFFFFF",
+      light: CLOUDY_WHITE,
       dark: "#202225",
       gray: "#99AAB5",
 
       // Discord-style palette shortcuts.
-      blurple: "#5865F2",
-      green: "#00C49D",
-      yellow: "#FEE75C",
+      blurple: CLOUDY_WHITE,
+      green: CLOUDY_GREEN,
+      yellow: CLOUDY_YELLOW,
       fuchsia: "#EB459E",
       red: CLOUDY_RED,
       black: "#000000",
 
       // Feature-specific colors.
       giveaway: {
-        active: "#57F287",
+        active: CLOUDY_GREEN,
         ended: CLOUDY_RED,
       },
       ticket: {
-        open: "#57F287",
+        open: CLOUDY_GREEN,
         claimed: "#FAA61A",
         closed: CLOUDY_RED,
         pending: "#99AAB5",
@@ -230,7 +233,7 @@ export const botConfig = {
       },
       low: {
         emoji: "🟢",
-        color: "#2ECC71",
+        color: CLOUDY_GREEN,
         label: "Low",
       },
       medium: {
