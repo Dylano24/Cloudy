@@ -211,6 +211,28 @@ function channelMatchesSpec(c,spec) {
   }
   return true;
 }
+function canonicalPerms(list=[]) {
+  return [...list].map(x=>({id:String(x.id),type:Number(x.type),allow:String(x.allow||'0'),deny:String(x.deny||'0')}))
+    .sort((a,b)=>a.id.localeCompare(b.id)||a.type-b.type);
+}
+function canonicalTags(list=[]) {
+  return [...list].map(t=>({name:t.name,emoji_id:t.emoji_id||null,emoji_name:t.emoji_name||null,moderated:Boolean(t.moderated)}));
+}
+function needsPatch(channel,spec) {
+  if (!channel) return true;
+  if (channel.name!==spec.name || channel.parent_id!==spec.parent) return true;
+  if (spec.topic!==undefined && channel.topic!==spec.topic) return true;
+  if (spec.type===2 && (Number(channel.bitrate||0)!==Number(spec.bitrate||64000) || Number(channel.user_limit||0)!==Number(spec.user_limit||0))) return true;
+  if (spec.type===15) {
+    if (Number(channel.default_auto_archive_duration||0)!==Number(spec.default_auto_archive_duration||10080)) return true;
+    if (Number(channel.flags||0)!==Number(spec.flags||0)) return true;
+    if (JSON.stringify(canonicalTags(channel.available_tags||[]))!==JSON.stringify(canonicalTags(spec.available_tags||[]))) return true;
+  }
+  const critical = ['ticket-logs','ticket-transcripts','bot-commands','payments-logs','timeout-logs','kick-logs','ban-logs','ban-timeout-appeals','invitation-logs','reports','alert-activity','staff-assistant'];
+  if (critical.includes(spec.slug) && JSON.stringify(canonicalPerms(channel.permission_overwrites||[]))!==JSON.stringify(canonicalPerms(spec.perms||[]))) return true;
+  return false;
+}
+
 async function create(spec) {
   const body={type:spec.type,...channelBody(spec)};
   const c=await api('POST', `/guilds/${GUILD}/channels`, body);
