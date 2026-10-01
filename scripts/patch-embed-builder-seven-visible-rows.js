@@ -91,6 +91,11 @@ if (!text.includes('const logoMediaRow = new ActionRowBuilder().addComponents(')
             .setLabel(state.modifyTarget ? 'Save change' : 'Post message')
             .setStyle(ButtonStyle.Success)
             .setEmoji(state.modifyTarget ? '💾' : '📤'),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_close')
+            .setLabel('Close message')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('✖️'),
     );
 
     return [titleRow, logoMediaRow, styleButtonsRow, modifyResetRow, saveRow];
