@@ -13,6 +13,7 @@ import {
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
 import { logger } from '../utils/logger.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
+import { CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
@@ -155,6 +156,72 @@ export async function applySavedBlackjackPayloadTemplates(payload, source) {
   return { ...payload, embeds };
 }
 
+// Final Discord payload guard for casino outcomes. This also owns the live
+// game presentation after every Builder/template layer so neutral casino
+// screens can never fall back to an old blue template.
+function enforceCasinoOutcomePresentation(runtimePayload, outgoing, source, method = 'unknown') {
+  const command = String(source?.commandName || '').trim().toLowerCase();
+  if (!['blackjack', 'baccarat', 'roulette'].includes(command)) return outgoing;
+  if (!runtimePayload || typeof runtimePayload !== 'object' || !Array.isArray(runtimePayload.embeds)) return outgoing;
+  if (!outgoing || typeof outgoing !== 'object' || !Array.isArray(outgoing.embeds)) return outgoing;
+
+  let protectedCount = 0;
+  const embeds = outgoing.embeds.map((embed, index) => {
+    const runtimeEmbed = runtimePayload.embeds[index];
+    const runtimeData = runtimeEmbed?.toJSON ? runtimeEmbed.toJSON() : runtimeEmbed;
+    if (!runtimeData || typeof runtimeData !== 'object') return embed;
+
+    const title = String(runtimeData.title || '').replace(/\s+/g, ' ').trim();
+    const normalizedTitle = title.toLowerCase();
+    const decorated = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
+
+    // Active blackjack/baccarat cards are normal Cloudy game embeds:
+    // always white with the Cloudy C at the top-right.
+    const liveMatch = normalizedTitle.match(/^(blackjack|baccarat)\s*[—-]\s*bet\b/);
+    if (liveMatch?.[1] === command) {
+      protectedCount += 1;
+      return {
+        ...decorated,
+        color: 0xFFFFFF,
+        thumbnail: {
+          url: runtimeData.thumbnail?.url || CLOUDY_LOGO_URL,
+        },
+      };
+    }
+
+    const resultMatch = normalizedTitle.match(/^(blackjack|baccarat|roulette)\s+(win|loss|bust|push)$/);
+    if (!resultMatch) return embed;
+
+    const [, game, outcome] = resultMatch;
+    const allowed = game === command && (
+      (game === 'blackjack' && ['win', 'loss', 'bust', 'push'].includes(outcome))
+      || (game === 'baccarat' && ['win', 'loss', 'push'].includes(outcome))
+      || (game === 'roulette' && ['win', 'loss'].includes(outcome))
+    );
+    if (!allowed) return embed;
+
+    protectedCount += 1;
+    return {
+      ...decorated,
+      title: game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome,
+      color: outcome === 'win' ? 0x00C49D
+        : outcome === 'push' ? 0xFFFFFF
+          : 0x7A1712,
+      thumbnail: {
+        url: runtimeData.thumbnail?.url || CLOUDY_LOGO_URL,
+      },
+    };
+  });
+
+  if (protectedCount) {
+    logger.warn(
+      `[CASINO_OUTGOING] command=${command} method=${method} protected=${protectedCount} title=${embeds[0]?.title || ''} color=${embeds[0]?.color ?? ''}`,
+    );
+  }
+
+  return { ...outgoing, embeds };
+}
+
 function shouldPrepareMessageEdit(message) {
   return Boolean(
     message?.guildId
@@ -171,7 +238,9 @@ function shouldPrepareMessageEdit(message) {
 // receives it, so the client never paints the default blue version first.
 export function prepareMessageEditPayload(message, payload) {
   if (!shouldPrepareMessageEdit(message)) return payload;
-  return applyPayloadTemplates(payload, messageContext(message));
+  const source = messageContext(message);
+  const outgoing = applyPayloadTemplates(payload, source);
+  return enforceCasinoOutcomePresentation(payload, outgoing, source, 'message.edit');
 }
 
 function patchMessageEdits() {
@@ -382,6 +451,7 @@ function patchInteractionCapture() {
           capturePayload(payload, source);
           outgoing = applyPayloadTemplates(payload, source);
           outgoing = await applySavedBlackjackPayloadTemplates(outgoing, source);
+          outgoing = enforceCasinoOutcomePresentation(payload, outgoing, source, method);
         } catch (error) {
           logger.debug(`[EMBED_BUILDER] Response template processing skipped for ${method}: ${error?.message || error}`);
         }
