@@ -365,7 +365,7 @@ function seedKnownGameResponses() {
   captureSystemEmbedData({
     title: 'Roulette win',
     description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
-    color: 0x57F287,
+    color: 0x00C49D,
     fields: [
       { name: 'Your bet', value: '**{dynamic}** on **{dynamic}**', inline: true },
       { name: 'Payout', value: '**{dynamic}**', inline: true },
@@ -376,7 +376,7 @@ function seedKnownGameResponses() {
   captureSystemEmbedData({
     title: 'Roulette loss',
     description: 'The wheel landed on {dynamic}\n**{dynamic} • {dynamic}**',
-    color: 0xFEE75C,
+    color: 0x7A1712,
     fields: [
       { name: 'Your bet', value: '**{dynamic}** on **{dynamic}**', inline: true },
       { name: 'Result', value: 'Lost **{dynamic}**', inline: true },
@@ -387,7 +387,7 @@ function seedKnownGameResponses() {
   captureSystemEmbedData({
     title: 'Blackjack — Bet $100',
     description: '',
-    color: 0x5865F2,
+    color: 0xFFFFFF,
     fields: [
       { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
       { name: 'Dealer Hand', value: '{dynamic}\nValue: **?**', inline: true },
@@ -398,7 +398,7 @@ function seedKnownGameResponses() {
     captureSystemEmbedData({
       title: `Blackjack ${title.toLowerCase()}`,
       description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**',
-      color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0x5865F2,
+      color: title === 'Win' || title === 'Blackjack' ? 0x00C49D : title === 'Loss' || title === 'Bust' ? 0x7A1712 : title === 'Push' ? 0xFFFFFF : 0xFEE75C,
       fields: [
         { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
         { name: 'Dealer Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
@@ -409,7 +409,7 @@ function seedKnownGameResponses() {
   captureSystemEmbedData({
     title: 'Baccarat — Bet $100',
     description: 'Choose where to place your bet.',
-    color: 0x5865F2,
+    color: 0xFFFFFF,
   }, baccarat);
 
   const baccaratFields = [
@@ -419,14 +419,17 @@ function seedKnownGameResponses() {
   const baccaratResults = [
     ['win', 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
     ['loss', 'You chose **{dynamic}**. Winner: **{dynamic}**\nYou lost **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
-    ['tie', 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie — your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**', baccaratFields],
+    ['push', 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie — your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**', baccaratFields],
     ['expired', 'Game expired — **{dynamic}** was returned.', []],
   ];
   for (const [outcome, description, fields] of baccaratResults) {
     captureSystemEmbedData({
       title: `Baccarat ${outcome}`,
       description,
-      color: 0x57F287,
+      color: outcome === 'win' ? 0x00C49D
+        : outcome === 'loss' ? 0x7A1712
+          : outcome === 'push' ? 0xFFFFFF
+            : 0xFEE75C,
       ...(fields.length ? { fields } : {}),
     }, baccarat);
   }
