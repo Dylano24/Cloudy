@@ -398,7 +398,7 @@ function seedKnownGameResponses() {
     captureSystemEmbedData({
       title: `Blackjack ${title.toLowerCase()}`,
       description: 'Payout: **{dynamic}**\nCash balance: **{dynamic}**',
-      color: title === 'Win' || title === 'Blackjack' ? 0x00C49D : title === 'Loss' || title === 'Bust' ? 0x7A1712 : title === 'Push' ? 0xFFFFFF : 0xFEE75C,
+      color: title === 'Win' || title === 'Blackjack' ? 0x00C49D : title === 'Loss' || title === 'Bust' ? 0x7A1712 : title === 'Push' ? 0xFFFFFF : 0xFCFFA1,
       fields: [
         { name: 'Your Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
         { name: 'Dealer Hand', value: '{dynamic}\nValue: **{dynamic}**', inline: true },
@@ -429,7 +429,7 @@ function seedKnownGameResponses() {
       color: outcome === 'win' ? 0x00C49D
         : outcome === 'loss' ? 0x7A1712
           : outcome === 'push' ? 0xFFFFFF
-            : 0xFEE75C,
+            : 0xFCFFA1,
       ...(fields.length ? { fields } : {}),
     }, baccarat);
   }
