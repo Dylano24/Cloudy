@@ -47,4 +47,5 @@ for (const message of messages) {
     });
   }
 }
-console.log(JSON.stringify({ channelId: gambling.id, casino: casino.slice(0, 20) }));
+console.error('CASINO_VERIFY ' + JSON.stringify({ channelId: gambling.id, casino: casino.slice(0, 20) }));
+await sleep(5000);
