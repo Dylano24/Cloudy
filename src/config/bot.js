@@ -99,7 +99,7 @@ export const botConfig = {
       secondary: "#2F3136",
 
       // Standard status colors for success/error/warning/info messages.
-      success: "#57F287",
+      success: "#00C49D",
       error: CLOUDY_RED,
       warning: "#FEE75C",
       info: "#FFFFFF",
@@ -111,7 +111,7 @@ export const botConfig = {
 
       // Discord-style palette shortcuts.
       blurple: "#5865F2",
-      green: "#57F287",
+      green: "#00C49D",
       yellow: "#FEE75C",
       fuchsia: "#EB459E",
       red: CLOUDY_RED,
