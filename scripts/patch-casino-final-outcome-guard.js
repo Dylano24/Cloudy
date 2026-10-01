@@ -237,18 +237,18 @@ function enforceCasinoOutcomePresentation(runtimePayload, outgoing, source, meth
   // Keep the Builder's seeded casino identities aligned with the actual
   // player-facing result palette.
   text = text
-    .replace(`color: 0x57F287,
+    .replace(`color: 0x00C49D,
     fields: [
       { name: 'Your bet'`, `color: 0x00C49D,
     fields: [
       { name: 'Your bet'`)
-    .replace(`color: 0xFEE75C,
+    .replace(`color: 0xFCFFA1,
     fields: [
       { name: 'Your bet'`, `color: 0x7A1712,
     fields: [
       { name: 'Your bet'`)
     .replace(
-      "color: title === 'Win' || title === 'Blackjack' ? 0x57F287 : title === 'Loss' || title === 'Bust' ? 0xED4245 : 0xFFFFFF,",
+      "color: title === 'Win' || title === 'Blackjack' ? 0x00C49D : title === 'Loss' || title === 'Bust' ? 0x7A1712 : 0xFFFFFF,",
       "color: title === 'Win' || title === 'Blackjack' ? 0x00C49D : title === 'Loss' || title === 'Bust' ? 0x7A1712 : title === 'Push' ? 0xFFFFFF : 0xFFFFFF,",
     )
     .replace(
@@ -256,7 +256,7 @@ function enforceCasinoOutcomePresentation(runtimePayload, outgoing, source, meth
       `    ['push', 'You chose **{dynamic}**. Winner: **{dynamic}**\\nTie — your **{dynamic}** bet was returned.\\nCash balance: **{dynamic}**', baccaratFields],`,
     )
     .replace(
-      `      color: 0x57F287,
+      `      color: 0x00C49D,
       ...(fields.length ? { fields } : {}),`,
       `      color: outcome === 'win' ? 0x00C49D : outcome === 'loss' ? 0x7A1712 : outcome === 'push' ? 0xFFFFFF : 0xFFFFFF,
       ...(fields.length ? { fields } : {}),`,
