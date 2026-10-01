@@ -9,7 +9,7 @@ import { cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-const RESULT_COLORS = { win: 0x00C49D, loss: 0x670102, push: 0x336699 };
+const RESULT_COLORS = { win: 0x00C49D, loss: 0x7A1712, push: 0xFFFFFF };
 const value = card => card.rank === 'A' ? 1 : ['10', 'J', 'Q', 'K'].includes(card.rank) ? 0 : Number(card.rank);
 const score = cards => cards.reduce((total, card) => total + value(card), 0) % 10;
 function deck() {
@@ -49,6 +49,7 @@ async function gameEmbed(client, user, amount, player = null, banker = null, res
     author: { name: user.username, iconURL: user.displayAvatarURL() },
     fields,
   });
+  game.setColor(0xFFFFFF);
   game.setThumbnail(CLOUDY_LOGO_URL);
   if (fields.length) game.data.fields = fields;
   return game;
