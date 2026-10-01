@@ -288,7 +288,7 @@ for (const spec of specs) {
     channels=channels.filter(x=>x.id!==duplicate.id);
   }
 
-  if (!channelMatchesSpec(chosen,spec)) {
+  if (needsPatch(chosen,spec)) {
     chosen=await patch(chosen.id,channelBody(spec));
     channels=channels.map(x=>x.id===chosen.id?chosen:x);
   } else {
