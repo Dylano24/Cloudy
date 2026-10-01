@@ -1,56 +1,87 @@
 
 import pg from 'pg';
 const { Pool } = pg;
-const url = String(process.env.POSTGRES_URL || process.env.DATABASE_URL || '').trim();
-if (!url) throw new Error('NO_POSTGRES_URL');
-const pool = new Pool({ connectionString:url, ssl:{rejectUnauthorized:false}, max:1, statement_timeout:30000 });
-const old='1533189582064062564';
+const url=String(process.env.POSTGRES_URL||process.env.DATABASE_URL||'').trim();
+if(!url) throw new Error('NO_POSTGRES_URL');
+
+const emoji='1543287452410716160';
+const messageId='1543364112019488909';
+const oldRulesChannel='1533189582064062564';
+const pool=new Pool({connectionString:url,ssl:{rejectUnauthorized:false},max:1,statement_timeout:20000});
 const client=await pool.connect();
-try {
-  await client.query('BEGIN TRANSACTION READ ONLY');
 
-  const registries = await client.query(
-    `SELECT key, created_at, value
-       FROM temp_data
-      WHERE key LIKE 'cloudy:recovery-backup:%:cloudy:embed-registry:%'
-      ORDER BY created_at ASC`
-  );
-
-  const registryMatches=[];
-  for (const row of registries.rows) {
-    const arr=Array.isArray(row.value)?row.value:[];
-    const matches=arr.filter(e=>String(e?.channelId||e?.backingChannelId||'')===old);
+function walk(value,path='$',out=[]){
+  if(value==null) return out;
+  if(Array.isArray(value)){
+    value.forEach((v,i)=>walk(v, path+'['+i+']', out));
+    return out;
   }
+  if(typeof value!=='object') return out;
 
-  const direct = await client.query(
-    `SELECT key, created_at,
-            jsonb_path_query_array(
-              value,
-              '$[*] ? (@.channelId == $cid || @.backingChannelId == $cid)',
-              jsonb_build_object('cid', to_jsonb($1::text))
-            ) AS matches
-       FROM temp_data
-      WHERE key LIKE 'cloudy:recovery-backup:%:cloudy:embed-registry:%'
-      ORDER BY created_at ASC`,
-    [old]
+  const raw=JSON.stringify(value);
+  const title=String(value.title||'');
+  const name=String(value.name||'');
+  if(
+    raw.includes(emoji) ||
+    raw.includes(messageId) ||
+    raw.includes(oldRulesChannel) ||
+    /discord\s*rules/i.test(title) ||
+    /discord\s*rules/i.test(name)
+  ){
+    out.push({path,value});
+  }
+  for(const [k,v] of Object.entries(value)){
+    if(v && typeof v==='object') walk(v,path+'.'+k,out);
+  }
+  return out;
+}
+
+try{
+  await client.query('BEGIN TRANSACTION READ ONLY');
+  const q=await client.query(
+    `SELECT 'temp_data' source,key,value,created_at FROM temp_data
+      WHERE value::text ILIKE $1
+         OR value::text ILIKE $2
+         OR value::text ILIKE $3
+         OR value::text ILIKE '%discord rules%'
+     UNION ALL
+     SELECT 'cache_data' source,key,value,created_at FROM cache_data
+      WHERE value::text ILIKE $1
+         OR value::text ILIKE $2
+         OR value::text ILIKE $3
+         OR value::text ILIKE '%discord rules%'
+     ORDER BY created_at ASC`,
+    ['%'+emoji+'%','%'+messageId+'%','%'+oldRulesChannel+'%']
   );
 
-  const nonempty=direct.rows.filter(r=>Array.isArray(r.matches) ? r.matches.length : (r.matches && JSON.stringify(r.matches)!=='[]'));
-  console.error('RULES_RECOVERY_REGISTRY_MATCHES '+JSON.stringify(nonempty));
-
-  const templateLike = await client.query(
-    `SELECT key, created_at, value
-       FROM temp_data
-      WHERE key LIKE 'cloudy:recovery-backup:%:cloudy:embed-template:%'
-        AND (
-          value::text ILIKE '%Discord Rules%'
-          OR value::text ILIKE '%No Racism or Hate Speech%'
-          OR value::text ILIKE '%No Doxxing or Sharing Personal Information%'
-          OR value::text ILIKE '%No NSFW or Disturbing Content%'
+  const matches=[];
+  for(const row of q.rows){
+    for(const hit of walk(row.value)){
+      const v=hit.value;
+      const raw=JSON.stringify(v);
+      if(
+        raw.includes(emoji) ||
+        raw.includes(messageId) ||
+        /discord\s*rules/i.test(String(v.title||'')) ||
+        /discord\s*rules/i.test(String(v.name||'')) ||
+        (
+          String(v.channelId||'')===oldRulesChannel &&
+          String(v.messageId||'')===messageId
         )
-      ORDER BY created_at ASC`
-  );
-  console.error('RULES_RECOVERY_TEMPLATE_TEXT_MATCHES '+JSON.stringify(templateLike.rows));
-
+      ){
+        matches.push({
+          source:row.source,
+          key:row.key,
+          created_at:row.created_at,
+          path:hit.path,
+          value:v
+        });
+      }
+    }
+  }
+  console.error('EXACT_CLOUDY_RULES_RECOVERY '+JSON.stringify(matches));
   await client.query('ROLLBACK');
-} finally { client.release(); await pool.end(); }
+}finally{
+  client.release();
+  await pool.end();
+}
