@@ -9,7 +9,7 @@ import { cardEmoji, cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-const RESULT_COLORS = { win: 0x00C49D, loss: 0x670102, bust: 0x670102, push: 0x336699 };
+const RESULT_COLORS = { win: 0x00C49D, loss: 0x7A1712, bust: 0x7A1712, push: 0xFFFFFF };
 const makeDeck = () => {
   const cards = SUITS.flatMap(suit => RANKS.map(rank => ({ rank, suit, text: `${rank}${suit}` })));
   for (let i = cards.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
@@ -83,6 +83,7 @@ async function embed(state, result = null) {
     author: { name: state.user.username, iconURL: state.user.displayAvatarURL() },
     fields,
   });
+  gameEmbed.setColor(0xFFFFFF);
   gameEmbed.setThumbnail(CLOUDY_LOGO_URL);
   gameEmbed.data.fields = fields;
   return gameEmbed;
