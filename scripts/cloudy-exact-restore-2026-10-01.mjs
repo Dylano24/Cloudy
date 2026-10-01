@@ -79,7 +79,7 @@ const specs = [
   { name:'🛒│shop', slug:'shop', type:0, parent:'1532882648580493513', perms:[], topic:'**The channel to make your purchases through our website and Cloudy Inc.**' },
   { name:'📷│media', slug:'media', type:0, parent:'1532882648580493513', perms:[], topic:'**The channel to share your game clips, screenshots, and other media. Links are not allowed here, please post them in the “Post your contents” category.**' },
   { name:'👀│team-up', slug:'team-up', type:15, parent:'1532882648580493513', perms:[], topic:'**This forum is dedicated exclusively to finding teammates and groups for our Rust servers.\n\nPosts unrelated to our Rust servers will be removed and will result in moderation action.\n\nPromoting, recruiting for, or looking for players for other servers or communities is prohibited.**', default_auto_archive_duration:10080, available_tags:[], flags:0 },
-  { name:'💡│suggestions', slug:'suggestions', type:15, parent:'1532882648580493513', perms:[], recreate:true, topic:'**This forum is dedicated exclusively to suggestions related to our Discord community and Rust servers.\n\nSuggestions unrelated to the Discord or our Rust servers may be removed and could result in moderation action.**', default_auto_archive_duration:10080, available_tags:[{name:'Rust server',emoji_id:'1543286621594583111',emoji_name:null,moderated:false},{name:'Discord server',emoji_id:'1543287452410716160',emoji_name:null,moderated:false}], flags:16 },
+  { name:'💡│suggestions', slug:'suggestions', type:15, parent:'1532882648580493513', perms:[], topic:'**This forum is dedicated exclusively to suggestions related to our Discord community and Rust servers.\n\nSuggestions unrelated to the Discord or our Rust servers may be removed and could result in moderation action.**', default_auto_archive_duration:10080, available_tags:[{name:'Rust server',emoji_id:'1543286621594583111',emoji_name:null,moderated:false},{name:'Discord server',emoji_id:'1543287452410716160',emoji_name:null,moderated:false}], flags:16 },
 
   { name:'🔗│youtube', slug:'youtube', type:0, parent:'1533193742419365888', perms:[] },
   { name:'🔗│twitch', slug:'twitch', type:0, parent:'1533193742419365888', perms:[] },
@@ -189,6 +189,28 @@ function channelBody(spec) {
   }
   return body;
 }
+function normalizedOverwrites(value=[]) {
+  return [...value].map(x=>({id:String(x.id),type:Number(x.type),allow:String(x.allow||'0'),deny:String(x.deny||'0')}))
+    .sort((a,b)=>a.id.localeCompare(b.id)||a.type-b.type);
+}
+function normalizedTags(value=[]) {
+  return [...value].map(t=>({name:t.name,emoji_id:t.emoji_id||null,emoji_name:t.emoji_name||null,moderated:Boolean(t.moderated)}));
+}
+function channelMatchesSpec(c,spec) {
+  if (!c || c.name!==spec.name || c.type!==spec.type || c.parent_id!==spec.parent) return false;
+  if (JSON.stringify(normalizedOverwrites(c.permission_overwrites))!==JSON.stringify(normalizedOverwrites(spec.perms))) return false;
+  if (spec.topic !== undefined && String(c.topic||'')!==String(spec.topic||'')) return false;
+  if (spec.type===2) {
+    if (Number(c.bitrate||0)!==Number(spec.bitrate??64000)) return false;
+    if (Number(c.user_limit||0)!==Number(spec.user_limit??0)) return false;
+  }
+  if (spec.type===15) {
+    if (Number(c.default_auto_archive_duration||0)!==Number(spec.default_auto_archive_duration??10080)) return false;
+    if (Number(c.flags||0)!==Number(spec.flags??0)) return false;
+    if (JSON.stringify(normalizedTags(c.available_tags))!==JSON.stringify(normalizedTags(spec.available_tags))) return false;
+  }
+  return true;
+}
 async function create(spec) {
   const body={type:spec.type,...channelBody(spec)};
   const c=await api('POST', `/guilds/${GUILD}/channels`, body);
@@ -235,7 +257,11 @@ for (const spec of specs) {
   const duplicates=channels.filter(c=>c.type!==4 && wanted.has(normalize(c.name)) && c.id!==chosen.id);
   for (const duplicate of duplicates) await del(duplicate.id,'remove semantic duplicate during exact restore');
 
-  chosen=await patch(chosen.id,channelBody(spec));
+  if (!channelMatchesSpec(chosen,spec)) {
+    chosen=await patch(chosen.id,channelBody(spec));
+  } else {
+    console.log(JSON.stringify({action:'unchanged',id:chosen.id,name:chosen.name,type:chosen.type,parent_id:chosen.parent_id}));
+  }
   resolved.set(spec.slug,chosen.id);
 }
 
