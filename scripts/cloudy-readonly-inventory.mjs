@@ -1,5 +1,6 @@
 // Run from the Cloudy application directory. No application bootstrap or migrations.
 // Only Discord GET requests and a PostgreSQL READ ONLY transaction are used.
+// Re-run marker: 2026-10-01 historical Sep 17/18 recovery audit.
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
