@@ -74,12 +74,12 @@ const specs = [
   { name:'✨│staff-reviews', slug:'staff-reviews', type:0, parent:'1533965050015125774', perms:denyReadOnly },
   { name:'⭐│posted-reviews', slug:'posted-reviews', type:0, parent:'1533965050015125774', perms:denyReadOnly },
 
-  { name:'💬│general', slug:'general', type:0, parent:'1532882648580493513', perms:[] },
-  { name:'🎲│gambling', slug:'gambling', type:0, parent:'1532882648580493513', perms:[] },
-  { name:'🛒│shop', slug:'shop', type:0, parent:'1532882648580493513', perms:[] },
-  { name:'📷│media', slug:'media', type:0, parent:'1532882648580493513', perms:[] },
-  { name:'👀│team-up', slug:'team-up', type:15, parent:'1532882648580493513', perms:[], recreate:true },
-  { name:'💡│suggestions', slug:'suggestions', type:15, parent:'1532882648580493513', perms:[], recreate:true },
+  { name:'💬│general', slug:'general', type:0, parent:'1532882648580493513', perms:[], topic:'**The server’s main chat.**' },
+  { name:'🎲│gambling', slug:'gambling', type:0, parent:'1532882648580493513', perms:[], topic:'**The channel for playing all kinds of games & gambling.**' },
+  { name:'🛒│shop', slug:'shop', type:0, parent:'1532882648580493513', perms:[], topic:'**The channel to make your purchases through our website and Cloudy Inc.**' },
+  { name:'📷│media', slug:'media', type:0, parent:'1532882648580493513', perms:[], topic:'**The channel to share your game clips, screenshots, and other media. Links are not allowed here, please post them in the “Post your contents” category.**' },
+  { name:'👀│team-up', slug:'team-up', type:15, parent:'1532882648580493513', perms:[], recreate:true, topic:'**This forum is dedicated exclusively to finding teammates and groups for our Rust servers.\n\nPosts unrelated to our Rust servers will be removed and will result in moderation action.\n\nPromoting, recruiting for, or looking for players for other servers or communities is prohibited.**', default_auto_archive_duration:10080, available_tags:[], flags:0 },
+  { name:'💡│suggestions', slug:'suggestions', type:15, parent:'1532882648580493513', perms:[], recreate:true, topic:'**This forum is dedicated exclusively to suggestions related to our Discord community and Rust servers.\n\nSuggestions unrelated to the Discord or our Rust servers may be removed and could result in moderation action.**', default_auto_archive_duration:10080, available_tags:[{name:'Rust server',emoji_id:'1543286621594583111',emoji_name:null,moderated:false},{name:'Discord server',emoji_id:'1543287452410716160',emoji_name:null,moderated:false}], flags:16 },
 
   { name:'🔗│youtube', slug:'youtube', type:0, parent:'1533193742419365888', perms:[] },
   { name:'🔗│twitch', slug:'twitch', type:0, parent:'1533193742419365888', perms:[] },
@@ -99,13 +99,13 @@ const specs = [
   { name:'✉️│contact-us', slug:'contact-us', aliases:['contact-support'], type:0, parent:'1533189728223101048', perms:denyReadOnly },
   { name:'📮│appeal-form', slug:'appeal-form', type:0, parent:'1533189728223101048', perms:denyReadOnly },
 
-  { name:'🎮 | Games', slug:'games', type:2, parent:'1532882648580493514', perms:[] },
-  { name:'🧋 | Chill', slug:'chill', type:2, parent:'1532882648580493514', perms:[] },
-  { name:'🍨 | Trio', slug:'trio', type:2, parent:'1532882648580493514', perms:[] },
-  { name:'😈 | Beef', slug:'beef', type:2, parent:'1532882648580493514', perms:[] },
-  { name:'🍩 | Duo', slug:'duo', type:2, parent:'1532882648580493514', perms:[] },
-  { name:'🧁 | Squad', slug:'squad', type:2, parent:'1532882648580493514', perms:[] },
-  { name:'➕ | Join for create & set it up', slug:'join-for-create-set-it-up', aliases:['join-for-create-and-set-it-up'], type:2, parent:'1532882648580493514', perms:[] },
+  { name:'🎮 | Games', slug:'games', type:2, parent:'1532882648580493514', perms:[], bitrate:64000, user_limit:0 },
+  { name:'🧋 | Chill', slug:'chill', type:2, parent:'1532882648580493514', perms:[], bitrate:64000, user_limit:0 },
+  { name:'🍨 | Trio', slug:'trio', type:2, parent:'1532882648580493514', perms:[], bitrate:64000, user_limit:3 },
+  { name:'😈 | Beef', slug:'beef', type:2, parent:'1532882648580493514', perms:[], bitrate:64000, user_limit:0 },
+  { name:'🍩 | Duo', slug:'duo', type:2, parent:'1532882648580493514', perms:[], bitrate:64000, user_limit:2 },
+  { name:'🧁 | Squad', slug:'squad', type:2, parent:'1532882648580493514', perms:[], bitrate:64000, user_limit:4 },
+  { name:'➕ | Join for create & set it up', slug:'join-for-create-set-it-up', aliases:['join-for-create-and-set-it-up'], type:2, parent:'1532882648580493514', perms:[], bitrate:64000, user_limit:0 },
 
   { name:'🎫│ticket-logs', slug:'ticket-logs', type:0, parent:'1539470691328462878', perms:staffView },
   { name:'🎟️│ticket-transcripts', slug:'ticket-transcripts', type:0, parent:'1539470691328462878', perms:denyView },
@@ -178,12 +178,27 @@ async function patch(id, body) {
   console.log(JSON.stringify({action:'patched',id,name:c?.name,type:c?.type,parent_id:c?.parent_id}));
   return c;
 }
+function channelBody(spec) {
+  const body={name:spec.name,parent_id:spec.parent,permission_overwrites:spec.perms};
+  if (spec.topic !== undefined) body.topic=spec.topic;
+  if (spec.type===2) { body.bitrate=spec.bitrate ?? 64000; body.user_limit=spec.user_limit ?? 0; }
+  if (spec.type===15) {
+    body.default_auto_archive_duration=spec.default_auto_archive_duration ?? 10080;
+    body.available_tags=spec.available_tags ?? [];
+    body.flags=spec.flags ?? 0;
+  }
+  return body;
+}
 async function create(spec) {
-  const body={name:spec.name,type:spec.type,parent_id:spec.parent,permission_overwrites:spec.perms};
-  if (spec.type===2) { body.bitrate=64000; body.user_limit=0; }
+  const body={type:spec.type,...channelBody(spec)};
   const c=await api('POST', `/guilds/${GUILD}/channels`, body);
   console.log(JSON.stringify({action:'created',id:c.id,name:c.name,type:c.type,parent_id:c.parent_id}));
   return c;
+}
+
+const guildEmojis=await api('GET', `/guilds/${GUILD}/emojis`);
+for (const emojiId of ['1543286621594583111','1543287452410716160']) {
+  if (!guildEmojis.some(e=>e.id===emojiId)) throw new Error(`ABORT_MISSING_HISTORICAL_EMOJI ${emojiId}`);
 }
 
 let channels=await fetchChannels();
@@ -220,7 +235,7 @@ for (const spec of specs) {
   const duplicates=channels.filter(c=>c.type!==4 && wanted.has(normalize(c.name)) && c.id!==chosen.id);
   for (const duplicate of duplicates) await del(duplicate.id,'remove semantic duplicate during exact restore');
 
-  chosen=await patch(chosen.id,{name:spec.name,parent_id:spec.parent,permission_overwrites:spec.perms});
+  chosen=await patch(chosen.id,channelBody(spec));
   resolved.set(spec.slug,chosen.id);
 }
 
@@ -323,6 +338,14 @@ for (const spec of specs) {
   if (c.name!==spec.name) problems.push(`name:${c.id}:${c.name}->${spec.name}`);
   if (c.type!==spec.type) problems.push(`type:${spec.name}:${c.type}->${spec.type}`);
   if (c.parent_id!==spec.parent) problems.push(`parent:${spec.name}:${c.parent_id}->${spec.parent}`);
+  if (spec.topic !== undefined && c.topic !== spec.topic) problems.push(`topic:${spec.name}`);
+  if (spec.type===2 && Number(c.user_limit||0)!==Number(spec.user_limit||0)) problems.push(`user_limit:${spec.name}:${c.user_limit}->${spec.user_limit}`);
+  if (spec.type===15) {
+    if (Number(c.default_auto_archive_duration)!==Number(spec.default_auto_archive_duration)) problems.push(`archive:${spec.name}`);
+    const tags=(c.available_tags||[]).map(t=>({name:t.name,emoji_id:t.emoji_id||null,emoji_name:t.emoji_name||null,moderated:Boolean(t.moderated)}));
+    const expected=(spec.available_tags||[]).map(t=>({name:t.name,emoji_id:t.emoji_id||null,emoji_name:t.emoji_name||null,moderated:Boolean(t.moderated)}));
+    if (JSON.stringify(tags)!==JSON.stringify(expected)) problems.push(`tags:${spec.name}`);
+  }
   const dup=channels.filter(x=>x.type!==4 && wantedNames(spec).has(normalize(x.name)));
   if (dup.length!==1) problems.push(`duplicates:${spec.name}:${dup.map(x=>x.id).join(',')}`);
 }
