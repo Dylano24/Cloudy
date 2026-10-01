@@ -1,11 +1,13 @@
 import { Events } from 'discord.js';
 import {
+  COMMUNITY_REVIEWS_CHANNEL_ID,
   STAFF_REVIEWS_CHANNEL_ID,
   STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_RATING_ID,
   buildStaffReviewsPanel,
   getOwnerMembers,
 } from '../services/staffReviewsService.js';
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const PANEL_REFRESH_MS = 5 * 60 * 1000;
 
@@ -42,19 +44,27 @@ async function findStaffReviewsPanel(channel, client) {
 
 /** Refresh the staff-review panel from the guild's current Owner membership. */
 async function refreshStaffReviewsPanel(client) {
-  const channel = await client.channels.fetch(STAFF_REVIEWS_CHANNEL_ID).catch(() => null);
+  const channel = await resolveCloudyChannel(client, 'staffReviews', { textOnly: true });
   if (!channel?.isSendable?.()) return;
 
   const ownerMembers = await getOwnerMembers(channel.guild);
+  const postedReviewsChannel = await resolveCloudyChannel(client, 'postedReviews', { guild: channel.guild, textOnly: true });
   const lookup = await findStaffReviewsPanel(channel, client);
   if (!lookup.lookupSucceeded) return;
 
-  const payload = buildStaffReviewsPanel(ownerMembers);
+  const payload = buildStaffReviewsPanel(ownerMembers, postedReviewsChannel?.id || COMMUNITY_REVIEWS_CHANNEL_ID);
   if (lookup.message) {
     // Owner membership changes only require fresh selectors. Never rebuild the
     // existing embed here: Embed Builder owns its saved text, custom emojis,
     // color, footer and other presentation.
-    await lookup.message.edit({ components: payload.components }).catch(() => {});
+    const migratedEmbeds = lookup.message.embeds.map(embed => {
+      const data = embed.toJSON();
+      if (postedReviewsChannel?.id && data.description?.includes(COMMUNITY_REVIEWS_CHANNEL_ID)) {
+        data.description = data.description.replaceAll(COMMUNITY_REVIEWS_CHANNEL_ID, postedReviewsChannel.id);
+      }
+      return data;
+    });
+    await lookup.message.edit({ embeds: migratedEmbeds, components: payload.components }).catch(() => {});
     if (!lookup.message.pinned) {
       await channel.messages.pin(lookup.message, 'Cloudy staff reviews panel').catch(() => {});
     }
