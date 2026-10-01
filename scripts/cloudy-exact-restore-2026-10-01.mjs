@@ -86,14 +86,14 @@ const specs = [
   { name:'🔗│tiktok', slug:'tiktok', type:0, parent:'1533193742419365888', perms:[] },
   { name:'ℹ️│informations', slug:'informations', type:0, parent:'1533193742419365888', perms:[] },
 
-  { name:'🗒️│rust', slug:'rust', aliases:['patch-notes'], type:0, parent:'1533208942375731361', perms:denyReadOnly },
-  { name:'📰│nitrado', slug:'nitrado', aliases:['nitrado-patch-notes'], type:0, parent:'1533208942375731361', perms:denyReadOnly },
+  { name:'🗒️│rust', slug:'rust', aliases:['patch-notes'], type:0, parent:'1533886695014142003', perms:denyReadOnly },
+  { name:'📰│nitrado', slug:'nitrado', aliases:['nitrado-patch-notes'], type:0, parent:'1533886695014142003', perms:denyReadOnly },
 
-  { name:'💀│pvp', slug:'pvp', type:0, parent:'1533886695014142003', perms:denyReadOnly },
-  { name:'⚡│player', slug:'player', type:0, parent:'1533886695014142003', perms:denyReadOnly },
-  { name:'🫯│zorp', slug:'zorp', type:0, parent:'1533886695014142003', perms:denyReadOnly },
-  { name:'🚨│raids', slug:'raids', type:0, parent:'1533886695014142003', perms:denyReadOnly },
-  { name:'⛔│ban', slug:'ban', type:0, parent:'1533886695014142003', perms:denyReadOnly },
+  { name:'💀│pvp', slug:'pvp', type:0, parent:'1533208942375731361', perms:denyReadOnly },
+  { name:'⚡│player', slug:'player', type:0, parent:'1533208942375731361', perms:denyReadOnly },
+  { name:'🫯│zorp', slug:'zorp', type:0, parent:'1533208942375731361', perms:denyReadOnly },
+  { name:'🚨│raids', slug:'raids', type:0, parent:'1533208942375731361', perms:denyReadOnly },
+  { name:'⛔│ban', slug:'ban', type:0, parent:'1533208942375731361', perms:denyReadOnly },
 
   { name:'📌│staff-team', slug:'staff-team', aliases:['staff-list'], type:0, parent:'1533189728223101048', perms:denyReadOnly },
   { name:'✉️│contact-us', slug:'contact-us', aliases:['contact-support'], type:0, parent:'1533189728223101048', perms:denyReadOnly },
