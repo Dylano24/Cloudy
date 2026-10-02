@@ -44,6 +44,16 @@ function replaceOnce(text, find, replace, label) {
   if (!before.includes('BUILDER_HUMAN_NAMES_V1')) {
     let text = before;
 
+    text = replaceOnce(
+      text,
+      `import {
+    primeSystemEmbedCatalogMessage,`,
+      `import {
+    getSystemSourceDefinitionPreview,
+    primeSystemEmbedCatalogMessage,`,
+      'source preview import',
+    );
+
     const identityMarker = '\n\nexport function templateIdentity';
     const helper = `
 
