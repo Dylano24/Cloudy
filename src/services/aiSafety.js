@@ -77,6 +77,11 @@ export async function authorizeAiRequest(actor, request) {
   if (!member) throw new AiError('forbidden');
   if (request.action === 'scan') {
     if (!aiOwner(actor) && !member.permissions.has(PermissionFlagsBits.Administrator)) throw new AiError('forbidden');
+  } else if (request.action === 'server') {
+    const isGuildOwner = String(actor.guild.ownerId || '') === String(id || '');
+    if (!aiOwner(actor) && !isGuildOwner && !member.permissions.has(PermissionFlagsBits.Administrator)) {
+      throw new AiError('forbidden');
+    }
   } else if (!aiOwner(actor)) throw new AiError('forbidden');
   return member;
 }
