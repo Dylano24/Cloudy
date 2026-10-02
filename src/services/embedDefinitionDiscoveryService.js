@@ -17,6 +17,7 @@ function decodeStringPreserve(value, { allowDynamic = true } = {}) {
   if (!allowDynamic && value.includes('${')) return null;
   return String(value)
     .replace(/\$\{[^}]*\}/g, '{dynamic}')
+    .replace(/\$\{dynamic\}/g, '{dynamic}')
     .replace(/\\n/g, '\n')
     .replace(/\\r/g, '\r')
     .replace(/\\t/g, '\t')
@@ -201,9 +202,149 @@ function findTitlesOnLine(lines, index) {
 
 function addDefinition(results, seen, definition) {
   const identity = `${definition.kind}|${definition.context}|${definition.title || definition.label || ''}|${definition.description || ''}`;
+
+  if (definition.kind === 'embed' && definition.title) {
+    const sameTitle = results.findIndex(existing =>
+      existing.kind === 'embed'
+      && existing.context === definition.context
+      && existing.title === definition.title
+    );
+
+    if (sameTitle >= 0) {
+      const existing = results[sameTitle];
+      if (!existing.description && definition.description) {
+        results[sameTitle] = {
+          ...existing,
+          ...definition,
+          fields: definition.fields?.length ? definition.fields : existing.fields,
+          footer: definition.footer?.text ? definition.footer : existing.footer,
+        };
+        seen.add(identity);
+        return;
+      }
+      if (existing.description && !definition.description) return;
+    }
+  }
+
   if (seen.has(identity)) return;
   seen.add(identity);
   results.push(definition);
+}
+
+
+function scanBalancedCall(source, openParenIndex) {
+  if (source[openParenIndex] !== '(') return null;
+
+  let depth = 1;
+  let quote = null;
+  let escaped = false;
+
+  for (let index = openParenIndex + 1; index < source.length; index += 1) {
+    const char = source[index];
+
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === quote) quote = null;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char.charCodeAt(0) === 96) {
+      quote = char;
+      continue;
+    }
+    if (char === '(') depth += 1;
+    else if (char === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        return {
+          content: source.slice(openParenIndex + 1, index),
+          endIndex: index + 1,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function assignedEmbedIdentifier(source, callStart) {
+  const before = source.slice(Math.max(0, callStart - 160), callStart);
+  const match = before.match(/(?:\b(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*$/);
+  return match?.[1] || null;
+}
+
+function regexEscape(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\function helperCallDefinition(source, helper, callStart, callContent, callEnd) {');
+}
+
+function findAssignedMethodCall(source, identifier, method, startIndex) {
+  if (!identifier) return null;
+  const tail = source.slice(startIndex, Math.min(source.length, startIndex + 7000));
+  const pattern = new RegExp(
+    '\\b' + regexEscape(identifier) + '\\b[\\s\\S]{0,5200}?\\.' + regexEscape(method) + '\\s*\\(',
+  );
+  const match = pattern.exec(tail);
+  if (!match) return null;
+  const relativeOpen = match.index + match[0].lastIndexOf('(');
+  return scanBalancedCall(source, startIndex + relativeOpen);
+}
+
+function assignedEmbedModifiers(source, callStart, callEnd) {
+  const identifier = assignedEmbedIdentifier(source, callStart);
+  if (!identifier) return {};
+
+  const fieldsCall = findAssignedMethodCall(source, identifier, 'addFields', callEnd);
+  const footerCall = findAssignedMethodCall(source, identifier, 'setFooter', callEnd);
+  const fieldLiterals = fieldsCall
+    ? allLiterals(fieldsCall.content, 50).map(value => decodeString(value, { allowDynamic: true })).filter(Boolean)
+    : [];
+  const fields = [];
+  for (let index = 0; index + 1 < fieldLiterals.length && fields.length < 25; index += 2) {
+    fields.push({
+      name: fieldLiterals[index],
+      value: fieldLiterals[index + 1],
+      inline: /\binline\s*:\s*true\b/.test(fieldsCall?.content || ''),
+    });
+  }
+
+  const footerLiteral = footerCall ? allLiterals(footerCall.content, 1)[0] : null;
+  const footerText = decodeString(footerLiteral, { allowDynamic: true });
+
+  return {
+    ...(fields.length ? { fields } : {}),
+    ...(footerText ? { footer: { text: footerText } } : {}),
+  };
+}
+function helperCallDefinition(source, helper, callStart, callContent, callEnd) {
+  const literals = allLiterals(callContent, 8)
+    .map(value => decodeString(value, { allowDynamic: true }))
+    .filter(Boolean);
+
+  if (helper === 'buildUserErrorEmbed') {
+    if (literals.length < 3) return null;
+    return {
+      title: literals.at(-1),
+      description: literals[1],
+      ...assignedEmbedModifiers(source, callStart, callEnd),
+    };
+  }
+
+  if (!literals[0]) return null;
+  const fallback = helper === 'successEmbed' ? 'Success'
+    : helper === 'infoEmbed' ? 'Information'
+      : helper === 'warningEmbed' ? 'Warning' : 'Error';
+  return {
+    title: literals.length > 1 ? literals[0] : fallback,
+    description: literals.length > 1 ? literals[1] : literals[0],
+    ...assignedEmbedModifiers(source, callStart, callEnd),
+  };
 }
 
 function extractEmbedDefinitions(source, relativePath, results, seen) {
@@ -226,25 +367,28 @@ function extractEmbedDefinitions(source, relativePath, results, seen) {
     }
   }
 
-  const helperRegex = /\b(successEmbed|infoEmbed|warningEmbed|errorEmbed)\s*\(([\s\S]{0,900}?)\)/g;
+  const helperRegex = /\b(successEmbed|infoEmbed|warningEmbed|errorEmbed|buildUserErrorEmbed)\s*\(/g;
   let helperMatch;
   while ((helperMatch = helperRegex.exec(source))) {
-    const literals = allLiterals(helperMatch[2], 2).map(value => decodeString(value, { allowDynamic: true }));
-    if (!literals[0]) continue;
+    const openParenIndex = helperRegex.lastIndex - 1;
+    const call = scanBalancedCall(source, openParenIndex);
+    if (!call) continue;
+
     const helper = helperMatch[1];
-    const fallback = helper === 'successEmbed' ? 'Success'
-      : helper === 'infoEmbed' ? 'Information'
-        : helper === 'warningEmbed' ? 'Warning' : 'Error';
-    const title = literals.length > 1 ? literals[0] : fallback;
-    const description = literals.length > 1 ? literals[1] : literals[0];
-    addDefinition(results, seen, {
-      kind: 'embed',
-      title,
-      description,
-      color: inferColor(title),
-      context,
-      variantId: `${relativePath}:helper:${helperMatch.index}`,
-    });
+    const definition = helperCallDefinition(source, helper, helperMatch.index, call.content, call.endIndex);
+    if (definition?.title && definition?.description) {
+      addDefinition(results, seen, {
+        kind: 'embed',
+        title: definition.title,
+        description: definition.description,
+        color: inferColor(definition.title),
+        ...(definition.fields?.length ? { fields: definition.fields } : {}),
+        ...(definition.footer?.text ? { footer: definition.footer } : {}),
+        context,
+        variantId: `${relativePath}:helper:${helperMatch.index}`,
+      });
+    }
+    helperRegex.lastIndex = Math.max(helperRegex.lastIndex, call.endIndex);
   }
 }
 
