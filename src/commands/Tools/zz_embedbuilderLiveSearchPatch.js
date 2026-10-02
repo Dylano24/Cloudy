@@ -200,13 +200,27 @@ function priority(record) {
 
 function chooseBetter(left, right) {
     if (!left) return right;
-    if (right.score !== left.score) return right.score > left.score ? right : left;
-    if (priority(right.record) !== priority(left.record)) {
-        return priority(right.record) > priority(left.record) ? right : left;
+
+    // All candidates reaching this function already belong to the same logical
+    // Builder item. Choose the correct Save target first, and preserve the best
+    // search score from any peer only for result ordering.
+    const bestScore = Math.max(left.score ?? 0, right.score ?? 0);
+    const leftPriority = priority(left.record);
+    const rightPriority = priority(right.record);
+    if (rightPriority !== leftPriority) {
+        const chosen = rightPriority > leftPriority ? right : left;
+        return { ...chosen, score: bestScore };
     }
+
+    if (right.score !== left.score) {
+        const chosen = right.score > left.score ? right : left;
+        return { ...chosen, score: bestScore };
+    }
+
     const rightTime = new Date(right.record?.updatedAt || right.record?.createdAt || 0).getTime();
     const leftTime = new Date(left.record?.updatedAt || left.record?.createdAt || 0).getTime();
-    return rightTime >= leftTime ? right : left;
+    const chosen = rightTime >= leftTime ? right : left;
+    return { ...chosen, score: bestScore };
 }
 
 export function latestRealPreviewRecord(guild, records, selectedRecord) {
