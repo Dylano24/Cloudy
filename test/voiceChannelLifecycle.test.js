@@ -58,6 +58,25 @@ test('moving between trigger channels still creates a room', async () => {
   assert.equal(f.created.length, 1);
 });
 
+test('join uses the current Discord channel name while keeping trigger matching ID based', async () => {
+  const f = fixture();
+  f.config().channelNameTemplate = '{channelName}';
+  f.guild.channels.fetch = async (channelId, options) => {
+    assert.equal(channelId, f.trigger.id);
+    assert.deepEqual(options, { force: true });
+    return {
+      ...f.trigger,
+      name: 'Renamed Create',
+    };
+  };
+
+  await f.join();
+
+  assert.equal(f.created.length, 1);
+  assert.equal(f.created[0].options.name, 'Renamed Create');
+  assert.ok(f.config().triggerChannels.includes(f.trigger.id));
+});
+
 test('failed move removes the empty new room and its registration', async () => {
   const f = fixture({ moveFails: true });
   await f.join();
