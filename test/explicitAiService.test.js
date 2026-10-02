@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { createExplicitAiService, readAiSource, readAiChannel } from '../src/services/explicitAiService.js';
+import { createExplicitAiService, readAiSource, readAiChannel, readAiGuildContext } from '../src/services/explicitAiService.js';
 import { AiError, parseAiRequest } from '../src/services/aiSafety.js';
 import messageHandler from '../src/events/cloudyOwnerAssistantMessageCreate.js';
 import { answerFaqQuestion } from '../src/services/faqAiService.js';
@@ -147,6 +147,103 @@ test('allowed scan has fixed count, no shared cache and bounded Unicode context'
   }) };
   const result = await readAiChannel(item, request, member);
   assert.ok(Buffer.byteLength(result.text) <= 12_000); assert.ok(result.count < 50);
+});
+
+test('owner context searches multiple readable channels and keeps denied channels out', async () => {
+  const item = actor({ admin: true });
+  item.guild.ownerId = item.user.id;
+  const member = { id: item.user.id, permissions: { has: () => true } };
+  const botMember = { id: 'bot' };
+  item.guild.members.fetchMe = async () => botMember;
+
+  const makeMessages = rows => ({
+    fetch: async ({ limit, before, cache }) => {
+      assert.equal(cache, false);
+      if (before) return new Map();
+      return new Map(rows.slice(0, limit).map((row, index) => [
+        String(index + 1),
+        {
+          id: String(index + 1),
+          content: row,
+          embeds: [],
+          createdTimestamp: 1000 + index,
+        },
+      ]));
+    },
+  });
+
+  const readable = {
+    id: 'channel-readable',
+    guildId: item.guild.id,
+    name: 'rules-and-help',
+    rawPosition: 1,
+    isTextBased: () => true,
+    isThread: () => false,
+    permissionsFor: () => ({ has: () => true }),
+    messages: makeMessages([
+      'The old Cloudy rule says use the support channel for account help.',
+      'Unrelated recent chat.',
+    ]),
+  };
+  const secondReadable = {
+    ...readable,
+    id: 'channel-second',
+    name: 'general',
+    rawPosition: 2,
+    messages: makeMessages(['Previous discussion says the welcome channel is restored.']),
+  };
+  const denied = {
+    ...readable,
+    id: 'channel-denied',
+    name: 'private-staff',
+    rawPosition: 3,
+    permissionsFor: who => ({ has: () => who !== member }),
+    messages: { fetch: async () => assert.fail('Denied channel must not be read') },
+  };
+
+  item.guild.channels = {
+    cache: new Map(),
+    fetch: async () => new Map([
+      [readable.id, readable],
+      [secondReadable.id, secondReadable],
+      [denied.id, denied],
+    ]),
+  };
+
+  const result = await readAiGuildContext(item, { question: 'What did we say about Cloudy support and welcome?' }, member);
+  assert.equal(result.channels, 2);
+  assert.match(result.text, /support channel/);
+  assert.match(result.text, /welcome channel/);
+  assert.doesNotMatch(result.text, /private-staff/);
+  assert.ok(Buffer.byteLength(result.text) <= 12_000);
+});
+
+test('owner Fix Guide style questions can automatically receive bounded server evidence', async () => {
+  const item = actor({ admin: true });
+  item.guild.ownerId = item.user.id;
+  let scans = 0;
+  const run = createExplicitAiService({
+    provider: () => ({ provider: 'ollama' }),
+    reserve: () => () => {},
+    audit: () => {},
+    defaultGuildContext: true,
+    guildScan: async (_actor, request) => {
+      scans += 1;
+      assert.equal(request.action, 'server');
+      return { text: '{"messages":[{"text":"older server context"}]}', count: 1, channels: 3 };
+    },
+    answer: async args => {
+      assert.equal(args.action, 'server');
+      assert.match(args.evidence, /older server context/);
+      return { text: 'Contextual answer', diagnostics: {} };
+    },
+  });
+
+  const result = await run(item, 'What did we decide before?');
+  assert.equal(scans, 1);
+  assert.equal(result.text, 'Contextual answer');
+  assert.equal(result.diagnostics.readableChannelsScanned, 3);
+  assert.equal(result.diagnostics.evidenceItems, 1);
 });
 
 test('source reader blocks traversal, secrets, links, oversized and non-source files', async t => {
