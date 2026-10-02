@@ -488,6 +488,58 @@ test('title-only live peer cannot hide full source text from the Builder live pr
   assert.equal(preview.toJSON().description, description);
 });
 
+test('Builder finds the complete source body when catalog and source use sibling FAQ contexts', async () => {
+  installTestStorage();
+
+  const guildId = '100000000000000095';
+  const channelId = '200000000000000095';
+  const description = [
+    'Have a question or need help with something?',
+    '',
+    'Our AI Assistant can help you find answers to common questions, server information, features, commands, and more.',
+    '',
+    'You can ask your question in any language, and you’ll receive a response in the same language.',
+    '',
+    'Click **Ask a question** below and let Cloudy Inc. assist you.',
+  ].join('\n');
+
+  primeSystemSourceDefinitionPreview({
+    kind: 'embed',
+    title: 'Cloudy Support Assistant',
+    description,
+    context: 'faq/faq-ai-service',
+    variantId: 'services/faqAiService.js:embed:sibling-context-test',
+  });
+
+  const sparseMessage = {
+    id: '300000000000000095',
+    guildId,
+    channelId,
+    embeds: [{
+      title: 'Cloudy Support Assistant',
+      color: 0xFFFFFF,
+      author: {
+        name: 'Cloudy template key: embed:sibling-test || Cloudy context: faq/faq-ai-interaction || Cloudy kind: embed',
+      },
+    }],
+    createdAt: new Date('2026-10-02T16:00:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(sparseMessage, 'embed-builder'), true);
+  const [stored] = await getEmbedRegistry(guildId);
+  const state = {};
+
+  assert.equal(loadRecordSnapshotIntoState(
+    state,
+    { id: guildId },
+    { ...stored, source: 'system-catalog' },
+  ), true);
+  assert.equal(state.message, description);
+
+  const [preview] = buildBuilderEmbeds(state);
+  assert.equal(preview.toJSON().description, description);
+});
+
 test('background registry refresh stops as soon as manager interaction begins', () => {
   const session = { closed: false, hasInteracted: false };
   const state = { activeEmbedManager: session };
