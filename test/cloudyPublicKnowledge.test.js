@@ -64,9 +64,9 @@ test('restored information panels use current Discord channels with only verifie
   const { client, guild } = fixture();
   const payloads = await buildRestoredKnowledgePayloads(client, guild);
 
-  const information = payloads.informations.embeds[0].toJSON();
+  const information = payloads.informations.embeds[0];
   assert.equal(information.title, undefined);
-  assert.equal(information.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.', JSON.stringify(information));
+  assert.equal(information.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.deepEqual(information.fields.map(field => field.name), [
     VERIFIED_CLOUDY_TEXT.rulesLabel,
     VERIFIED_CLOUDY_TEXT.linkAccountLabel,
@@ -78,7 +78,7 @@ test('restored information panels use current Discord channels with only verifie
   assert.match(information.fields[2].value, /store-current/);
   assert.match(information.fields[3].value, /support-current/);
 
-  const freeKits = payloads.freeKits.embeds[0].toJSON();
+  const freeKits = payloads.freeKits.embeds[0];
   assert.deepEqual(freeKits.fields, [{
     name: 'Link your account',
     value: '[Claim free kits, purchases & alerts](https://discord.com/channels/1532882647838228723/link-current)',
