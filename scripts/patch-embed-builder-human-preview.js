@@ -155,7 +155,10 @@ ${displayEmojiMarker}`,
       let loaderBlock = text.slice(loaderStart, loaderEnd);
       const originalLoaderBlock = loaderBlock;
       loaderBlock = loaderBlock
-        .replace('state.title = data.title || null;', 'state.title = displayTitle || null;')
+        .replace(
+          /state\.title = templateKind === 'content' \? null : \(data\.title \|\| null\);|state\.title = data\.title \|\| null;/,
+          "state.title = templateKind === 'content' ? null : (displayTitle || null);",
+        )
         .replace('state.message = data.description || null;', 'state.message = displayDescription || null;')
         .replace('state.embedFields = Array.isArray(data.fields)', 'state.embedFields = Array.isArray(displayFields)')
         .replace('? data.fields.map(field => ({', '? displayFields.map(field => ({')
