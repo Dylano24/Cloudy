@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  VERIFIED_CLOUDY_TEXT,
-  buildRestoredKnowledgePayloads,
+  CLOUDY_KNOWLEDGE_FOOTER,
   buildVerifiedCloudyFacts,
+  cleanupGeneratedKnowledgePanels,
 } from '../src/services/cloudyPublicKnowledgeService.js';
 
 function textChannel(id, name) {
@@ -38,7 +38,7 @@ function fixture() {
     },
   };
   const client = { channels: guild.channels };
-  return { client, guild };
+  return { client, guild, cache };
 }
 
 test('verified Cloudy knowledge preserves the retained September wording exactly', async () => {
@@ -60,28 +60,45 @@ test('verified Cloudy knowledge preserves the retained September wording exactly
   assert.equal(Object.hasOwn(facts.freeKits, 'slashCommand'), false);
 });
 
-test('restored information panels use current Discord channels with only verified visible wording', async () => {
-  const { client, guild } = fixture();
-  const payloads = await buildRestoredKnowledgePayloads(client, guild);
+test('standalone knowledge panels are never recreated and only tracked bot panels are removed', async () => {
+  const { client, guild, cache } = fixture();
+  const deleted = [];
+  const deletedKeys = [];
 
-  const information = payloads.informations.embeds[0];
-  assert.equal(information.title, undefined);
-  assert.equal(information.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
-  assert.deepEqual(information.fields.map(field => field.name), [
-    VERIFIED_CLOUDY_TEXT.rulesLabel,
-    VERIFIED_CLOUDY_TEXT.linkAccountLabel,
-    VERIFIED_CLOUDY_TEXT.purchasesLabel,
-    VERIFIED_CLOUDY_TEXT.supportLabel,
+  for (const channelId of ['info-current', 'link-current', 'free-current']) {
+    const channel = cache.get(channelId);
+    channel.messages = {
+      fetch: async messageId => ({
+        id: messageId,
+        author: { id: 'bot' },
+        embeds: [{ footer: { text: CLOUDY_KNOWLEDGE_FOOTER } }],
+        delete: async () => {
+          deleted.push(messageId);
+        },
+      }),
+    };
+  }
+
+  const tracked = new Map([
+    ['global:cloudy:verified-knowledge-panel:info-current', 'msg-info'],
+    ['global:cloudy:verified-knowledge-panel:link-current', 'msg-link'],
+    ['global:cloudy:verified-knowledge-panel:free-current', 'msg-free'],
   ]);
-  assert.match(information.fields[0].value, /rules-current/);
-  assert.match(information.fields[1].value, /link-current/);
-  assert.match(information.fields[2].value, /store-current/);
-  assert.match(information.fields[3].value, /support-current/);
 
-  const freeKits = payloads.freeKits.embeds[0];
-  assert.deepEqual(freeKits.fields, [{
-    name: 'Link your account',
-    value: '[Claim free kits, purchases & alerts](https://discord.com/channels/1532882647838228723/link-current)',
-    inline: false,
-  }]);
+  client.user = { id: 'bot' };
+  client.guilds = { cache: new Map([[guild.id, guild]]) };
+  client.db = {
+    get: async key => tracked.get(key) || null,
+    delete: async key => {
+      deletedKeys.push(key);
+      tracked.delete(key);
+    },
+  };
+
+  const results = await cleanupGeneratedKnowledgePanels(client);
+
+  assert.equal(results.filter(result => result.removed).length, 3);
+  assert.deepEqual(deleted.sort(), ['msg-free', 'msg-info', 'msg-link']);
+  assert.equal(deletedKeys.length, 3);
+  assert.equal(tracked.size, 0);
 });
