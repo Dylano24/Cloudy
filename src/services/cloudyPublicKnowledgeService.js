@@ -237,6 +237,11 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
     payload.readablePublicChannelMessages = selected;
     text = JSON.stringify(payload);
   }
+  while (Buffer.byteLength(text) > 12_000 && relevantCommands.length) {
+    relevantCommands.pop();
+    payload.registeredSlashCommands = relevantCommands;
+    text = JSON.stringify(payload);
+  }
 
   return {
     text,
