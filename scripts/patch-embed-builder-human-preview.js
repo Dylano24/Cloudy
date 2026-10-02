@@ -223,18 +223,32 @@ ${selectedMarker}`,
     );
 
     const saveMarker = 'function applyStateToExistingEmbed(state) {';
-    const saveHelpers = `function escapeDynamicPattern(value) {
-    return String(value || '').replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&');
-}
-
-function capturedDynamicValues(templateText, liveText) {
+    const saveHelpers = `function capturedDynamicValues(templateText, liveText) {
     const template = String(templateText || '');
-    if (!/\\{dynamic\\}/i.test(template)) return [];
+    const live = String(liveText || '');
+    if (!template.includes('{dynamic}')) return [];
 
-    const parts = template.split(/\\{dynamic\\}/gi);
-    const pattern = '^' + parts.map(escapeDynamicPattern).join('([\\s\\S]+?)') + '$';
-    const match = String(liveText || '').match(new RegExp(pattern, 'i'));
-    return match ? match.slice(1) : [];
+    const parts = template.split('{dynamic}');
+    if (parts[0] && !live.startsWith(parts[0])) return [];
+
+    const values = [];
+    let cursor = parts[0].length;
+
+    for (let index = 1; index < parts.length; index += 1) {
+        const literal = parts[index];
+        if (index === parts.length - 1 && !literal) {
+            values.push(live.slice(cursor));
+            cursor = live.length;
+            continue;
+        }
+
+        const nextIndex = live.indexOf(literal, cursor);
+        if (nextIndex === -1) return [];
+        values.push(live.slice(cursor, nextIndex));
+        cursor = nextIndex + literal.length;
+    }
+
+    return cursor === live.length ? values : [];
 }
 
 function restoreDynamicTemplateText(templateText, liveText, editedText) {
@@ -242,7 +256,7 @@ function restoreDynamicTemplateText(templateText, liveText, editedText) {
     const live = String(liveText || '');
     const edited = String(editedText || '');
 
-    if (!/\\{dynamic\\}/i.test(template)) return edited;
+    if (!template.includes('{dynamic}')) return edited;
     if (edited === live) return template;
 
     const values = capturedDynamicValues(template, live);
