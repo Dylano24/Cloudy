@@ -27,7 +27,6 @@ import {
     migrateCloudyLogoEmbedData,
 } from './cloudyLogoService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
-import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
     primeSystemEmbedCatalogMessage,
@@ -614,77 +613,16 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
                 if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
-                    const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
-                    const catalogRecords = channelRecords.filter(record =>
-                        String(record.source || '') === 'system-catalog'
-                    );
-                    const realChannelRecords = channelRecords.filter(record =>
-                        String(record.source || '') !== 'system-catalog'
-                        && String(record.backingChannelId || record.channelId || '') === String(channelId)
-                    );
-                    const useCatalogPreview = prefersCatalogPreview(channelRecords);
-                    const previewRecords = useCatalogPreview
-                        ? catalogRecords
-                        : (realChannelRecords.length ? realChannelRecords : channelRecords);
-                    let firstRecord = collapseDisplayRecords(
-                        previewRecords,
-                        channelId,
-                    )[0] || null;
 
-                    if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                        if (selectionVersion !== session.selectionVersion) return;
-                        void Promise.resolve(refreshBuilder()).catch(error => {
-                            logger.debug(`Immediate channel preview refresh skipped: ${error?.message || error}`);
-                        });
-                    } else if (useCatalogPreview && firstRecord) {
-                        const resolved = await resolveEmbedRegistryRecord(guild, firstRecord).catch(() => null);
-                        if (selectionVersion !== session.selectionVersion) return;
-                        if (resolved) {
-                            loadEmbedIntoState(state, resolved);
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Resolved catalog preview refresh skipped: ${error?.message || error}`);
-                            });
-                        }
-                    } else {
-                        // If this channel only has a virtual system-catalog entry,
-                        // fetch the real panel from the selected channel instead of
-                        // showing a {dynamic} placeholder in the preview.
-                        const discovered = await discoverMissingChannelEmbed(
-                            guild,
-                            channelId,
-                            buttonInteraction.client.user.id,
-                        ).catch(error => {
-                            logger.debug(`On-demand channel embed discovery skipped: ${error?.message || error}`);
-                            return null;
-                        });
-
-                        // A slower older channel lookup must never overwrite the
-                        // newest selection in the live preview.
-                        if (selectionVersion !== session.selectionVersion) return;
-
-                        if (discovered) {
-                            loadEmbedIntoState(state, discovered);
-                            firstRecord = discovered.record;
-                            records = [
-                                ...records.filter(record => !(
-                                    String(record.channelId) === String(channelId)
-                                    && String(record.source || '') === 'embed-builder'
-                                    && String(record.messageId) !== String(discovered.record.messageId)
-                                )),
-                                discovered.record,
-                            ];
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Discovered channel preview refresh skipped: ${error?.message || error}`);
-                            });
-                        } else if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Catalog fallback preview refresh skipped: ${error?.message || error}`);
-                            });
-                        }
-                    }
-
+                    // Browsing a channel must never change the live Builder state.
+                    // Only an explicit embed selection may load something into preview.
                     if (selectionVersion !== session.selectionVersion) return;
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    await updateEmbedManager(
+                        interaction,
+                        buildEmbedPayload(guild, records, channelId, 0),
+                        state,
+                        session,
+                    );
                     return;
                 }
 
