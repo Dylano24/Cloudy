@@ -371,9 +371,56 @@ test('Builder Search uses human names, groups duplicate technical keys and keeps
 
   assert.equal(matches.length, 1);
   assert.equal(matches[0].document.title, 'This FAQ assistant can only be used in the FAQ channel.');
+  assert.equal(matches[0].record.messageId, 'real-faq');
   assert.equal(/source:|bot code|cloudy template key/i.test(matches[0].document.title), false);
   assert.equal(liveSearchRecordTitle(records[0]), 'This FAQ assistant can only be used in the FAQ channel.');
   assert.equal(latestRealPreviewRecord(guild, records, matches[0].record)?.messageId, 'real-faq');
+});
+
+test('Builder Search keeps canonical casino masters as the Save target', () => {
+  const channel = {
+    id: '200000000000000090',
+    name: 'gambling',
+    parent: null,
+  };
+  const guild = { channels: { cache: new Map([[channel.id, channel]]) } };
+  const records = [
+    {
+      guildId: '100000000000000090',
+      channelId: channel.id,
+      backingChannelId: '900000000000000090',
+      messageId: 'catalog-blackjack-loss',
+      embedIndex: 0,
+      source: 'system-catalog',
+      title: 'Blackjack loss',
+      name: 'Blackjack loss',
+      createdAt: '2026-10-02T18:00:00.000Z',
+      snapshot: {
+        title: 'Blackjack loss',
+        author: {
+          name: 'Cloudy template key: game:blackjack:result:loss || Cloudy context: gambling/blackjack || Cloudy kind: embed',
+        },
+      },
+    },
+    {
+      guildId: '100000000000000090',
+      channelId: channel.id,
+      messageId: 'real-blackjack-loss',
+      embedIndex: 0,
+      source: 'modified-template',
+      title: 'Blackjack loss',
+      name: 'Blackjack loss',
+      createdAt: '2026-10-02T18:01:00.000Z',
+      snapshot: {
+        title: 'Blackjack loss',
+        description: 'Live cards and cash values',
+      },
+    },
+  ];
+
+  const matches = buildLiveSearchMatches(guild, records, 'blackjack loss');
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].record.messageId, 'catalog-blackjack-loss');
 });
 
 test('sparse catalog template preview falls back to the full source embed without changing its Save target', async () => {
