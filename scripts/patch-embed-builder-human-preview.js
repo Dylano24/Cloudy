@@ -80,9 +80,35 @@ function humanTemplateRecordName(record) {
         .split('\\n')
         .map(line => stripCustomEmojiMarkup(line).replace(/^[>\\s#*_\`~|]+/, '').replace(/[*_\`~]/g, '').trim())
         .find(Boolean);
-
     if (firstLine && !isTechnicalBuilderLabel(firstLine)) return firstLine;
-    return 'Untitled embed';
+
+    const firstFieldName = (data.fields || [])
+        .map(field => stripCustomEmojiMarkup(field?.name || '').trim())
+        .find(value => value && !isTechnicalBuilderLabel(value));
+    if (firstFieldName) return standardDynamicTemplateName(firstFieldName);
+
+    const footerText = stripCustomEmojiMarkup(data.footer?.text || '').trim();
+    if (footerText && !isTechnicalBuilderLabel(footerText)) return standardDynamicTemplateName(footerText);
+
+    const authorName = stripCustomEmojiMarkup(data.author?.name || '').trim();
+    if (authorName && !isTechnicalBuilderLabel(authorName)) return standardDynamicTemplateName(authorName);
+
+    const context = String(stableSystemTemplateContext(data) || '').trim();
+    const contextLeaf = context.split('/').filter(Boolean).at(-1) || '';
+    if (contextLeaf) {
+        return contextLeaf
+            .split(/[-_]+/)
+            .filter(Boolean)
+            .map(part => {
+                const lower = part.toLowerCase();
+                if (lower === 'faq') return 'FAQ';
+                if (lower === 'ai') return 'AI';
+                return lower.charAt(0).toUpperCase() + lower.slice(1);
+            })
+            .join(' ');
+    }
+
+    return 'Embed';
 }
 
 // BUILDER_HUMAN_NAMES_V1
