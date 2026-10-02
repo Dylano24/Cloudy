@@ -39,6 +39,12 @@ function snapshot(record) {
     return getEmbedRegistrySnapshot(record) || record?.snapshot || {};
 }
 
+function stableSearchTemplateKey(record) {
+    const authorName = String(snapshot(record)?.author?.name || '').trim();
+    const match = authorName.match(/^Cloudy template key:\s*([^|]+)/i);
+    return String(match?.[1] || '').trim().toLowerCase();
+}
+
 function isTechnicalVisibleName(value) {
     const text = clean(value, 100);
     return /^cloudy template key:/i.test(text)
@@ -178,7 +184,14 @@ function logicalKey(record, document) {
 
 function priority(record) {
     const source = String(record?.source || '').toLowerCase();
-    if (source === 'system-catalog') return 100;
+    if (source === 'system-catalog') {
+        const key = stableSearchTemplateKey(record);
+        // Game/ticket masters are intentionally edited through their canonical
+        // catalog cards. Generic source responses (FAQ, panels, helpers, etc.)
+        // must target the real Discord message when one exists.
+        if (/^(?:game|ticket-log):/.test(key)) return 100;
+        return 30;
+    }
     if (source.includes('template')) return 80;
     if (source.includes('modified')) return 60;
     if (source === 'history') return 20;
@@ -187,13 +200,27 @@ function priority(record) {
 
 function chooseBetter(left, right) {
     if (!left) return right;
-    if (right.score !== left.score) return right.score > left.score ? right : left;
-    if (priority(right.record) !== priority(left.record)) {
-        return priority(right.record) > priority(left.record) ? right : left;
+
+    // All candidates reaching this function already belong to the same logical
+    // Builder item. Choose the correct Save target first, and preserve the best
+    // search score from any peer only for result ordering.
+    const bestScore = Math.max(left.score ?? 0, right.score ?? 0);
+    const leftPriority = priority(left.record);
+    const rightPriority = priority(right.record);
+    if (rightPriority !== leftPriority) {
+        const chosen = rightPriority > leftPriority ? right : left;
+        return { ...chosen, score: bestScore };
     }
+
+    if (right.score !== left.score) {
+        const chosen = right.score > left.score ? right : left;
+        return { ...chosen, score: bestScore };
+    }
+
     const rightTime = new Date(right.record?.updatedAt || right.record?.createdAt || 0).getTime();
     const leftTime = new Date(left.record?.updatedAt || left.record?.createdAt || 0).getTime();
-    return rightTime >= leftTime ? right : left;
+    const chosen = rightTime >= leftTime ? right : left;
+    return { ...chosen, score: bestScore };
 }
 
 export function latestRealPreviewRecord(guild, records, selectedRecord) {
