@@ -80,9 +80,20 @@ function humanTemplateRecordName(record) {
         .split('\\n')
         .map(line => stripCustomEmojiMarkup(line).replace(/^[>\\s#*_\`~|]+/, '').replace(/[*_\`~]/g, '').trim())
         .find(Boolean);
-
     if (firstLine && !isTechnicalBuilderLabel(firstLine)) return firstLine;
-    return 'Untitled embed';
+
+    const firstFieldName = (data.fields || [])
+        .map(field => stripCustomEmojiMarkup(field?.name || '').trim())
+        .find(value => value && !isTechnicalBuilderLabel(value));
+    if (firstFieldName) return standardDynamicTemplateName(firstFieldName);
+
+    const footerText = stripCustomEmojiMarkup(data.footer?.text || '').trim();
+    if (footerText && !isTechnicalBuilderLabel(footerText)) return standardDynamicTemplateName(footerText);
+
+    const authorName = stripCustomEmojiMarkup(data.author?.name || '').trim();
+    if (authorName && !isTechnicalBuilderLabel(authorName)) return standardDynamicTemplateName(authorName);
+
+    return null;
 }
 
 // BUILDER_HUMAN_NAMES_V1
@@ -107,6 +118,13 @@ function humanTemplateRecordName(record) {
       text = text.replaceAll('standardDynamicTemplateName(rawName)', 'humanTemplateRecordName(record)');
     } else if (!text.includes('humanTemplateRecordName(record)')) {
       throw new Error('[BUILDER_HUMAN_PREVIEW] human menu label marker not found');
+    }
+
+    if (text.includes("const name = humanTemplateRecordName(record) || 'Untitled embed';")) {
+      text = text.replaceAll(
+        "const name = humanTemplateRecordName(record) || 'Untitled embed';",
+        "const name = humanTemplateRecordName(record);\\n        if (!name) continue;",
+      );
     }
 
     const displayEmojiMarker = `        const displayEmojiSource = group.records
