@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { buildBuilderEmbeds } from '../src/commands/Tools/embedbuilder.js';
+import {
+  buildMatches as buildLiveSearchMatches,
+  latestRealPreviewRecord,
+  recordTitle as liveSearchRecordTitle,
+} from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 import { EmbedBuilder } from 'discord.js';
 
 import { db, getFromDb, setInDb } from '../src/utils/database.js';
@@ -317,6 +322,56 @@ test('Builder preview hides internal template metadata while showing live dynami
   assert.equal(data.title, 'Cloudy Fix Guide');
   assert.equal(data.description, 'Owner: Dylano');
   assert.equal(data.author, undefined);
+});
+
+test('Builder Search uses human names, groups duplicate technical keys and keeps a live preview peer', () => {
+  const channel = {
+    id: '200000000000000099',
+    name: 'faq',
+    parent: null,
+  };
+  const guild = { channels: { cache: new Map([[channel.id, channel]]) } };
+  const catalog = key => ({
+    guildId: '100000000000000099',
+    channelId: channel.id,
+    backingChannelId: '900000000000000099',
+    messageId: `catalog-${key}`,
+    embedIndex: 0,
+    source: 'system-catalog',
+    name: `source:${key}`,
+    title: `source:${key}`,
+    createdAt: '2026-10-02T14:00:00.000Z',
+    snapshot: {
+      title: `source:${key}`,
+      description: 'This FAQ assistant can only be used in the FAQ channel.',
+      author: {
+        name: `Cloudy template key: source:${key} || Cloudy context: faq/faq-ai-interaction || Cloudy kind: content`,
+      },
+    },
+  });
+  const real = {
+    guildId: '100000000000000099',
+    channelId: channel.id,
+    messageId: 'real-faq',
+    embedIndex: 0,
+    source: 'modified-template',
+    name: 'This FAQ assistant can only be used in the FAQ channel.',
+    title: 'This FAQ assistant can only be used in the FAQ channel.',
+    createdAt: '2026-10-02T14:02:00.000Z',
+    snapshot: {
+      title: 'This FAQ assistant can only be used in the FAQ channel.',
+      description: 'Owner: Dylano',
+    },
+  };
+
+  const records = [catalog('e8ffec87'), catalog('ab12cd34'), real];
+  const matches = buildLiveSearchMatches(guild, records, 'faq assistant');
+
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].document.title, 'This FAQ assistant can only be used in the FAQ channel.');
+  assert.equal(/source:|bot code|cloudy template key/i.test(matches[0].document.title), false);
+  assert.equal(liveSearchRecordTitle(records[0]), 'This FAQ assistant can only be used in the FAQ channel.');
+  assert.equal(latestRealPreviewRecord(guild, records, matches[0].record)?.messageId, 'real-faq');
 });
 
 test('background registry refresh stops as soon as manager interaction begins', () => {
