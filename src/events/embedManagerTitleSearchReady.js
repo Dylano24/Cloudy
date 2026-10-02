@@ -136,10 +136,20 @@ function normalizedTitle(record) {
     .split('\n')
     .map(line => line.replace(/^[>\s#*_\`~|]+/, '').replace(/[*_\`~]/g, '').trim())
     .find(Boolean);
+  if (firstLine && !isTechnicalVisibleName(firstLine)) return firstLine;
 
-  return firstLine && !isTechnicalVisibleName(firstLine)
-    ? firstLine
-    : 'Untitled embed';
+  const firstFieldName = (snapshot?.fields || [])
+    .map(field => String(field?.name || '').replace(/\s+/g, ' ').trim())
+    .find(value => value && !isTechnicalVisibleName(value));
+  if (firstFieldName) return firstFieldName;
+
+  const footerText = String(snapshot?.footer?.text || '').replace(/\s+/g, ' ').trim();
+  if (footerText && !isTechnicalVisibleName(footerText)) return footerText;
+
+  const authorName = String(snapshot?.author?.name || '').replace(/\s+/g, ' ').trim();
+  if (authorName && !isTechnicalVisibleName(authorName)) return authorName;
+
+  return '';
 }
 
 function recordPriority(record) {
@@ -317,6 +327,7 @@ function findSearchMatches(guild, records, query) {
 
   for (const record of records) {
     const document = recordDocument(guild, record);
+    if (!document.title) continue;
     const score = fuzzyScore(document, query);
     if (score == null) continue;
 

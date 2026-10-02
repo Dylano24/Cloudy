@@ -226,6 +226,35 @@ test('technical source keys collapse into one human Builder entry without duplic
   assert.equal(/source:|embed:|cloudy template key/i.test(options[0].label), false);
 });
 
+test('Builder menu uses a human context name instead of Untitled embed', () => {
+  const record = {
+    guildId: 'guild-casino-labels',
+    channelId: 'channel-gambling',
+    backingChannelId: 'channel-catalog',
+    messageId: 'catalog-empty',
+    embedIndex: 0,
+    source: 'system-catalog',
+    title: 'source:deadbeef',
+    name: 'source:deadbeef',
+    createdAt: new Date(Date.UTC(2026, 9, 2, 17, 0)).toISOString(),
+    snapshot: {
+      author: {
+        name: 'Cloudy template key: source:deadbeef || Cloudy context: faq/faq-ai-interaction || Cloudy kind: embed',
+      },
+    },
+  };
+
+  const options = menuOptions(buildEmbedPayload(
+    gamblingGuild(),
+    [record],
+    'channel-gambling',
+  ));
+
+  assert.equal(options.length, 1);
+  assert.equal(options[0].label, 'FAQ AI Interaction');
+  assert.equal(/untitled|source:|cloudy template key/i.test(options[0].label), false);
+});
+
 test('background catalog cleanup preserves legacy Roulette copies and saved titles', async () => {
   const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
   const makeMessage = (id, title, key, createdTimestamp) => ({
