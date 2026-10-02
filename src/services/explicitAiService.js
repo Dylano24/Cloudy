@@ -75,6 +75,113 @@ export async function readAiChannel(actor, request, member) {
   return { text, count: rows.length };
 }
 
+export async function readAiGuildContext(actor, request, member) {
+  const me = await actor.guild.members.fetchMe({ force: true }).catch(() => null);
+  if (!me) throw new AiError('forbidden');
+
+  const fetchedChannels = await actor.guild.channels.fetch().catch(() => actor.guild.channels.cache);
+  const channels = [...(fetchedChannels?.values?.() || [])].filter(channel =>
+    channel
+    && channel.guildId === actor.guild.id
+    && channel.isTextBased?.()
+    && !channel.isThread?.()
+    && channel.messages?.fetch
+  );
+
+  const required = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
+  const tokens = String(request.question || '').toLowerCase()
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .filter(token => token.length > 2);
+  const channelScore = channel => {
+    const name = String(channel.name || '').toLowerCase();
+    return tokens.reduce((score, token) => score + (name.includes(token) ? 2 : 0), 0);
+  };
+
+  channels.sort((left, right) =>
+    channelScore(right) - channelScore(left)
+    || (left.rawPosition ?? left.position ?? 0) - (right.rawPosition ?? right.position ?? 0)
+  );
+
+  const rows = [];
+  let readableChannelsScanned = 0;
+  let fetchedMessages = 0;
+  const maxChannels = 50;
+  const maxMessages = 3000;
+
+  for (const channel of channels.slice(0, maxChannels)) {
+    if (fetchedMessages >= maxMessages) break;
+    if (!channel.permissionsFor(member)?.has(required) || !channel.permissionsFor(me)?.has(required)) continue;
+
+    readableChannelsScanned += 1;
+    const perChannelLimit = Math.min(channelScore(channel) > 0 ? 300 : 100, maxMessages - fetchedMessages);
+    const collected = [];
+    let before;
+
+    while (collected.length < perChannelLimit) {
+      const limit = Math.min(100, perChannelLimit - collected.length);
+      const batch = await channel.messages.fetch({ limit, cache: false, ...(before ? { before } : {}) }).catch(() => null);
+      if (!batch?.size) break;
+      const values = [...batch.values()];
+      collected.push(...values);
+      before = values.at(-1)?.id;
+      if (batch.size < limit || !before) break;
+    }
+
+    fetchedMessages += collected.length;
+    for (const message of collected) {
+      const messageText = redactAiText([
+        message.content || '',
+        ...(message.embeds || []).map(embed =>
+          [embed.title, embed.description, ...(embed.fields || []).map(field => `${field.name}: ${field.value}`)]
+            .filter(Boolean)
+            .join('\n')
+        ),
+      ].join('\n')).slice(0, 1500);
+      if (!messageText.trim()) continue;
+
+      const lower = messageText.toLowerCase();
+      const score = channelScore(channel)
+        + tokens.reduce((total, token) => total + (lower.includes(token) ? 1 : 0), 0);
+      rows.push({
+        channelId: channel.id,
+        channelName: String(channel.name || channel.id),
+        id: message.id,
+        createdTimestamp: Number(message.createdTimestamp || 0),
+        text: messageText,
+        score,
+      });
+    }
+  }
+
+  const hasRelevant = rows.some(row => row.score > 0);
+  const selected = rows
+    .filter(row => !hasRelevant || row.score > 0)
+    .sort((left, right) => right.score - left.score || right.createdTimestamp - left.createdTimestamp)
+    .slice(0, 60)
+    .map(({ score: _score, createdTimestamp: _createdTimestamp, ...row }) => row)
+    .reverse();
+
+  let text = JSON.stringify({
+    guildId: actor.guild.id,
+    channelsScanned: readableChannelsScanned,
+    messages: selected,
+  });
+  while (Buffer.byteLength(text) > 12_000 && selected.length) {
+    selected.shift();
+    text = JSON.stringify({
+      guildId: actor.guild.id,
+      channelsScanned: readableChannelsScanned,
+      messages: selected,
+    });
+  }
+
+  return {
+    text,
+    count: selected.length,
+    channels: readableChannelsScanned,
+  };
+}
+
 export async function searchAiSource(question, root = ROOT) {
   const tokens = String(question || '').toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter(token => token.length > 2);
   const files = [];
@@ -107,16 +214,29 @@ export async function searchAiSource(question, root = ROOT) {
   return result;
 }
 
-export function createExplicitAiService({ answer = answerExplicitAi, reserve = gate, source = readAiSource, sourceSearch = searchAiSource, scan = readAiChannel, provider = getAiProvider, audit = entry => logger.warn(`[CLOUDY_AI] ${JSON.stringify(entry)}`) } = {}) {
+export function createExplicitAiService({
+  answer = answerExplicitAi,
+  reserve = gate,
+  source = readAiSource,
+  sourceSearch = searchAiSource,
+  scan = readAiChannel,
+  guildScan = readAiGuildContext,
+  provider = getAiProvider,
+  audit = entry => logger.warn(`[CLOUDY_AI] ${JSON.stringify(entry)}`),
+  defaultGuildContext = false,
+} = {}) {
   return async (actor, input) => {
     let release;
     let action = 'invalid';
     const identity = { guildId: actor?.guild?.id, userId: actor?.user?.id || actor?.author?.id };
     try {
-      const request = parseAiRequest(input);
-      action = request.action;
-      const identityAnswer = request.action === 'ask' ? aiIdentityAnswer(request.question) : null;
+      const parsedRequest = parseAiRequest(input);
+      const identityAnswer = parsedRequest.action === 'ask' ? aiIdentityAnswer(parsedRequest.question) : null;
       if (identityAnswer) return { text: identityAnswer, diagnostics: {} };
+      const request = defaultGuildContext && parsedRequest.action === 'ask' && !actor?.author
+        ? { ...parsedRequest, action: 'server' }
+        : parsedRequest;
+      action = request.action;
       // Validate deployment settings before any sensitive read.
       const member = await authorizeAiRequest(actor, request);
       if (action === 'help') return { text: AI_HELP, diagnostics: {} };
@@ -129,6 +249,11 @@ export function createExplicitAiService({ answer = answerExplicitAi, reserve = g
         const result = await scan(actor, request, member);
         evidence = result.text;
         diagnostics.readableChannelsScanned = 1; diagnostics.evidenceItems = result.count;
+      } else if (action === 'server') {
+        const result = await guildScan(actor, request, member);
+        evidence = result.text;
+        diagnostics.readableChannelsScanned = result.channels;
+        diagnostics.evidenceItems = result.count;
       } else if (action === 'analyze' || action === 'prepare') {
         sourceInfo = await source(request.path);
         evidence = JSON.stringify(sourceInfo);
@@ -151,3 +276,4 @@ export function createExplicitAiService({ answer = answerExplicitAi, reserve = g
 }
 
 export const runExplicitAi = createExplicitAiService();
+export const runOwnerContextAi = createExplicitAiService({ defaultGuildContext: true });
