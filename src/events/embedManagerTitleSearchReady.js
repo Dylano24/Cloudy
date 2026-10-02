@@ -120,7 +120,7 @@ function isTechnicalVisibleName(value) {
 }
 
 function normalizedTitle(record) {
-  const snapshot = getEmbedRegistrySnapshot(record) || {};
+  const snapshot = getEmbedRegistrySnapshot(record) || record?.snapshot || {};
   const candidates = [snapshot?.title, record?.name, record?.title]
     .map(value => String(value || '')
       .replace(/<a?:[^:>]+:\d+>/g, ' ')
@@ -152,7 +152,7 @@ function recordPriority(record) {
 }
 
 function recordDocument(guild, record) {
-  const snapshot = getEmbedRegistrySnapshot(record) || {};
+  const snapshot = getEmbedRegistrySnapshot(record) || record?.snapshot || {};
   const channel = guild?.channels?.cache?.get?.(String(record?.channelId || '')) || null;
   const fields = Array.isArray(snapshot.fields)
     ? snapshot.fields.flatMap(field => [field?.name, field?.value])
