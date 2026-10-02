@@ -71,6 +71,67 @@ test('manual Save changes the selected embed and keeps sibling embeds byte-for-b
   assert.deepEqual(payload.embeds[1], sibling);
 });
 
+test('manual Save keeps runtime values dynamic when editing from a live preview', async () => {
+  const message = {
+    id: 'catalog-dynamic',
+    guildId: 'guild-dynamic',
+    channelId: 'catalog-channel',
+    editable: true,
+    author: { id: 'bot' },
+    flags: { has: () => false },
+    interaction: null,
+    interactionMetadata: null,
+    embeds: [new Embed({
+      title: 'Cloudy Fix Guide',
+      description: 'Owner: {dynamic}',
+      color: 0x5865F2,
+      author: {
+        name: 'Cloudy template key: source:e8ffec87 || Cloudy context: faq/faq-ai-interaction || Cloudy kind: content',
+      },
+    })],
+  };
+
+  let payload;
+  message.edit = async data => {
+    payload = data;
+    return { ...message, embeds: data.embeds.map(embed => new Embed(embed)) };
+  };
+
+  const channel = { id: 'catalog-channel', messages: { fetch: async () => message } };
+  message.channel = channel;
+  const guild = {
+    id: 'guild-dynamic',
+    client: { user: { id: 'bot' } },
+    channels: { cache: new Map([[channel.id, channel]]) },
+  };
+
+  const result = await saveModifiedEmbed(guild, {
+    title: 'Cloudy Fix Guide',
+    message: 'Managed by Dylano',
+    sideColor: 0x5865F2,
+    embedFields: [],
+    showLogo: false,
+    bottomLine: '',
+    modifyTarget: {
+      channelId: channel.id,
+      messageId: message.id,
+      embedIndex: 0,
+      source: 'system-catalog',
+      sourceEmbedData: message.embeds[0].toJSON(),
+      previewSourceData: {
+        title: 'Cloudy Fix Guide',
+        description: 'Owner: Dylano',
+      },
+      cachedMessage: message,
+      templateMode: false,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(payload.embeds[0].description, 'Managed by {dynamic}');
+  assert.match(payload.embeds[0].author.name, /^Cloudy template key:/);
+});
+
 test('manual template Save does not report success when durable persistence fails', async () => {
   db.initialized = true;
   db.useFallback = false;
