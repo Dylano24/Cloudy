@@ -88,6 +88,13 @@ function humanTemplateRecordName(record) {
 
     text = replaceOnce(
       text,
+      '    const titleShape = dynamicTemplateText(title);',
+      "    const titleShape = isTechnicalBuilderLabel(title) ? '' : dynamicTemplateText(title);",
+      'ignore technical titles for identity',
+    );
+
+    text = replaceOnce(
+      text,
       `        const name = standardDynamicTemplateName(rawName) || 'Untitled embed';`,
       `        const name = humanTemplateRecordName(record) || 'Untitled embed';`,
       'human menu label',
