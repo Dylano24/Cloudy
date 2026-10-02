@@ -226,7 +226,7 @@ test('technical source keys collapse into one human Builder entry without duplic
   assert.equal(/source:|embed:|cloudy template key/i.test(options[0].label), false);
 });
 
-test('Builder menu hides records that have no human-readable name instead of showing Untitled embed', () => {
+test('Builder menu uses a human context name instead of Untitled embed', () => {
   const record = {
     guildId: 'guild-casino-labels',
     channelId: 'channel-gambling',
@@ -250,7 +250,9 @@ test('Builder menu hides records that have no human-readable name instead of sho
     'channel-gambling',
   ));
 
-  assert.equal(options.length, 0);
+  assert.equal(options.length, 1);
+  assert.equal(options[0].label, 'FAQ AI Interaction');
+  assert.equal(/untitled|source:|cloudy template key/i.test(options[0].label), false);
 });
 
 test('background catalog cleanup preserves legacy Roulette copies and saved titles', async () => {
