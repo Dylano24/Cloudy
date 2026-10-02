@@ -8,6 +8,7 @@ import { normalizeCloudyLogoMessage } from '../src/services/cloudyLogoService.js
 import { cleanupSystemCatalogEntries } from '../src/services/systemEmbedCatalogService.js';
 import { reconcileZorpGuide } from '../src/services/zorpGuideService.js';
 import { saveModifiedEmbed } from '../src/services/embedManagerService.js';
+import { db } from '../src/utils/database.js';
 
 function existingMessage(title = '☑️ ZORP Guide') {
   return {
@@ -68,4 +69,25 @@ test('manual Save changes the selected embed and keeps sibling embeds byte-for-b
   assert.equal(result.ok, true);
   assert.equal(payload.embeds[0].description, '  Saved text');
   assert.deepEqual(payload.embeds[1], sibling);
+});
+
+test('manual template Save does not report success when durable persistence fails', async () => {
+  db.initialized = true;
+  db.useFallback = false;
+  db.connectionType = 'test';
+  db.db = { get: async () => null, set: async () => { throw new Error('storage unavailable'); } };
+  const message = existingMessage('Custom guide');
+  message.edit = async payload => ({ ...message, embeds: payload.embeds.map(data => new Embed(data)) });
+  const channel = { id: 'save-failure-channel', messages: { fetch: async () => message } };
+  message.channel = channel;
+  const guild = { id: 'save-failure-guild', client: { user: { id: 'bot' } }, channels: { cache: new Map([[channel.id, channel]]) } };
+  const result = await saveModifiedEmbed(guild, {
+    title: 'Saved title', message: 'Saved text', sideColor: 0x123456,
+    embedFields: [], showLogo: false, bottomLine: '',
+    modifyTarget: { channelId: channel.id, messageId: message.id, embedIndex: 0,
+      sourceEmbedData: message.embeds[0].toJSON(), cachedMessage: message,
+      templateMode: true, templateTitle: 'Custom guide' },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'persistence-failed');
 });

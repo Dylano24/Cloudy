@@ -144,3 +144,4 @@ dist
 # Database backup artifacts
 backups/
 *.dump
+.startup-patches.json

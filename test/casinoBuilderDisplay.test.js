@@ -228,7 +228,7 @@ test('casino runtime outcome identity stays authoritative while live values rema
     });
 
     assert.equal(rendered.title, item.expectedTitle);
-    assert.equal(rendered.color, 0x670102);
+    assert.equal(rendered.color, 0x7A1712);
     assert.equal(rendered.description, item.runtime.description);
   }
 });
