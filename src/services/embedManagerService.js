@@ -17,10 +17,8 @@ import {
 import {
     getEmbedRegistry,
     getEmbedRegistrySnapshot,
-    reconcileEmbedRegistry,
     registerCloudyEmbedMessage,
     resolveEmbedRegistryRecord,
-    scanGuildForCloudyEmbeds,
 } from './embedRegistryService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import {
@@ -39,10 +37,7 @@ import {
 
 const PAGE_SIZE = 25;
 const MANAGER_IDLE_TIMEOUT = 5 * 60_000;
-const HISTORY_SCAN_TTL = 5 * 60_000;
 const CLOSED_MANAGER_ERROR_CODES = new Set([10008, 10062, 50027]);
-const historyScanTimes = new Map();
-const historyScanJobs = new Map();
 const activeEmbedManagerSaves = new Set();
 const TEMPLATE_CHANNEL_IDS = new Set([
     '1539375620885323826',
@@ -539,59 +534,9 @@ function closeEmbedManagerSession(state, session, reason = 'closed') {
     if (state.activeEmbedManager === session) state.activeEmbedManager = null;
 }
 
-export function shouldApplyBackgroundRegistryRefresh(state, session) {
-    return Boolean(session)
-        && !session.closed
-        && state.activeEmbedManager === session
-        && !session.hasInteracted;
-}
-
-async function updateEmbedManager(interaction, payload, state, session) {
-    if (session.closed || state.activeEmbedManager !== session) return false;
-
-    try {
-        await interaction.editReply(payload);
-        return true;
-    } catch (error) {
-        if (CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
-            closeEmbedManagerSession(state, session, 'message-unavailable');
-            logger.debug(`Embed manager message ${session.messageId} is no longer available.`);
-            return false;
-        }
-        throw error;
-    }
-}
-
-async function loadCurrentRegistry(guild, botUserId) {
-    let result = await reconcileEmbedRegistry(guild);
-    if (result.records.length) {
-        void refreshRecentEmbedHistory(guild, botUserId)
-            .catch(error => logger.error('Background embed history sync failed:', error));
-        return result.records;
-    }
-
-    await refreshRecentEmbedHistory(guild, botUserId, true);
-    result = await reconcileEmbedRegistry(guild);
-    return result.records;
-}
-
-async function refreshRecentEmbedHistory(guild, botUserId, force = false) {
-    if (historyScanJobs.has(guild.id)) return historyScanJobs.get(guild.id);
-    if (!force && Date.now() - (historyScanTimes.get(guild.id) || 0) < HISTORY_SCAN_TTL) return null;
-
-    const job = (async () => {
-        try {
-            const scan = await scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPerChannel: 100 });
-            await reconcileEmbedRegistry(guild);
-            historyScanTimes.set(guild.id, Date.now());
-            return scan;
-        } finally {
-            historyScanJobs.delete(guild.id);
-        }
-    })();
-
-    historyScanJobs.set(guild.id, job);
-    return job;
+export function shouldApplyBackgroundRegistryRefresh() {
+    // Opening/browsing the Builder is intentionally read only.
+    return false;
 }
 
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
@@ -637,22 +582,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             idle: MANAGER_IDLE_TIMEOUT,
         });
         session.collector = collector;
-
-        void loadCurrentRegistry(guild, buttonInteraction.client.user.id)
-            .then(async refreshedRecords => {
-                if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
-                records = refreshedRecords;
-
-                const payload = records.length
-                    ? buildChannelPayload(guild, records, 0)
-                    : buildEmptyManagerPayload();
-                await buttonInteraction.webhook.editMessage(managerMessage.id, payload).catch(error => {
-                    if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
-                        logger.error('Failed to refresh the embed manager registry:', error);
-                    }
-                });
-            })
-            .catch(error => logger.error('Embed manager registry refresh failed:', error));
 
         collector.on('collect', async interaction => {
             session.hasInteracted = true;
