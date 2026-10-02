@@ -49,6 +49,15 @@ test('source discovery preserves nested dynamic helper calls for robbery outcome
     'You failed the robbery and were caught! You were fined **{dynamic}** of your own cash.',
   );
 
+  for (const definition of [success, failed]) {
+    assert.equal(definition.fields?.length, 2);
+    assert.equal(definition.fields[0].name, 'Your new cash ({dynamic})');
+    assert.equal(definition.fields[0].value, '{dynamic}');
+    assert.equal(definition.fields[1].name, "Victim's new cash ({dynamic})");
+    assert.equal(definition.fields[1].value, '{dynamic}');
+    assert.equal(definition.footer?.text, 'Next robbery available in {dynamic} hours.');
+  }
+
   assert.equal(
     rob.some(definition =>
       definition.title === 'Success'
