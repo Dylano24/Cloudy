@@ -71,6 +71,7 @@
     "scripts/patch-embed-editor-shared-14m-lease.js",
     "scripts/patch-embed-editor-visible-presence.js",
     "scripts/patch-embed-builder-bot-managed-private.js",
-    "scripts/patch-appeals-api.js"
+    "scripts/patch-appeals-api.js",
+    "scripts/patch-embed-builder-human-preview.js"
   ]
 }
