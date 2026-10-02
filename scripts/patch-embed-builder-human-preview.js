@@ -49,7 +49,7 @@ function replaceOnce(text, find, replace, label) {
       `import {
     primeSystemEmbedCatalogMessage,`,
       `import {
-    getSystemSourceDefinitionPreview,
+    getSystemSourceDefinitionPreviewForEmbed,
     primeSystemEmbedCatalogMessage,`,
       'source preview import',
     );
@@ -174,10 +174,7 @@ ${displayEmojiMarker}`,
     const previewData = previewSnapshot && typeof previewSnapshot === 'object' && Object.keys(previewSnapshot).length
         ? (migrateCloudyLogoEmbedData(previewSnapshot).data || {})
         : null;
-    const sourcePreviewData = getSystemSourceDefinitionPreview(
-        data.title,
-        stableSystemTemplateContext(data),
-    );
+    const sourcePreviewData = getSystemSourceDefinitionPreviewForEmbed(data);
 
     // A live/history peer can exist but still be sparse. Merge each visible
     // piece independently so one title-only peer can never hide the complete
