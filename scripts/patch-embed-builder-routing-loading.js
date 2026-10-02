@@ -51,49 +51,18 @@ if (channelStart === -1 || channelEnd === -1) {
     throw new Error('Embed Manager channel-selection block was not found.');
 }
 
-// Paint the current menu immediately. The complete history discovery may take
-// multiple Discord API pages, so it must never hold the visible Builder hostage.
-// When discovery finishes, only the still-current selection may refresh the menu.
+// Channel navigation is read only. It shows the selected channel's existing
+// registry/catalog list and never scans history or mutates the Builder preview.
 const channelBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
 
-                    // Immediate paint from registry/catalog state. This keeps channel
-                    // switching responsive even when a channel has a long history.
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
                     if (selectionVersion !== session.selectionVersion) return;
-
-                    const discoveredRecords = await discoverMissingChannelEmbeds(
-                        guild,
-                        channelId,
-                        buttonInteraction.client.user.id,
-                    ).catch(error => {
-                        logger.debug(\`On-demand channel embed discovery skipped: \${error?.message || error}\`);
-                        return [];
-                    });
-
-                    if (selectionVersion !== session.selectionVersion) return;
-
-                    if (discoveredRecords.length) {
-                        const otherChannelRecords = records.filter(record =>
-                            String(record.channelId) !== String(channelId)
-                            || String(record.source || '') === 'system-catalog'
-                        );
-                        const existingCatalogRecords = records.filter(record =>
-                            String(record.channelId) === String(channelId)
-                            && String(record.source || '') === 'system-catalog'
-                        );
-
-                        // Session-only discovery replaces stale real-message rows
-                        // for this channel. Nothing is written back to the registry.
-                        records = [
-                            ...otherChannelRecords,
-                            ...existingCatalogRecords.filter(record => !otherChannelRecords.includes(record)),
-                            ...discoveredRecords,
-                        ];
-                    }
-
-                    if (selectionVersion !== session.selectionVersion) return;
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    await updateEmbedManager(
+                        interaction,
+                        buildEmbedPayload(guild, records, channelId, 0),
+                        state,
+                        session,
+                    );
                     return;
                 }
 
