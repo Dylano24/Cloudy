@@ -5,12 +5,18 @@ const before = fs.readFileSync(path, 'utf8');
 let text = before;
 
 const asyncTemplateSave = '        void saveEmbedTemplateDecoration(';
-const durableTemplateSave = '        await saveEmbedTemplateDecoration(';
+const durableTemplateSave = '        const templateSaved = await saveEmbedTemplateDecoration(';
 if (text.includes(asyncTemplateSave)) {
     text = text.replace(asyncTemplateSave, durableTemplateSave);
 } else if (!text.includes(durableTemplateSave)) {
     console.error('[EMBED_BUILDER_DURABLE_SAVE] template save marker not found');
     process.exit(1);
+}
+
+const saveEnd = ").catch(error => logger.error('Failed to persist saved embed template:', error));";
+if (!text.includes("reason: 'persistence-failed'")) {
+    if (!text.includes(saveEnd)) throw new Error('Template persistence result marker not found');
+    text = text.replace(saveEnd, saveEnd + "\n        if (!templateSaved) return { ok: false, reason: 'persistence-failed' };");
 }
 
 const asyncCatalogSync = '            void syncSystemEmbedCatalogMessage(edited)';

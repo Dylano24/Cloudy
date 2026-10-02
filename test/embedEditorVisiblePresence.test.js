@@ -96,7 +96,8 @@ test('heartbeat keeps the same Builder preview warm without restarting fourteen 
 test('close-to-five-minute patch runs after the exact-open lease patch', () => {
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
   for (const scriptName of ['start', 'test']) {
-    const script = pkg.scripts[scriptName];
+    assert.match(pkg.scripts[scriptName], /node scripts\/apply-startup-patches\.js/);
+    const script = pkg.startupPatches.join(' ');
     assert.ok(
       script.indexOf('patch-embed-editor-visible-presence.js')
         > script.indexOf('patch-embed-editor-shared-14m-lease.js'),
