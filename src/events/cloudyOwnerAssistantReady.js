@@ -31,8 +31,8 @@ function buildPanel() {
         .setColor(0xFFFFFF)
         .setTitle(PANEL_TITLE)
         .setDescription(
-          'Ask Cloudy anything — from technical Cloudy problems and bot errors to programming, troubleshooting, research and current information.\n\n' +
-          'Cloudy reads only the context you explicitly select with scan, analyze or prepare. Type help for instructions. Proposals are not executed. No live web access.\n\n' +
+          'Ask Cloudy anything, from technical Cloudy problems and bot errors to programming, troubleshooting, research and current information.\n\n' +
+          'In this Owner Fix Guide, Cloudy can automatically use relevant history from server channels that both you and the bot are allowed to read. Explicit scan, history, analyze and prepare commands remain available. Type help for instructions. Proposals are not executed. No live web access.\n\n' +
           '**How to use:** Click **❔ Ask** below and describe exactly what you want to know or fix.'
         )
         .setFooter({ text: '© Cloudy Inc. • Quality. Innovation. Performance.' }),

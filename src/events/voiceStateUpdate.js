@@ -9,6 +9,7 @@ import {
 import { sanitizeInput } from '../utils/validation.js';
 import { logger } from '../utils/logger.js';
 import { handleMusicVoiceState } from '../services/music/musicVoiceState.js';
+import { Mutex } from '../utils/mutex.js';
 
 const channelCreationCooldown = new Map();
 const VOICE_CREATE_COOLDOWN_MS = 2000;
@@ -22,7 +23,7 @@ const MAX_TRACKED_COOLDOWNS = 10000;
 export default {
     name: 'voiceStateUpdate',
     async execute(oldState, newState, client) {
-        if (newState.member.user.bot) return;
+        if (!newState.member || newState.member.user.bot) return;
 
         const guildId = newState.guild.id;
         const userId = newState.member.id;
@@ -30,23 +31,25 @@ export default {
         cleanupCooldownEntries();
 
         try {
-            const config = await getJoinToCreateConfig(client, guildId);
+            await Mutex.runExclusive(`voice-lifecycle:${guildId}`, async () => {
+                const config = await getJoinToCreateConfig(client, guildId);
 
-            if (!config.enabled || config.triggerChannels.length === 0) {
-                return;
-            }
+                if (!config.enabled && !Object.keys(config.temporaryChannels || {}).length) {
+                    return;
+                }
 
-            if (!oldState.channel && newState.channel) {
-                await handleVoiceJoin(client, newState, config);
-            }
+                if (!oldState.channel && newState.channel) {
+                    await handleVoiceJoin(client, newState, config);
+                }
 
-            if (oldState.channel && !newState.channel) {
-                await handleVoiceLeave(client, oldState, config);
-            }
+                if (oldState.channel && !newState.channel) {
+                    await handleVoiceLeave(client, oldState, config);
+                }
 
-            if (oldState.channel && newState.channel && oldState.channel.id !== newState.channel.id) {
-                await handleVoiceMove(client, oldState, newState, config);
-            }
+                if (oldState.channel && newState.channel && oldState.channel.id !== newState.channel.id) {
+                    await handleVoiceMove(client, oldState, newState, config);
+                }
+            });
 
         } catch (error) {
             logger.error(`Error in voiceStateUpdate for guild ${guildId}:`, error);
@@ -55,7 +58,7 @@ export default {
         async function handleVoiceJoin(client, state, config) {
             const { channel, member } = state;
 
-            if (!config.triggerChannels.includes(channel.id)) {
+            if (!config.enabled || !config.triggerChannels.includes(channel.id)) {
                 return;
             }
 
@@ -132,14 +135,14 @@ export default {
                 }
             }
 
-            if (config.triggerChannels.includes(newState.channel.id) && 
-                !config.triggerChannels.includes(oldState.channel?.id)) {
+            if (config.triggerChannels.includes(newState.channel.id)) {
                 await handleVoiceJoin(client, newState, config);
             }
         }
 
         async function createTemporaryChannel(client, state, config) {
             const { channel: triggerChannel, member, guild } = state;
+            let tempChannel;
 
             try {
                 const me = guild.members.me;
@@ -149,7 +152,17 @@ export default {
                     return;
                 }
 
-                const triggerPermissions = triggerChannel.permissionsFor(me);
+                // The trigger ID is the stable Join to Create identity. Fetch that exact
+                // channel again at join time so a Discord rename is reflected immediately
+                // without ever switching configuration matching to channel names.
+                const refreshedTriggerChannel = typeof guild.channels.fetch === 'function'
+                    ? await guild.channels.fetch(triggerChannel.id, { force: true }).catch(() => null)
+                    : null;
+                const activeTriggerChannel = refreshedTriggerChannel?.id === triggerChannel.id
+                    ? refreshedTriggerChannel
+                    : triggerChannel;
+
+                const triggerPermissions = activeTriggerChannel.permissionsFor(me);
                 if (!triggerPermissions?.has([PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.Connect])) {
                     logger.warn(`Missing required permissions for temporary channel creation in guild ${guild.id} (trigger channel ${triggerChannel.id})`);
                     channelCreationCooldown.delete(cooldownKey);
@@ -159,11 +172,13 @@ export default {
                 // Fetch again at the exact moment the bot creates the channel. This makes the
                 // database the single source of truth even when an admin had an older dashboard open.
                 const latestConfig = await getJoinToCreateConfig(client, guild.id);
+                if (!latestConfig.enabled || !latestConfig.triggerChannels.includes(triggerChannel.id)) return;
                 const channelOptions = latestConfig.channelOptions?.[triggerChannel.id] || {};
                 const nameTemplate = channelOptions.nameTemplate || latestConfig.channelNameTemplate || "{username}'s Room";
                 
                 let userLimit = channelOptions.userLimit ?? latestConfig.userLimit ?? 0;
-                const bitrate = clampVoiceBitrate(channelOptions.bitrate ?? latestConfig.bitrate ?? DEFAULT_VOICE_BITRATE);
+                const bitrate = Math.min(guild.maximumBitrate || MAX_VOICE_BITRATE,
+                    clampVoiceBitrate(channelOptions.bitrate ?? latestConfig.bitrate ?? DEFAULT_VOICE_BITRATE));
 
                 userLimit = Math.max(0, Math.min(99, userLimit || 0));
 
@@ -174,7 +189,7 @@ export default {
                     userTag: member.user.tag,
                     displayName: member.displayName,
                     guildName: guild.name,
-                    channelName: triggerChannel.name
+                    channelName: activeTriggerChannel.name
                 });
 
                 const channelName = sanitizeVoiceChannelName(finalName);
@@ -185,10 +200,10 @@ export default {
                     return;
                 }
 
-                const tempChannel = await guild.channels.create({
+                tempChannel = await guild.channels.create({
                     name: channelName,
                     type: ChannelType.GuildVoice,
-                    parent: triggerChannel.parentId,
+                    parent: activeTriggerChannel.parentId,
                     userLimit: userLimit === 0 ? undefined : userLimit,
                     bitrate: bitrate,
                     permissionOverwrites: [
@@ -203,12 +218,15 @@ export default {
                     ]
                 });
 
-                await registerTemporaryChannel(client, guild.id, tempChannel.id, member.id, triggerChannel.id);
+                if (!await registerTemporaryChannel(client, guild.id, tempChannel.id, member.id, triggerChannel.id)) {
+                    throw new Error('Temporary channel registration failed');
+                }
 
                 if (member.voice?.channel?.id === triggerChannel.id) {
                     await member.voice.setChannel(tempChannel);
                 } else {
                     logger.debug(`Skipped moving ${member.id} to temporary channel ${tempChannel.id} because voice state changed`);
+                    if (tempChannel.members.size === 0) await deleteTemporaryChannel(client, tempChannel, guild.id);
                 }
 
                 logger.info(`Created temporary voice channel ${tempChannel.name} (${tempChannel.id}) for user ${member.user.tag} in guild ${guild.name} with user limit ${userLimit}`);
@@ -217,6 +235,9 @@ export default {
                 logger.error(`Failed to create temporary channel for user ${member.user.tag} in guild ${guild.name}:`, error);
                 
                 channelCreationCooldown.delete(cooldownKey);
+                if (tempChannel?.members.size === 0) {
+                    await deleteTemporaryChannel(client, tempChannel, guild.id);
+                }
                 
                 try {
                     await member.send({
@@ -230,9 +251,9 @@ export default {
 
         async function deleteTemporaryChannel(client, channel, guildId) {
             try {
-                await unregisterTemporaryChannel(client, guildId, channel.id);
-
+                if (channel.members.size !== 0) return;
                 await channel.delete('Temporary voice channel - empty');
+                await unregisterTemporaryChannel(client, guildId, channel.id);
 
                 logger.info(`Deleted temporary voice channel ${channel.name} (${channel.id}) in guild ${channel.guild.name}`);
 

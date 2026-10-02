@@ -4,7 +4,8 @@ import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { withErrorHandling } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
-import { takeBet, money } from './modules/casinoGameUtils.js';
+import { takeBet, money, adjustCasinoBalance } from './modules/casinoGameUtils.js';
+import { logger } from '../../utils/logger.js';
 import { cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
@@ -61,12 +62,14 @@ export default {
   category: 'Economy',
   execute: withErrorHandling(async (interaction, config, client) => {
     const deferred = await InteractionHelper.safeDefer(interaction); if (!deferred) return;
-    const { amount, userData } = await takeBet(interaction, client); await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
+    const { amount, userData } = await takeBet(interaction, client);
+    if (!await setEconomyData(client, interaction.guildId, interaction.user.id, userData)) throw new Error('Could not persist casino bet');
     await InteractionHelper.safeEditReply(interaction, { embeds: [await gameEmbed(client, interaction.user, amount)], components: choices(interaction.id) });
     const message = await interaction.fetchReply().catch(() => null);
     if (!message?.createMessageComponentCollector) return;
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${interaction.id}`), time: 2 * 60 * 1000, max: 1 });
     collector.on('collect', async component => {
+      try {
       const pick = component.customId.split(':')[1]; const cards = deck(); const player = [cards.pop(), cards.pop()]; const banker = [cards.pop(), cards.pop()];
       if (score(player) < 6) player.push(cards.pop());
       if (score(banker) < 6) banker.push(cards.pop());
@@ -78,7 +81,7 @@ export default {
       if (winner === 'tie' && pick !== 'tie') {
         outcome = 'push';
         payout = amount;
-        outcomeText = `Tie — your **${money(amount)}** bet was returned.`;
+        outcomeText = `Tie, your **${money(amount)}** bet was returned.`;
       } else if (pick === winner) {
         outcome = 'win';
         const multiplier = winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2;
@@ -88,14 +91,22 @@ export default {
         outcomeText = `You lost **${money(amount)}**`;
       }
 
-      userData.wallet += payout; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
+      const current = await adjustCasinoBalance(client, interaction.guildId, interaction.user.id, payout);
+      userData.wallet = current.wallet;
       const result = `You chose **${pick}**. Winner: **${winner}**\n${outcomeText}\nCash balance: **${money(userData.wallet)}**`;
       await component.update({ embeds: [await gameEmbed(client, interaction.user, amount, player, banker, result, outcome)], components: choices(interaction.id, true), attachments: [] });
+      } catch (error) {
+        logger.error('Baccarat settlement failed:', error);
+        await component.reply({ ephemeral: true, content: 'Your balance could not be saved. Please contact a server administrator.' }).catch(() => {});
+      }
     });
     collector.on('end', async collected => {
       if (collected.size) return;
-      userData.wallet += amount; await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
-      await message.edit({ embeds: [await gameEmbed(client, interaction.user, amount, null, null, `Game expired — **${money(amount)}** was returned.`, 'expired')], components: choices(interaction.id, true), attachments: [] }).catch(() => {});
+      try {
+      const current = await adjustCasinoBalance(client, interaction.guildId, interaction.user.id, amount);
+      userData.wallet = current.wallet;
+      await message.edit({ embeds: [await gameEmbed(client, interaction.user, amount, null, null, `Game expired. **${money(amount)}** was returned.`, 'expired')], components: choices(interaction.id, true), attachments: [] }).catch(() => {});
+      } catch (error) { logger.error('Baccarat expiry failed:', error); }
     });
   }, { command: 'baccarat' }),
 };

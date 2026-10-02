@@ -90,22 +90,27 @@ export async function resolveCloudyChannel(client, key, { guild = null, textOnly
   const definition = CHANNELS[key];
   if (!definition || !client) return null;
 
+  const accepts = channel => channel
+    && (!guild || !channel.guild?.id || channel.guild.id === guild.id)
+    && (!textOnly || channel.isTextBased?.())
+    && (!voiceOnly || channel.type === ChannelType.GuildVoice);
   if (definition.legacyId) {
-    const legacy = client.channels.cache.get(definition.legacyId)
-      || await client.channels.fetch(definition.legacyId).catch(() => null);
-    if (legacy) return legacy;
+    const manager = guild?.channels || client.channels;
+    const legacy = manager?.cache?.get(definition.legacyId)
+      || await manager?.fetch?.(definition.legacyId).catch(() => null);
+    if (accepts(legacy)) return legacy;
   }
 
   let targetGuild = guild;
   if (!targetGuild) {
     const configuredGuildId = String(process.env.GUILD_ID || '').trim();
     if (configuredGuildId) {
-      targetGuild = client.guilds.cache.get(configuredGuildId)
-        || await client.guilds.fetch(configuredGuildId).catch(() => null);
+      targetGuild = client.guilds?.cache?.get(configuredGuildId)
+        || await client.guilds?.fetch?.(configuredGuildId).catch(() => null);
     }
   }
 
-  if (!targetGuild && client.guilds.cache.size === 1) {
+  if (!targetGuild && client.guilds?.cache?.size === 1) {
     targetGuild = client.guilds.cache.first();
   }
   if (!targetGuild) return null;

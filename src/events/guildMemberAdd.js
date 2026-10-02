@@ -11,6 +11,16 @@ import { trackMemberInvite } from '../services/inviteTrackingService.js';
 import { decorateEmbedWithSavedTemplate } from '../services/embedTemplateService.js';
 import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 import { CLOUDY_BANNER_URL, CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
+
+export async function resolveConfiguredWelcomeChannel(guild, channelId) {
+    if (!channelId) return null;
+    return guild.channels.cache.get(channelId)
+        || await guild.channels.fetch(channelId).catch(error => {
+            if (error?.code === 10003) return null;
+            throw error;
+        });
+}
 
 function getOrdinalSuffix(number) {
     const value = Math.abs(Number(number));
@@ -59,8 +69,9 @@ export default {
 
             const config = await getGuildConfig(member.client, guild.id);
             let welcome = await getWelcomeConfig(member.client, guild.id);
+            let welcomeChannel = await resolveConfiguredWelcomeChannel(guild, welcome?.channelId);
 
-            if (!welcome?.enabled || !welcome?.channelId) {
+            if (!welcome?.enabled || !welcomeChannel) {
                 let recoveredChannel = guild.channels.cache.find(channel =>
                     channel?.isTextBased?.() &&
                     !channel?.isThread?.() &&
@@ -92,6 +103,7 @@ export default {
                 }
 
                 if (recoveredChannel) {
+                    welcomeChannel = recoveredChannel;
                     welcome = await updateWelcomeConfig(member.client, guild.id, {
                         ...welcome,
                         enabled: true,
@@ -109,7 +121,7 @@ export default {
             }
 
             if (welcome?.enabled && welcome.channelId) {
-                const channel = guild.channels.cache.get(welcome.channelId);
+                const channel = welcomeChannel;
 
                 if (channel?.isTextBased()) {
                     const perms = channel.permissionsFor(guild.members.me);
@@ -133,14 +145,19 @@ export default {
                         const ping = welcome.welcomePing ? user.toString() : undefined;
 
                         if (perms.has(PermissionFlagsBits.EmbedLinks)) {
+                            const [rules, linkAccount, shop, contact] = await Promise.all(
+                                ['rules', 'linkYourAccount', 'shop', 'contactSupport'].map(key =>
+                                    resolveCloudyChannel(member.client, key, { guild, textOnly: true })
+                                )
+                            );
                             const rulesUrl =
-                                'https://discord.com/channels/1532882647838228723/1533189582064062564';
+                                rules?.url || 'https://discord.com/channels/1532882647838228723/1533189582064062564';
                             const linkAccountUrl =
-                                'https://discord.com/channels/1532882647838228723/1539189240074870835';
+                                linkAccount?.url || 'https://discord.com/channels/1532882647838228723/1539189240074870835';
                             const shopUrl =
-                                'https://discord.com/channels/1532882647838228723/1533192856909512774';
+                                shop?.url || 'https://discord.com/channels/1532882647838228723/1533192856909512774';
                             const contactUrl =
-                                'https://discord.com/channels/1532882647838228723/1533197784725852181';
+                                contact?.url || 'https://discord.com/channels/1532882647838228723/1533197784725852181';
 
                             const baseEmbed = new EmbedBuilder()
                                 .setColor('#FFFFFF')
