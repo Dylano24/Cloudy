@@ -10,14 +10,14 @@ import { logger } from '../utils/logger.js';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const gate = createAiGate();
 export const AI_HELP = [
-  'Ask a question directly: no server or file context is read.',
-  '`scan CHANNEL_ID 20 | question` — admins/owners, only that channel (1–50 messages).',
-  '`history CHANNEL_ID 500 | question` — admins/owners, searches up to 500 recent messages and sends only relevant bounded evidence.',
-  '`code | question` — configured bot owners only, searches the current local bot source for relevant snippets.',
-  '`analyze src/path.js | question` — configured bot owners only, one local source file.',
-  '`prepare src/path.js | requested change` or `fix ...` — configured bot owners only, an unapplied proposal.',
+  'Ask a question directly. In the Owner Fix Guide, Cloudy can use relevant readable server history automatically. Other entry points do not add server context automatically.',
+  '`scan CHANNEL_ID 20 | question`: admins or owners, only that channel (1 to 50 messages).',
+  '`history CHANNEL_ID 500 | question`: admins or owners, searches up to 500 recent messages and sends only relevant bounded evidence.',
+  '`code | question`: configured bot owners only, searches the current local bot source for relevant snippets.',
+  '`analyze src/path.js | question`: configured bot owners only, one local source file.',
+  '`prepare src/path.js | requested change` or `fix ...`: configured bot owners only, an unapplied proposal.',
   'Proposals are not executed. Review and test them in GitHub before applying. No live web access.',
-  'The configured AI processes your question and explicitly selected context. Do not submit secrets.',
+  'The configured AI processes your question and permitted context. Do not submit secrets.',
 ].join('\n');
 
 export async function readAiSource(relative, root = ROOT) {
@@ -264,7 +264,7 @@ export function createExplicitAiService({
       }
       const result = await answer({ question: request.question, evidence, action, config });
       // Explicit label is application-owned, never dependent on the model obeying instructions.
-      const label = sourceInfo ? `Local source: ${sourceInfo.path}\nSHA-256: ${sourceInfo.sha256}\n${action === 'prepare' ? 'UNAPPLIED PROPOSAL — review and test before applying.\n' : ''}\n` : '';
+      const label = sourceInfo ? `Local source: ${sourceInfo.path}\nSHA-256: ${sourceInfo.sha256}\n${action === 'prepare' ? 'UNAPPLIED PROPOSAL: review and test before applying.\n' : ''}\n` : '';
       audit({ ...identity, action, outcome: 'success', provider: config.provider, contextBytes: Buffer.byteLength(evidence) });
       return { text: label + result.text, diagnostics: { ...diagnostics, ...result.diagnostics } };
     } catch (error) {
