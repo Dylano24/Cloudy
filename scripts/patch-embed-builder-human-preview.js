@@ -152,13 +152,41 @@ ${displayEmojiMarker}`,
         data.title,
         stableSystemTemplateContext(data),
     );
-    const displaySourceData = previewData || sourcePreviewData || null;
-    const displayTitle = displaySourceData?.title || data.title;
-    const displayDescription = displaySourceData?.description ?? data.description;
-    const displayFields = Array.isArray(displaySourceData?.fields) && displaySourceData.fields.length
-        ? displaySourceData.fields
-        : data.fields;
-    const footerText = cleanFooter(data.footer?.text || '');
+
+    // A live/history peer can exist but still be sparse. Merge each visible
+    // piece independently so one title-only peer can never hide the complete
+    // source definition from the Builder preview.
+    const displayTitle = previewData?.title
+        || sourcePreviewData?.title
+        || data.title;
+    const displayDescription = previewData?.description
+        ?? sourcePreviewData?.description
+        ?? data.description;
+    const displayFields = Array.isArray(previewData?.fields) && previewData.fields.length
+        ? previewData.fields
+        : (Array.isArray(sourcePreviewData?.fields) && sourcePreviewData.fields.length
+            ? sourcePreviewData.fields
+            : data.fields);
+    const displayFooter = previewData?.footer
+        || sourcePreviewData?.footer
+        || data.footer;
+    const displayImage = previewData?.image
+        || sourcePreviewData?.image
+        || data.image;
+    const displayThumbnail = previewData?.thumbnail
+        || sourcePreviewData?.thumbnail
+        || data.thumbnail;
+    const displaySourceData = {
+        ...(sourcePreviewData || {}),
+        ...(previewData || {}),
+        ...(displayTitle ? { title: displayTitle } : {}),
+        ...(displayDescription != null ? { description: displayDescription } : {}),
+        ...(Array.isArray(displayFields) ? { fields: displayFields } : {}),
+        ...(displayFooter ? { footer: displayFooter } : {}),
+        ...(displayImage ? { image: displayImage } : {}),
+        ...(displayThumbnail ? { thumbnail: displayThumbnail } : {}),
+    };
+    const footerText = cleanFooter(displayFooter?.text || data.footer?.text || '');
     const logicalChannelId = String(record.channelId || '');
     const backingChannelId = String(record.backingChannelId || record.channelId || '');
     const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
@@ -173,11 +201,15 @@ ${displayEmojiMarker}`,
             inline: Boolean(field.inline),
         }))
         : [];
-    state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
-    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);
+    state.sideColor = Number.isInteger(previewData?.color)
+        ? previewData.color
+        : (Number.isInteger(sourcePreviewData?.color)
+            ? sourcePreviewData.color
+            : (Number.isInteger(data.color) ? data.color : 0xFFFFFF));
+    state.showLogo = isCloudyLogoUrl(displayThumbnail?.url);
     state.removeExistingLogo = false;
     state.bottomLine = footerText || null;
-    state.mediaUrl = data.image?.url || null;
+    state.mediaUrl = displayImage?.url || null;
     state.mediaBuffer = null;
     state.mediaName = null;
     state.mediaConvertedFromVideo = false;
