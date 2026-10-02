@@ -180,25 +180,25 @@ ${displayEmojiMarker}`,
     // piece independently so one title-only peer can never hide the complete
     // source definition from the Builder preview.
     const displayTitle = previewData?.title
-        || sourcePreviewData?.title
-        || data.title;
+        || data.title
+        || sourcePreviewData?.title;
     const displayDescription = previewData?.description
-        ?? sourcePreviewData?.description
-        ?? data.description;
+        ?? data.description
+        ?? sourcePreviewData?.description;
     const displayFields = Array.isArray(previewData?.fields) && previewData.fields.length
         ? previewData.fields
-        : (Array.isArray(sourcePreviewData?.fields) && sourcePreviewData.fields.length
-            ? sourcePreviewData.fields
-            : data.fields);
+        : (Array.isArray(data.fields) && data.fields.length
+            ? data.fields
+            : sourcePreviewData?.fields);
     const displayFooter = previewData?.footer
-        || sourcePreviewData?.footer
-        || data.footer;
+        || data.footer
+        || sourcePreviewData?.footer;
     const displayImage = previewData?.image
-        || sourcePreviewData?.image
-        || data.image;
+        || data.image
+        || sourcePreviewData?.image;
     const displayThumbnail = previewData?.thumbnail
-        || sourcePreviewData?.thumbnail
-        || data.thumbnail;
+        || data.thumbnail
+        || sourcePreviewData?.thumbnail;
     const displaySourceData = {
         ...(sourcePreviewData || {}),
         ...(previewData || {}),
@@ -226,9 +226,9 @@ ${displayEmojiMarker}`,
         : [];
     state.sideColor = Number.isInteger(previewData?.color)
         ? previewData.color
-        : (Number.isInteger(sourcePreviewData?.color)
-            ? sourcePreviewData.color
-            : (Number.isInteger(data.color) ? data.color : 0xFFFFFF));
+        : (Number.isInteger(data.color)
+            ? data.color
+            : (Number.isInteger(sourcePreviewData?.color) ? sourcePreviewData.color : 0xFFFFFF));
     state.showLogo = isCloudyLogoUrl(displayThumbnail?.url);
     state.removeExistingLogo = false;
     state.bottomLine = footerText || null;
