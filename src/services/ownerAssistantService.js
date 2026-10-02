@@ -1,4 +1,4 @@
-import { runExplicitAi } from './explicitAiService.js';
+import { runOwnerContextAi } from './explicitAiService.js';
 
 const recentRequests = new Map();
 
@@ -15,5 +15,5 @@ export function getOwnerAssistantCooldown(userId) {
 export async function createOwnerAssistantHandoff(client, guild, question, actor) {
   // The authenticated Discord actor is mandatory. Text can never authorize a read.
   if (!actor || actor.guild !== guild || actor.client !== client) throw new Error('forbidden');
-  return runExplicitAi(actor, question);
+  return runOwnerContextAi(actor, question);
 }
