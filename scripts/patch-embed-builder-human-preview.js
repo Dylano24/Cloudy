@@ -120,11 +120,25 @@ function humanTemplateRecordName(record) {
       throw new Error('[BUILDER_HUMAN_PREVIEW] human menu label marker not found');
     }
 
-    if (text.includes("const name = humanTemplateRecordName(record) || 'Untitled embed';")) {
-      text = text.replaceAll(
-        "const name = humanTemplateRecordName(record) || 'Untitled embed';",
-        "const name = humanTemplateRecordName(record);\\n        if (!name) continue;",
+    {
+      const collapseStart = text.indexOf('function collapseDisplayRecords(');
+      const collapseEnd = text.indexOf('\nfunction channelOrderTuple', collapseStart);
+      if (collapseStart === -1 || collapseEnd === -1) {
+        throw new Error('[BUILDER_HUMAN_PREVIEW] collapse display block not found');
+      }
+
+      let collapseBlock = text.slice(collapseStart, collapseEnd);
+      const beforeCollapseBlock = collapseBlock;
+      collapseBlock = collapseBlock.replace(
+        /(\s*const name = [^\n;]*humanTemplateRecordName\(record\)[^\n;]*?)\s*\|\|\s*'Untitled embed';/,
+        '$1;\n        if (!name) continue;',
       );
+
+      if (collapseBlock === beforeCollapseBlock || !collapseBlock.includes('if (!name) continue;')) {
+        throw new Error('[BUILDER_HUMAN_PREVIEW] unnamed record filter marker not found');
+      }
+
+      text = text.slice(0, collapseStart) + collapseBlock + text.slice(collapseEnd);
     }
 
     const displayEmojiMarker = `        const displayEmojiSource = group.records
