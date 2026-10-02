@@ -93,7 +93,22 @@ function humanTemplateRecordName(record) {
     const authorName = stripCustomEmojiMarkup(data.author?.name || '').trim();
     if (authorName && !isTechnicalBuilderLabel(authorName)) return standardDynamicTemplateName(authorName);
 
-    return null;
+    const context = String(stableSystemTemplateContext(data) || '').trim();
+    const contextLeaf = context.split('/').filter(Boolean).at(-1) || '';
+    if (contextLeaf) {
+        return contextLeaf
+            .split(/[-_]+/)
+            .filter(Boolean)
+            .map(part => {
+                const lower = part.toLowerCase();
+                if (lower === 'faq') return 'FAQ';
+                if (lower === 'ai') return 'AI';
+                return lower.charAt(0).toUpperCase() + lower.slice(1);
+            })
+            .join(' ');
+    }
+
+    return 'Embed';
 }
 
 // BUILDER_HUMAN_NAMES_V1
@@ -118,27 +133,6 @@ function humanTemplateRecordName(record) {
       text = text.replaceAll('standardDynamicTemplateName(rawName)', 'humanTemplateRecordName(record)');
     } else if (!text.includes('humanTemplateRecordName(record)')) {
       throw new Error('[BUILDER_HUMAN_PREVIEW] human menu label marker not found');
-    }
-
-    {
-      const collapseStart = text.indexOf('function collapseDisplayRecords(');
-      const collapseEnd = text.indexOf('\nfunction channelOrderTuple', collapseStart);
-      if (collapseStart === -1 || collapseEnd === -1) {
-        throw new Error('[BUILDER_HUMAN_PREVIEW] collapse display block not found');
-      }
-
-      let collapseBlock = text.slice(collapseStart, collapseEnd);
-      const beforeCollapseBlock = collapseBlock;
-      collapseBlock = collapseBlock.replace(
-        /(\s*const name = [^\n;]*humanTemplateRecordName\(record\)[^\n;]*?)\s*\|\|\s*'Untitled embed';/,
-        '$1;\n        if (!name) continue;',
-      );
-
-      if (collapseBlock === beforeCollapseBlock || !collapseBlock.includes('if (!name) continue;')) {
-        throw new Error('[BUILDER_HUMAN_PREVIEW] unnamed record filter marker not found');
-      }
-
-      text = text.slice(0, collapseStart) + collapseBlock + text.slice(collapseEnd);
     }
 
     const displayEmojiMarker = `        const displayEmojiSource = group.records
