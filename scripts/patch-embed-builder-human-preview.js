@@ -166,11 +166,13 @@ ${displayEmojiMarker}`,
       const exportStart = text.lastIndexOf('export ', loaderStart);
       const replaceStart = exportStart !== -1 && exportStart + 7 === loaderStart ? exportStart : loaderStart;
       const loaderBlock = `export function loadRecordSnapshotIntoState(state, guild, record, previewRecord = null) {
-    const snapshot = getEmbedRegistrySnapshot(record);
+    const snapshot = record?.snapshot || getEmbedRegistrySnapshot(record);
     if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
 
     const data = migrateCloudyLogoEmbedData(snapshot).data || {};
-    const previewSnapshot = previewRecord ? getEmbedRegistrySnapshot(previewRecord) : null;
+    const previewSnapshot = previewRecord
+        ? (previewRecord?.snapshot || getEmbedRegistrySnapshot(previewRecord))
+        : null;
     const previewData = previewSnapshot && typeof previewSnapshot === 'object' && Object.keys(previewSnapshot).length
         ? (migrateCloudyLogoEmbedData(previewSnapshot).data || {})
         : null;
@@ -253,6 +255,7 @@ ${displayEmojiMarker}`,
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
         templateKind,
         catalogTitle: data.title || null,
+        detached: Boolean(record.detached),
         cachedMessage: null,
     };
     return true;
@@ -261,6 +264,123 @@ ${displayEmojiMarker}`,
 
       text = text.slice(0, replaceStart) + loaderBlock + text.slice(loaderEnd);
     }
+
+    const channelGroupsMarker = 'function buildChannelGroups(guild, records) {';
+    const channelGroupsHelper = `const SAVED_TEMPLATE_CHANNEL_ID = '__cloudy_saved_templates__';
+
+function builderDisplayChannelId(guild, record) {
+    const logicalChannelId = String(record?.channelId || '');
+    if (logicalChannelId && guild?.channels?.cache?.has?.(logicalChannelId)) return logicalChannelId;
+
+    const backingChannelId = String(record?.backingChannelId || '');
+    if (String(record?.source || '') === 'system-catalog'
+        && backingChannelId
+        && guild?.channels?.cache?.has?.(backingChannelId)) {
+        return backingChannelId;
+    }
+
+    if (record?.detached) return SAVED_TEMPLATE_CHANNEL_ID;
+    return logicalChannelId;
+}
+
+function builderDisplayChannel(guild, channelId) {
+    if (String(channelId) === SAVED_TEMPLATE_CHANNEL_ID) {
+        return {
+            id: SAVED_TEMPLATE_CHANNEL_ID,
+            name: 'Saved templates',
+            type: 0,
+            rawPosition: Number.MAX_SAFE_INTEGER,
+            position: Number.MAX_SAFE_INTEGER,
+            parent: null,
+            messages: { fetch: async () => null },
+            toString: () => 'Saved templates',
+        };
+    }
+    return guild?.channels?.cache?.get?.(String(channelId)) || null;
+}
+
+// BUILDER_DURABLE_SNAPSHOT_V1
+`;
+    text = replaceOnce(text, channelGroupsMarker, channelGroupsHelper + channelGroupsMarker, 'saved template display helpers');
+
+    text = replaceOnce(
+      text,
+      `    for (const record of records) {
+        const channelId = String(record.channelId);
+        if (!groups.has(channelId)) groups.set(channelId, []);
+        groups.get(channelId).push(record);
+    }`,
+      `    for (const record of records) {
+        const channelId = builderDisplayChannelId(guild, record);
+        if (!channelId) continue;
+        if (!groups.has(channelId)) groups.set(channelId, []);
+        groups.get(channelId).push(record);
+    }`,
+      'saved template channel grouping',
+    );
+
+    text = replaceOnce(
+      text,
+      '            channel: guild.channels.cache.get(channelId) || null,',
+      '            channel: builderDisplayChannel(guild, channelId),',
+      'saved template virtual channel',
+    );
+
+    text = replaceOnce(
+      text,
+      '    const channel = guild.channels.cache.get(channelId) || null;',
+      '    const channel = builderDisplayChannel(guild, channelId);',
+      'saved template embed browser channel',
+    );
+
+    text = replaceOnce(
+      text,
+      `    const rawChannelRecords = records
+        .filter(record => String(record.channelId) === String(channelId))
+        .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));`,
+      `    const rawChannelRecords = records
+        .filter(record => builderDisplayChannelId(guild, record) === String(channelId))
+        .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));`,
+      'saved template embed list',
+    );
+
+    text = replaceOnce(
+      text,
+      `    getEmbedRegistrySnapshot,
+    reconcileEmbedRegistry,`,
+      `    getEmbedRegistrySnapshot,
+    reconcileEmbedRegistry,
+    updateDetachedEmbedRegistrySnapshot,`,
+      'detached snapshot save import',
+    );
+
+    text = replaceOnce(
+      text,
+      `    const backingChannelId = String(target.backingChannelId || target.channelId);`,
+      `    if (target.detached && target.source === 'embed-builder') {
+        const current = applyStateToExistingEmbed(state);
+        if (getEmbedsTextLength([current]) > DISCORD_EMBED_TOTAL_TEXT_LIMIT) {
+            return { ok: false, reason: 'embed-too-large' };
+        }
+
+        const persisted = await updateDetachedEmbedRegistrySnapshot(guild.id, target, current);
+        if (!persisted) return { ok: false, reason: 'persistence-failed' };
+
+        state.modifyTarget.sourceEmbedData = current;
+        state.modifyTarget.previewSourceData = { ...current };
+        state.modifyTarget.cachedMessage = null;
+        return {
+            ok: true,
+            channel: 'Saved templates',
+            message: null,
+            updatedCount: 1,
+            detached: true,
+        };
+    }
+
+    const backingChannelId = String(target.backingChannelId || target.channelId);`,
+      'detached snapshot save',
+    );
 
     const selectedMarker = `                let record = records.find(item =>
                     String(item.channelId) === String(channelId) &&
@@ -271,7 +391,7 @@ ${displayEmojiMarker}`,
       text,
       selectedMarker,
       `                const selectedDisplayRecord = collapseDisplayRecords(
-                    records.filter(item => String(item.channelId) === String(channelId)),
+                    records.filter(item => builderDisplayChannelId(guild, item) === String(channelId)),
                     channelId,
                 ).find(item =>
                     String(item.messageId) === String(messageId)
@@ -279,7 +399,11 @@ ${displayEmojiMarker}`,
                 );
                 const previewRecord = selectedDisplayRecord?.previewRecord || null;
 
-${selectedMarker}`,
+                let record = records.find(item =>
+                    builderDisplayChannelId(guild, item) === String(channelId) &&
+                    String(item.messageId) === String(messageId) &&
+                    Number(item.embedIndex || 0) === embedIndex,
+                );`,
       'selected live preview lookup',
     );
 
