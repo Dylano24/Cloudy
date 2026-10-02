@@ -238,7 +238,7 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
             continue;
         }
 
-        const name = standardDynamicTemplateName(rawName) || 'Untitled embed';
+        const name = standardDynamicTemplateName(rawName) || 'Embed';
         const key = `template:${templateIdentity(channelId, recordEmbedData(record))}`;
         if (!groups.has(key)) groups.set(key, { label: name, records: [], templateMode: false });
         groups.get(key).records.push(record);
@@ -383,14 +383,14 @@ export function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setMinValues(1)
             .setMaxValues(1)
             .addOptions(...result.items.map(record => {
-                const name = recordName(record) || record.name || 'Untitled embed';
+                const name = recordName(record) || record.name || 'Embed';
                 const isTemplate = Boolean(record.templateMode);
                 const displayName = isTemplate ? record.name : stripCustomEmojiMarkup(name);
                 const description = isTemplate
                     ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
                     : 'Edit this embed';
                 return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(displayName, 'Untitled embed'))
+                    .setLabel(shortLabel(displayName, 'Embed'))
                     .setDescription(description.slice(0, 100))
                     .setValue(`${record.messageId}:${record.embedIndex || 0}`);
             }));
