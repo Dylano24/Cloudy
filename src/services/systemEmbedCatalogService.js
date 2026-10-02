@@ -24,6 +24,7 @@ const TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
 const contexts = new Map();
 const templateCache = new Map();
 const sourceDefinitionCache = new Map();
+const sourceDefinitionKeyCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
 let flushTimer = null;
@@ -379,12 +380,19 @@ function sourceDefinitionIdentity(context, title) {
 }
 
 function rememberSourceDefinition(definition = {}) {
-  if (normalize(definition.kind) !== 'embed' || !String(definition.title || '').trim()) return;
   const entry = definitionToCatalog(definition);
-  sourceDefinitionCache.set(
-    sourceDefinitionIdentity(entry.context, entry.data.title),
-    cloneData(entry.data),
-  );
+  if (!entry?.key) return;
+
+  const data = cloneData(entry.data);
+  sourceDefinitionKeyCache.set(cacheIdentity(entry.key, entry.context), data);
+
+  const title = String(entry.data?.title || '').trim();
+  if (title) {
+    sourceDefinitionCache.set(
+      sourceDefinitionIdentity(entry.context, title),
+      data,
+    );
+  }
 }
 
 export function getSystemSourceDefinitionPreview(title, context = null) {
@@ -396,9 +404,6 @@ export function getSystemSourceDefinitionPreview(title, context = null) {
     || null;
   if (found) return cloneData(found);
 
-  // Some catalog aliases use a sibling context for the same visible embed
-  // (for example faq interaction vs faq service). Fall back by title only
-  // when every matching source definition has the same visible payload.
   const normalizedTitle = normalize(title);
   if (!normalizedTitle) return null;
 
@@ -423,6 +428,31 @@ export function getSystemSourceDefinitionPreview(title, context = null) {
   }));
 
   return unique.size === 1 ? cloneData([...unique.values()][0]) : null;
+}
+
+export function getSystemSourceDefinitionPreviewForEmbed(embedData = {}) {
+  const metadata = parseTemplateMetadata(embedData);
+  const exact = normalize(metadata.context);
+  const parent = parentContext(exact);
+
+  if (metadata.key) {
+    const byKey = sourceDefinitionKeyCache.get(cacheIdentity(metadata.key, exact))
+      || (parent ? sourceDefinitionKeyCache.get(cacheIdentity(metadata.key, parent)) : null)
+      || sourceDefinitionKeyCache.get(cacheIdentity(metadata.key, null))
+      || null;
+    if (byKey) return cloneData(byKey);
+
+    const keyMatches = [];
+    const normalizedKey = normalize(metadata.key);
+    for (const [identity, candidate] of sourceDefinitionKeyCache) {
+      if (!identity.endsWith(`::${normalizedKey}`)) continue;
+      keyMatches.push(candidate);
+    }
+    const uniqueByKey = new Map(keyMatches.map(candidate => [JSON.stringify(candidate), candidate]));
+    if (uniqueByKey.size === 1) return cloneData([...uniqueByKey.values()][0]);
+  }
+
+  return getSystemSourceDefinitionPreview(embedData?.title, metadata.context);
 }
 
 export function primeSystemSourceDefinitionPreview(definition = {}) {
@@ -936,6 +966,7 @@ export async function ensureSystemEmbedCatalogs(client) {
     !isCuratedCasinoContext(definition.context) && !isTicketContext(definition.context));
 
   sourceDefinitionCache.clear();
+  sourceDefinitionKeyCache.clear();
   for (const definition of discoveredDefinitions) rememberSourceDefinition(definition);
 
   let totalAdded = 0;
