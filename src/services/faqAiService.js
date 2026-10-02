@@ -8,8 +8,9 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
-import { runExplicitAi } from './explicitAiService.js';
+import { createExplicitAiService } from './explicitAiService.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
+import { buildCloudyPublicKnowledgeEvidence } from './cloudyPublicKnowledgeService.js';
 
 export const FAQ_AI_CHANNEL_ID = '1534654577385672917';
 export const FAQ_AI_BUTTON_ID = 'faq_ai_question';
@@ -20,6 +21,9 @@ const QUESTION_COOLDOWN_MS = 20_000;
 const KNOWLEDGE_CACHE_TTL_MS = 60_000;
 const recentQuestions = new Map();
 let lastQuestionSweepAt = 0;
+const runFaqKnowledgeAi = createExplicitAiService({
+  askEvidence: buildCloudyPublicKnowledgeEvidence,
+});
 
 function buildPanelPayload() {
   const footerText = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -51,7 +55,7 @@ export function buildFaqQuestionModal() {
   const questionInput = new TextInputBuilder()
     .setCustomId('question')
     .setLabel('What would you like to know?')
-    .setPlaceholder('Ask a question; no channels are read automatically. Type help for commands. Do not submit secrets.')
+    .setPlaceholder('Ask about Cloudy, purchases, free kits, rules, commands, server information, or support.')
     .setStyle(TextInputStyle.Paragraph)
     .setMinLength(3)
     .setMaxLength(1000)
@@ -121,6 +125,6 @@ export function getFaqQuestionCooldown(userId) {
 
 export async function answerFaqQuestion(client, question, actor) {
   if (!actor || actor.client !== client) throw new Error('forbidden');
-  const result = await runExplicitAi(actor, question);
+  const result = await runFaqKnowledgeAi(actor, question);
   return result.text.length > 1800 ? `${result.text.slice(0, 1797)}...` : result.text;
 }
