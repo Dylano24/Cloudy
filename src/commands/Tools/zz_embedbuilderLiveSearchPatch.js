@@ -10,6 +10,7 @@ import {
     getEmbedRegistrySnapshot,
 } from '../../services/embedRegistryService.js';
 import { collapseDisplayRecords } from '../../services/embedManagerService.js';
+import { getSystemSourceDefinitionPreview } from '../../services/systemEmbedCatalogService.js';
 
 const RUNTIME_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchRuntime');
 const RESPONSE_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchResponses');
@@ -44,6 +45,54 @@ function stableSearchTemplateKey(record) {
     const authorName = String(snapshot(record)?.author?.name || '').trim();
     const match = authorName.match(/^Cloudy template key:\s*([^|]+)/i);
     return String(match?.[1] || '').trim().toLowerCase();
+}
+
+function stableSearchTemplateContext(record) {
+    const authorName = String(snapshot(record)?.author?.name || '').trim();
+    const match = authorName.match(/\|\|\s*Cloudy context:\s*([^|]+)/i);
+    return String(match?.[1] || '').trim().toLowerCase();
+}
+
+function sourceResolvedSearchRecord(record) {
+    if (String(record?.source || '').toLowerCase() !== 'system-catalog') return record;
+
+    const data = snapshot(record);
+    const visibleTitle = clean(data?.title, 100);
+    const visibleDescription = clean(data?.description, 256);
+    if (!/^(?:success|error|information|warning)$/i.test(visibleTitle) || !visibleDescription) {
+        return record;
+    }
+
+    const source = getSystemSourceDefinitionPreview(
+        visibleDescription,
+        stableSearchTemplateContext(record),
+    );
+    if (!source?.title || clean(source.title, 100).toLowerCase() !== visibleDescription.toLowerCase()) {
+        return record;
+    }
+
+    const sourceSnapshot = {
+        ...data,
+        ...source,
+        author: data?.author || source?.author || null,
+    };
+
+    return {
+        ...record,
+        title: source.title,
+        name: source.title,
+        snapshot: sourceSnapshot,
+        sourceRecord: {
+            ...record,
+            title: source.title,
+            name: source.title,
+            snapshot: sourceSnapshot,
+        },
+        legacySearchAlias: {
+            title: visibleTitle,
+            description: visibleDescription,
+        },
+    };
 }
 
 function isTechnicalVisibleName(value) {
@@ -227,7 +276,8 @@ function chooseBetter(left, right) {
 function builderSearchDisplayRecords(records) {
     const groups = new Map();
 
-    for (const record of records || []) {
+    for (const rawRecord of records || []) {
+        const record = sourceResolvedSearchRecord(rawRecord);
         const channelId = String(record?.channelId || '');
         if (!channelId) continue;
         if (!groups.has(channelId)) groups.set(channelId, []);
