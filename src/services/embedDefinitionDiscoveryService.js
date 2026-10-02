@@ -322,7 +322,7 @@ function assignedEmbedModifiers(source, callStart, callEnd) {
     ...(footerText ? { footer: { text: footerText } } : {}),
   };
 }
-function helperCallDefinition(source, helper, callStart, callContent) {
+function helperCallDefinition(source, helper, callStart, callContent, callEnd) {
   const literals = allLiterals(callContent, 8)
     .map(value => decodeString(value, { allowDynamic: true }))
     .filter(Boolean);
