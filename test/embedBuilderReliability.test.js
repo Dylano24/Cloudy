@@ -20,6 +20,7 @@ import {
 import {
   buildEmbedPayload,
   buildChannelPayload,
+  loadRecordSnapshotIntoState,
   openEmbedManager,
   prefersCatalogPreview,
   shouldApplyBackgroundRegistryRefresh,
@@ -34,6 +35,7 @@ import {
   applyRuntimeEmbedTemplateData,
   getSystemEmbedTemplateKey,
   primeSystemEmbedTemplateData,
+  registerDiscoveredEmbedDefinition,
 } from '../src/services/systemEmbedCatalogService.js';
 import {
   isBlackjackEmbed,
@@ -372,6 +374,56 @@ test('Builder Search uses human names, groups duplicate technical keys and keeps
   assert.equal(/source:|bot code|cloudy template key/i.test(matches[0].document.title), false);
   assert.equal(liveSearchRecordTitle(records[0]), 'This FAQ assistant can only be used in the FAQ channel.');
   assert.equal(latestRealPreviewRecord(guild, records, matches[0].record)?.messageId, 'real-faq');
+});
+
+test('sparse catalog template preview falls back to the full source embed without changing its Save target', async () => {
+  installTestStorage();
+
+  const guildId = '100000000000000098';
+  const channelId = '200000000000000098';
+  const messageId = '300000000000000098';
+  const description = [
+    'Have a question or need help with something?',
+    '',
+    'Our AI Assistant can help you find answers to common questions, server information, features, commands, and more.',
+    '',
+    'You can ask your question in any language, and you’ll receive a response in the same language.',
+    '',
+    'Click **Ask a question** below and let Cloudy Inc. assist you.',
+  ].join('\n');
+
+  registerDiscoveredEmbedDefinition({
+    kind: 'embed',
+    title: 'Cloudy Support Assistant',
+    description,
+    context: 'faq/faq-ai-service',
+    variantId: 'services/faqAiService.js:embed:test',
+  });
+
+  const sparseMessage = {
+    id: messageId,
+    guildId,
+    channelId,
+    embeds: [{
+      title: 'Cloudy Support Assistant',
+      color: 0x5865F2,
+      author: {
+        name: 'Cloudy template key: embed:test || Cloudy context: faq/faq-ai-service || Cloudy kind: embed',
+      },
+    }],
+    createdAt: new Date('2026-10-02T15:00:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(sparseMessage, 'embed-builder'), true);
+  const [stored] = await getEmbedRegistry(guildId);
+  const record = { ...stored, source: 'system-catalog' };
+  const state = {};
+
+  assert.equal(loadRecordSnapshotIntoState(state, { id: guildId }, record), true);
+  assert.equal(state.title, 'Cloudy Support Assistant');
+  assert.equal(state.message, description);
+  assert.equal(state.modifyTarget.sourceEmbedData.description, undefined);
+  assert.equal(state.modifyTarget.previewSourceData.description, description);
 });
 
 test('background registry refresh stops as soon as manager interaction begins', () => {
