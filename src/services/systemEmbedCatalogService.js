@@ -23,6 +23,7 @@ const TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
 
 const contexts = new Map();
 const templateCache = new Map();
+const sourceDefinitionCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
 let flushTimer = null;
@@ -371,6 +372,30 @@ function findTemplate(key, context) {
     || (parent ? templateCache.get(cacheIdentity(key, parent)) : null)
     || templateCache.get(cacheIdentity(key, null))
     || null;
+}
+
+function sourceDefinitionIdentity(context, title) {
+  return `${normalize(context)}|${normalize(title)}`;
+}
+
+function rememberSourceDefinition(definition = {}) {
+  if (normalize(definition.kind) !== 'embed' || !String(definition.title || '').trim()) return;
+  const entry = definitionToCatalog(definition);
+  sourceDefinitionCache.set(
+    sourceDefinitionIdentity(entry.context, entry.data.title),
+    cloneData(entry.data),
+  );
+}
+
+export function getSystemSourceDefinitionPreview(title, context = null) {
+  const exact = normalize(context);
+  const parent = parentContext(exact);
+  return cloneData(
+    sourceDefinitionCache.get(sourceDefinitionIdentity(exact, title))
+      || (parent ? sourceDefinitionCache.get(sourceDefinitionIdentity(parent, title)) : null)
+      || sourceDefinitionCache.get(sourceDefinitionIdentity('', title))
+      || null,
+  );
 }
 
 function rememberCatalogMessage(message) {
@@ -756,6 +781,7 @@ function queueRuntimeEntry(entry) {
 }
 
 export function registerDiscoveredEmbedDefinition(definition = {}) {
+  rememberSourceDefinition(definition);
   const entry = definitionToCatalog(definition);
   if (!entry.key || isInternalTemplate(entry.data) || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
   return queueRuntimeEntry(entry);
@@ -875,6 +901,10 @@ export async function ensureSystemEmbedCatalogs(client) {
   // reusable template list while keeping all other real system templates.
   const definitions = discoveredDefinitions.filter(definition =>
     !isCuratedCasinoContext(definition.context) && !isTicketContext(definition.context));
+
+  sourceDefinitionCache.clear();
+  for (const definition of discoveredDefinitions) rememberSourceDefinition(definition);
+
   let totalAdded = 0;
 
   for (const guild of client.guilds.cache.values()) {
