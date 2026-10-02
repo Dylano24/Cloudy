@@ -168,7 +168,8 @@ ${displayEmojiMarker}`,
         );
 
       if (loaderBlock === originalLoaderBlock
-          || !loaderBlock.includes('state.title = displayTitle || null;')
+          || !loaderBlock.includes('displayTitle')
+          || !loaderBlock.includes('displayDescription')
           || !loaderBlock.includes('previewSourceData: previewData')) {
         throw new Error('[BUILDER_HUMAN_PREVIEW] loader live preview replacements failed');
       }
@@ -202,6 +203,11 @@ ${selectedMarker}`,
       '                let loaded = record ? loadRecordSnapshotIntoState(state, guild, record) : false;',
       '                let loaded = record ? loadRecordSnapshotIntoState(state, guild, record, previewRecord) : false;',
       'selected live preview load',
+    );
+
+    text = text.replace(
+      '&& loadRecordSnapshotIntoState(state, interaction.guild, pendingSearch.record)',
+      '&& loadRecordSnapshotIntoState(state, interaction.guild, pendingSearch.record, pendingSearch.previewRecord || null)',
     );
 
     const saveMarker = 'function applyStateToExistingEmbed(state) {';
