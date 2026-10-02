@@ -162,9 +162,14 @@ function resolveEmbedSourceAlias(context, title) {
         // source-defined response. Real messages still provide the first live
         // channel preview, but duplicate catalog hashes no longer become
         // separate options.
+        // Generic source-defined responses should edit the real Discord
+        // message when one exists. The matching catalog peer is still kept in
+        // the same template group and is synchronized by the existing peer
+        // update path after Save. Casino canonical masters remain authoritative.
         const representative = canonicalCatalogRecords.at(-1)
+            || (realRecords.length ? realRecords.at(-1) : null)
             || sourceCatalogRecords[0]
-            || (realRecords.length ? realRecords : group.records).at(-1);`;
+            || group.records.at(-1);`;
     text = replaceOnce(text, representativeOld, representativeNew, 'canonical generic source Save target');
 
     fs.writeFileSync(path, text, 'utf8');
