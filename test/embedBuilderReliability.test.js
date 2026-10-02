@@ -540,6 +540,107 @@ test('Builder finds the complete source body when catalog and source use sibling
   assert.equal(preview.toJSON().description, description);
 });
 
+test('registry persists the complete manual Builder snapshot instead of only its title', async () => {
+  installTestStorage();
+
+  const guildId = '100000000000000094';
+  const channelId = '200000000000000094';
+  const messageId = '300000000000000094';
+  const description = 'Rules body that must survive restarts and Discord deletion.';
+  const message = {
+    id: messageId,
+    guildId,
+    channelId,
+    channel: { name: 'rules' },
+    embeds: [{
+      title: 'Rules',
+      description,
+      fields: [{ name: 'Respect', value: 'Keep it civil.', inline: false }],
+      footer: { text: 'Cloudy rules' },
+      color: 0xFFFFFF,
+    }],
+    createdAt: new Date('2026-10-02T17:00:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder'), true);
+
+  const stored = await getFromDb(`cloudy:embed-registry:${guildId}`, []);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].snapshot.title, 'Rules');
+  assert.equal(stored[0].snapshot.description, description);
+  assert.equal(stored[0].snapshot.fields[0].value, 'Keep it civil.');
+  assert.equal(stored[0].channelName, 'rules');
+});
+
+test('deleted manual Builder embeds stay as detached saved templates with their full body', async () => {
+  installTestStorage();
+
+  const guildId = '100000000000000093';
+  const channelId = '200000000000000093';
+  const messageId = '300000000000000093';
+  const description = 'Persistent Rules text';
+  const message = {
+    id: messageId,
+    guildId,
+    channelId,
+    channel: { name: 'rules' },
+    embeds: [{ title: 'Rules', description, color: 0xFFFFFF }],
+    createdAt: new Date('2026-10-02T17:01:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder'), true);
+  assert.equal(await removeEmbedRegistryMessage(guildId, channelId, messageId), true);
+
+  const [stored] = await getEmbedRegistry(guildId);
+  assert.equal(stored.detached, true);
+  assert.equal(stored.snapshot.title, 'Rules');
+  assert.equal(stored.snapshot.description, description);
+});
+
+test('detached saved templates remain visible and load their complete text without a live Discord channel', () => {
+  const guildId = '100000000000000092';
+  const record = {
+    guildId,
+    channelId: 'deleted-rules-channel',
+    backingChannelId: null,
+    messageId: 'deleted-rules-message',
+    embedIndex: 0,
+    source: 'embed-builder',
+    title: 'Rules',
+    name: 'Rules',
+    channelName: 'rules',
+    detached: true,
+    createdAt: '2026-10-02T17:02:00.000Z',
+    snapshot: {
+      title: 'Rules',
+      description: 'Full Rules text from the durable snapshot.',
+      color: 0xFFFFFF,
+    },
+  };
+  const guild = {
+    id: guildId,
+    channels: { cache: new Map() },
+  };
+
+  const channelPayload = buildChannelPayload(guild, [record]);
+  const channelOption = channelPayload.components[0].toJSON().components[0].options[0];
+  assert.equal(channelOption.label, '# Saved templates');
+  assert.equal(channelOption.description, 'Open the saved embed');
+
+  const embedPayload = buildEmbedPayload(guild, [record], '__cloudy_saved_templates__');
+  const embedOption = embedPayload.components[0].toJSON().components[0].options[0];
+  assert.equal(embedOption.label, 'Rules');
+
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, guild, record), true);
+  assert.equal(state.title, 'Rules');
+  assert.equal(state.message, 'Full Rules text from the durable snapshot.');
+  assert.equal(state.modifyTarget.detached, true);
+
+  const [preview] = buildBuilderEmbeds(state);
+  assert.equal(preview.toJSON().description, 'Full Rules text from the durable snapshot.');
+});
+
 test('background registry refresh stops as soon as manager interaction begins', () => {
   const session = { closed: false, hasInteracted: false };
   const state = { activeEmbedManager: session };
