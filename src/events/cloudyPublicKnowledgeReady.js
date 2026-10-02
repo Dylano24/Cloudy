@@ -1,5 +1,5 @@
 import { Events } from 'discord.js';
-import { reconcileRestoredKnowledgePanels } from '../services/cloudyPublicKnowledgeService.js';
+import { cleanupGeneratedKnowledgePanels } from '../services/cloudyPublicKnowledgeService.js';
 import { logger } from '../utils/logger.js';
 
 export default {
@@ -8,13 +8,13 @@ export default {
 
   async execute(client) {
     const timer = setTimeout(async () => {
-      const results = await reconcileRestoredKnowledgePanels(client).catch(error => {
-        logger.error('[CLOUDY_KNOWLEDGE] Public knowledge restore failed:', error);
+      const results = await cleanupGeneratedKnowledgePanels(client).catch(error => {
+        logger.error('[CLOUDY_KNOWLEDGE] Cleanup failed:', error);
         return [];
       });
 
-      const successful = results.filter(result => result.ok).length;
-      logger.info(`[CLOUDY_KNOWLEDGE] Verified public panels ready: ${successful}/${results.length}`);
+      const removed = results.filter(result => result.removed).length;
+      logger.info(`[CLOUDY_KNOWLEDGE] Standalone knowledge panels disabled; removed ${removed} tracked panel(s)`);
     }, 4000);
 
     timer.unref?.();
