@@ -81,7 +81,7 @@ export default {
       if (winner === 'tie' && pick !== 'tie') {
         outcome = 'push';
         payout = amount;
-        outcomeText = `Tie — your **${money(amount)}** bet was returned.`;
+        outcomeText = `Tie, your **${money(amount)}** bet was returned.`;
       } else if (pick === winner) {
         outcome = 'win';
         const multiplier = winner === 'tie' ? 9 : winner === 'banker' ? 1.95 : 2;
@@ -105,7 +105,7 @@ export default {
       try {
       const current = await adjustCasinoBalance(client, interaction.guildId, interaction.user.id, amount);
       userData.wallet = current.wallet;
-      await message.edit({ embeds: [await gameEmbed(client, interaction.user, amount, null, null, `Game expired — **${money(amount)}** was returned.`, 'expired')], components: choices(interaction.id, true), attachments: [] }).catch(() => {});
+      await message.edit({ embeds: [await gameEmbed(client, interaction.user, amount, null, null, `Game expired. **${money(amount)}** was returned.`, 'expired')], components: choices(interaction.id, true), attachments: [] }).catch(() => {});
       } catch (error) { logger.error('Baccarat expiry failed:', error); }
     });
   }, { command: 'baccarat' }),
