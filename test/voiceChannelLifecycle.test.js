@@ -60,7 +60,7 @@ test('moving between trigger channels still creates a room', async () => {
 
 test('join uses the current Discord channel name while keeping trigger matching ID based', async () => {
   const f = fixture();
-  f.config().channelNameTemplate = '{channelName}';
+  f.config().channelNameTemplate = '{channel_name}';
   f.guild.channels.fetch = async (channelId, options) => {
     assert.equal(channelId, f.trigger.id);
     assert.deepEqual(options, { force: true });
