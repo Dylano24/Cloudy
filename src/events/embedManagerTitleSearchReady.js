@@ -101,7 +101,7 @@ function searchKey(value) {
 
 function shortText(value, max = 100) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
-  return (text || 'Untitled embed').slice(0, max);
+  return (text || 'Embed').slice(0, max);
 }
 
 function templateSearchShape(value) {
