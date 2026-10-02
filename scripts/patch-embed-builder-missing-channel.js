@@ -4,24 +4,12 @@ const path = 'src/services/embedManagerService.js';
 const before = fs.readFileSync(path, 'utf8');
 let text = before;
 
-// Keep the runtime patch narrow: only the Embed Manager discovery/selection
-// path is changed. Save, templates, games and logo handling stay untouched.
-if (text.includes("import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';")) {
-  text = text.replace(
-    "import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';",
-    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';",
-  );
-} else if (!text.includes('discoverMissingChannelEmbeds')) {
-  text = text.replace(
-    "import { saveEmbedTemplateDecoration } from './embedTemplateService.js';",
-    "import { saveEmbedTemplateDecoration } from './embedTemplateService.js';\nimport { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';",
-  );
-}
-
+// Keep the runtime patch narrow. Browsing and Search are read only.
+// Save, templates, games and logo handling stay untouched.
 if (!text.includes('discardPendingEmbedEditorUpdates')) {
   text = text.replace(
-    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';",
-    "import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds } from './embedMissingChannelService.js';\nimport { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';",
+    "import { saveEmbedTemplateDecoration } from './embedTemplateService.js';",
+    "import { saveEmbedTemplateDecoration } from './embedTemplateService.js';\nimport { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';",
   );
 }
 
@@ -197,9 +185,8 @@ if (text.includes('session.queue = session.queue.then(async () => {')) {
             });`);
 }
 
-// Selecting a channel only discovers/populates its complete embed list. It must
-// not push an arbitrary first embed into the live preview, because that creates
-// stale preview edits when the user immediately chooses another embed.
+// Selecting a channel is navigation only. It must not discover history,
+// import records, or change the live Builder preview.
 const channelStartMarker = "                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {";
 const channelEndMarker = "                if (interaction.customId.startsWith('simple_embed_modify_embed_page:')) {";
 const channelStart = text.indexOf(channelStartMarker);
@@ -211,38 +198,14 @@ if (channelStart === -1 || channelEnd === -1) {
 
 const channelBlock = `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
-                    const discoveredRecords = await discoverMissingChannelEmbeds(
-                        guild,
-                        channelId,
-                        buttonInteraction.client.user.id,
-                    ).catch(error => {
-                        logger.debug(\`On-demand channel embed discovery skipped: \${error?.message || error}\`);
-                        return [];
-                    });
 
                     if (selectionVersion !== session.selectionVersion) return;
-
-                    if (discoveredRecords.length) {
-                        const otherChannelRecords = records.filter(record =>
-                            String(record.channelId) !== String(channelId)
-                            || String(record.source || '') === 'system-catalog'
-                        );
-                        const existingCatalogRecords = records.filter(record =>
-                            String(record.channelId) === String(channelId)
-                            && String(record.source || '') === 'system-catalog'
-                        );
-
-                        // Session-only discovery replaces stale real-message rows
-                        // for this channel. Nothing is written back to the registry,
-                        // so old history cannot accumulate as permanent clones.
-                        records = [
-                            ...otherChannelRecords,
-                            ...existingCatalogRecords.filter(record => !otherChannelRecords.includes(record)),
-                            ...discoveredRecords,
-                        ];
-                    }
-
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    await updateEmbedManager(
+                        interaction,
+                        buildEmbedPayload(guild, records, channelId, 0),
+                        state,
+                        session,
+                    );
                     return;
                 }
 
