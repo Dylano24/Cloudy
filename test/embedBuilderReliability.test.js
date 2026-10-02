@@ -540,6 +540,76 @@ test('Builder finds the complete source body when catalog and source use sibling
   assert.equal(preview.toJSON().description, description);
 });
 
+test('reading the Builder registry never persists cleanup or imports', async () => {
+  const values = installTestStorage();
+  const guildId = 'readonly-builder-guild';
+  const key = `cloudy:embed-registry:${guildId}`;
+  values.set(key, [
+    record(guildId, 'channel-valid', 'message-valid', 0, 'Welcome to Cloudy Inc.'),
+    {
+      ...record(guildId, 'channel-empty', 'message-empty', 0, 'Untitled embed'),
+      name: 'Untitled embed',
+    },
+  ]);
+
+  let writes = 0;
+  const originalSet = db.db.set;
+  db.db.set = async (...args) => {
+    writes += 1;
+    return originalSet(...args);
+  };
+
+  const records = await getEmbedRegistry(guildId);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].title, 'Welcome to Cloudy Inc.');
+  assert.equal(writes, 0);
+});
+
+test('stable source metadata restores full preview text for generic sparse templates', async () => {
+  installTestStorage();
+
+  const guildId = 'generic-source-guild';
+  const channelId = 'generic-source-channel';
+  const messageId = 'generic-source-message';
+  const description = 'Full information text that must be visible in the Builder preview.';
+
+  primeSystemSourceDefinitionPreview({
+    key: 'source:information-preview',
+    kind: 'embed',
+    title: 'Information',
+    description,
+    context: 'server-information/informations',
+  });
+
+  const sparseMessage = {
+    id: messageId,
+    guildId,
+    channelId,
+    embeds: [{
+      title: 'Custom information title',
+      color: 0xFFFFFF,
+      author: {
+        name: 'Cloudy template key: source:information-preview || Cloudy context: server-information/informations || Cloudy kind: embed',
+      },
+    }],
+    createdAt: new Date('2026-10-02T17:00:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(sparseMessage, 'embed-builder'), true);
+  const [stored] = await getEmbedRegistry(guildId);
+  const state = {};
+
+  assert.equal(loadRecordSnapshotIntoState(
+    state,
+    { id: guildId },
+    { ...stored, source: 'system-catalog' },
+  ), true);
+  assert.equal(state.message, description);
+
+  const [preview] = buildBuilderEmbeds(state);
+  assert.equal(preview.toJSON().description, description);
+});
+
 test('background registry refresh stops as soon as manager interaction begins', () => {
   const session = { closed: false, hasInteracted: false };
   const state = { activeEmbedManager: session };
