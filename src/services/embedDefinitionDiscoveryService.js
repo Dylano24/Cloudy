@@ -274,6 +274,54 @@ function scanBalancedCall(source, openParenIndex) {
   return null;
 }
 
+function assignedEmbedIdentifier(source, callStart) {
+  const before = source.slice(Math.max(0, callStart - 160), callStart);
+  const match = before.match(/(?:\b(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*$/);
+  return match?.[1] || null;
+}
+
+function regexEscape(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\function helperCallDefinition(source, helper, callStart, callContent, callEnd) {');
+}
+
+function findAssignedMethodCall(source, identifier, method, startIndex) {
+  if (!identifier) return null;
+  const tail = source.slice(startIndex, Math.min(source.length, startIndex + 7000));
+  const pattern = new RegExp(
+    '\\b' + regexEscape(identifier) + '\\b[\\s\\S]{0,5200}?\\.' + regexEscape(method) + '\\s*\\(',
+  );
+  const match = pattern.exec(tail);
+  if (!match) return null;
+  const relativeOpen = match.index + match[0].lastIndexOf('(');
+  return scanBalancedCall(source, startIndex + relativeOpen);
+}
+
+function assignedEmbedModifiers(source, callStart, callEnd) {
+  const identifier = assignedEmbedIdentifier(source, callStart);
+  if (!identifier) return {};
+
+  const fieldsCall = findAssignedMethodCall(source, identifier, 'addFields', callEnd);
+  const footerCall = findAssignedMethodCall(source, identifier, 'setFooter', callEnd);
+  const fieldLiterals = fieldsCall
+    ? allLiterals(fieldsCall.content, 50).map(value => decodeString(value, { allowDynamic: true })).filter(Boolean)
+    : [];
+  const fields = [];
+  for (let index = 0; index + 1 < fieldLiterals.length && fields.length < 25; index += 2) {
+    fields.push({
+      name: fieldLiterals[index],
+      value: fieldLiterals[index + 1],
+      inline: /\binline\s*:\s*true\b/.test(fieldsCall?.content || ''),
+    });
+  }
+
+  const footerLiteral = footerCall ? allLiterals(footerCall.content, 1)[0] : null;
+  const footerText = decodeString(footerLiteral, { allowDynamic: true });
+
+  return {
+    ...(fields.length ? { fields } : {}),
+    ...(footerText ? { footer: { text: footerText } } : {}),
+  };
+}
 function helperCallDefinition(source, helper, callStart, callContent) {
   const literals = allLiterals(callContent, 8)
     .map(value => decodeString(value, { allowDynamic: true }))
@@ -284,6 +332,7 @@ function helperCallDefinition(source, helper, callStart, callContent) {
     return {
       title: literals.at(-1),
       description: literals[1],
+      ...assignedEmbedModifiers(source, callStart, callEnd),
     };
   }
 
@@ -294,6 +343,7 @@ function helperCallDefinition(source, helper, callStart, callContent) {
   return {
     title: literals.length > 1 ? literals[0] : fallback,
     description: literals.length > 1 ? literals[1] : literals[0],
+    ...assignedEmbedModifiers(source, callStart, callEnd),
   };
 }
 
@@ -325,13 +375,15 @@ function extractEmbedDefinitions(source, relativePath, results, seen) {
     if (!call) continue;
 
     const helper = helperMatch[1];
-    const definition = helperCallDefinition(source, helper, helperMatch.index, call.content);
+    const definition = helperCallDefinition(source, helper, helperMatch.index, call.content, call.endIndex);
     if (definition?.title && definition?.description) {
       addDefinition(results, seen, {
         kind: 'embed',
         title: definition.title,
         description: definition.description,
         color: inferColor(definition.title),
+        ...(definition.fields?.length ? { fields: definition.fields } : {}),
+        ...(definition.footer?.text ? { footer: definition.footer } : {}),
         context,
         variantId: `${relativePath}:helper:${helperMatch.index}`,
       });
