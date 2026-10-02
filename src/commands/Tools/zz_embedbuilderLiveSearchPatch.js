@@ -46,7 +46,7 @@ function isTechnicalVisibleName(value) {
         || /^(?:game|ticket-log):[a-z0-9:_-]+$/i.test(text);
 }
 
-function recordTitle(record) {
+export function recordTitle(record) {
     const data = snapshot(record);
     const candidates = [data?.title, record?.name, record?.title]
         .map(value => clean(value, 100))
@@ -186,7 +186,7 @@ function chooseBetter(left, right) {
     return rightTime >= leftTime ? right : left;
 }
 
-function latestRealPreviewRecord(guild, records, selectedRecord) {
+export function latestRealPreviewRecord(guild, records, selectedRecord) {
     if (!selectedRecord) return null;
     const selectedDocument = recordDocument(guild, selectedRecord);
     const key = logicalKey(selectedRecord, selectedDocument);
@@ -202,7 +202,7 @@ function latestRealPreviewRecord(guild, records, selectedRecord) {
         .at(-1) || null;
 }
 
-function buildMatches(guild, records, query) {
+export function buildMatches(guild, records, query) {
     const grouped = new Map();
     const hasQuery = Boolean(normalize(query));
 
