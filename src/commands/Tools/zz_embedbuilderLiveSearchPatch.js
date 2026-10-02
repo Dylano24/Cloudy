@@ -60,10 +60,20 @@ export function recordTitle(record) {
         .split('\n')
         .map(line => clean(line.replace(/^[>\s#*_\`~|]+/, '').replace(/[*_\`~]/g, ''), 100))
         .find(Boolean);
+    if (firstLine && !isTechnicalVisibleName(firstLine)) return firstLine;
 
-    return firstLine && !isTechnicalVisibleName(firstLine)
-        ? firstLine
-        : 'Untitled embed';
+    const firstFieldName = (data?.fields || [])
+        .map(field => clean(field?.name, 100))
+        .find(value => value && !isTechnicalVisibleName(value));
+    if (firstFieldName) return firstFieldName;
+
+    const footerText = clean(data?.footer?.text, 100);
+    if (footerText && !isTechnicalVisibleName(footerText)) return footerText;
+
+    const authorName = clean(data?.author?.name, 100);
+    if (authorName && !isTechnicalVisibleName(authorName)) return authorName;
+
+    return '';
 }
 
 function recordDocument(guild, record) {
@@ -208,6 +218,7 @@ export function buildMatches(guild, records, query) {
 
     for (const record of records) {
         const document = recordDocument(guild, record);
+        if (!document.title) continue;
         const score = hasQuery ? searchScore(document, query) : 0;
         if (hasQuery && score == null) continue;
         const candidate = { record, document, score };
