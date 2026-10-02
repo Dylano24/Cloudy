@@ -145,26 +145,33 @@ ${displayEmojiMarker}`,
       'loader live data',
     );
 
-    text = replaceOnce(text, '    state.title = data.title || null;', '    state.title = displayTitle || null;', 'live title');
-    text = replaceOnce(text, '    state.message = data.description || null;', '    state.message = displayDescription || null;', 'live description');
-    text = replaceOnce(
-      text,
-      `    state.embedFields = Array.isArray(data.fields)
-        ? data.fields.map(field => ({`,
-      `    state.embedFields = Array.isArray(displayFields)
-        ? displayFields.map(field => ({`,
-      'live fields',
-    );
+    {
+      const loaderStart = text.indexOf('function loadRecordSnapshotIntoState(state, guild, record, previewRecord = null) {');
+      const loaderEnd = text.indexOf('\nfunction loadEmbedIntoState', loaderStart);
+      if (loaderStart === -1 || loaderEnd === -1) {
+        throw new Error('[BUILDER_HUMAN_PREVIEW] loader block not found');
+      }
 
-    text = replaceOnce(
-      text,
-      `        sourceEmbedData: data,
-        hadBuilderMarker:`,
-      `        sourceEmbedData: data,
-        previewSourceData: previewData,
-        hadBuilderMarker:`,
-      'retain canonical and live data',
-    );
+      let loaderBlock = text.slice(loaderStart, loaderEnd);
+      const originalLoaderBlock = loaderBlock;
+      loaderBlock = loaderBlock
+        .replace('state.title = data.title || null;', 'state.title = displayTitle || null;')
+        .replace('state.message = data.description || null;', 'state.message = displayDescription || null;')
+        .replace('state.embedFields = Array.isArray(data.fields)', 'state.embedFields = Array.isArray(displayFields)')
+        .replace('? data.fields.map(field => ({', '? displayFields.map(field => ({')
+        .replace(
+          'sourceEmbedData: data,\\n        hadBuilderMarker:',
+          'sourceEmbedData: data,\\n        previewSourceData: previewData,\\n        hadBuilderMarker:',
+        );
+
+      if (loaderBlock === originalLoaderBlock
+          || !loaderBlock.includes('state.title = displayTitle || null;')
+          || !loaderBlock.includes('previewSourceData: previewData')) {
+        throw new Error('[BUILDER_HUMAN_PREVIEW] loader live preview replacements failed');
+      }
+
+      text = text.slice(0, loaderStart) + loaderBlock + text.slice(loaderEnd);
+    }
 
     const selectedMarker = `                let record = records.find(item =>
                     String(item.channelId) === String(channelId) &&
