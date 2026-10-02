@@ -32,6 +32,7 @@ import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
+    getSystemSourceDefinitionPreview,
     primeSystemEmbedCatalogMessage,
     primeSystemEmbedTemplateData,
     syncSystemEmbedCatalogMessage,
