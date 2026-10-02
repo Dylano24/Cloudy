@@ -610,21 +610,16 @@ test('stable source metadata restores full preview text for generic sparse templ
   assert.equal(preview.toJSON().description, description);
 });
 
-test('background registry refresh stops as soon as manager interaction begins', () => {
+test('background registry refresh is disabled for read only Builder browsing', () => {
   const session = { closed: false, hasInteracted: false };
   const state = { activeEmbedManager: session };
 
-  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), true);
+  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
 
   session.hasInteracted = true;
   assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
 
-  session.hasInteracted = false;
   session.closed = true;
-  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
-
-  session.closed = false;
-  state.activeEmbedManager = {};
   assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
 });
 
@@ -669,8 +664,12 @@ test('embed manager navigation edits through the fresh component interaction', a
     },
   };
   const state = {};
+  let previewRefreshes = 0;
 
-  await openEmbedManager(buttonInteraction, state, async () => true);
+  await openEmbedManager(buttonInteraction, state, async () => {
+    previewRefreshes += 1;
+    return true;
+  });
   assert.match(initialPayload.embeds[0].toJSON().description, /Choose a channel first/);
   assert.equal(initialPayload.components.length, 1);
   assert.ok(state.activeEmbedManager);
@@ -698,10 +697,12 @@ test('embed manager navigation edits through the fresh component interaction', a
 
   await finished;
   assert.match(navigationPayload.embeds[0].toJSON().description, /\*\*Embeds:\*\* 1/);
+  assert.equal(previewRefreshes, 0);
+  assert.equal(state.modifyTarget, undefined);
   collector.stop('test-complete');
 });
 
-test('embed manager opens before Discord history reconciliation finishes', async () => {
+test('opening the embed manager never scans Discord history', async () => {
   installTestStorage();
   const guildId = '100000000000000004';
   const channelId = '200000000000000004';
@@ -710,12 +711,12 @@ test('embed manager opens before Discord history reconciliation finishes', async
     record(guildId, channelId, messageId, 0, 'Immediate embed'),
   ]);
 
-  let finishFetch;
-  const pendingFetch = new Promise(resolve => {
-    finishFetch = resolve;
-  });
+  let fetches = 0;
   const guild = buildGuild({ guildId, channelId, messages: new Map() });
-  guild.channels.cache.get(channelId).messages.fetch = async () => pendingFetch;
+  guild.channels.cache.get(channelId).messages.fetch = async () => {
+    fetches += 1;
+    throw new Error('history fetch must not run while browsing');
+  };
 
   const collector = new FakeCollector();
   const managerMessage = {
@@ -742,15 +743,8 @@ test('embed manager opens before Discord history reconciliation finishes', async
   await openEmbedManager(buttonInteraction, state, async () => true);
   assert.match(initialPayload.embeds[0].toJSON().description, /Choose a channel first/);
   assert.ok(state.activeEmbedManager);
+  assert.equal(fetches, 0);
 
-  finishFetch({
-    id: messageId,
-    guildId,
-    channelId,
-    author: { id: 'cloudy-bot' },
-    embeds: [{ title: 'Immediate embed' }],
-    createdAt: new Date('2026-08-29T20:00:00.000Z'),
-  });
   collector.stop('test-complete');
 });
 
