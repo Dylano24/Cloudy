@@ -1,7 +1,6 @@
 import { PermissionFlagsBits } from 'discord.js';
 import { redactAiText } from './aiSafety.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
-import { registerCloudyEmbedMessage } from './embedRegistryService.js';
 
 export const CLOUDY_KNOWLEDGE_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
@@ -70,11 +69,6 @@ async function resolveKnowledgeChannels(client, guild) {
   ]));
 
   return Object.fromEntries(pairs);
-}
-
-function link(text, guildId, channel) {
-  const url = channelUrl(guildId, channel?.id);
-  return url ? `[${text}](${url})` : text;
 }
 
 export async function buildVerifiedCloudyFacts(client, guild) {
@@ -250,64 +244,6 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
   };
 }
 
-export async function buildRestoredKnowledgePayloads(client, guild) {
-  const channels = await resolveKnowledgeChannels(client, guild);
-  const purchaseDestination = channels.officialStore || channels.shop;
-
-  const informationEmbed = {
-    color: 0xFFFFFF,
-    fields: [
-      {
-        name: VERIFIED_CLOUDY_TEXT.rulesLabel,
-        value: link(VERIFIED_CLOUDY_TEXT.rulesText, guild.id, channels.rules),
-        inline: false,
-      },
-      {
-        name: VERIFIED_CLOUDY_TEXT.linkAccountLabel,
-        value: link(VERIFIED_CLOUDY_TEXT.linkAccountText, guild.id, channels.linkYourAccount),
-        inline: false,
-      },
-      {
-        name: VERIFIED_CLOUDY_TEXT.purchasesLabel,
-        value: link(VERIFIED_CLOUDY_TEXT.purchasesText, guild.id, purchaseDestination),
-        inline: false,
-      },
-      {
-        name: VERIFIED_CLOUDY_TEXT.supportLabel,
-        value: link(VERIFIED_CLOUDY_TEXT.supportText, guild.id, channels.contactSupport),
-        inline: false,
-      },
-    ],
-    footer: { text: CLOUDY_KNOWLEDGE_FOOTER },
-  };
-
-  const accountEmbed = {
-    color: 0xFFFFFF,
-    fields: [{
-      name: VERIFIED_CLOUDY_TEXT.linkAccountLabel,
-      value: link(VERIFIED_CLOUDY_TEXT.linkAccountText, guild.id, channels.linkYourAccount),
-      inline: false,
-    }],
-    footer: { text: CLOUDY_KNOWLEDGE_FOOTER },
-  };
-
-  const freeKitsEmbed = {
-    color: 0xFFFFFF,
-    fields: [{
-      name: VERIFIED_CLOUDY_TEXT.linkAccountLabel,
-      value: link(VERIFIED_CLOUDY_TEXT.linkAccountText, guild.id, channels.linkYourAccount),
-      inline: false,
-    }],
-    footer: { text: CLOUDY_KNOWLEDGE_FOOTER },
-  };
-
-  return {
-    informations: channels.informations ? { channel: channels.informations, embeds: [informationEmbed] } : null,
-    linkYourAccount: channels.linkYourAccount ? { channel: channels.linkYourAccount, embeds: [accountEmbed] } : null,
-    freeKits: channels.freeKits ? { channel: channels.freeKits, embeds: [freeKitsEmbed] } : null,
-  };
-}
-
 function knowledgeStateKey(channelId) {
   return `global:cloudy:verified-knowledge-panel:${channelId}`;
 }
@@ -317,50 +253,39 @@ function isKnowledgeMessage(message, clientUserId) {
     && message.embeds?.some(embed => embed.footer?.text === CLOUDY_KNOWLEDGE_FOOTER);
 }
 
-export async function reconcileRestoredKnowledgePanels(client) {
+export async function cleanupGeneratedKnowledgePanels(client) {
   const results = [];
 
   for (const guild of client.guilds.cache.values()) {
-    const payloads = await buildRestoredKnowledgePayloads(client, guild);
+    const channels = await resolveKnowledgeChannels(client, guild);
+    const targets = [
+      ['informations', channels.informations],
+      ['linkYourAccount', channels.linkYourAccount],
+      ['freeKits', channels.freeKits],
+    ];
 
-    for (const [key, entry] of Object.entries(payloads)) {
-      if (!entry?.channel?.isSendable?.() || !entry.channel.messages?.fetch) {
-        results.push({ guildId: guild.id, key, ok: false, reason: 'channel_missing' });
+    for (const [key, channel] of targets) {
+      if (!channel?.messages?.fetch) {
+        results.push({ guildId: guild.id, key, ok: true, removed: false, reason: 'channel_missing' });
         continue;
       }
 
-      const stateKey = knowledgeStateKey(entry.channel.id);
-      let existing = null;
+      const stateKey = knowledgeStateKey(channel.id);
       const savedId = client.db?.get ? await client.db.get(stateKey).catch(() => null) : null;
-      if (savedId) {
-        const saved = await entry.channel.messages.fetch(savedId).catch(() => null);
-        if (isKnowledgeMessage(saved, client.user.id)) existing = saved;
-      }
-
-      if (!existing) {
-        const recent = await entry.channel.messages.fetch({ limit: 50 }).catch(() => null);
-        existing = recent?.find(message => isKnowledgeMessage(message, client.user.id)) || null;
-      }
-
-      if (existing) {
-        if (client.db?.set) await client.db.set(stateKey, existing.id).catch(() => {});
-        results.push({ guildId: guild.id, key, ok: true, existing: true });
+      if (!savedId) {
+        results.push({ guildId: guild.id, key, ok: true, removed: false, reason: 'not_tracked' });
         continue;
       }
 
-      const sent = await entry.channel.send({
-        embeds: entry.embeds,
-        allowedMentions: { parse: [] },
-      }).catch(() => null);
-
-      if (!sent) {
-        results.push({ guildId: guild.id, key, ok: false, reason: 'send_failed' });
-        continue;
+      const message = await channel.messages.fetch(savedId).catch(() => null);
+      if (isKnowledgeMessage(message, client.user.id)) {
+        const deleted = await message.delete().then(() => true).catch(() => false);
+        results.push({ guildId: guild.id, key, ok: deleted, removed: deleted, messageId: savedId });
+      } else {
+        results.push({ guildId: guild.id, key, ok: true, removed: false, reason: 'tracked_message_missing_or_changed' });
       }
 
-      if (client.db?.set) await client.db.set(stateKey, sent.id).catch(() => {});
-      await registerCloudyEmbedMessage(sent, 'embed-builder').catch(() => {});
-      results.push({ guildId: guild.id, key, ok: true, existing: false, messageId: sent.id });
+      if (client.db?.delete) await client.db.delete(stateKey).catch(() => {});
     }
   }
 
