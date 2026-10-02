@@ -2,12 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EmbedBuilder } from 'discord.js';
 import {
+  applyRuntimeEmbedTemplateData,
   captureSystemEmbedData,
   cleanupSystemCatalogEntries,
   getSystemEmbedTemplateKey,
   isEditableSystemCatalogTemplate,
+  primeSystemEmbedTemplateData,
+  registerDiscoveredEmbedDefinition,
   TICKET_LOG_CATALOG_TEMPLATES,
 } from '../src/services/systemEmbedCatalogService.js';
+import { prefersCatalogPreview } from '../src/services/embedManagerService.js';
 
 test('Blackjack result templates accept only real final game states', () => {
   const context = 'gambling/blackjack';
@@ -52,6 +56,48 @@ test('roulette and baccarat keep only their real reusable states', () => {
     'game:baccarat:result',
   );
   assert.equal(getSystemEmbedTemplateKey('embed', 'Baccarat — Res', '', 'gambling/baccarat'), '');
+});
+
+test('a saved source embed title remains authoritative for the live dynamic response', () => {
+  const context = 'gambling/rob-source-alias-test';
+  const sourceTitle = 'Robbery Failed';
+  const sourceKey = getSystemEmbedTemplateKey('embed', sourceTitle, '', context);
+
+  assert.equal(registerDiscoveredEmbedDefinition({
+    kind: 'embed',
+    title: sourceTitle,
+    context,
+    variantId: 'commands/Economy/rob.js:embed:source-alias-test',
+  }), true);
+
+  assert.equal(primeSystemEmbedTemplateData(sourceKey, context, {
+    title: 'Robbery failed',
+    description: 'You failed the robbery and were caught. You were fined **{dynamic}** of your own cash.',
+    color: 0x7A1712,
+  }), true);
+
+  const rendered = applyRuntimeEmbedTemplateData({
+    title: sourceTitle,
+    description: 'You failed the robbery and were caught. You were fined **$25** of your own cash.',
+    color: 0xFFFFFF,
+  }, { commandName: 'rob-source-alias-test' });
+
+  assert.equal(rendered.title, 'Robbery failed');
+  assert.equal(rendered.description, 'You failed the robbery and were caught. You were fined **$25** of your own cash.');
+  assert.equal(rendered.color, 0x7A1712);
+});
+
+test('a real response wins the first Builder preview over a sparse catalog card', () => {
+  assert.equal(prefersCatalogPreview([
+    { source: 'system-catalog', snapshot: { title: 'Robbery failed' } },
+    { source: 'modified', snapshot: { title: 'Robbery failed', description: 'Full live response' } },
+  ]), false);
+  assert.equal(prefersCatalogPreview([
+    { source: 'system-catalog', snapshot: {
+      title: 'Robbery failed',
+      author: { name: 'Cloudy template key: embed:test || Cloudy context: gambling/rob || Cloudy kind: embed' },
+    } },
+  ]), true);
 });
 
 test('ticket runtime output is never promoted into the system template catalog', () => {
