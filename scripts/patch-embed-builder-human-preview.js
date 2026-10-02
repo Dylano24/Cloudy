@@ -142,6 +142,8 @@ function humanTemplateRecordName(record) {
       text,
       displayEmojiMarker,
       `        const previewRecord = realRecords.at(-1) || representative;
+        const sourceRecord = group.records.filter(record => record.source === 'system-catalog').at(-1)
+            || representative;
 ${displayEmojiMarker}`,
       'live preview record',
     );
@@ -152,6 +154,7 @@ ${displayEmojiMarker}`,
             duplicateCount: group.records.length,`,
       `            displayEmojiSource,
             previewRecord,
+            sourceRecord,
             duplicateCount: group.records.length,`,
       'attach live preview record',
     );
@@ -165,7 +168,13 @@ ${displayEmojiMarker}`,
 
       const exportStart = text.lastIndexOf('export ', loaderStart);
       const replaceStart = exportStart !== -1 && exportStart + 7 === loaderStart ? exportStart : loaderStart;
-      const loaderBlock = `export function loadRecordSnapshotIntoState(state, guild, record, previewRecord = null) {
+      const loaderBlock = `export function loadRecordSnapshotIntoState(
+    state,
+    guild,
+    record,
+    previewRecord = null,
+    sourceRecord = null,
+) {
     const snapshot = record?.snapshot || getEmbedRegistrySnapshot(record);
     if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
 
@@ -176,33 +185,51 @@ ${displayEmojiMarker}`,
     const previewData = previewSnapshot && typeof previewSnapshot === 'object' && Object.keys(previewSnapshot).length
         ? (migrateCloudyLogoEmbedData(previewSnapshot).data || {})
         : null;
+    const effectiveSourceRecord = sourceRecord || record?.sourceRecord || null;
+    const sourceSnapshot = effectiveSourceRecord
+        ? (effectiveSourceRecord?.snapshot || getEmbedRegistrySnapshot(effectiveSourceRecord))
+        : null;
+    const sourceData = sourceSnapshot && typeof sourceSnapshot === 'object' && Object.keys(sourceSnapshot).length
+        ? (migrateCloudyLogoEmbedData(sourceSnapshot).data || {})
+        : null;
     const sourcePreviewData = getSystemSourceDefinitionPreview(
-        data.title,
-        stableSystemTemplateContext(data),
+        sourceData?.title || data.title,
+        stableSystemTemplateContext(sourceData || {}) || stableSystemTemplateContext(data),
     );
+    const templateSourceData = {
+        ...(sourceData || {}),
+        ...(sourcePreviewData || {}),
+    };
 
     // A live/history peer can exist but still be sparse. Merge each visible
     // piece independently so one title-only peer can never hide the complete
     // source definition from the Builder preview.
     const displayTitle = previewData?.title
         || sourcePreviewData?.title
+        || sourceData?.title
         || data.title;
     const displayDescription = previewData?.description
         ?? sourcePreviewData?.description
+        ?? sourceData?.description
         ?? data.description;
     const displayFields = Array.isArray(previewData?.fields) && previewData.fields.length
         ? previewData.fields
         : (Array.isArray(sourcePreviewData?.fields) && sourcePreviewData.fields.length
             ? sourcePreviewData.fields
-            : data.fields);
+            : (Array.isArray(sourceData?.fields) && sourceData.fields.length
+                ? sourceData.fields
+                : data.fields));
     const displayFooter = previewData?.footer
         || sourcePreviewData?.footer
+        || sourceData?.footer
         || data.footer;
     const displayImage = previewData?.image
         || sourcePreviewData?.image
+        || sourceData?.image
         || data.image;
     const displayThumbnail = previewData?.thumbnail
         || sourcePreviewData?.thumbnail
+        || sourceData?.thumbnail
         || data.thumbnail;
     const displaySourceData = {
         ...(sourcePreviewData || {}),
@@ -218,7 +245,8 @@ ${displayEmojiMarker}`,
     const logicalChannelId = String(record.channelId || '');
     const backingChannelId = String(record.backingChannelId || record.channelId || '');
     const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
-    const templateKind = stableSystemTemplateKind(data);
+    const templateKind = stableSystemTemplateKind(sourceData || {})
+        || stableSystemTemplateKind(data);
 
     state.title = templateKind === 'content' ? null : (displayTitle || null);
     state.message = displayDescription || null;
@@ -233,7 +261,9 @@ ${displayEmojiMarker}`,
         ? previewData.color
         : (Number.isInteger(sourcePreviewData?.color)
             ? sourcePreviewData.color
-            : (Number.isInteger(data.color) ? data.color : 0xFFFFFF));
+            : (Number.isInteger(sourceData?.color)
+                ? sourceData.color
+                : (Number.isInteger(data.color) ? data.color : 0xFFFFFF)));
     state.showLogo = isCloudyLogoUrl(displayThumbnail?.url);
     state.removeExistingLogo = false;
     state.bottomLine = footerText || null;
@@ -249,12 +279,16 @@ ${displayEmojiMarker}`,
         embedIndex: Number(record.embedIndex || 0),
         source: record.source || 'cloudy',
         sourceEmbedData: data,
+        templateSourceData,
         previewSourceData: displaySourceData,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
-        templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
+        templateTitle: templateRule?.key || templateIdentity(
+            logicalChannelId,
+            Object.keys(templateSourceData).length ? templateSourceData : data,
+        ),
         templateKind,
-        catalogTitle: data.title || null,
+        catalogTitle: templateSourceData.title || data.title || null,
         detached: Boolean(record.detached),
         cachedMessage: null,
     };
@@ -398,6 +432,7 @@ function builderDisplayChannel(guild, channelId) {
                     && Number(item.embedIndex || 0) === embedIndex
                 );
                 const previewRecord = selectedDisplayRecord?.previewRecord || null;
+                const sourceRecord = selectedDisplayRecord?.sourceRecord || null;
 
                 let record = records.find(item =>
                     builderDisplayChannelId(guild, item) === String(channelId) &&
@@ -410,13 +445,19 @@ function builderDisplayChannel(guild, channelId) {
     text = replaceOnce(
       text,
       '                let loaded = record ? loadRecordSnapshotIntoState(state, guild, record) : false;',
-      '                let loaded = record ? loadRecordSnapshotIntoState(state, guild, record, previewRecord) : false;',
+      '                let loaded = record ? loadRecordSnapshotIntoState(state, guild, record, previewRecord, sourceRecord) : false;',
       'selected live preview load',
     );
 
     text = text.replace(
       '&& loadRecordSnapshotIntoState(state, interaction.guild, pendingSearch.record)',
-      '&& loadRecordSnapshotIntoState(state, interaction.guild, pendingSearch.record, pendingSearch.previewRecord || null)',
+      '&& loadRecordSnapshotIntoState(\n'
+        + '                    state,\n'
+        + '                    interaction.guild,\n'
+        + '                    pendingSearch.record,\n'
+        + '                    pendingSearch.previewRecord || null,\n'
+        + '                    pendingSearch.sourceRecord || pendingSearch.record?.sourceRecord || null,\n'
+        + '                )',
     );
 
     const saveMarker = 'function applyStateToExistingEmbed(state) {';
@@ -483,7 +524,7 @@ function restoreDynamicTemplateText(templateText, liveText, editedText) {
     }
 
     const previewSource = target?.previewSourceData;
-    const templateSource = target?.sourceEmbedData;
+    const templateSource = target?.templateSourceData || target?.sourceEmbedData;
     if (previewSource && templateSource) {
         if (data.title && templateSource.title) {
             data.title = restoreDynamicTemplateText(templateSource.title, previewSource.title, data.title).slice(0, 256);
@@ -535,6 +576,13 @@ function restoreDynamicTemplateText(templateText, liveText, editedText) {
     state.modifyTarget.cachedMessage = edited;`,
       'refresh live preview baseline after save',
     );
+
+    if (!text.includes('export function collapseDisplayRecords(')) {
+      text = text.replace(
+        'function collapseDisplayRecords(channelRecords, channelId = null) {',
+        'export function collapseDisplayRecords(channelRecords, channelId = null) {',
+      );
+    }
 
     fs.writeFileSync(path, text, 'utf8');
     console.log('[BUILDER_HUMAN_PREVIEW] human names and live dynamic previews patched');
