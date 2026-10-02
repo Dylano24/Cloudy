@@ -36,7 +36,7 @@ function clean(value, max = 100) {
 }
 
 function snapshot(record) {
-    return getEmbedRegistrySnapshot(record) || {};
+    return getEmbedRegistrySnapshot(record) || record?.snapshot || {};
 }
 
 function isTechnicalVisibleName(value) {
