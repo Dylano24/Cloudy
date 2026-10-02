@@ -66,7 +66,7 @@ test('restored information panels use current Discord channels with only verifie
 
   const information = payloads.informations.embeds[0].toJSON();
   assert.equal(information.title, undefined);
-  assert.equal(information.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+  assert.equal(information.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.', JSON.stringify(information));
   assert.deepEqual(information.fields.map(field => field.name), [
     VERIFIED_CLOUDY_TEXT.rulesLabel,
     VERIFIED_CLOUDY_TEXT.linkAccountLabel,
