@@ -4,11 +4,29 @@ import handler from '../src/events/cloudyFixGuideInteraction.js';
 import { MessageFlags } from 'discord.js';
 
 function interaction(names = ['Owner']) {
+  const member = {
+    id: 'user',
+    permissions: { has: () => true },
+    roles: { cache: { some: fn => names.some(name => fn({ name })) } },
+  };
+  const botMember = { id: 'bot' };
+  const guild = {
+    id: 'test',
+    ownerId: 'user',
+    members: {
+      fetch: async () => member,
+      fetchMe: async () => botMember,
+    },
+    channels: {
+      cache: new Map(),
+      fetch: async () => new Map(),
+    },
+  };
   return {
     isButton: () => false, isModalSubmit: () => true,
     customId: 'cloudy_fix_guide_ask_modal', channelId: '1546229542027534478',
-    guild: { id: 'test', ownerId: 'user' }, user: { id: 'user', username: 'owner' },
-    member: { roles: { cache: { some: fn => names.some(name => fn({ name })) } } },
+    guild, user: { id: 'user', username: 'owner' },
+    member,
     fields: { getTextInputValue: () => 'What is 2 plus 2?' }, client: {},
   };
 }
