@@ -133,7 +133,46 @@ function resolveEmbedSourceAlias(context, title) {
     });
 }`;
     text = replaceOnce(text, oldFn, newFn, 'full live preview preference');
+
+    const identityOld = `export function templateIdentity(channelId, value) {
+    const data = value && typeof value === 'object' ? value : { title: value };
+    const stableKey = stableSystemTemplateKey(data);
+    if (stableKey) return stableKey;
+    const title = String(data.title || '');`;
+    const identityNew = `export function templateIdentity(channelId, value) {
+    const data = value && typeof value === 'object' ? value : { title: value };
+    const stableKey = stableSystemTemplateKey(data);
+    // Generic embed hashes are historical storage identities, not separate
+    // visible Builder types. Let their normalized title shape group old and
+    // current copies together. Named and game keys remain authoritative.
+    if (stableKey && !stableKey.startsWith('embed:')) return stableKey;
+    const title = String(data.title || '');`;
+    text = replaceOnce(text, identityOld, identityNew, 'generic source display identity');
+
+    const representativeOld = `        const canonicalCatalogRecords = group.canonicalCasinoKey
+            ? group.records.filter(record => stableSystemTemplateKey(recordEmbedData(record)) === group.canonicalCasinoKey)
+            : [];
+        const representative = canonicalCatalogRecords.at(-1)
+            || (realRecords.length ? realRecords : group.records).at(-1);`;
+    const representativeNew = `        const canonicalCatalogRecords = group.canonicalCasinoKey
+            ? group.records.filter(record => stableSystemTemplateKey(recordEmbedData(record)) === group.canonicalCasinoKey)
+            : [];
+        const sourceCatalogRecords = group.canonicalCasinoKey
+            ? []
+            : group.records.filter(record =>
+                record.source === 'system-catalog'
+                && stableSystemTemplateKey(recordEmbedData(record)).startsWith('embed:')
+            );
+        // Keep one canonical hidden catalog record as the Save target for a
+        // source-defined response. Real messages still provide the first live
+        // channel preview, but duplicate catalog hashes no longer become
+        // separate options.
+        const representative = canonicalCatalogRecords.at(-1)
+            || sourceCatalogRecords[0]
+            || (realRecords.length ? realRecords : group.records).at(-1);`;
+    text = replaceOnce(text, representativeOld, representativeNew, 'canonical generic source Save target');
+
     fs.writeFileSync(path, text, 'utf8');
-    console.log('[RESPONSE_EMBED_SOURCE_ALIAS] patched full live preview preference');
+    console.log('[RESPONSE_EMBED_SOURCE_ALIAS] patched full live preview and duplicate grouping');
   }
 }
