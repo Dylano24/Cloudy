@@ -419,8 +419,8 @@ function seedKnownGameResponses() {
   const baccaratResults = [
     ['win', 'You chose **{dynamic}**. Winner: **{dynamic}**\nPayout: **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
     ['loss', 'You chose **{dynamic}**. Winner: **{dynamic}**\nYou lost **{dynamic}**\nCash balance: **{dynamic}**', baccaratFields],
-    ['push', 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie — your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**', baccaratFields],
-    ['expired', 'Game expired — **{dynamic}** was returned.', []],
+    ['push', 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie, your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**', baccaratFields],
+    ['expired', 'Game expired. **{dynamic}** was returned.', []],
   ];
   for (const [outcome, description, fields] of baccaratResults) {
     captureSystemEmbedData({
