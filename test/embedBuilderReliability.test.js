@@ -423,6 +423,61 @@ test('Builder Search keeps canonical casino masters as the Save target', () => {
   assert.equal(matches[0].record.messageId, 'catalog-blackjack-loss');
 });
 
+test('Builder Search resolves legacy Success alias to Robbery successful', () => {
+  primeSystemSourceDefinitionPreview({
+    kind: 'embed',
+    context: 'gambling/rob',
+    title: 'Robbery successful',
+    description: 'You successfully stole **{dynamic}** from {dynamic}!',
+    color: 0x00C49D,
+    fields: [
+      { name: 'Your new cash ({dynamic})', value: '{dynamic}', inline: true },
+      { name: "Victim's new cash ({dynamic})", value: '{dynamic}', inline: true },
+    ],
+    footer: { text: 'Next robbery available in {dynamic} hours.' },
+  });
+
+  const channel = {
+    id: '200000000000000088',
+    name: 'gambling',
+    parent: null,
+  };
+  const guild = {
+    id: '100000000000000088',
+    channels: { cache: new Map([[channel.id, channel]]) },
+  };
+  const records = [{
+    guildId: guild.id,
+    channelId: channel.id,
+    backingChannelId: '900000000000000088',
+    messageId: '300000000000000088',
+    embedIndex: 0,
+    source: 'system-catalog',
+    title: 'Success',
+    name: 'Success',
+    createdAt: '2026-10-02T18:20:00.000Z',
+    snapshot: {
+      title: 'Success',
+      description: 'Robbery successful',
+      color: 0x00C49D,
+      author: {
+        name: 'Cloudy template key: embed:legacyrob || Cloudy context: gambling/rob || Cloudy kind: embed',
+      },
+    },
+  }];
+
+  const matches = buildLiveSearchMatches(guild, records, 'robbery successful');
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].document.title, 'Robbery successful');
+  assert.equal(matches[0].record.title, 'Robbery successful');
+  assert.equal(
+    matches[0].record.snapshot.description,
+    'You successfully stole **{dynamic}** from {dynamic}!',
+  );
+  assert.equal(matches[0].record.snapshot.fields.length, 2);
+  assert.equal(matches[0].record.snapshot.footer.text, 'Next robbery available in {dynamic} hours.');
+});
+
 test('Builder Search loads the same full dynamic source data as the normal Modify browser', () => {
   const channel = {
     id: '200000000000000089',
