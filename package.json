@@ -63,6 +63,7 @@
     "scripts/patch-zorp-manual-save-only.js",
     "scripts/patch-casino-final-outcome-guard.js",
     "scripts/patch-response-template-source-sync.js",
+    "scripts/patch-response-embed-source-alias.js",
     "scripts/patch-content-template-editor.js",
     "scripts/patch-ui-latency.js",
     "scripts/patch-embed-builder-single-preview-target.js",
