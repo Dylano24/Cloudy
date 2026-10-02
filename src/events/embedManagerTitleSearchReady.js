@@ -112,12 +112,34 @@ function templateSearchShape(value) {
     .trim();
 }
 
+function isTechnicalVisibleName(value) {
+  const text = shortText(value, 100);
+  return /^cloudy template key:/i.test(text)
+    || /^(?:source|embed):[a-z0-9_-]{6,}$/i.test(text)
+    || /^(?:game|ticket-log):[a-z0-9:_-]+$/i.test(text);
+}
+
 function normalizedTitle(record) {
   const snapshot = getEmbedRegistrySnapshot(record) || {};
-  return String(record?.name || record?.title || snapshot?.title || 'Untitled embed')
-    .replace(/<a?:[^:>]+:\d+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const candidates = [snapshot?.title, record?.name, record?.title]
+    .map(value => String(value || '')
+      .replace(/<a?:[^:>]+:\d+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (!isTechnicalVisibleName(candidate)) return candidate;
+  }
+
+  const firstLine = String(snapshot?.description || '')
+    .split('\n')
+    .map(line => line.replace(/^[>\s#*_\`~|]+/, '').replace(/[*_\`~]/g, '').trim())
+    .find(Boolean);
+
+  return firstLine && !isTechnicalVisibleName(firstLine)
+    ? firstLine
+    : 'Untitled embed';
 }
 
 function recordPriority(record) {
@@ -370,9 +392,7 @@ function buildSearchResultsPayload(guild, query, matches, page = 0) {
         new StringSelectMenuOptionBuilder()
           .setLabel(shortText(title))
           .setDescription(shortText(
-            record.source === 'system-catalog'
-              ? 'Automatic template • future matching messages'
-              : `${channel?.name ? `#${channel.name} • ` : ''}${record.source || 'embed'}`,
+            channel?.name ? `#${channel.name}` : 'Saved embed',
           ))
           .setValue(`${record.messageId}:${Number(record.embedIndex || 0)}`),
       ));
@@ -406,8 +426,7 @@ function buildSearchResultsPayload(guild, query, matches, page = 0) {
   const visibleMatches = pageSegments.flatMap(segment => segment.matches);
   const preview = visibleMatches.slice(0, MAX_PREVIEW_LINES).map((match, index) => {
     const channel = guild.channels.cache.get(String(match.record.channelId || '')) || null;
-    const source = match.record.source === 'system-catalog' ? 'template' : 'embed';
-    return `**${(safePage * MAX_PREVIEW_LINES) + index + 1}.** ${cleanPreview(match.title)} — ${channel?.name ? `#${cleanPreview(channel.name, 30)}` : 'channel'} • ${source}`;
+    return `**${(safePage * MAX_PREVIEW_LINES) + index + 1}.** ${cleanPreview(match.title)} — ${channel?.name ? `#${cleanPreview(channel.name, 30)}` : 'channel'}`;
   });
 
   const description = matches.length
