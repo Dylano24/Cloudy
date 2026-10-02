@@ -202,6 +202,30 @@ function findTitlesOnLine(lines, index) {
 
 function addDefinition(results, seen, definition) {
   const identity = `${definition.kind}|${definition.context}|${definition.title || definition.label || ''}|${definition.description || ''}`;
+
+  if (definition.kind === 'embed' && definition.title) {
+    const sameTitle = results.findIndex(existing =>
+      existing.kind === 'embed'
+      && existing.context === definition.context
+      && existing.title === definition.title
+    );
+
+    if (sameTitle >= 0) {
+      const existing = results[sameTitle];
+      if (!existing.description && definition.description) {
+        results[sameTitle] = {
+          ...existing,
+          ...definition,
+          fields: definition.fields?.length ? definition.fields : existing.fields,
+          footer: definition.footer?.text ? definition.footer : existing.footer,
+        };
+        seen.add(identity);
+        return;
+      }
+      if (existing.description && !definition.description) return;
+    }
+  }
+
   if (seen.has(identity)) return;
   seen.add(identity);
   results.push(definition);
