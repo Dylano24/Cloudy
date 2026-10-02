@@ -610,6 +610,51 @@ test('stable source metadata restores full preview text for generic sparse templ
   assert.equal(preview.toJSON().description, description);
 });
 
+test('saved canonical Builder text outranks source fallback text', async () => {
+  installTestStorage();
+
+  const guildId = 'saved-source-priority-guild';
+  const channelId = 'saved-source-priority-channel';
+  const messageId = 'saved-source-priority-message';
+
+  primeSystemSourceDefinitionPreview({
+    key: 'source:saved-priority',
+    kind: 'embed',
+    title: 'Information',
+    description: 'Original source text',
+    context: 'server-information/informations',
+  });
+
+  const message = {
+    id: messageId,
+    guildId,
+    channelId,
+    embeds: [{
+      title: 'Information',
+      description: 'Saved custom text',
+      color: 0xFFFFFF,
+      author: {
+        name: 'Cloudy template key: source:saved-priority || Cloudy context: server-information/informations || Cloudy kind: embed',
+      },
+    }],
+    createdAt: new Date('2026-10-02T17:05:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder'), true);
+  const [stored] = await getEmbedRegistry(guildId);
+  const state = {};
+
+  assert.equal(loadRecordSnapshotIntoState(
+    state,
+    { id: guildId },
+    { ...stored, source: 'system-catalog' },
+  ), true);
+  assert.equal(state.message, 'Saved custom text');
+
+  const [preview] = buildBuilderEmbeds(state);
+  assert.equal(preview.toJSON().description, 'Saved custom text');
+});
+
 test('background registry refresh is disabled for read only Builder browsing', () => {
   const session = { closed: false, hasInteracted: false };
   const state = { activeEmbedManager: session };
