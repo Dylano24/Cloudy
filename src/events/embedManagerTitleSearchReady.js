@@ -14,7 +14,6 @@ import { InteractionHelper } from '../utils/interactionHelper.js';
 import {
   getEmbedRegistry,
   getEmbedRegistrySnapshot,
-  reconcileEmbedRegistry,
 } from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
 
@@ -479,14 +478,8 @@ function cleanupSearchSessions() {
 }
 
 async function refreshRecords(interaction) {
-  let records = await getEmbedRegistry(interaction.guildId);
-  try {
-    const reconciled = await reconcileEmbedRegistry(interaction.guild);
-    if (Array.isArray(reconciled?.records)) records = reconciled.records;
-  } catch (error) {
-    logger.debug(`[EMBED_BUILDER] Search registry refresh skipped: ${error?.message || error}`);
-  }
-  return records;
+  // Search is read only. It must never reconcile, import or persist records.
+  return getEmbedRegistry(interaction.guildId);
 }
 
 async function handleSearchButton(interaction) {
