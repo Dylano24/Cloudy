@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { buildBuilderEmbeds } from '../src/commands/Tools/embedbuilder.js';
 import { EmbedBuilder } from 'discord.js';
 
 import { db, getFromDb, setInDb } from '../src/utils/database.js';
@@ -285,6 +286,38 @@ class FakeCollector extends EventEmitter {
     this.emit('end', [], reason);
   }
 }
+
+test('Builder preview hides internal template metadata while showing live dynamic values', () => {
+  const state = {
+    title: 'Cloudy Fix Guide',
+    message: 'Owner: Dylano',
+    sideColor: 0x5865F2,
+    showLogo: false,
+    removeExistingLogo: false,
+    bottomLine: null,
+    mediaBuffer: null,
+    mediaName: null,
+    mediaUrl: null,
+    mediaConvertedFromVideo: false,
+    embedFields: [],
+    modifyTarget: {
+      sourceEmbedData: {
+        title: 'Cloudy Fix Guide',
+        description: 'Owner: {dynamic}',
+        author: {
+          name: 'Cloudy template key: source:e8ffec87 || Cloudy context: faq/faq-ai-interaction || Cloudy kind: content',
+        },
+      },
+    },
+  };
+
+  const [preview] = buildBuilderEmbeds(state);
+  const data = preview.toJSON();
+
+  assert.equal(data.title, 'Cloudy Fix Guide');
+  assert.equal(data.description, 'Owner: Dylano');
+  assert.equal(data.author, undefined);
+});
 
 test('background registry refresh stops as soon as manager interaction begins', () => {
   const session = { closed: false, hasInteracted: false };
