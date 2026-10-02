@@ -70,6 +70,28 @@ export default {
           messages,
         }));
       }
+
+      if (client.db?.list && client.db?.get) {
+        const keys = await client.db.list('cloudy:').catch(() => []);
+        for (const key of keys || []) {
+          if (!/^cloudy:(?:embed-template|embed-registry):/i.test(String(key))) continue;
+          const value = await client.db.get(key, null).catch(() => null);
+          const encoded = JSON.stringify(value);
+          if (!/(?:free[\\s_-]*kits?|link[\\s_-]*your[\\s_-]*account|purchase|subscription|information|rust|claim)/i.test(encoded)) continue;
+          console.log('[KNOWLEDGE_DB]', JSON.stringify({ key, value }));
+        }
+      }
+
+      for (const guild of client.guilds.cache.values()) {
+        const commands = await guild.commands.fetch().catch(() => null);
+        const relevant = [...(commands?.values?.() || [])]
+          .map(command => command.toJSON?.() || command)
+          .filter(command => /(?:free|kit|claim|link|account|rust|purchase)/i.test(JSON.stringify(command)));
+        console.log('[KNOWLEDGE_COMMANDS]', JSON.stringify({
+          guildId: guild.id,
+          commands: relevant,
+        }));
+      }
     }, 8000);
 
     timer.unref?.();
