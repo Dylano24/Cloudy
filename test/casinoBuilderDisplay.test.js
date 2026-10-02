@@ -177,6 +177,29 @@ test('background catalog cleanup preserves legacy Roulette copies and saved titl
   assert.equal(JSON.stringify(messages.map(message => message.embeds[0].toJSON())), before);
 });
 
+test('saved Baccarat push wording reaches the live response with current values', () => {
+  const key = 'game:baccarat:push';
+  const context = 'gambling/baccarat';
+  primeSystemEmbedTemplateData(key, context, {
+    title: 'Baccarat push',
+    description: 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie, your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**',
+    color: 0xFFFFFF,
+  });
+
+  const rendered = applyRuntimeEmbedTemplateData({
+    title: 'Baccarat push',
+    description: 'You chose **player**. Winner: **tie**\nTie, your **$10** bet was returned.\nCash balance: **$7,288,230**',
+    color: 0xFFFFFF,
+  }, { commandName: 'baccarat' });
+
+  assert.equal(rendered.title, 'Baccarat push');
+  assert.equal(
+    rendered.description,
+    'You chose **player**. Winner: **tie**\nTie, your **$10** bet was returned.\nCash balance: **$7,288,230**',
+  );
+  assert.equal(rendered.description.includes('—'), false);
+});
+
 test('casino runtime outcome identity stays authoritative while live values remain dynamic', () => {
   const cases = [
     {
