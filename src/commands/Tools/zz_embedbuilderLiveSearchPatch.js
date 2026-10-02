@@ -36,12 +36,34 @@ function clean(value, max = 100) {
 }
 
 function snapshot(record) {
-    return getEmbedRegistrySnapshot(record) || {};
+    return getEmbedRegistrySnapshot(record) || record?.snapshot || {};
 }
 
-function recordTitle(record) {
+function isTechnicalVisibleName(value) {
+    const text = clean(value, 100);
+    return /^cloudy template key:/i.test(text)
+        || /^(?:source|embed):[a-z0-9_-]{6,}$/i.test(text)
+        || /^(?:game|ticket-log):[a-z0-9:_-]+$/i.test(text);
+}
+
+export function recordTitle(record) {
     const data = snapshot(record);
-    return clean(record?.name || record?.title || data?.title || 'Untitled embed', 100);
+    const candidates = [data?.title, record?.name, record?.title]
+        .map(value => clean(value, 100))
+        .filter(Boolean);
+
+    for (const candidate of candidates) {
+        if (!isTechnicalVisibleName(candidate)) return candidate;
+    }
+
+    const firstLine = String(data?.description || '')
+        .split('\n')
+        .map(line => clean(line.replace(/^[>\s#*_\`~|]+/, '').replace(/[*_\`~]/g, ''), 100))
+        .find(Boolean);
+
+    return firstLine && !isTechnicalVisibleName(firstLine)
+        ? firstLine
+        : 'Untitled embed';
 }
 
 function recordDocument(guild, record) {
@@ -141,11 +163,6 @@ function searchScore(document, rawQuery) {
 
 function logicalKey(record, document) {
     const titleKey = normalize(document.title) || `${record?.messageId}:${record?.embedIndex || 0}`;
-    if (String(record?.source || '').toLowerCase() === 'system-catalog') {
-        // Bot-code templates are global identities. They are intentionally not
-        // tied to the channel where a catalog copy happens to be stored.
-        return `bot:${titleKey}`;
-    }
     return `${record?.channelId}:${titleKey}`;
 }
 
@@ -169,7 +186,23 @@ function chooseBetter(left, right) {
     return rightTime >= leftTime ? right : left;
 }
 
-function buildMatches(guild, records, query) {
+export function latestRealPreviewRecord(guild, records, selectedRecord) {
+    if (!selectedRecord) return null;
+    const selectedDocument = recordDocument(guild, selectedRecord);
+    const key = logicalKey(selectedRecord, selectedDocument);
+
+    return records
+        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog')
+        .filter(record => logicalKey(record, recordDocument(guild, record)) === key)
+        .sort((left, right) => {
+            const leftTime = new Date(left?.updatedAt || left?.createdAt || 0).getTime();
+            const rightTime = new Date(right?.updatedAt || right?.createdAt || 0).getTime();
+            return leftTime - rightTime;
+        })
+        .at(-1) || null;
+}
+
+export function buildMatches(guild, records, query) {
     const grouped = new Map();
     const hasQuery = Boolean(normalize(query));
 
@@ -245,10 +278,9 @@ function isModifyPayload(payload) {
 function buildDirectSelectionPayload(interaction, payload, pending) {
     const record = pending.record;
     const document = recordDocument(interaction.guild, record);
-    const isBotCode = String(record?.source || '').toLowerCase() === 'system-catalog';
-    const description = isBotCode
-        ? 'Bot code • global template'
-        : `${document.channel?.name ? `#${document.channel.name}` : 'Saved embed'}`;
+    const description = document.channel?.name
+        ? `#${document.channel.name}`
+        : 'Saved embed';
 
     const menu = new StringSelectMenuBuilder()
         .setCustomId(`simple_embed_modify_embed:${record.channelId}:0`)
@@ -320,16 +352,10 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
 
         const records = await getEmbedRegistry(interaction.guildId);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
-        const choices = matches.map(({ record, document }) => {
-            const botCode = String(record?.source || '').toLowerCase() === 'system-catalog';
-            const prefix = botCode
-                ? 'Bot code • '
-                : (document.channel?.name ? `#${document.channel.name} • ` : 'Embed • ');
-            return {
-                name: clean(`${prefix}${document.title}`, 100),
-                value: selectionValue(record),
-            };
-        });
+        const choices = matches.map(({ record, document }) => ({
+            name: clean(document.title, 100),
+            value: selectionValue(record),
+        }));
 
         await interaction.respond(choices).catch(() => {});
     };
@@ -350,6 +376,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             if (record) {
                 pendingSelections.set(selectionKey(interaction), {
                     record,
+                    previewRecord: latestRealPreviewRecord(interaction.guild, records, record),
                     expiresAt: Date.now() + PENDING_TTL,
                 });
             }
