@@ -175,6 +175,57 @@ test('generic source template duplicates collapse to one canonical Builder Save 
   assert.equal(options[0].value, 'catalog-0:0');
 });
 
+test('technical source keys collapse into one human Builder entry without duplicates', () => {
+  const records = [
+    {
+      guildId: 'guild-casino-labels',
+      channelId: 'channel-gambling',
+      backingChannelId: 'channel-catalog',
+      messageId: 'source-catalog-1',
+      embedIndex: 0,
+      source: 'system-catalog',
+      title: 'source:e8ffec87',
+      name: 'source:e8ffec87',
+      createdAt: '2026-10-02T14:00:00.000Z',
+      snapshot: {
+        title: 'source:e8ffec87',
+        description: 'This FAQ assistant can only be used in the FAQ channel.',
+        author: {
+          name: 'Cloudy template key: source:e8ffec87 || Cloudy context: faq/faq-ai-interaction || Cloudy kind: content',
+        },
+      },
+    },
+    {
+      guildId: 'guild-casino-labels',
+      channelId: 'channel-gambling',
+      backingChannelId: 'channel-catalog',
+      messageId: 'source-catalog-2',
+      embedIndex: 0,
+      source: 'system-catalog',
+      title: 'source:ab12cd34',
+      name: 'source:ab12cd34',
+      createdAt: '2026-10-02T14:01:00.000Z',
+      snapshot: {
+        title: 'source:ab12cd34',
+        description: 'This FAQ assistant can only be used in the FAQ channel.',
+        author: {
+          name: 'Cloudy template key: source:ab12cd34 || Cloudy context: faq/faq-ai-interaction || Cloudy kind: content',
+        },
+      },
+    },
+  ];
+
+  const options = menuOptions(buildEmbedPayload(
+    gamblingGuild(),
+    records,
+    'channel-gambling',
+  ));
+
+  assert.equal(options.length, 1);
+  assert.equal(options[0].label, 'This FAQ assistant can only be used in the FAQ channel.');
+  assert.equal(/source:|embed:|cloudy template key/i.test(options[0].label), false);
+});
+
 test('background catalog cleanup preserves legacy Roulette copies and saved titles', async () => {
   const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
   const makeMessage = (id, title, key, createdTimestamp) => ({
