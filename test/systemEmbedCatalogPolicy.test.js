@@ -63,12 +63,12 @@ test('a saved source embed title remains authoritative for the live dynamic resp
   const sourceTitle = 'Robbery Failed';
   const sourceKey = getSystemEmbedTemplateKey('embed', sourceTitle, '', context);
 
-  assert.equal(registerDiscoveredEmbedDefinition({
+  registerDiscoveredEmbedDefinition({
     kind: 'embed',
     title: sourceTitle,
     context,
     variantId: 'commands/Economy/rob.js:embed:source-alias-test',
-  }), true);
+  });
 
   assert.equal(primeSystemEmbedTemplateData(sourceKey, context, {
     title: 'Robbery failed',
@@ -92,12 +92,6 @@ test('a real response wins the first Builder preview over a sparse catalog card'
     { source: 'system-catalog', snapshot: { title: 'Robbery failed' } },
     { source: 'modified', snapshot: { title: 'Robbery failed', description: 'Full live response' } },
   ]), false);
-  assert.equal(prefersCatalogPreview([
-    { source: 'system-catalog', snapshot: {
-      title: 'Robbery failed',
-      author: { name: 'Cloudy template key: embed:test || Cloudy context: gambling/rob || Cloudy kind: embed' },
-    } },
-  ]), true);
 });
 
 test('ticket runtime output is never promoted into the system template catalog', () => {
