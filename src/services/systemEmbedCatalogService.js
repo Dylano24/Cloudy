@@ -397,6 +397,13 @@ export function getSystemSourceDefinitionPreview(title, context = null) {
   return found ? cloneData(found) : null;
 }
 
+export function primeSystemSourceDefinitionPreview(definition = {}) {
+  const before = sourceDefinitionCache.size;
+  rememberSourceDefinition(definition);
+  return sourceDefinitionCache.size > before
+    || Boolean(getSystemSourceDefinitionPreview(definition.title, definition.context));
+}
+
 function rememberCatalogMessage(message) {
   for (const embed of message?.embeds || []) {
     const metadata = parseTemplateMetadata(embed);
@@ -780,7 +787,6 @@ function queueRuntimeEntry(entry) {
 }
 
 export function registerDiscoveredEmbedDefinition(definition = {}) {
-  rememberSourceDefinition(definition);
   const entry = definitionToCatalog(definition);
   if (!entry.key || isInternalTemplate(entry.data) || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
   return queueRuntimeEntry(entry);
