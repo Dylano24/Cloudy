@@ -4,7 +4,8 @@ import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { setEconomyData } from '../../utils/economy.js';
-import { takeBet, money } from './modules/casinoGameUtils.js';
+import { takeBet, money, adjustCasinoBalance } from './modules/casinoGameUtils.js';
+import { logger } from '../../utils/logger.js';
 import { cardEmoji, cardsEmojiLine } from './modules/casinoCardEmojis.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
@@ -126,8 +127,7 @@ async function settle(state, component, collector) {
     }
   }
 
-  state.data.wallet += payout;
-  await setEconomyData(state.client, state.guildId, state.user.id, state.data);
+  state.data = await adjustCasinoBalance(state.client, state.guildId, state.user.id, payout);
 
   let outcome;
   if (isSingleHand) {
@@ -157,7 +157,8 @@ export default {
   category: 'Economy',
   execute: withErrorHandling(async (interaction, config, client) => {
     const deferred = await InteractionHelper.safeDefer(interaction); if (!deferred) return;
-    const { amount, userData } = await takeBet(interaction, client); await setEconomyData(client, interaction.guildId, interaction.user.id, userData);
+    const { amount, userData } = await takeBet(interaction, client);
+    if (!await setEconomyData(client, interaction.guildId, interaction.user.id, userData)) throw new Error('Could not persist casino bet');
     const deck = makeDeck();
     const state = { id: interaction.id, client, guildId: interaction.guildId, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
     await InteractionHelper.safeEditReply(interaction, await payload(state));
@@ -165,6 +166,16 @@ export default {
     if (!message?.createMessageComponentCollector) return;
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${state.id}`), time: 10 * 60 * 1000 });
     let busy = false;
+    let expiryPending = false;
+    async function expireGame() {
+      if (state.finished) return;
+      if (busy) { expiryPending = true; return; }
+      state.finished = true;
+      try {
+        state.data = await adjustCasinoBalance(client, interaction.guildId, interaction.user.id, state.totalBet);
+        await message.edit(await payload(state, { title: 'Expired', color: 'warning', text: `Game expired — **${money(state.totalBet)}** was returned.` }, true));
+      } catch (error) { logger.error('Blackjack expiry failed:', error); }
+    }
     collector.on('collect', async component => {
       InteractionHelper.patchInteractionResponses(component);
       if (busy || state.finished) return; busy = true;
@@ -176,11 +187,13 @@ export default {
         if (action === 'stand') hand.done = true;
         if (action === 'double') {
           if (hand.cards.length !== 2 || state.data.wallet < hand.bet) throw createError('Double unavailable', ErrorTypes.VALIDATION, 'You cannot double this hand.');
-          state.data.wallet -= hand.bet; state.totalBet += hand.bet; hand.bet *= 2; hand.cards.push(draw(state)); hand.done = true;
+          state.data = await adjustCasinoBalance(client, interaction.guildId, interaction.user.id, -hand.bet);
+          state.totalBet += hand.bet; hand.bet *= 2; hand.cards.push(draw(state)); hand.done = true;
         }
         if (action === 'split') {
           if (state.hands.length !== 1 || hand.cards.length !== 2 || hand.cards[0].rank !== hand.cards[1].rank || state.data.wallet < hand.bet) throw createError('Split unavailable', ErrorTypes.VALIDATION, 'You can only split a matching pair when you have enough cash.');
-          state.data.wallet -= hand.bet; state.totalBet += hand.bet;
+          state.data = await adjustCasinoBalance(client, interaction.guildId, interaction.user.id, -hand.bet);
+          state.totalBet += hand.bet;
           state.hands = [{ cards: [hand.cards[0], draw(state)], bet: hand.bet, done: false }, { cards: [hand.cards[1], draw(state)], bet: hand.bet, done: false }]; state.current = 0;
         }
         const activeHand = state.hands[state.current];
@@ -189,12 +202,11 @@ export default {
         if (state.hands.every(current => current.done || score(current.cards) > 21)) { await settle(state, component, collector); return; }
         await component.update(await payload(state));
       } catch (error) { await component.reply({ ephemeral: true, content: error.userMessage || 'That action cannot be used now.' }).catch(() => {}); }
-      finally { busy = false; }
+      finally { busy = false; if (expiryPending) await expireGame(); }
     });
     collector.on('end', async (_, reason) => {
       if (reason === 'finished' || state.finished) return;
-      state.finished = true; state.data.wallet += state.totalBet; await setEconomyData(client, interaction.guildId, interaction.user.id, state.data);
-      await message.edit(await payload(state, { title: 'Expired', color: 'warning', text: `Game expired — **${money(state.totalBet)}** was returned.` }, true)).catch(() => {});
+      await expireGame();
     });
   }, { command: 'blackjack' }),
 };

@@ -141,6 +141,40 @@ test('legacy casino loss copies collapse into one canonical Save target per game
   }
 });
 
+test('generic source template duplicates collapse to one canonical Builder Save target', () => {
+  const records = [
+    catalogRecord(0, 'embed:source-master', 'Robbery failed', 'gambling/rob'),
+    catalogRecord(1, 'embed:runtime-copy', 'Robbery Failed', 'gambling/rob', {
+      description: 'You failed the robbery and were caught. You were fined **{dynamic}** of your own cash.',
+    }),
+    {
+      guildId: 'guild-casino-labels',
+      channelId: 'channel-gambling',
+      backingChannelId: 'channel-gambling',
+      messageId: 'real-robbery',
+      embedIndex: 0,
+      source: 'modified',
+      title: 'Robbery Failed',
+      name: 'Robbery Failed',
+      createdAt: new Date(Date.UTC(2026, 8, 2, 17, 0)).toISOString(),
+      snapshot: {
+        title: 'Robbery Failed',
+        description: 'You failed the robbery and were caught. You were fined **$25** of your own cash.',
+      },
+    },
+  ];
+
+  const options = menuOptions(buildEmbedPayload(
+    gamblingGuild(),
+    records,
+    'channel-gambling',
+  ));
+
+  assert.equal(options.length, 1);
+  assert.equal(options[0].label, 'Robbery failed');
+  assert.equal(options[0].value, 'catalog-0:0');
+});
+
 test('background catalog cleanup preserves legacy Roulette copies and saved titles', async () => {
   const emojiTitle = '<a:W85animatedarrowred:1543290732331270124> You lost';
   const makeMessage = (id, title, key, createdTimestamp) => ({
@@ -175,6 +209,29 @@ test('background catalog cleanup preserves legacy Roulette copies and saved titl
   assert.equal(await cleanupSystemCatalogEntries(messages), false);
   assert.equal(messages.length, 3);
   assert.equal(JSON.stringify(messages.map(message => message.embeds[0].toJSON())), before);
+});
+
+test('saved Baccarat push wording reaches the live response with current values', () => {
+  const key = 'game:baccarat:push';
+  const context = 'gambling/baccarat';
+  primeSystemEmbedTemplateData(key, context, {
+    title: 'Baccarat push',
+    description: 'You chose **{dynamic}**. Winner: **{dynamic}**\nTie, your **{dynamic}** bet was returned.\nCash balance: **{dynamic}**',
+    color: 0xFFFFFF,
+  });
+
+  const rendered = applyRuntimeEmbedTemplateData({
+    title: 'Baccarat push',
+    description: 'You chose **player**. Winner: **tie**\nTie, your **$10** bet was returned.\nCash balance: **$7,288,230**',
+    color: 0xFFFFFF,
+  }, { commandName: 'baccarat' });
+
+  assert.equal(rendered.title, 'Baccarat push');
+  assert.equal(
+    rendered.description,
+    'You chose **player**. Winner: **tie**\nTie, your **$10** bet was returned.\nCash balance: **$7,288,230**',
+  );
+  assert.equal(rendered.description.includes('—'), false);
 });
 
 test('casino runtime outcome identity stays authoritative while live values remain dynamic', () => {
@@ -228,7 +285,7 @@ test('casino runtime outcome identity stays authoritative while live values rema
     });
 
     assert.equal(rendered.title, item.expectedTitle);
-    assert.equal(rendered.color, 0x670102);
+    assert.equal(rendered.color, 0x7A1712);
     assert.equal(rendered.description, item.runtime.description);
   }
 });
