@@ -39,6 +39,12 @@ function snapshot(record) {
     return getEmbedRegistrySnapshot(record) || record?.snapshot || {};
 }
 
+function stableSearchTemplateKey(record) {
+    const authorName = String(snapshot(record)?.author?.name || '').trim();
+    const match = authorName.match(/^Cloudy template key:\s*([^|]+)/i);
+    return String(match?.[1] || '').trim().toLowerCase();
+}
+
 function isTechnicalVisibleName(value) {
     const text = clean(value, 100);
     return /^cloudy template key:/i.test(text)
@@ -178,7 +184,14 @@ function logicalKey(record, document) {
 
 function priority(record) {
     const source = String(record?.source || '').toLowerCase();
-    if (source === 'system-catalog') return 100;
+    if (source === 'system-catalog') {
+        const key = stableSearchTemplateKey(record);
+        // Game/ticket masters are intentionally edited through their canonical
+        // catalog cards. Generic source responses (FAQ, panels, helpers, etc.)
+        // must target the real Discord message when one exists.
+        if (/^(?:game|ticket-log):/.test(key)) return 100;
+        return 30;
+    }
     if (source.includes('template')) return 80;
     if (source.includes('modified')) return 60;
     if (source === 'history') return 20;
