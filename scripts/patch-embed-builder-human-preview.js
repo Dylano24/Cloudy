@@ -44,6 +44,16 @@ function replaceOnce(text, find, replace, label) {
   if (!before.includes('BUILDER_HUMAN_NAMES_V1')) {
     let text = before;
 
+    text = replaceOnce(
+      text,
+      `import {
+    primeSystemEmbedCatalogMessage,`,
+      `import {
+    getSystemSourceDefinitionPreview,
+    primeSystemEmbedCatalogMessage,`,
+      'source preview import',
+    );
+
     const identityMarker = '\n\nexport function templateIdentity';
     const helper = `
 
@@ -138,10 +148,15 @@ ${displayEmojiMarker}`,
     const previewData = previewSnapshot && typeof previewSnapshot === 'object' && Object.keys(previewSnapshot).length
         ? (migrateCloudyLogoEmbedData(previewSnapshot).data || {})
         : null;
-    const displayTitle = previewData?.title || data.title;
-    const displayDescription = previewData?.description ?? data.description;
-    const displayFields = Array.isArray(previewData?.fields) && previewData.fields.length
-        ? previewData.fields
+    const sourcePreviewData = getSystemSourceDefinitionPreview(
+        data.title,
+        stableSystemTemplateContext(data),
+    );
+    const displaySourceData = previewData || sourcePreviewData || null;
+    const displayTitle = displaySourceData?.title || data.title;
+    const displayDescription = displaySourceData?.description ?? data.description;
+    const displayFields = Array.isArray(displaySourceData?.fields) && displaySourceData.fields.length
+        ? displaySourceData.fields
         : data.fields;
     const footerText = cleanFooter(data.footer?.text || '');
     const logicalChannelId = String(record.channelId || '');
@@ -174,7 +189,7 @@ ${displayEmojiMarker}`,
         embedIndex: Number(record.embedIndex || 0),
         source: record.source || 'cloudy',
         sourceEmbedData: data,
-        previewSourceData: previewData,
+        previewSourceData: displaySourceData,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),

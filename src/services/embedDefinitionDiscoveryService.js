@@ -12,7 +12,7 @@ const SKIPPED_FILES = new Set([
   'systemEmbedCatalogMessageUpdate.js',
 ]);
 
-function decodeString(value, { allowDynamic = true } = {}) {
+function decodeStringPreserve(value, { allowDynamic = true } = {}) {
   if (value == null) return null;
   if (!allowDynamic && value.includes('${')) return null;
   return String(value)
@@ -23,8 +23,12 @@ function decodeString(value, { allowDynamic = true } = {}) {
     .replace(/\\`/g, '`')
     .replace(/\\"/g, '"')
     .replace(/\\'/g, "'")
-    .replace(/\\\\/g, '\\')
-    .trim();
+    .replace(/\\\\/g, '\\');
+}
+
+function decodeString(value, options = {}) {
+  const decoded = decodeStringPreserve(value, options);
+  return decoded == null ? null : decoded.trim();
 }
 
 function literalFromText(text) {
@@ -152,8 +156,20 @@ function findDescription(lines, startIndex) {
         : null;
     if (!marker) continue;
 
-    const combined = lines.slice(index, Math.min(end, index + 8)).join('\n');
-    const raw = literalFromText(combined.slice(combined.indexOf(marker) + marker.length));
+    const combined = lines.slice(index, Math.min(end, index + 12)).join('\n');
+    const tail = combined.slice(combined.indexOf(marker) + marker.length);
+
+    if (marker === '.setDescription(') {
+      const boundary = tail.search(/\)\s*(?:;|\n\s*\.)/);
+      const expression = boundary >= 0 ? tail.slice(0, boundary) : tail;
+      const literals = allLiterals(expression, 32)
+        .map(raw => decodeStringPreserve(raw, { allowDynamic: true }))
+        .filter(value => value != null);
+      const decoded = literals.join('').trim();
+      if (decoded) return decoded;
+    }
+
+    const raw = literalFromText(tail);
     const decoded = decodeString(raw, { allowDynamic: true });
     if (decoded) return decoded;
   }
