@@ -224,6 +224,7 @@ export function createExplicitAiService({
   provider = getAiProvider,
   audit = entry => logger.warn(`[CLOUDY_AI] ${JSON.stringify(entry)}`),
   defaultGuildContext = false,
+  askEvidence = null,
 } = {}) {
   return async (actor, input) => {
     let release;
@@ -245,7 +246,12 @@ export function createExplicitAiService({
       let evidence = '';
       let sourceInfo;
       const diagnostics = { readableChannelsScanned: 0, evidenceItems: 0, githubFilesRead: 0, runtimeLogLines: 0 };
-      if (action === 'scan') {
+      if (action === 'ask' && typeof askEvidence === 'function') {
+        const result = await askEvidence(actor, request);
+        evidence = result?.text || '';
+        diagnostics.readableChannelsScanned = Number(result?.channels || 0);
+        diagnostics.evidenceItems = Number(result?.count || 0);
+      } else if (action === 'scan') {
         const result = await scan(actor, request, member);
         evidence = result.text;
         diagnostics.readableChannelsScanned = 1; diagnostics.evidenceItems = result.count;
