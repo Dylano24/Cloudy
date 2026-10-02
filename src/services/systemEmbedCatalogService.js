@@ -390,12 +390,11 @@ function rememberSourceDefinition(definition = {}) {
 export function getSystemSourceDefinitionPreview(title, context = null) {
   const exact = normalize(context);
   const parent = parentContext(exact);
-  return cloneData(
-    sourceDefinitionCache.get(sourceDefinitionIdentity(exact, title))
-      || (parent ? sourceDefinitionCache.get(sourceDefinitionIdentity(parent, title)) : null)
-      || sourceDefinitionCache.get(sourceDefinitionIdentity('', title))
-      || null,
-  );
+  const found = sourceDefinitionCache.get(sourceDefinitionIdentity(exact, title))
+    || (parent ? sourceDefinitionCache.get(sourceDefinitionIdentity(parent, title)) : null)
+    || sourceDefinitionCache.get(sourceDefinitionIdentity('', title))
+    || null;
+  return found ? cloneData(found) : null;
 }
 
 function rememberCatalogMessage(message) {
