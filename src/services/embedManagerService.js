@@ -17,10 +17,8 @@ import {
 import {
     getEmbedRegistry,
     getEmbedRegistrySnapshot,
-    reconcileEmbedRegistry,
     registerCloudyEmbedMessage,
     resolveEmbedRegistryRecord,
-    scanGuildForCloudyEmbeds,
 } from './embedRegistryService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import {
@@ -29,7 +27,6 @@ import {
     migrateCloudyLogoEmbedData,
 } from './cloudyLogoService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
-import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
     primeSystemEmbedCatalogMessage,
@@ -39,10 +36,7 @@ import {
 
 const PAGE_SIZE = 25;
 const MANAGER_IDLE_TIMEOUT = 5 * 60_000;
-const HISTORY_SCAN_TTL = 5 * 60_000;
 const CLOSED_MANAGER_ERROR_CODES = new Set([10008, 10062, 50027]);
-const historyScanTimes = new Map();
-const historyScanJobs = new Map();
 const activeEmbedManagerSaves = new Set();
 const TEMPLATE_CHANNEL_IDS = new Set([
     '1539375620885323826',
@@ -243,7 +237,7 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
             continue;
         }
 
-        const name = standardDynamicTemplateName(rawName) || 'Untitled embed';
+        const name = standardDynamicTemplateName(rawName) || 'Embed';
         const key = `template:${templateIdentity(channelId, recordEmbedData(record))}`;
         if (!groups.has(key)) groups.set(key, { label: name, records: [], templateMode: false });
         groups.get(key).records.push(record);
@@ -388,14 +382,14 @@ export function buildEmbedPayload(guild, records, channelId, page = 0) {
             .setMinValues(1)
             .setMaxValues(1)
             .addOptions(...result.items.map(record => {
-                const name = recordName(record) || record.name || 'Untitled embed';
+                const name = recordName(record) || record.name || 'Embed';
                 const isTemplate = Boolean(record.templateMode);
                 const displayName = isTemplate ? record.name : stripCustomEmojiMarkup(name);
                 const description = isTemplate
                     ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
                     : 'Edit this embed';
                 return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(displayName, 'Untitled embed'))
+                    .setLabel(shortLabel(displayName, 'Embed'))
                     .setDescription(description.slice(0, 100))
                     .setValue(`${record.messageId}:${record.embedIndex || 0}`);
             }));
@@ -526,7 +520,7 @@ function buildEmptyManagerPayload() {
     return {
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
-            .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
+            .setDescription('No editable embeds are available yet.')
             .setColor(0xFFFFFF)],
         components: [],
     };
@@ -539,11 +533,9 @@ function closeEmbedManagerSession(state, session, reason = 'closed') {
     if (state.activeEmbedManager === session) state.activeEmbedManager = null;
 }
 
-export function shouldApplyBackgroundRegistryRefresh(state, session) {
-    return Boolean(session)
-        && !session.closed
-        && state.activeEmbedManager === session
-        && !session.hasInteracted;
+export function shouldApplyBackgroundRegistryRefresh() {
+    // Opening/browsing the Builder is intentionally read only.
+    return false;
 }
 
 async function updateEmbedManager(interaction, payload, state, session) {
@@ -560,38 +552,6 @@ async function updateEmbedManager(interaction, payload, state, session) {
         }
         throw error;
     }
-}
-
-async function loadCurrentRegistry(guild, botUserId) {
-    let result = await reconcileEmbedRegistry(guild);
-    if (result.records.length) {
-        void refreshRecentEmbedHistory(guild, botUserId)
-            .catch(error => logger.error('Background embed history sync failed:', error));
-        return result.records;
-    }
-
-    await refreshRecentEmbedHistory(guild, botUserId, true);
-    result = await reconcileEmbedRegistry(guild);
-    return result.records;
-}
-
-async function refreshRecentEmbedHistory(guild, botUserId, force = false) {
-    if (historyScanJobs.has(guild.id)) return historyScanJobs.get(guild.id);
-    if (!force && Date.now() - (historyScanTimes.get(guild.id) || 0) < HISTORY_SCAN_TTL) return null;
-
-    const job = (async () => {
-        try {
-            const scan = await scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPerChannel: 100 });
-            await reconcileEmbedRegistry(guild);
-            historyScanTimes.set(guild.id, Date.now());
-            return scan;
-        } finally {
-            historyScanJobs.delete(guild.id);
-        }
-    })();
-
-    historyScanJobs.set(guild.id, job);
-    return job;
 }
 
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
@@ -638,22 +598,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         });
         session.collector = collector;
 
-        void loadCurrentRegistry(guild, buttonInteraction.client.user.id)
-            .then(async refreshedRecords => {
-                if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
-                records = refreshedRecords;
-
-                const payload = records.length
-                    ? buildChannelPayload(guild, records, 0)
-                    : buildEmptyManagerPayload();
-                await buttonInteraction.webhook.editMessage(managerMessage.id, payload).catch(error => {
-                    if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
-                        logger.error('Failed to refresh the embed manager registry:', error);
-                    }
-                });
-            })
-            .catch(error => logger.error('Embed manager registry refresh failed:', error));
-
         collector.on('collect', async interaction => {
             session.hasInteracted = true;
             const acknowledged = await interaction.deferUpdate()
@@ -685,77 +629,16 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
                 if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
-                    const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
-                    const catalogRecords = channelRecords.filter(record =>
-                        String(record.source || '') === 'system-catalog'
-                    );
-                    const realChannelRecords = channelRecords.filter(record =>
-                        String(record.source || '') !== 'system-catalog'
-                        && String(record.backingChannelId || record.channelId || '') === String(channelId)
-                    );
-                    const useCatalogPreview = prefersCatalogPreview(channelRecords);
-                    const previewRecords = useCatalogPreview
-                        ? catalogRecords
-                        : (realChannelRecords.length ? realChannelRecords : channelRecords);
-                    let firstRecord = collapseDisplayRecords(
-                        previewRecords,
-                        channelId,
-                    )[0] || null;
 
-                    if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                        if (selectionVersion !== session.selectionVersion) return;
-                        void Promise.resolve(refreshBuilder()).catch(error => {
-                            logger.debug(`Immediate channel preview refresh skipped: ${error?.message || error}`);
-                        });
-                    } else if (useCatalogPreview && firstRecord) {
-                        const resolved = await resolveEmbedRegistryRecord(guild, firstRecord).catch(() => null);
-                        if (selectionVersion !== session.selectionVersion) return;
-                        if (resolved) {
-                            loadEmbedIntoState(state, resolved);
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Resolved catalog preview refresh skipped: ${error?.message || error}`);
-                            });
-                        }
-                    } else {
-                        // If this channel only has a virtual system-catalog entry,
-                        // fetch the real panel from the selected channel instead of
-                        // showing a {dynamic} placeholder in the preview.
-                        const discovered = await discoverMissingChannelEmbed(
-                            guild,
-                            channelId,
-                            buttonInteraction.client.user.id,
-                        ).catch(error => {
-                            logger.debug(`On-demand channel embed discovery skipped: ${error?.message || error}`);
-                            return null;
-                        });
-
-                        // A slower older channel lookup must never overwrite the
-                        // newest selection in the live preview.
-                        if (selectionVersion !== session.selectionVersion) return;
-
-                        if (discovered) {
-                            loadEmbedIntoState(state, discovered);
-                            firstRecord = discovered.record;
-                            records = [
-                                ...records.filter(record => !(
-                                    String(record.channelId) === String(channelId)
-                                    && String(record.source || '') === 'embed-builder'
-                                    && String(record.messageId) !== String(discovered.record.messageId)
-                                )),
-                                discovered.record,
-                            ];
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Discovered channel preview refresh skipped: ${error?.message || error}`);
-                            });
-                        } else if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Catalog fallback preview refresh skipped: ${error?.message || error}`);
-                            });
-                        }
-                    }
-
+                    // Browsing a channel must never change the live Builder state.
+                    // Only an explicit embed selection may load something into preview.
                     if (selectionVersion !== session.selectionVersion) return;
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    await updateEmbedManager(
+                        interaction,
+                        buildEmbedPayload(guild, records, channelId, 0),
+                        state,
+                        session,
+                    );
                     return;
                 }
 

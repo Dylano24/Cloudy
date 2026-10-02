@@ -54,7 +54,7 @@ function recordName(embed) {
         .split('\n')
         .map(line => line.replace(/^[>\s#*_`~|\-]+/, '').replace(/[*_`~]/g, '').trim())
         .find(Boolean);
-    return String(firstLine || 'Untitled embed').slice(0, 256);
+    return String(firstLine || 'Embed').slice(0, 256);
 }
 
 function embedSnapshot(embed) {

@@ -129,11 +129,11 @@ if (!text.includes('const canonicalCatalogRecords = group.canonicalCasinoKey')) 
 }
 
 const optionMarker = `                return new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(displayName, 'Untitled embed'))
+                    .setLabel(shortLabel(displayName, 'Embed'))
                     .setDescription(description.slice(0, 100))
                     .setValue(\`${'${record.messageId}:${record.embedIndex || 0}'}\`);`;
 const optionReplacement = `                const option = new StringSelectMenuOptionBuilder()
-                    .setLabel(shortLabel(displayName, 'Untitled embed'))
+                    .setLabel(shortLabel(displayName, 'Embed'))
                     .setDescription(description.slice(0, 100))
                     .setValue(\`${'${record.messageId}:${record.embedIndex || 0}'}\`);
                 const emoji = customEmojiOption(record.displayEmojiSource || recordEmbedData(record).title || record.title || record.name);

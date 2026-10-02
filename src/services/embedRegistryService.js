@@ -245,6 +245,31 @@ export function isRegistrableCloudyEmbedMessage(message) {
     return isSystemCatalogMessage(message) || message.embeds.some(isFixedCloudyEmbed);
 }
 
+function humanizeTemplateContext(context) {
+    const leaf = cleanName(context).split('/').filter(Boolean).at(-1) || '';
+    if (!leaf) return '';
+
+    return leaf
+        .split(/[-_]+/)
+        .filter(Boolean)
+        .map(part => {
+            if (part === 'faq') return 'FAQ';
+            if (part === 'ai') return 'AI';
+            return part.charAt(0).toUpperCase() + part.slice(1);
+        })
+        .join(' ')
+        .slice(0, 256);
+}
+
+function isTechnicalEmbedLabel(value) {
+    const text = cleanName(value);
+    return !text
+        || text === 'untitled embed'
+        || text.startsWith('cloudy template key')
+        || /^(?:source|embed):[a-z0-9_-]{6,}$/.test(text)
+        || /^(?:game|ticket-log):[a-z0-9:_-]+$/.test(text);
+}
+
 function embedName(embed) {
     if (isCloudyWelcomeEmbed(embed)) return 'Welcome to Cloudy Inc.';
     if (isInviteCreatedEmbed(embed)) return 'Invite created';
@@ -253,14 +278,31 @@ function embedName(embed) {
     if (ticketLog) return ticketLog.label;
 
     const title = canonicalEmbedName(embed?.title || '');
-    if (title) return title.slice(0, 256);
+    if (title && !isTechnicalEmbedLabel(title)) return title.slice(0, 256);
 
     const firstLine = String(embed?.description || '')
         .split('\n')
         .map(line => line.replace(/^[>\s#*_`~|\-]+/, '').replace(/[*_`~]/g, '').trim())
         .find(Boolean);
+    if (firstLine && !isTechnicalEmbedLabel(firstLine)) {
+        return canonicalEmbedName(firstLine).slice(0, 256);
+    }
 
-    return canonicalEmbedName(firstLine || 'Untitled embed').slice(0, 256);
+    const firstFieldName = (embed?.fields || [])
+        .map(field => canonicalEmbedName(field?.name || ''))
+        .find(value => value && !isTechnicalEmbedLabel(value));
+    if (firstFieldName) return firstFieldName.slice(0, 256);
+
+    const contextLabel = humanizeTemplateContext(systemTemplateContext(embed));
+    if (contextLabel) return contextLabel;
+
+    const footer = canonicalEmbedName(embed?.footer?.text || '');
+    if (footer && !isTechnicalEmbedLabel(footer)) return footer.slice(0, 256);
+
+    const author = canonicalEmbedName(embed?.author?.name || '');
+    if (author && !isTechnicalEmbedLabel(author)) return author.slice(0, 256);
+
+    return '';
 }
 
 function isSystemCatalogMessage(message) {
@@ -436,18 +478,10 @@ function normalizeRecord(record) {
 }
 
 export async function getEmbedRegistry(guildId) {
+    // Builder browse/search paths are read only. Cleanup is handled by startup
+    // reconciliation or explicit Save flows, never by merely opening the UI.
     const stored = await readStoredRecords(guildId);
-    const cleaned = cleanStoredRecords(stored);
-    if (cleaned.length !== stored.length) {
-        await mutateRegistry(guildId, async () => {
-            const latest = await readStoredRecords(guildId);
-            const latestCleaned = cleanStoredRecords(latest);
-            if (latestCleaned.length !== latest.length) {
-                await setInDb(registryKey(guildId), latestCleaned);
-            }
-        });
-    }
-    return cleaned;
+    return cleanStoredRecords(stored);
 }
 
 async function saveRecords(guildId, additions) {

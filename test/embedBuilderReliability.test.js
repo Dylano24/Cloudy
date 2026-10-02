@@ -540,21 +540,131 @@ test('Builder finds the complete source body when catalog and source use sibling
   assert.equal(preview.toJSON().description, description);
 });
 
-test('background registry refresh stops as soon as manager interaction begins', () => {
+test('reading the Builder registry never persists cleanup or imports', async () => {
+  const values = installTestStorage();
+  const guildId = 'readonly-builder-guild';
+  const key = `cloudy:embed-registry:${guildId}`;
+  values.set(key, [
+    record(guildId, 'channel-valid', 'message-valid', 0, 'Welcome to Cloudy Inc.'),
+    {
+      ...record(guildId, 'channel-empty', 'message-empty', 0, 'Untitled embed'),
+      name: 'Untitled embed',
+    },
+  ]);
+
+  let writes = 0;
+  const originalSet = db.db.set;
+  db.db.set = async (...args) => {
+    writes += 1;
+    return originalSet(...args);
+  };
+
+  const records = await getEmbedRegistry(guildId);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].title, 'Welcome to Cloudy Inc.');
+  assert.equal(writes, 0);
+});
+
+test('stable source metadata restores full preview text for generic sparse templates', async () => {
+  installTestStorage();
+
+  const guildId = 'generic-source-guild';
+  const channelId = 'generic-source-channel';
+  const messageId = 'generic-source-message';
+  const description = 'Full information text that must be visible in the Builder preview.';
+
+  primeSystemSourceDefinitionPreview({
+    key: 'source:information-preview',
+    kind: 'embed',
+    title: 'Information',
+    description,
+    context: 'server-information/informations',
+  });
+
+  const sparseMessage = {
+    id: messageId,
+    guildId,
+    channelId,
+    embeds: [{
+      title: 'Custom information title',
+      color: 0xFFFFFF,
+      author: {
+        name: 'Cloudy template key: source:information-preview || Cloudy context: server-information/informations || Cloudy kind: embed',
+      },
+    }],
+    createdAt: new Date('2026-10-02T17:00:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(sparseMessage, 'embed-builder'), true);
+  const [stored] = await getEmbedRegistry(guildId);
+  const state = {};
+
+  assert.equal(loadRecordSnapshotIntoState(
+    state,
+    { id: guildId },
+    { ...stored, source: 'system-catalog' },
+  ), true);
+  assert.equal(state.message, description);
+
+  const [preview] = buildBuilderEmbeds(state);
+  assert.equal(preview.toJSON().description, description);
+});
+
+test('saved canonical Builder text outranks source fallback text', async () => {
+  installTestStorage();
+
+  const guildId = 'saved-source-priority-guild';
+  const channelId = 'saved-source-priority-channel';
+  const messageId = 'saved-source-priority-message';
+
+  primeSystemSourceDefinitionPreview({
+    key: 'source:saved-priority',
+    kind: 'embed',
+    title: 'Information',
+    description: 'Original source text',
+    context: 'server-information/informations',
+  });
+
+  const message = {
+    id: messageId,
+    guildId,
+    channelId,
+    embeds: [{
+      title: 'Information',
+      description: 'Saved custom text',
+      color: 0xFFFFFF,
+      author: {
+        name: 'Cloudy template key: source:saved-priority || Cloudy context: server-information/informations || Cloudy kind: embed',
+      },
+    }],
+    createdAt: new Date('2026-10-02T17:05:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder'), true);
+  const [stored] = await getEmbedRegistry(guildId);
+  const state = {};
+
+  assert.equal(loadRecordSnapshotIntoState(
+    state,
+    { id: guildId },
+    { ...stored, source: 'system-catalog' },
+  ), true);
+  assert.equal(state.message, 'Saved custom text');
+
+  const [preview] = buildBuilderEmbeds(state);
+  assert.equal(preview.toJSON().description, 'Saved custom text');
+});
+
+test('background registry refresh is disabled for read only Builder browsing', () => {
   const session = { closed: false, hasInteracted: false };
   const state = { activeEmbedManager: session };
 
-  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), true);
+  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
 
   session.hasInteracted = true;
   assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
 
-  session.hasInteracted = false;
   session.closed = true;
-  assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
-
-  session.closed = false;
-  state.activeEmbedManager = {};
   assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
 });
 
@@ -599,8 +709,12 @@ test('embed manager navigation edits through the fresh component interaction', a
     },
   };
   const state = {};
+  let previewRefreshes = 0;
 
-  await openEmbedManager(buttonInteraction, state, async () => true);
+  await openEmbedManager(buttonInteraction, state, async () => {
+    previewRefreshes += 1;
+    return true;
+  });
   assert.match(initialPayload.embeds[0].toJSON().description, /Choose a channel first/);
   assert.equal(initialPayload.components.length, 1);
   assert.ok(state.activeEmbedManager);
@@ -628,10 +742,12 @@ test('embed manager navigation edits through the fresh component interaction', a
 
   await finished;
   assert.match(navigationPayload.embeds[0].toJSON().description, /\*\*Embeds:\*\* 1/);
+  assert.equal(previewRefreshes, 0);
+  assert.equal(state.modifyTarget, undefined);
   collector.stop('test-complete');
 });
 
-test('embed manager opens before Discord history reconciliation finishes', async () => {
+test('opening the embed manager never scans Discord history', async () => {
   installTestStorage();
   const guildId = '100000000000000004';
   const channelId = '200000000000000004';
@@ -640,12 +756,12 @@ test('embed manager opens before Discord history reconciliation finishes', async
     record(guildId, channelId, messageId, 0, 'Immediate embed'),
   ]);
 
-  let finishFetch;
-  const pendingFetch = new Promise(resolve => {
-    finishFetch = resolve;
-  });
+  let fetches = 0;
   const guild = buildGuild({ guildId, channelId, messages: new Map() });
-  guild.channels.cache.get(channelId).messages.fetch = async () => pendingFetch;
+  guild.channels.cache.get(channelId).messages.fetch = async () => {
+    fetches += 1;
+    throw new Error('history fetch must not run while browsing');
+  };
 
   const collector = new FakeCollector();
   const managerMessage = {
@@ -672,15 +788,8 @@ test('embed manager opens before Discord history reconciliation finishes', async
   await openEmbedManager(buttonInteraction, state, async () => true);
   assert.match(initialPayload.embeds[0].toJSON().description, /Choose a channel first/);
   assert.ok(state.activeEmbedManager);
+  assert.equal(fetches, 0);
 
-  finishFetch({
-    id: messageId,
-    guildId,
-    channelId,
-    author: { id: 'cloudy-bot' },
-    embeds: [{ title: 'Immediate embed' }],
-    createdAt: new Date('2026-08-29T20:00:00.000Z'),
-  });
   collector.stop('test-complete');
 });
 
