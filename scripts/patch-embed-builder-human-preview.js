@@ -120,18 +120,20 @@ ${displayEmojiMarker}`,
       'attach live preview record',
     );
 
-    text = replaceOnce(
-      text,
-      'function loadRecordSnapshotIntoState(state, guild, record) {',
-      'function loadRecordSnapshotIntoState(state, guild, record, previewRecord = null) {',
-      'loader signature',
-    );
+    {
+      const loaderStart = text.indexOf('function loadRecordSnapshotIntoState(');
+      const loaderEnd = text.indexOf('\nfunction loadEmbedIntoState', loaderStart);
+      if (loaderStart === -1 || loaderEnd === -1) {
+        throw new Error('[BUILDER_HUMAN_PREVIEW] loader block not found');
+      }
 
-    text = replaceOnce(
-      text,
-      `    const data = migrateCloudyLogoEmbedData(snapshot).data || {};
-    const footerText = cleanFooter(data.footer?.text || '');`,
-      `    const data = migrateCloudyLogoEmbedData(snapshot).data || {};
+      const exportStart = text.lastIndexOf('export ', loaderStart);
+      const replaceStart = exportStart !== -1 && exportStart + 7 === loaderStart ? exportStart : loaderStart;
+      const loaderBlock = `export function loadRecordSnapshotIntoState(state, guild, record, previewRecord = null) {
+    const snapshot = getEmbedRegistrySnapshot(record);
+    if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
+
+    const data = migrateCloudyLogoEmbedData(snapshot).data || {};
     const previewSnapshot = previewRecord ? getEmbedRegistrySnapshot(previewRecord) : null;
     const previewData = previewSnapshot && typeof previewSnapshot === 'object' && Object.keys(previewSnapshot).length
         ? (migrateCloudyLogoEmbedData(previewSnapshot).data || {})
@@ -141,40 +143,50 @@ ${displayEmojiMarker}`,
     const displayFields = Array.isArray(previewData?.fields) && previewData.fields.length
         ? previewData.fields
         : data.fields;
-    const footerText = cleanFooter(data.footer?.text || '');`,
-      'loader live data',
-    );
+    const footerText = cleanFooter(data.footer?.text || '');
+    const logicalChannelId = String(record.channelId || '');
+    const backingChannelId = String(record.backingChannelId || record.channelId || '');
+    const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
+    const templateKind = stableSystemTemplateKind(data);
 
-    {
-      const loaderStart = text.indexOf('function loadRecordSnapshotIntoState(state, guild, record, previewRecord = null) {');
-      const loaderEnd = text.indexOf('\nfunction loadEmbedIntoState', loaderStart);
-      if (loaderStart === -1 || loaderEnd === -1) {
-        throw new Error('[BUILDER_HUMAN_PREVIEW] loader block not found');
-      }
+    state.title = templateKind === 'content' ? null : (displayTitle || null);
+    state.message = displayDescription || null;
+    state.embedFields = Array.isArray(displayFields)
+        ? displayFields.map(field => ({
+            name: String(field.name || '').slice(0, 256),
+            value: String(field.value || '').slice(0, 1024),
+            inline: Boolean(field.inline),
+        }))
+        : [];
+    state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
+    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);
+    state.removeExistingLogo = false;
+    state.bottomLine = footerText || null;
+    state.mediaUrl = data.image?.url || null;
+    state.mediaBuffer = null;
+    state.mediaName = null;
+    state.mediaConvertedFromVideo = false;
+    state.modifyTarget = {
+        guildId: guild.id,
+        channelId: logicalChannelId,
+        backingChannelId,
+        messageId: String(record.messageId),
+        embedIndex: Number(record.embedIndex || 0),
+        source: record.source || 'cloudy',
+        sourceEmbedData: data,
+        previewSourceData: previewData,
+        hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
+        templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
+        templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
+        templateKind,
+        catalogTitle: data.title || null,
+        cachedMessage: null,
+    };
+    return true;
+}
+`;
 
-      let loaderBlock = text.slice(loaderStart, loaderEnd);
-      const originalLoaderBlock = loaderBlock;
-      loaderBlock = loaderBlock
-        .replace(
-          /state\.title = templateKind === 'content' \? null : \(data\.title \|\| null\);|state\.title = data\.title \|\| null;/,
-          "state.title = templateKind === 'content' ? null : (displayTitle || null);",
-        )
-        .replace('state.message = data.description || null;', 'state.message = displayDescription || null;')
-        .replace('state.embedFields = Array.isArray(data.fields)', 'state.embedFields = Array.isArray(displayFields)')
-        .replace('? data.fields.map(field => ({', '? displayFields.map(field => ({')
-        .replace(
-          'sourceEmbedData: data,\\n        hadBuilderMarker:',
-          'sourceEmbedData: data,\\n        previewSourceData: previewData,\\n        hadBuilderMarker:',
-        );
-
-      if (loaderBlock === originalLoaderBlock
-          || !loaderBlock.includes('displayTitle')
-          || !loaderBlock.includes('displayDescription')
-          || !loaderBlock.includes('previewSourceData: previewData')) {
-        throw new Error('[BUILDER_HUMAN_PREVIEW] loader live preview replacements failed');
-      }
-
-      text = text.slice(0, loaderStart) + loaderBlock + text.slice(loaderEnd);
+      text = text.slice(0, replaceStart) + loaderBlock + text.slice(loaderEnd);
     }
 
     const selectedMarker = `                let record = records.find(item =>
