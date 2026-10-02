@@ -71,7 +71,7 @@ function buildQuestionModal() {
   const question = new TextInputBuilder()
     .setCustomId(FIX_GUIDE_QUESTION_INPUT_ID)
     .setLabel('What do you want Cloudy to investigate?')
-    .setPlaceholder('Ask a question. Cloudy can use relevant readable server history for context. Type help for advanced commands. Do not submit secrets.')
+    .setPlaceholder('Ask a question. Cloudy can use readable server history for context. Type help for advanced commands.')
     .setStyle(TextInputStyle.Paragraph)
     .setMinLength(3)
     .setMaxLength(MAX_QUESTION_LENGTH)
