@@ -70,11 +70,22 @@ function messageKey(record) {
     return `${physicalChannelId(record)}:${String(record?.messageId || '')}`;
 }
 
+function normalizeEmbedSnapshot(value) {
+    const source = typeof value?.toJSON === 'function' ? value.toJSON() : value;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+
+    try {
+        return JSON.parse(JSON.stringify(source));
+    } catch {
+        return null;
+    }
+}
+
 function rememberEmbedSnapshot(record, embed) {
     if (!record?.channelId || !record?.messageId || !embed) return;
     const key = recordKey(record);
-    const data = typeof embed.toJSON === 'function' ? embed.toJSON() : embed;
-    if (!data || typeof data !== 'object') return;
+    const data = normalizeEmbedSnapshot(embed);
+    if (!data) return;
 
     embedSnapshotCache.delete(key);
     embedSnapshotCache.set(key, data);
@@ -87,7 +98,9 @@ function rememberEmbedSnapshot(record, embed) {
 
 export function getEmbedRegistrySnapshot(record) {
     if (!record) return null;
-    return embedSnapshotCache.get(recordKey(record)) || null;
+    return embedSnapshotCache.get(recordKey(record))
+        || normalizeEmbedSnapshot(record.snapshot)
+        || null;
 }
 
 function sortRecords(records) {
@@ -429,6 +442,9 @@ function normalizeRecord(record) {
         source: String(record.source || 'cloudy'),
         title: String(record.title || '').slice(0, 256),
         name: canonicalEmbedName(record.name || record.title || '').slice(0, 256),
+        channelName: String(record.channelName || '').slice(0, 100),
+        snapshot: normalizeEmbedSnapshot(record.snapshot),
+        detached: Boolean(record.detached),
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
@@ -500,6 +516,9 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                         source: isSystemCatalogMessage(message) ? 'system-catalog' : source,
                         title: embed?.title || '',
                         name: embedName(embed),
+                        channelName: message.channel?.name || '',
+                        snapshot: normalizeEmbedSnapshot(embed),
+                        detached: false,
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
                     rememberEmbedSnapshot(addition, embed);
@@ -527,39 +546,103 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
     return registerCloudyEmbedMessages([message], source);
 }
 
+function detachedBuilderRecord(record) {
+    if (!isManualBuilderRecord(record)) return null;
+    const snapshot = getEmbedRegistrySnapshot(record);
+    if (!snapshot) return null;
+
+    const detached = normalizeRecord({
+        ...record,
+        snapshot,
+        detached: true,
+    });
+    if (detached) rememberEmbedSnapshot(detached, snapshot);
+    return detached;
+}
+
+export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snapshot) {
+    const normalizedSnapshot = normalizeEmbedSnapshot(snapshot);
+    if (!guildId || !target?.messageId || !normalizedSnapshot) return false;
+
+    return mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        let changed = false;
+        const next = records.map(record => {
+            const matches = String(record.channelId) === String(target.channelId)
+                && String(record.messageId) === String(target.messageId)
+                && Number(record.embedIndex || 0) === Number(target.embedIndex || 0);
+            if (!matches || !isManualBuilderRecord(record)) return record;
+
+            changed = true;
+            const updated = normalizeRecord({
+                ...record,
+                title: normalizedSnapshot.title || record.title,
+                name: embedName(normalizedSnapshot),
+                snapshot: normalizedSnapshot,
+                detached: true,
+            });
+            if (updated) rememberEmbedSnapshot(updated, normalizedSnapshot);
+            return updated || record;
+        });
+
+        if (!changed) return false;
+        return setInDb(registryKey(guildId), sortRecords(next));
+    });
+}
+
 export async function removeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
-        const next = records.filter(item => !(
-            (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId)) &&
-            String(item.messageId) === String(messageId) &&
-            Number(item.embedIndex || 0) === Number(embedIndex || 0)
-        ));
-        if (next.length === records.length) return false;
-        return setInDb(registryKey(guildId), next);
+        let changed = false;
+        const next = records.flatMap(item => {
+            const matches = (
+                (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
+                && String(item.messageId) === String(messageId)
+                && Number(item.embedIndex || 0) === Number(embedIndex || 0)
+            );
+            if (!matches) return [item];
+            changed = true;
+            const detached = detachedBuilderRecord(item);
+            return detached ? [detached] : [];
+        });
+        if (!changed) return false;
+        return setInDb(registryKey(guildId), sortRecords(next));
     });
 }
 
 export async function removeEmbedRegistryMessage(guildId, channelId, messageId) {
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
-        const next = records.filter(item => !(
-            (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId)) &&
-            String(item.messageId) === String(messageId)
-        ));
-        if (next.length === records.length) return false;
-        return setInDb(registryKey(guildId), next);
+        let changed = false;
+        const next = records.flatMap(item => {
+            const matches = (
+                (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
+                && String(item.messageId) === String(messageId)
+            );
+            if (!matches) return [item];
+            changed = true;
+            const detached = detachedBuilderRecord(item);
+            return detached ? [detached] : [];
+        });
+        if (!changed) return false;
+        return setInDb(registryKey(guildId), sortRecords(next));
     });
 }
 
 export async function removeEmbedRegistryChannel(guildId, channelId) {
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
-        const next = records.filter(item =>
-            String(item.channelId) !== String(channelId) && physicalChannelId(item) !== String(channelId),
-        );
-        if (next.length === records.length) return false;
-        return setInDb(registryKey(guildId), next);
+        let changed = false;
+        const next = records.flatMap(item => {
+            const matches = String(item.channelId) === String(channelId)
+                || physicalChannelId(item) === String(channelId);
+            if (!matches) return [item];
+            changed = true;
+            const detached = detachedBuilderRecord(item);
+            return detached ? [detached] : [];
+        });
+        if (!changed) return false;
+        return setInDb(registryKey(guildId), sortRecords(next));
     });
 }
 
@@ -602,6 +685,9 @@ function recordsFromMessage(message, priorRecords = [], { allowManual = false } 
                 source: isSystemCatalogMessage(message) ? 'system-catalog' : (prior?.source || 'reconciled'),
                 title: embed?.title || '',
                 name: embedName(embed),
+                channelName: message.channel?.name || prior?.channelName || '',
+                snapshot: normalizeEmbedSnapshot(embed),
+                detached: false,
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
             });
             if (!record || (!allowManual && !isSystemCatalogMessage(message) && !isFixedCloudyEmbed(embed))) return null;
@@ -688,6 +774,12 @@ export async function reconcileEmbedRegistry(guild) {
 
         for (const [key, result] of results) {
             if (result.status === 'resolved') next.push(...result.records);
+            if (result.status === 'missing') {
+                next.push(...latest
+                    .filter(record => messageKey(record) === key)
+                    .map(detachedBuilderRecord)
+                    .filter(Boolean));
+            }
             if (result.status === 'unknown') {
                 next.push(...latest.filter(record => messageKey(record) === key));
             }
