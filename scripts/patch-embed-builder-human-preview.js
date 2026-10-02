@@ -111,6 +111,49 @@ function humanTemplateRecordName(record) {
     return 'Embed';
 }
 
+function builderSourceCompleteness(record) {
+    const data = recordEmbedData(record);
+    let score = 0;
+    if (data.description) score += 1000 + String(data.description).length;
+    if (Array.isArray(data.fields)) score += data.fields.length * 500;
+    if (data.footer?.text) score += 250;
+    if (data.thumbnail?.url) score += 150;
+    if (data.image?.url) score += 100;
+    return score;
+}
+
+function isLegacyHelperParserArtifactRecord(record) {
+    if (String(record?.source || '') !== 'system-catalog') return false;
+    const data = recordEmbedData(record);
+    const title = stripCustomEmojiMarkup(data.title || '').trim();
+    const description = stripCustomEmojiMarkup(data.description || '').trim();
+    if (!/^(?:success|error|information|warning)$/i.test(title) || !description) return false;
+
+    const source = getSystemSourceDefinitionPreview(
+        description,
+        stableSystemTemplateContext(data),
+    );
+    if (!source) return false;
+
+    const sourceTitle = stripCustomEmojiMarkup(source.title || '').trim();
+    return sourceTitle.toLowerCase() === description.toLowerCase()
+        && Boolean(source.description || source.fields?.length);
+}
+
+function bestBuilderSourceRecord(records, fallback = null) {
+    const sources = (records || [])
+        .filter(record => String(record?.source || '') === 'system-catalog')
+        .filter(record => !isLegacyHelperParserArtifactRecord(record))
+        .sort((left, right) => {
+            const scoreDelta = builderSourceCompleteness(left) - builderSourceCompleteness(right);
+            if (scoreDelta) return scoreDelta;
+            const leftTime = new Date(left?.updatedAt || left?.createdAt || 0).getTime();
+            const rightTime = new Date(right?.updatedAt || right?.createdAt || 0).getTime();
+            return leftTime - rightTime;
+        });
+    return sources.at(-1) || fallback;
+}
+
 // BUILDER_HUMAN_NAMES_V1
 `;
     text = replaceOnce(text, identityMarker, helper + identityMarker, 'human record names');
@@ -135,6 +178,16 @@ function humanTemplateRecordName(record) {
       throw new Error('[BUILDER_HUMAN_PREVIEW] human menu label marker not found');
     }
 
+    text = replaceOnce(
+      text,
+      `    for (const record of channelRecords) {
+        const rawName = recordName(record);`,
+      `    for (const record of channelRecords) {
+        if (isLegacyHelperParserArtifactRecord(record)) continue;
+        const rawName = recordName(record);`,
+      'hide legacy helper parser artifacts',
+    );
+
     const displayEmojiMarker = `        const displayEmojiSource = group.records
             .map(record => recordEmbedData(record).title || record.title || record.name || '')
             .find(value => customEmojiOption(value)) || '';`;
@@ -142,8 +195,7 @@ function humanTemplateRecordName(record) {
       text,
       displayEmojiMarker,
       `        const previewRecord = realRecords.at(-1) || representative;
-        const sourceRecord = group.records.filter(record => record.source === 'system-catalog').at(-1)
-            || representative;
+        const sourceRecord = bestBuilderSourceRecord(group.records, representative);
 ${displayEmojiMarker}`,
       'live preview record',
     );
