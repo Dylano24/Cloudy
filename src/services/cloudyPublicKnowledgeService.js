@@ -1,4 +1,4 @@
-import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { PermissionFlagsBits } from 'discord.js';
 import { redactAiText } from './aiSafety.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { registerCloudyEmbedMessage } from './embedRegistryService.js';
@@ -224,9 +224,9 @@ export async function buildRestoredKnowledgePayloads(client, guild) {
   const channels = await resolveKnowledgeChannels(client, guild);
   const purchaseDestination = channels.officialStore || channels.shop;
 
-  const informationEmbed = new EmbedBuilder()
-    .setColor(0xFFFFFF)
-    .addFields(
+  const informationEmbed = {
+    color: 0xFFFFFF,
+    fields: [
       {
         name: VERIFIED_CLOUDY_TEXT.rulesLabel,
         value: link(VERIFIED_CLOUDY_TEXT.rulesText, guild.id, channels.rules),
@@ -247,26 +247,29 @@ export async function buildRestoredKnowledgePayloads(client, guild) {
         value: link(VERIFIED_CLOUDY_TEXT.supportText, guild.id, channels.contactSupport),
         inline: false,
       },
-    )
-    .setFooter({ text: CLOUDY_KNOWLEDGE_FOOTER });
+    ],
+    footer: { text: CLOUDY_KNOWLEDGE_FOOTER },
+  };
 
-  const accountEmbed = new EmbedBuilder()
-    .setColor(0xFFFFFF)
-    .addFields({
+  const accountEmbed = {
+    color: 0xFFFFFF,
+    fields: [{
       name: VERIFIED_CLOUDY_TEXT.linkAccountLabel,
       value: link(VERIFIED_CLOUDY_TEXT.linkAccountText, guild.id, channels.linkYourAccount),
       inline: false,
-    })
-    .setFooter({ text: CLOUDY_KNOWLEDGE_FOOTER });
+    }],
+    footer: { text: CLOUDY_KNOWLEDGE_FOOTER },
+  };
 
-  const freeKitsEmbed = new EmbedBuilder()
-    .setColor(0xFFFFFF)
-    .addFields({
+  const freeKitsEmbed = {
+    color: 0xFFFFFF,
+    fields: [{
       name: VERIFIED_CLOUDY_TEXT.linkAccountLabel,
       value: link(VERIFIED_CLOUDY_TEXT.linkAccountText, guild.id, channels.linkYourAccount),
       inline: false,
-    })
-    .setFooter({ text: CLOUDY_KNOWLEDGE_FOOTER });
+    }],
+    footer: { text: CLOUDY_KNOWLEDGE_FOOTER },
+  };
 
   return {
     informations: channels.informations ? { channel: channels.informations, embeds: [informationEmbed] } : null,
