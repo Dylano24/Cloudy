@@ -423,6 +423,103 @@ test('Builder Search keeps canonical casino masters as the Save target', () => {
   assert.equal(matches[0].record.messageId, 'catalog-blackjack-loss');
 });
 
+test('Builder Search loads the same full dynamic source data as the normal Modify browser', () => {
+  const channel = {
+    id: '200000000000000089',
+    name: 'gambling',
+    parent: null,
+  };
+  const guild = {
+    id: '100000000000000089',
+    channels: { cache: new Map([[channel.id, channel]]) },
+  };
+
+  const makeCatalog = (messageId, title, description, fields) => ({
+    guildId: guild.id,
+    channelId: channel.id,
+    backingChannelId: '900000000000000089',
+    messageId,
+    embedIndex: 0,
+    source: 'system-catalog',
+    title,
+    name: title,
+    createdAt: '2026-10-02T18:10:00.000Z',
+    snapshot: {
+      title,
+      description,
+      fields,
+      author: {
+        name: 'Cloudy template key: embed:rob-template || Cloudy context: gambling/rob || Cloudy kind: embed',
+      },
+      color: 0xFFFFFF,
+    },
+  });
+  const makeSparseLive = (messageId, title, minute) => ({
+    guildId: guild.id,
+    channelId: channel.id,
+    messageId,
+    embedIndex: 0,
+    source: 'modified-template',
+    title,
+    name: title,
+    createdAt: `2026-10-02T18:${minute}:00.000Z`,
+    snapshot: {
+      title,
+      color: 0xFFFFFF,
+    },
+  });
+
+  const records = [
+    makeCatalog(
+      'catalog-rob-success',
+      'Robbery successful',
+      'You successfully stole **{dynamic}** from {dynamic}!',
+      [
+        { name: 'Your new cash ({dynamic})', value: '{dynamic}', inline: true },
+        { name: "Victim's new cash ({dynamic})", value: '{dynamic}', inline: true },
+      ],
+    ),
+    makeSparseLive('real-rob-success', 'Robbery successful', '11'),
+    makeCatalog(
+      'catalog-rob-failed',
+      'Robbery failed',
+      'You failed the robbery and were caught! You were fined **{dynamic}** of your own cash.',
+      [
+        { name: 'Your new cash ({dynamic})', value: '{dynamic}', inline: true },
+        { name: "Victim's new cash ({dynamic})", value: '{dynamic}', inline: true },
+      ],
+    ),
+    makeSparseLive('real-rob-failed', 'Robbery failed', '12'),
+  ];
+
+  for (const [query, expectedMessageId, expectedDescription] of [
+    ['robbery successful', 'real-rob-success', 'You successfully stole **{dynamic}** from {dynamic}!'],
+    ['robbery failed', 'real-rob-failed', 'You failed the robbery and were caught! You were fined **{dynamic}** of your own cash.'],
+  ]) {
+    const matches = buildLiveSearchMatches(guild, records, query);
+    assert.equal(matches.length, 1, query);
+
+    const record = matches[0].record;
+    assert.equal(record.messageId, expectedMessageId, query);
+    assert.ok(record.sourceRecord, query);
+    assert.match(record.sourceRecord.messageId, /^catalog-rob-/, query);
+
+    const state = {};
+    assert.equal(loadRecordSnapshotIntoState(
+      state,
+      guild,
+      record,
+      record.previewRecord || null,
+      record.sourceRecord || null,
+    ), true, query);
+
+    assert.equal(state.message, expectedDescription, query);
+    assert.equal(state.embedFields.length, 2, query);
+    assert.match(state.embedFields[0].name, /\{dynamic\}/, query);
+    assert.equal(state.modifyTarget.messageId, expectedMessageId, query);
+  }
+});
+
 test('sparse catalog template preview falls back to the full source embed without changing its Save target', async () => {
   installTestStorage();
 

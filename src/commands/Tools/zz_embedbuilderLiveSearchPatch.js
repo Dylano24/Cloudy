@@ -9,6 +9,7 @@ import {
     getEmbedRegistry,
     getEmbedRegistrySnapshot,
 } from '../../services/embedRegistryService.js';
+import { collapseDisplayRecords } from '../../services/embedManagerService.js';
 
 const RUNTIME_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchRuntime');
 const RESPONSE_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchResponses');
@@ -223,8 +224,24 @@ function chooseBetter(left, right) {
     return { ...chosen, score: bestScore };
 }
 
+function builderSearchDisplayRecords(records) {
+    const groups = new Map();
+
+    for (const record of records || []) {
+        const channelId = String(record?.channelId || '');
+        if (!channelId) continue;
+        if (!groups.has(channelId)) groups.set(channelId, []);
+        groups.get(channelId).push(record);
+    }
+
+    return [...groups.entries()].flatMap(([channelId, channelRecords]) =>
+        collapseDisplayRecords(channelRecords, channelId)
+    );
+}
+
 export function latestRealPreviewRecord(guild, records, selectedRecord) {
     if (!selectedRecord) return null;
+    if (selectedRecord.previewRecord) return selectedRecord.previewRecord;
     const selectedDocument = recordDocument(guild, selectedRecord);
     const key = logicalKey(selectedRecord, selectedDocument);
 
@@ -242,8 +259,9 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
 export function buildMatches(guild, records, query) {
     const grouped = new Map();
     const hasQuery = Boolean(normalize(query));
+    const displayRecords = builderSearchDisplayRecords(records);
 
-    for (const record of records) {
+    for (const record of displayRecords) {
         const document = recordDocument(guild, record);
         if (!document.title) continue;
         const score = hasQuery ? searchScore(document, query) : 0;
@@ -406,7 +424,8 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
 
         if (selected && interaction.guildId) {
             const records = await getEmbedRegistry(interaction.guildId);
-            const record = records.find(item =>
+            const displayRecords = builderSearchDisplayRecords(records);
+            const record = displayRecords.find(item =>
                 String(item.channelId) === selected.channelId
                 && String(item.messageId) === selected.messageId
                 && Number(item.embedIndex || 0) === selected.embedIndex,
@@ -414,7 +433,9 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             if (record) {
                 pendingSelections.set(selectionKey(interaction), {
                     record,
-                    previewRecord: latestRealPreviewRecord(interaction.guild, records, record),
+                    previewRecord: record.previewRecord
+                        || latestRealPreviewRecord(interaction.guild, records, record),
+                    sourceRecord: record.sourceRecord || null,
                     expiresAt: Date.now() + PENDING_TTL,
                 });
             }
