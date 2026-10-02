@@ -134,20 +134,15 @@ function resolveEmbedSourceAlias(context, title) {
 }`;
     text = replaceOnce(text, oldFn, newFn, 'full live preview preference');
 
-    const identityOld = `export function templateIdentity(channelId, value) {
-    const data = value && typeof value === 'object' ? value : { title: value };
-    const stableKey = stableSystemTemplateKey(data);
-    if (stableKey) return stableKey;
-    const title = String(data.title || '');`;
-    const identityNew = `export function templateIdentity(channelId, value) {
-    const data = value && typeof value === 'object' ? value : { title: value };
-    const stableKey = stableSystemTemplateKey(data);
-    // Generic embed hashes are historical storage identities, not separate
+    text = replaceOnce(
+      text,
+      '    if (stableKey) return stableKey;',
+      `    // Generic embed hashes are historical storage identities, not separate
     // visible Builder types. Let their normalized title shape group old and
     // current copies together. Named and game keys remain authoritative.
-    if (stableKey && !stableKey.startsWith('embed:')) return stableKey;
-    const title = String(data.title || '');`;
-    text = replaceOnce(text, identityOld, identityNew, 'generic source display identity');
+    if (stableKey && !stableKey.startsWith('embed:')) return stableKey;`,
+      'generic source display identity',
+    );
 
     const representativeOld = `        const canonicalCatalogRecords = group.canonicalCasinoKey
             ? group.records.filter(record => stableSystemTemplateKey(recordEmbedData(record)) === group.canonicalCasinoKey)
