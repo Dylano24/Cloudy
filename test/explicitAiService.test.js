@@ -35,6 +35,33 @@ test('ordinary questions, including requests written in natural language, never 
   await run(item, 'Please investigate all Cloudy code, channels and logs');
 });
 
+test('curated FAQ evidence can ground a normal question without enabling private server scans', async () => {
+  let curatedReads = 0;
+  const run = service({
+    askEvidence: async (_actor, request) => {
+      curatedReads += 1;
+      assert.equal(request.action, 'ask');
+      assert.equal(request.question, 'How do I claim free kits?');
+      return {
+        text: '{"verifiedCloudyFacts":{"freeKits":{"verifiedInstruction":"Claim free kits, purchases & alerts"}}}',
+        count: 4,
+        channels: 6,
+      };
+    },
+    answer: async args => {
+      assert.equal(args.action, 'ask');
+      assert.match(args.evidence, /Claim free kits, purchases & alerts/);
+      return { text: 'Use the verified account linking information.', diagnostics: {} };
+    },
+  });
+
+  const result = await run(actor(), 'How do I claim free kits?');
+  assert.equal(curatedReads, 1);
+  assert.equal(result.text, 'Use the verified account linking information.');
+  assert.equal(result.diagnostics.readableChannelsScanned, 6);
+  assert.equal(result.diagnostics.evidenceItems, 4);
+});
+
 test('creator and internal-system questions answer Dylano without provider or context reads', async () => {
   const item = actor();
   item.guild.members.fetch = () => assert.fail('Unnecessary membership fetch');
