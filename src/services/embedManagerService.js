@@ -520,7 +520,7 @@ function buildEmptyManagerPayload() {
     return {
         embeds: [new EmbedBuilder()
             .setTitle('Modify embed')
-            .setDescription('No embeds are registered yet. Older embeds are being imported in the background; reopen this menu in a moment.')
+            .setDescription('No editable embeds are available yet.')
             .setColor(0xFFFFFF)],
         components: [],
     };
