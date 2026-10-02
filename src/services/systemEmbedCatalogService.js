@@ -510,7 +510,7 @@ function definitionToCatalog(definition) {
   const sourceTitle = String(definition.title || '').trim();
   const title = kind === 'content'
     ? String(definition.label || friendlyPlainTitle(context, description)).slice(0, 256)
-    : (sourceTitle || 'Untitled embed').slice(0, 256);
+    : String(sourceTitle || definition.label || friendlyPlainTitle(context, description)).slice(0, 256);
   const key = definition.key
     || getSystemEmbedTemplateKey(kind, kind === 'embed' ? title : '', description, context);
 
