@@ -394,7 +394,35 @@ export function getSystemSourceDefinitionPreview(title, context = null) {
     || (parent ? sourceDefinitionCache.get(sourceDefinitionIdentity(parent, title)) : null)
     || sourceDefinitionCache.get(sourceDefinitionIdentity('', title))
     || null;
-  return found ? cloneData(found) : null;
+  if (found) return cloneData(found);
+
+  // Some catalog aliases use a sibling context for the same visible embed
+  // (for example faq interaction vs faq service). Fall back by title only
+  // when every matching source definition has the same visible payload.
+  const normalizedTitle = normalize(title);
+  if (!normalizedTitle) return null;
+
+  const matches = [];
+  for (const [identity, candidate] of sourceDefinitionCache) {
+    if (!identity.endsWith(`|${normalizedTitle}`)) continue;
+    matches.push(candidate);
+  }
+  if (!matches.length) return null;
+
+  const unique = new Map(matches.map(candidate => {
+    const visible = {
+      title: candidate?.title || null,
+      description: candidate?.description || null,
+      fields: Array.isArray(candidate?.fields) ? candidate.fields : [],
+      footer: candidate?.footer || null,
+      image: candidate?.image || null,
+      thumbnail: candidate?.thumbnail || null,
+      color: Number.isInteger(candidate?.color) ? candidate.color : null,
+    };
+    return [JSON.stringify(visible), candidate];
+  }));
+
+  return unique.size === 1 ? cloneData([...unique.values()][0]) : null;
 }
 
 export function primeSystemSourceDefinitionPreview(definition = {}) {
