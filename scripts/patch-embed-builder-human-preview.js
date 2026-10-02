@@ -93,12 +93,11 @@ function humanTemplateRecordName(record) {
       'ignore technical titles for identity',
     );
 
-    text = replaceOnce(
-      text,
-      `        const name = standardDynamicTemplateName(rawName) || 'Untitled embed';`,
-      `        const name = humanTemplateRecordName(record) || 'Untitled embed';`,
-      'human menu label',
-    );
+    if (text.includes('standardDynamicTemplateName(rawName)')) {
+      text = text.replaceAll('standardDynamicTemplateName(rawName)', 'humanTemplateRecordName(record)');
+    } else if (!text.includes('humanTemplateRecordName(record)')) {
+      throw new Error('[BUILDER_HUMAN_PREVIEW] human menu label marker not found');
+    }
 
     const displayEmojiMarker = `        const displayEmojiSource = group.records
             .map(record => recordEmbedData(record).title || record.title || record.name || '')
