@@ -35,7 +35,7 @@ import {
   applyRuntimeEmbedTemplateData,
   getSystemEmbedTemplateKey,
   primeSystemEmbedTemplateData,
-  registerDiscoveredEmbedDefinition,
+  primeSystemSourceDefinitionPreview,
 } from '../src/services/systemEmbedCatalogService.js';
 import {
   isBlackjackEmbed,
@@ -392,7 +392,7 @@ test('sparse catalog template preview falls back to the full source embed withou
     'Click **Ask a question** below and let Cloudy Inc. assist you.',
   ].join('\n');
 
-  registerDiscoveredEmbedDefinition({
+  primeSystemSourceDefinitionPreview({
     kind: 'embed',
     title: 'Cloudy Support Assistant',
     description,
