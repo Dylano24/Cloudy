@@ -426,6 +426,68 @@ test('sparse catalog template preview falls back to the full source embed withou
   assert.equal(state.modifyTarget.previewSourceData.description, description);
 });
 
+test('title-only live peer cannot hide full source text from the Builder live preview', async () => {
+  installTestStorage();
+
+  const guildId = '100000000000000097';
+  const channelId = '200000000000000097';
+  const description = [
+    'Have a question or need help with something?',
+    '',
+    'Our AI Assistant can help you find answers to common questions, server information, features, commands, and more.',
+    '',
+    'You can ask your question in any language, and you’ll receive a response in the same language.',
+    '',
+    'Click **Ask a question** below and let Cloudy Inc. assist you.',
+  ].join('\n');
+
+  primeSystemSourceDefinitionPreview({
+    kind: 'embed',
+    title: 'Cloudy Support Assistant',
+    description,
+    context: 'faq/faq-ai-service',
+    variantId: 'services/faqAiService.js:embed:title-only-peer-test',
+  });
+
+  const catalogMessage = {
+    id: '300000000000000097',
+    guildId,
+    channelId,
+    embeds: [{
+      title: 'Cloudy Support Assistant',
+      color: 0x5865F2,
+      author: {
+        name: 'Cloudy template key: embed:test || Cloudy context: faq/faq-ai-service || Cloudy kind: embed',
+      },
+    }],
+    createdAt: new Date('2026-10-02T15:00:00.000Z'),
+  };
+  const sparsePeerMessage = {
+    id: '300000000000000096',
+    guildId,
+    channelId,
+    embeds: [{
+      title: 'Cloudy Support Assistant',
+      color: 0x5865F2,
+    }],
+    createdAt: new Date('2026-10-02T15:01:00.000Z'),
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(catalogMessage, 'embed-builder'), true);
+  assert.equal(await registerCloudyEmbedMessage(sparsePeerMessage, 'embed-builder'), true);
+  const records = await getEmbedRegistry(guildId);
+  const catalogRecord = { ...records.find(record => record.messageId === catalogMessage.id), source: 'system-catalog' };
+  const previewRecord = records.find(record => record.messageId === sparsePeerMessage.id);
+  const state = {};
+
+  assert.equal(loadRecordSnapshotIntoState(state, { id: guildId }, catalogRecord, previewRecord), true);
+  assert.equal(state.message, description);
+  assert.equal(state.modifyTarget.previewSourceData.description, description);
+
+  const [preview] = buildBuilderEmbeds(state);
+  assert.equal(preview.toJSON().description, description);
+});
+
 test('background registry refresh stops as soon as manager interaction begins', () => {
   const session = { closed: false, hasInteracted: false };
   const state = { activeEmbedManager: session };
