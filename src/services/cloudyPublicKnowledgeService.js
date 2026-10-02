@@ -160,6 +160,26 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
   const tokens = questionTokens(request.question);
   const required = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
 
+  const commandCollection = await guild.commands?.fetch?.().catch(() => null);
+  const allCommands = [...(commandCollection?.values?.() || [])].map(command => ({
+    name: String(command.name || ''),
+    description: String(command.description || ''),
+  })).filter(command => command.name);
+
+  const commandQuestion = tokens.some(token => ['command', 'commands', 'slash', 'commando', 'commandoes'].includes(token));
+  const scoredCommands = allCommands.map(command => ({
+    ...command,
+    score: tokens.reduce((score, token) => score
+      + (command.name.toLowerCase().includes(token) ? 3 : 0)
+      + (command.description.toLowerCase().includes(token) ? 1 : 0), 0),
+  }));
+  const relevantCommands = (commandQuestion
+    ? scoredCommands
+    : scoredCommands.filter(command => command.score > 0))
+    .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name))
+    .slice(0, commandQuestion ? 100 : 30)
+    .map(({ score: _score, ...command }) => command);
+
   const resolved = await Promise.all(PUBLIC_KNOWLEDGE_CHANNEL_KEYS.map(async key => {
     const channel = await resolveCloudyChannel(client, key, { guild, textOnly: true });
     return { key, channel };
@@ -206,8 +226,9 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
 
   const payload = {
     verifiedCloudyFacts: verified,
+    registeredSlashCommands: relevantCommands,
     readablePublicChannelMessages: selected,
-    instruction: 'Answer only from these verified facts and readable public channel messages. Never invent a command, URL, product, purchase process, kit claim step, or server fact.',
+    instruction: 'Answer only from these verified facts, registered slash commands, and readable public channel messages. Never invent a command, URL, product, purchase process, kit claim step, or server fact.',
   };
 
   let text = JSON.stringify(payload);
@@ -217,7 +238,11 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
     text = JSON.stringify(payload);
   }
 
-  return { text, count: selected.length + verified.navigation.length, channels: readableChannels };
+  return {
+    text,
+    count: selected.length + verified.navigation.length + relevantCommands.length,
+    channels: readableChannels,
+  };
 }
 
 export async function buildRestoredKnowledgePayloads(client, guild) {
