@@ -538,6 +538,22 @@ export function shouldApplyBackgroundRegistryRefresh() {
     return false;
 }
 
+async function updateEmbedManager(interaction, payload, state, session) {
+    if (session.closed || state.activeEmbedManager !== session) return false;
+
+    try {
+        await interaction.editReply(payload);
+        return true;
+    } catch (error) {
+        if (CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+            closeEmbedManagerSession(state, session, 'message-unavailable');
+            logger.debug(`Embed manager message ${session.messageId} is no longer available.`);
+            return false;
+        }
+        throw error;
+    }
+}
+
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
