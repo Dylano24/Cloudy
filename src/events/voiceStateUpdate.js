@@ -152,7 +152,17 @@ export default {
                     return;
                 }
 
-                const triggerPermissions = triggerChannel.permissionsFor(me);
+                // The trigger ID is the stable Join to Create identity. Fetch that exact
+                // channel again at join time so a Discord rename is reflected immediately
+                // without ever switching configuration matching to channel names.
+                const refreshedTriggerChannel = typeof guild.channels.fetch === 'function'
+                    ? await guild.channels.fetch(triggerChannel.id, { force: true }).catch(() => null)
+                    : null;
+                const activeTriggerChannel = refreshedTriggerChannel?.id === triggerChannel.id
+                    ? refreshedTriggerChannel
+                    : triggerChannel;
+
+                const triggerPermissions = activeTriggerChannel.permissionsFor(me);
                 if (!triggerPermissions?.has([PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.Connect])) {
                     logger.warn(`Missing required permissions for temporary channel creation in guild ${guild.id} (trigger channel ${triggerChannel.id})`);
                     channelCreationCooldown.delete(cooldownKey);
@@ -179,7 +189,7 @@ export default {
                     userTag: member.user.tag,
                     displayName: member.displayName,
                     guildName: guild.name,
-                    channelName: triggerChannel.name
+                    channelName: activeTriggerChannel.name
                 });
 
                 const channelName = sanitizeVoiceChannelName(finalName);
@@ -193,7 +203,7 @@ export default {
                 tempChannel = await guild.channels.create({
                     name: channelName,
                     type: ChannelType.GuildVoice,
-                    parent: triggerChannel.parentId,
+                    parent: activeTriggerChannel.parentId,
                     userLimit: userLimit === 0 ? undefined : userLimit,
                     bitrate: bitrate,
                     permissionOverwrites: [
