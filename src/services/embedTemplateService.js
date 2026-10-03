@@ -50,19 +50,30 @@ async function loadTemplates(guildId, channelId) {
   try { return await job; } finally { if (templateLoads.get(key) === job) templateLoads.delete(key); }
 }
 
-async function loadMergedTemplates(guildId, channelId) {
+async function loadMergedTemplates(guildId, channelId, { preferGlobal = false } = {}) {
   const [globalTemplates, channelTemplates] = await Promise.all([
     loadTemplates(guildId, GLOBAL_SCOPE),
     loadTemplates(guildId, channelId),
   ]);
   const globalOverlay = templateOverlays.get(templateKey(guildId, GLOBAL_SCOPE)) || {};
   const channelOverlay = templateOverlays.get(templateKey(guildId, channelId)) || {};
-  return {
-    ...globalTemplates,
-    ...globalOverlay,
-    ...channelTemplates,
-    ...channelOverlay,
-  };
+
+  // Shared status/cooldown families are intentionally guild-wide. Old
+  // per-channel copies from earlier Builder versions must never shadow the
+  // current shared save.
+  return preferGlobal
+    ? {
+        ...channelTemplates,
+        ...channelOverlay,
+        ...globalTemplates,
+        ...globalOverlay,
+      }
+    : {
+        ...globalTemplates,
+        ...globalOverlay,
+        ...channelTemplates,
+        ...channelOverlay,
+      };
 }
 
 async function mutateTemplates(guildId, channelId, operation) {
@@ -137,6 +148,12 @@ function renderDynamic(template, runtime, {
 function aliasKeys(value) {
   const raw = normalizeKey(value);
   const pattern = dynamicParts(value).pattern;
+
+  // Dynamic response families must resolve through their reusable pattern
+  // before any stale member/value-specific alias left by older versions.
+  if (pattern && pattern !== raw) {
+    return [...new Set([pattern, raw].filter(Boolean))];
+  }
   return [...new Set([raw, pattern].filter(Boolean))];
 }
 
@@ -364,7 +381,10 @@ function decorateEmbedData(embed, stored, options = {}) {
 
 export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed, options = {}) {
   try {
-    const stored = await loadMergedTemplates(guildId, channelId);
+    const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
+    const stored = await loadMergedTemplates(guildId, channelId, {
+      preferGlobal: isSharedRuntimeBodyTitle(original.title),
+    });
     const result = decorateEmbedData(embed, stored, options);
     return {
       matched: result.matched,
@@ -431,13 +451,18 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
   if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return true;
 
   try {
-    const stored = await loadMergedTemplates(message.guildId, message.channelId);
-    if (!Object.keys(stored).length) return false;
+    const [stored, sharedStored] = await Promise.all([
+      loadMergedTemplates(message.guildId, message.channelId),
+      loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true }),
+    ]);
+    if (!Object.keys(stored).length && !Object.keys(sharedStored).length) return false;
 
     let matched = false;
     let changed = false;
     const embeds = message.embeds.map(embed => {
-      const result = decorateEmbedData(embed, stored);
+      const data = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
+      const source = isSharedRuntimeBodyTitle(data.title) ? sharedStored : stored;
+      const result = decorateEmbedData(embed, source);
       if (!result.matched) return embed;
       matched = true;
       changed ||= result.changed;
