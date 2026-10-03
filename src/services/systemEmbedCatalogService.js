@@ -182,10 +182,26 @@ function renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch = false 
   return fallbackToRuntimeOnMismatch && /\{dynamic\}/i.test(rendered) ? source : rendered;
 }
 
+export function canonicalSystemEmbedResponseTitle(value = '') {
+  return dynamicParts(value).pattern
+    .replace(/<a?:[^:>]+:\d+>/gi, ' ')
+    .replace(/^[\s\p{Extended_Pictographic}\p{S}\p{P}]+/gu, '')
+    .replace(/[\s\p{Extended_Pictographic}\p{S}\p{P}]+$/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 function responseSignature(kind, title = '', description = '') {
+  const normalizedKind = normalize(kind) || 'embed';
+  if (normalizedKind === 'embed') {
+    const canonicalTitle = canonicalSystemEmbedResponseTitle(title);
+    if (canonicalTitle) return `embed:${shortHash(canonicalTitle)}`;
+  }
+
   const titlePattern = dynamicParts(title).pattern;
   const descriptionPattern = dynamicParts(description).pattern;
-  return `${kind}:${shortHash(`${titlePattern}\n${descriptionPattern}`)}`;
+  return `${normalizedKind}:${shortHash(`${titlePattern}\n${descriptionPattern}`)}`;
 }
 
 function canonicalBlackjackResult(value) {
@@ -375,7 +391,7 @@ function findTemplate(key, context) {
 }
 
 function sourceDefinitionIdentity(context, title) {
-  return `${normalize(context)}|${normalize(title)}`;
+  return `${normalize(context)}|${canonicalSystemEmbedResponseTitle(title)}`;
 }
 
 function rememberSourceDefinition(definition = {}) {
@@ -399,7 +415,7 @@ export function getSystemSourceDefinitionPreview(title, context = null) {
   // Some catalog aliases use a sibling context for the same visible embed
   // (for example faq interaction vs faq service). Fall back by title only
   // when every matching source definition has the same visible payload.
-  const normalizedTitle = normalize(title);
+  const normalizedTitle = canonicalSystemEmbedResponseTitle(title);
   if (!normalizedTitle) return null;
 
   const matches = [];
@@ -436,8 +452,19 @@ function rememberCatalogMessage(message) {
   for (const embed of message?.embeds || []) {
     const metadata = parseTemplateMetadata(embed);
     if (!metadata.key || !isEditableSystemCatalogTemplate(metadata.key, metadata.context)) continue;
+
+    const canonicalKey = semanticCatalogKey(metadata, embed);
     catalogEntries.add(cacheIdentity(metadata.key, metadata.context));
     rememberTemplate(metadata.key, embed, metadata.context);
+
+    // Old catalog rows can carry a description-hash key. Also cache the same
+    // saved template under today's canonical response-type key so one Builder
+    // Save immediately affects every future runtime response of that type.
+    if (canonicalKey && canonicalKey !== metadata.key
+      && isEditableSystemCatalogTemplate(canonicalKey, metadata.context)) {
+      catalogEntries.add(cacheIdentity(canonicalKey, metadata.context));
+      rememberTemplate(canonicalKey, embed, metadata.context);
+    }
   }
 }
 
@@ -547,7 +574,9 @@ function semanticCatalogKey(metadata, embed) {
     data.description,
     metadata.context,
   );
-  return String(canonical || '').startsWith('game:') ? canonical : metadata.key;
+  return canonical && isEditableSystemCatalogTemplate(canonical, metadata.context)
+    ? canonical
+    : metadata.key;
 }
 
 function catalogEntryIdentity(metadata, embed) {
@@ -559,7 +588,7 @@ function entryIdentity(entry) {
   const canonical = getSystemEmbedTemplateKey(entry.kind, data.title, data.description, entry.context);
   const key = String(entry.key || '').startsWith('game:') && isEditableSystemCatalogTemplate(entry.key, entry.context)
     ? entry.key
-    : (String(canonical || '').startsWith('game:') ? canonical : entry.key);
+    : (canonical && isEditableSystemCatalogTemplate(canonical, entry.context) ? canonical : entry.key);
   return cacheIdentity(key, entry.context);
 }
 
