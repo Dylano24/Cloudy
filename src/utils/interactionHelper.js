@@ -170,6 +170,9 @@ export class InteractionHelper {
 
     static async safeEditReply(interaction, options) {
         try {
+            if (interaction?.__cloudyDashboardLifecycleEnded) {
+                return false;
+            }
             const coordinator = this.getCoordinator(interaction);
             const cleanOptions = sanitizeEditReplyOptions(options);
             if (coordinator?.isUsageFinalized()) {
@@ -227,6 +230,9 @@ export class InteractionHelper {
 
     static async safeReply(interaction, options) {
         try {
+            if (interaction?.__cloudyDashboardLifecycleEnded) {
+                return false;
+            }
             const coordinator = this.getCoordinator(interaction);
             const cleanOptions = sanitizeReplyOptions(options);
             if (coordinator?.isUsageFinalized()) {

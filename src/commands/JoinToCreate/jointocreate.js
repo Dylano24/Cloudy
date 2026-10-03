@@ -5,6 +5,11 @@ import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes, replyUserError } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
+    DASHBOARD_IDLE_MS,
+    deleteLifecycleMessage,
+    touchDashboardSessionMessage,
+} from '../../utils/interactionMessageLifecycle.js';
+import {
     initializeJoinToCreate,
     getChannelConfiguration,
     updateChannelConfig,
@@ -61,7 +66,10 @@ function scheduleTransientDeletion(interaction, message = null) {
                 if (deleted) return;
             }
 
-            if (interaction.deleteReply) {
+            // A helper follow-up is not the dashboard's @original reply. If exact
+            // message deletion failed, never fall through to deleteReply() and
+            // accidentally remove the Join to Create dashboard itself.
+            if (!message?.id && interaction.deleteReply) {
                 await interaction.deleteReply().catch(() => {});
             }
         } catch (error) {
@@ -319,7 +327,7 @@ async function handleConfigSubcommand(interaction, client) {
 
         const collector = message.createMessageComponentCollector({
             componentType: ComponentType.Button,
-            time: 300000
+            idle: DASHBOARD_IDLE_MS
         });
 
         collector.on('collect', async (buttonInteraction) => {
@@ -345,6 +353,14 @@ async function handleConfigSubcommand(interaction, client) {
                 } else if (customId.includes('jtc_config_delete_')) {
                     await handleChannelDeletion(buttonInteraction, triggerChannel, client);
                 }
+
+                // Completing a dashboard action (including a modal save) is activity.
+                // Restart both the collector's idle window and the shared dashboard
+                // lifecycle so saving can never make the dashboard expire immediately.
+                if (!collector.ended) {
+                    collector.resetTimer({ idle: DASHBOARD_IDLE_MS });
+                }
+                touchDashboardSessionMessage(message, buttonInteraction);
             } catch (error) {
                 const userMessage = error instanceof TitanBotError
                     ? error.userMessage || 'An error occurred.'
@@ -362,19 +378,9 @@ async function handleConfigSubcommand(interaction, client) {
             }
         });
 
-        collector.on('end', async () => {
-            const disabledRow = new ActionRowBuilder().addComponents(
-                nameButton.setDisabled(true),
-                limitButton.setDisabled(true),
-                bitrateButton.setDisabled(true),
-                deleteButton.setDisabled(true)
-            );
-
-            const latestConfig = await getChannelConfiguration(client, guildId, triggerChannel.id).catch(() => currentConfig);
-            message.edit({
-                components: [disabledRow],
-                embeds: [buildConfigEmbed(triggerChannel, latestConfig).setFooter({ text: 'Configuration session expired. Run the command again to make changes.' })]
-            }).catch(() => {});
+        collector.on('end', async (_collected, reason) => {
+            if (reason !== 'idle' && reason !== 'time') return;
+            await deleteLifecycleMessage(message, interaction);
         });
     } catch (error) {
         if (error instanceof TitanBotError) throw error;

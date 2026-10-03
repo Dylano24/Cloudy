@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MessageFlags } from 'discord.js';
+import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import {
   DASHBOARD_IDLE_MS,
   TRANSIENT_MESSAGE_MS,
@@ -182,4 +183,38 @@ test('cleanup falls back to a normal delete for public messages', async () => {
 
   assert.equal(await deleteLifecycleMessage(message, {}), true);
   assert.equal(directDeletes, 1);
+});
+
+
+test('deleting an inactive dashboard marks its root interaction as ended', async () => {
+  const message = {
+    id: 'dashboard-ended',
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+    embeds: [{ title: 'Join to create configuration' }],
+    components: [{ components: [{ customId: 'jtc_config_name_123' }] }],
+  };
+  const interaction = {
+    webhook: { deleteMessage: async () => {} },
+  };
+
+  assert.equal(await deleteLifecycleMessage(message, interaction), true);
+  assert.equal(interaction.__cloudyDashboardLifecycleEnded, true);
+});
+
+test('expired dashboard callbacks cannot recreate a deleted dashboard as a follow-up', async () => {
+  let edits = 0;
+  let followUps = 0;
+  const interaction = {
+    id: 'expired-dashboard-interaction',
+    user: { id: 'user' },
+    replied: true,
+    deferred: false,
+    __cloudyDashboardLifecycleEnded: true,
+    editReply: async () => { edits += 1; },
+    followUp: async () => { followUps += 1; },
+  };
+
+  assert.equal(await InteractionHelper.safeEditReply(interaction, { content: 'stale timeout' }), false);
+  assert.equal(edits, 0);
+  assert.equal(followUps, 0);
 });
