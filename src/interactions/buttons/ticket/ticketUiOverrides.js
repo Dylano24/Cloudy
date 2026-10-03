@@ -44,7 +44,7 @@ async function getPanelStateFast(client, guildId) {
   }
 }
 
-async function requireStaff(interaction, client, action, { allowCreator = false } = {}) {
+async function requireStaff(interaction, client, action) {
   const context = await getTicketPermissionContext({ client, interaction });
 
   if (context.ticketDataLookupFailed) {
@@ -63,7 +63,7 @@ async function requireStaff(interaction, client, action, { allowCreator = false 
     return null;
   }
 
-  if (!(allowCreator ? context.canReopenTicket : context.canManageTicket)) {
+  if (!context.canManageTicket) {
     await replyUserError(interaction, {
       type: ErrorTypes.PERMISSION,
       message: `Only the staff team can ${action}.`,
@@ -380,7 +380,7 @@ const reopenTicketHandler = {
     if (!deferred) return;
 
     try {
-      const context = await requireStaff(interaction, client, 'reopen tickets', { allowCreator: true });
+      const context = await requireStaff(interaction, client, 'reopen tickets');
       if (!context) return;
 
       await reopenTicket(interaction.channel, interaction.member);
