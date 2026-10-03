@@ -1,3 +1,4 @@
+import { hideClosedTicket } from './ticketClosedAccessService.js';
 // ticket.js
 
 import {
@@ -343,28 +344,8 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
       }
     }
     
-    try {
-      const user = await channel.guild.members.fetch(ticketData.userId).catch(() => null);
-      const targetUser = user?.user || await channel.client.users.fetch(ticketData.userId).catch(() => null);
-      
-      if (targetUser) {
-        const overwrite = channel.permissionOverwrites.cache.get(ticketData.userId);
-        if (overwrite) {
-          await overwrite.edit({
-            ViewChannel: true,
-            SendMessages: false,
-          });
-        } else {
-          await channel.permissionOverwrites.create(targetUser, {
-            ViewChannel: true,
-            SendMessages: false,
-          });
-        }
-      }
-    } catch (permError) {
-        logger.warn(`Could not update user permissions for closed ticket: ${permError.message}`);
-    }
-    
+    await hideClosedTicket(channel);
+
     const messages = await channel.messages.fetch();
     const ticketMessage = messages.find(m => 
       m.embeds.length > 0 && 
