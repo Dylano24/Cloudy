@@ -990,7 +990,17 @@ function splitDynamicLogLine(line) {
 
 function dynamicValues(value) {
     const values = [];
-    const tokenized = String(value || '').replace(
+    let tokenized = String(value || '');
+
+    // Member-specific possessive titles such as "feelfate's Balance" are one
+    // reusable title shape. Preserve the live member name while letting the
+    // administrator edit the fixed suffix, including capitalization.
+    tokenized = tokenized.replace(/^([a-z0-9_.-]{2,32})(?='s\b)/i, match => {
+        values.push(match);
+        return '{dynamic}';
+    });
+
+    tokenized = tokenized.replace(
         /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b|@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi,
         match => {
             values.push(match);
@@ -1312,6 +1322,14 @@ export async function saveModifiedEmbed(guild, state) {
             || getTemplateRule(target.channelId, sourceData.title || target.templateTitle);
         const aliases = [sourceData.title, current.title, sourceRule?.label].filter(Boolean);
         const gameContext = curatedGameTemplateContext(target.templateTitle);
+        const originalTemplateTitle = String(
+            target.templateSourceData?.title
+            || target.catalogTitle
+            || sourceData.title
+            || '',
+        ).replace(/\s+/g, ' ').trim();
+        const sharedRuntimeBody = /^(?:success|failed|error|warning|information|invalid|expired|too fast|cooldown|on cooldown|please wait|slow down)$/i
+            .test(originalTemplateTitle);
 
         if (gameContext) {
             primeSystemEmbedTemplateData(target.templateTitle, gameContext, current);
@@ -1321,26 +1339,31 @@ export async function saveModifiedEmbed(guild, state) {
         // template without holding the Save interaction open on a DB roundtrip.
         // saveEmbedTemplateDecoration primes an in-memory overlay immediately,
         // so the next game/log output cannot briefly fall back to blue/default.
-        void saveEmbedTemplateDecoration(
+        const templateSaved = await saveEmbedTemplateDecoration(
             guild.id,
             target.channelId,
             aliases,
             current,
             {
+                sharedScope: sharedRuntimeBody,
                 // Ticket fields contain event data and must never be replaced
                 // by the fixed examples shown in the durable catalog master.
                 applyFields: !String(target.templateTitle || '').startsWith('ticket-log:'),
                 applyThumbnail: mediaChanges.thumbnailChanged,
                 applyImage: mediaChanges.imageChanged,
             },
-        ).catch(error => logger.error('Failed to persist saved embed template:', error));
+        );
+        if (!templateSaved) {
+            logger.error('Failed to persist saved embed template before confirming Builder Save.');
+            return { ok: false, reason: 'template-save-failed' };
+        }
 
         if (target.source === 'system-catalog') {
             // Keep the catalog cache in sync in the same tick as Save. Gateway
             // MessageUpdate events arrive later and previously caused a race
             // where the first new game used the old blue template.
             primeSystemEmbedCatalogMessage(edited);
-            void syncSystemEmbedCatalogMessage(edited)
+            await syncSystemEmbedCatalogMessage(edited)
                 .catch(error => logger.error('Failed to sync saved system embed template:', error));
         }
 
@@ -1361,8 +1384,11 @@ export async function saveModifiedEmbed(guild, state) {
     const registrySource = target.source === 'embed-builder'
         ? 'embed-builder'
         : (target.templateMode ? 'modified-template' : 'modified');
-    void registerCloudyEmbedMessage(edited, registrySource)
-        .catch(error => logger.error('Failed to refresh modified embed registry:', error));
+    await registerCloudyEmbedMessage(edited, registrySource)
+        .catch(error => {
+            logger.error('Failed to refresh modified embed registry:', error);
+            return false;
+        });
 
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
