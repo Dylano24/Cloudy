@@ -306,7 +306,9 @@ function decorateEmbedData(embed, stored, options = {}) {
     delete data.title;
   }
 
-  if (template.applyDescription !== false && template.description !== undefined
+  if (options.preserveRuntimeBody !== true
+      && template.applyDescription !== false
+      && template.description !== undefined
       && (template.schemaVersion >= 3 || Boolean(template.description))) {
     if (template.description) {
       const description = renderDynamic(template.description, original.description || '', {
@@ -319,7 +321,9 @@ function decorateEmbedData(embed, stored, options = {}) {
     }
   }
 
-  if (template.applyFields !== false && Array.isArray(template.fields)
+  if (options.preserveRuntimeBody !== true
+      && template.applyFields !== false
+      && Array.isArray(template.fields)
       && (template.schemaVersion >= 3 || template.fields.length)) {
     if (!template.fields.length) {
       delete data.fields;
@@ -385,7 +389,10 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed, 
     const stored = await loadMergedTemplates(guildId, channelId, {
       preferGlobal: isSharedRuntimeBodyTitle(original.title),
     });
-    const result = decorateEmbedData(embed, stored, options);
+    const result = decorateEmbedData(embed, stored, {
+      ...options,
+      preserveRuntimeBody: options.preserveRuntimeBody === true || isSharedRuntimeBodyTitle(original.title),
+    });
     return {
       matched: result.matched,
       changed: result.changed,
@@ -461,8 +468,11 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
     let changed = false;
     const embeds = message.embeds.map(embed => {
       const data = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
-      const source = isSharedRuntimeBodyTitle(data.title) ? sharedStored : stored;
-      const result = decorateEmbedData(embed, source);
+      const sharedRuntimeBody = isSharedRuntimeBodyTitle(data.title);
+      const source = sharedRuntimeBody ? sharedStored : stored;
+      const result = decorateEmbedData(embed, source, {
+        preserveRuntimeBody: sharedRuntimeBody,
+      });
       if (!result.matched) return embed;
       matched = true;
       changed ||= result.changed;
