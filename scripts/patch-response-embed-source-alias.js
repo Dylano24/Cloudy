@@ -18,6 +18,7 @@ function replaceOnce(text, find, replace, label) {
       'const plainSourceAliases = new Map();',
       `const plainSourceAliases = new Map();
 const embedSourceAliases = new Map();
+const embedLegacyKeyAliases = new Map();
 // RESPONSE_EMBED_SOURCE_ALIAS_V1: source-discovered embed titles retain one runtime identity.`,
       'alias map',
     );
@@ -26,6 +27,10 @@ const embedSourceAliases = new Map();
     const helper = `
 function embedSourceAliasIdentity(context, title) {
   return cacheIdentity(\`source-title:\${normalize(title)}\`, context);
+}
+
+function embedLegacyKeyAliasIdentity(context, key) {
+  return cacheIdentity(`legacy-key:${normalize(key)}`, context);
 }
 
 function registerEmbedSourceAlias(definition, entry = null) {
@@ -38,9 +43,26 @@ function registerEmbedSourceAlias(definition, entry = null) {
   const current = embedSourceAliases.get(identity);
   if (current && current !== normalized.key) {
     embedSourceAliases.set(identity, '');
-    return false;
+  } else if (!current) {
+    embedSourceAliases.set(identity, normalized.key);
   }
-  if (!current) embedSourceAliases.set(identity, normalized.key);
+
+  // Before canonical response-type keys existed, generic catalog rows were
+  // keyed by title + description. Keep a durable alias from that old metadata
+  // key to the one source response type. This still works after an admin edits
+  // the visible title/body because the catalog author metadata keeps the old key.
+  const legacyKey = responseSignature(
+    'embed',
+    definition.title || '',
+    definition.description || definition.content || '',
+  );
+  const legacyIdentity = embedLegacyKeyAliasIdentity(normalized.context, legacyKey);
+  const legacyCurrent = embedLegacyKeyAliases.get(legacyIdentity);
+  if (legacyCurrent && legacyCurrent !== normalized.key) {
+    embedLegacyKeyAliases.set(legacyIdentity, '');
+  } else if (!legacyCurrent) {
+    embedLegacyKeyAliases.set(legacyIdentity, normalized.key);
+  }
   return true;
 }
 
@@ -49,8 +71,66 @@ function resolveEmbedSourceAlias(context, title) {
   return typeof key === 'string' && key ? key : null;
 }
 
+function resolveEmbedLegacyKeyAlias(context, key) {
+  const alias = embedLegacyKeyAliases.get(embedLegacyKeyAliasIdentity(context, key));
+  return typeof alias === 'string' && alias ? alias : null;
+}
+
 `;
     text = replaceOnce(text, helperMarker, helper + helperMarker, 'alias helpers');
+
+    text = replaceOnce(
+      text,
+      `function semanticCatalogKey(metadata, embed) {
+  if (String(metadata.key || '').startsWith('game:')
+    && isEditableSystemCatalogTemplate(metadata.key, metadata.context)) return metadata.key;
+  const data = cloneData(embed);
+
+  // A legacy generic key that no longer matches its visible payload is an
+  // administrator-edited template. Keep that stable identity instead of
+  // treating the custom title as a brand-new response type.
+  if (String(metadata.key || '').startsWith('embed:') && isLegacyCatalogEdit(metadata, data)) {
+    return metadata.key;
+  }
+
+  const canonical = getSystemEmbedTemplateKey(
+    metadata.kind,
+    data.title,
+    data.description,
+    metadata.context,
+  );
+  return canonical && isEditableSystemCatalogTemplate(canonical, metadata.context)
+    ? canonical
+    : metadata.key;
+}`,
+      `function semanticCatalogKey(metadata, embed) {
+  if (String(metadata.key || '').startsWith('game:')
+    && isEditableSystemCatalogTemplate(metadata.key, metadata.context)) return metadata.key;
+
+  const legacyAlias = resolveEmbedLegacyKeyAlias(metadata.context, metadata.key);
+  if (legacyAlias) return legacyAlias;
+
+  const data = cloneData(embed);
+
+  // If an old generic row is not a known source definition and its visible
+  // payload was manually edited, preserve that independent administrator
+  // identity rather than guessing.
+  if (String(metadata.key || '').startsWith('embed:') && isLegacyCatalogEdit(metadata, data)) {
+    return metadata.key;
+  }
+
+  const canonical = getSystemEmbedTemplateKey(
+    metadata.kind,
+    data.title,
+    data.description,
+    metadata.context,
+  );
+  return canonical && isEditableSystemCatalogTemplate(canonical, metadata.context)
+    ? canonical
+    : metadata.key;
+}`,
+      'legacy generic catalog alias',
+    );
 
     text = replaceOnce(
       text,
@@ -87,6 +167,7 @@ function resolveEmbedSourceAlias(context, title) {
       `  plainSourceAliases.clear();`,
       `  plainSourceAliases.clear();
   embedSourceAliases.clear();
+  embedLegacyKeyAliases.clear();
   for (const definition of discoveredDefinitions) {
     if (normalize(definition.kind) !== 'embed') continue;
     const entry = definitionToCatalog(definition);
