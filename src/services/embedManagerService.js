@@ -945,18 +945,27 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     }
 }
 
+function isZorpGuideTitle(value) {
+    const title = String(value || '')
+        .replace(/<a?:[^:>]+:\d+>/g, '')
+        .replace(/^(?:\s|☑️|🛡️)+/u, '')
+        .trim();
+    return /^ZORP Guide$/i.test(title);
+}
+
 function applyStateToExistingEmbed(state) {
     const target = state.modifyTarget;
     const data = { ...(target?.sourceEmbedData || {}) };
 
     if (state.title) data.title = state.title.slice(0, 256);
     else delete data.title;
-    if (state.message) data.description = normalizeManualIndent(state.message).slice(0, 4096);
+    const zorp = isZorpGuideTitle(state.title || data.title);
+    if (state.message) data.description = normalizeManualIndent(state.message, { zorp }).slice(0, 4096);
     else delete data.description;
     if (Array.isArray(state.embedFields) && state.embedFields.length) {
         data.fields = state.embedFields.slice(0, 25).map(field => ({
             name: String(field.name || '\u200B').slice(0, 256),
-            value: normalizeManualIndent(String(field.value || '\u200B')).slice(0, 1024),
+            value: normalizeManualIndent(String(field.value || '\u200B'), { zorp }).slice(0, 1024),
             inline: Boolean(field.inline),
         }));
     } else {
