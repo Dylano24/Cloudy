@@ -7,13 +7,6 @@
     "name": "Serenetia"
   },
   {
-    "host": "lavalink.jirayu.net",
-    "port": 443,
-    "password": "youshallnotpass",
-    "secure": true,
-    "name": "Jirayu"
-  },
-  {
     "host": "lava-v4.millohost.my.id",
     "port": 443,
     "password": "https://discord.gg/mjS5J2K3ep",
