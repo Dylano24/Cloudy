@@ -133,7 +133,7 @@ function dynamicTemplateText(value) {
         .replace(/<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/gi, '{dynamic}')
         // A Discord tag in a title is a live value, not a different embed type.
         .replace(/@[a-z0-9_.-]{2,32}(?:#\d{4})?/gi, '{dynamic}')
-        .replace(/\b[a-z0-9_.-]{2,32}'s\b/gi, '{dynamic}')
+        .replace(/\b[a-z0-9_.-]{2,32}'s\b/gi, "{dynamic}'s")
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase();
@@ -196,6 +196,8 @@ export function prefersCatalogPreview(records) {
 
 function standardDynamicTemplateName(value) {
     const title = String(value || '').replace(/\s+/g, ' ').trim();
+    const possessive = title.match(/^(?:\{dynamic\}|[a-z0-9_.-]{2,32})'s\s+(.+)$/i);
+    if (possessive?.[1]) return possessive[1].slice(0, 100);
     if (/^blackjack\s*[—-]\s*bet\b/i.test(title)) return 'Blackjack — Bet';
     if (/^baccarat\s*[—-]\s*bet\b/i.test(title)) return 'Baccarat — Bet';
     return title;
