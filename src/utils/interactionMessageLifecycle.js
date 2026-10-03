@@ -99,6 +99,11 @@ function clearBuilderLifecycleTimers(message) {
   return true;
 }
 
+function markDashboardLifecycleEnded(message, interaction) {
+  if (!interaction || !shouldUseGenericDashboardTimer(null, message)) return;
+  interaction.__cloudyDashboardLifecycleEnded = true;
+}
+
 export async function deleteLifecycleMessage(message, interaction) {
   if (!message?.id) return false;
 
@@ -116,20 +121,28 @@ export async function deleteLifecycleMessage(message, interaction) {
     const deleted = await interaction.webhook.deleteMessage(message.id)
       .then(() => true)
       .catch(() => false);
-    if (deleted) return true;
+    if (deleted) {
+      markDashboardLifecycleEnded(message, interaction);
+      return true;
+    }
   }
 
   if (typeof message.delete === 'function') {
     const deleted = await message.delete()
       .then(() => true)
       .catch(() => false);
-    if (deleted) return true;
+    if (deleted) {
+      markDashboardLifecycleEnded(message, interaction);
+      return true;
+    }
   }
 
   if (interaction?.deleteReply) {
-    return interaction.deleteReply()
+    const deleted = await interaction.deleteReply()
       .then(() => true)
       .catch(() => false);
+    if (deleted) markDashboardLifecycleEnded(message, interaction);
+    return deleted;
   }
 
   return false;
@@ -171,6 +184,10 @@ function scheduleDashboardIfNeeded(payload, message, interaction) {
   if (clearBuilderLifecycleTimers(message)) return false;
   if (!shouldUseGenericDashboardTimer(payload, message)) return false;
   return schedule(dashboardTimers, message, interaction, DASHBOARD_IDLE_MS);
+}
+
+export function touchDashboardSessionMessage(message, interaction) {
+  return scheduleDashboardIfNeeded(null, message, interaction);
 }
 
 async function resolveResponseMessage(interaction, result) {
