@@ -40,7 +40,7 @@ import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManager
 import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
 
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
-const TRANSIENT_RESPONSE_TIMEOUT = 15_000;
+const TRANSIENT_RESPONSE_TIMEOUT = 10_000;
 const DEFAULT_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const DISCORD_TEXT_INPUT_LIMIT = 4000;
 const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
