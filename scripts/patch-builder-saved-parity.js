@@ -1,5 +1,47 @@
 import fs from 'node:fs';
 
+// Prefetch the channel browser during Builder creation, before Modify is clicked.
+// Consume this session snapshot once; later opens read fresh registry data.
+function patchInstantChannelBrowser() {
+  const managerPath = 'src/services/embedManagerService.js';
+  let manager = fs.readFileSync(managerPath, 'utf8');
+  if (!manager.includes('export function prepareEmbedManager(')) {
+    const opening = 'export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {';
+    if (!manager.includes(opening)) throw new Error('Channel browser opening marker missing');
+    manager = manager.replace(opening, `export function prepareEmbedManager(guild, state) {
+    if (!guild?.id || state.embedManagerPrepared) return;
+    state.embedManagerPrepared = (async () => {
+        const records = await getEmbedRegistry(guild.id);
+        await warmSavedEmbedTemplateScopes(guild.id, records.map(record => record.channelId));
+        return records;
+    })().catch(error => {
+        logger.debug(\`Channel browser preload skipped: \${error?.message || error}\`);
+        return null;
+    });
+}
+
+${opening}`);
+    const read = '        const storedRecords = await getEmbedRegistry(guild.id);\n        await warmSavedEmbedTemplateScopes(guild.id, storedRecords.map(record => record.channelId));';
+    if (!manager.includes(read)) throw new Error('Channel browser registry marker missing');
+    manager = manager.replace(read, `        const prepared = state.embedManagerPrepared;
+        delete state.embedManagerPrepared;
+        const storedRecords = (prepared && await prepared) || await getEmbedRegistry(guild.id);
+        await warmSavedEmbedTemplateScopes(guild.id, storedRecords.map(record => record.channelId));`);
+    manager = manager.replace("checking ? 'Checking saved embeds…'", "checking ? 'Open the embeds in this channel'");
+    fs.writeFileSync(managerPath, manager);
+  }
+  const builderPath = 'src/commands/Tools/embedbuilder.js';
+  let builder = fs.readFileSync(builderPath, 'utf8');
+  if (!builder.includes('prepareEmbedManager(interaction.guild, state);')) {
+    const importMarker = 'loadRecordSnapshotIntoState, openEmbedManager, saveModifiedEmbed';
+    const preloadMarker = '            const initialShown = await InteractionHelper.safeReply(interaction, {';
+    if (!builder.includes(importMarker) || !builder.includes(preloadMarker)) throw new Error('Builder channel preload marker missing');
+    builder = builder.replace(importMarker, 'loadRecordSnapshotIntoState, openEmbedManager, prepareEmbedManager, saveModifiedEmbed');
+    builder = builder.replace(preloadMarker, '            prepareEmbedManager(interaction.guild, state);\n\n' + preloadMarker);
+    fs.writeFileSync(builderPath, builder);
+  }
+}
+
 const marker = 'BUILDER_SAVED_PARITY_V1';
 function patch(path, edits) {
   let text = fs.readFileSync(path, 'utf8');
@@ -68,3 +110,5 @@ function patchInteractionCapture() {`],
   ["      outgoing = prepareMessageEditPayload(this, payload);", "      outgoing = prepareMessageEditPayload(this, payload);\n      if (shouldPrepareMessageEdit(this)) {\n        outgoing = await applySavedResponsePayloadTemplates(outgoing, messageContext(this));\n        void rememberBuilderRuntimePreview(outgoing, messageContext(this)).catch(error => logger.debug(`Builder runtime preview capture skipped: ${error.message}`));\n      }"],
 ]);
 console.log('[BUILDER_SAVED_PARITY] Saved titles, complete previews and canonical list identities enabled');
+patchInstantChannelBrowser();
+console.log('[BUILDER_CHANNEL_PRELOAD] Channel browser prefetch enabled');
