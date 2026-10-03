@@ -406,7 +406,9 @@ function assignedEmbedModifiers(source, callStart, callEnd) {
 }
 
 function helperCallDefinition(source, helper, callStart, callContent, callEnd) {
-  const args = splitTopLevelArguments(callContent);
+  const args = splitTopLevelArguments(callContent).filter(argument => argument.trim());
+  // Conditional titles have multiple alternatives, not one concatenated name.
+  if (/\?/.test(args[0] || '') && allLiterals(args[0], 2).length > 1) return null;
   const titleArg = decodeLiteralExpression(args[0], { allowDynamic: true });
   const descriptionArg = decodeLiteralExpression(args[1], { allowDynamic: true });
 
@@ -427,9 +429,12 @@ function helperCallDefinition(source, helper, callStart, callContent, callEnd) {
   const fallback = helper === 'successEmbed' ? 'Success'
     : helper === 'infoEmbed' ? 'Information'
       : helper === 'warningEmbed' ? 'Warning' : 'Error';
+  // Helper overloads depend on arity, not whether the body is a literal.
+  // A variable/random body still belongs to the supplied response title.
+  const hasBody = args.length > 1;
   return {
-    title: descriptionArg ? titleArg : fallback,
-    description: descriptionArg || titleArg,
+    title: hasBody ? titleArg : fallback,
+    description: hasBody ? (descriptionArg || '{dynamic}') : titleArg,
     ...assignedEmbedModifiers(source, callStart, callEnd),
   };
 }

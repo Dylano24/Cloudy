@@ -100,6 +100,8 @@ function renderDynamic(template, runtime, {
 } = {}) {
   const source = String(runtime || '');
   const templateSource = String(template || '');
+  // A wholly variable body represents the complete response, including text.
+  if (templateSource.trim().toLowerCase() === '{dynamic}') return source;
   const runtimeParts = dynamicParts(source);
   const templateParts = dynamicParts(templateSource);
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
@@ -279,9 +281,11 @@ function decorateEmbedData(embed, stored, options = {}) {
   if (template.applyDescription !== false && template.description !== undefined
       && (template.schemaVersion >= 3 || Boolean(template.description))) {
     if (template.description) {
-      data.description = renderDynamic(template.description, original.description || '', {
+      const description = renderDynamic(template.description, original.description || '', {
         fallbackToRuntimeOnMismatch: true,
       });
+      if (description) data.description = description;
+      else delete data.description;
     } else {
       delete data.description;
     }
