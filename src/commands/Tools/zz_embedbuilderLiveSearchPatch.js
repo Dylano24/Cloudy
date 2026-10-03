@@ -95,6 +95,12 @@ function sourceResolvedSearchRecord(record) {
     };
 }
 
+function humanizeDynamicTitle(value) {
+    const text = clean(value, 100);
+    const possessive = text.match(/^(?:\{dynamic\}|[a-z0-9_.-]{2,32})'s\s+(.+)$/i);
+    return possessive?.[1] ? clean(possessive[1], 100) : text;
+}
+
 function isTechnicalVisibleName(value) {
     const text = clean(value, 100);
     return /^cloudy template key:/i.test(text)
@@ -109,7 +115,7 @@ export function recordTitle(record) {
         .filter(Boolean);
 
     for (const candidate of candidates) {
-        if (!isTechnicalVisibleName(candidate)) return candidate;
+        if (!isTechnicalVisibleName(candidate)) return humanizeDynamicTitle(candidate);
     }
 
     const firstLine = String(data?.description || '')
