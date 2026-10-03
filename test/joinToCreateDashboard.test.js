@@ -44,14 +44,29 @@ test('dashboard opens with persisted modal value despite a stale catalog, and Su
   const member = { permissions: { has: () => true } };
   let payload;
   let collect;
+  let collectorOptions;
+  let collectorResets = 0;
   const serialize = data => {
     payload = { ...data, embeds: data.embeds.map(embed => applyRuntimeEmbedTemplateData(
       embed.toJSON ? embed.toJSON() : embed, { commandName: 'jointocreate' },
     )) };
   };
   const message = {
+    id: 'dashboard-message',
     components: [], edit: async data => serialize(data),
-    createMessageComponentCollector: () => ({ on: (event, handler) => { if (event === 'collect') collect = handler; } }),
+    createMessageComponentCollector: options => {
+      collectorOptions = options;
+      return {
+        ended: false,
+        resetTimer: reset => {
+          assert.equal(reset.idle, 5 * 60_000);
+          collectorResets += 1;
+        },
+        on: (event, handler) => {
+          if (event === 'collect') collect = handler;
+        },
+      };
+    },
   };
   const open = async () => {
     const interaction = {
@@ -69,6 +84,8 @@ test('dashboard opens with persisted modal value despite a stale catalog, and Su
   assert.equal(initial.color, catalog.color);
   assert.deepEqual(initial.footer, catalog.footer);
   assert.equal(payload.components[0].components.length, 4);
+  assert.equal(collectorOptions.idle, 5 * 60_000);
+  assert.equal(collectorOptions.time, undefined);
 
   let prefill;
   await collect({
@@ -80,6 +97,7 @@ test('dashboard opens with persisted modal value despite a stale catalog, and Su
     }),
   });
   assert.equal(prefill, '{username} vocal');
+  assert.equal(collectorResets, 1);
   assert.equal(stored.channelOptions.trigger.nameTemplate, '{username} NEW');
   assert.equal(payload.embeds[0].fields[0].value, '`{username} NEW`');
   assert.equal((await open()).fields[0].value, '`{username} NEW`');
