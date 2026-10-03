@@ -30,7 +30,7 @@ function embedSourceAliasIdentity(context, title) {
 }
 
 function embedLegacyKeyAliasIdentity(context, key) {
-  return cacheIdentity(`legacy-key:${normalize(key)}`, context);
+  return cacheIdentity('legacy-key:' + normalize(key), context);
 }
 
 function registerEmbedSourceAlias(definition, entry = null) {
