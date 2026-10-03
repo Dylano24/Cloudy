@@ -1,4 +1,14 @@
 import { getTicketData, saveTicketData } from '../utils/database.js';
+import { logger } from '../utils/logger.js';
+
+export async function sendTicketCreationConfirmation(ticketChannel, sourceChannel, payload) {
+  const message = await sourceChannel.send(payload);
+  if (!await registerTicketCreationConfirmation(ticketChannel, message)) {
+    await message.delete().catch(() => {});
+    throw new Error('Could not persist ticket creation confirmation');
+  }
+  return message;
+}
 
 export async function registerTicketCreationConfirmation(ticketChannel, message) {
   if (!ticketChannel?.guild?.id || !message?.id || !message?.channelId) return false;
@@ -6,6 +16,9 @@ export async function registerTicketCreationConfirmation(ticketChannel, message)
   if (!data) return false;
   data.creationConfirmation = { channelId: message.channelId, messageId: message.id };
   await saveTicketData(ticketChannel.guild.id, ticketChannel.id, data);
+  if ((await getTicketData(ticketChannel.guild.id, ticketChannel.id))?.status === 'closed') {
+    await deleteTicketCreationConfirmation(ticketChannel);
+  }
   return true;
 }
 
@@ -21,7 +34,10 @@ export async function deleteTicketCreationConfirmation(ticketChannel) {
     if (message?.author?.id !== ticketChannel.client.user.id) return false;
     await message.delete();
   } catch (error) {
-    if (error?.code !== 10008) return false;
+    if (error?.code !== 10008) {
+      logger.warn('Ticket creation confirmation cleanup failed', { ticketId: ticketChannel.id, messageId: reference.messageId, error: error.message });
+      return false;
+    }
   }
   delete data.creationConfirmation;
   await saveTicketData(ticketChannel.guild.id, ticketChannel.id, data);

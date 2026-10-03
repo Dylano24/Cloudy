@@ -8,7 +8,7 @@ import {
   closeTicket,
   createTicket,
 } from '../../../services/ticketReliabilityService.js';
-import { registerTicketCreationConfirmation } from '../../../services/ticketCreationConfirmationService.js';
+import { sendTicketCreationConfirmation } from '../../../services/ticketCreationConfirmationService.js';
 import { logger } from '../../../utils/logger.js';
 import { requireTicketCloseReason } from '../../../services/ticketActionPolicy.js';
 import { setResponseLifetime } from '../../../utils/responseLifetime.js';
@@ -62,7 +62,7 @@ const createTicketModal = {
     try {
       if (!interaction.inGuild()) return;
 
-      const deferred = await InteractionHelper.safeDefer(interaction);
+      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
       if (!deferred) return;
 
       const reason = interaction.fields.getTextInputValue('reason');
@@ -98,7 +98,7 @@ const createTicketModal = {
 
       const channelLink = buildTicketChannelLink(channel);
       setResponseLifetime(interaction, null);
-      await InteractionHelper.safeEditReply(interaction, {
+      await sendTicketCreationConfirmation(channel, interaction.channel, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
           title: 'Ticket created',
@@ -106,7 +106,7 @@ const createTicketModal = {
         })],
         components: [],
       });
-      await registerTicketCreationConfirmation(channel, await interaction.fetchReply());
+      await interaction.deleteReply();
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
         if (error.code === 'TICKET_LIMIT_REACHED') setResponseLifetime(interaction, 10_000);
