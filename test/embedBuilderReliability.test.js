@@ -20,7 +20,9 @@ import {
 import {
   buildEmbedPayload,
   buildChannelPayload,
+  canonicalBuilderResponseTitle,
   discoverEmbedManagerOverviewRecords,
+  embedManagerCheckingChannelIds,
   mergeEmbedManagerRecords,
   loadRecordSnapshotIntoState,
   openEmbedManager,
@@ -122,6 +124,32 @@ function buildGuild({ guildId, channelId, messages }) {
     },
   };
 }
+
+test('generic Builder response identity ignores cosmetic emoji/case/punctuation variants', () => {
+  const channelId = '200000000000000777';
+  const catalog = {
+    title: '🚔 Crime Failed!',
+    author: {
+      name: 'Cloudy template key: embed-type:deadbeef || Cloudy context: gambling/crime || Cloudy kind: embed',
+    },
+  };
+  const runtime = { title: 'Crime failed' };
+
+  assert.equal(canonicalBuilderResponseTitle(catalog.title), 'crime failed');
+  assert.equal(templateIdentity(channelId, catalog), templateIdentity(channelId, runtime));
+});
+
+test('empty registry channels render as checking instead of falsely unsaved', () => {
+  const guildId = '100000000000000778';
+  const channelId = '200000000000000778';
+  const guild = buildGuild({ guildId, channelId, messages: new Map() });
+  const checking = embedManagerCheckingChannelIds(guild, []);
+  const payload = buildChannelPayload(guild, [], 0, checking);
+  const option = payload.components[0].toJSON().components[0].options[0];
+
+  assert.equal(option.description, 'Checking saved embeds…');
+  assert.doesNotMatch(option.description, /No saved embed/i);
+});
 
 test('renaming a catalog embed keeps its stable game template identity', () => {
   const savedCatalogEmbed = {
