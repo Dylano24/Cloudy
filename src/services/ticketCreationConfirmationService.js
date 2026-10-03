@@ -1,37 +1,29 @@
-const creationConfirmations = new Map();
+import { getTicketData, saveTicketData } from '../utils/database.js';
 
-function ticketKey(channelOrId) {
-  return String(channelOrId?.id || channelOrId || '').trim();
-}
-
-export function registerTicketCreationConfirmation(ticketChannel, interaction) {
-  const key = ticketKey(ticketChannel);
-  if (!key || !interaction) return false;
-
-  creationConfirmations.set(key, async () => {
-    try {
-      await interaction.deleteReply();
-      return true;
-    } catch {
-      try {
-        await interaction.webhook?.deleteMessage?.('@original');
-        return true;
-      } catch {
-        return false;
-      }
-    }
-  });
-
+export async function registerTicketCreationConfirmation(ticketChannel, message) {
+  if (!ticketChannel?.guild?.id || !message?.id || !message?.channelId) return false;
+  const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+  if (!data) return false;
+  data.creationConfirmation = { channelId: message.channelId, messageId: message.id };
+  await saveTicketData(ticketChannel.guild.id, ticketChannel.id, data);
   return true;
 }
 
 export async function deleteTicketCreationConfirmation(ticketChannel) {
-  const key = ticketKey(ticketChannel);
-  if (!key) return false;
-
-  const cleanup = creationConfirmations.get(key);
-  creationConfirmations.delete(key);
-  if (!cleanup) return false;
-
-  return await cleanup();
+  if (!ticketChannel?.guild?.id) return false;
+  const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+  const reference = data?.creationConfirmation;
+  if (!reference?.messageId || !reference?.channelId) return false;
+  try {
+    const channel = await ticketChannel.guild.channels.fetch(reference.channelId);
+    if (!channel || channel.guild.id !== ticketChannel.guild.id) return false;
+    const message = await channel.messages.fetch(reference.messageId);
+    if (message?.author?.id !== ticketChannel.client.user.id) return false;
+    await message.delete();
+  } catch (error) {
+    if (error?.code !== 10008) return false;
+  }
+  delete data.creationConfirmation;
+  await saveTicketData(ticketChannel.guild.id, ticketChannel.id, data);
+  return true;
 }

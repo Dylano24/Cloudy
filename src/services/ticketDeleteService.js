@@ -7,7 +7,7 @@ import { ensureTicketDestinationConfig } from './ticketDestinationAutoConfig.js'
 import { logger } from '../utils/logger.js';
 import { deleteTicketCreationConfirmation } from './ticketCreationConfirmationService.js';
 
-const DELETE_DELAY_MS = 3000;
+export const DELETE_DELAY_MS = 10_000;
 const deleteQueues = new Map();
 
 function ticketDeleteError(message, userMessage, code = 'TICKET_DELETE_ERROR') {

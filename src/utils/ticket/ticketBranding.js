@@ -11,6 +11,8 @@ export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...(embed || {}) };
 
   payload.footer = { text: CLOUDY_TICKET_FOOTER };
+  if (!payload.fields?.length && payload.title === 'Ticket claimed') payload.color = 0x00C49D;
+  if (!payload.fields?.length && payload.title === 'Ticket unclaimed') payload.color = 0x000000;
 
   // Keep the main ticket message on the current logo-free layout from its
   // first render and remove any legacy thumbnail/image fields.

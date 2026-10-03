@@ -4,6 +4,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { getTicketData, saveTicketData } from '../database.js';
 import { logger } from '../logger.js';
+import { ticketActorPermissions } from '../../services/ticketActionPolicy.js';
 
 const TICKET_IO_TIMEOUT_MS = 1800;
 
@@ -193,7 +194,7 @@ export async function getTicketPermissionContext({ client, interaction }) {
   const namedStaffRole = interaction.guild?.roles?.cache?.find(
     role => role.name.trim().toLowerCase() === 'staff',
   );
-  const staffRoleId = namedStaffRole?.id || config?.ticketStaffRoleId || null;
+  const staffRoleId = config?.ticketStaffRoleId || namedStaffRole?.id || null;
   const hasTicketStaffRole = Boolean(
     staffRoleId && interaction.member?.roles?.cache?.has?.(staffRoleId),
   );
@@ -208,7 +209,7 @@ export async function getTicketPermissionContext({ client, interaction }) {
     hasManageChannels,
     hasTicketStaffRole,
     isTicketCreator,
-    canManageTicket: hasManageChannels || hasTicketStaffRole,
-    canCloseTicket: hasManageChannels || hasTicketStaffRole || isTicketCreator,
+    ...ticketActorPermissions({ member: interaction.member, userId: interaction.user.id,
+      ownerId: interaction.guild?.ownerId, staffRoleId, creatorId: ticketData?.userId }),
   };
 }
