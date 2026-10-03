@@ -209,7 +209,7 @@ export function templateIdentity(channelId, value) {
     const stableKey = stableSystemTemplateKey(data);
     // Old generic embed/source hashes are storage identities, not separate
     // response types. Named/game/ticket keys stay authoritative.
-    if (stableKey && !/^(?:embed|source):/i.test(stableKey)) return stableKey;
+    if (stableKey && !/^(?:embed(?:-type)?|source):/i.test(stableKey)) return stableKey;
     const title = String(data.title || '');
     const rule = getTemplateRule(channelId, title);
     if (rule) return rule.key;
