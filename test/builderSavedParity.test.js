@@ -622,3 +622,35 @@ test('async template decoration also lets one shared Too fast save beat stale ch
   assert.equal(data.description, 'You are tired from working! Try again in 8 minute(s).');
   assert.equal(data.footer.text, 'Cloudy cooldown');
 });
+
+
+test('Builder hides stale dynamic source-parser artifacts but keeps current dynamic source templates', () => {
+  const artifact = record('stale-dynamic-source', {
+    title: 'Result {dynamic}',
+    description: 'Calculated result {dynamic}',
+    author: {
+      name: 'Cloudy template key: embed:deadbeef || Cloudy context: gambling/fake-runtime || Cloudy kind: embed',
+    },
+  });
+
+  assert.equal(collapseDisplayRecords([artifact], channelId).length, 0);
+
+  primeSystemSourceDefinitionPreview({
+    kind: 'embed',
+    context: 'gambling/member-balance',
+    title: "{dynamic}'s Balance",
+    description: 'Here is the balance for {dynamic}.',
+    color: 0xFFFFFF,
+  });
+  const valid = record('valid-dynamic-source', {
+    title: "{dynamic}'s Balance",
+    description: 'Here is the balance for {dynamic}.',
+    author: {
+      name: 'Cloudy template key: embed:feedbeef || Cloudy context: gambling/member-balance || Cloudy kind: embed',
+    },
+  });
+
+  const shown = collapseDisplayRecords([valid], channelId);
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].name, 'Balance');
+});
