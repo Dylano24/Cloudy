@@ -141,7 +141,7 @@ test('legacy casino loss copies collapse into one canonical Save target per game
   }
 });
 
-test('generic source template duplicates collapse to one live Builder Save target', () => {
+test('generic source template duplicates collapse to one canonical catalog Save target', () => {
   const records = [
     catalogRecord(0, 'embed:source-master', 'Robbery failed', 'gambling/rob'),
     catalogRecord(1, 'embed:runtime-copy', 'Robbery Failed', 'gambling/rob', {
@@ -172,7 +172,7 @@ test('generic source template duplicates collapse to one live Builder Save targe
 
   assert.equal(options.length, 1);
   assert.equal(options[0].label, 'Robbery failed');
-  assert.equal(options[0].value, 'real-robbery:0');
+  assert.equal(options[0].value, 'catalog-1:0');
 });
 
 test('technical source keys collapse into one human Builder entry without duplicates', () => {
