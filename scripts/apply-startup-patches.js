@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stampPath = path.join(root, '.startup-patches.json');
@@ -43,9 +42,9 @@ if (previous) {
   console.log('[STARTUP_PATCHES] Verified patched source; no rewrites needed.');
 } else {
   for (const patch of patches) {
-    const result = spawnSync(process.execPath, [patch], { cwd: root, stdio: 'inherit' });
-    if (result.error) throw result.error;
-    if (result.status !== 0) process.exit(result.status || 1);
+    // Run the ordered transformations in one process so each reads the exact
+    // source written by its predecessor before the final fingerprint is saved.
+    await import(pathToFileURL(path.join(root, patch)).href);
   }
   fs.writeFileSync(stampPath, JSON.stringify({ fingerprint: fingerprint() }) + '\n');
 }

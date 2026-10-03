@@ -72,7 +72,7 @@ export async function getEconomyData(client, guildId, userId) {
         return normalizeEconomyData(data, defaults);
     } catch (error) {
         logger.error(`Error getting economy data for user ${userId}`, error);
-        return normalizeEconomyData({}, DEFAULT_ECONOMY_DATA);
+        throw createError('Economy account read failed', ErrorTypes.DATABASE, 'Could not load the economy account. Please try again.');
     }
 }
 
@@ -84,11 +84,12 @@ export async function setEconomyData(client, guildId, userId, data) {
 
         const key = getEconomyKey(guildId, userId);
         const normalized = normalizeEconomyData(data, DEFAULT_ECONOMY_DATA);
-        await client.db.set(key, normalized);
+        const saved = await client.db.set(key, normalized);
+        if (saved === false) throw new Error('Economy account write was not persisted');
         return true;
     } catch (error) {
         logger.error(`Error saving economy data for user ${userId}`, error);
-        return false;
+        throw createError('Economy account write failed', ErrorTypes.DATABASE, 'Could not save the economy account. Please try again.');
     }
 }
 

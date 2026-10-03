@@ -1,11 +1,13 @@
 import { getFromDb, setInDb } from '../utils/database.js';
+import { buildDashboardEmbed } from '../commands/Economy/modules/economy_dashboard.js';
 import { buildEconomyLeaderboardEmbed } from '../commands/Economy/eleaderboard.js';
 
 const pending = new Map();
 const latest = new Map();
 function key(guildId, channelId, title) {
   const name = String(title || '').replace(/<a?:[^:>]+:\d+>/g, '').replace(/[^\p{L}\p{N}\s]/gu, '').trim().toLowerCase().replace(/\s+/g, ' ');
-  return `cloudy:builder-runtime-preview:${guildId}:${channelId}:${name}`;
+  const canonical = ({ 'currency added': 'add currency', 'currency removed': 'remove currency' })[name] || name;
+  return `cloudy:builder-runtime-preview:${guildId}:${channelId}:${canonical}`;
 }
 
 export async function rememberBuilderRuntimePreview(payload, source) {
@@ -33,6 +35,10 @@ export async function hydrateBuilderPreviewRecord(guild, record, previewRecord, 
   const title = snapshot.title || record.title || record.name;
   if (/^economy leaderboard$/i.test(String(title || '').trim())) {
     const embed = await buildEconomyLeaderboardEmbed(guild.client, guild.id, userId);
+    return { ...record, source: 'runtime-preview', snapshot: embed.toJSON() };
+  }
+  if (/^economy dashboard$/i.test(String(title || '').replace(/[^\p{L}\p{N}\s]/gu, '').trim())) {
+    const embed = await buildDashboardEmbed(guild, guild.client);
     return { ...record, source: 'runtime-preview', snapshot: embed.toJSON() };
   }
   const storageKey = key(guild.id, record.channelId, title);

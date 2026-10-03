@@ -12,6 +12,9 @@ function patch(path, edits) {
 }
 
 patch('src/services/embedManagerService.js', [
+  ["    return dynamicTemplateText(value)", "    return dynamicTemplateText(value)\n        .replace(/^currency added$/, 'add currency')\n        .replace(/^currency removed$/, 'remove currency')"],
+  ["    if (/^blackjack\\s*[\u2014-]\\s*bet\\b/i.test(title)) return 'Blackjack \u2014 Bet';", "    if (/^currency added$/i.test(title)) return 'Add currency';\n    if (/^currency removed$/i.test(title)) return 'Remove currency';\n    if (/^blackjack\\s*[\u2014-]\\s*bet\\b/i.test(title)) return 'Blackjack \u2014 Bet';"],
+  ["    if (!/^(?:success|error|information|warning)$/i.test(title) || !description) return false;", "    if (!description && !data.fields?.length && /^change currency (?:name|symbol)$/i.test(title)) return true;\n    if (!/^(?:success|error|information|warning)$/i.test(title) || !description) return false;"],
   ["import { saveEmbedTemplateDecoration } from './embedTemplateService.js';", "import { saveEmbedTemplateDecoration, warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from './embedTemplateService.js';\nimport { hydrateBuilderPreviewRecord } from './builderRuntimePreviewService.js';"],
   ["    const snapshot = migrateCloudyLogoEmbedData(record?.snapshot || getEmbedRegistrySnapshot(record) || {}).data || {};", "    const original = migrateCloudyLogoEmbedData(record?.snapshot || getEmbedRegistrySnapshot(record) || {}).data || {};\n    const snapshot = getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, original).data;"],
   ["    if (stableKey && !/^(?:embed(?:-type)?|source):/i.test(stableKey)) return stableKey;", "    if (/^(?:game:|ticket-log:|ticket-main$)/i.test(stableKey)) return stableKey;"],
@@ -24,6 +27,13 @@ patch('src/services/embedManagerService.js', [
   ["        const storedRecords = await getEmbedRegistry(guild.id);", "        const storedRecords = await getEmbedRegistry(guild.id);\n        await warmSavedEmbedTemplateScopes(guild.id, storedRecords.map(record => record.channelId));"],
   ["                const previewRecord = selectedDisplayRecord?.previewRecord || null;", "                let previewRecord = selectedDisplayRecord?.previewRecord || null;"],
   ["                let loaded = record ? loadRecordSnapshotIntoState", "                if (record) previewRecord = await hydrateBuilderPreviewRecord(guild, record, previewRecord, interaction.user.id).catch(() => previewRecord);\n                let loaded = record ? loadRecordSnapshotIntoState"],
+  ["    const displayTitle =", "    let displayTitle ="],
+  ["    const displayDescription =", "    let displayDescription ="],
+  ["    const displayFields =", "    let displayFields ="],
+  ["    const displayFooter =", "    let displayFooter ="],
+  ["    const displayImage =", "    let displayImage ="],
+  ["    const displayThumbnail =", "    let displayThumbnail ="],
+  ["    const footerText = cleanFooter(displayFooter?.text || data.footer?.text || '');", "    const savedDisplay = getCachedSavedEmbedTemplateData(guild.id, String(record.channelId || ''), displaySourceData);\n    if (savedDisplay.matched) {\n        Object.assign(displaySourceData, savedDisplay.data);\n        for (const key of ['title', 'description', 'fields', 'footer', 'image', 'thumbnail']) {\n            if (!(key in savedDisplay.data)) delete displaySourceData[key];\n        }\n        displayTitle = savedDisplay.data.title;\n        displayDescription = savedDisplay.data.description;\n        displayFields = savedDisplay.data.fields;\n        displayFooter = savedDisplay.data.footer;\n        displayImage = savedDisplay.data.image;\n        displayThumbnail = savedDisplay.data.thumbnail;\n    }\n    const footerText = cleanFooter(displayFooter?.text || '');"],
 ]);
 
 patch('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', [
