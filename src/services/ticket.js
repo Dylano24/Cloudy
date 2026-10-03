@@ -232,7 +232,6 @@ export async function createTicket(
   ticketData.ticketNumber = String(ticketNumber);
   ticketData.ticketMessageId = ticketMessage.id;
   await saveTicketData(guild.id, channel.id, ticketData);
-  await ticketMessage.pin().catch(() => {});
     
     await logTicketEvent({
       client: guild.client,
