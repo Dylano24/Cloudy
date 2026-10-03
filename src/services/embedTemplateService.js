@@ -387,8 +387,12 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
   const channelKey = templateKey(guildId, channelId);
   // Look up only the title aliases. Copying every saved template for each
   // registry row made a Builder list unnecessarily quadratic.
-  const scopes = [templateOverlays.get(channelKey), templateCache.get(channelKey),
-    templateOverlays.get(globalKey), templateCache.get(globalKey)];
+  const sharedRuntimeBody = isSharedRuntimeBodyTitle(embedData.title);
+  const scopes = sharedRuntimeBody
+    ? [templateOverlays.get(globalKey), templateCache.get(globalKey),
+      templateOverlays.get(channelKey), templateCache.get(channelKey)]
+    : [templateOverlays.get(channelKey), templateCache.get(channelKey),
+      templateOverlays.get(globalKey), templateCache.get(globalKey)];
   const aliasesToFind = aliasKeys(embedData.title);
   let template = null;
   for (const scope of scopes) {
