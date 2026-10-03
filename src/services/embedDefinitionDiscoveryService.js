@@ -374,22 +374,37 @@ function extractLiteralFields(content) {
   }).slice(0, 25);
 }
 
+function chainedEmbedModifiers(source, callEnd) {
+  const calls = new Map();
+  let index = callEnd;
+  while (index < source.length) {
+    const match = /^\s*\.([A-Za-z_$][\w$]*)\s*\(/.exec(source.slice(index));
+    if (!match) break;
+    const open = index + match[0].lastIndexOf('(');
+    const call = scanBalancedCall(source, open);
+    if (!call) break;
+    if (['addFields', 'setFields', 'setFooter'].includes(match[1])) calls.set(match[1], call);
+    index = call.endIndex;
+  }
+  return calls;
+}
+
 function assignedEmbedModifiers(source, callStart, callEnd) {
   const identifier = assignedEmbedIdentifier(source, callStart);
-  if (!identifier) return {};
-
-  const fieldsCall = findAssignedMethodCall(source, identifier, 'addFields', callEnd);
-  const footerCall = findAssignedMethodCall(source, identifier, 'setFooter', callEnd);
+  const chained = chainedEmbedModifiers(source, callEnd);
+  const fieldsCall = chained.get('setFields') || chained.get('addFields')
+    || findAssignedMethodCall(source, identifier, 'addFields', callEnd);
+  const footerCall = chained.get('setFooter')
+    || findAssignedMethodCall(source, identifier, 'setFooter', callEnd);
   const fields = fieldsCall ? extractLiteralFields(fieldsCall.content) : [];
-
   const footerLiteral = footerCall ? allLiterals(footerCall.content, 1)[0] : null;
   const footerText = decodeString(footerLiteral, { allowDynamic: true });
-
   return {
     ...(fields.length ? { fields } : {}),
     ...(footerText ? { footer: { text: footerText } } : {}),
   };
 }
+
 function helperCallDefinition(source, helper, callStart, callContent, callEnd) {
   const args = splitTopLevelArguments(callContent);
   const titleArg = decodeLiteralExpression(args[0], { allowDynamic: true });
@@ -553,24 +568,23 @@ export async function discoverEmbedDefinitions() {
   const definitions = [];
   const unique = new Set();
 
-  for (const absolute of files) {
-    let stat;
-    try {
-      stat = await fs.stat(absolute);
-    } catch {
-      continue;
+  const rows = new Array(files.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(8, files.length) }, async () => {
+    while (cursor < files.length) {
+      const index = cursor++;
+      const absolute = files[index];
+      try {
+        const stat = await fs.stat(absolute);
+        if (!stat.isFile() || stat.size > MAX_FILE_SIZE) continue;
+        const source = await fs.readFile(absolute, 'utf8');
+        const relativePath = path.relative(SOURCE_ROOT, absolute).replace(/\\/g, '/');
+        rows[index] = extractDefinitions(source, relativePath);
+      } catch { /* An unavailable source file must not block other definitions. */ }
     }
-    if (!stat.isFile() || stat.size > MAX_FILE_SIZE) continue;
-
-    let source;
-    try {
-      source = await fs.readFile(absolute, 'utf8');
-    } catch {
-      continue;
-    }
-
-    const relativePath = path.relative(SOURCE_ROOT, absolute).replace(/\\/g, '/');
-    for (const definition of extractDefinitions(source, relativePath)) {
+  }));
+  for (const row of rows) {
+    for (const definition of row || []) {
       const identity = `${definition.kind}|${definition.context}|${definition.title || definition.label || ''}|${definition.description || ''}`;
       if (unique.has(identity)) continue;
       unique.add(identity);

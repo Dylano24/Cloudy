@@ -4,6 +4,7 @@ import { buildEconomyLeaderboardEmbed } from '../commands/Economy/eleaderboard.j
 
 const pending = new Map();
 const latest = new Map();
+const fingerprints = new Map();
 function key(guildId, channelId, title) {
   const name = String(title || '').replace(/<a?:[^:>]+:\d+>/g, '').replace(/[^\p{L}\p{N}\s]/gu, '').trim().toLowerCase().replace(/\s+/g, ' ');
   const canonical = ({ 'currency added': 'add currency', 'currency removed': 'remove currency' })[name] || name;
@@ -20,12 +21,27 @@ export async function rememberBuilderRuntimePreview(payload, source) {
     if (!data?.title || /^cloudy template key:/i.test(String(data.author?.name || ''))) return;
     if (!data.description && !data.fields?.length) return;
     const storageKey = key(guildId, channelId, data.title);
-    const snapshot = JSON.parse(JSON.stringify(data));
+    const serialized = JSON.stringify(data);
+    if (fingerprints.get(storageKey) === serialized) {
+      if (pending.has(storageKey)) await pending.get(storageKey);
+      return;
+    }
+    const snapshot = JSON.parse(serialized);
     latest.set(storageKey, snapshot);
-    const previous = pending.get(storageKey) || Promise.resolve();
-    const job = previous.catch(() => {}).then(() => setInDb(storageKey, snapshot));
+    fingerprints.set(storageKey, serialized);
+    if (pending.has(storageKey)) { await pending.get(storageKey); return; }
+    const job = (async () => {
+      let written;
+      do {
+        written = fingerprints.get(storageKey);
+        const saved = await setInDb(storageKey, latest.get(storageKey));
+        if (!saved) throw new Error('Runtime preview could not be persisted');
+      } while (written !== fingerprints.get(storageKey));
+    })();
     pending.set(storageKey, job);
-    try { await job; } finally { if (pending.get(storageKey) === job) pending.delete(storageKey); }
+    try { await job; }
+    catch (error) { fingerprints.delete(storageKey); throw error; }
+    finally { if (pending.get(storageKey) === job) pending.delete(storageKey); }
   }));
 }
 

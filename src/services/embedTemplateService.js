@@ -8,6 +8,7 @@ import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentatio
 const TEMPLATE_PREFIX = 'cloudy:embed-template:';
 const GLOBAL_SCOPE = '__global__';
 const templateCache = new Map();
+const templateLoads = new Map();
 const templateMutationQueues = new Map();
 // A Save must affect the very next bot response, even when its database write
 // is still queued. These overlays are folded into persistent cache reads and
@@ -34,9 +35,14 @@ async function loadTemplates(guildId, channelId) {
   const key = templateKey(guildId, channelId);
   if (templateCache.has(key)) return templateCache.get(key);
 
-  const templates = cleanTemplates(await getFromDb(key, {}));
-  templateCache.set(key, templates);
-  return templates;
+  if (templateLoads.has(key)) return templateLoads.get(key);
+  const job = (async () => {
+    const templates = cleanTemplates(await getFromDb(key, {}));
+    templateCache.set(key, templates);
+    return templates;
+  })();
+  templateLoads.set(key, job);
+  try { return await job; } finally { if (templateLoads.get(key) === job) templateLoads.delete(key); }
 }
 
 async function loadMergedTemplates(guildId, channelId) {
@@ -127,6 +133,7 @@ function pickTemplate(data = {}, options = {}) {
   const applyImage = options.applyImage === true;
   const applyFields = options.applyFields !== false;
   const hasDescription = Object.prototype.hasOwnProperty.call(data, 'description');
+  const edited = options.editedEmbedData || data;
   const fields = applyFields && Array.isArray(data.fields)
     ? data.fields.slice(0, 25).map(field => ({
         name: String(field?.name || '\u200B').slice(0, 256),
@@ -136,7 +143,16 @@ function pickTemplate(data = {}, options = {}) {
     : [];
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    applyDescription: options.baseEmbedData
+      ? (edited.description ?? null) !== (options.baseEmbedData.description ?? null)
+      : options.applyDescription !== false,
+    applyFields: applyFields && Array.isArray(data.fields) && (options.baseEmbedData
+      ? JSON.stringify(edited.fields || []) !== JSON.stringify(options.baseEmbedData.fields || [])
+      : true),
+    applyFooter: options.baseEmbedData
+      ? (data.footer?.text || null) !== (options.baseEmbedData.footer?.text || null)
+      : options.applyFooter !== false && (hasDescription || Object.prototype.hasOwnProperty.call(data, 'footer')),
     title: data.title ?? null,
     // Omitted means "leave the live description alone". An explicit empty
     // string/null is a deliberate removal from Embed Builder.
@@ -248,6 +264,7 @@ function findStoredTemplate(data, stored, { strictTitle = false } = {}) {
 function decorateEmbedData(embed, stored, options = {}) {
   const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
   const data = { ...original };
+
   const template = findStoredTemplate(data, stored, options);
   if (!template) return { matched: false, changed: false, data };
 
@@ -259,7 +276,8 @@ function decorateEmbedData(embed, stored, options = {}) {
     delete data.title;
   }
 
-  if (template.description !== undefined) {
+  if (template.applyDescription !== false && template.description !== undefined
+      && (template.schemaVersion >= 3 || Boolean(template.description))) {
     if (template.description) {
       data.description = renderDynamic(template.description, original.description || '', {
         fallbackToRuntimeOnMismatch: true,
@@ -269,7 +287,8 @@ function decorateEmbedData(embed, stored, options = {}) {
     }
   }
 
-  if (Array.isArray(template.fields)) {
+  if (template.applyFields !== false && Array.isArray(template.fields)
+      && (template.schemaVersion >= 3 || template.fields.length)) {
     if (!template.fields.length) {
       delete data.fields;
     } else {
@@ -282,7 +301,7 @@ function decorateEmbedData(embed, stored, options = {}) {
           }).slice(0, 256),
           value: renderDynamic(templateField.value, runtimeField.value || templateField.value, {
             fallbackToRuntimeOnMismatch: true,
-            preserveRuntimeWhenNoDynamic: template.schemaVersion !== 2,
+            preserveRuntimeWhenNoDynamic: !(template.schemaVersion >= 2),
           }).slice(0, 1024),
           inline: Boolean(templateField.inline),
         };
@@ -292,14 +311,16 @@ function decorateEmbedData(embed, stored, options = {}) {
 
   if (Number.isInteger(template.color)) data.color = template.color;
 
-  if (template.footer?.text) {
+  if (template.applyFooter === false) {
+    // Keep the current footer when Save changed another part of the embed.
+  } else if (template.footer?.text) {
     data.footer = {
       ...template.footer,
       text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text, {
         fallbackToRuntimeOnMismatch: true,
       }),
     };
-  } else {
+  } else if (template.schemaVersion >= 3) {
     delete data.footer;
   }
 
@@ -349,11 +370,16 @@ export async function warmSavedEmbedTemplateScopes(guildId, channelIds = []) {
 export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
   const globalKey = templateKey(guildId, GLOBAL_SCOPE);
   const channelKey = templateKey(guildId, channelId);
-  const stored = {
-    ...(templateCache.get(globalKey) || {}), ...(templateOverlays.get(globalKey) || {}),
-    ...(templateCache.get(channelKey) || {}), ...(templateOverlays.get(channelKey) || {}),
-  };
-  const template = findStoredTemplate(embedData, stored, { strictTitle: true });
+  // Look up only the title aliases. Copying every saved template for each
+  // registry row made a Builder list unnecessarily quadratic.
+  const scopes = [templateOverlays.get(channelKey), templateCache.get(channelKey),
+    templateOverlays.get(globalKey), templateCache.get(globalKey)];
+  const aliasesToFind = aliasKeys(embedData.title);
+  let template = null;
+  for (const scope of scopes) {
+    template = aliasesToFind.map(alias => scope?.[alias]).find(Boolean);
+    if (template) break;
+  }
   if (!template) return { matched: false, data: embedData };
   const helperArtifact = /^(?:success|failed|error|warning|information)$/i.test(String(template.title || ''))
     && normalizeKey(template.description) === normalizeKey(embedData.title)
@@ -364,12 +390,12 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
   const sparse = template.description === undefined;
   const genericStatus = /^(?:success|failed|error|warning|information|invalid)$/i.test(String(embedData.title || '').trim());
   const decoration = { ...template };
-  if (sparse || genericStatus) {
+  if ((sparse && !(template.schemaVersion >= 3)) || genericStatus) {
     delete decoration.description;
     delete decoration.fields;
     if (!decoration.footer) decoration.footer = embedData.footer || null;
   }
-  if (template.schemaVersion !== 2 && Array.isArray(decoration.fields) && !decoration.fields.length) delete decoration.fields;
+  if (!(template.schemaVersion >= 3) && Array.isArray(decoration.fields) && !decoration.fields.length) delete decoration.fields;
   const aliases = aliasKeys(embedData.title);
   const result = decorateEmbedData(embedData, Object.fromEntries(aliases.map(alias => [alias, decoration])), { strictTitle: true });
   return { ...result, updatedAt: template.updatedAt };
