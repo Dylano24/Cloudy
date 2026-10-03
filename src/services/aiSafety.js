@@ -1,5 +1,5 @@
 import { PermissionFlagsBits } from 'discord.js';
-import { hasCloudyOwnerRole } from './ownerRoleAccess.js';
+import { hasCloudyOwnerMember, hasCloudyOwnerRole } from './ownerRoleAccess.js';
 
 export class AiError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -89,7 +89,7 @@ export async function authorizeAiRequest(actor, request, { allowMessageServerCon
     if (!aiOwner(actor)
       && !isGuildOwner
       && !member.permissions.has(PermissionFlagsBits.Administrator)
-      && !hasCloudyOwnerRole(actor)) {
+      && !hasCloudyOwnerMember(member)) {
       throw new AiError('forbidden');
     }
   } else if (!aiOwner(actor)) throw new AiError('forbidden');
