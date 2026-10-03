@@ -1,3 +1,4 @@
+import { hideClosedTicket, restoreReopenedTicketAccess } from './ticketClosedAccessService.js';
 import { ChannelType } from 'discord.js';
 import {
   claimTicket as claimTicketBase,
@@ -412,6 +413,7 @@ export async function closeTicket(channel, closer, reason) {
 export async function reopenTicket(channel, reopener) {
   return mutate(channel, async () => {
     const result = await reopenTicketBase(channel, reopener);
+    await restoreReopenedTicketAccess(channel);
     await reconcileTicketChannelState(channel).catch(() => {});
     scheduleTicketReconcile(channel, [5000, 20000]);
     return result;
@@ -467,6 +469,11 @@ export async function reconcileTicketChannelState(channel) {
 
   if (!isLiveGuildChannel(channel)) return false;
 
+  if (isClosed) {
+    await hideClosedTicket(channel);
+    await deleteTicketCreationConfirmation(channel);
+  }
+
   const ownerPermissions = isClosed
     ? {
       ViewChannel: true,
@@ -479,7 +486,7 @@ export async function reconcileTicketChannelState(channel) {
       ReadMessageHistory: true,
     };
 
-  await channel.permissionOverwrites.edit(ticketData.userId, ownerPermissions).catch(error => {
+  if (!isClosed) await channel.permissionOverwrites.edit(ticketData.userId, ownerPermissions).catch(error => {
     if (isLiveGuildChannel(channel)) {
       logger.warn(`Ticket owner permission reconciliation failed: ${error.message}`, {
         guildId: channel.guild.id,

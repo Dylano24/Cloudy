@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Collection, ChannelType, EmbedBuilder, PermissionsBitField, PermissionFlagsBits } from 'discord.js';
+import { Collection, ChannelType, EmbedBuilder, OverwriteType, PermissionsBitField, PermissionFlagsBits } from 'discord.js';
 import { db, getTicketData, saveTicketData } from '../src/utils/database.js';
 import buttons from '../src/interactions/buttons/ticket/ticketUiOverrides.js';
 import { reopenTicketHandler as legacyReopenTicketHandler } from '../src/handlers/ticketButtons.js';
 import modals from '../src/interactions/modals/ticket/createTicketUi.js';
 import { getTicketPermissionContext } from '../src/utils/ticket/ticketPermissions.js';
 import { ticketActorPermissions } from '../src/services/ticketActionPolicy.js';
-import { registerTicketCreationConfirmation, deleteTicketCreationConfirmation } from '../src/services/ticketCreationConfirmationService.js';
+import { sendTicketCreationConfirmation, deleteTicketCreationConfirmation } from '../src/services/ticketCreationConfirmationService.js';
+import { reconcileTicketChannelState } from '../src/services/ticketReliabilityService.js';
 import { buildReportActions, handleReportAction, handleReportModeration, timeoutDuration } from '../src/services/reportActionService.js';
 import { messageLogDestination, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, CLOUDY_GUILD_ID } from '../src/services/messageLogDestination.js';
 import { logEvent, EVENT_TYPES } from '../src/services/loggingService.js';
@@ -114,13 +115,41 @@ test('close modal requires reason and rejects whitespace before changing state',
   await modals.find(m => m.name === 'ticket_close_modal').execute(f.interaction, f.client);
   assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'open');
 });
-test('closing deletes the creation confirmation', async t => {
+test('closing hides all non-staff access and deletes the public confirmation in its source channel', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.initialize(); let deleted = 0;
-  f.channel.messages.fetch = async () => ({ author: f.client.user, delete: async () => { deleted += 1; } });
-  await registerTicketCreationConfirmation(f.channel, { id: 'confirmation', channelId: f.channel.id });
+  const source = { id: 'ticket-panel-channel', guild: f.guild,
+    send: async () => ({ id: 'confirmation', channelId: 'ticket-panel-channel' }),
+    messages: { fetch: async id => { assert.equal(id, 'confirmation'); return { author: f.client.user, delete: async () => { deleted += 1; } }; } } };
+  f.guild.channels.cache.set(source.id, source);
+  const creatorId = (await getTicketData(f.guild.id, f.channel.id)).userId;
+  for (const [id, type] of [[creatorId, OverwriteType.Member], ['guest', OverwriteType.Member], ['member-role', OverwriteType.Role]]) {
+    f.channel.permissionOverwrites.cache.set(id, { id, type, allow: new PermissionsBitField([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]), deny: new PermissionsBitField() });
+  }
+  await sendTicketCreationConfirmation(f.channel, source, { embeds: [new EmbedBuilder({ title: 'Ticket created' })] });
   await modals.find(m => m.name === 'ticket_close_modal').execute(f.interaction, f.client);
   assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'closed'); assert.equal(deleted, 1);
+  for (const id of [creatorId, 'guest', 'member-role', f.guild.id]) {
+    assert.equal(f.permissions.filter(p => p.id === id).at(-1).value.ViewChannel, false);
+  }
+  assert.equal(f.permissions.filter(p => p.id === f.guild.roles.cache.first().id).at(-1).value.ViewChannel, true);
+  assert.equal(f.permissions.filter(p => p.id === f.client.user.id).at(-1).value.ViewChannel, true);
+  await reconcileTicketChannelState(f.channel);
+  assert.equal(f.permissions.filter(p => p.id === creatorId).at(-1).value.ViewChannel, false);
+  t.mock.timers.tick(1000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(f.permissions.filter(p => p.id === creatorId).at(-1).value.ViewChannel, false);
+  await buttons.find(b => b.name === 'ticket_reopen').execute({ ...f.interaction, member: { ...f.member, roles: { cache: f.guild.roles.cache } } }, f.client);
+  assert.equal(f.permissions.filter(p => p.id === 'guest').at(-1).value.ViewChannel, true);
+  assert.equal(f.permissions.filter(p => p.id === 'member-role').at(-1).value.SendMessages, true);
+});
+test('a staff ticket creator keeps access after closing', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); await f.initialize();
+  f.guild.members.fetch = async id => ({ id, permissions: new PermissionsBitField(), roles: { cache: f.guild.roles.cache } });
+  await modals.find(m => m.name === 'ticket_close_modal').execute(f.interaction, f.client);
+  assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'closed');
+  assert.equal(f.permissions.filter(p => p.id === f.member.id).at(-1).value.ViewChannel, true);
 });
 test('saved confirmation reference supports cleanup without in-memory registration', async () => {
   const f = fixture(); await f.initialize(); let calls = 0;
