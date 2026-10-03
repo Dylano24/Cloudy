@@ -34,11 +34,12 @@ export async function brandTicketStatusMessage(message, client, { initialCreatio
   if (!TICKET_STATUS_TITLES.has(title)) return false;
 
   const raw = embed.toJSON();
-  const alreadyBranded = raw.color === 0xFFFFFF
+  const color = title === 'Ticket claimed' ? 0x00C49D : title === 'Ticket unclaimed' ? 0x000000 : 0xFFFFFF;
+  const alreadyBranded = raw.color === color
     && raw.footer?.text === CLOUDY_TICKET_FOOTER;
 
   if (!alreadyBranded) {
-    raw.color = 0xFFFFFF;
+    raw.color = color;
     raw.footer = { text: CLOUDY_TICKET_FOOTER };
     await message.edit({
       embeds: [raw],

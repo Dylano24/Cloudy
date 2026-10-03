@@ -10,6 +10,9 @@ import {
 } from '../../../services/ticketReliabilityService.js';
 import { registerTicketCreationConfirmation } from '../../../services/ticketCreationConfirmationService.js';
 import { logger } from '../../../utils/logger.js';
+import { requireTicketCloseReason } from '../../../services/ticketActionPolicy.js';
+import { setResponseLifetime } from '../../../utils/responseLifetime.js';
+import { scheduleTicketReplyDeletion } from '../../../utils/ticket/ticketBranding.js';
 
 async function ensureTicketCreatorAccess(channel, userId) {
   const requiredPermissions = [
@@ -59,7 +62,7 @@ const createTicketModal = {
     try {
       if (!interaction.inGuild()) return;
 
-      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+      const deferred = await InteractionHelper.safeDefer(interaction);
       if (!deferred) return;
 
       const reason = interaction.fields.getTextInputValue('reason');
@@ -94,6 +97,7 @@ const createTicketModal = {
       }
 
       const channelLink = buildTicketChannelLink(channel);
+      setResponseLifetime(interaction, null);
       await InteractionHelper.safeEditReply(interaction, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
@@ -102,14 +106,16 @@ const createTicketModal = {
         })],
         components: [],
       });
-      registerTicketCreationConfirmation(channel, interaction);
+      await registerTicketCreationConfirmation(channel, await interaction.fetchReply());
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
+        if (error.code === 'TICKET_LIMIT_REACHED') setResponseLifetime(interaction, 10_000);
         await InteractionHelper.safeEditReply(interaction, {
           content: error.userMessage,
           embeds: [],
           components: [],
         }).catch(() => {});
+        if (error.code === 'TICKET_LIMIT_REACHED') scheduleTicketReplyDeletion(interaction, 10_000);
         return;
       }
 
@@ -159,8 +165,7 @@ const closeTicketModal = {
         return;
       }
 
-      const providedReason = interaction.fields.getTextInputValue('reason')?.trim();
-      const reason = providedReason || 'No reason provided.';
+      const reason = requireTicketCloseReason(interaction.fields.getTextInputValue('reason'));
 
       await closeTicket(interaction.channel, interaction.user, reason);
       await interaction.deleteReply().catch(() => {});
