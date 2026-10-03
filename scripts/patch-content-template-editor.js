@@ -92,7 +92,13 @@ function curatedGameTemplateContext(templateKey) {`,
         else if (!data.title) data.title = 'Message';
     } else if (state.title) data.title = state.title.slice(0, 256);
     else delete data.title;
-    if (state.message) data.description = normalizeManualIndent(state.message).slice(0, 4096);`,
+    const zorp = isZorpGuideTitle(state.title || data.title);
+    if (state.message) data.description = normalizeManualIndent(state.message, { zorp }).slice(0, 4096);`,
+  },
+  {
+    label: 'scope ZORP field hanging indent',
+    find: `            value: normalizeManualIndent(String(field.value || '\\u200B')).slice(0, 1024),`,
+    replace: `            value: normalizeManualIndent(String(field.value || '\\u200B'), { zorp }).slice(0, 1024),`,
   },
   {
     label: 'preserve peer content management title',

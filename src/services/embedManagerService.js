@@ -945,6 +945,14 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     }
 }
 
+function isZorpGuideTitle(value) {
+    const title = String(value || '')
+        .replace(/<a?:[^:>]+:\d+>/g, '')
+        .replace(/^(?:\s|☑️|🛡️)+/u, '')
+        .trim();
+    return /^ZORP Guide$/i.test(title);
+}
+
 function applyStateToExistingEmbed(state) {
     const target = state.modifyTarget;
     const data = { ...(target?.sourceEmbedData || {}) };
