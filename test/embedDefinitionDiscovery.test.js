@@ -85,3 +85,26 @@ test('source discovery keeps the complete concatenated Crime failed body', async
     'You were caught while attempting {dynamic} and have been sent to jail! You were fined {dynamic} coins and will be in jail for 2 hours.',
   );
 });
+
+
+test('source discovery indexes the dynamic Balance title without a real Discord username', async () => {
+  const definitions = await discoverEmbedDefinitions();
+  const balance = definitions.find(definition =>
+    definition.kind === 'embed'
+    && definition.context === 'gambling/balance'
+    && definition.title === "{dynamic}'s Balance"
+  );
+
+  assert.ok(balance, 'Balance must exist in the source catalog before a user runs /balance');
+  assert.equal(
+    balance.description,
+    'Here is the current financial status for {dynamic}.',
+  );
+  assert.equal(balance.fields?.length, 3);
+  assert.deepEqual(
+    balance.fields.map(field => field.name),
+    ['💵 Cash', '🏦 Bank', '💰 Total'],
+  );
+  assert.match(balance.footer?.text || '', /^Requested by \{dynamic\}$/);
+  assert.doesNotMatch(balance.title, /feelfate|mindzset|dylano/i);
+});

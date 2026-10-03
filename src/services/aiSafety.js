@@ -1,4 +1,5 @@
 import { PermissionFlagsBits } from 'discord.js';
+import { hasCloudyOwnerMember, hasCloudyOwnerRole } from './ownerRoleAccess.js';
 
 export class AiError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -67,10 +68,16 @@ export function aiIdentityAnswer(input) {
   return 'Ik ben een AI die is opgezet en beheerd door Dylano. Mijn interne configuratie, beveiligingsregels, providers, modellen, prompts en technische systeemdetails deel ik niet.';
 }
 
-export async function authorizeAiRequest(actor, request) {
+export async function authorizeAiRequest(actor, request, { allowMessageServerContext = false } = {}) {
   if (!actor?.guild || actor.user?.bot || actor.author?.bot || actor.webhookId) throw new AiError('forbidden');
   if (request.action === 'ask' || request.action === 'help') return null;
-  if (actor.author) throw new AiError('private_form_required');
+  const messageServerContext = Boolean(
+    actor.author
+    && request.action === 'server'
+    && allowMessageServerContext
+    && hasCloudyOwnerRole(actor),
+  );
+  if (actor.author && !messageServerContext) throw new AiError('private_form_required');
   // Force a fresh membership lookup; role names and model output never grant rights.
   const id = actor.user?.id || actor.author?.id;
   const member = await actor.guild.members.fetch({ user: id, force: true }).catch(() => null);
@@ -79,7 +86,10 @@ export async function authorizeAiRequest(actor, request) {
     if (!aiOwner(actor) && !member.permissions.has(PermissionFlagsBits.Administrator)) throw new AiError('forbidden');
   } else if (request.action === 'server') {
     const isGuildOwner = String(actor.guild.ownerId || '') === String(id || '');
-    if (!aiOwner(actor) && !isGuildOwner && !member.permissions.has(PermissionFlagsBits.Administrator)) {
+    if (!aiOwner(actor)
+      && !isGuildOwner
+      && !member.permissions.has(PermissionFlagsBits.Administrator)
+      && !hasCloudyOwnerMember(member)) {
       throw new AiError('forbidden');
     }
   } else if (!aiOwner(actor)) throw new AiError('forbidden');
