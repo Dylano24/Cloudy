@@ -1,6 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
-import { getEconomyData, addMoney, removeMoney, setEconomyData } from '../../utils/economy.js';
+import { createEmbed, successEmbed } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -67,29 +66,6 @@ export default {
                 );
             }
 
-            const [senderData, receiverData] = await Promise.all([
-                getEconomyData(client, guildId, senderId),
-                getEconomyData(client, guildId, receiver.id)
-            ]);
-
-            if (!senderData) {
-                throw createError(
-                    "Failed to load sender economy data",
-                    ErrorTypes.DATABASE,
-                    "Failed to load your economy data. Please try again later.",
-                    { userId: senderId, guildId }
-                );
-            }
-            
-            if (!receiverData) {
-                throw createError(
-                    "Failed to load receiver economy data",
-                    ErrorTypes.DATABASE,
-                    "Failed to load the receiver's economy data. Please try again later.",
-                    { userId: receiver.id, guildId }
-                );
-            }
-
             const result = await EconomyService.transferMoney(
                 client, 
                 guildId, 
@@ -98,8 +74,10 @@ export default {
                 amount
             );
 
-            const updatedSenderData = await getEconomyData(client, guildId, senderId);
-            const updatedReceiverData = await getEconomyData(client, guildId, receiver.id);
+            // The transfer returns the committed balances while the command
+            // holds both account locks. Extra reads add latency without new data.
+            const updatedSenderData = { wallet: result.senderNewBalance };
+            const updatedReceiverData = { wallet: result.receiverNewBalance };
 
             const embed = successEmbed(
                 'Payment Successful',

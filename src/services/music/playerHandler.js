@@ -9,6 +9,7 @@ import {
 
 const UPDATE_INTERVAL_MS = 15 * 1000;
 const IDLE_DISCONNECT_MS = 30 * 1000;
+const playerRefreshJobs = new WeakMap();
 
 async function editOrSendPlayerMessage(client, guildData, channelId, embed, components) {
     const channel = client.channels.cache.get(channelId);
@@ -22,10 +23,14 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
 
     if (guildData.playerMessageId) {
         try {
-            const msg = await channel.messages.fetch(guildData.playerMessageId);
+            const msg = channel.messages.cache?.get(guildData.playerMessageId)
+                || await channel.messages.fetch(guildData.playerMessageId);
             await msg.edit(payload);
             return;
-        } catch {
+        } catch (error) {
+            // A temporary API or permission failure must not create another
+            // player message. Replace only a message Discord confirms is gone.
+            if (Number(error?.code) !== 10008) throw error;
             guildData.playerMessageId = null;
             guildData.playerChannelId = null;
             clearUpdateInterval(guildData);
@@ -42,20 +47,33 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
 }
 
 export async function refreshPlayerMessage(client, guildId) {
-    try {
+    const guildData = getGuildMusicData(guildId);
+    const running = playerRefreshJobs.get(guildData);
+    if (running) {
+        running.pending = true;
+        return running.promise;
+    }
+    const job = { pending: true, promise: null };
+    job.promise = (async () => {
+      while (job.pending) {
+        job.pending = false;
         const player = client.riffy?.players?.get(guildId);
         if (!player?.current) {
             return;
         }
 
-        const guildData = getGuildMusicData(guildId);
         const embed = buildNowPlayingEmbed(player.current, player, guildData);
         const components = buildPlayerButtonRows(player, guildData);
         const channelId = guildData.playerChannelId || player.textChannel;
         await editOrSendPlayerMessage(client, guildData, channelId, embed, components);
-    } catch (error) {
+      }
+    })().catch(error => {
         logger.error('Failed to refresh music player message:', error);
-    }
+    }).finally(() => {
+        if (playerRefreshJobs.get(guildData) === job) playerRefreshJobs.delete(guildData);
+    });
+    playerRefreshJobs.set(guildData, job);
+    return job.promise;
 }
 
 function startUpdateInterval(client, guildId) {
@@ -120,7 +138,7 @@ export function setupPlayerHandler(client) {
         logger.warn(`Lavalink node "${node.name}" disconnected.`);
     });
 
-    client.riffy.on('trackStart', async (player, track) => {
+    client.riffy.on('trackStart', async (player, _track) => {
         try {
             const guildData = getGuildMusicData(player.guildId);
 
@@ -142,10 +160,7 @@ export function setupPlayerHandler(client) {
                 guildData.idleTimeout = null;
             }
 
-            const embed = buildNowPlayingEmbed(track, player, guildData);
-            const components = buildPlayerButtonRows(player, guildData);
-            const channelId = guildData.playerChannelId || player.textChannel;
-            await editOrSendPlayerMessage(client, guildData, channelId, embed, components);
+            await refreshPlayerMessage(client, player.guildId);
             startUpdateInterval(client, player.guildId);
         } catch (error) {
             logger.error('Music trackStart error:', error);

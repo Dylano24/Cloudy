@@ -248,7 +248,8 @@ export async function getCountingGameConfig(client, guildId) {
 
 export async function saveCountingGameConfig(client, guildId, state) {
   const normalized = normalizeCountingGame(state);
-  await client.db.set(getStorageKey(guildId), normalized);
+  const saved = await client.db.set(getStorageKey(guildId), normalized);
+  if (saved === false) throw new Error('Counting game state was not persisted');
   return cacheCountingGame(guildId, normalized);
 }
 

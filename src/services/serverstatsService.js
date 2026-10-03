@@ -6,6 +6,19 @@ import { formatLogLine } from '../utils/logging/logEmbeds.js';
 import { getServerCountersKey } from '../utils/database/keys.js';
 import botConfig from '../config/bot.js';
 
+const memberReads = new WeakMap();
+
+function fetchCounterMembers(guild) {
+  let pending = memberReads.get(guild);
+  if (!pending) {
+    pending = Promise.resolve().then(() => guild.members.fetch()).finally(() => {
+      if (memberReads.get(guild) === pending) memberReads.delete(guild);
+    });
+    memberReads.set(guild, pending);
+  }
+  return pending;
+}
+
 export const COUNTER_TYPE_CONFIG = {
   members: {
     label: 'Members + Bots',
@@ -68,7 +81,11 @@ export async function getGuildCounterStats(guild) {
   let memberCollection = guild.members.cache;
 
   try {
-    memberCollection = await guild.members.fetch();
+    // READY and member events maintain this cache. Fetch only when incomplete,
+    // sharing the request between counters that need the same member list.
+    if (!Number.isInteger(guild.memberCount) || memberCollection.size !== guild.memberCount) {
+      memberCollection = await fetchCounterMembers(guild);
+    }
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       logger.debug(`Failed to fetch all guild members for ${guild.id}, using cache only`, error);
@@ -87,6 +104,7 @@ export async function getGuildCounterStats(guild) {
 }
 
 export async function getCounterCount(guild, type) {
+  if (type === 'members' && Number.isInteger(guild.memberCount)) return guild.memberCount;
   const stats = await getGuildCounterStats(guild);
 
   switch (type) {

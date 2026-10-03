@@ -28,9 +28,12 @@ export default {
         const guildId = newState.guild.id;
         const userId = newState.member.id;
         const cooldownKey = `${guildId}-${userId}`;
-        cleanupCooldownEntries();
 
         try {
+          // Mute, deafen and streaming updates do not change room membership.
+          // Keep the music handler below active without queuing Join to Create.
+          if ((oldState.channelId || oldState.channel?.id) !== (newState.channelId || newState.channel?.id)) {
+            cleanupCooldownEntries();
             await Mutex.runExclusive(`voice-lifecycle:${guildId}`, async () => {
                 const config = await getJoinToCreateConfig(client, guildId);
 
@@ -50,6 +53,7 @@ export default {
                     await handleVoiceMove(client, oldState, newState, config);
                 }
             });
+          }
 
         } catch (error) {
             logger.error(`Error in voiceStateUpdate for guild ${guildId}:`, error);
