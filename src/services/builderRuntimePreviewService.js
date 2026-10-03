@@ -6,7 +6,19 @@ const pending = new Map();
 const latest = new Map();
 const fingerprints = new Map();
 function key(guildId, channelId, title) {
-  const name = String(title || '').replace(/<a?:[^:>]+:\d+>/g, '').replace(/[^\p{L}\p{N}\s]/gu, '').trim().toLowerCase().replace(/\s+/g, ' ');
+  let value = String(title || '').replace(/\{dynamic\}/gi, '__cloudy_dynamic__');
+  value = value.replace(/^([a-z0-9_.-]{2,32})(?='s\b)/i, '__cloudy_dynamic__');
+  value = value.replace(
+    /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b\d+(?:\.\d+)?\b/gi,
+    '__cloudy_dynamic__',
+  );
+  const name = value
+    .replace(/<a?:[^:>]+:\d+>/g, '')
+    .replace(/[^\p{L}\p{N}\s_]/gu, ' ')
+    .replace(/__cloudy_dynamic__/g, 'dynamic')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
   const canonical = ({ 'currency added': 'add currency', 'currency removed': 'remove currency' })[name] || name;
   return `cloudy:builder-runtime-preview:${guildId}:${channelId}:${canonical}`;
 }
