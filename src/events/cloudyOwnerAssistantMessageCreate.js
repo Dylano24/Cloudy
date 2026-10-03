@@ -51,14 +51,21 @@ function buildPacketEmbeds(message, result) {
   });
 }
 
+export function isOwnerAssistantRequest(message) {
+  return Boolean(
+    message?.guild
+    && !message.author?.bot
+    && !message.webhookId
+    && hasCloudyOwnerRole(message)
+    && /^!ai\s/.test(String(message.content || '')),
+  );
+}
+
 export default {
   name: Events.MessageCreate,
 
   async execute(message) {
-    if (!message.guild || message.author?.bot) return;
-    if (!hasCloudyOwnerRole(message)) return;
-
-    if (message.webhookId || !/^!ai\s/.test(String(message.content || ''))) return;
+    if (!isOwnerAssistantRequest(message)) return;
     const question = String(message.content || '').replace(/^!ai\s+/, '').trim();
     if (question.length < 3) return;
 
