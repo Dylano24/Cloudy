@@ -193,15 +193,9 @@ export function canonicalSystemEmbedResponseTitle(value = '') {
 }
 
 function responseSignature(kind, title = '', description = '') {
-  const normalizedKind = normalize(kind) || 'embed';
-  if (normalizedKind === 'embed') {
-    const canonicalTitle = canonicalSystemEmbedResponseTitle(title);
-    if (canonicalTitle) return `embed:${shortHash(canonicalTitle)}`;
-  }
-
   const titlePattern = dynamicParts(title).pattern;
   const descriptionPattern = dynamicParts(description).pattern;
-  return `${normalizedKind}:${shortHash(`${titlePattern}\n${descriptionPattern}`)}`;
+  return `${kind}:${shortHash(`${titlePattern}\n${descriptionPattern}`)}`;
 }
 
 function canonicalBlackjackResult(value) {
@@ -241,6 +235,13 @@ export function getSystemEmbedTemplateKey(kind, title = '', description = '', co
     if (/^baccarat\s*[—-]\s*bet\b/.test(normalizedTitle)) return 'game:baccarat:bet';
     if (/^baccarat\s*[—-]\s*result\b/.test(normalizedTitle)) return 'game:baccarat:result';
     return '';
+  }
+
+  if (normalizedKind === 'embed') {
+    const canonicalTitle = canonicalSystemEmbedResponseTitle(title);
+    if (canonicalTitle) {
+      return `embed-type:${shortHash(`${normalizedContext}|${canonicalTitle}`)}`;
+    }
   }
 
   return responseSignature(normalizedKind, title, description);
@@ -568,6 +569,14 @@ function semanticCatalogKey(metadata, embed) {
   if (String(metadata.key || '').startsWith('game:')
     && isEditableSystemCatalogTemplate(metadata.key, metadata.context)) return metadata.key;
   const data = cloneData(embed);
+
+  // A legacy generic key that no longer matches its visible payload is an
+  // administrator-edited template. Keep that stable identity instead of
+  // treating the custom title as a brand-new response type.
+  if (String(metadata.key || '').startsWith('embed:') && isLegacyCatalogEdit(metadata, data)) {
+    return metadata.key;
+  }
+
   const canonical = getSystemEmbedTemplateKey(
     metadata.kind,
     data.title,
