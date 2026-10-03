@@ -340,6 +340,39 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed, 
   }
 }
 
+export async function warmSavedEmbedTemplateScopes(guildId, channelIds = []) {
+  await Promise.all([...new Set([GLOBAL_SCOPE, ...channelIds].filter(Boolean))]
+    .map(channelId => loadTemplates(guildId, channelId)));
+}
+
+export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
+  const globalKey = templateKey(guildId, GLOBAL_SCOPE);
+  const channelKey = templateKey(guildId, channelId);
+  const stored = {
+    ...(templateCache.get(globalKey) || {}), ...(templateOverlays.get(globalKey) || {}),
+    ...(templateCache.get(channelKey) || {}), ...(templateOverlays.get(channelKey) || {}),
+  };
+  const template = findStoredTemplate(embedData, stored, { strictTitle: true });
+  if (!template) return { matched: false, data: embedData };
+  const helperArtifact = /^(?:success|failed|error|warning|information)$/i.test(String(template.title || ''))
+    && normalizeKey(template.description) === normalizeKey(embedData.title)
+    && normalizeKey(template.title) !== normalizeKey(embedData.title);
+  if (helperArtifact) return { matched: false, data: embedData };
+  // Older title-only Saves stored empty fields/footer alongside an omitted
+  // description. They are incomplete snapshots, not a request to erase live data.
+  const sparse = template.description === undefined;
+  const genericStatus = /^(?:success|failed|error|warning|information|invalid)$/i.test(String(embedData.title || '').trim());
+  const decoration = { ...template };
+  if (sparse || genericStatus) {
+    delete decoration.description;
+    delete decoration.fields;
+    if (!decoration.footer) decoration.footer = embedData.footer || null;
+  }
+  const aliases = aliasKeys(embedData.title);
+  const result = decorateEmbedData(embedData, Object.fromEntries(aliases.map(alias => [alias, decoration])), { strictTitle: true });
+  return { ...result, updatedAt: template.updatedAt };
+}
+
 export async function applySavedEmbedTemplates(message, { initialCreation = false } = {}) {
   if (!message?.guildId || !message?.channelId || !message?.editable || !message?.embeds?.length) return false;
 
