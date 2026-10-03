@@ -4,6 +4,8 @@ import { getEconomyData, getMaxBankCapacity } from '../../utils/economy.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { decorateEmbedWithSavedTemplate } from '../../services/embedTemplateService.js';
+import { BALANCE_RESPONSE_KEY } from '../../services/balanceResponseIdentity.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -55,7 +57,7 @@ export default {
         const bank = typeof userData.bank === 'number' ? userData.bank : 0;
 
             const embed = createEmbed({
-                title: `${targetUser.username}'s Balance`,
+                title: `${targetUser.username}'s balance`,
                 description: `Here is the current financial status for ${targetUser.username}.`,
             })
                 .addFields(
@@ -82,6 +84,9 @@ export default {
 
             logger.info(`[ECONOMY] Balance retrieved`, { userId: targetUser.id, wallet, bank });
 
-            await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+            const saved = await decorateEmbedWithSavedTemplate(guildId, interaction.channelId, embed, {
+                responseIdentity: BALANCE_RESPONSE_KEY,
+            });
+            await InteractionHelper.safeEditReply(interaction, { embeds: [saved.embed] });
     }, { command: 'balance' })
 };

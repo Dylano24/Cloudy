@@ -92,7 +92,7 @@ test('source discovery indexes the dynamic Balance title without a real Discord 
   const balance = definitions.find(definition =>
     definition.kind === 'embed'
     && definition.context === 'gambling/balance'
-    && definition.title === "{dynamic}'s Balance"
+    && definition.title === "{dynamic}'s balance"
   );
 
   assert.ok(balance, 'Balance must exist in the source catalog before a user runs /balance');
