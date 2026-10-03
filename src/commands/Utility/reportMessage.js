@@ -12,6 +12,9 @@ import { resolveUserAuthor } from '../../utils/logging/logEmbeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
+import { buildReportActions } from '../../services/reportActionService.js';
+import { setResponseLifetime } from '../../utils/responseLifetime.js';
+import { scheduleTicketReplyDeletion } from '../../utils/ticket/ticketBranding.js';
 
 const REPORT_MODAL_TIMEOUT_MS = 14 * 60_000;
 
@@ -86,6 +89,7 @@ export default {
       client,
       guildId: interaction.guildId,
       eventType: EVENT_TYPES.REPORT_FILE,
+      components: buildReportActions(message.author.id),
       data: {
         title: 'New report',
         blockFields: [
@@ -119,6 +123,7 @@ export default {
       throw new Error('Cloudy report could not be delivered to the reports channel.');
     }
 
+    setResponseLifetime(submitted, 120_000);
     await InteractionHelper.safeEditReply(submitted, {
       embeds: [createEmbed({
         title: 'Report submitted',
@@ -127,6 +132,7 @@ export default {
       })],
     });
 
+    scheduleTicketReplyDeletion(submitted, 120_000);
     logger.info('Cloudy message report submitted', {
       guildId: interaction.guildId,
       reporterId: interaction.user.id,

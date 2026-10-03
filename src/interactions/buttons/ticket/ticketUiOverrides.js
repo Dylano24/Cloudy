@@ -44,7 +44,7 @@ async function getPanelStateFast(client, guildId) {
   }
 }
 
-async function requireStaff(interaction, client, action) {
+async function requireStaff(interaction, client, action, { allowCreator = false } = {}) {
   const context = await getTicketPermissionContext({ client, interaction });
 
   if (context.ticketDataLookupFailed) {
@@ -63,10 +63,10 @@ async function requireStaff(interaction, client, action) {
     return null;
   }
 
-  if (!context.canManageTicket) {
+  if (!(allowCreator ? context.canReopenTicket : context.canManageTicket)) {
     await replyUserError(interaction, {
       type: ErrorTypes.PERMISSION,
-      message: `Only admins or the configured Ticket Staff Role can ${action}.`,
+      message: `Only the staff team can ${action}.`,
     });
     return null;
   }
@@ -321,10 +321,10 @@ const closeTicketHandler = {
 
       const reasonInput = new TextInputBuilder()
         .setCustomId('reason')
-        .setLabel('Reason for closing (optional)')
+        .setLabel('Reason for closing')
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Add an optional reason for closing this ticket...')
-        .setRequired(false)
+        .setPlaceholder('Explain why you are closing this ticket...')
+        .setRequired(true)
         .setMaxLength(1000);
 
       modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
@@ -380,15 +380,11 @@ const reopenTicketHandler = {
     if (!deferred) return;
 
     try {
-      const context = await requireStaff(interaction, client, 'reopen tickets');
+      const context = await requireStaff(interaction, client, 'reopen tickets', { allowCreator: true });
       if (!context) return;
 
-      const result = await reopenTicket(interaction.channel, interaction.member);
-      const note = result?.openCategoryMoveFailed
-        ? ' The ticket was reopened, but the channel could not be moved back to the open category yet. Cloudy will retry automatically.'
-        : '';
-
-      await editBasicTicketReply(interaction, 'Ticket reopened', `This ticket has been reopened.${note}`);
+      await reopenTicket(interaction.channel, interaction.member);
+      await interaction.deleteReply().catch(() => {});
     } catch (error) {
       logger.error('Ticket reopen button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {

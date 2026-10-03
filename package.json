@@ -76,6 +76,7 @@
     "scripts/patch-builder-saved-parity.js",
     "scripts/patch-canonical-builder-flow.js",
     "scripts/patch-balance-retired-command.js",
-    "scripts/patch-balance-source-identity.js"
+    "scripts/patch-balance-source-identity.js",
+    "scripts/patch-ticket-report-lifecycle.js"
   ]
 }

@@ -4,6 +4,9 @@ import { formatLogLine, resolveUserAuthor } from '../../../utils/logging/logEmbe
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { replyUserError, ErrorTypes } from '../../../utils/errorHandler.js';
 import { logger } from '../../../utils/logger.js';
+import { buildReportActions } from '../../../services/reportActionService.js';
+import { setResponseLifetime } from '../../../utils/responseLifetime.js';
+import { scheduleTicketReplyDeletion } from '../../../utils/ticket/ticketBranding.js';
 
 export default {
     async execute(interaction, config, client) {
@@ -92,10 +95,11 @@ export default {
             });
         }
 
-        await logEvent({
+        const logged = await logEvent({
             client,
             guildId,
             eventType: EVENT_TYPES.REPORT_FILE,
+            components: buildReportActions(targetUser.id),
             content: ownerMention,
             attachments: reportAttachments,
             data: {
@@ -107,6 +111,8 @@ export default {
             },
         });
 
+        if (!logged) throw new Error('The report could not be delivered to the reports channel.');
+        setResponseLifetime(interaction, 120_000);
         await InteractionHelper.safeEditReply(interaction, {
             embeds: [createEmbed({
                 title: 'Report Submitted',
@@ -114,6 +120,7 @@ export default {
             })],
         });
 
+        scheduleTicketReplyDeletion(interaction, 120_000);
         logger.info('Report submitted', {
             userId: interaction.user.id,
             reportedUserId: targetUser.id,
