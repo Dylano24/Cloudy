@@ -335,7 +335,7 @@ function assignedEmbedIdentifier(source, callStart) {
 }
 
 function regexEscape(value) {
-  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\function helperCallDefinition(source, helper, callStart, callContent, callEnd) {');
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function findAssignedMethodCall(source, identifier, method, startIndex) {
@@ -350,23 +350,29 @@ function findAssignedMethodCall(source, identifier, method, startIndex) {
   return scanBalancedCall(source, startIndex + relativeOpen);
 }
 
+function extractLiteralFields(content) {
+  return splitTopLevelArguments(content).flatMap(argument => {
+    const object = argument.trim().replace(/^\[/, '').replace(/\]$/, '');
+    const properties = splitTopLevelArguments(object.replace(/^\{/, '').replace(/\}$/, ''));
+    const field = {};
+    for (const property of properties) {
+      const match = /^(name|value|inline)\s*:\s*([\s\S]*)$/.exec(property.trim());
+      if (!match) continue;
+      field[match[1]] = match[1] === 'inline'
+        ? match[2].trim() === 'true'
+        : decodeLiteralExpression(match[2], { allowDynamic: true });
+    }
+    return field.name && field.value ? [{ ...field, inline: Boolean(field.inline) }] : [];
+  }).slice(0, 25);
+}
+
 function assignedEmbedModifiers(source, callStart, callEnd) {
   const identifier = assignedEmbedIdentifier(source, callStart);
   if (!identifier) return {};
 
   const fieldsCall = findAssignedMethodCall(source, identifier, 'addFields', callEnd);
   const footerCall = findAssignedMethodCall(source, identifier, 'setFooter', callEnd);
-  const fieldLiterals = fieldsCall
-    ? allLiterals(fieldsCall.content, 50).map(value => decodeString(value, { allowDynamic: true })).filter(Boolean)
-    : [];
-  const fields = [];
-  for (let index = 0; index + 1 < fieldLiterals.length && fields.length < 25; index += 2) {
-    fields.push({
-      name: fieldLiterals[index],
-      value: fieldLiterals[index + 1],
-      inline: /\binline\s*:\s*true\b/.test(fieldsCall?.content || ''),
-    });
-  }
+  const fields = fieldsCall ? extractLiteralFields(fieldsCall.content) : [];
 
   const footerLiteral = footerCall ? allLiterals(footerCall.content, 1)[0] : null;
   const footerText = decodeString(footerLiteral, { allowDynamic: true });
@@ -410,14 +416,31 @@ function extractEmbedDefinitions(source, relativePath, results, seen) {
   const lines = source.split(/\r?\n/);
 
   for (let index = 0; index < lines.length; index += 1) {
+    const prefix = lines.slice(Math.max(0, index - 12), index + 1).join('\n');
+    const lastBuilder = [...prefix.matchAll(/new\s+(\w+Builder)\s*\(/g)].at(-1);
+    if (lines[index].includes('.setTitle(') && lastBuilder && lastBuilder[1] !== 'EmbedBuilder') continue;
     const titles = findTitlesOnLine(lines, index);
     if (!titles.length) continue;
     const description = findDescription(lines, index);
+    const chain = lines.slice(index, index + 60).join('\n').split(/;\s*(?:\n|$)/)[0];
+    const modifiers = {};
+    const fieldMatch = /\.addFields\s*\(/.exec(chain);
+    if (fieldMatch) {
+      const call = scanBalancedCall(chain, fieldMatch.index + fieldMatch[0].lastIndexOf('('));
+      if (call) modifiers.fields = extractLiteralFields(call.content);
+    }
+    const footerMatch = /\.setFooter\s*\(/.exec(chain);
+    if (footerMatch) {
+      const call = scanBalancedCall(chain, footerMatch.index + footerMatch[0].lastIndexOf('('));
+      const text = call && decodeString(allLiterals(call.content, 1)[0], { allowDynamic: true });
+      if (text) modifiers.footer = { text };
+    }
     for (const title of titles) {
       addDefinition(results, seen, {
         kind: 'embed',
         title,
         description,
+        ...modifiers,
         color: inferColor(title),
         context,
         variantId: `${relativePath}:embed:${index + 1}:${safeSlug(title)}`,
@@ -482,7 +505,7 @@ function extractPlainDefinitions(source, relativePath, results, seen) {
   });
 }
 
-function extractDefinitions(source, relativePath) {
+export function extractDefinitions(source, relativePath) {
   const results = [];
   const seen = new Set();
   extractEmbedDefinitions(source, relativePath, results, seen);

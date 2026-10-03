@@ -136,6 +136,7 @@ function pickTemplate(data = {}, options = {}) {
     : [];
 
   return {
+    schemaVersion: 2,
     title: data.title ?? null,
     // Omitted means "leave the live description alone". An explicit empty
     // string/null is a deliberate removal from Embed Builder.
@@ -281,7 +282,7 @@ function decorateEmbedData(embed, stored, options = {}) {
           }).slice(0, 256),
           value: renderDynamic(templateField.value, runtimeField.value || templateField.value, {
             fallbackToRuntimeOnMismatch: true,
-            preserveRuntimeWhenNoDynamic: true,
+            preserveRuntimeWhenNoDynamic: template.schemaVersion !== 2,
           }).slice(0, 1024),
           inline: Boolean(templateField.inline),
         };
@@ -368,6 +369,7 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
     delete decoration.fields;
     if (!decoration.footer) decoration.footer = embedData.footer || null;
   }
+  if (template.schemaVersion !== 2 && Array.isArray(decoration.fields) && !decoration.fields.length) delete decoration.fields;
   const aliases = aliasKeys(embedData.title);
   const result = decorateEmbedData(embedData, Object.fromEntries(aliases.map(alias => [alias, decoration])), { strictTitle: true });
   return { ...result, updatedAt: template.updatedAt };
