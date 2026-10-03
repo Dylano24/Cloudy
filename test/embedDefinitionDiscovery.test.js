@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { discoverEmbedDefinitions } from '../src/services/embedDefinitionDiscoveryService.js';
+import { discoverEmbedDefinitions, extractDefinitions } from '../src/services/embedDefinitionDiscoveryService.js';
 
 test('source discovery keeps the complete Cloudy Support Assistant description', async () => {
   const definitions = await discoverEmbedDefinitions();
@@ -107,4 +107,36 @@ test('source discovery indexes the dynamic Balance title without a real Discord 
   );
   assert.match(balance.footer?.text || '', /^Requested by \{dynamic\}$/);
   assert.doesNotMatch(balance.title, /feelfate|mindzset|dylano/i);
+});
+
+
+test('source discovery rejects calculated dynamic titles that would create fake Builder embeds', () => {
+  const source = [
+    "const result = createEmbed({",
+    "  title: `Result ${score + 1}`,",
+    "  description: 'Calculated runtime result',",
+    "});",
+    "const conditional = createEmbed({",
+    "  title: `${won ? 'Win' : 'Loss'}`,",
+    "  description: 'Conditional runtime result',",
+    "});",
+  ].join('\n');
+
+  const definitions = extractDefinitions(source, 'commands/Economy/fake-runtime.js');
+  assert.equal(definitions.some(definition => definition.title?.includes('{dynamic}')), false);
+});
+
+test('source discovery still accepts safe member-possessive titles', () => {
+  const source = [
+    "const embed = createEmbed({",
+    "  title: `${targetUser.username}'s Balance`,",
+    "  description: `Here is the balance for ${targetUser.username}.`,",
+    "});",
+  ].join('\n');
+
+  const definitions = extractDefinitions(source, 'commands/Economy/member-balance.js');
+  assert.equal(
+    definitions.some(definition => definition.title === "{dynamic}'s Balance"),
+    true,
+  );
 });

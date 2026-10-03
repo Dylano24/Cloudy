@@ -235,6 +235,33 @@ function findDescription(lines, startIndex) {
   return null;
 }
 
+function safeDynamicTitle(raw, decoded) {
+  const text = String(decoded || '').trim();
+  if (!raw?.includes('${') || !text.includes('{dynamic}')) return null;
+
+  // Arbitrary expressions, ternaries and calculated titles created bogus
+  // Builder catalog rows. Pre-discover only the reusable member-possessive
+  // family that cannot exist as a fixed string, e.g. `${user.username}'s Balance`.
+  if (!/^\{dynamic\}'s\s+[^\n]{1,160}$/i.test(text)) return null;
+
+  const expressions = [...String(raw).matchAll(/\$\{([^{}]+)\}/g)]
+    .map(match => String(match[1] || '').trim());
+  if (!expressions.length) return null;
+  if (expressions.some(expression =>
+    !/^[A-Za-z_$][\w$]*(?:(?:\?\.|\.)[A-Za-z_$][\w$]*)*$/.test(expression)
+  )) return null;
+
+  return text.length <= 256 ? text : null;
+}
+
+function decodeDiscoveredTitle(raw) {
+  const fixed = decodeString(raw, { allowDynamic: false });
+  if (fixed) return fixed.length <= 256 ? fixed : null;
+
+  const dynamic = decodeString(raw, { allowDynamic: true });
+  return safeDynamicTitle(raw, dynamic);
+}
+
 function findTitlesOnLine(lines, index) {
   const line = lines[index];
   let marker = null;
@@ -245,18 +272,17 @@ function findTitlesOnLine(lines, index) {
 
   const markerIndex = line.indexOf(marker);
   const sameLineExpression = line.slice(markerIndex + marker.length);
-  if (marker !== '.setTitle(' && !/^[\s]*[\'"`]/.test(sameLineExpression)) return [];
+  if (marker !== '.setTitle(' && !/^[\s]*[\'"\`]/.test(sameLineExpression)) return [];
   const titleCall = marker === '.setTitle(' ? scanBalancedCall(line, markerIndex + marker.length - 1) : null;
   const candidates = allLiterals(titleCall?.content || sameLineExpression, marker === '.setTitle(' ? 8 : 1)
-    .map(raw => decodeString(raw, { allowDynamic: true }))
-    .filter(Boolean)
-    .filter(value => value.length <= 256);
+    .map(decodeDiscoveredTitle)
+    .filter(Boolean);
 
   if (candidates.length) return [...new Set(candidates)];
 
   const combined = lines.slice(index, Math.min(lines.length, index + 8)).join('\n');
   const raw = literalFromText(combined.slice(combined.indexOf(marker) + marker.length));
-  const decoded = decodeString(raw, { allowDynamic: true });
+  const decoded = decodeDiscoveredTitle(raw);
   return decoded ? [decoded] : [];
 }
 
