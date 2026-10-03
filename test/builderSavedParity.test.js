@@ -341,3 +341,189 @@ test('cooldown families keep command-owned text while saved title and color stay
     "You're tired from begging! Try again in 28 minute(s).",
   );
 });
+
+
+test('Builder Save keeps a lowercase balance suffix for every runtime member', async () => {
+  const balanceGuildId = 'balance-case-guild';
+  const balanceChannelId = 'balance-case-channel';
+  const original = {
+    title: "feelfate's Balance",
+    description: 'Here is the current financial status for feelfate.',
+    color: 0xFFFFFF,
+    fields: [
+      { name: 'Cash', value: '$100', inline: true },
+      { name: 'Bank', value: '$200 / $500', inline: true },
+      { name: 'Total', value: '$300', inline: true },
+    ],
+  };
+
+  const message = {
+    id: 'balance-case-message',
+    guildId: balanceGuildId,
+    channelId: balanceChannelId,
+    author: { id: 'cloudy-bot' },
+    flags: { has: () => false },
+    createdAt: new Date('2026-10-03T12:00:00.000Z'),
+    embeds: [new Embed(original)],
+  };
+  const channel = {
+    id: balanceChannelId,
+    messages: {
+      fetch: async () => message,
+      edit: async (_id, payload) => message.edit(payload),
+    },
+  };
+  message.channel = channel;
+  message.edit = async payload => {
+    message.embeds = payload.embeds.map(data => new Embed(data));
+    return message;
+  };
+
+  const guild = {
+    id: balanceGuildId,
+    client: { user: { id: 'cloudy-bot' } },
+    channels: {
+      cache: new Map([[balanceChannelId, channel]]),
+      fetch: async id => (id === balanceChannelId ? channel : null),
+    },
+  };
+
+  const state = {
+    title: "feelfate's balance",
+    message: original.description,
+    embedFields: original.fields,
+    sideColor: 0xFFFFFF,
+    showLogo: false,
+    removeExistingLogo: false,
+    bottomLine: null,
+    mediaUrl: null,
+    mediaBuffer: null,
+    mediaName: null,
+    modifyTarget: {
+      guildId: balanceGuildId,
+      channelId: balanceChannelId,
+      backingChannelId: balanceChannelId,
+      messageId: message.id,
+      embedIndex: 0,
+      source: 'modified-template',
+      sourceEmbedData: original,
+      templateSourceData: {
+        title: "{dynamic}'s Balance",
+        description: 'Here is the current financial status for {dynamic}.',
+      },
+      previewSourceData: original,
+      catalogTitle: "{dynamic}'s Balance",
+      templateMode: true,
+      templateTitle: "{dynamic}'s balance",
+      cachedMessage: message,
+    },
+  };
+
+  const saved = await saveModifiedEmbed(guild, state);
+  assert.equal(saved.ok, true);
+
+  for (const username of ['feelfate', 'Mindzset', 'Dylano']) {
+    const live = getCachedSavedEmbedTemplateData(
+      balanceGuildId,
+      balanceChannelId,
+      {
+        ...original,
+        title: `${username}'s Balance`,
+        description: `Here is the current financial status for ${username}.`,
+      },
+    ).data;
+    assert.equal(live.title, `${username}'s balance`);
+    assert.equal(live.description, `Here is the current financial status for ${username}.`);
+  }
+});
+
+test('one Too fast Save styles every activity channel but never freezes its live body', async () => {
+  const sharedGuildId = 'shared-too-fast-guild';
+  const crimeChannelId = 'shared-too-fast-crime';
+  const begChannelId = 'shared-too-fast-beg';
+  const workChannelId = 'shared-too-fast-work';
+
+  const saved = await saveEmbedTemplateDecoration(
+    sharedGuildId,
+    crimeChannelId,
+    ['Too fast'],
+    {
+      title: 'Slow down',
+      description: "You're in jail for 95 more minutes!",
+      color: 0x123456,
+      footer: { text: 'Cloudy cooldown' },
+      thumbnail: { url: 'https://example.com/cloudy.gif' },
+      image: { url: 'https://example.com/cooldown.png' },
+    },
+    {
+      sharedScope: true,
+      applyThumbnail: true,
+      applyImage: true,
+    },
+  );
+  assert.equal(saved, true);
+
+  await warmSavedEmbedTemplateScopes(sharedGuildId, [
+    crimeChannelId,
+    begChannelId,
+    workChannelId,
+  ]);
+
+  const cases = [
+    [crimeChannelId, "You're in jail for 41 more minutes!"],
+    [begChannelId, 'You are tired from begging! Try again in 17 minute(s).'],
+    [workChannelId, 'You are tired from working! Try again in 9 minute(s).'],
+  ];
+
+  for (const [runtimeChannelId, description] of cases) {
+    const live = getCachedSavedEmbedTemplateData(
+      sharedGuildId,
+      runtimeChannelId,
+      {
+        title: 'Too fast',
+        description,
+        fields: [{ name: 'Remaining', value: 'dynamic runtime value' }],
+        color: 0xFCFFA1,
+      },
+    ).data;
+
+    assert.equal(live.title, 'Slow down');
+    assert.equal(live.color, 0x123456);
+    assert.equal(live.description, description);
+    assert.equal(live.fields[0].value, 'dynamic runtime value');
+    assert.equal(live.footer.text, 'Cloudy cooldown');
+    assert.equal(live.thumbnail.url, 'https://example.com/cloudy.gif');
+    assert.equal(live.image.url, 'https://example.com/cooldown.png');
+  }
+});
+
+test('Builder Search collapses Too fast from different activity channels into one result', () => {
+  const channels = ['crime-search-channel', 'beg-search-channel', 'work-search-channel'];
+  const guild = {
+    channels: {
+      cache: new Map(channels.map((id, index) => [id, { id, name: ['crime', 'beg', 'work'][index], parent: null }])),
+    },
+  };
+  const records = channels.map((id, index) => ({
+    guildId: 'too-fast-search-guild',
+    channelId: id,
+    messageId: `too-fast-${index}`,
+    embedIndex: 0,
+    source: 'modified-template',
+    title: 'Too fast',
+    name: 'Too fast',
+    createdAt: `2026-10-03T12:0${index}:00.000Z`,
+    snapshot: {
+      title: 'Too fast',
+      description: [
+        "You're in jail for 95 more minutes!",
+        'You are tired from begging! Try again in 28 minute(s).',
+        'You are tired from working! Try again in 14 minute(s).',
+      ][index],
+    },
+  }));
+
+  const matches = buildMatches(guild, records, 'too fast');
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].document.title, 'Too fast');
+});
