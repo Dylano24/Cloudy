@@ -14,7 +14,7 @@ if (text.includes(asyncTemplateSave)) {
 }
 
 const saveEnd = ").catch(error => logger.error('Failed to persist saved embed template:', error));";
-if (!text.includes("reason: 'persistence-failed'")) {
+if (!text.includes("reason: 'persistence-failed'") && !text.includes("reason: 'template-save-failed'")) {
     if (!text.includes(saveEnd)) throw new Error('Template persistence result marker not found');
     text = text.replace(saveEnd, saveEnd + "\n        if (!templateSaved) return { ok: false, reason: 'persistence-failed' };");
 }
