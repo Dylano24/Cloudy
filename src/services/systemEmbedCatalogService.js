@@ -164,6 +164,8 @@ function dynamicParts(value = '') {
 function renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch = false } = {}) {
   const source = String(runtime || '');
   const templateSource = String(template || '');
+  // A wholly variable body represents the complete response, including text.
+  if (templateSource.trim().toLowerCase() === '{dynamic}') return source;
   const runtimeParts = dynamicParts(source);
   const templateParts = dynamicParts(templateSource);
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
@@ -892,7 +894,11 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
 
   const next = { ...data };
   if (template.title) next.title = renderDynamic(template.title, data.title, { fallbackToRuntimeOnMismatch: true });
-  if (template.description) next.description = renderDynamic(template.description, data.description, { fallbackToRuntimeOnMismatch: true });
+  if (template.description) {
+    const description = renderDynamic(template.description, data.description, { fallbackToRuntimeOnMismatch: true });
+    if (description) next.description = description;
+    else delete next.description;
+  }
   if (Number.isInteger(template.color)) next.color = template.color;
 
   if (Array.isArray(template.fields)) {
