@@ -1,15 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
+import { buildCloudyTicketEmbed, forceCloudyTicketFooter } from '../src/utils/ticket/ticketBranding.js';
+import { installDefaultEmbedColorPolicy } from '../src/utils/embedColorPolicy.js';
 
-const source = fs.readFileSync('src/services/ticketUiService.js', 'utf8');
+test('claim is green and unclaim is black before Discord receives the status', () => {
+  installDefaultEmbedColorPolicy();
+  assert.equal(buildCloudyTicketEmbed({ title: 'Ticket claimed', color: '#FFFFFF' }).color, 0x00C49D);
+  assert.equal(buildCloudyTicketEmbed({ title: 'Ticket unclaimed', color: '#FFFFFF' }).color, 0);
+});
 
-test('public ticket claim and unclaim status messages use final white color on first send', () => {
-  for (const title of ['Ticket claimed', 'Ticket unclaimed']) {
-    const start = source.indexOf(`title: '${title}'`);
-    assert.notEqual(start, -1, `${title} status sender is missing`);
-    const block = source.slice(start, start + 220);
-    assert.match(block, /color:\s*'#FFFFFF'/, `${title} must be white before Discord receives it`);
-    assert.doesNotMatch(block, /#2ecc71/i, `${title} must not render green before the white branding pass`);
-  }
+test('status colors do not overwrite permanent ticket-log colors', () => {
+  const log = { title: 'Ticket claimed', color: 0x57F287,
+    fields: [{ name: 'Ticket', value: '#42' }, { name: 'Claimed by', value: '<@42>' }] };
+  assert.equal(forceCloudyTicketFooter(log).color, log.color);
 });

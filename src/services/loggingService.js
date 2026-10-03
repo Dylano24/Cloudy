@@ -13,12 +13,13 @@ import {
 } from '../utils/logging/logEmbeds.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { enforceFixedLogPresentation } from './moderationLogPresentation.js';
+import { messageLogDestination } from './messageLogDestination.js';
 
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
 const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
 const PERMANENT_TIMEOUT_LOG_CHANNEL_ID = '1539371111240831078';
 const PERMANENT_UNBAN_LOG_CHANNEL_ID = '1539259457404412036';
-const PERMANENT_REPORT_LOG_CHANNEL_ID = '1539372511089926244';
+const PERMANENT_REPORT_LOG_CHANNEL_ID = '1554538663512248350';
 const RECENT_KICK_LOG_TTL_MS = 15_000;
 const CLOUDY_DARK_RED = 0x520808;
 const recentBanLogs = new Map();
@@ -241,6 +242,7 @@ export async function logEvent({
   data = {},
   attachments = [],
   content = null,
+  components = [],
   channelId: overrideChannelId = null,
 }) {
   try {
@@ -336,7 +338,12 @@ export async function logEvent({
       return null;
     }
 
-    const logChannelId = getLogChannelForEvent(config, eventType, overrideChannelId);
+    const author = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType) && data.userId
+      ? guild.members.cache?.get(data.userId) || await guild.members.fetch(data.userId).catch(() => null)
+      : null;
+    const audienceChannelId = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
+      ? messageLogDestination(guild, data.userId, author, config) : null;
+    const logChannelId = audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);
     if (!logChannelId) {
       return null;
     }
@@ -384,6 +391,7 @@ export async function logEvent({
     if (attachments.length > 0) {
       messageOptions.files = attachments;
     }
+    if (eventType === EVENT_TYPES.REPORT_FILE && components.length) messageOptions.components = components;
 
     const sent = await channel.send(messageOptions);
     logger.info(`Event logged: ${eventType} in guild ${guildId}`);

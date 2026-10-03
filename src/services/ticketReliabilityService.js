@@ -17,6 +17,8 @@ import {
   saveTicketData,
 } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { requireTicketCloseReason } from './ticketActionPolicy.js';
+import { deleteTicketCreationConfirmation } from './ticketCreationConfirmationService.js';
 
 const creationQueues = new Map();
 const mutationQueues = new Map();
@@ -225,7 +227,7 @@ export async function createTicket(guild, member, categoryId, reason, priority =
     const namedStaffRole = guild.roles.cache.find(
       role => role.name.trim().toLowerCase() === 'staff',
     );
-    if (namedStaffRole && String(config.ticketStaffRoleId || '') !== String(namedStaffRole.id)) {
+    if (namedStaffRole && !config.ticketStaffRoleId) {
       config = await updateGuildConfig(guild.client, guild.id, {
         ticketStaffRoleId: namedStaffRole.id,
       });
@@ -263,6 +265,14 @@ export async function createTicket(guild, member, categoryId, reason, priority =
           'The configured Ticket Staff Role no longer exists. An admin must update it in `/ticket dashboard`.',
           'TICKET_STAFF_ROLE_INVALID',
         );
+      }
+      for (const id of new Set([categoryId, config.ticketClosedCategoryId].filter(Boolean))) {
+        const category = guild.channels.cache.get(id) || await guild.channels.fetch(id).catch(() => null);
+        if (category?.type === ChannelType.GuildCategory) {
+          await category.permissionOverwrites.edit(staffRole.id, {
+            ViewChannel: true, ReadMessageHistory: true,
+          });
+        }
       }
     }
 
@@ -389,9 +399,11 @@ export async function toggleTicketPinned(channel) {
   });
 }
 
-export async function closeTicket(channel, closer, reason = 'No reason provided') {
+export async function closeTicket(channel, closer, reason) {
+  reason = requireTicketCloseReason(reason);
   return mutate(channel, async () => {
     const result = await closeTicketBase(channel, closer, reason);
+    await deleteTicketCreationConfirmation(channel);
     scheduleTicketReconcile(channel, [1000, 5000, 20000]);
     return result;
   });
@@ -481,7 +493,7 @@ export async function reconcileTicketChannelState(channel) {
     const namedStaffRole = channel.guild.roles.cache.find(
       role => role.name.trim().toLowerCase() === 'staff',
     );
-    const staffRoleId = namedStaffRole?.id || config.ticketStaffRoleId || null;
+    const staffRoleId = config.ticketStaffRoleId || namedStaffRole?.id || null;
     const staffRole = staffRoleId
       ? channel.guild.roles.cache.get(staffRoleId)
         || await channel.guild.roles.fetch(staffRoleId).catch(() => null)
