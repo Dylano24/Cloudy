@@ -59,6 +59,11 @@ test('Owner-role message requests can scan every readable text channel, includin
   const ownerMember = {
     id: 'owner-user',
     permissions: { has: () => false },
+    roles: {
+      cache: {
+        some: predicate => predicate({ name: 'Owner' }),
+      },
+    },
   };
   const botMember = { id: 'cloudy-bot' };
   const channels = new Map();
@@ -220,4 +225,33 @@ test('new tickets tag only staff and creator and do not auto-pin the main ticket
   });
   const componentIds = sent[1].components[0].components.map(component => component.data.custom_id);
   assert.ok(componentIds.includes('ticket_pin'), 'manual Pin button must stay available');
+});
+
+
+test('Cloudy Assistant rejects a stale cached Owner role after fresh membership no longer has it', async () => {
+  const freshMember = {
+    id: 'former-owner',
+    permissions: { has: () => false },
+    roles: { cache: { some: () => false } },
+  };
+  const actor = {
+    guild: {
+      id: 'fresh-owner-check-guild',
+      ownerId: 'someone-else',
+      members: { fetch: async () => freshMember },
+    },
+    author: { id: 'former-owner', bot: false },
+    member: {
+      roles: { cache: { some: predicate => predicate({ name: 'Owner' }) } },
+    },
+  };
+
+  await assert.rejects(
+    authorizeAiRequest(
+      actor,
+      { action: 'server', question: 'server context' },
+      { allowMessageServerContext: true },
+    ),
+    /forbidden/,
+  );
 });
