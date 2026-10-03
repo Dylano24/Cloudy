@@ -370,18 +370,6 @@ export default {
 
                     await refreshDashboard(interaction, cfg, guildId, client);
                 },
-                onTimeout: async (rootInteraction) => {
-                    await InteractionHelper.safeEditReply(rootInteraction, {
-                        embeds: [
-                            new EmbedBuilder()
-                                .setTitle('Dashboard Timed Out')
-                                .setDescription('This dashboard has been closed due to inactivity. Please run the command again to continue.')
-                                .setColor(getColor('error')),
-                        ],
-                        components: [],
-                        flags: MessageFlags.Ephemeral,
-                    });
-                },
             });
         } catch (error) {
             if (error instanceof TitanBotError) throw error;
