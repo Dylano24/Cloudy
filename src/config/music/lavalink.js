@@ -35,6 +35,8 @@ function parseNodesPayload(parsed) {
     return null;
 }
 
+// The default fallback list lives in lavalink/nodes.json. Include this source
+// entry when updating that list: Railway deploys watch /src/**.
 function loadNodesFromFile() {
     const nodesFile = process.env.LAVALINK_NODES_FILE?.trim()
         || path.join(projectRoot, 'lavalink', 'nodes.json');
