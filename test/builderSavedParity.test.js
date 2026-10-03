@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Embed } from 'discord.js';
 import { db } from '../src/utils/database.js';
-import { saveEmbedTemplateDecoration, warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../src/services/embedTemplateService.js';
+import { saveEmbedTemplateDecoration, warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData, decorateEmbedWithSavedTemplate } from '../src/services/embedTemplateService.js';
 import { applySavedResponsePayloadTemplates } from '../src/events/fullResponseCatalogReady.js';
 import { collapseDisplayRecords, loadRecordSnapshotIntoState, saveModifiedEmbed } from '../src/services/embedManagerService.js';
 import { buildBuilderEmbeds } from '../src/commands/Tools/embedbuilder.js';
@@ -539,4 +539,86 @@ test('Builder Search collapses Too fast from different activity channels into on
   const matches = buildMatches(guild, records, 'too fast');
   assert.equal(matches.length, 1);
   assert.equal(matches[0].document.title, 'Too fast');
+});
+
+
+test('canonical dynamic Balance alias beats stale member-specific aliases from older saves', async () => {
+  const staleGuildId = 'stale-balance-alias-guild';
+  const staleChannelId = 'stale-balance-alias-channel';
+  values.set(`cloudy:embed-template:${staleGuildId}:${staleChannelId}`, {
+    "dylano's balance": {
+      schemaVersion: 3,
+      title: "Dylano's Balance",
+      description: undefined,
+      applyDescription: false,
+      applyFields: false,
+      applyFooter: false,
+      color: 0x111111,
+      updatedAt: '2026-10-01T00:00:00.000Z',
+    },
+    "{dynamic}'s balance": {
+      schemaVersion: 3,
+      title: "{dynamic}'s balance",
+      description: undefined,
+      applyDescription: false,
+      applyFields: false,
+      applyFooter: false,
+      color: 0x222222,
+      updatedAt: '2026-10-03T00:00:00.000Z',
+    },
+  });
+
+  await warmSavedEmbedTemplateScopes(staleGuildId, [staleChannelId]);
+  const live = getCachedSavedEmbedTemplateData(staleGuildId, staleChannelId, {
+    title: "Dylano's Balance",
+    description: 'Here is the current financial status for Dylano.',
+    color: 0xFFFFFF,
+  }).data;
+
+  assert.equal(live.title, "Dylano's balance");
+  assert.equal(live.color, 0x222222);
+});
+
+test('async template decoration also lets one shared Too fast save beat stale channel copies', async () => {
+  const sharedGuildId = 'async-shared-too-fast-guild';
+  const sharedChannelId = 'async-shared-too-fast-channel';
+
+  await saveEmbedTemplateDecoration(
+    sharedGuildId,
+    sharedChannelId,
+    ['Too fast'],
+    {
+      title: 'Old cooldown',
+      description: 'Old frozen body',
+      color: 0x111111,
+    },
+  );
+  await saveEmbedTemplateDecoration(
+    sharedGuildId,
+    sharedChannelId,
+    ['Too fast'],
+    {
+      title: 'Slow down',
+      description: 'Example body that must stay runtime-owned',
+      color: 0x334455,
+      footer: { text: 'Cloudy cooldown' },
+    },
+    { sharedScope: true },
+  );
+
+  const decorated = await decorateEmbedWithSavedTemplate(
+    sharedGuildId,
+    sharedChannelId,
+    new Embed({
+      title: 'Too fast',
+      description: 'You are tired from working! Try again in 8 minute(s).',
+      color: 0xFCFFA1,
+    }),
+  );
+  const data = decorated.embed.toJSON();
+
+  assert.equal(data.title, 'Slow down');
+  assert.equal(data.color, 0x334455);
+  assert.equal(data.description, 'You are tired from working! Try again in 8 minute(s).');
+  assert.equal(data.footer.text, 'Cloudy cooldown');
 });
