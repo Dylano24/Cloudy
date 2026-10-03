@@ -10,7 +10,7 @@ import { logger } from '../utils/logger.js';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const gate = createAiGate();
 export const AI_HELP = [
-  'Ask a question directly. In the Owner Fix Guide, Cloudy can use relevant readable server history automatically. Other entry points do not add server context automatically.',
+  'Ask a question directly. Cloudy Assistant can use relevant readable server history automatically for authorized Owner requests.',
   '`scan CHANNEL_ID 20 | question`: admins or owners, only that channel (1 to 50 messages).',
   '`history CHANNEL_ID 500 | question`: admins or owners, searches up to 500 recent messages and sends only relevant bounded evidence.',
   '`code | question`: configured bot owners only, searches the current local bot source for relevant snippets.',
@@ -102,18 +102,27 @@ export async function readAiGuildContext(actor, request, member) {
     || (left.rawPosition ?? left.position ?? 0) - (right.rawPosition ?? right.position ?? 0)
   );
 
+  const readableChannels = channels.filter(channel =>
+    channel.permissionsFor(member)?.has(required)
+    && channel.permissionsFor(me)?.has(required)
+  );
+
   const rows = [];
   let readableChannelsScanned = 0;
   let fetchedMessages = 0;
-  const maxChannels = 50;
-  const maxMessages = 3000;
+  const maxMessages = 5000;
 
-  for (const channel of channels.slice(0, maxChannels)) {
-    if (fetchedMessages >= maxMessages) break;
-    if (!channel.permissionsFor(member)?.has(required) || !channel.permissionsFor(me)?.has(required)) continue;
+  // Every readable text channel is included. The bounded budget is divided
+  // fairly so a large server cannot let the first 50 channels hide the rest.
+  for (let channelIndex = 0; channelIndex < readableChannels.length; channelIndex += 1) {
+    const channel = readableChannels[channelIndex];
+    const remainingChannels = Math.max(1, readableChannels.length - channelIndex);
+    const remainingBudget = Math.max(1, maxMessages - fetchedMessages);
+    const fairShare = Math.max(1, Math.floor(remainingBudget / remainingChannels));
+    const preferredLimit = channelScore(channel) > 0 ? 100 : 50;
+    const perChannelLimit = Math.max(1, Math.min(preferredLimit, fairShare));
 
     readableChannelsScanned += 1;
-    const perChannelLimit = Math.min(channelScore(channel) > 0 ? 300 : 100, maxMessages - fetchedMessages);
     const collected = [];
     let before;
 
@@ -224,6 +233,7 @@ export function createExplicitAiService({
   provider = getAiProvider,
   audit = entry => logger.warn(`[CLOUDY_AI] ${JSON.stringify(entry)}`),
   defaultGuildContext = false,
+  allowMessageGuildContext = false,
   askEvidence = null,
 } = {}) {
   return async (actor, input) => {
@@ -234,12 +244,14 @@ export function createExplicitAiService({
       const parsedRequest = parseAiRequest(input);
       const identityAnswer = parsedRequest.action === 'ask' ? aiIdentityAnswer(parsedRequest.question) : null;
       if (identityAnswer) return { text: identityAnswer, diagnostics: {} };
-      const request = defaultGuildContext && parsedRequest.action === 'ask' && !actor?.author
+      const request = defaultGuildContext && parsedRequest.action === 'ask'
         ? { ...parsedRequest, action: 'server' }
         : parsedRequest;
       action = request.action;
       // Validate deployment settings before any sensitive read.
-      const member = await authorizeAiRequest(actor, request);
+      const member = await authorizeAiRequest(actor, request, {
+        allowMessageServerContext: allowMessageGuildContext,
+      });
       if (action === 'help') return { text: AI_HELP, diagnostics: {} };
       const config = provider();
       release = reserve(`${identity.guildId}:${identity.userId}`);
@@ -282,4 +294,7 @@ export function createExplicitAiService({
 }
 
 export const runExplicitAi = createExplicitAiService();
-export const runOwnerContextAi = createExplicitAiService({ defaultGuildContext: true });
+export const runOwnerContextAi = createExplicitAiService({
+  defaultGuildContext: true,
+  allowMessageGuildContext: true,
+});
