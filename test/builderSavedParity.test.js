@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Embed } from 'discord.js';
 import { db } from '../src/utils/database.js';
 import { saveEmbedTemplateDecoration, warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../src/services/embedTemplateService.js';
 import { applySavedResponsePayloadTemplates } from '../src/events/fullResponseCatalogReady.js';
-import { collapseDisplayRecords, loadRecordSnapshotIntoState } from '../src/services/embedManagerService.js';
+import { collapseDisplayRecords, loadRecordSnapshotIntoState, saveModifiedEmbed } from '../src/services/embedManagerService.js';
 import { buildBuilderEmbeds } from '../src/commands/Tools/embedbuilder.js';
 import { buildEconomyLeaderboardEmbed } from '../src/commands/Economy/eleaderboard.js';
 import { hydrateBuilderPreviewRecord, rememberBuilderRuntimePreview } from '../src/services/builderRuntimePreviewService.js';
+import { primeSystemSourceDefinitionPreview } from '../src/services/systemEmbedCatalogService.js';
+import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 const values = new Map();
 db.initialized = true;
@@ -73,4 +76,163 @@ test('full command payloads survive transient message deletion as a reusable pre
   assert.deepEqual(preview.snapshot, payload.embeds[0]);
   await warmSavedEmbedTemplateScopes(guildId, [channelId]);
   assert.equal(getCachedSavedEmbedTemplateData(guildId, channelId, preview.snapshot).data.description, 'Actual response');
+});
+
+
+test('Search and channel selection show a complete saved template before any edit', async () => {
+  const searchGuildId = 'search-complete-guild';
+  const searchChannelId = '1532882647838228799';
+  const source = {
+    key: 'source:payment-success',
+    kind: 'embed',
+    title: 'Payment Successful',
+    description: 'You successfully paid {dynamic} the amount of {dynamic}!',
+    fields: [
+      { name: 'Payment Amount', value: '{dynamic}', inline: false },
+      { name: 'Your New Balance', value: '{dynamic}', inline: false },
+    ],
+    context: 'gambling/pay',
+  };
+  primeSystemSourceDefinitionPreview(source);
+  await saveEmbedTemplateDecoration(
+    searchGuildId,
+    searchChannelId,
+    [source.title],
+    { title: 'Payment successful', color: 0x00C49D },
+  );
+  await warmSavedEmbedTemplateScopes(searchGuildId, [searchChannelId]);
+
+  const sparse = {
+    guildId: searchGuildId,
+    channelId: searchChannelId,
+    messageId: '1532882647838228800',
+    embedIndex: 0,
+    source: 'system-catalog',
+    title: source.title,
+    name: source.title,
+    snapshot: {
+      title: source.title,
+      color: 0x00C49D,
+      author: {
+        name: 'Cloudy template key: source:payment-success || Cloudy context: gambling/pay || Cloudy kind: embed',
+      },
+    },
+    createdAt: '2026-10-03T09:00:00.000Z',
+  };
+
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, { id: searchGuildId }, sparse), true);
+  const preview = buildBuilderEmbeds(state)[0].toJSON();
+  assert.equal(preview.title, 'Payment successful');
+  assert.equal(preview.description, source.description);
+  assert.deepEqual(preview.fields, source.fields);
+
+  const guild = {
+    channels: {
+      cache: new Map([[searchChannelId, { id: searchChannelId, name: 'gambling' }]]),
+    },
+  };
+  const titleMatches = buildMatches(guild, [sparse], 'payment successful');
+  assert.equal(titleMatches.length, 1);
+  assert.equal(titleMatches[0].document.title, 'Payment successful');
+  const bodyMatches = buildMatches(guild, [sparse], 'successfully paid');
+  assert.equal(bodyMatches.length, 1);
+});
+
+test('a second Save updates the original template alias and keeps dynamic values dynamic', async () => {
+  const repeatGuildId = 'repeat-save-guild';
+  const repeatChannelId = '1532882647838228810';
+  const original = {
+    title: 'Payment Successful',
+    description: 'You successfully paid {dynamic} the amount of {dynamic}!',
+    color: 0x00C49D,
+    author: {
+      name: 'Cloudy template key: source:payment-success-repeat || Cloudy context: gambling/pay || Cloudy kind: embed',
+    },
+  };
+
+  await saveEmbedTemplateDecoration(
+    repeatGuildId,
+    repeatChannelId,
+    [original.title],
+    { ...original, title: 'First saved title' },
+  );
+  await warmSavedEmbedTemplateScopes(repeatGuildId, [repeatChannelId]);
+
+  const liveFirst = getCachedSavedEmbedTemplateData(
+    repeatGuildId,
+    repeatChannelId,
+    { ...original, description: 'You successfully paid mindzset the amount of $200!' },
+  ).data;
+  assert.equal(liveFirst.title, 'First saved title');
+
+  const message = {
+    id: '1532882647838228811',
+    guildId: repeatGuildId,
+    channelId: repeatChannelId,
+    author: { id: 'cloudy-bot' },
+    flags: { has: () => false },
+    createdAt: new Date('2026-10-03T09:05:00.000Z'),
+    embeds: [new Embed(liveFirst)],
+  };
+  const channel = {
+    id: repeatChannelId,
+    messages: {
+      fetch: async () => message,
+      edit: async (_id, payload) => message.edit(payload),
+    },
+  };
+  message.channel = channel;
+  message.edit = async payload => {
+    message.embeds = payload.embeds.map(data => new Embed(data));
+    return message;
+  };
+  const guild = {
+    id: repeatGuildId,
+    client: { user: { id: 'cloudy-bot' } },
+    channels: {
+      cache: new Map([[repeatChannelId, channel]]),
+      fetch: async id => (id === repeatChannelId ? channel : null),
+    },
+  };
+
+  const state = {
+    title: 'Second saved title',
+    message: 'You successfully paid mindzset the amount of $200!',
+    embedFields: [],
+    sideColor: 0x00C49D,
+    showLogo: false,
+    removeExistingLogo: false,
+    bottomLine: null,
+    mediaUrl: null,
+    modifyTarget: {
+      guildId: repeatGuildId,
+      channelId: repeatChannelId,
+      backingChannelId: repeatChannelId,
+      messageId: message.id,
+      embedIndex: 0,
+      source: 'modified-template',
+      sourceEmbedData: liveFirst,
+      templateSourceData: original,
+      previewSourceData: {
+        ...liveFirst,
+        description: 'You successfully paid mindzset the amount of $200!',
+      },
+      catalogTitle: original.title,
+      templateMode: true,
+      templateTitle: 'source:payment-success-repeat',
+      cachedMessage: message,
+    },
+  };
+
+  const saved = await saveModifiedEmbed(guild, state);
+  assert.equal(saved.ok, true);
+
+  const future = getCachedSavedEmbedTemplateData(
+    repeatGuildId,
+    repeatChannelId,
+    { ...original, description: 'You successfully paid another-user the amount of $500!' },
+  ).data;
+  assert.equal(future.title, 'Second saved title');
+  assert.equal(future.description, 'You successfully paid another-user the amount of $500!');
 });
