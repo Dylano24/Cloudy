@@ -147,6 +147,10 @@ function dynamicParts(value = '') {
   const values = [];
   const sentinel = '\u0000CLOUDY_DYNAMIC\u0000';
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
+  text = text.replace(/^([a-z0-9_.-]{2,32})(?='s\b)/i, match => {
+    values.push(match);
+    return '{dynamic}';
+  });
   text = text.replace(
     /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
@@ -906,11 +910,18 @@ export function captureSystemEmbedData(embedData, contextSource = null) {
   if (isInternalTemplate(data)) return false;
   const key = getSystemEmbedTemplateKey('embed', data.title, data.description, context);
   if (!key || !isEditableSystemCatalogTemplate(key, context)) return false;
+
+  const reusableData = cloneData(data);
+  if (!isCuratedCasinoContext(context) && reusableData.title) {
+    const titleParts = dynamicParts(reusableData.title);
+    if (titleParts.values.length) reusableData.title = titleParts.tokenized;
+  }
+
   return queueRuntimeEntry({
     key,
     context,
     kind: 'embed',
-    data: withStableKey(data, key, context, 'embed'),
+    data: withStableKey(reusableData, key, context, 'embed'),
   });
 }
 
@@ -928,46 +939,60 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
     return isBlackjackContext(context) ? stripBlackjackCardsRemaining(data) : data;
   }
 
+  const textShapeMatches = (templateValue, runtimeValue) => {
+    const templateText = String(templateValue || '');
+    const runtimeText = String(runtimeValue || '');
+    if (!templateText || !runtimeText) return false;
+    if (templateText === runtimeText) return true;
+    const templateParts = dynamicParts(templateText);
+    const runtimeParts = dynamicParts(runtimeText);
+    const slots = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
+    return slots.length > 0
+      && slots.length === runtimeParts.values.length
+      && templateParts.pattern === runtimeParts.pattern;
+  };
+
   const next = { ...data };
   if (template.title) next.title = renderDynamic(template.title, data.title, { fallbackToRuntimeOnMismatch: true });
-  if (template.description) {
+  if (template.description && textShapeMatches(template.description, data.description)) {
     const description = renderDynamic(template.description, data.description, { fallbackToRuntimeOnMismatch: true });
     if (description) next.description = description;
     else delete next.description;
   }
   if (Number.isInteger(template.color)) next.color = template.color;
 
-  if (Array.isArray(template.fields)) {
-    const runtimeFields = Array.isArray(data.fields) ? data.fields : [];
-    next.fields = runtimeFields.length
-      ? runtimeFields.map((runtimeField, index) => {
-        const templateField = template.fields[index];
-        if (!templateField) return { ...runtimeField };
-        return {
-          ...runtimeField,
-          name: templateField.name
-            ? renderDynamic(templateField.name, runtimeField.name, { fallbackToRuntimeOnMismatch: true })
-            : runtimeField.name,
-          // The JTC dashboard reads this value from channelOptions, just like
-          // its modal. A catalog snapshot must not replace the saved setting.
-          value: normalize(data.title) === 'join to create configuration'
-            && runtimeField.name === 'Channel name template'
-            ? runtimeField.value
-            : templateField.value
-            ? renderDynamic(templateField.value, runtimeField.value, { fallbackToRuntimeOnMismatch: true })
-            : runtimeField.value,
-          inline: typeof templateField.inline === 'boolean' ? templateField.inline : runtimeField.inline,
-        };
-      })
-      : template.fields.map(field => ({ ...field }));
+  if (Array.isArray(template.fields) && Array.isArray(data.fields) && data.fields.length) {
+    next.fields = data.fields.map((runtimeField, index) => {
+      const templateField = template.fields[index];
+      if (!templateField) return { ...runtimeField };
+      const canApplyName = templateField.name && textShapeMatches(templateField.name, runtimeField.name);
+      const canApplyValue = templateField.value && textShapeMatches(templateField.value, runtimeField.value);
+      return {
+        ...runtimeField,
+        name: canApplyName
+          ? renderDynamic(templateField.name, runtimeField.name, { fallbackToRuntimeOnMismatch: true })
+          : runtimeField.name,
+        // The JTC dashboard reads this value from channelOptions, just like
+        // its modal. A catalog snapshot must not replace the saved setting.
+        value: normalize(data.title) === 'join to create configuration'
+          && runtimeField.name === 'Channel name template'
+          ? runtimeField.value
+          : canApplyValue
+          ? renderDynamic(templateField.value, runtimeField.value, { fallbackToRuntimeOnMismatch: true })
+          : runtimeField.value,
+        inline: typeof templateField.inline === 'boolean' ? templateField.inline : runtimeField.inline,
+      };
+    });
   }
 
-  if (template.footer?.text) {
+  if (template.footer?.text && data.footer?.text && textShapeMatches(template.footer.text, data.footer.text)) {
     next.footer = {
       ...template.footer,
-      text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, { fallbackToRuntimeOnMismatch: true }),
+      text: renderDynamic(template.footer.text, data.footer.text, { fallbackToRuntimeOnMismatch: true }),
     };
-  } else delete next.footer;
+  } else if (!data.footer?.text) {
+    delete next.footer;
+  }
 
   if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
   else delete next.thumbnail;
