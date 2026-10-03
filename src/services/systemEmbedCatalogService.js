@@ -24,6 +24,7 @@ const TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
 const contexts = new Map();
 const templateCache = new Map();
 const sourceDefinitionCache = new Map();
+const sourceDefinitionKeyCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
 let flushTimer = null;
@@ -398,12 +399,20 @@ function sourceDefinitionIdentity(context, title) {
 }
 
 function rememberSourceDefinition(definition = {}) {
-  if (normalize(definition.kind) !== 'embed' || !String(definition.title || '').trim()) return;
+  if (normalize(definition.kind) !== 'embed') return;
   const entry = definitionToCatalog(definition);
-  sourceDefinitionCache.set(
-    sourceDefinitionIdentity(entry.context, entry.data.title),
-    cloneData(entry.data),
-  );
+  if (!entry?.key) return;
+
+  const data = cloneData(entry.data);
+  sourceDefinitionKeyCache.set(cacheIdentity(entry.key, entry.context), data);
+
+  const title = String(entry.data?.title || '').trim();
+  if (title) {
+    sourceDefinitionCache.set(
+      sourceDefinitionIdentity(entry.context, title),
+      data,
+    );
+  }
 }
 
 export function getSystemSourceDefinitionPreview(title, context = null) {
@@ -444,11 +453,38 @@ export function getSystemSourceDefinitionPreview(title, context = null) {
   return unique.size === 1 ? cloneData([...unique.values()][0]) : null;
 }
 
+export function getSystemSourceDefinitionPreviewForEmbed(embedData = {}) {
+  const metadata = parseTemplateMetadata(embedData);
+  const exact = normalize(metadata.context);
+  const parent = parentContext(exact);
+
+  if (metadata.key) {
+    const byKey = sourceDefinitionKeyCache.get(cacheIdentity(metadata.key, exact))
+      || (parent ? sourceDefinitionKeyCache.get(cacheIdentity(metadata.key, parent)) : null)
+      || sourceDefinitionKeyCache.get(cacheIdentity(metadata.key, null))
+      || null;
+    if (byKey) return cloneData(byKey);
+
+    const normalizedKey = normalize(metadata.key);
+    const keyMatches = [];
+    for (const [identity, candidate] of sourceDefinitionKeyCache) {
+      if (!identity.endsWith(`::${normalizedKey}`)) continue;
+      keyMatches.push(candidate);
+    }
+    const uniqueByKey = new Map(keyMatches.map(candidate => [JSON.stringify(candidate), candidate]));
+    if (uniqueByKey.size === 1) return cloneData([...uniqueByKey.values()][0]);
+  }
+
+  return getSystemSourceDefinitionPreview(embedData?.title, metadata.context);
+}
+
 export function primeSystemSourceDefinitionPreview(definition = {}) {
-  const before = sourceDefinitionCache.size;
+  const beforeTitle = sourceDefinitionCache.size;
+  const beforeKey = sourceDefinitionKeyCache.size;
   rememberSourceDefinition(definition);
-  return sourceDefinitionCache.size > before
-    || Boolean(getSystemSourceDefinitionPreview(definition.title, definition.context));
+  return sourceDefinitionCache.size > beforeTitle
+    || sourceDefinitionKeyCache.size > beforeKey
+    || Boolean(getSystemSourceDefinitionPreviewForEmbed(definitionToCatalog(definition).data));
 }
 
 function rememberCatalogMessage(message) {
@@ -980,6 +1016,7 @@ export async function ensureSystemEmbedCatalogs(client) {
     !isCuratedCasinoContext(definition.context) && !isTicketContext(definition.context));
 
   sourceDefinitionCache.clear();
+  sourceDefinitionKeyCache.clear();
   for (const definition of discoveredDefinitions) rememberSourceDefinition(definition);
 
   let totalAdded = 0;
