@@ -21,19 +21,20 @@ export function reportEvidence(message) {
     `Channel: ${message.channel}`,
   ];
 
-  const content = String(message.content || '').trim();
-  if (content) {
-    const available = Math.max(0, 1024 - parts.join('\n').length - 20);
-    parts.push(`Content: ${content.slice(0, available)}`);
-  } else {
-    parts.push('Content: No text content');
+  if (message.attachments?.size) {
+    parts.push(
+      ...[...message.attachments.values()]
+        .slice(0, 3)
+        .map((attachment, index) => `Attachment ${index + 1}: ${attachment.url}`),
+    );
   }
 
-  if (message.attachments?.size) {
-    const attachmentLinks = [...message.attachments.values()]
-      .slice(0, 4)
-      .map((attachment, index) => `Attachment ${index + 1}: ${attachment.url}`);
-    parts.push(...attachmentLinks);
+  const content = String(message.content || '').trim();
+  if (content) {
+    const available = Math.max(0, 1024 - parts.join('\n').length - '\nContent: '.length);
+    if (available > 0) parts.push(`Content: ${content.slice(0, available)}`);
+  } else {
+    parts.push('Content: No text content');
   }
 
   return parts.join('\n').slice(0, 1024);
