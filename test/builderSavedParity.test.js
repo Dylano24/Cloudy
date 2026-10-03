@@ -236,3 +236,96 @@ test('a second Save updates the original template alias and keeps dynamic values
   assert.equal(future.title, 'Second saved title');
   assert.equal(future.description, 'You successfully paid another-user the amount of $500!');
 });
+
+
+test('dynamic runtime titles reuse one saved template without freezing a Discord username', async () => {
+  const dynamicGuildId = 'dynamic-title-guild';
+  const dynamicChannelId = 'dynamic-title-channel';
+  await saveEmbedTemplateDecoration(
+    dynamicGuildId,
+    dynamicChannelId,
+    ["{dynamic}'s Balance"],
+    {
+      title: "{dynamic}'s Balance",
+      description: 'Here is the current financial status for {dynamic}.',
+      color: 0x123456,
+    },
+    {
+      baseEmbedData: {
+        title: "{dynamic}'s Balance",
+        description: 'Here is the current financial status for {dynamic}.',
+      },
+      editedEmbedData: {
+        title: "{dynamic}'s Balance",
+        description: 'Here is the current financial status for {dynamic}.',
+      },
+    },
+  );
+  await warmSavedEmbedTemplateScopes(dynamicGuildId, [dynamicChannelId]);
+
+  const first = getCachedSavedEmbedTemplateData(dynamicGuildId, dynamicChannelId, {
+    title: "feelfate's Balance",
+    description: 'Here is the current financial status for feelfate.',
+    color: 0xFFFFFF,
+  });
+  assert.equal(first.matched, true);
+  assert.equal(first.data.title, "feelfate's Balance");
+  assert.equal(first.data.description, 'Here is the current financial status for feelfate.');
+  assert.equal(first.data.color, 0x123456);
+
+  const second = getCachedSavedEmbedTemplateData(dynamicGuildId, dynamicChannelId, {
+    title: "anotheruser's Balance",
+    description: 'Here is the current financial status for anotheruser.',
+    color: 0xFFFFFF,
+  });
+  assert.equal(second.matched, true);
+  assert.equal(second.data.title, "anotheruser's Balance");
+  assert.equal(second.data.description, 'Here is the current financial status for anotheruser.');
+});
+
+test('cooldown templates keep each live body when only title and color are changed', async () => {
+  const cooldownGuildId = 'cooldown-policy-guild';
+  const cooldownChannelId = 'cooldown-policy-channel';
+  const visibleBody = "You're tired from begging! Try again in 28 minute(s).";
+
+  await saveEmbedTemplateDecoration(
+    cooldownGuildId,
+    cooldownChannelId,
+    ['Too fast'],
+    {
+      title: 'Slow down',
+      description: visibleBody,
+      color: 0xABCDEF,
+    },
+    {
+      baseEmbedData: {
+        title: 'Too fast',
+        description: visibleBody,
+      },
+      editedEmbedData: {
+        title: 'Slow down',
+        description: visibleBody,
+        fields: [],
+      },
+    },
+  );
+  await warmSavedEmbedTemplateScopes(cooldownGuildId, [cooldownChannelId]);
+
+  const crime = getCachedSavedEmbedTemplateData(cooldownGuildId, cooldownChannelId, {
+    title: 'Too fast',
+    description: "You're in jail for 95 more minutes!",
+    color: 0x7A1712,
+  }).data;
+  assert.equal(crime.title, 'Slow down');
+  assert.equal(crime.description, "You're in jail for 95 more minutes!");
+  assert.equal(crime.color, 0xABCDEF);
+
+  const beg = getCachedSavedEmbedTemplateData(cooldownGuildId, cooldownChannelId, {
+    title: 'Too fast',
+    description: "You're tired from begging! Try again in 17 minute(s).",
+    color: 0xFCFFA1,
+  }).data;
+  assert.equal(beg.title, 'Slow down');
+  assert.equal(beg.description, "You're tired from begging! Try again in 17 minute(s).");
+  assert.equal(beg.color, 0xABCDEF);
+});
