@@ -1,4 +1,5 @@
 import { MessageFlags } from 'discord.js';
+import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import {
@@ -19,6 +20,8 @@ const discoveryCache = new Map();
 function isUsableMessage(message, botUserId) {
     if (!message?.guildId || message.author?.id !== botUserId || !message.embeds?.length) return false;
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
+    // Reject the entire panel, including its real-looking preview embed.
+    if (isBuilderSessionMessage(message)) return false;
 
     // Persistent slash-command replies are normal Cloudy embeds too. Older
     // discovery code rejected interaction replies, which made whole classes of
