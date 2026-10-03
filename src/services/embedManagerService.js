@@ -94,10 +94,6 @@ function shortLabel(value, fallback = 'Embed') {
     return (text || fallback).slice(0, 100);
 }
 
-function titleKey(value) {
-    return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
 function recordName(record) {
     return String(record?.name || record?.title || '').replace(/\s+/g, ' ').trim();
 }
@@ -702,8 +698,11 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         let liveOverviewRecords = [];
         let records = [...storedRecords];
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = guild.channels.cache.size
+            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+            : buildEmptyManagerPayload();
         const managerMessage = await buttonInteraction.followUp({
-            ...buildChannelPayload(guild, records, 0, checkingChannelIds),
+            ...initialPayload,
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
         }).catch(() => null);
