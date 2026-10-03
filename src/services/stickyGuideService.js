@@ -14,6 +14,7 @@ export function createStickyGuideManager({
   loadState,
   saveState,
   buildPayload,
+  prepareExisting,
   isGuide,
   onError,
   delayMs = DEFAULT_REFRESH_DELAY_MS,
@@ -62,6 +63,7 @@ export function createStickyGuideManager({
         if (!existing || isNewerId(message.id, existing.id)) existing = message;
       }
     }
+    if (existing && prepareExisting) existing = await prepareExisting(existing);
     const latest = recent.first();
     const alreadyLast = existing && latest?.id === existing.id
       && !isNewerId(channel.lastMessageId, existing.id);
