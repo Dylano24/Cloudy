@@ -29,7 +29,7 @@ import {
     migrateCloudyLogoEmbedData,
 } from './cloudyLogoService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
-import { discoverMissingChannelEmbed, discoverRecentChannelEmbeds } from './embedMissingChannelService.js';
+import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds, discoverRecentChannelEmbeds } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
     primeSystemEmbedCatalogMessage,
