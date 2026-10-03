@@ -29,7 +29,7 @@ import {
     migrateCloudyLogoEmbedData,
 } from './cloudyLogoService.js';
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
-import { discoverMissingChannelEmbed } from './embedMissingChannelService.js';
+import { discoverMissingChannelEmbed, discoverRecentChannelEmbeds } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
     primeSystemEmbedCatalogMessage,
@@ -41,6 +41,7 @@ const PAGE_SIZE = 25;
 const MANAGER_IDLE_TIMEOUT = 5 * 60_000;
 const HISTORY_SCAN_TTL = 5 * 60_000;
 const CLOSED_MANAGER_ERROR_CODES = new Set([10008, 10062, 50027]);
+const OVERVIEW_DISCOVERY_CONCURRENCY = 6;
 const historyScanTimes = new Map();
 const historyScanJobs = new Map();
 const activeEmbedManagerSaves = new Set();
@@ -562,6 +563,66 @@ async function updateEmbedManager(interaction, payload, state, session) {
     }
 }
 
+function managerRecordKey(record) {
+    return [
+        String(record?.backingChannelId || record?.channelId || ''),
+        String(record?.messageId || ''),
+        Math.max(0, Number(record?.embedIndex) || 0),
+    ].join(':');
+}
+
+export function mergeEmbedManagerRecords(baseRecords = [], additions = []) {
+    const merged = new Map();
+    for (const record of [...baseRecords, ...additions]) {
+        if (!record?.messageId) continue;
+        merged.set(managerRecordKey(record), record);
+    }
+    return [...merged.values()];
+}
+
+function channelHasVisibleManagerRecord(records, channelId) {
+    const relevant = records.filter(record =>
+        String(record?.channelId || '') === String(channelId)
+        || String(record?.backingChannelId || '') === String(channelId),
+    );
+    return collapseDisplayRecords(relevant, channelId).length > 0;
+}
+
+export async function discoverEmbedManagerOverviewRecords(guild, records, botUserId) {
+    if (!guild || !botUserId) return [];
+
+    const channels = [...guild.channels.cache.values()].filter(channel =>
+        [0, 5].includes(channel?.type)
+        && channel?.messages?.fetch
+        && !channelHasVisibleManagerRecord(records, channel.id),
+    );
+    if (!channels.length) return [];
+
+    const discovered = [];
+    let cursor = 0;
+
+    const workers = Array.from(
+        { length: Math.min(OVERVIEW_DISCOVERY_CONCURRENCY, channels.length) },
+        async () => {
+            while (cursor < channels.length) {
+                const channel = channels[cursor++];
+                const found = await discoverRecentChannelEmbeds(
+                    guild,
+                    channel.id,
+                    botUserId,
+                ).catch(error => {
+                    logger.debug(`Embed manager overview discovery skipped for #${channel?.name || channel?.id}: ${error?.message || error}`);
+                    return [];
+                });
+                discovered.push(...found);
+            }
+        },
+    );
+
+    await Promise.all(workers);
+    return discovered;
+}
+
 async function loadCurrentRegistry(guild, botUserId) {
     let result = await reconcileEmbedRegistry(guild);
     if (result.records.length) {
@@ -609,9 +670,17 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             }
         }
 
-        // Render the original channel picker immediately. Discord history checks
-        // must never block the Modify button from opening its menu.
-        let records = await getEmbedRegistry(guild.id);
+        // Hydrate channels that are missing from the registry with the same live
+        // Discord lookup used when a channel is clicked. This prevents the
+        // overview from saying "No saved embed yet" for an embed that is
+        // already present in Discord.
+        const storedRecords = await getEmbedRegistry(guild.id);
+        let liveOverviewRecords = await discoverEmbedManagerOverviewRecords(
+            guild,
+            storedRecords,
+            buttonInteraction.client.user.id,
+        );
+        let records = mergeEmbedManagerRecords(storedRecords, liveOverviewRecords);
         const managerMessage = await buttonInteraction.followUp({
             ...(records.length
                 ? buildChannelPayload(guild, records, 0)
@@ -641,7 +710,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         void loadCurrentRegistry(guild, buttonInteraction.client.user.id)
             .then(async refreshedRecords => {
                 if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
-                records = refreshedRecords;
+                records = mergeEmbedManagerRecords(refreshedRecords, liveOverviewRecords);
 
                 const payload = records.length
                     ? buildChannelPayload(guild, records, 0)
@@ -736,14 +805,18 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         if (discovered) {
                             loadEmbedIntoState(state, discovered);
                             firstRecord = discovered.record;
-                            records = [
-                                ...records.filter(record => !(
+                            liveOverviewRecords = mergeEmbedManagerRecords(
+                                liveOverviewRecords,
+                                [discovered.record],
+                            );
+                            records = mergeEmbedManagerRecords(
+                                records.filter(record => !(
                                     String(record.channelId) === String(channelId)
                                     && String(record.source || '') === 'embed-builder'
                                     && String(record.messageId) !== String(discovered.record.messageId)
                                 )),
-                                discovered.record,
-                            ];
+                                [discovered.record],
+                            );
                             void Promise.resolve(refreshBuilder()).catch(error => {
                                 logger.debug(`Discovered channel preview refresh skipped: ${error?.message || error}`);
                             });
