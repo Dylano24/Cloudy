@@ -1,3 +1,4 @@
+import { hideClosedTicket } from './ticketClosedAccessService.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -580,15 +581,7 @@ async function finishCloseSideEffects(channel, ticketData) {
       }
     }
 
-    const overwrite = channel.permissionOverwrites.cache.get(ticketData.userId);
-    if (overwrite) {
-      await overwrite.edit({ ViewChannel: true, SendMessages: false }).catch(() => {});
-    } else {
-      await channel.permissionOverwrites.create(ticketData.userId, {
-        ViewChannel: true,
-        SendMessages: false,
-      }).catch(() => {});
-    }
+    await hideClosedTicket(channel);
   } catch (error) {
     logger.warn('Ticket close side effects failed', {
       guildId: channel.guild.id,
@@ -603,6 +596,8 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
   if (!ticketData) {
     throw ticketError('Ticket data not found', 'This is not a valid ticket channel.');
   }
+
+  await hideClosedTicket(channel, { closing: true });
 
   if (String(ticketData.status || 'open').toLowerCase() === 'closed') {
     await syncCloudyTicketMessage(channel);
