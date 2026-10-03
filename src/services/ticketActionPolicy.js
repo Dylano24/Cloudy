@@ -5,7 +5,7 @@ export function ticketActorPermissions({ member, userId, ownerId, staffRoleId, c
     || Boolean(member?.permissions?.has?.(PermissionFlagsBits.Administrator))
     || Boolean(staffRoleId && member?.roles?.cache?.has?.(staffRoleId));
   const creator = Boolean(creatorId && String(userId) === String(creatorId));
-  return { canManageTicket: staff, canCloseTicket: staff || creator, canReopenTicket: staff || creator };
+  return { canManageTicket: staff, canCloseTicket: staff || creator, canReopenTicket: staff };
 }
 
 export function requireTicketCloseReason(value) {
