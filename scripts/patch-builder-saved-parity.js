@@ -34,6 +34,7 @@ patch('src/services/embedManagerService.js', [
   ["    const displayImage =", "    let displayImage ="],
   ["    const displayThumbnail =", "    let displayThumbnail ="],
   ["    const footerText = cleanFooter(displayFooter?.text || data.footer?.text || '');", "    const savedDisplay = getCachedSavedEmbedTemplateData(guild.id, String(record.channelId || ''), displaySourceData);\n    if (savedDisplay.matched) {\n        Object.assign(displaySourceData, savedDisplay.data);\n        for (const key of ['title', 'description', 'fields', 'footer', 'image', 'thumbnail']) {\n            if (!(key in savedDisplay.data)) delete displaySourceData[key];\n        }\n        displayTitle = savedDisplay.data.title;\n        displayDescription = savedDisplay.data.description;\n        displayFields = savedDisplay.data.fields;\n        displayFooter = savedDisplay.data.footer;\n        displayImage = savedDisplay.data.image;\n        displayThumbnail = savedDisplay.data.thumbnail;\n    }\n    const footerText = cleanFooter(displayFooter?.text || '');"],
+  ["                applyFields: !String(target.templateTitle || '').startsWith('ticket-log:'),", "                baseEmbedData: target.previewSourceData || target.sourceEmbedData,\n                editedEmbedData: { description: state.message || undefined, fields: state.embedFields || [] },\n                applyFields: !String(target.templateTitle || '').startsWith('ticket-log:'),"],
 ]);
 
 patch('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', [
@@ -62,7 +63,7 @@ patch('src/events/fullResponseCatalogReady.js', [
 }
 
 function patchInteractionCapture() {`],
-  ["          outgoing = await applySavedBlackjackPayloadTemplates(outgoing, source);", "          outgoing = await applySavedBlackjackPayloadTemplates(outgoing, source);\n          outgoing = await applySavedResponsePayloadTemplates(outgoing, source);\n          void rememberBuilderRuntimePreview(outgoing, source).catch(error => logger.debug(`Builder runtime preview capture skipped: ${error.message}`));"],
+  ["          outgoing = await applySavedBlackjackPayloadTemplates(outgoing, source);", "          outgoing = await applySavedResponsePayloadTemplates(outgoing, source);\n          void rememberBuilderRuntimePreview(outgoing, source).catch(error => logger.debug(`Builder runtime preview capture skipped: ${error.message}`));"],
   ["prototype.edit = function cloudyPreStyledMessageEdit(payload, ...args) {", "prototype.edit = async function cloudyPreStyledMessageEdit(payload, ...args) {"],
   ["      outgoing = prepareMessageEditPayload(this, payload);", "      outgoing = prepareMessageEditPayload(this, payload);\n      if (shouldPrepareMessageEdit(this)) {\n        outgoing = await applySavedResponsePayloadTemplates(outgoing, messageContext(this));\n        void rememberBuilderRuntimePreview(outgoing, messageContext(this)).catch(error => logger.debug(`Builder runtime preview capture skipped: ${error.message}`));\n      }"],
 ]);
