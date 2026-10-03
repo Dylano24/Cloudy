@@ -47,6 +47,60 @@ function allLiterals(text, limit = 2) {
   return output;
 }
 
+function splitTopLevelArguments(value = '') {
+  const source = String(value || '');
+  const args = [];
+  let start = 0;
+  let quote = null;
+  let escaped = false;
+  let round = 0;
+  let square = 0;
+  let curly = 0;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === quote) quote = null;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (char === '(') round += 1;
+    else if (char === ')') round = Math.max(0, round - 1);
+    else if (char === '[') square += 1;
+    else if (char === ']') square = Math.max(0, square - 1);
+    else if (char === '{') curly += 1;
+    else if (char === '}') curly = Math.max(0, curly - 1);
+    else if (char === ',' && round === 0 && square === 0 && curly === 0) {
+      args.push(source.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+
+  args.push(source.slice(start).trim());
+  return args;
+}
+
+function decodeLiteralExpression(value, { allowDynamic = true } = {}) {
+  const literals = allLiterals(value, 64)
+    .map(raw => decodeStringPreserve(raw, { allowDynamic }))
+    .filter(part => part != null);
+  if (!literals.length) return null;
+  return literals.join('').trim();
+}
+
 function safeSlug(value) {
   return String(value || '')
     .replace(/\.js$/i, '')
@@ -323,26 +377,30 @@ function assignedEmbedModifiers(source, callStart, callEnd) {
   };
 }
 function helperCallDefinition(source, helper, callStart, callContent, callEnd) {
-  const literals = allLiterals(callContent, 8)
-    .map(value => decodeString(value, { allowDynamic: true }))
-    .filter(Boolean);
+  const args = splitTopLevelArguments(callContent);
+  const titleArg = decodeLiteralExpression(args[0], { allowDynamic: true });
+  const descriptionArg = decodeLiteralExpression(args[1], { allowDynamic: true });
 
   if (helper === 'buildUserErrorEmbed') {
-    if (literals.length < 3) return null;
+    const optionLiterals = allLiterals(args.slice(2).join(','), 16)
+      .map(value => decodeString(value, { allowDynamic: true }))
+      .filter(Boolean);
+    const titleOverride = optionLiterals.at(-1);
+    if (!descriptionArg || !titleOverride) return null;
     return {
-      title: literals.at(-1),
-      description: literals[1],
+      title: titleOverride,
+      description: descriptionArg,
       ...assignedEmbedModifiers(source, callStart, callEnd),
     };
   }
 
-  if (!literals[0]) return null;
+  if (!titleArg) return null;
   const fallback = helper === 'successEmbed' ? 'Success'
     : helper === 'infoEmbed' ? 'Information'
       : helper === 'warningEmbed' ? 'Warning' : 'Error';
   return {
-    title: literals.length > 1 ? literals[0] : fallback,
-    description: literals.length > 1 ? literals[1] : literals[0],
+    title: descriptionArg ? titleArg : fallback,
+    description: descriptionArg || titleArg,
     ...assignedEmbedModifiers(source, callStart, callEnd),
   };
 }
