@@ -1,4 +1,5 @@
 import { normalizeManualIndent } from '../utils/manualEmbedIndent.js';
+import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import {
     ActionRowBuilder,
     ButtonBuilder,
@@ -1270,7 +1271,9 @@ export async function saveModifiedEmbed(guild, state) {
 
     const message = cachedMessage || await channel.messages.fetch(target.messageId).catch(() => null);
     if (!message || message.author?.id !== guild.client.user?.id) return { ok: false, reason: 'message-missing' };
-    if (message.flags?.has?.(MessageFlags.Ephemeral) || message.interaction || message.interactionMetadata) {
+    // Public command responses are editable bot messages. Only temporary
+    // Builder panels and private responses must be excluded from Save.
+    if (message.flags?.has?.(MessageFlags.Ephemeral) || isBuilderSessionMessage(message)) {
         return { ok: false, reason: 'control-message' };
     }
 
