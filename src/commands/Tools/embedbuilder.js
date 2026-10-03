@@ -217,7 +217,9 @@ async function saveExistingEmbed(buttonInteraction, guild, state) {
     if (!saved.ok) {
         const failureMessage = saved.reason === 'embed-too-large'
             ? 'This embed is over Discord’s 6,000-character limit. Shorten the title, message, fields, or footer and try again.'
-            : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
+            : saved.reason === 'template-save-failed'
+                ? 'The embed was edited, but its reusable Builder template could not be saved. Try again before closing the Builder.'
+                : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
         const failure = await replaceSaveFeedback(buttonInteraction, feedbackMessage, {
             content: null,
             embeds: [new EmbedBuilder()
