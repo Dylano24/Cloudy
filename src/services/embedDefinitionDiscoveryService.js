@@ -248,7 +248,7 @@ function findTitlesOnLine(lines, index) {
   if (marker !== '.setTitle(' && !/^[\s]*[\'"`]/.test(sameLineExpression)) return [];
   const titleCall = marker === '.setTitle(' ? scanBalancedCall(line, markerIndex + marker.length - 1) : null;
   const candidates = allLiterals(titleCall?.content || sameLineExpression, marker === '.setTitle(' ? 8 : 1)
-    .map(raw => decodeString(raw, { allowDynamic: false }))
+    .map(raw => decodeString(raw, { allowDynamic: true }))
     .filter(Boolean)
     .filter(value => value.length <= 256);
 
@@ -256,7 +256,7 @@ function findTitlesOnLine(lines, index) {
 
   const combined = lines.slice(index, Math.min(lines.length, index + 8)).join('\n');
   const raw = literalFromText(combined.slice(combined.indexOf(marker) + marker.length));
-  const decoded = decodeString(raw, { allowDynamic: false });
+  const decoded = decodeString(raw, { allowDynamic: true });
   return decoded ? [decoded] : [];
 }
 

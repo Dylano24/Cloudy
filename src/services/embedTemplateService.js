@@ -19,6 +19,11 @@ function normalizeKey(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+export function isSharedRuntimeBodyTitle(value) {
+  return /^(?:success|failed|error|warning|information|invalid|expired|too fast|cooldown|on cooldown|please wait|slow down)$/i
+    .test(String(value || '').replace(/\s+/g, ' ').trim());
+}
+
 function templateKey(guildId, channelId) {
   return `${TEMPLATE_PREFIX}${guildId}:${channelId}`;
 }
@@ -250,7 +255,8 @@ async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, opt
 }
 
 export async function saveEmbedTemplateDecoration(guildId, channelId, matchNames = [], embedData = {}, options = {}) {
-  return saveTemplate(guildId, channelId, matchNames, embedData, options);
+  const scope = options.sharedScope === true ? GLOBAL_SCOPE : channelId;
+  return saveTemplate(guildId, scope, matchNames, embedData, options);
 }
 
 export async function saveGlobalEmbedTemplate(guildId, matchNames = [], embedData = {}, options = {}) {
@@ -381,8 +387,12 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
   const channelKey = templateKey(guildId, channelId);
   // Look up only the title aliases. Copying every saved template for each
   // registry row made a Builder list unnecessarily quadratic.
-  const scopes = [templateOverlays.get(channelKey), templateCache.get(channelKey),
-    templateOverlays.get(globalKey), templateCache.get(globalKey)];
+  const sharedRuntimeBody = isSharedRuntimeBodyTitle(embedData.title);
+  const scopes = sharedRuntimeBody
+    ? [templateOverlays.get(globalKey), templateCache.get(globalKey),
+      templateOverlays.get(channelKey), templateCache.get(channelKey)]
+    : [templateOverlays.get(channelKey), templateCache.get(channelKey),
+      templateOverlays.get(globalKey), templateCache.get(globalKey)];
   const aliasesToFind = aliasKeys(embedData.title);
   let template = null;
   for (const scope of scopes) {
@@ -397,7 +407,7 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
   // Older title-only Saves stored empty fields/footer alongside an omitted
   // description. They are incomplete snapshots, not a request to erase live data.
   const sparse = template.description === undefined;
-  const genericStatus = /^(?:success|failed|error|warning|information|invalid|expired|too fast|cooldown|on cooldown|please wait|slow down)$/i.test(String(embedData.title || '').trim());
+  const genericStatus = isSharedRuntimeBodyTitle(embedData.title);
   const decoration = { ...template };
   if ((sparse && !(template.schemaVersion >= 3)) || genericStatus) {
     delete decoration.description;

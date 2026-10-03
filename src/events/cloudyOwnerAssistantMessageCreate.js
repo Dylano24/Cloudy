@@ -7,13 +7,8 @@ import { hasCloudyOwnerRole } from '../services/ownerRoleAccess.js';
 import { logger } from '../utils/logger.js';
 import { aiErrorMessage } from '../services/aiSafety.js';
 
-const OWNER_ASSISTANT_CHANNEL_NAME = 'botlog-commands';
 const MAX_QUESTION_LENGTH = 3000;
 const EMBED_CHUNK_SIZE = 3900;
-
-function isOwnerAssistantChannel(message) {
-  return String(message.channel?.name || '').toLowerCase() === OWNER_ASSISTANT_CHANNEL_NAME;
-}
 
 function splitText(value, maxLength = EMBED_CHUNK_SIZE) {
   const text = String(value || '').trim();
@@ -56,15 +51,21 @@ function buildPacketEmbeds(message, result) {
   });
 }
 
+export function isOwnerAssistantRequest(message) {
+  return Boolean(
+    message?.guild
+    && !message.author?.bot
+    && !message.webhookId
+    && hasCloudyOwnerRole(message)
+    && /^!ai\s/.test(String(message.content || '')),
+  );
+}
+
 export default {
   name: Events.MessageCreate,
 
   async execute(message) {
-    if (!message.guild || message.author?.bot) return;
-    if (!isOwnerAssistantChannel(message)) return;
-    if (!hasCloudyOwnerRole(message)) return;
-
-    if (message.webhookId || !/^!ai\s/.test(String(message.content || ''))) return;
+    if (!isOwnerAssistantRequest(message)) return;
     const question = String(message.content || '').replace(/^!ai\s+/, '').trim();
     if (question.length < 3) return;
 
