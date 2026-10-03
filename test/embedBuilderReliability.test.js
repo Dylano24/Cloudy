@@ -20,6 +20,8 @@ import {
 import {
   buildEmbedPayload,
   buildChannelPayload,
+  discoverEmbedManagerOverviewRecords,
+  mergeEmbedManagerRecords,
   loadRecordSnapshotIntoState,
   openEmbedManager,
   prefersCatalogPreview,
@@ -856,6 +858,60 @@ test('background registry refresh stops as soon as manager interaction begins', 
   session.closed = false;
   state.activeEmbedManager = {};
   assert.equal(shouldApplyBackgroundRegistryRefresh(state, session), false);
+});
+
+test('embed manager overview live-hydrates channels before showing them as empty', async () => {
+  installTestStorage();
+  const guildId = '100000000000000099';
+  const channelId = '200000000000000099';
+  const messageId = '300000000000000099';
+  const liveMessage = {
+    id: messageId,
+    guildId,
+    channelId,
+    author: { id: 'cloudy-bot' },
+    embeds: [{ title: 'Already saved', description: 'This embed is live in Discord.' }],
+    components: [],
+    createdAt: new Date('2026-10-03T04:00:00.000Z'),
+    createdTimestamp: Date.parse('2026-10-03T04:00:00.000Z'),
+  };
+  const batch = new Map([[messageId, liveMessage]]);
+  batch.last = () => liveMessage;
+  const channel = {
+    id: channelId,
+    type: 0,
+    name: 'already-saved',
+    rawPosition: 1,
+    position: 1,
+    parent: null,
+    toString: () => `<#${channelId}>`,
+    messages: {
+      cache: new Map(),
+      fetch: async options => {
+        assert.deepEqual(options, { limit: 100 });
+        return batch;
+      },
+    },
+  };
+  const guild = {
+    id: guildId,
+    client: { user: { id: 'cloudy-bot' } },
+    members: { me: { id: 'cloudy-bot' } },
+    channels: {
+      cache: new Map([[channelId, channel]]),
+      fetch: async id => id === channelId ? channel : null,
+    },
+  };
+
+  const discovered = await discoverEmbedManagerOverviewRecords(guild, [], 'cloudy-bot');
+  const records = mergeEmbedManagerRecords([], discovered);
+  const payload = buildChannelPayload(guild, records);
+  const option = payload.components[0].toJSON().components[0].options[0];
+
+  assert.equal(discovered.length, 1);
+  assert.equal(option.label, '# already-saved');
+  assert.equal(option.description, 'Open the saved embed');
+  assert.doesNotMatch(option.description, /No saved embed/i);
 });
 
 test('embed manager navigation edits through the fresh component interaction', async () => {
