@@ -94,10 +94,6 @@ function shortLabel(value, fallback = 'Embed') {
     return (text || fallback).slice(0, 100);
 }
 
-function titleKey(value) {
-    return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
 function recordName(record) {
     return String(record?.name || record?.title || '').replace(/\s+/g, ' ').trim();
 }
@@ -140,6 +136,14 @@ function dynamicTemplateText(value) {
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase();
+}
+
+export function canonicalBuilderResponseTitle(value) {
+    return dynamicTemplateText(value)
+        .replace(/^[\s\p{Extended_Pictographic}\p{S}\p{P}]+/gu, '')
+        .replace(/[\s\p{Extended_Pictographic}\p{S}\p{P}]+$/gu, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 function recordEmbedData(record) {
@@ -199,7 +203,9 @@ function standardDynamicTemplateName(value) {
 export function templateIdentity(channelId, value) {
     const data = value && typeof value === 'object' ? value : { title: value };
     const stableKey = stableSystemTemplateKey(data);
-    if (stableKey) return stableKey;
+    // Old generic embed/source hashes are storage identities, not separate
+    // response types. Named/game/ticket keys stay authoritative.
+    if (stableKey && !/^(?:embed(?:-type)?|source):/i.test(stableKey)) return stableKey;
     const title = String(data.title || '');
     const rule = getTemplateRule(channelId, title);
     if (rule) return rule.key;
@@ -207,7 +213,7 @@ export function templateIdentity(channelId, value) {
     if (/^blackjack\s*[—-]\s*bet\b/i.test(title)) return 'game:blackjack:bet';
     if (/^baccarat\s*[—-]\s*bet\b/i.test(title)) return 'game:baccarat:bet';
 
-    const titleShape = dynamicTemplateText(title);
+    const titleShape = canonicalBuilderResponseTitle(title);
     // A visible title defines the Builder template. Descriptions contain live
     // appeal/ticket answers and must never create separate entries.
     if (titleShape) return titleShape;
@@ -332,7 +338,7 @@ function navigationRow(prefix, page, pageCount) {
     );
 }
 
-export function buildChannelPayload(guild, records, page = 0) {
+export function buildChannelPayload(guild, records, page = 0, checkingChannelIds = null) {
     const groups = buildChannelGroups(guild, records);
     const result = pageItems(groups, page);
     const components = [];
@@ -346,9 +352,12 @@ export function buildChannelPayload(guild, records, page = 0) {
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
                 const count = collapseDisplayRecords(group.records, group.channelId).length;
+                const checking = !count && checkingChannelIds?.has?.(String(group.channelId));
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(name))
-                    .setDescription(count ? 'Open the saved embed' : 'No saved embed yet')
+                    .setDescription(count
+                        ? 'Open the saved embed'
+                        : (checking ? 'Checking saved embeds…' : 'No saved embed yet'))
                     .setValue(group.channelId);
             }));
         components.push(new ActionRowBuilder().addComponents(select));
@@ -588,6 +597,18 @@ function channelHasVisibleManagerRecord(records, channelId) {
     return collapseDisplayRecords(relevant, channelId).length > 0;
 }
 
+export function embedManagerCheckingChannelIds(guild, records) {
+    return new Set(
+        [...(guild?.channels?.cache?.values?.() || [])]
+            .filter(channel =>
+                [0, 5].includes(channel?.type)
+                && channel?.messages?.fetch
+                && !channelHasVisibleManagerRecord(records, channel.id),
+            )
+            .map(channel => String(channel.id)),
+    );
+}
+
 export async function discoverEmbedManagerOverviewRecords(guild, records, botUserId) {
     if (!guild || !botUserId) return [];
 
@@ -670,21 +691,18 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             }
         }
 
-        // Hydrate channels that are missing from the registry with the same live
-        // Discord lookup used when a channel is clicked. This prevents the
-        // overview from saying "No saved embed yet" for an embed that is
-        // already present in Discord.
+        // Render immediately from the local registry. Empty rows are explicitly
+        // marked as "Checking" rather than falsely claiming there is no saved
+        // embed. Discord lookups run in the background and fill those rows in.
         const storedRecords = await getEmbedRegistry(guild.id);
-        let liveOverviewRecords = await discoverEmbedManagerOverviewRecords(
-            guild,
-            storedRecords,
-            buttonInteraction.client.user.id,
-        );
-        let records = mergeEmbedManagerRecords(storedRecords, liveOverviewRecords);
+        let liveOverviewRecords = [];
+        let records = [...storedRecords];
+        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = guild.channels.cache.size
+            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+            : buildEmptyManagerPayload();
         const managerMessage = await buttonInteraction.followUp({
-            ...(records.length
-                ? buildChannelPayload(guild, records, 0)
-                : buildEmptyManagerPayload()),
+            ...initialPayload,
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
         }).catch(() => null);
@@ -707,21 +725,38 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         });
         session.collector = collector;
 
-        void loadCurrentRegistry(guild, buttonInteraction.client.user.id)
-            .then(async refreshedRecords => {
-                if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
-                records = mergeEmbedManagerRecords(refreshedRecords, liveOverviewRecords);
+        void Promise.all([
+            discoverEmbedManagerOverviewRecords(
+                guild,
+                storedRecords,
+                buttonInteraction.client.user.id,
+            ).catch(error => {
+                logger.error('Embed manager live overview discovery failed:', error);
+                return [];
+            }),
+            loadCurrentRegistry(guild, buttonInteraction.client.user.id)
+                .catch(error => {
+                    logger.error('Embed manager registry refresh failed:', error);
+                    return storedRecords;
+                }),
+        ]).then(async ([discoveredRecords, refreshedRecords]) => {
+            liveOverviewRecords = discoveredRecords;
+            if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
 
-                const payload = records.length
-                    ? buildChannelPayload(guild, records, 0)
-                    : buildEmptyManagerPayload();
-                await buttonInteraction.webhook.editMessage(managerMessage.id, payload).catch(error => {
-                    if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
-                        logger.error('Failed to refresh the embed manager registry:', error);
-                    }
-                });
-            })
-            .catch(error => logger.error('Embed manager registry refresh failed:', error));
+            records = mergeEmbedManagerRecords(
+                mergeEmbedManagerRecords(refreshedRecords, storedRecords),
+                liveOverviewRecords,
+            );
+
+            await buttonInteraction.webhook.editMessage(
+                managerMessage.id,
+                buildChannelPayload(guild, records, 0),
+            ).catch(error => {
+                if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+                    logger.error('Failed to refresh the embed manager registry:', error);
+                }
+            });
+        });
 
         collector.on('collect', async interaction => {
             session.hasInteracted = true;
