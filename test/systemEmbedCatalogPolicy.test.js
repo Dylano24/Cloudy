@@ -58,6 +58,33 @@ test('roulette and baccarat keep only their real reusable states', () => {
   assert.equal(getSystemEmbedTemplateKey('embed', 'Baccarat — Res', '', 'gambling/baccarat'), '');
 });
 
+test('generic response templates collapse cosmetic title variants into one command-scoped type', () => {
+  const context = 'gambling/crime';
+  const full = getSystemEmbedTemplateKey(
+    'embed',
+    '🚔 Crime Failed!',
+    'You were caught while attempting Cybercrime and have been sent to jail! You were fined 2,500 coins and will be in jail for 2 hours.',
+    context,
+  );
+  const source = getSystemEmbedTemplateKey(
+    'embed',
+    'Crime failed',
+    'You were caught while attempting {dynamic} and have been sent to jail!',
+    context,
+  );
+
+  assert.equal(full, source);
+  assert.match(full, /^embed-type:/);
+  assert.notEqual(
+    full,
+    getSystemEmbedTemplateKey('embed', 'Crime Successful!', 'Success', context),
+  );
+  assert.notEqual(
+    full,
+    getSystemEmbedTemplateKey('embed', 'Crime failed', 'Same title', 'gambling/rob'),
+  );
+});
+
 test('a saved source embed title remains authoritative for the live dynamic response', () => {
   const context = 'gambling/rob-source-alias-test';
   const sourceTitle = 'Robbery Failed';
