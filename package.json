@@ -78,6 +78,7 @@
     "scripts/patch-balance-retired-command.js",
     "scripts/patch-balance-source-identity.js",
     "scripts/patch-ticket-report-lifecycle.js",
-    "scripts/patch-zorp-builder-registration.js"
+    "scripts/patch-zorp-builder-registration.js",
+    "scripts/patch-embed-layout-preview.js"
   ]
 }
