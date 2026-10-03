@@ -2,7 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
-import { buildGamblingGuideDescription } from '../config/gamblingCommands.js';
+import { buildGamblingGuideDescription, removeRetiredGamblingGuideCommand } from '../config/gamblingCommands.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { createStickyGuideManager } from './stickyGuideService.js';
 import { findDedicatedChannelBySlug as findBySlug, rememberDedicatedCommandChannel } from './dedicatedChannelPolicy.js';
@@ -135,12 +135,18 @@ const gamblingGuideManager = createStickyGuideManager({
   isGuide: isGamblingGuide,
   onError: error => logger.warn(`Gambling guide refresh failed: ${error.message}`),
   everyNMessages: 5,
+  async prepareExisting(message) {
+    const original = message.embeds.map(embed => embed.toJSON());
+    const embeds = original.map(removeRetiredGamblingGuideCommand);
+    if (JSON.stringify(embeds) === JSON.stringify(original)) return message;
+    return message.edit({ embeds });
+  },
   async buildPayload(channel, existing) {
     if (existing?.embeds?.length) {
       // Preserve Embed Builder styling and custom text. Only migrate the previous
       // default four-command description to the complete Gambling & Games list.
       const embeds = existing.embeds.map(embed => {
-        const data = embed.toJSON();
+        const data = removeRetiredGamblingGuideCommand(embed.toJSON());
         if (String(data.title || '').toLowerCase() === 'gambling & games'
           && isOutdatedGamblingGuideDescription(data.description)) {
           data.description = GAMBLING_GUIDE_DESCRIPTION;
