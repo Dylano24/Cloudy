@@ -165,12 +165,20 @@ function bestBuilderSourceRecord(records, fallback = null) {
       );
     }
 
-    text = replaceOnce(
-      text,
-      '    const titleShape = dynamicTemplateText(title);',
-      "    const titleShape = isTechnicalBuilderLabel(title) ? '' : dynamicTemplateText(title);",
-      'ignore technical titles for identity',
-    );
+    if (text.includes('    const titleShape = dynamicTemplateText(title);')) {
+      text = text.replace(
+        '    const titleShape = dynamicTemplateText(title);',
+        "    const titleShape = isTechnicalBuilderLabel(title) ? '' : dynamicTemplateText(title);",
+      );
+    } else if (text.includes('    const titleShape = canonicalBuilderResponseTitle(title);')) {
+      text = text.replace(
+        '    const titleShape = canonicalBuilderResponseTitle(title);',
+        "    const titleShape = isTechnicalBuilderLabel(title) ? '' : canonicalBuilderResponseTitle(title);",
+      );
+    } else if (!text.includes("const titleShape = isTechnicalBuilderLabel(title) ? '' : canonicalBuilderResponseTitle(title);")
+      && !text.includes("const titleShape = isTechnicalBuilderLabel(title) ? '' : dynamicTemplateText(title);")) {
+      throw new Error('[BUILDER_HUMAN_PREVIEW] marker not found: ignore technical titles for identity');
+    }
 
     if (text.includes('standardDynamicTemplateName(rawName)')) {
       text = text.replaceAll('standardDynamicTemplateName(rawName)', 'humanTemplateRecordName(record)');
