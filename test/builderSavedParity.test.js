@@ -443,6 +443,19 @@ test('one Too fast Save styles every activity channel but never freezes its live
   const begChannelId = 'shared-too-fast-beg';
   const workChannelId = 'shared-too-fast-work';
 
+  // Simulate an old per-channel Too fast save from before this response family
+  // became shared. The new shared master must win over this stale copy.
+  await saveEmbedTemplateDecoration(
+    sharedGuildId,
+    begChannelId,
+    ['Too fast'],
+    {
+      title: 'Old channel cooldown',
+      description: 'Old frozen body',
+      color: 0x654321,
+    },
+  );
+
   const saved = await saveEmbedTemplateDecoration(
     sharedGuildId,
     crimeChannelId,
