@@ -139,7 +139,7 @@ function resolveEmbedSourceAlias(context, title) {
         '    if (stableKey) return stableKey;',
         `    // Generic embed/source hashes are historical storage identities, not separate
     // visible Builder types. Named/game/ticket keys remain authoritative.
-    if (stableKey && !/^(?:embed|source):/i.test(stableKey)) return stableKey;`,
+    if (stableKey && !/^(?:embed(?:-type)?|source):/i.test(stableKey)) return stableKey;`,
       );
     } else if (!text.includes("if (stableKey && !/^(?:embed|source):/i.test(stableKey)) return stableKey;")) {
       throw new Error('[RESPONSE_EMBED_SOURCE_ALIAS] generic source display identity marker not found');
@@ -157,7 +157,7 @@ function resolveEmbedSourceAlias(context, title) {
             ? []
             : group.records.filter(record =>
                 record.source === 'system-catalog'
-                && stableSystemTemplateKey(recordEmbedData(record)).startsWith('embed:')
+                && /^(?:embed|embed-type):/i.test(stableSystemTemplateKey(recordEmbedData(record)))
             );
         // The hidden catalog master is the Save target for a reusable response
         // type. A real runtime message is preview data only. This prevents
