@@ -24,8 +24,13 @@ function componentIds(components = []) {
   });
 }
 
-export function isOrphanedEmbedBuilderMessage(message, botUserId) {
+export function isOrphanedEmbedBuilderMessage(message, botUserId, olderThan = Number.POSITIVE_INFINITY) {
   if (!message?.id || String(message.author?.id || '') !== String(botUserId || '')) return false;
+  if (Number.isFinite(olderThan)
+      && Number.isFinite(Number(message.createdTimestamp))
+      && Number(message.createdTimestamp) >= olderThan) {
+    return false;
+  }
 
   const titles = (message.embeds || [])
     .map(embed => String((embed?.toJSON?.() || embed || {}).title || '').trim().toLowerCase());
@@ -45,13 +50,12 @@ function readableTextChannels(guild) {
       && channel.permissionsFor(me)?.has([
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.ReadMessageHistory,
-        PermissionFlagsBits.ManageMessages,
       ]),
     )
     .sort((a, b) => a.position - b.position);
 }
 
-export async function removeOrphanedEmbedBuilders(guild, botUserId) {
+export async function removeOrphanedEmbedBuilders(guild, botUserId, olderThan = Number.POSITIVE_INFINITY) {
   let scanned = 0;
   let removed = 0;
 
@@ -64,7 +68,7 @@ export async function removeOrphanedEmbedBuilders(guild, botUserId) {
 
       scanned += batch.size;
       const stale = [...batch.values()].filter(message =>
-        isOrphanedEmbedBuilderMessage(message, botUserId),
+        isOrphanedEmbedBuilderMessage(message, botUserId, olderThan),
       );
 
       for (const message of stale) {
@@ -89,13 +93,17 @@ export default {
   once: true,
 
   execute(client) {
+    // Anything created after this process became ready belongs to the current
+    // process and must never be considered an orphan by this startup sweep.
+    const orphanCutoff = Date.now();
+
     const timer = setTimeout(async () => {
       try {
         let scanned = 0;
         let removed = 0;
 
         for (const guild of client.guilds.cache.values()) {
-          const result = await removeOrphanedEmbedBuilders(guild, client.user.id);
+          const result = await removeOrphanedEmbedBuilders(guild, client.user.id, orphanCutoff);
           scanned += result.scanned;
           removed += result.removed;
         }
