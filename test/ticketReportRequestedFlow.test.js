@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Collection, ChannelType, EmbedBuilder, PermissionsBitField, PermissionFlagsBits } from 'discord.js';
 import { db, getTicketData, saveTicketData } from '../src/utils/database.js';
 import buttons from '../src/interactions/buttons/ticket/ticketUiOverrides.js';
+import { reopenTicketHandler as legacyReopenTicketHandler } from '../src/handlers/ticketButtons.js';
 import modals from '../src/interactions/modals/ticket/createTicketUi.js';
 import { getTicketPermissionContext } from '../src/utils/ticket/ticketPermissions.js';
 import { ticketActorPermissions } from '../src/services/ticketActionPolicy.js';
@@ -65,24 +66,36 @@ function fixture(status = 'open', actor = 'creator') {
     deletedReplies: () => deletedReplies, values };
 }
 
-test('real ticket context allows creator close/reopen and reserves management for staff', async () => {
+test('real ticket context allows creator close but reserves reopening and management for staff', async () => {
   for (const actor of ['creator', 'staff', 'stranger']) {
     const f = fixture('closed', actor); await f.initialize();
     const p = await getTicketPermissionContext({ client: f.client, interaction: f.interaction });
-    assert.equal(p.canCloseTicket, actor !== 'stranger'); assert.equal(p.canReopenTicket, actor !== 'stranger');
+    assert.equal(p.canCloseTicket, actor !== 'stranger'); assert.equal(p.canReopenTicket, actor === 'staff');
     assert.equal(p.canManageTicket, actor === 'staff');
   }
   assert.equal(ticketActorPermissions({ member: { permissions: new PermissionsBitField(PermissionFlagsBits.ManageChannels) },
     userId: 'member', ownerId: 'owner', creatorId: 'someone' }).canManageTicket, false);
 });
-test('creator reopens through actual handler without a private duplicate', async t => {
+test('staff reopens through actual handler without a private duplicate', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const f = fixture('closed'); await f.initialize();
+  const f = fixture('closed', 'staff'); await f.initialize();
   await buttons.find(b => b.name === 'ticket_reopen').execute(f.interaction, f.client);
   assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'open');
   assert.equal(f.deletedReplies(), 1); assert.equal(f.replies.length, 0);
   assert.equal(f.payloads.filter(p => p.embeds?.some(e => (e.toJSON?.() || e).title === 'Ticket reopened')).length, 1);
   assert.ok(f.permissions.some(p => p.value.ViewChannel && p.value.SendMessages));
+});
+test('both current and legacy reopen buttons deny non-staff, including the ticket creator', async () => {
+  for (const handlers of [buttons, [legacyReopenTicketHandler]]) {
+    for (const actor of ['creator', 'stranger']) {
+      const f = fixture('closed', actor); await f.initialize();
+      await handlers.find(b => b.name === 'ticket_reopen').execute(f.interaction, f.client);
+      assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'closed');
+      assert.equal(f.payloads.length, 0);
+      assert.equal(f.permissions.length, 0);
+      assert.ok(f.replies.some(p => JSON.stringify(p).includes('Only the staff team can reopen tickets.')));
+    }
+  }
 });
 test('creator cannot delete, claim or pin through actual handlers', async () => {
   for (const name of ['ticket_delete', 'ticket_claim', 'ticket_pin']) {
