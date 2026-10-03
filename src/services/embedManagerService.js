@@ -1355,7 +1355,7 @@ export async function saveModifiedEmbed(guild, state) {
         );
         if (!templateSaved) {
             logger.error('Failed to persist saved embed template before confirming Builder Save.');
-            return { ok: false, reason: 'template-save-failed' };
+            return { ok: false, reason: 'persistence-failed' };
         }
 
         if (target.source === 'system-catalog') {
