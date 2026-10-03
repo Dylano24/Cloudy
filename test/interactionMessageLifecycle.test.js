@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { MessageFlags } from 'discord.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import {
@@ -217,4 +218,34 @@ test('expired dashboard callbacks cannot recreate a deleted dashboard as a follo
   assert.equal(await InteractionHelper.safeEditReply(interaction, { content: 'stale timeout' }), false);
   assert.equal(edits, 0);
   assert.equal(followUps, 0);
+});
+
+
+test('Embed Builder post channel picker is exempt from 10-second cleanup until a successful post', () => {
+  const picker = {
+    id: 'post-channel-picker',
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+    embeds: [{ title: 'Post message', description: 'Select the channel where the message should be posted.' }],
+    components: [{ components: [{ customId: 'simple_embed_post_channel:0:0' }] }],
+  };
+  assert.equal(shouldUseTransientTimer(null, picker), false);
+
+  const source = fs.readFileSync(new URL('../src/commands/Tools/embedbuilder.js', import.meta.url), 'utf8');
+  const start = source.indexOf('async function postMessage(');
+  const end = source.indexOf('\nexport default', start);
+  assert.ok(start >= 0 && end > start);
+  const postMessageSource = source.slice(start, end);
+
+  assert.doesNotMatch(
+    postMessageSource,
+    /removeTransientMessage\(buttonInteraction,\s*channelPickerMessage\)/,
+  );
+  assert.doesNotMatch(
+    postMessageSource,
+    /createMessageComponentCollector\([\s\S]*?time:\s*60_000/,
+  );
+  assert.match(
+    postMessageSource,
+    /collector\.stop\('posted'\);[\s\S]*?deleteMessage\(channelPickerMessage\.id\)/,
+  );
 });
