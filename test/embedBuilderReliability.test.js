@@ -26,6 +26,7 @@ import {
   mergeEmbedManagerRecords,
   loadRecordSnapshotIntoState,
   openEmbedManager,
+  prepareEmbedManager,
   prefersCatalogPreview,
   shouldApplyBackgroundRegistryRefresh,
   templateIdentity,
@@ -139,7 +140,7 @@ test('generic Builder response identity ignores cosmetic emoji/case/punctuation 
   assert.equal(templateIdentity(channelId, catalog), templateIdentity(channelId, runtime));
 });
 
-test('empty registry channels render as checking instead of falsely unsaved', () => {
+test('unchecked channels offer opening embeds immediately without a loading label', () => {
   const guildId = '100000000000000778';
   const channelId = '200000000000000778';
   const guild = buildGuild({ guildId, channelId, messages: new Map() });
@@ -148,8 +149,41 @@ test('empty registry channels render as checking instead of falsely unsaved', ()
   const payload = buildChannelPayload(guild, [], 0, checking);
   const option = payload.components[0].toJSON().components[0].options[0];
 
-  assert.equal(option.description, 'Checking saved embeds…');
+  assert.equal(option.description, 'Open the embeds in this channel');
   assert.doesNotMatch(option.description, /No saved embed/i);
+});
+
+test('channel browser preloads once per Builder and consumes the snapshot on open', async () => {
+  installTestStorage();
+  const guildId = '100000000000000779';
+  const channelId = '200000000000000779';
+  const guild = buildGuild({ guildId, channelId, messages: new Map() });
+  guild.channels.cache.get(channelId).type = 0;
+  const state = {};
+  prepareEmbedManager(guild, state);
+  const pending = state.embedManagerPrepared;
+  prepareEmbedManager(guild, state);
+  assert.equal(state.embedManagerPrepared, pending);
+  await pending;
+  const originalGet = db.db.get;
+  const reads = [];
+  db.db.get = async key => { reads.push(key); return originalGet(key); };
+  let firstPaintReads;
+  const collector = new FakeCollector();
+  await openEmbedManager({
+    guild, client: guild.client, user: { id: 'owner-user' },
+    deferUpdate: async () => {},
+    followUp: async payload => {
+      firstPaintReads = [...reads];
+      assert.equal(payload.components[0].toJSON().components[0].options[0].description, 'Open the embeds in this channel');
+      return { id: 'preloaded-manager', createMessageComponentCollector: () => collector };
+    },
+    webhook: { editMessage: async () => {}, deleteMessage: async () => {} },
+  }, state, async () => true);
+  assert.deepEqual(firstPaintReads, [], 'first paint must not wait for another database read');
+  assert.equal(state.embedManagerPrepared, undefined, 'later opens must fetch fresh records');
+  collector.stop('test-complete');
+  Object.assign(db.db, { get: originalGet });
 });
 
 test('renaming a catalog embed keeps its stable game template identity', () => {
