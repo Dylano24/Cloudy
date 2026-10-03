@@ -100,5 +100,11 @@ test('source discovery indexes the dynamic Balance title without a real Discord 
     balance.description,
     'Here is the current financial status for {dynamic}.',
   );
+  assert.equal(balance.fields?.length, 3);
+  assert.deepEqual(
+    balance.fields.map(field => field.name),
+    ['💵 Cash', '🏦 Bank', '💰 Total'],
+  );
+  assert.match(balance.footer?.text || '', /^Requested by \{dynamic\}$/);
   assert.doesNotMatch(balance.title, /feelfate|mindzset|dylano/i);
 });
