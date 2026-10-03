@@ -89,3 +89,13 @@ test('a one-line embed does not register its description and field labels as tit
   const entries = extractDefinitions("new EmbedBuilder().setTitle('Real title').setDescription('Body text');", 'commands/Tools/example.js');
   assert.deepEqual(entries.filter(item => item.kind === 'embed').map(item => item.title), ['Real title']);
 });
+
+
+test('dynamic setTitle source definitions use a reusable placeholder instead of a Discord username', () => {
+  const source = "new EmbedBuilder().setTitle(\`\${targetUser.username}'s Balance\`).setDescription(\`Here is the current financial status for \${targetUser.username}.\`);";
+  const entries = extractDefinitions(source, 'commands/Economy/balance.js')
+    .filter(item => item.kind === 'embed');
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].title, "{dynamic}'s Balance");
+  assert.equal(entries[0].description, 'Here is the current financial status for {dynamic}.');
+});
