@@ -2,15 +2,37 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeManualIndent } from '../src/utils/manualEmbedIndent.js';
 
-test('long standard bullet stays byte-for-byte unchanged', () => {
-  const input = '• If a player switches teams, their existing ZORP zone will be removed to prevent abuse.';
-  assert.equal(normalizeManualIndent(input), input);
+const BLANK = '\u2800';
+
+test('ZORP custom glowing-dot continuations align with three preserved blanks', () => {
+  const emoji = '<:W87205667glowingdotwhite:1543291335036108830>';
+  const input = [
+    `${emoji} The timer is automatically reset while the team is online.`,
+    `${emoji} A team cannot create a ZORP zone that overlaps with another team’s zone.`,
+    `${emoji} If a player switches teams, their existing ZORP zone will be removed to prevent abuse.`,
+    `${emoji} Select \`Good Bye\` to confirm the removal.`,
+  ].join('\n');
+
+  const output = normalizeManualIndent(input).split('\n');
+  assert.deepEqual(output, [
+    `${emoji} The timer is automatically reset while`,
+    `${BLANK.repeat(3)}the team is online.`,
+    `${emoji} A team cannot create a ZORP zone that`,
+    `${BLANK.repeat(3)}overlaps with another team’s zone.`,
+    `${emoji} If a player switches teams, their`,
+    `${BLANK.repeat(3)}existing ZORP zone will be removed to`,
+    `${BLANK.repeat(3)}prevent abuse.`,
+    `${emoji} Select \`Good Bye\` to confirm the`,
+    `${BLANK.repeat(3)}removal.`,
+  ]);
 });
 
-test('long custom emoji bullet stays byte-for-byte unchanged', () => {
-  const emoji = '<:W8733476glowingdotred:123456789012345678>';
+test('custom emoji markup is preserved byte-for-byte', () => {
+  const emoji = '<a:W8733476glowingdotred:123456789012345678>';
   const input = `${emoji} The timer is automatically reset while the team is online and remains protected.`;
-  assert.equal(normalizeManualIndent(input), input);
+  const output = normalizeManualIndent(input);
+  assert.equal(output.split('\n')[0].startsWith(`${emoji} `), true);
+  assert.equal(output.includes(emoji), true);
 });
 
 test('short bullet and normal prose stay unchanged', () => {
