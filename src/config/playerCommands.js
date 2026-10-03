@@ -10,7 +10,6 @@ const PLAYER_COMMAND_NAMES = [
   'pay',
   'rob',
   'shop',
-  'slut',
   'withdraw',
   'work',
   'leaderboard',
