@@ -8,7 +8,12 @@ import { collapseDisplayRecords, loadRecordSnapshotIntoState, saveModifiedEmbed 
 import { buildBuilderEmbeds } from '../src/commands/Tools/embedbuilder.js';
 import { buildEconomyLeaderboardEmbed } from '../src/commands/Economy/eleaderboard.js';
 import { hydrateBuilderPreviewRecord, rememberBuilderRuntimePreview } from '../src/services/builderRuntimePreviewService.js';
-import { primeSystemSourceDefinitionPreview } from '../src/services/systemEmbedCatalogService.js';
+import {
+  applyRuntimeEmbedTemplateData,
+  getSystemEmbedTemplateKey,
+  primeSystemEmbedTemplateData,
+  primeSystemSourceDefinitionPreview,
+} from '../src/services/systemEmbedCatalogService.js';
 import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 const values = new Map();
@@ -235,4 +240,104 @@ test('a second Save updates the original template alias and keeps dynamic values
   ).data;
   assert.equal(future.title, 'Second saved title');
   assert.equal(future.description, 'You successfully paid another-user the amount of $500!');
+});
+
+
+test('member-specific Balance titles share one reusable response identity and runtime preview', async () => {
+  const dynamicGuildId = 'dynamic-balance-guild';
+  const dynamicChannelId = 'dynamic-balance-channel';
+  const firstKey = getSystemEmbedTemplateKey(
+    'embed',
+    "feelfate's Balance",
+    'Here is the current financial status for feelfate.',
+    'gambling/balance',
+  );
+  const secondKey = getSystemEmbedTemplateKey(
+    'embed',
+    "anotheruser's Balance",
+    'Here is the current financial status for anotheruser.',
+    'gambling/balance',
+  );
+  assert.equal(firstKey, secondKey);
+
+  const payload = {
+    embeds: [{
+      title: "feelfate's Balance",
+      description: 'Here is the current financial status for feelfate.',
+      fields: [{ name: 'Cash', value: '$100', inline: true }],
+    }],
+  };
+  await rememberBuilderRuntimePreview(payload, { guildId: dynamicGuildId, channelId: dynamicChannelId });
+
+  const preview = await hydrateBuilderPreviewRecord(
+    { id: dynamicGuildId },
+    {
+      guildId: dynamicGuildId,
+      channelId: dynamicChannelId,
+      messageId: 'dynamic-balance-template',
+      embedIndex: 0,
+      source: 'system-catalog',
+      title: "{dynamic}'s Balance",
+      name: "{dynamic}'s Balance",
+      snapshot: { title: "{dynamic}'s Balance" },
+    },
+    null,
+    'owner',
+  );
+  assert.equal(preview.snapshot.title, "feelfate's Balance");
+  assert.equal(preview.snapshot.description, payload.embeds[0].description);
+});
+
+test('cooldown families keep command-owned text while saved title and color stay shared', async () => {
+  const cooldownGuildId = 'cooldown-family-guild';
+  const cooldownChannelId = 'cooldown-family-channel';
+
+  const catalogKey = getSystemEmbedTemplateKey(
+    'embed',
+    'Too fast',
+    "You're doing that too quickly. Wait a moment and try again.",
+    'gambling/crime',
+  );
+  primeSystemEmbedTemplateData(catalogKey, 'gambling/crime', {
+    title: 'Too fast',
+    description: "You're doing that too quickly. Wait a moment and try again.",
+    color: 0xFEE75C,
+  });
+
+  const crimeRuntime = applyRuntimeEmbedTemplateData({
+    title: 'Too fast',
+    description: "You're in jail for 95 more minutes!",
+    color: 0x7A1712,
+  }, { commandName: 'crime' });
+  assert.equal(crimeRuntime.description, "You're in jail for 95 more minutes!");
+
+  await saveEmbedTemplateDecoration(
+    cooldownGuildId,
+    cooldownChannelId,
+    ['Too fast'],
+    {
+      title: 'Cooldown',
+      description: "You're in jail for 95 more minutes!",
+      color: 0x123456,
+    },
+  );
+
+  const styled = await applySavedResponsePayloadTemplates({
+    embeds: [{
+      title: 'Too fast',
+      description: "You're tired from begging! Try again in 28 minute(s).",
+      color: 0xFEE75C,
+    }],
+  }, {
+    guildId: cooldownGuildId,
+    channelId: cooldownChannelId,
+    commandName: 'beg',
+  });
+
+  assert.equal(styled.embeds[0].title, 'Cooldown');
+  assert.equal(styled.embeds[0].color, 0x123456);
+  assert.equal(
+    styled.embeds[0].description,
+    "You're tired from begging! Try again in 28 minute(s).",
+  );
 });
