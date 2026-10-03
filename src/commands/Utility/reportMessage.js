@@ -15,7 +15,7 @@ import { logger } from '../../utils/logger.js';
 
 const REPORT_MODAL_TIMEOUT_MS = 14 * 60_000;
 
-function reportEvidence(message) {
+export function reportEvidence(message) {
   const parts = [
     `Message: [Open reported message](${message.url})`,
     `Channel: ${message.channel}`,
@@ -30,7 +30,10 @@ function reportEvidence(message) {
   }
 
   if (message.attachments?.size) {
-    parts.push(`Attachments: ${message.attachments.size}`);
+    const attachmentLinks = [...message.attachments.values()]
+      .slice(0, 4)
+      .map((attachment, index) => `Attachment ${index + 1}: ${attachment.url}`);
+    parts.push(...attachmentLinks);
   }
 
   return parts.join('\n').slice(0, 1024);
@@ -78,18 +81,10 @@ export default {
     await InteractionHelper.safeDefer(submitted, { flags: MessageFlags.Ephemeral });
     const reason = submitted.fields.getTextInputValue('reason').trim();
 
-    const attachments = [...message.attachments.values()]
-      .slice(0, 10)
-      .map(attachment => ({
-        attachment: attachment.url,
-        name: attachment.name || 'reported-attachment',
-      }));
-
-    await logEvent({
+    const logged = await logEvent({
       client,
       guildId: interaction.guildId,
       eventType: EVENT_TYPES.REPORT_FILE,
-      attachments,
       data: {
         title: 'New report',
         blockFields: [
@@ -115,9 +110,13 @@ export default {
           },
         ],
         author: await resolveUserAuthor(client, message.author.id),
-        thumbnail: message.author.displayAvatarURL({ size: 256 }),
+        thumbnail: message.author.displayAvatarURL?.({ size: 256 }) || null,
       },
     });
+
+    if (!logged) {
+      throw new Error('Cloudy report could not be delivered to the reports channel.');
+    }
 
     await InteractionHelper.safeEditReply(submitted, {
       embeds: [createEmbed({
