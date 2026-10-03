@@ -1,36 +1,13 @@
-// Only called while preparing an explicit Embed Builder Save. Existing
-// published embeds are never migrated by this helper.
-const HAIR = '\u2063\u200A';
+// Embed Builder saves preserve editor text byte-for-byte by default.
+// ZORP is the one explicit exception: custom glowing-dot lines use the
+// previously calibrated Discord hanging indent so wrapped text stays aligned.
 const HANG = '\u2800\u2800\u2800';
-const BULLET_WRAP_COLUMNS = 38;
+const ZORP_WRAP_COLUMNS = 38;
 
-function normalizeLeadingIndent(line) {
-  return line.replace(/^(?:\u2063[\u2002\u2009\u200A]|[ \t\u00a0\u2002\u2009\u200A\u2800])+/, indent =>
-    indent.replace(/\u2063[\u2002\u2009\u200A]|[ \u00a0\u2002\u2009\u200A\u2800]|\t/g,
-      token => HAIR.repeat(token === '\t' ? 4 : 1)),
-  );
-}
-
-function bulletParts(line) {
-  const standard = line.match(/^(\s*)([•◦▪▫‣⁃●○])\s+(.*)$/u);
-  if (standard) return { indent: standard[1], marker: standard[2], body: standard[3], custom: false };
-
-  const custom = line.match(/^(\s*)(<a?:([^:>]+):\d+>)\s+(.*)$/u);
-  if (custom && /(?:glowing)?dot|bullet/i.test(custom[3])) {
-    return { indent: custom[1], marker: custom[2], body: custom[4], custom: true };
-  }
-
-  return null;
-}
-
-function stripContinuationIndent(line) {
-  return String(line || '').replace(/^(?:\u2063[\u2002\u2009\u200A]|[ \t\u00a0\u2002\u2009\u200A\u2800])+/, '').trim();
-}
-
-function isContinuationLine(line) {
-  if (!line || !String(line).trim()) return false;
-  if (bulletParts(line)) return false;
-  return /^(?:\u2063[\u2002\u2009\u200A]|[ \t\u00a0\u2002\u2009\u200A\u2800])+/u.test(String(line));
+function customDotParts(line) {
+  const match = String(line || '').match(/^(\s*)(<a?:([^:>]+):\d+>)\s+(.*)$/u);
+  if (!match || !/(?:glowing)?dot|bullet/i.test(match[3])) return null;
+  return { indent: match[1], marker: match[2], body: match[4] };
 }
 
 function wrapWords(text, columns) {
@@ -43,35 +20,28 @@ function wrapWords(text, columns) {
     if (current && candidate.length > columns) {
       lines.push(current);
       current = word;
-    } else current = candidate;
+    } else {
+      current = candidate;
+    }
   }
   if (current) lines.push(current);
   return lines;
 }
 
-function renderBullet(parts, continuationBodies = []) {
-  const normalizedPrefix = normalizeLeadingIndent(parts.indent);
-  const fullBody = [parts.body, ...continuationBodies]
-    .map(part => String(part || '').trim())
-    .filter(Boolean)
-    .join(' ');
-  const wrapped = wrapWords(fullBody, BULLET_WRAP_COLUMNS);
-  if (wrapped.length <= 1) return [`${normalizedPrefix}${parts.marker} ${wrapped[0]}`];
-
-  // Discord preserves braille blanks at line starts consistently. Three blanks
-  // align continuation text with the first body character after a custom
-  // glowing-dot emoji while keeping the emoji markup byte-for-byte unchanged.
-  const continuation = normalizedPrefix + (parts.custom ? HANG : '\u2800');
-  return [
-    `${normalizedPrefix}${parts.marker} ${wrapped[0]}`,
-    ...wrapped.slice(1).map(text => `${continuation}${text}`),
-  ];
+function stripZorpContinuation(line) {
+  return String(line || '').startsWith(HANG)
+    ? String(line).slice(HANG.length).trim()
+    : null;
 }
 
-export function normalizeManualIndent(value) {
-  let fence = null;
-  const source = String(value ?? '').split('\n');
+export function normalizeManualIndent(value, { zorp = false } = {}) {
+  const original = String(value ?? '');
+  if (!zorp) return original;
+
+  const source = original.split('\n');
   const output = [];
+  let fence = null;
+
   for (let index = 0; index < source.length; index += 1) {
     const line = source[index];
     const fenceMarker = line.match(/^\s*(`{3,}|~{3,})/);
@@ -81,19 +51,36 @@ export function normalizeManualIndent(value) {
       output.push(line);
       continue;
     }
-    if (fence) { output.push(line); continue; }
+    if (fence) {
+      output.push(line);
+      continue;
+    }
 
-    const parts = bulletParts(line);
-    if (!parts) { output.push(normalizeLeadingIndent(line)); continue; }
+    const parts = customDotParts(line);
+    if (!parts) {
+      output.push(line);
+      continue;
+    }
 
     const continuationBodies = [];
     let cursor = index + 1;
-    while (cursor < source.length && isContinuationLine(source[cursor])) {
-      continuationBodies.push(stripContinuationIndent(source[cursor]));
+    while (cursor < source.length) {
+      const continuation = stripZorpContinuation(source[cursor]);
+      if (continuation === null) break;
+      continuationBodies.push(continuation);
       cursor += 1;
     }
-    output.push(...renderBullet(parts, continuationBodies));
+
+    const fullBody = [parts.body, ...continuationBodies]
+      .map(part => String(part || '').trim())
+      .filter(Boolean)
+      .join(' ');
+    const wrapped = wrapWords(fullBody, ZORP_WRAP_COLUMNS);
+
+    output.push(`${parts.indent}${parts.marker} ${wrapped[0]}`);
+    output.push(...wrapped.slice(1).map(text => `${parts.indent}${HANG}${text}`));
     index = cursor - 1;
   }
+
   return output.join('\n');
 }
