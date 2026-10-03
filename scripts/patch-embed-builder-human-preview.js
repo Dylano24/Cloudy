@@ -161,7 +161,7 @@ function bestBuilderSourceRecord(records, fallback = null) {
     if (text.includes("if (stableKey && !stableKey.startsWith('embed:')) return stableKey;")) {
       text = text.replace(
         "if (stableKey && !stableKey.startsWith('embed:')) return stableKey;",
-        "if (stableKey && !/^(?:embed|source):/i.test(stableKey)) return stableKey;",
+        "if (stableKey && !/^(?:embed(?:-type)?|source):/i.test(stableKey)) return stableKey;",
       );
     }
 
