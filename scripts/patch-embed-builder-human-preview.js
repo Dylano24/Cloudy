@@ -141,6 +141,30 @@ function isLegacyHelperParserArtifactRecord(record) {
         && Boolean(source.description || source.fields?.length);
 }
 
+function containsDynamicPlaceholder(value) {
+    if (/\{dynamic\}/i.test(String(value || ''))) return true;
+    if (Array.isArray(value)) {
+        return value.some(item => containsDynamicPlaceholder(item?.name) || containsDynamicPlaceholder(item?.value));
+    }
+    return false;
+}
+
+function isStaleDynamicSourceArtifactRecord(record) {
+    if (String(record?.source || '') !== 'system-catalog') return false;
+    const data = recordEmbedData(record);
+    const stableKey = stableSystemTemplateKey(data);
+    if (!/^(?:embed|embed-type):/i.test(stableKey)) return false;
+    if (!containsDynamicPlaceholder(data.title)) return false;
+
+    // PR #131 temporarily allowed arbitrary calculated template literals into
+    // static discovery. Keep a catalog-only dynamic row when it still maps to
+    // a current source definition. Otherwise hide only placeholder-shaped
+    // parser artifacts; real runtime captures keep their concrete body.
+    if (getSystemSourceDefinitionPreviewForEmbed(data)) return false;
+    return containsDynamicPlaceholder(data.description)
+        || containsDynamicPlaceholder(data.fields);
+}
+
 function bestBuilderSourceRecord(records, fallback = null) {
     const sources = (records || [])
         .filter(record => String(record?.source || '') === 'system-catalog')
@@ -192,7 +216,7 @@ function bestBuilderSourceRecord(records, fallback = null) {
       `    for (const record of channelRecords) {
         const rawName = recordName(record);`,
       `    for (const record of channelRecords) {
-        if (isLegacyHelperParserArtifactRecord(record)) continue;
+        if (isLegacyHelperParserArtifactRecord(record) || isStaleDynamicSourceArtifactRecord(record)) continue;
         const rawName = recordName(record);`,
       'hide legacy helper parser artifacts',
     );
