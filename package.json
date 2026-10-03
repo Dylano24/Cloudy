@@ -74,6 +74,7 @@
     "scripts/patch-appeals-api.js",
     "scripts/patch-embed-builder-human-preview.js",
     "scripts/patch-builder-saved-parity.js",
-    "scripts/patch-canonical-builder-flow.js"
+    "scripts/patch-canonical-builder-flow.js",
+    "scripts/patch-balance-retired-command.js"
   ]
 }
