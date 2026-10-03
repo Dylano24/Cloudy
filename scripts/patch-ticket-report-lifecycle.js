@@ -43,11 +43,11 @@ edit('src/handlers/ticketButtons.js',
   "      const providedReason = interaction.fields.getTextInputValue('reason')?.trim();\n      const reason = providedReason || 'Closed via ticket button without a specific reason.';",
   "      const reason = requireTicketCloseReason(interaction.fields.getTextInputValue('reason'));");
 edit('src/handlers/ticketButtons.js',
-  "      await assertTicketPermission(interaction, client, 'reopen tickets', {}, 2000);",
-  "      await assertTicketPermission(interaction, client, 'reopen tickets', { allowTicketCreator: true }, 2000);");
-edit('src/handlers/ticketButtons.js',
   "      await interaction.editReply({ embeds: [successEmbed('Ticket reopened', reopenMessage)] });",
   "      await interaction.deleteReply().catch(() => {});");
+edit('src/handlers/ticketButtons.js',
+  "      logger.error('Error reopening ticket:', error);\n      if (!interaction.replied && !interaction.deferred) {",
+  "      logger.error('Error reopening ticket:', error);\n      if (error?.type === ErrorTypes.PERMISSION) {\n        await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: 'Only the staff team can reopen tickets.' });\n        return;\n      }\n      if (!interaction.replied && !interaction.deferred) {");
 // Keep the old dispatcher on the same public creation/cleanup path.
 {
   const path = 'src/handlers/ticketButtons.js';
