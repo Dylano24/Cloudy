@@ -137,7 +137,19 @@ export async function deleteLifecycleMessage(message, interaction) {
     }
   }
 
-  if (interaction?.deleteReply) {
+  // BUILDER_SAFE_DELETE_REPLY_FALLBACK_V1: deleteReply() always targets the
+  // interaction's @original response, not an arbitrary secondary follow-up.
+  // Verify the exact target before using it as a final cleanup fallback.
+  if (interaction?.deleteReply && interaction?.fetchReply) {
+    const originalReply = await interaction.fetchReply().catch(() => null);
+    if (!originalReply?.id || String(originalReply.id) !== String(message.id)) {
+      return false;
+    }
+    if (isBuilderSessionMessage(originalReply)) {
+      clearBuilderLifecycleTimers(originalReply);
+      return false;
+    }
+
     const deleted = await interaction.deleteReply()
       .then(() => true)
       .catch(() => false);
