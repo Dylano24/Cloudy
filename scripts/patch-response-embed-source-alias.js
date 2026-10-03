@@ -141,7 +141,7 @@ function resolveEmbedSourceAlias(context, title) {
     // visible Builder types. Named/game/ticket keys remain authoritative.
     if (stableKey && !/^(?:embed(?:-type)?|source):/i.test(stableKey)) return stableKey;`,
       );
-    } else if (!text.includes("if (stableKey && !/^(?:embed|source):/i.test(stableKey)) return stableKey;")) {
+    } else if (!text.includes("if (stableKey && !/^(?:embed(?:-type)?|source):/i.test(stableKey)) return stableKey;")) {
       throw new Error('[RESPONSE_EMBED_SOURCE_ALIAS] generic source display identity marker not found');
     }
 
