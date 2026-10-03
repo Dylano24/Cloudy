@@ -50,6 +50,7 @@ function replaceOnce(text, find, replace, label) {
     primeSystemEmbedCatalogMessage,`,
       `import {
     getSystemSourceDefinitionPreview,
+    getSystemSourceDefinitionPreviewForEmbed,
     primeSystemEmbedCatalogMessage,`,
       'source preview import',
     );
@@ -252,9 +253,8 @@ ${displayEmojiMarker}`,
     const sourceData = sourceSnapshot && typeof sourceSnapshot === 'object' && Object.keys(sourceSnapshot).length
         ? (migrateCloudyLogoEmbedData(sourceSnapshot).data || {})
         : null;
-    const sourcePreviewData = getSystemSourceDefinitionPreview(
-        sourceData?.title || data.title,
-        stableSystemTemplateContext(sourceData || {}) || stableSystemTemplateContext(data),
+    const sourcePreviewData = getSystemSourceDefinitionPreviewForEmbed(
+        sourceData && Object.keys(sourceData).length ? sourceData : data,
     );
     const templateSourceData = {
         ...(sourceData || {}),
