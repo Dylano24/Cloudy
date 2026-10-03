@@ -78,6 +78,11 @@ function dynamicParts(value = '') {
   const sentinel = '\u0000CLOUDY_DYNAMIC\u0000';
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
 
+  text = text.replace(/^([a-z0-9_.-]{2,32})(?='s\b)/i, match => {
+    values.push(match);
+    return '{dynamic}';
+  });
+
   text = text.replace(
     /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
@@ -392,7 +397,7 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
   // Older title-only Saves stored empty fields/footer alongside an omitted
   // description. They are incomplete snapshots, not a request to erase live data.
   const sparse = template.description === undefined;
-  const genericStatus = /^(?:success|failed|error|warning|information|invalid)$/i.test(String(embedData.title || '').trim());
+  const genericStatus = /^(?:success|failed|error|warning|information|invalid|expired|too fast|cooldown|on cooldown|please wait|slow down)$/i.test(String(embedData.title || '').trim());
   const decoration = { ...template };
   if ((sparse && !(template.schemaVersion >= 3)) || genericStatus) {
     delete decoration.description;
