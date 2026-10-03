@@ -985,14 +985,12 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
     });
   }
 
-  if (template.footer?.text && data.footer?.text && textShapeMatches(template.footer.text, data.footer.text)) {
+  if (template.footer?.text) {
     next.footer = {
       ...template.footer,
-      text: renderDynamic(template.footer.text, data.footer.text, { fallbackToRuntimeOnMismatch: true }),
+      text: renderDynamic(template.footer.text, data.footer?.text || template.footer.text, { fallbackToRuntimeOnMismatch: true }),
     };
-  } else if (!data.footer?.text) {
-    delete next.footer;
-  }
+  } else delete next.footer;
 
   if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
   else delete next.thumbnail;
