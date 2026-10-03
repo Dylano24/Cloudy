@@ -134,15 +134,16 @@ function resolveEmbedSourceAlias(context, title) {
 }`;
     text = replaceOnce(text, oldFn, newFn, 'full live preview preference');
 
-    text = replaceOnce(
-      text,
-      '    if (stableKey) return stableKey;',
-      `    // Generic embed hashes are historical storage identities, not separate
-    // visible Builder types. Let their normalized title shape group old and
-    // current copies together. Named and game keys remain authoritative.
-    if (stableKey && !stableKey.startsWith('embed:')) return stableKey;`,
-      'generic source display identity',
-    );
+    if (text.includes('    if (stableKey) return stableKey;')) {
+      text = text.replace(
+        '    if (stableKey) return stableKey;',
+        `    // Generic embed/source hashes are historical storage identities, not separate
+    // visible Builder types. Named/game/ticket keys remain authoritative.
+    if (stableKey && !/^(?:embed|source):/i.test(stableKey)) return stableKey;`,
+      );
+    } else if (!text.includes("if (stableKey && !/^(?:embed|source):/i.test(stableKey)) return stableKey;")) {
+      throw new Error('[RESPONSE_EMBED_SOURCE_ALIAS] generic source display identity marker not found');
+    }
 
     const representativeOld = `        const canonicalCatalogRecords = group.canonicalCasinoKey
             ? group.records.filter(record => stableSystemTemplateKey(recordEmbedData(record)) === group.canonicalCasinoKey)
@@ -158,17 +159,13 @@ function resolveEmbedSourceAlias(context, title) {
                 record.source === 'system-catalog'
                 && stableSystemTemplateKey(recordEmbedData(record)).startsWith('embed:')
             );
-        // Keep one canonical hidden catalog record as the Save target for a
-        // source-defined response. Real messages still provide the first live
-        // channel preview, but duplicate catalog hashes no longer become
-        // separate options.
-        // Generic source-defined responses should edit the real Discord
-        // message when one exists. The matching catalog peer is still kept in
-        // the same template group and is synchronized by the existing peer
-        // update path after Save. Casino canonical masters remain authoritative.
+        // The hidden catalog master is the Save target for a reusable response
+        // type. A real runtime message is preview data only. This prevents
+        // slash-command/interactions from failing Save and guarantees one Save
+        // changes the reusable template for every future matching response.
         const representative = canonicalCatalogRecords.at(-1)
+            || sourceCatalogRecords.at(-1)
             || (realRecords.length ? realRecords.at(-1) : null)
-            || sourceCatalogRecords[0]
             || group.records.at(-1);`;
     text = replaceOnce(text, representativeOld, representativeNew, 'canonical generic source Save target');
 
