@@ -66,3 +66,22 @@ test('source discovery preserves nested dynamic helper calls for robbery outcome
     false,
   );
 });
+
+
+test('source discovery keeps the complete concatenated Crime failed body', async () => {
+  const definitions = await discoverEmbedDefinitions();
+  const crime = definitions.filter(definition =>
+    definition.kind === 'embed'
+    && definition.context === 'gambling/crime'
+  );
+
+  const failed = crime.find(definition =>
+    /crime failed/i.test(definition.title)
+  );
+
+  assert.ok(failed);
+  assert.equal(
+    failed.description,
+    'You were caught while attempting {dynamic} and have been sent to jail! You were fined {dynamic} coins and will be in jail for 2 hours.',
+  );
+});
