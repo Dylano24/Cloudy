@@ -143,6 +143,7 @@ test('empty registry channels render as checking instead of falsely unsaved', ()
   const guildId = '100000000000000778';
   const channelId = '200000000000000778';
   const guild = buildGuild({ guildId, channelId, messages: new Map() });
+  guild.channels.cache.get(channelId).type = 0;
   const checking = embedManagerCheckingChannelIds(guild, []);
   const payload = buildChannelPayload(guild, [], 0, checking);
   const option = payload.components[0].toJSON().components[0].options[0];
@@ -577,15 +578,17 @@ test('Builder Search loads the same full dynamic source data as the normal Modif
     makeSparseLive('real-rob-failed', 'Robbery failed', '12'),
   ];
 
-  for (const [query, expectedMessageId, expectedDescription] of [
-    ['robbery successful', 'real-rob-success', 'You successfully stole **{dynamic}** from {dynamic}!'],
-    ['robbery failed', 'real-rob-failed', 'You failed the robbery and were caught! You were fined **{dynamic}** of your own cash.'],
+  for (const [query, expectedCatalogId, expectedPreviewId, expectedDescription] of [
+    ['robbery successful', 'catalog-rob-success', 'real-rob-success', 'You successfully stole **{dynamic}** from {dynamic}!'],
+    ['robbery failed', 'catalog-rob-failed', 'real-rob-failed', 'You failed the robbery and were caught! You were fined **{dynamic}** of your own cash.'],
   ]) {
     const matches = buildLiveSearchMatches(guild, records, query);
     assert.equal(matches.length, 1, query);
 
     const record = matches[0].record;
-    assert.equal(record.messageId, expectedMessageId, query);
+    assert.equal(record.messageId, expectedCatalogId, query);
+    assert.ok(record.previewRecord, query);
+    assert.equal(record.previewRecord.messageId, expectedPreviewId, query);
     assert.ok(record.sourceRecord, query);
     assert.match(record.sourceRecord.messageId, /^catalog-rob-/, query);
 
@@ -601,7 +604,7 @@ test('Builder Search loads the same full dynamic source data as the normal Modif
     assert.equal(state.message, expectedDescription, query);
     assert.equal(state.embedFields.length, 2, query);
     assert.match(state.embedFields[0].name, /\{dynamic\}/, query);
-    assert.equal(state.modifyTarget.messageId, expectedMessageId, query);
+    assert.equal(state.modifyTarget.messageId, expectedCatalogId, query);
   }
 });
 
