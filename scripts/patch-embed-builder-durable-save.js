@@ -28,5 +28,14 @@ if (text.includes(asyncCatalogSync)) {
     process.exit(1);
 }
 
+const asyncRegistryRefresh = '    void registerCloudyEmbedMessage(edited, registrySource)';
+const durableRegistryRefresh = '    await registerCloudyEmbedMessage(edited, registrySource)';
+if (text.includes(asyncRegistryRefresh)) {
+    text = text.replace(asyncRegistryRefresh, durableRegistryRefresh);
+} else if (!text.includes(durableRegistryRefresh)) {
+    console.error('[EMBED_BUILDER_DURABLE_SAVE] registry refresh marker not found');
+    process.exit(1);
+}
+
 if (text !== before) fs.writeFileSync(path, text, 'utf8');
-console.log(`[EMBED_BUILDER_DURABLE_SAVE] ${text === before ? 'already current' : 'patched durable template persistence'}`);
+console.log(`[EMBED_BUILDER_DURABLE_SAVE] ${text === before ? 'already current' : 'patched durable template and registry persistence'}`);
