@@ -27,3 +27,15 @@ test('only temporary bot-authored Embed Builder control messages are startup orp
     components: [{ components: [{ customId: 'simple_embed_post' }] }],
   }, botUserId), false);
 });
+
+
+test('startup cleanup never treats a Builder created by the current process as an orphan', () => {
+  const cutoff = 1_000;
+  assert.equal(isOrphanedEmbedBuilderMessage({
+    id: 'new-builder',
+    createdTimestamp: cutoff + 1,
+    author: { id: 'cloudy' },
+    embeds: [{ title: 'Message builder' }],
+    components: [{ components: [{ customId: 'simple_embed_post' }] }],
+  }, 'cloudy', cutoff), false);
+});
