@@ -71,3 +71,21 @@ test('economy database failure cannot produce a success or overwrite a default a
   await assert.rejects(addMoney({ db: { get: async () => ({ wallet: 10 }), set: async () => { writes++; return false; } } }, '1532882647838228723', '1532882647838228724', 10));
   assert.equal(writes, 1);
 });
+
+test('object-built log fields are discovered without interpreting code expressions as titles', () => {
+  const source = `const log = createEmbed({ title: 'Ban log', fields: [
+    { name: 'User', value: user.tag, inline: true },
+    { name: 'Reason', value: 'Requested reason', inline: false }
+  ] });
+  const metadata = { title: typeof value === 'string' ? value : null };
+  const sparse = { title: value ?? null }; // 'leave the live description alone'`;
+  const entries = extractDefinitions(source, 'events/guildBanAdd.js').filter(item => item.kind === 'embed');
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].fields, [{ name: 'User', value: '{dynamic}', inline: true }, { name: 'Reason', value: 'Requested reason', inline: false }]);
+});
+
+
+test('a one-line embed does not register its description and field labels as titles', () => {
+  const entries = extractDefinitions("new EmbedBuilder().setTitle('Real title').setDescription('Body text');", 'commands/Tools/example.js');
+  assert.deepEqual(entries.filter(item => item.kind === 'embed').map(item => item.title), ['Real title']);
+});

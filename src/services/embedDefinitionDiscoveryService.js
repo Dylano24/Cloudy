@@ -6,6 +6,10 @@ const MAX_FILE_SIZE = 1_000_000;
 const SKIPPED_FILES = new Set([
   'embedManagerService.js',
   'embedDefinitionDiscoveryService.js',
+  'embedTemplateService.js',
+  'builderRuntimePreviewService.js',
+  'embedColorPickerSessionService.js',
+  'embedColorPickerPage.js',
   'systemEmbedCatalogService.js',
   'systemEmbedCaptureReady.js',
   'systemEmbedCatalogReady.js',
@@ -241,7 +245,9 @@ function findTitlesOnLine(lines, index) {
 
   const markerIndex = line.indexOf(marker);
   const sameLineExpression = line.slice(markerIndex + marker.length);
-  const candidates = allLiterals(sameLineExpression, 8)
+  if (marker !== '.setTitle(' && !/^[\s]*[\'"`]/.test(sameLineExpression)) return [];
+  const titleCall = marker === '.setTitle(' ? scanBalancedCall(line, markerIndex + marker.length - 1) : null;
+  const candidates = allLiterals(titleCall?.content || sameLineExpression, marker === '.setTitle(' ? 8 : 1)
     .map(raw => decodeString(raw, { allowDynamic: false }))
     .filter(Boolean)
     .filter(value => value.length <= 256);
@@ -287,7 +293,9 @@ function addDefinition(results, seen, definition) {
 
 
 function scanBalancedCall(source, openParenIndex) {
-  if (source[openParenIndex] !== '(') return null;
+  const opening = source[openParenIndex];
+  const closing = opening === '[' ? ']' : ')';
+  if (!['(', '['].includes(opening)) return null;
 
   let depth = 1;
   let quote = null;
@@ -313,8 +321,8 @@ function scanBalancedCall(source, openParenIndex) {
       quote = char;
       continue;
     }
-    if (char === '(') depth += 1;
-    else if (char === ')') {
+    if (char === opening) depth += 1;
+    else if (char === closing) {
       depth -= 1;
       if (depth === 0) {
         return {
@@ -360,7 +368,7 @@ function extractLiteralFields(content) {
       if (!match) continue;
       field[match[1]] = match[1] === 'inline'
         ? match[2].trim() === 'true'
-        : decodeLiteralExpression(match[2], { allowDynamic: true });
+        : (decodeLiteralExpression(match[2], { allowDynamic: true }) || '{dynamic}');
     }
     return field.name && field.value ? [{ ...field, inline: Boolean(field.inline) }] : [];
   }).slice(0, 25);
@@ -428,6 +436,13 @@ function extractEmbedDefinitions(source, relativePath, results, seen) {
     if (fieldMatch) {
       const call = scanBalancedCall(chain, fieldMatch.index + fieldMatch[0].lastIndexOf('('));
       if (call) modifiers.fields = extractLiteralFields(call.content);
+    }
+    if (!modifiers.fields?.length) {
+      const fieldProperty = /\bfields\s*:\s*\[/.exec(chain);
+      if (fieldProperty) {
+        const call = scanBalancedCall(chain, fieldProperty.index + fieldProperty[0].lastIndexOf('['));
+        if (call) modifiers.fields = extractLiteralFields(call.content);
+      }
     }
     const footerMatch = /\.setFooter\s*\(/.exec(chain);
     if (footerMatch) {
