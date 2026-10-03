@@ -947,8 +947,10 @@ async function postMessage(buttonInteraction, state, guild) {
         components: initialPicker.components,
         flags: MessageFlags.Ephemeral,
     });
-    removeTransientMessage(buttonInteraction, channelPickerMessage);
 
+    // The channel picker is an interactive continuation of Post message, not a
+    // 10-second status reply. Keep it alive until a channel is successfully
+    // selected and the message has actually been posted.
     if (!initialPicker.channels.length) return;
 
     const collector = channelPickerMessage.createMessageComponentCollector({
@@ -958,7 +960,6 @@ async function postMessage(buttonInteraction, state, guild) {
                 interaction.customId.startsWith('simple_embed_post_channel:') ||
                 interaction.customId.startsWith('simple_embed_channel_page:')
             ),
-        time: 60_000,
     });
 
     collector.on('collect', async channelInteraction => {
@@ -996,6 +997,15 @@ async function postMessage(buttonInteraction, state, guild) {
         }
 
         collector.stop('posted');
+        if (channelPickerMessage?.id && buttonInteraction.webhook?.deleteMessage) {
+            const deleted = await buttonInteraction.webhook.deleteMessage(channelPickerMessage.id)
+                .then(() => true)
+                .catch(() => false);
+            if (!deleted) await channelPickerMessage.delete?.().catch(() => {});
+        } else {
+            await channelPickerMessage.delete?.().catch(() => {});
+        }
+
         const sentMessage = await channelInteraction.followUp({
             embeds: [successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
             flags: MessageFlags.Ephemeral,
