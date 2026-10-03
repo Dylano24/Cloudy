@@ -38,7 +38,7 @@ const PLAYER_COMMAND_NAMES = [
   'todo',
   'weather',
   'report',
-  'reports',
+  'cloudy report',
   'rank',
 ];
 
