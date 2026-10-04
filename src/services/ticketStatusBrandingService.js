@@ -3,9 +3,11 @@ import {
   CLOUDY_TICKET_FOOTER,
 } from '../utils/ticket/ticketBranding.js';
 import { getGuildConfig } from './config/guildConfig.js';
+import { CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 
 const TICKET_STATUS_TITLES = new Set([
   'Ticket reopened',
+  'Ticket deleted',
   'Ticket claimed',
   'Ticket unclaimed',
   'Priority Updated',
@@ -34,7 +36,13 @@ export async function brandTicketStatusMessage(message, client, { initialCreatio
   if (!TICKET_STATUS_TITLES.has(title)) return false;
 
   const raw = embed.toJSON();
-  const color = title === 'Ticket claimed' ? 0x00C49D : title === 'Ticket unclaimed' ? 0x000000 : 0xFFFFFF;
+  const color = title === 'Ticket claimed'
+    ? 0x00C49D
+    : title === 'Ticket unclaimed'
+      ? 0x000000
+      : title === 'Ticket deleted'
+        ? CLOUDY_RED_COLOR
+        : 0xFFFFFF;
   const alreadyBranded = raw.color === color
     && raw.footer?.text === CLOUDY_TICKET_FOOTER;
 

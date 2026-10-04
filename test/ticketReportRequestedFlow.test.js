@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, EmbedBuilder, OverwriteType, PermissionsBitField, PermissionFlagsBits } from 'discord.js';
 import { db, getTicketData, saveTicketData } from '../src/utils/database.js';
-import buttons from '../src/interactions/buttons/ticket/ticketUiOverrides.js';
+import buttons, { TICKET_CREATION_LIMIT_PRECHECK_MS } from '../src/interactions/buttons/ticket/ticketUiOverrides.js';
 import { reopenTicketHandler as legacyReopenTicketHandler } from '../src/handlers/ticketButtons.js';
 import modals from '../src/interactions/modals/ticket/createTicketUi.js';
 import { getTicketPermissionContext } from '../src/utils/ticket/ticketPermissions.js';
@@ -67,6 +67,20 @@ function fixture(status = 'open', actor = 'creator') {
   return { client, guild, channel, member, interaction, replies, payloads, permissions, initialize,
     deletedReplies: () => deletedReplies, values };
 }
+
+test('slow optional ticket-limit precheck still opens the create modal before Discord interaction expiry', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  f.client.db.db = { pool: { query: async () => new Promise(() => {}) } };
+  const createButton = buttons.find(button => button.name === 'create_ticket');
+  const pending = createButton.execute(f.interaction, f.client);
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(TICKET_CREATION_LIMIT_PRECHECK_MS);
+  await new Promise(resolve => setImmediate(resolve));
+  await pending;
+  assert.equal(f.replies.length, 1);
+  assert.equal(f.replies[0].custom_id, 'create_ticket_modal');
+});
 
 test('real ticket context allows creator close but reserves reopening and management for staff', async () => {
   for (const actor of ['creator', 'staff', 'stranger']) {
