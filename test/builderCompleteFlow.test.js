@@ -6,6 +6,7 @@ import { discoverRecentChannelEmbeds } from '../src/services/embedMissingChannel
 import { getCanonicalBuilderRecords, loadRecordSnapshotIntoState, saveModifiedEmbed } from '../src/services/embedManagerService.js';
 import { createEmbedColorPickerSession, applyEmbedColorPickerSession, deleteEmbedColorPickerSession } from '../src/services/embedColorPickerSessionService.js';
 import { saveExistingEmbed } from '../src/commands/Tools/embedbuilder.js';
+import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
 
 function fixture(id) {
   const stored = new Map(), messages = new Collection();
@@ -146,5 +147,23 @@ test('failed acknowledgement prevents Save and releases the click guard', async 
   const state = {};
   await assert.rejects(saveExistingEmbed({ deferUpdate: async () => { throw new Error('ack failed'); } }, null, state), /ack failed/);
   assert.equal(state.saveInFlight, false);
+});
+
+test('manual Save preserves a title-only runtime record and excludes an empty sibling from the registry', async () => {
+  const f = fixture('title-only-save');
+  const message = f.add('700', 'Original explanation', 7000);
+  const record = { ...f.record(message), source: 'modified-template' };
+  f.stored.set(`cloudy:embed-registry:${f.guild.id}`, [record]);
+  const state = {};
+  loadRecordSnapshotIntoState(state, f.guild, record);
+  message.embeds.push(new Embed({ color: 0xFFFFFF }));
+  state.message = null; state.bottomLine = null;
+  assert.equal((await saveModifiedEmbed(f.guild, state)).ok, true);
+  const records = await getEmbedRegistry(f.guild.id);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].messageId, message.id);
+  assert.equal(records[0].source, record.source);
+  assert.equal(records[0].snapshot.title, state.title);
+  assert.equal(records[0].snapshot.description, undefined);
 });
 

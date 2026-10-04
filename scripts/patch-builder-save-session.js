@@ -84,16 +84,26 @@ edit(manager, `    await registerCloudyEmbedMessage(edited, registrySource)
         .catch(error => {`);
 edit(manager, `    const displayChannel = guild.channels.cache.get(target.channelId) || channel;`, `    if (!registered) return { ok: false, reason: 'persistence-failed' };
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;`);
-edit(manager, `registerCloudyEmbedMessage(edited, registrySource)`, `registerCloudyEmbedMessage(edited, registrySource, { manualSave: true })`);
+edit(manager, `registerCloudyEmbedMessage(edited, registrySource)`, `registerCloudyEmbedMessage(edited, registrySource, { manualSave: true, manualSaveIndex: index })`);
 
 const registry = 'src/services/embedRegistryService.js';
-edit(registry, `export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {`, `export async function registerCloudyEmbedMessages(messages, source = 'cloudy', { manualSave = false } = {}) {`);
-edit(registry, `    const isManualBuilderMessage = source === 'embed-builder';`, `    const isManualBuilderMessage = source === 'embed-builder' || manualSave;`);
+edit(registry, `export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {`, `export async function registerCloudyEmbedMessages(messages, source = 'cloudy', { manualSave = false, manualSaveIndex = 0 } = {}) {`);
+edit(registry, `            if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;`, `            if (!manualSave && !isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;`);
+edit(registry, `                    || isManualBuilderMessage
+                    || (!isInternalEmbedRecord(addition)`, `                    || isManualBuilderMessage
+                    || (manualSave && addition.embedIndex === manualSaveIndex)
+                    || (!isInternalEmbedRecord(addition)`);
+edit(registry, `        source: String(record.source || 'cloudy'),`, `        source: String(record.source || 'cloudy'),
+        manualSaved: Boolean(record.manualSaved),`);
+edit(registry, `function isFixedCloudyRecord(record) {`, `function isFixedCloudyRecord(record) {
+    if (record.manualSaved) return true;`);
 edit(registry, `            const additions = message.embeds`, `            const priorRecords = manualSave ? await getEmbedRegistry(message.guildId) : [];
             const additions = message.embeds`);
 edit(registry, `                    const location = recordLocationForEmbed(message, embed);`, `                    const prior = priorRecords.find(record => String(record.messageId) === String(message.id) && Number(record.embedIndex || 0) === embedIndex);
                     const location = prior ? { channelId: prior.channelId, backingChannelId: prior.backingChannelId } : recordLocationForEmbed(message, embed);`);
 edit(registry, `                        source: isSystemCatalogMessage(message) ? 'system-catalog' : source,`, `                        source: prior?.source || (isSystemCatalogMessage(message) ? 'system-catalog' : source),`);
+edit(registry, `                        title: embed?.title || '',`, `                        manualSaved: Boolean(prior?.manualSaved || (manualSave && embedIndex === manualSaveIndex)),
+                        title: embed?.title || '',`);
 edit(registry, `        await Promise.all([...grouped.entries()].map(([guildId, additions]) => saveRecords(guildId, additions)));
         return true;`, `        const results = await Promise.all([...grouped.entries()].map(([guildId, additions]) => saveRecords(guildId, additions)));
         return results.every(Boolean);`);
