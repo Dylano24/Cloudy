@@ -402,7 +402,31 @@ export async function logEvent({
     }
     if (eventType === EVENT_TYPES.REPORT_FILE && components.length) messageOptions.components = components;
 
-    const sent = await channel.send(messageOptions);
+    let sent;
+    if (eventType === EVENT_TYPES.MESSAGE_DELETE && attachments.length) {
+      const batches = [];
+      for (let index = 0; index < attachments.length; index += 10) batches.push(attachments.slice(index, index + 10));
+      for (const [index, files] of batches.entries()) {
+        try {
+          const result = await channel.send(index === 0 ? { ...messageOptions, files }
+            : { files, allowedMentions: { parse: [] } });
+          if (!sent) sent = result;
+        } catch (error) {
+          logger.warn(`Deleted-message media upload failed for guild ${guildId}: ${error.message}`);
+          if (!sent) {
+            const fallback = { ...messageOptions };
+            delete fallback.files;
+            fallback.content = `Media could not be copied.\n${data.attachmentFallback || ''}`.slice(0, 2000);
+            sent = await channel.send(fallback);
+          } else {
+            await channel.send({ content: `Some media could not be copied.\n${data.attachmentFallback || ''}`.slice(0, 2000), allowedMentions: { parse: [] } });
+          }
+          break;
+        }
+      }
+    } else {
+      sent = await channel.send(messageOptions);
+    }
     logger.info(`Event logged: ${eventType} in guild ${guildId}`);
     return sent;
   } catch (error) {
