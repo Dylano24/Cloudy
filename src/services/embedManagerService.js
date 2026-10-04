@@ -1312,6 +1312,12 @@ export async function saveModifiedEmbed(guild, state) {
     const payload = { embeds };
     if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
 
+    // Catalog identity is internal; it must never become a public embed author.
+    if (target.source !== 'system-catalog' && String(message.content || '').trim() !== 'System & error embed templates') {
+        for (const embed of payload.embeds) {
+            if (/^Cloudy template key:/i.test(embed.author?.name || '')) delete embed.author;
+        }
+    }
     activeEmbedManagerSaves.add(String(message.id));
     const edited = await message.edit(payload).catch(error => {
         logger.error('Failed to save modified embed:', error);
@@ -1401,3 +1407,4 @@ export async function saveModifiedEmbed(guild, state) {
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
 }
+

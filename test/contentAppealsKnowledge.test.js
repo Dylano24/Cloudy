@@ -19,7 +19,7 @@ test('content guide preserves supplied wording, uses camera and keeps custom tex
   assert.equal(payload.embeds[0].toJSON().title, '🎥 Content Creators');
   assert.equal(payload.embeds[0].toJSON().description, CONTENT_CREATORS_TEXT);
   const custom = buildContentCreatorPayload({ embeds: [{ title: '🌐 Content Creators', description: 'Saved custom text', color: 123 }], components: [{ type: 1, components: [{ type: 2, style: 5, label: 'My link', url: 'https://example.com/' }] }] });
-  assert.equal(custom.embeds[0].title, '🎥 Content Creators');
+  assert.equal(custom.embeds[0].title, '🌐 Content Creators');
   assert.equal(custom.embeds[0].description, 'Saved custom text');
   assert.equal(custom.embeds[0].color, 123);
   assert.equal(custom.components[0].components[0].url, 'https://example.com/');
@@ -122,3 +122,4 @@ test('existing patch repair changes only encoded text and preserves saved stylin
   await repairEncodedPatchText({ embeds: [{ toJSON: () => data }], edit: async payload => { updated = payload; } });
   assert.deepEqual(updated, { embeds: [{ ...data, description: 'You and […]' }] });
 });
+
