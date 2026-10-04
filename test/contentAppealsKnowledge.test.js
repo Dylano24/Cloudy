@@ -89,11 +89,20 @@ test('website appeals deliver Discord and Rust forms to the current channel and 
   const body = { scope: 'discord', action: 'Ban', discordIdentity: 'member', gamertag: 'player', email: 'member@example.com', punishmentReason: 'a'.repeat(1000), punishmentJustified: 'b'.repeat(1000), acceptanceReason: 'c'.repeat(1000), futureChanges: 'd'.repeat(1000), evidence: 'e'.repeat(1000), additionalInfo: 'f'.repeat(1000) };
   assert.equal((await submit(body, 'wrong')).code, 403);
   assert.equal((await submit({ ...body, email: '' })).code, 400);
-  for (const scope of ['discord', 'rust']) assert.equal((await submit({ ...body, scope })).code, 200);
-  assert.equal(sent.length, 2);
+  for (const [scope, action] of [['discord', 'Ban'], ['rust', 'Ban'], ['discord', 'Mute']]) assert.equal((await submit({ ...body, scope, action })).code, 200);
+  assert.equal(sent.length, 3);
   assert.equal(sent[0].embeds[0].fields.every(field => field.value.length <= 500), true);
   assert.equal(JSON.parse(sent[0].files[0].attachment.toString()).futureChanges.length, 1000);
   assert.match(sent[1].embeds[0].title, /Rust server appeal/);
+  assert.equal(sent[1].embeds[0].fields.find(field => field.name === 'Gamertag').value, 'player');
+  for (const index of [0, 2]) {
+    assert.equal(sent[index].embeds[0].fields.some(field => field.name === 'Gamertag'), false);
+    assert.equal(Object.hasOwn(JSON.parse(sent[index].files[0].attachment.toString()), 'gamertag'), false);
+  }
+  for (const payload of sent) {
+    assert.equal(payload.embeds[0].fields.some(field => field.name === 'What will you do differently if your appeal is accepted?'), true);
+    assert.equal(payload.embeds[0].fields.some(field => field.name === 'What will they do differently?'), false);
+  }
 });
 
 test('existing patch repair changes only encoded text and preserves saved styling', async () => {
