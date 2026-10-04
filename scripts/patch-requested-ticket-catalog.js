@@ -61,3 +61,21 @@ edit('src/services/ticket.js', '    const closeStatusMessage = messages.find(m =
     const closeStatusMessage = messages.find(m =>`);
 edit('src/services/ticket.js', 'embeds: [forceCloudyTicketFooter(reopenEmbed)]', 'embeds: [forceCloudyTicketFooter(decoratedReopen.embed)]');
 
+// Search has one master per type; channel browsing must retain that type in each channel.
+edit('src/services/embedManagerService.js', 'export async function getCanonicalBuilderRecords(guild, suppliedRecords = null) {', 'export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, { perChannel = false } = {}) {');
+edit('src/services/embedManagerService.js', String.raw`        if (!groups.has(identity)) groups.set(identity, []);
+        groups.get(identity).push(record);
+    }
+    return [...groups.entries()].map(([identity, peers]) => {`, String.raw`        const groupKey = perChannel ? String(record.channelId) + '|' + identity : identity;
+        if (!groups.has(groupKey)) groups.set(groupKey, []);
+        groups.get(groupKey).push(record);
+    }
+    return [...groups.entries()].map(([groupKey, peers]) => {
+        const identity = perChannel ? groupKey.slice(groupKey.indexOf('|') + 1) : groupKey;`);
+edit('src/services/embedManagerService.js', 'let records = await getCanonicalBuilderRecords(guild, storedRecords);', 'let records = await getCanonicalBuilderRecords(guild, storedRecords, { perChannel: true });');
+edit('src/services/embedManagerService.js', '                    records = await getCanonicalBuilderRecords(guild);', String.raw`                    const discoveredRecords = await discoverRecentChannelEmbeds(guild, channelId, buttonInteraction.client.user.id)
+                        .catch(error => { logger.debug('Channel embed discovery skipped: ' + error.message); return []; });
+                    const registeredRecords = await getEmbedRegistry(guild.id);
+                    records = await getCanonicalBuilderRecords(guild, mergeEmbedManagerRecords(registeredRecords, discoveredRecords), { perChannel: true });`);
+
+
