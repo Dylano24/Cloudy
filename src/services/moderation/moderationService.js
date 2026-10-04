@@ -140,7 +140,8 @@ export class ModerationService {
     user,
     moderator,
     reason = 'No reason provided',
-    deleteDays = 0
+    deleteDays = 0,
+    notifyBeforeBan = false
   }) {
     try {
       if (!guild || !user || !moderator) {
@@ -177,8 +178,12 @@ export class ModerationService {
         }
       }
 
+      const notify = () => typeof user.send === 'function'
+        ? user.send({ embeds: [createEmbed({ title: 'Ban notice', description: reason })] }).catch(error => logger.debug(`Ban DM unavailable: ${error.code || 'unknown'}`))
+        : Promise.resolve();
+      if (notifyBeforeBan) await notify();
       await guild.members.ban(user.id, { reason });
-      if (typeof user.send === 'function') await user.send({ embeds: [createEmbed({ title: 'Ban notice', description: reason })] }).catch(error => logger.debug(`Ban DM unavailable: ${error.code || 'unknown'}`));
+      if (!notifyBeforeBan) await notify();
 
       const caseId = await logModerationAction({
         client: guild.client,

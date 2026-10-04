@@ -4,9 +4,8 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { ModerationService } from './moderation/moderationService.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { createEmbed } from '../utils/embeds.js';
-import { loadReport, publishReportOutcome, reportKey, withReportLock, REPORT_CATEGORY_ID } from './reportCaseService.js';
+import { loadReport, publishReportOutcome, reportKey, withReportLock, validateReportDestinations } from './reportCaseService.js';
 import { rememberMessageDeleter } from './deletionAttributionService.js';
-import { ChannelType } from 'discord.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 
 export function buildReportActions(userId) {
@@ -44,18 +43,12 @@ async function deny(interaction, message) {
 export async function handleReportAction(interaction, client, [action, userId]) {
   if (!interaction.inGuild() || !['delete', 'timeout', 'ban'].includes(action)) return;
   if (interaction.message?.author?.id !== client.user.id) return;
-  const config = await getGuildConfig(client, interaction.guildId);
-  if (!reportActionAllowed(interaction, action, config)) {
-    return deny(interaction, action === 'ban' ? 'Only the server owner or the Owner role can ban members from reports.' : 'Only the staff team can manage reports.');
+  if (action === 'ban' && !reportActionAllowed(interaction, action)) {
+    return deny(interaction, 'Only the server owner or the Owner role can ban members from reports.');
   }
-  if (action === 'delete') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await completeReportAction(interaction, client, interaction.message, action, userId, '');
-    await interaction.deleteReply().catch(() => {});
-    return;
-  }
+  // Show the modal before any database work. Submission revalidates staff access.
   const modal = new ModalBuilder().setCustomId(`report_moderate:${action}:${userId}:${interaction.message.id}`)
-    .setTitle(action === 'ban' ? 'Ban reported member' : 'Timeout reported member');
+    .setTitle({ ban: 'Ban reported member', timeout: 'Timeout reported member', delete: 'Delete reported message' }[action]);
   if (action === 'timeout') modal.addComponents(new ActionRowBuilder().addComponents(
     new TextInputBuilder().setCustomId('minutes').setLabel('Duration in minutes').setStyle(TextInputStyle.Short)
       .setRequired(true).setMaxLength(5),
@@ -68,7 +61,7 @@ export async function handleReportAction(interaction, client, [action, userId]) 
 }
 
 export async function handleReportModeration(interaction, client, [action, userId, messageId]) {
-  if (!interaction.inGuild() || !['timeout', 'ban'].includes(action)) return;
+  if (!interaction.inGuild() || !['delete', 'timeout', 'ban'].includes(action)) return;
   if (!await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral })) return;
   const config = await getGuildConfig(client, interaction.guildId);
   if (!reportActionAllowed(interaction, action, config)) {
@@ -81,7 +74,7 @@ export async function handleReportModeration(interaction, client, [action, userI
   }
   const reason = interaction.fields.getTextInputValue('reason').trim();
   if (!reason) return deny(interaction, 'Please provide a reason.');
-  if ([interaction.user.id, client.user.id, interaction.guild.ownerId].includes(userId)) {
+  if (action !== 'delete' && [interaction.user.id, client.user.id, interaction.guild.ownerId].includes(userId)) {
     return deny(interaction, 'You cannot moderate yourself, Cloudy, or the server owner.');
   }
   await completeReportAction(interaction, client, report, action, userId, reason);
@@ -97,8 +90,7 @@ async function completeReportAction(interaction, client, report, action, userId,
     if (previous?.status === 'processing') throw new Error('This action is being processed. Staff must verify its outcome before retrying.');
     if (previous?.status !== 'completed') {
       // Validate the destination before performing a destructive moderation action.
-      const category = await interaction.guild.channels.fetch(REPORT_CATEGORY_ID);
-      if (category?.type !== ChannelType.GuildCategory) throw new Error('The Reports category is unavailable.');
+      await validateReportDestinations(interaction.guild);
       const reportsChannel = report.channel || await interaction.guild.channels.fetch(record.reportChannelId);
       if (reportsChannel.permissionsFor?.(interaction.guild.roles.everyone)?.has?.(PermissionFlagsBits.ViewChannel)) throw new Error('Staff report controls require a private reports channel.');
       const durationMs = action === 'timeout' ? timeoutDuration(interaction.fields.getTextInputValue('minutes')) : null;
@@ -111,22 +103,25 @@ async function completeReportAction(interaction, client, report, action, userId,
       const config = await getGuildConfig(client, interaction.guildId);
       const freshMember = await interaction.guild.members.fetch(interaction.user.id);
       if (!reportActionAllowed({ guild: interaction.guild, user: interaction.user, member: freshMember }, action, config)) throw new Error('Only authorized staff can perform this action.');
-      const pending = { status: 'processing', actorId: interaction.user.id, reason };
+      if (!reason) throw new Error('Please provide a reason.');
+      const pending = { status: 'processing', actorId: interaction.user.id, reason, durationMs };
       record.actions = { ...record.actions, [action]: pending };
       if (await client.db.set(reportKey(record.guildId, record.messageId), record) === false) throw new Error('The report action could not be saved.');
       try {
         if (action === 'delete') {
           rememberMessageDeleter(original, interaction.user);
           await original.delete();
+          await sendReportActionDM(client, interaction.guild, userId, action, reason);
         } else {
           const member = await interaction.guild.members.fetch(userId).catch(() => null);
           if (action === 'timeout') {
             if (!member) throw new Error('The reported member is no longer in this server.');
             await ModerationService.timeoutUser({ guild: interaction.guild, member, moderator: freshMember,
               durationMs, reason });
+            await sendReportActionDM(client, interaction.guild, userId, action, reason, durationMs);
           } else {
             const user = member?.user || await client.users.fetch(userId);
-            await ModerationService.banUser({ guild: interaction.guild, user, moderator: freshMember, reason });
+            await ModerationService.banUser({ guild: interaction.guild, user, moderator: freshMember, reason, notifyBeforeBan: true });
           }
         }
       } catch (error) {
@@ -142,5 +137,18 @@ async function completeReportAction(interaction, client, report, action, userId,
     notified.actions[action] = { ...outcome, notified: true };
     if (await client.db.set(reportKey(record.guildId, record.messageId), notified) === false) throw new Error('The action notification could not be saved.');
   });
+}
+
+async function sendReportActionDM(client, guild, userId, action, reason, durationMs) {
+  try {
+    const user = await client.users.fetch(userId);
+    await user.send({ embeds: [createEmbed({
+      title: action === 'delete' ? 'Reported message deleted' : 'Timeout notice',
+      description: `In ${guild.name || 'this server'}: ${action === 'delete' ? 'your reported message was deleted' : 'you were timed out'}.`,
+      fields: [{ name: 'Reason', value: reason }, ...(durationMs ? [{ name: 'Duration', value: `${durationMs / 60_000} minutes` }] : [])],
+    })], allowedMentions: { parse: [] } });
+  } catch {
+    // Closed DMs cannot undo a completed moderation action; the private case retains the reason.
+  }
 }
 
