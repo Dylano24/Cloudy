@@ -1,4 +1,4 @@
-import { registerReport } from '../../services/reportCaseService.js';
+import { registerReport, reportStaffRole } from '../../services/reportCaseService.js';
 import {
   ActionRowBuilder,
   ApplicationCommandType,
@@ -86,10 +86,13 @@ export default {
     await InteractionHelper.safeDefer(submitted, { flags: MessageFlags.Ephemeral });
     const reason = submitted.fields.getTextInputValue('reason').trim();
 
+    const staffRoleId = reportStaffRole(interaction.guild, config);
     const logged = await logEvent({
       client,
       guildId: interaction.guildId,
       eventType: EVENT_TYPES.REPORT_FILE,
+      content: staffRoleId ? `<@&${staffRoleId}>` : null,
+      allowedMentions: staffRoleId ? { parse: [], roles: [staffRoleId] } : { parse: [] },
       components: buildReportActions(message.author.id),
       data: {
         title: 'New report',
