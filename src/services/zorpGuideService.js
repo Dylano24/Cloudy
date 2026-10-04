@@ -265,6 +265,7 @@ export function polishZorpGuideData(embedData, bulletEmoji) {
 
 export async function polishExistingZorpGuideOnce(client) {
   try {
+    logger.warn('[ZORP_POLISH_ONCE] verification run started');
     const channel = await resolveCloudyChannel(client, 'zorp', { textOnly: true });
     if (!channel?.isTextBased?.() || channel.isThread?.()) {
       logger.warn('[ZORP_POLISH_ONCE] ZORP channel unavailable.');
@@ -300,7 +301,7 @@ export async function polishExistingZorpGuideOnce(client) {
     }
 
     if (JSON.stringify(polished) === JSON.stringify(original)) {
-      logger.info(`[ZORP_POLISH_ONCE] Guide ${existing.id} already has the polished alignment.`);
+      logger.warn(`[ZORP_POLISH_ONCE] VERIFIED already_current guide=${existing.id} bullet=${bulletEmoji}`);
       return { ok: true, action: 'already_current', messageId: existing.id, bulletEmoji };
     }
 
@@ -309,7 +310,7 @@ export async function polishExistingZorpGuideOnce(client) {
     const updated = await existing.edit({ embeds });
     await registerCloudyEmbedMessage(updated, 'embed-builder');
 
-    logger.info(`[ZORP_POLISH_ONCE] UPDATED guide=${updated.id} bullet=${bulletEmoji}`);
+    logger.warn(`[ZORP_POLISH_ONCE] VERIFIED updated guide=${updated.id} bullet=${bulletEmoji}`);
     return { ok: true, action: 'updated', messageId: updated.id, bulletEmoji };
   } catch (error) {
     logger.error('[ZORP_POLISH_ONCE] Failed to polish the existing ZORP Guide:', error);
