@@ -6,7 +6,7 @@ import {
   Events,
   PermissionFlagsBits,
 } from 'discord.js';
-import { logger } from '../utils/logger.js';
+import { logger, startupLog } from '../utils/logger.js';
 import { createSingleFlight } from '../utils/singleFlight.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
@@ -50,7 +50,22 @@ function stripHtml(value = '') {
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/\s*\[(?:…|\.{3})\]\s*$/u, '')
     .trim();
+}
+
+export async function repairNitradoNewsText(message) {
+  const original = message.embeds.map(embed => embed.toJSON());
+  const cleanText = value => decodeHtml(decodeHtml(value)).replace(/\s*\[(?:…|\.{3})\]\s*$/u, '').trim();
+  const embeds = original.map(data => ({
+    ...data,
+    ...(data.title ? { title: cleanText(data.title) } : {}),
+    ...(data.description ? { description: cleanText(data.description) } : {}),
+  }));
+  if (JSON.stringify(embeds) === JSON.stringify(original)) return false;
+  await message.edit({ embeds });
+  startupLog(`Nitrado encoded news text repaired in message ${message.id}`);
+  return true;
 }
 
 function readMeta(html, key) {
@@ -325,6 +340,11 @@ export async function checkForNitradoUpdate(client) {
     const previousLink = await client.db?.get?.(LAST_NITRADO_KEY).catch(() => null);
     try {
       const recentMessages = await channel.messages.fetch({ limit: 100 });
+      for (const message of recentMessages.values()) {
+        if (message.author?.id === client.user.id && message.embeds.some(embed => /^https:\/\/server\.nitrado\.net\//i.test(embed.url || ''))) {
+          await repairNitradoNewsText(message);
+        }
+      }
       const alreadyPosted = recentMessages.some(message =>
         message.author.id === client.user.id && message.embeds.some(embed => embed.url === article.link)
       );
