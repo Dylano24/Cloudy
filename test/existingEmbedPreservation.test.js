@@ -52,6 +52,9 @@ test('future Save spacing is idempotent and preserves the exact editor serializa
 });
 
 test('manual Save changes the selected embed and keeps sibling embeds byte-for-byte', async () => {
+  const stored = new Map();
+  db.initialized = true; db.useFallback = false;
+  db.db = { get: async key => stored.get(key) || null, set: async (key, value) => { stored.set(key, value); return true; } };
   const message = existingMessage();
   message.embeds.push(new Embed({ title: 'Sibling', description: '   exact', color: 0xff0000 }));
   const sibling = message.embeds[1].toJSON();
@@ -72,6 +75,9 @@ test('manual Save changes the selected embed and keeps sibling embeds byte-for-b
 });
 
 test('manual Save keeps runtime values dynamic when editing from a live preview', async () => {
+  const stored = new Map();
+  db.initialized = true; db.useFallback = false;
+  db.db = { get: async key => stored.get(key) || null, set: async (key, value) => { stored.set(key, value); return true; } };
   const message = {
     id: 'catalog-dynamic',
     guildId: 'guild-dynamic',
