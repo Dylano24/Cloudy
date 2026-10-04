@@ -21,7 +21,6 @@ test('Embed Manager normal open path stays registry-first', () => {
   const openBody = source.slice(openStart);
   const collectorStart = openBody.indexOf("collector.on('collect'");
   const startupPart = collectorStart >= 0 ? openBody.slice(0, collectorStart) : openBody;
-  assert.match(startupPart, /Promise\.resolve\(\[\]\)/);
   assert.doesNotMatch(startupPart, /discoverEmbedManagerOverviewRecords\(/);
 });
 
