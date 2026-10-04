@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger.js';
+import { evaluateSafeMath } from '../utils/safeMathEvaluator.js';
 
 const COUNTING_GAME_KEY_PREFIX = 'countingGame:';
 const COUNTING_GAME_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -126,8 +127,7 @@ const COUNTING_SYSTEMS = {
       try {
         const evaluate = (expr) => {
           if (!expr || /[^0-9+\-*/().]/.test(expr)) return null;
-          // eslint-disable-next-line no-new-func
-          return Function(`"use strict"; return (${expr});`)();
+          return evaluateSafeMath(expr);
         };
 
         if (parts.length === 1) {
