@@ -1,4 +1,5 @@
 import { createEmbed } from '../embeds.js';
+import { CLOUDY_RED_COLOR } from '../embedColorPolicy.js';
 
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const TICKET_REPLY_DELETE_MS = 10_000;
@@ -13,6 +14,7 @@ export function forceCloudyTicketFooter(embed) {
   payload.footer = { text: CLOUDY_TICKET_FOOTER };
   if (!payload.fields?.length && payload.title === 'Ticket claimed') payload.color = 0x00C49D;
   if (!payload.fields?.length && payload.title === 'Ticket unclaimed') payload.color = 0x000000;
+  if (!payload.fields?.length && payload.title === 'Ticket deleted') payload.color = CLOUDY_RED_COLOR;
 
   // Keep the main ticket message on the current logo-free layout from its
   // first render and remove any legacy thumbnail/image fields.
