@@ -80,6 +80,8 @@
     "scripts/patch-ticket-report-lifecycle.js",
     "scripts/patch-zorp-builder-registration.js",
     "scripts/patch-requested-ticket-catalog.js",
-    "scripts/patch-runtime-performance.js"
+    "scripts/patch-runtime-performance.js",
+    "scripts/patch-builder-audit.js"
   ]
 }
+
