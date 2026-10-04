@@ -346,7 +346,7 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
     
     await hideClosedTicket(channel);
 
-    const messages = await channel.messages.fetch();
+    const messages = await channel.messages.fetch({ limit: 50 });
     const ticketMessage = messages.find(m => 
       m.embeds.length > 0 && 
       m.embeds[0].title?.startsWith('Ticket #')
@@ -439,7 +439,7 @@ export async function claimTicket(channel, claimer) {
     
     await saveTicketData(channel.guild.id, channel.id, ticketData);
     
-    const messages = await channel.messages.fetch();
+    const messages = await channel.messages.fetch({ limit: 50 });
     const ticketMessage = messages.find(m => 
       m.embeds.length > 0 && 
       m.embeds[0].title?.startsWith('Ticket #')
@@ -565,7 +565,7 @@ export async function reopenTicket(channel, reopener) {
       logger.warn(`Could not restore access for user ${ticketData.userId}:`, error.message);
     }
     
-    const messages = await channel.messages.fetch();
+    const messages = await channel.messages.fetch({ limit: 50 });
     const ticketMessage = messages.find(m => 
       m.embeds.length > 0 && 
       m.embeds[0].title?.startsWith('Ticket #')
@@ -888,7 +888,7 @@ export async function unclaimTicket(channel, unclaimer) {
     
     await saveTicketData(channel.guild.id, channel.id, ticketData);
     
-    const messages = await channel.messages.fetch();
+    const messages = await channel.messages.fetch({ limit: 50 });
     const ticketMessage = messages.find(m => 
       m.embeds.length > 0 && 
       m.embeds[0].title?.startsWith('Ticket #')
@@ -998,7 +998,7 @@ export async function updateTicketPriority(channel, priority, updater) {
       }
     }
     
-    const messages = await channel.messages.fetch();
+    const messages = await channel.messages.fetch({ limit: 50 });
     const ticketMessage = messages.find(m => 
       m.embeds.length > 0 && 
       m.embeds[0].title?.startsWith('Ticket #')
