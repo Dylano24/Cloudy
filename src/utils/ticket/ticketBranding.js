@@ -1,7 +1,7 @@
 import { createEmbed } from '../embeds.js';
 
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-export const TICKET_REPLY_DELETE_MS = 2 * 60 * 1000;
+export const TICKET_REPLY_DELETE_MS = 10_000;
 
 // Kept for compatibility with existing imports. The current ticket layout is logo-free.
 export const CLOUDY_TICKET_C_IMAGE =
