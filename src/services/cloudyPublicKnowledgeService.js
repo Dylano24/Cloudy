@@ -104,15 +104,22 @@ function questionTokens(question) {
     .filter(token => token.length > 2);
 }
 
+export async function getCloudyKnowledgeChannels(guild) {
+  const fetched = await guild.channels.fetch().catch(() => guild.channels.cache);
+  const channels = new Map([...(fetched?.values?.() || [])].filter(Boolean).map(channel => [channel.id, channel]));
+  for (const channel of guild.channels.cache?.values?.() || []) channels.set(channel.id, channel);
+  const active = await guild.channels.fetchActiveThreads?.().catch(() => null);
+  for (const channel of active?.threads?.values?.() || []) channels.set(channel.id, channel);
+  return [...channels.values()];
+}
+
 export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
   const client = actor?.client;
   const guild = actor?.guild;
   const userId = actor?.user?.id || actor?.author?.id;
   if (!client || !guild || !userId) return { text: '', count: 0, channels: 0 };
 
-  const member = actor.member?.id === userId
-    ? actor.member
-    : await guild.members.fetch({ user: userId, force: true }).catch(() => null);
+  const member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
   const botMember = guild.members.me
     || await guild.members.fetchMe?.({ force: true }).catch(() => null);
   if (!member || !botMember) return { text: '', count: 0, channels: 0 };
@@ -141,18 +148,17 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
     .slice(0, commandQuestion ? 100 : 30)
     .map(({ score: _score, ...command }) => command);
 
-  const fetched = await guild.channels.fetch().catch(() => guild.channels.cache);
-  const resolved = [...(fetched?.values?.() || [])].filter(channel => channel?.isTextBased?.() && !channel.isThread?.())
+  const resolved = (await getCloudyKnowledgeChannels(guild))
     .map(channel => ({ key: channel.id, channel }));
-  const directory = resolved.filter(({ channel }) => channel.permissionsFor(member)?.has(required)
-    && channel.permissionsFor(botMember)?.has(required))
+  const directory = resolved.filter(({ channel }) => channel.permissionsFor(member)?.has(PermissionFlagsBits.ViewChannel)
+    && channel.permissionsFor(botMember)?.has(PermissionFlagsBits.ViewChannel))
     .map(({ channel }) => ({ channelId: channel.id, channelName: channel.name }));
 
   const rows = [];
   let readableChannels = 0;
 
   for (const { key, channel } of resolved) {
-    if (!channel?.messages?.fetch || channel.isThread?.()) continue;
+    if (!channel?.messages?.fetch) continue;
     if (!channel.permissionsFor(member)?.has(required) || !channel.permissionsFor(botMember)?.has(required)) continue;
 
     readableChannels += 1;

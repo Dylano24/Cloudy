@@ -72,8 +72,8 @@ export async function logDeletedMessage(message) {
     formatLogLine('Message created', Number.isFinite(message.createdTimestamp) ? `<t:${Math.floor(message.createdTimestamp / 1000)}:R>` : 'Unknown'),
   ];
 
-  metaLines.push(formatLogLine('Author type', message.author?.bot ? 'Bot' : message.author ? 'Member' : 'Unknown'));
   let messageBody = null;
+  let fullBody = message.content || '';
   if (message.content) {
     messageBody = message.content.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH
       ? `${message.content.substring(0, MAX_LOGGED_MESSAGE_CONTENT_LENGTH - 3)}...`
@@ -81,18 +81,23 @@ export async function logDeletedMessage(message) {
   }
 
   if (!messageBody && message.embeds?.length) {
-    messageBody = message.embeds.map(embed => [embed.title, embed.description, ...(embed.fields || []).map(field => `${field.name}: ${field.value}`)].filter(Boolean).join('\n')).join('\n\n').slice(0, MAX_LOGGED_MESSAGE_CONTENT_LENGTH);
+    fullBody = message.embeds.map(embed => [embed.title, embed.description, ...(embed.fields || []).map(field => `${field.name}: ${field.value}`)].filter(Boolean).join('\n')).join('\n\n');
+    messageBody = fullBody.slice(0, MAX_LOGGED_MESSAGE_CONTENT_LENGTH);
   }
   if (!messageBody && message.partial) messageBody = 'Message content was not cached before deletion.';
 
   if (message.attachments?.size > 0) {
     metaLines.push(formatLogLine('Attachments', String(message.attachments.size)));
+    const links = [...message.attachments.values()].map(attachment => attachment.url).filter(Boolean);
+    fullBody += `\n\nAttachments:\n${links.join('\n')}`;
   }
 
   await logEvent({
     client: message.client,
     guildId: message.guild.id,
     eventType: EVENT_TYPES.MESSAGE_DELETE,
+    attachments: fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH || message.attachments?.size > 0
+      ? [{ attachment: Buffer.from(fullBody), name: `deleted-message-${message.id}.txt` }] : [],
     data: {
       title: 'Message deleted',
       lines: metaLines,

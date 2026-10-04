@@ -1,5 +1,5 @@
-﻿import 'dotenv/config';
-import { Client, Collection, GatewayIntentBits } from 'discord.js';
+import 'dotenv/config';
+import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';
 import cron from 'node-cron';
@@ -25,6 +25,7 @@ import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 class TitanBot extends Client {
   constructor() {
     super({
+      partials: [Partials.Message, Partials.Channel],
       intents: [
         
         GatewayIntentBits.Guilds,                        
