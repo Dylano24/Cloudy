@@ -35,7 +35,7 @@ export function registerAppealsApi(app, client) {
 
       const appeal = req.body || {};
       const scope = appeal.scope === 'rust' ? 'rust' : appeal.scope === 'discord' ? 'discord' : '';
-      const action = (scope === 'rust' ? ['Ban'] : ['Mute', 'Ban']).includes(appeal.action) ? appeal.action : '';
+      const action = (scope === 'rust' ? ['Ban', 'Other'] : ['Mute', 'Ban', 'Other']).includes(appeal.action) ? appeal.action : '';
       const discordIdentity = clean(appeal.discordIdentity, 100);
       const gamertag = clean(appeal.gamertag, 100);
       const email = clean(appeal.email, 254);
