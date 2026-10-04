@@ -126,7 +126,7 @@ const COUNTING_SYSTEMS = {
       try {
         const evaluate = (expr) => {
           if (!expr || /[^0-9+\-*/().]/.test(expr)) return null;
-          // eslint-disable-next-line no-new-func
+           
           return Function(`"use strict"; return (${expr});`)();
         };
 
