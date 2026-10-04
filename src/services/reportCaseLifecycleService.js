@@ -142,13 +142,10 @@ async function publishStaffLog(client, guild, record, audience, event, actorId) 
   const entry = record.cases[audience];
   const key = event === 'close' ? 'closeLogId' : event === 'delete' ? 'deleteLogId' : 'createdLogId';
   const existing = await fetchMessage(logs, entry[key]);
-  const config = await getGuildConfig(client, guild.id);
-  const staffId = reportStaffRole(guild, config);
-  const notify = event === 'close' && audience === 'target' && !existing;
-  const payload = { content: notify ? (staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`) : null,
+  const payload = { content: null,
     embeds: [logEmbed(record, audience, event, actorId)],
     components: event === 'close' ? staffDeleteControls(record, audience) : [],
-    allowedMentions: { parse: [], users: notify && !staffId ? [guild.ownerId] : [], roles: notify && staffId ? [staffId] : [] } };
+    allowedMentions: { parse: [] } };
   const message = existing?.author?.id === client.user.id ? await existing.edit(payload) : await logs.send(payload);
   entry[key] = message.id;
   await save(client, record);
@@ -160,11 +157,11 @@ async function refreshLogControls(client, guild, record, audience) {
   const entry = record.cases[audience];
   const created = await fetchMessage(logs, entry.createdLogId);
   if (created?.author?.id === client.user.id) {
-    await created.edit({ components: [], allowedMentions: { parse: [] } });
+    await created.edit({ content: null, components: [], allowedMentions: { parse: [] } });
   }
   const closed = await fetchMessage(logs, entry.closeLogId);
   if (closed?.author?.id === client.user.id) {
-    await closed.edit({ components: entry.deletedAt ? [] : staffDeleteControls(record, audience), allowedMentions: { parse: [] } });
+    await closed.edit({ content: null, components: entry.deletedAt ? [] : staffDeleteControls(record, audience), allowedMentions: { parse: [] } });
   }
 }
 
