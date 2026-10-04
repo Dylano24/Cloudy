@@ -15,39 +15,6 @@ export const VERIFIED_CLOUDY_TEXT = Object.freeze({
   supportText: 'Contact us',
 });
 
-const PUBLIC_KNOWLEDGE_CHANNEL_KEYS = Object.freeze([
-  'rules',
-  'settings',
-  'wipes',
-  'restart',
-  'population',
-  'terms',
-  'privacy',
-  'termsOfSale',
-  'announcements',
-  'nextWipe',
-  'serverStatus',
-  'votes',
-  'linkYourAccount',
-  'freeKits',
-  'vip',
-  'queueSkip',
-  'contentCreator',
-  'officialStore',
-  'leaderboard',
-  'giveaway',
-  'boost',
-  'informations',
-  'zorp',
-  'rustPatch',
-  'nitradoPatch',
-  'staffList',
-  'contactSupport',
-  'security',
-  'appeal',
-  'shop',
-]);
-
 function channelUrl(guildId, channelId) {
   return channelId ? `https://discord.com/channels/${guildId}/${channelId}` : null;
 }
@@ -174,10 +141,12 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
     .slice(0, commandQuestion ? 100 : 30)
     .map(({ score: _score, ...command }) => command);
 
-  const resolved = await Promise.all(PUBLIC_KNOWLEDGE_CHANNEL_KEYS.map(async key => {
-    const channel = await resolveCloudyChannel(client, key, { guild, textOnly: true });
-    return { key, channel };
-  }));
+  const fetched = await guild.channels.fetch().catch(() => guild.channels.cache);
+  const resolved = [...(fetched?.values?.() || [])].filter(channel => channel?.isTextBased?.() && !channel.isThread?.())
+    .map(channel => ({ key: channel.id, channel }));
+  const directory = resolved.filter(({ channel }) => channel.permissionsFor(member)?.has(required)
+    && channel.permissionsFor(botMember)?.has(required))
+    .map(({ channel }) => ({ channelId: channel.id, channelName: channel.name }));
 
   const rows = [];
   let readableChannels = 0;
@@ -219,10 +188,12 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
     .reverse();
 
   const payload = {
+    guildId: guild.id,
+    readableChannelDirectory: directory,
     verifiedCloudyFacts: verified,
     registeredSlashCommands: relevantCommands,
     readablePublicChannelMessages: selected,
-    instruction: 'Answer only from these verified facts, registered slash commands, and readable public channel messages. Never invent a command, URL, product, purchase process, kit claim step, or server fact.',
+    instruction: 'Use the readable channel directory to link the actual server channels with <#channelId>. Answer only from these verified facts, registered slash commands, and readable public channel messages. Never invent a command, URL, product, purchase process, kit claim step, or server fact.',
   };
 
   let text = JSON.stringify(payload);
