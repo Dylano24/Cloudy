@@ -77,6 +77,13 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
     record.cases = {};
     if (record.caseChannelId) record.cases.target = { channelId: record.caseChannelId, messageId: record.memberMessageIds?.at(-1) };
   }
+  if (!activeAudiences.includes('target') && record.cases.target) {
+    const staleTarget = record.cases.target;
+    const staleChannel = await fetchChannel(guild, staleTarget.channelId);
+    if (staleChannel) await staleChannel.delete(`Report ${record.messageId}: target case not required after ban`);
+    delete record.cases.target;
+    await save(client, syncAliases(record));
+  }
   // Persist each channel before creating the next one so notification retries
   // resume the same pair rather than creating duplicate case channels.
   for (const audience of activeAudiences) {
