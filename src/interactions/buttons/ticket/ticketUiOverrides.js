@@ -27,6 +27,7 @@ import { deleteTicketSafely as deleteTicket } from '../../../services/ticketDele
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
 import { logger } from '../../../utils/logger.js';
+import { buildUserErrorEmbed } from '../../../utils/embeds.js';
 
 const PANEL_STATE_PRECHECK_MS = 1200;
 export const TICKET_CREATION_LIMIT_PRECHECK_MS = 600;
@@ -63,30 +64,32 @@ async function precheckTicketCreationLimit(guild, userId, config) {
   }
 }
 
-async function requireStaff(interaction, client, action) {
+async function requireStaff(interaction, client, action, componentAcknowledged = false) {
+  const reject = async (type, message) => {
+    if (!componentAcknowledged) return replyUserError(interaction, { type, message });
+
+    // deferUpdate acknowledges the public ticket message. Permission errors must
+    // use a private follow-up, never edit that public message's original reply.
+    return interaction.followUp({
+      embeds: [buildUserErrorEmbed(type, message)],
+      components: [],
+      flags: MessageFlags.Ephemeral,
+    });
+  };
   const context = await getTicketPermissionContext({ client, interaction });
 
   if (context.ticketDataLookupFailed) {
-    await replyUserError(interaction, {
-      type: ErrorTypes.UNKNOWN,
-      message: 'The ticket database is temporarily unavailable. Please try again.',
-    });
+    await reject(ErrorTypes.UNKNOWN, 'The ticket database is temporarily unavailable. Please try again.');
     return null;
   }
 
   if (!context.ticketData) {
-    await replyUserError(interaction, {
-      type: ErrorTypes.VALIDATION,
-      message: 'This action can only be used in a valid ticket channel.',
-    });
+    await reject(ErrorTypes.VALIDATION, 'This action can only be used in a valid ticket channel.');
     return null;
   }
 
   if (!context.canManageTicket) {
-    await replyUserError(interaction, {
-      type: ErrorTypes.PERMISSION,
-      message: `Only the staff team can ${action}.`,
-    });
+    await reject(ErrorTypes.PERMISSION, `Only the staff team can ${action}.`);
     return null;
   }
 
@@ -178,12 +181,12 @@ const claimTicketHandler = {
   name: 'ticket_claim',
   async execute(interaction, client) {
     try {
-      const context = await requireStaff(interaction, client, 'claim tickets');
-      if (!context) return;
-
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferUpdate();
       }
+
+      const context = await requireStaff(interaction, client, 'claim tickets', true);
+      if (!context) return;
 
       await claimTicket(interaction.channel, interaction.user);
     } catch (error) {
@@ -376,12 +379,12 @@ const unclaimTicketHandler = {
   name: 'ticket_unclaim',
   async execute(interaction, client) {
     try {
-      const context = await requireStaff(interaction, client, 'unclaim tickets');
-      if (!context) return;
-
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferUpdate();
       }
+
+      const context = await requireStaff(interaction, client, 'unclaim tickets', true);
+      if (!context) return;
 
       await unclaimTicket(interaction.channel, interaction.member);
     } catch (error) {

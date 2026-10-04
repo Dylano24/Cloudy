@@ -11,7 +11,7 @@ import { wrapServiceBoundary } from '../../utils/errorHandler.js';
  * Award XP to a member. Returns null when XP is skipped (disabled/invalid amount).
  * Throws on storage or unexpected failures.
  */
-export const addXp = wrapServiceBoundary(async function addXp(client, guild, member, xpToAdd) {
+export const addXp = wrapServiceBoundary(async function addXp(client, guild, member, xpToAdd, { messageAward = false } = {}) {
   const lockKey = `leveling:${guild.id}:${member.user.id}`;
   return await Mutex.runExclusive(lockKey, async () => {
     if (!xpToAdd || xpToAdd <= 0) {
@@ -26,6 +26,15 @@ export const addXp = wrapServiceBoundary(async function addXp(client, guild, mem
 
     const levelData = await getUserLevelData(client, guild.id, member.user.id);
 
+    if (messageAward) {
+      // Concurrent messages must check the latest saved timestamp under the
+      // same lock as the award. Manual XP operations retain their behavior.
+      const cooldownTime = config.xpCooldown || 60;
+      if (Date.now() - (levelData.lastMessage || 0) < cooldownTime * 1000) {
+        return null;
+      }
+    }
+
     levelData.xp += xpToAdd;
     levelData.totalXp += xpToAdd;
     levelData.lastMessage = Date.now();
@@ -33,6 +42,7 @@ export const addXp = wrapServiceBoundary(async function addXp(client, guild, mem
     let xpNeededForNextLevel = getXpForLevel(levelData.level);
     let didLevelUp = false;
     const initialLevel = levelData.level;
+    const roleRewards = [];
 
     while (levelData.xp >= xpNeededForNextLevel && levelData.level < 1000) {
       levelData.xp -= xpNeededForNextLevel;
@@ -43,8 +53,14 @@ export const addXp = wrapServiceBoundary(async function addXp(client, guild, mem
       logger.info(`🎉 ${member.user.tag} leveled up to level ${levelData.level} in ${guild.name}`);
 
       if (config.roleRewards && config.roleRewards[levelData.level]) {
-        await awardRoleReward(guild, member, config.roleRewards[levelData.level], levelData.level);
+        roleRewards.push({ roleId: config.roleRewards[levelData.level], level: levelData.level });
       }
+    }
+
+    // Never announce a level-up or grant its rewards until XP is persisted.
+    await saveUserLevelData(client, guild.id, member.user.id, levelData);
+    for (const reward of roleRewards) {
+      await awardRoleReward(guild, member, reward.roleId, reward.level);
     }
 
     if (didLevelUp) {
@@ -73,13 +89,11 @@ export const addXp = wrapServiceBoundary(async function addXp(client, guild, mem
       }
     }
 
-    await saveUserLevelData(client, guild.id, member.user.id, levelData);
-
     return {
       level: levelData.level,
       xp: levelData.xp,
       totalXp: levelData.totalXp,
-      xpNeeded: getXpForLevel(levelData.level + 1),
+      xpNeeded: levelData.level === 1000 ? xpNeededForNextLevel : getXpForLevel(levelData.level + 1),
       leveledUp: didLevelUp,
     };
   });
@@ -129,7 +143,7 @@ async function sendLevelUpAnnouncement(guild, member, levelData, config) {
       .replace(/{user}/g, member.toString())
       .replace(/{level}/g, levelData.level)
       .replace(/{xp}/g, levelData.xp)
-      .replace(/{xpNeeded}/g, getXpForLevel(levelData.level + 1));
+      .replace(/{xpNeeded}/g, getXpForLevel(Math.min(levelData.level + 1, 1000)));
 
     await levelUpChannel.send(message).catch(error => {
       logger.error(`Failed to send level up message in channel ${levelUpChannel.id}:`, error);

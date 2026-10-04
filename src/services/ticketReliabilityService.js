@@ -20,6 +20,7 @@ import {
 import { logger } from '../utils/logger.js';
 import { requireTicketCloseReason } from './ticketActionPolicy.js';
 import { deleteTicketCreationConfirmation } from './ticketCreationConfirmationService.js';
+import { getPinnedMessages } from '../utils/messagePins.js';
 
 const creationQueues = new Map();
 const mutationQueues = new Map();
@@ -153,7 +154,7 @@ async function findMainTicketMessage(channel, ticketData = null, preferredMessag
 
   if (typeof channel.messages.fetchPins === 'function') {
     const pinned = await channel.messages.fetchPins().catch(() => null);
-    const found = pinned?.items?.find?.(isMain);
+    const found = getPinnedMessages(pinned).find(isMain);
     if (found) return found;
   } else if (typeof channel.messages.fetchPinned === 'function') {
     const pinned = await channel.messages.fetchPinned().catch(() => null);

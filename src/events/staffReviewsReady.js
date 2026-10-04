@@ -8,6 +8,8 @@ import {
   getOwnerMembers,
 } from '../services/staffReviewsService.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
+import { logger } from '../utils/logger.js';
+import { createSingleFlight } from '../utils/singleFlight.js';
 
 const PANEL_REFRESH_MS = 5 * 60 * 1000;
 
@@ -83,11 +85,18 @@ export default {
 
   /** Build the panel after startup and refresh it as Owner membership changes. */
   async execute(client) {
+    const refresh = createSingleFlight(async () => {
+      try {
+        await refreshStaffReviewsPanel(client);
+      } catch (error) {
+        logger.warn(`Staff reviews panel refresh failed: ${error.message}`);
+      }
+    });
     const timer = setTimeout(async () => {
-      await refreshStaffReviewsPanel(client);
+      await refresh();
 
       const refreshInterval = setInterval(() => {
-        void refreshStaffReviewsPanel(client);
+        void refresh();
       }, PANEL_REFRESH_MS);
       refreshInterval.unref?.();
     }, 2500);
