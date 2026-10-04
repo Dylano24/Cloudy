@@ -93,11 +93,13 @@ test('Delete asks for a required reason before acting; two adjacent private case
   for (const entry of target.creation.permissionOverwrites) assert.equal(PermissionOverwrites.resolve(entry, {}).id, entry.id);
   assert.ok(!target.creation.permissionOverwrites.some(entry => entry.id === 'reporter'));
   const reporterNotice = reporter.messages.cache.get(record.cases.reporter.messageId), targetNotice = target.messages.cache.get(record.cases.target.messageId);
-  assert.equal(reporterNotice.content, '<@reporter>');
-  assert.deepEqual(reporterNotice.allowedMentions, { parse: [], users: ['reporter'], roles: [] });
+  assert.equal(reporterNotice.content, '<@reporter> <@&staff-role>');
+  assert.deepEqual(reporterNotice.allowedMentions, { parse: [], users: ['reporter'], roles: ['staff-role'] });
   assert.doesNotMatch(JSON.stringify(json(reporterNotice.embeds[0])), /Private action reason|Reason|staff/);
   assert.equal(targetNotice.content, '<@target> <@&staff-role>');
   assert.match(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
+  assert.equal(json(targetNotice.embeds[0]).description, undefined);
+  assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
   assert.equal(f.payloads.filter(message => message.channelId === 'reports').length, 0);
   assert.deepEqual(f.report.embeds, snapshot.embeds);
@@ -147,6 +149,8 @@ test('target Close hides only their own case, notifies Staff once in ticket oran
   await handleReportCaseControl(f.interaction(f.staff.user, log, REPORT_LOG_CHANNEL_ID), f.client, ['delete', 'report', 'target']);
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.ok(record.cases.target.deletedAt); assert.equal(record.cases.reporter.deletedAt, undefined);
+  assert.deepEqual(log.components, []);
+  assert.deepEqual(f.logs.messages.cache.get(record.cases.target.createdLogId).components, []);
   assert.ok(f.channels.has(record.cases.reporter.channelId));
   const deleted = f.logs.messages.cache.get(record.cases.target.deleteLogId);
   assert.equal(json(deleted.embeds[0]).color, TICKET_EVENT_STYLES.delete.color);
@@ -171,6 +175,13 @@ test('reporter Close removes only reporter access; Staff can also Close and dele
   const log = f.logs.messages.cache.get(record.cases.reporter.closeLogId);
   await handleReportCaseControl(f.interaction(f.staff.user, log, REPORT_LOG_CHANNEL_ID), f.client, ['delete', 'report', 'reporter']);
   assert.ok(f.channels.has(target.channelId));
+  assert.deepEqual(log.components, []);
+  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  const targetLog = f.logs.messages.cache.get(record.cases.target.closeLogId);
+  assert.equal(targetLog.components.length, 1);
+  await handleReportCaseControl(f.interaction(f.staff.user, targetLog, REPORT_LOG_CHANNEL_ID), f.client, ['delete', 'report', 'target']);
+  assert.deepEqual(targetLog.components, []);
+  assert.deepEqual(log.components, []);
 });
 
 test('24-hour countdown updates both notices without new messages, survives restart and expires both channels with red logs', async t => {
