@@ -40,9 +40,9 @@ import {
 
 const PAGE_SIZE = 25;
 const MANAGER_IDLE_TIMEOUT = 5 * 60_000;
-const HISTORY_SCAN_TTL = 5 * 60_000;
+const HISTORY_SCAN_TTL = 60 * 60_000;
 const CLOSED_MANAGER_ERROR_CODES = new Set([10008, 10062, 50027]);
-const OVERVIEW_DISCOVERY_CONCURRENCY = 6;
+const OVERVIEW_DISCOVERY_CONCURRENCY = 3;
 const historyScanTimes = new Map();
 const historyScanJobs = new Map();
 const activeEmbedManagerSaves = new Set();
@@ -666,7 +666,7 @@ async function refreshRecentEmbedHistory(guild, botUserId, force = false) {
 
     const job = (async () => {
         try {
-            const scan = await scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPerChannel: 100 });
+            const scan = await scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPerChannel: 25 });
             await reconcileEmbedRegistry(guild);
             historyScanTimes.set(guild.id, Date.now());
             return scan;
