@@ -91,13 +91,16 @@ test('website appeals deliver Discord and Rust forms to the current channel and 
   const body = { scope: 'discord', action: 'Ban', discordIdentity: 'member', gamertag: 'player', email: 'member@example.com', punishmentReason: 'a'.repeat(1000), punishmentJustified: 'b'.repeat(1000), acceptanceReason: 'c'.repeat(1000), futureChanges: 'd'.repeat(1000), evidence: 'e'.repeat(1000), additionalInfo: 'f'.repeat(1000) };
   assert.equal((await submit(body, 'wrong')).code, 403);
   assert.equal((await submit({ ...body, email: '' })).code, 400);
-  for (const scope of ['discord', 'rust']) assert.equal((await submit({ ...body, scope, action: 'Other' })).code, 400);
   assert.equal((await submit({ ...body, scope: 'rust', action: 'Mute' })).code, 400);
-  for (const [scope, action] of [['discord', 'Ban'], ['rust', 'Ban'], ['discord', 'Mute']]) assert.equal((await submit({ ...body, scope, action })).code, 200);
-  assert.equal(sent.length, 3);
-  assert.equal(reviews.size, 3);
+  for (const [scope, action] of [['discord', 'Ban'], ['rust', 'Ban'], ['discord', 'Mute'], ['discord', 'Other'], ['rust', 'Other']]) {
+    assert.equal((await submit({ ...body, scope, action })).code, 200);
+  }
+  assert.equal(sent.length, 5);
+  assert.equal(reviews.size, 5);
   assert.equal(sent[0].components[0].toJSON().components[0].label, 'Unban');
   assert.equal(sent[2].components[0].toJSON().components[0].label, 'Unmute');
+  assert.match(sent[3].embeds[0].title, /Discord appeal — Other/);
+  assert.match(sent[4].embeds[0].title, /Rust server appeal — Other/);
   assert.equal(sent[0].embeds[0].fields.every(field => field.value.length <= 500), true);
   assert.equal(JSON.parse(sent[0].files[0].attachment.toString()).futureChanges.length, 1000);
   assert.match(sent[1].embeds[0].title, /Rust server appeal/);
