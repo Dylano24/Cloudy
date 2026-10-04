@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, OverwriteType, PermissionOverwrites, PermissionsBitField } from 'discord.js';
 import { db } from '../src/utils/database.js';
-import { buildReportActions, handleReportAction, handleReportModeration } from '../src/services/reportActionService.js';
+import { buildReportActions, handleReportAction, handleReportModeration, reportActionAllowed } from '../src/services/reportActionService.js';
 import { ModerationService } from '../src/services/moderation/moderationService.js';
 import { registerReport, reportKey, REPORT_CATEGORY_ID, REPORT_CASE_MS, REPORT_LOG_CHANNEL_ID, restoreReportCaseTimers, handleReportCaseControl, publishReportOutcome, deleteReportCase } from '../src/services/reportCaseService.js';
 import { TICKET_EVENT_STYLES } from '../src/utils/ticket/ticketLogging.js';
 import { applySavedResponsePayloadTemplates } from '../src/events/fullResponseCatalogReady.js';
 import { saveEmbedTemplateDecoration } from '../src/services/embedTemplateService.js';
+import { CLOUDY_GREEN_COLOR } from '../src/utils/embedColorPolicy.js';
 
 const settle = async () => { await new Promise(resolve => { setImmediate(resolve); }); };
 const json = embed => embed.toJSON?.() || embed;
@@ -18,13 +19,17 @@ function fixture() {
   const storage = { get: async key => structuredClone(values.get(key) || null), set: async (key, value) => { values.set(key, structuredClone(value)); return true; }, list: async prefix => [...values.keys()].filter(key => key.startsWith(prefix)) };
   db.initialized = true; db.useFallback = false; db.connectionType = 'test'; db.db = storage;
   const member = id => ({ id, user: { id, tag: id, send: async payload => { dms.push({ id, payload }); } }, permissions: new PermissionsBitField(), roles: { cache: new Collection() } });
-  const staff = member('staff'), reporter = member('reporter'), target = member('target'), owner = member('owner');
-  staff.roles.cache.set('staff-role', { name: 'Staff' });
-  const members = new Collection([staff, reporter, target, owner].map(entry => [entry.id, entry]));
+  const staff = member('staff'), reporter = member('reporter'), target = member('target'), owner = member('owner'), roleOwner = member('role-owner');
+  staff.roles.cache.set('staff-role', { id: 'staff-role', name: 'Staff' });
+  roleOwner.roles.cache.set('owner-role', { id: 'owner-role', name: 'Owner' });
+  const members = new Collection([staff, reporter, target, owner, roleOwner].map(entry => [entry.id, entry]));
   const client = { db: storage, user: { id: 'bot' }, users: { fetch: async id => members.get(id).user } };
   const channels = new Collection();
   const guild = { id: `private-report-guild-${++fixtureNumber}`, name: 'Cloudy', ownerId: 'owner', client,
-    roles: { everyone: { id: 'everyone' }, cache: new Collection([['staff-role', { id: 'staff-role', name: 'Staff' }]]) },
+    roles: { everyone: { id: 'everyone' }, cache: new Collection([
+      ['staff-role', { id: 'staff-role', name: 'Staff' }],
+      ['owner-role', { id: 'owner-role', name: 'Owner' }],
+    ]) },
     members: { fetch: async id => members.get(id) }, channels: { cache: channels, fetch: async id => channels.get(id),
       setPositions: async data => { positions.push(data); },
       create: async data => { const ch = channel(`case-${channels.size}`, data.name); ch.creation = data; ch.rawPosition = data.position ?? channels.size; channels.set(ch.id, ch); return ch; } } };
@@ -67,7 +72,7 @@ function fixture() {
     return storage.get(reportKey(guild.id, report.id));
   }
   async function register() { await registerReport(client, report, { guildId: guild.id, reporterId: reporter.id, targetId: target.id, sourceChannelId: originalChannel.id, sourceMessageId: 'original-message' }); }
-  return { values, client, guild, staff, reporter, target, owner, reports, logs, channels, report, interaction, payloads, removed, dms, positions, submit, register };
+  return { values, client, guild, staff, reporter, target, owner, roleOwner, reports, logs, channels, report, interaction, payloads, removed, dms, positions, submit, register };
 }
 
 test('Delete asks for a required reason before acting; two adjacent private cases keep the New report intact', async t => {
@@ -89,7 +94,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.ok(reporter.creation.permissionOverwrites.some(entry => entry.id === 'reporter' && entry.allow));
   assert.ok(!reporter.creation.permissionOverwrites.some(entry => entry.id === 'target'));
   assert.ok(target.creation.permissionOverwrites.some(entry => entry.id === 'target' && entry.allow));
-  assert.ok(target.creation.permissionOverwrites.every(entry => entry.type === (entry.id === 'everyone' || entry.id === 'staff-role' ? OverwriteType.Role : OverwriteType.Member)));
+  assert.ok(target.creation.permissionOverwrites.every(entry => entry.type === (['everyone', 'staff-role', 'owner-role'].includes(entry.id) ? OverwriteType.Role : OverwriteType.Member)));
   // Discord must resolve banned/uncached users without looking up cached structures.
   for (const entry of target.creation.permissionOverwrites) assert.equal(PermissionOverwrites.resolve(entry, {}).id, entry.id);
   assert.ok(!target.creation.permissionOverwrites.some(entry => entry.id === 'reporter'));
@@ -102,7 +107,17 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.equal(json(targetNotice.embeds[0]).description, undefined);
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
-  assert.equal(f.payloads.filter(message => message.channelId === 'reports').length, 0);
+  const publicSuccess = f.payloads.filter(message => message.channelId === 'reports');
+  assert.equal(publicSuccess.length, 1);
+  const successData = json(publicSuccess[0].embeds[0]);
+  assert.equal(successData.title, 'Success');
+  assert.equal(successData.description, 'The reported message has been deleted.');
+  assert.equal(successData.color, CLOUDY_GREEN_COLOR);
+  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'report-1'));
+  assert.deepEqual(publicSuccess[0].allowedMentions, { parse: [] });
+  assert.equal(publicSuccess[0].flags, undefined);
+  t.mock.timers.tick(10_000); await settle();
+  assert.ok(f.reports.messages.cache.has(publicSuccess[0].id));
   assert.deepEqual(f.report.embeds, snapshot.embeds);
   assert.deepEqual(f.report.components, []);
   for (const entry of Object.values(record.cases)) {
@@ -235,7 +250,16 @@ test('later outcomes reuse the same pair and deadline without exposing a new rea
   assert.equal(f.removed.filter(id => id === 'original-message').length, 1);
 });
 
-test('Timeout passes the required reason and duration, sends no DM, and consumes the report controls', async t => {
+test('report permissions reserve Ban for the Owner role while Staff keeps Delete and Timeout', () => {
+  const f = fixture();
+  assert.equal(reportActionAllowed({ guild: f.guild, user: f.owner.user, member: f.owner }, 'ban'), false);
+  assert.equal(reportActionAllowed({ guild: f.guild, user: f.staff.user, member: f.staff }, 'ban'), false);
+  assert.equal(reportActionAllowed({ guild: f.guild, user: f.roleOwner.user, member: f.roleOwner }, 'ban'), true);
+  assert.equal(reportActionAllowed({ guild: f.guild, user: f.staff.user, member: f.staff }, 'delete'), true);
+  assert.equal(reportActionAllowed({ guild: f.guild, user: f.staff.user, member: f.staff }, 'timeout'), true);
+});
+
+test('Timeout passes the required reason and duration, sends no DM, consumes controls and posts persistent public success', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.register();
   const timedOut = [];
@@ -246,6 +270,14 @@ test('Timeout passes the required reason and duration, sends no DM, and consumes
   assert.equal(timedOut[0].reason, 'Private action reason'); assert.equal(timedOut[0].durationMs, 600_000);
   assert.equal(f.dms.length, 0);
   assert.deepEqual(f.report.components, []);
+  const success = f.payloads.find(message => message.channelId === 'reports');
+  const data = json(success.embeds[0]);
+  assert.equal(data.title, 'Success');
+  assert.equal(data.description, 'The reported member has been timed out.');
+  assert.equal(data.color, CLOUDY_GREEN_COLOR);
+  assert.ok(data.fields.some(field => field.name === 'Report' && field.value === 'report-1'));
+  t.mock.timers.tick(10_000); await settle();
+  assert.ok(f.reports.messages.cache.has(success.id));
 });
 
 test('Ban keeps the existing ban-only DM path and consumes the report controls', async t => {
@@ -253,9 +285,17 @@ test('Ban keeps the existing ban-only DM path and consumes the report controls',
   const f = fixture(); await f.register();
   const banned = [];
   t.mock.method(ModerationService, 'banUser', async data => { banned.push(data); });
-  const record = await f.submit('ban', f.owner.user);
+  const record = await f.submit('ban', f.roleOwner.user);
   assert.equal(banned[0].reason, 'Private action reason'); assert.equal(banned[0].notifyBeforeBan, true);
   assert.deepEqual(f.report.components, []);
+  const success = f.payloads.find(message => message.channelId === 'reports');
+  const successData = json(success.embeds[0]);
+  assert.equal(successData.title, 'Success');
+  assert.equal(successData.description, 'The reported member has been banned.');
+  assert.equal(successData.color, CLOUDY_GREEN_COLOR);
+  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'report-1'));
+  t.mock.timers.tick(10_000); await settle();
+  assert.ok(f.reports.messages.cache.has(success.id));
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   assert.match(JSON.stringify(json(reporter.embeds[0])), /banned/);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Private action reason/);
