@@ -8,7 +8,10 @@ const CLOUDY_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873
 const SOURCE_HEADER = 'cloudy-store-appeal-v1';
 
 function clean(value, max = 1000) {
-  const text = String(value ?? '').trim();
+  const text = String(value ?? '').replace(/&#(?:x([\da-f]+)|(\d+));/gi, (entity, hex, decimal) => {
+    const code = Number.parseInt(hex || decimal, hex ? 16 : 10);
+    return code <= 0x10FFFF ? String.fromCodePoint(code) : entity;
+  }).trim();
   if (!text) return '';
   return text.length > max ? text.slice(0, max) : text;
 }
@@ -33,8 +36,8 @@ export function registerAppealsApi(app, client) {
       const appeal = req.body || {};
       const scope = appeal.scope === 'rust' ? 'rust' : appeal.scope === 'discord' ? 'discord' : '';
       const action = (scope === 'rust' ? ['Ban'] : ['Mute', 'Ban']).includes(appeal.action) ? appeal.action : '';
-      const discordIdentity = scope === 'discord' ? clean(appeal.discordIdentity, 100) : '';
-      const gamertag = scope === 'rust' ? clean(appeal.gamertag, 100) : '';
+      const discordIdentity = clean(appeal.discordIdentity, 100);
+      const gamertag = clean(appeal.gamertag, 100);
       const email = clean(appeal.email, 254);
       const punishmentReason = clean(appeal.punishmentReason);
       const punishmentJustified = clean(appeal.punishmentJustified);
@@ -71,16 +74,18 @@ export function registerAppealsApi(app, client) {
         components: buildAppealActions(review),
         allowedMentions: { parse: [] },
         ...([punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo].some(value => value.length > 500)
-          ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, ...(scope === 'discord' ? { discordIdentity } : { gamertag }), email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
+          ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, discordIdentity, gamertag, email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
           : {}),
         embeds: [{
           title: `${scopeLabel} appeal — ${action}`,
-          description: `A new appeal was submitted through the Cloudy website.\n\n**Appeal ID:** ${id}`,
+          description: scope === 'rust'
+            ? `**Appeal ID:** ${id}\n\nA new appeal was submitted through the Cloudy website.`
+            : `A new appeal was submitted through the Cloudy website.\n\n**Appeal ID:** ${id}`,
           color: 0xFFFFFF,
           thumbnail: { url: CLOUDY_LOGO_URL },
           fields: [
-            ...(scope === 'discord' ? [{ name: 'Discord username / ID', value: shown(discordIdentity), inline: true }] : []),
-            ...(scope === 'rust' ? [{ name: 'Gamertag', value: shown(gamertag), inline: true }] : []),
+            { name: 'Discord username / ID', value: shown(discordIdentity), inline: true },
+            { name: 'Gamertag', value: shown(gamertag), inline: true },
             { name: 'Email', value: shown(email), inline: false },
             { name: 'Why were you muted/banned?', value: shown(punishmentReason), inline: false },
             { name: 'Was the punishment justified?', value: shown(punishmentJustified), inline: false },
@@ -89,7 +94,7 @@ export function registerAppealsApi(app, client) {
             { name: 'Evidence', value: shown(evidence), inline: false },
             { name: 'Additional information', value: shown(additionalInfo), inline: false },
           ],
-          footer: { text: `Cloudy Inc. • ${id}` },
+          footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
           timestamp: new Date().toISOString(),
         }],
       });

@@ -102,13 +102,13 @@ test('website appeals deliver Discord and Rust forms to the current channel and 
   assert.equal(JSON.parse(sent[0].files[0].attachment.toString()).futureChanges.length, 1000);
   assert.match(sent[1].embeds[0].title, /Rust server appeal/);
   assert.equal(sent[1].embeds[0].fields.find(field => field.name === 'Gamertag').value, 'player');
-  assert.equal(sent[1].embeds[0].fields.some(field => field.name === 'Discord username / ID'), false);
-  assert.equal(Object.hasOwn(JSON.parse(sent[1].files[0].attachment.toString()), 'discordIdentity'), false);
+  assert.equal(sent[1].embeds[0].fields.some(field => field.name === 'Discord username / ID'), true);
+  assert.equal(Object.hasOwn(JSON.parse(sent[1].files[0].attachment.toString()), 'discordIdentity'), true);
   for (const index of [0, 2]) {
     assert.equal(sent[index].embeds[0].fields.find(field => field.name === 'Discord username / ID').value, 'member');
     assert.equal(JSON.parse(sent[index].files[0].attachment.toString()).discordIdentity, 'member');
-    assert.equal(sent[index].embeds[0].fields.some(field => field.name === 'Gamertag'), false);
-    assert.equal(Object.hasOwn(JSON.parse(sent[index].files[0].attachment.toString()), 'gamertag'), false);
+    assert.equal(sent[index].embeds[0].fields.some(field => field.name === 'Gamertag'), true);
+    assert.equal(Object.hasOwn(JSON.parse(sent[index].files[0].attachment.toString()), 'gamertag'), true);
   }
   for (const payload of sent) {
     assert.equal(payload.embeds[0].fields.some(field => field.name === 'What will you do differently if your appeal is accepted?'), true);

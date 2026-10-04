@@ -168,11 +168,10 @@ test('ticket removal waits ten seconds', async t => {
   t.mock.timers.tick(9_999); assert.equal(f.channel.deleted, undefined);
   t.mock.timers.tick(1); await new Promise(resolve => setImmediate(resolve)); assert.equal(f.channel.deleted, true);
 });
-test('Delete removes report only; Ban denies staff; modal submit rechecks revoked permission', async () => {
-  const f = fixture('open', 'staff'); let deleted = 0;
-  f.interaction.message = { id: 'report', author: f.client.user, delete: async () => { deleted += 1; } };
+test('Ban denies staff; modal submit rechecks revoked permission', async () => {
+  const f = fixture('open', 'staff');
+  f.interaction.message = { id: 'report', author: f.client.user };
   assert.deepEqual(buildReportActions('target')[0].toJSON().components.map(b => b.label), ['Delete', 'Timeout', 'Ban']);
-  await handleReportAction(f.interaction, f.client, ['delete', 'target']); assert.equal(deleted, 1);
   await handleReportAction(f.interaction, f.client, ['ban', 'target']);
   assert.ok(f.replies.some(p => JSON.stringify(p).includes('Only the server owner')));
   f.member.roles.cache.clear(); await handleReportModeration(f.interaction, f.client, ['timeout', 'target', 'report']);

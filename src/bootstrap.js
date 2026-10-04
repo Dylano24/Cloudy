@@ -1,3 +1,4 @@
+import { installCloudyFooterOutput } from './utils/cloudyFooter.js';
 import 'dotenv/config';
 import { installBuilderSessionCleanup } from './utils/builderSessionCleanup.js';
 import { installDefaultEmbedColorPolicy } from './utils/embedColorPolicy.js';
@@ -62,6 +63,7 @@ function prepareDiscordConfig() {
 
 try {
   prepareDiscordConfig();
+  installCloudyFooterOutput();
   installDefaultEmbedColorPolicy();
   installBuilderSessionCleanup();
   installInteractionMessageLifecycle();
