@@ -132,9 +132,9 @@ test('ticket runtime output is never promoted into the system template catalog',
   );
 });
 
-test('only the ten explicit ticket lifecycle masters are permanent catalog templates', () => {
-  assert.equal(TICKET_LOG_CATALOG_TEMPLATES.length, 10);
-  assert.equal(new Set(TICKET_LOG_CATALOG_TEMPLATES.map(template => template.key)).size, 10);
+test('all eleven explicit ticket lifecycle masters including reopening are permanent catalog templates', () => {
+  assert.equal(TICKET_LOG_CATALOG_TEMPLATES.length, 11);
+  assert.equal(new Set(TICKET_LOG_CATALOG_TEMPLATES.map(template => template.key)).size, 11);
   assert.deepEqual(
     TICKET_LOG_CATALOG_TEMPLATES.map(template => template.key).sort(),
     [
@@ -145,6 +145,7 @@ test('only the ten explicit ticket lifecycle masters are permanent catalog templ
       'ticket-log:open',
       'ticket-log:pin',
       'ticket-log:priority',
+      'ticket-log:reopen',
       'ticket-log:transcript',
       'ticket-log:unclaim',
       'ticket-log:unpin',

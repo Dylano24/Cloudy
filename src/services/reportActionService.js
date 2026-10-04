@@ -4,6 +4,9 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { ModerationService } from './moderation/moderationService.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { createEmbed } from '../utils/embeds.js';
+import { loadReport, publishReportOutcome, reportKey, withReportLock, REPORT_CATEGORY_ID } from './reportCaseService.js';
+import { rememberMessageDeleter } from './deletionAttributionService.js';
+import { ChannelType } from 'discord.js';
 
 export function buildReportActions(userId) {
   return [new ActionRowBuilder().addComponents(
@@ -45,8 +48,9 @@ export async function handleReportAction(interaction, client, [action, userId]) 
     return deny(interaction, action === 'ban' ? 'Only the server owner can ban members from reports.' : 'Only the staff team can manage reports.');
   }
   if (action === 'delete') {
-    await interaction.deferUpdate();
-    await interaction.message.delete();
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await completeReportAction(interaction, client, interaction.message, action, userId, '');
+    await interaction.deleteReply().catch(() => {});
     return;
   }
   const modal = new ModalBuilder().setCustomId(`report_moderate:${action}:${userId}:${interaction.message.id}`)
@@ -79,16 +83,62 @@ export async function handleReportModeration(interaction, client, [action, userI
   if ([interaction.user.id, client.user.id, interaction.guild.ownerId].includes(userId)) {
     return deny(interaction, 'You cannot moderate yourself, Cloudy, or the server owner.');
   }
-  const member = await interaction.guild.members.fetch(userId).catch(() => null);
-  if (action === 'timeout') {
-    const durationMs = timeoutDuration(interaction.fields.getTextInputValue('minutes'));
-    if (!member) return deny(interaction, 'The reported member is no longer in this server.');
-    await ModerationService.timeoutUser({ guild: interaction.guild, member, moderator: interaction.member, durationMs, reason });
-  } else {
-    const user = member?.user || await client.users.fetch(userId);
-    await ModerationService.banUser({ guild: interaction.guild, user, moderator: interaction.member, reason });
-  }
-  await InteractionHelper.safeEditReply(interaction, {
-    embeds: [createEmbed({ title: 'Success', description: action === 'ban' ? 'The reported member has been banned.' : 'The reported member has been timed out.' })],
+  await completeReportAction(interaction, client, report, action, userId, reason);
+  await interaction.deleteReply().catch(() => {});
+}
+
+async function completeReportAction(interaction, client, report, action, userId, reason) {
+  return withReportLock(reportKey(interaction.guildId, report.id), async () => {
+    const record = await loadReport(client, interaction.guild, report, userId);
+    if (record.closedAt || (record.expiresAt && record.expiresAt <= Date.now())) throw new Error('This report case has already closed.');
+    const previous = record.actions?.[action];
+    if (previous?.notified) throw new Error('This report action has already been completed.');
+    if (previous?.status === 'processing') throw new Error('This action is being processed. Staff must verify its outcome before retrying.');
+    if (previous?.status !== 'completed') {
+      // Validate the destination before performing a destructive moderation action.
+      const category = await interaction.guild.channels.fetch(REPORT_CATEGORY_ID);
+      if (category?.type !== ChannelType.GuildCategory) throw new Error('The Reports category is unavailable.');
+      const reportsChannel = report.channel || await interaction.guild.channels.fetch(record.reportChannelId);
+      if (reportsChannel.permissionsFor?.(interaction.guild.roles.everyone)?.has?.(PermissionFlagsBits.ViewChannel)) throw new Error('Staff report controls require a private reports channel.');
+      const durationMs = action === 'timeout' ? timeoutDuration(interaction.fields.getTextInputValue('minutes')) : null;
+      let original;
+      if (action === 'delete') {
+        if (!record.sourceChannelId || !record.sourceMessageId) throw new Error('This report has no original message linked to Delete.');
+        const source = await interaction.guild.channels.fetch(record.sourceChannelId);
+        original = await source.messages.fetch(record.sourceMessageId);
+      }
+      const config = await getGuildConfig(client, interaction.guildId);
+      const freshMember = await interaction.guild.members.fetch(interaction.user.id);
+      if (!reportActionAllowed({ ...interaction, member: freshMember }, action, config)) throw new Error('Only authorized staff can perform this action.');
+      const pending = { status: 'processing', actorId: interaction.user.id, reason };
+      record.actions = { ...record.actions, [action]: pending };
+      if (await client.db.set(reportKey(record.guildId, record.messageId), record) === false) throw new Error('The report action could not be saved.');
+      try {
+        if (action === 'delete') {
+          rememberMessageDeleter(original, interaction.user);
+          await original.delete();
+        } else {
+          const member = await interaction.guild.members.fetch(userId).catch(() => null);
+          if (action === 'timeout') {
+            if (!member) throw new Error('The reported member is no longer in this server.');
+            await ModerationService.timeoutUser({ guild: interaction.guild, member, moderator: freshMember,
+              durationMs, reason });
+          } else {
+            const user = member?.user || await client.users.fetch(userId);
+            await ModerationService.banUser({ guild: interaction.guild, user, moderator: freshMember, reason });
+          }
+        }
+      } catch (error) {
+        record.actions[action] = { ...pending, status: 'failed' };
+        await client.db.set(reportKey(record.guildId, record.messageId), record);
+        throw error;
+      }
+      record.actions[action] = { ...pending, status: 'completed' };
+      if (await client.db.set(reportKey(record.guildId, record.messageId), record) === false) throw new Error('The action completed but saving it failed. Do not repeat the action.');
+    }
+    const outcome = record.actions[action];
+    const notified = await publishReportOutcome(client, interaction.guild, report, record, action, outcome.actorId, outcome.reason);
+    notified.actions[action] = { ...outcome, notified: true };
+    if (await client.db.set(reportKey(record.guildId, record.messageId), notified) === false) throw new Error('The action notification could not be saved.');
   });
 }

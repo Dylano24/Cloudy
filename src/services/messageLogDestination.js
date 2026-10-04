@@ -7,18 +7,19 @@ export const MEMBER_MESSAGE_LOG_ID = '1555891729297580084';
 export function messageLogAuthorType(guild, userId, member, config = {}, authorBot = false) {
   if (authorBot || member?.user?.bot) return 'Bot';
   if (!userId) return 'Unknown';
-  if (userId === guild?.ownerId) return 'Owner';
+  if (userId === guild?.ownerId) return 'Staff';
   const staff = member?.permissions?.has?.(PermissionFlagsBits.Administrator)
     || member?.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
     || member?.permissions?.has?.(PermissionFlagsBits.ManageMessages)
     || member?.permissions?.has?.(PermissionFlagsBits.BanMembers)
     || member?.permissions?.has?.(PermissionFlagsBits.KickMembers)
     || Boolean(config.ticketStaffRoleId && member?.roles?.cache?.has?.(config.ticketStaffRoleId));
-  return staff ? 'Moderator' : 'Member';
+  return staff ? 'Staff' : 'Member';
 }
 
-export function messageLogDestination(guild, userId, member, config = {}, authorBot = false) {
+export function messageLogDestination(guild, userId, member, config = {}, authorBot = false, deleter = null) {
   if (guild?.id !== CLOUDY_GUILD_ID) return null;
+  if (deleter && messageLogAuthorType(guild, deleter.id, deleter, config) === 'Staff') return OWNER_MOD_MESSAGE_LOG_ID;
   const type = messageLogAuthorType(guild, userId, member, config, authorBot);
-  return ['Owner', 'Moderator', 'Bot'].includes(type) ? OWNER_MOD_MESSAGE_LOG_ID : MEMBER_MESSAGE_LOG_ID;
+  return ['Staff', 'Bot'].includes(type) ? OWNER_MOD_MESSAGE_LOG_ID : MEMBER_MESSAGE_LOG_ID;
 }

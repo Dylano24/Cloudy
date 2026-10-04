@@ -4,6 +4,7 @@ import { InteractionHelper } from '../utils/interactionHelper.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { logger, startupLog } from '../utils/logger.js';
 import { appealReviewKey, appealActions, buildAppealActions } from './appealPresentationService.js';
+import { resolveDiscordAppealIdentity } from './appealIdentityService.js';
 export { appealReviewKey, buildAppealActions } from './appealPresentationService.js';
 
 const active = new Set();
@@ -47,7 +48,9 @@ export async function handleAppealAction(interaction, client, [action, id]) {
     const { record } = await authorized(interaction, client, action, id);
     if (interaction.message?.id !== record.messageId) throw new Error('This appeal is unavailable.');
     if (record.scope === 'rust' && action === 'unban') throw new Error('Rust unban is not connected yet.');
-    await interaction.showModal(buildAppealReasonModal(record, action));
+    const resolved = record.scope === 'discord' && action !== 'deny'
+      ? { ...record, discordIdentity: await resolveDiscordAppealIdentity(interaction.guild, record.discordIdentity) } : record;
+    await interaction.showModal(buildAppealReasonModal(resolved, action));
   } catch (error) { await respond(interaction, error.message); }
 }
 
@@ -57,6 +60,11 @@ export async function executeAppealDecision({ client, guild, member, record, act
   if (!appealActions(record).includes(action) || record.status !== 'pending') throw new Error('This appeal cannot be reviewed.');
   if (record.scope === 'rust' && action === 'unban') throw new Error('Rust unban is not connected yet.');
   if (action !== 'deny') {
+    if (record.discordIdentity) {
+      const resolvedId = await resolveDiscordAppealIdentity(guild, record.discordIdentity);
+      if (targetId && targetId !== resolvedId) throw new Error('The user ID must match this appeal.');
+      targetId = resolvedId;
+    }
     if (!/^\d{17,20}$/.test(targetId || '')) throw new Error('Enter the correct Discord user ID.');
     const submittedId = String(record.discordIdentity || '').match(/^(?:<@!?)?(\d{17,20})>?$/)?.[1];
     if (submittedId && submittedId !== targetId) throw new Error('The user ID must match this appeal.');
@@ -116,7 +124,8 @@ export async function ensureAppealActions(client) {
   for (const message of messages.values()) {
     const embed = message.embeds[0];
     const match = embed?.title?.match(/^(Discord|Rust server) appeal — (Mute|Ban|Other)$/);
-    const id = embed?.footer?.text?.match(/Cloudy Inc\. • (CLD-[A-Z0-9-]+)$/)?.[1];
+    const id = embed?.description?.match(/\b(CLD-[A-Z0-9-]+)\b/)?.[1]
+      || embed?.footer?.text?.match(/Cloudy Inc\. • (CLD-[A-Z0-9-]+)$/)?.[1];
     if (message.author?.id !== client.user.id || !match || !id) continue;
     const key = appealReviewKey(channel.guild.id, id);
     let record = await client.db.get(key);

@@ -113,6 +113,8 @@ const createTicketHandler = {
         });
       }
 
+      const { checkTicketCreationLimit } = await import('../../../services/ticketReliabilityService.js');
+      await checkTicketCreationLimit(interaction.guild, interaction.user.id, config);
       const modal = new ModalBuilder()
         .setCustomId('create_ticket_modal')
         .setTitle('Create a ticket');
@@ -136,7 +138,7 @@ const createTicketHandler = {
       if (!interaction.replied && !interaction.deferred) {
         await replyUserError(interaction, {
           type: ErrorTypes.UNKNOWN,
-          message: 'Could not open the ticket form. Please try again.',
+          message: error.userMessage || 'Could not open the ticket form. Please try again.',
         });
       }
     }
@@ -406,11 +408,7 @@ const deleteTicketHandler = {
       if (!context) return;
 
       await deleteTicket(interaction.channel, interaction.user);
-      await editBasicTicketReply(
-        interaction,
-        'Ticket deleted',
-        'The transcript was archived. This ticket will be deleted shortly.',
-      );
+      await interaction.deleteReply().catch(() => {});
     } catch (error) {
       logger.error('Ticket delete button failed', { error: error.message, channelId: interaction.channelId });
       await replyUserError(interaction, {

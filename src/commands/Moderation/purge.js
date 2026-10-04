@@ -1,3 +1,4 @@
+import { rememberMessageDeleter } from '../../services/deletionAttributionService.js';
 import { SlashCommandBuilder, PermissionFlagsBits, PermissionsBitField, ChannelType, MessageFlags } from 'discord.js';
 import { createEmbed, successEmbed } from '../../utils/embeds.js';
 import { logEvent } from '../../utils/moderation.js';
@@ -41,6 +42,9 @@ export default {
 
     try {
       const fetched = await channel.messages.fetch({ limit: amount });
+      for (const message of fetched.values()) {
+        if (message.createdTimestamp > Date.now() - 14 * 24 * 60 * 60_000) rememberMessageDeleter(message, interaction.user);
+      }
       const deleted = await channel.bulkDelete(fetched, true);
       const deletedCount = deleted.size;
 
