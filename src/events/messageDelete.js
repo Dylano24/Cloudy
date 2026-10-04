@@ -5,6 +5,7 @@ import { getReactionRoleMessage, deleteReactionRoleMessage } from '../services/r
 import { formatLogLine } from '../utils/logging/logEmbeds.js';
 import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js';
 import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID } from '../services/messageLogDestination.js';
+import { prepareDeletedMessageMedia } from '../services/deletedMessageMediaService.js';
 
 const MAX_LOGGED_MESSAGE_CONTENT_LENGTH = 1024;
 
@@ -64,6 +65,7 @@ export default {
 export async function logDeletedMessage(message) {
   if (!message.guild) return;
   if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID].includes(message.channelId)) return;
+  const media = await prepareDeletedMessageMedia(message);
 
   const metaLines = [
     formatLogLine('Channel', message.channel ? `${message.channel.name} ${message.channel.toString()}` : 'Unknown'),
@@ -88,18 +90,22 @@ export async function logDeletedMessage(message) {
 
   if (message.attachments?.size > 0) {
     metaLines.push(formatLogLine('Attachments', String(message.attachments.size)));
-    const links = [...message.attachments.values()].map(attachment => attachment.url).filter(Boolean);
-    fullBody += `\n\nAttachments:\n${links.join('\n')}`;
+    if (media.links.length) fullBody += `\n\nAttachments not copied:\n${media.links.join('\n')}`;
+  }
+
+  const files = [...media.files];
+  if (fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH || media.links.length) {
+    files.push({ attachment: Buffer.from(fullBody), name: `deleted-message-${message.id}.txt` });
   }
 
   await logEvent({
     client: message.client,
     guildId: message.guild.id,
     eventType: EVENT_TYPES.MESSAGE_DELETE,
-    attachments: fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH || message.attachments?.size > 0
-      ? [{ attachment: Buffer.from(fullBody), name: `deleted-message-${message.id}.txt` }] : [],
+    attachments: files,
     data: {
       title: 'Message deleted',
+      attachmentFallback: [...message.attachments?.values?.() || []].map(attachment => attachment.url).filter(Boolean).join('\n'),
       lines: metaLines,
       quoted: true,
       section: messageBody ? { title: 'Message', body: messageBody || '*(empty message)*' } : null,
