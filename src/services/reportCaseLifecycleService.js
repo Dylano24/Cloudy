@@ -10,9 +10,7 @@ import { logger, startupLog } from '../utils/logger.js';
 import { reportKey, withReportLock, reportStaffRole, caseStaffAllowed, nextReportNumber, reportCaseControls, REPORT_CATEGORY_ID, REPORT_CASE_MS } from './reportCaseService.js';
 
 export const REPORT_LOG_CHANNEL_ID = '1556344268099166319';
-export const REPORT_COUNTDOWN_REFRESH_MS = 30_000;
 const expiryTimers = new Map();
-const countdownTimers = new Map();
 const audiences = ['reporter', 'target'];
 
 function caseEmbed(data) {
@@ -44,13 +42,6 @@ export async function validateReportDestinations(guild) {
     throw new Error('The private report-logs channel is unavailable.');
   }
   return { category, logs };
-}
-
-function timeRemaining(record) {
-  const seconds = Math.max(0, Math.ceil((record.expiresAt - Date.now()) / 1000));
-  const hours = Math.floor(seconds / 3600), minutes = Math.floor(seconds % 3600 / 60);
-  const countdown = [hours, minutes, seconds % 60].map(value => String(value).padStart(2, '0')).join(':');
-  return `**${countdown}** · <t:${Math.floor(record.expiresAt / 1000)}:R>\nThis case is automatically deleted after 24 hours.`;
 }
 
 function participantId(record, audience) { return audience === 'reporter' ? record.reporterId : record.targetId; }
@@ -193,7 +184,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     const participant = participantId(record, audience);
     const fields = [{ name: 'Case', value: `report-${record.number}`, inline: true },
       ...(audience === 'target' ? [{ name: 'Reason', value: reason || 'No reason recorded' }, { name: 'Handled by', value: `<@${actorId}>`, inline: true }] : []),
-      { name: 'Time remaining', value: timeRemaining(record) }];
+      { name: 'Automatic deletion', value: 'This case is automatically deleted after 24 hours.' }];
     const payload = { content: `<@${participant}> ${staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`}`,
       embeds: [caseEmbed({ title: 'Report case notification', description: audience === 'reporter' ? actionText : undefined, color: 0x00C49D, fields })],
       components: reportCaseControls(record, false, Boolean(entry.closedAt), audience),
@@ -207,41 +198,9 @@ export async function publishReportOutcome(client, guild, report, record, action
   return record;
 }
 
-export async function updateReportCountdowns(client, guild, record) {
-  for (const entry of Object.values(record.cases || {})) {
-    if (entry.deletedAt || !entry.messageId) continue;
-    const channel = await fetchChannel(guild, entry.channelId);
-    const notice = await fetchMessage(channel, entry.messageId);
-    if (notice?.author?.id !== client.user.id || !notice.embeds?.[0]) continue;
-    const data = notice.embeds[0].toJSON?.() || structuredClone(notice.embeds[0]);
-    data.fields = [...(data.fields || []).filter(field => field.name !== 'Time remaining'), { name: 'Time remaining', value: timeRemaining(record) }];
-    await notice.edit({ embeds: [caseEmbed(data)], allowedMentions: { parse: [] } });
-  }
-}
-
 function clearTimers(record) {
   const key = reportKey(record.guildId, record.messageId);
   clearTimeout(expiryTimers.get(key)); expiryTimers.delete(key);
-  clearTimeout(countdownTimers.get(key)); countdownTimers.delete(key);
-}
-
-function scheduleCountdown(client, guild, record) {
-  const key = reportKey(record.guildId, record.messageId);
-  clearTimeout(countdownTimers.get(key));
-  if (record.closedAt || record.expiresAt <= Date.now()) return;
-  const timer = setTimeout(() => {
-    countdownTimers.delete(key);
-    void withReportLock(key, async () => {
-      const fresh = await client.db.get(key);
-      if (!fresh || fresh.closedAt || fresh.expiresAt <= Date.now()) return;
-      try { await updateReportCountdowns(client, guild, fresh); }
-      finally { scheduleCountdown(client, guild, fresh); }
-    }).catch(error => {
-      logger.warn(`Report countdown failed: ${error.message}`);
-      if (!countdownTimers.has(key)) scheduleCountdown(client, guild, record);
-    });
-  }, REPORT_COUNTDOWN_REFRESH_MS);
-  timer.unref?.(); countdownTimers.set(key, timer);
 }
 
 export function scheduleReportCaseExpiry(client, guild, record, retryMs) {
@@ -256,7 +215,6 @@ export function scheduleReportCaseExpiry(client, guild, record, retryMs) {
     });
   }, retryMs ?? Math.max(0, record.expiresAt - Date.now()));
   timer.unref?.(); expiryTimers.set(key, timer);
-  scheduleCountdown(client, guild, record);
 }
 
 export async function deleteReportCase(client, guild, record, executor = '24-hour expiry', alreadyLocked = false, audience) {
