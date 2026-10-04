@@ -280,7 +280,7 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.ok(f.reports.messages.cache.has(success.id));
 });
 
-test('Ban keeps the existing ban-only DM path and consumes the report controls', async t => {
+test('Ban keeps the existing ban-only DM path, creates only the reporter case and consumes the report controls', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.register();
   const banned = [];
@@ -296,9 +296,17 @@ test('Ban keeps the existing ban-only DM path and consumes the report controls',
   assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'report-1'));
   t.mock.timers.tick(10_000); await settle();
   assert.ok(f.reports.messages.cache.has(success.id));
+  assert.ok(record.cases.reporter);
+  assert.equal(record.cases.target, undefined);
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   assert.match(JSON.stringify(json(reporter.embeds[0])), /banned/);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Private action reason/);
+  assert.deepEqual(reporter.components[0].toJSON().components.map(button => button.label), ['Close']);
+  assert.equal(
+    f.payloads.filter(message => message.channelId === REPORT_LOG_CHANNEL_ID
+      && JSON.stringify(message.embeds).includes('Reported member case')).length,
+    0,
+  );
 });
 
 test('legacy shared case upgrades on restart without repeating moderation or changing the original New report', async t => {
@@ -312,9 +320,8 @@ test('legacy shared case upgrades on restart without repeating moderation or cha
   await f.client.db.set(reportKey(f.guild.id, 'report'), legacy);
   await restoreReportCaseTimers(f.client);
   const record = await f.client.db.get(reportKey(f.guild.id, 'report'));
-  assert.equal(record.cases.target.channelId, shared.id);
-  assert.ok(!shared.resetOverwrites.some(entry => entry.id === 'reporter'));
-  assert.equal(oldNotice.content, '<@target> <@&staff-role>');
+  assert.equal(record.cases.target, undefined);
+  assert.ok(f.removed.includes(shared.id));
   assert.ok(f.removed.includes(oldLog.id));
   assert.deepEqual(f.report.embeds, original);
   assert.equal(f.dms.length, 0);
