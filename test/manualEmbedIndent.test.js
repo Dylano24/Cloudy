@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeManualIndent } from '../src/utils/manualEmbedIndent.js';
 
 const DOT = '<:W87205667glowingdotwhite:1543291335036108830>';
-const WIDTH_HANG = '\u2063\u2002\u2063\u2009\u2063\u200A\u2063\u200A';
+const SPACER = '<:cloudy_zorp_indent:1556162804598317086> ';
 
 test('non-ZORP editor serialization remains byte-for-byte unchanged', () => {
   const input = '  • **Text**  <:emoji:123>\n\u2063\u2002\u2800Text\n```js\n  code();\n```\n\tEnd';
@@ -21,21 +21,21 @@ test('ZORP wraps by rendered width and aligns continuations to the glowing-dot t
   const output = normalizeManualIndent(input, { zorp: true });
   assert.deepEqual(output.split('\n'), [
     DOT + ' The timer is automatically reset while the',
-    WIDTH_HANG + 'team is online.',
+    SPACER + 'team is online.',
     DOT + ' A team cannot create a ZORP zone that',
-    WIDTH_HANG + 'overlaps with another team’s zone.',
+    SPACER + 'overlaps with another team’s zone.',
     DOT + ' If a player switches teams, their existing',
-    WIDTH_HANG + 'ZORP zone will be removed to prevent',
-    WIDTH_HANG + 'abuse.',
+    SPACER + 'ZORP zone will be removed to prevent',
+    SPACER + 'abuse.',
     DOT + ' Select `Good Bye` to confirm the removal.',
   ]);
   assert.equal(normalizeManualIndent(output, { zorp: true }), output);
 });
 
-test('legacy braille continuation spacing is upgraded to calibrated width spacing', () => {
+test('legacy braille continuation spacing is upgraded to the fixed-width spacer emoji', () => {
   const input = DOT + ' The timer is automatically reset while the\n\u2800\u2800\u2800team is online.';
   const output = normalizeManualIndent(input, { zorp: true });
-  assert.equal(output, DOT + ' The timer is automatically reset while the\n' + WIDTH_HANG + 'team is online.');
+  assert.equal(output, DOT + ' The timer is automatically reset while the\n' + SPACER + 'team is online.');
 });
 
 test('ZORP alignment preserves custom emoji markup byte-for-byte', () => {
