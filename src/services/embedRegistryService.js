@@ -1,3 +1,5 @@
+import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
+import { isTransientStatusEmbed } from '../utils/transientResponse.js';
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
@@ -223,6 +225,13 @@ function isInternalEmbedRecord(record) {
         || name.includes('use the buttons below to create your message');
 }
 
+function isFeatureEmbed(embed) {
+    const data = embed?.toJSON?.() || embed || {};
+    const title = String(data.title || '').trim();
+    if (INTERNAL_EMBED_NAMES.has(cleanName(title)) || /^ticket\s*#\d+/i.test(title) || /^ticket (?:created|closed|deleted|claimed|unclaimed|pinned|unpinned)$/i.test(title)) return false;
+    return !isTransientStatusEmbed(data) && Boolean(data.description || data.fields?.length || data.image);
+}
+
 function isFixedCloudyEmbed(embed) {
     if (
         isCloudyWelcomeEmbed(embed)
@@ -231,12 +240,13 @@ function isFixedCloudyEmbed(embed) {
         || getTicketLogTemplate(embed)
     ) return true;
     const title = cleanName(embed?.title);
-    return /^(?:kick|ban|unban|timeout|untimeout|report)\s+log\b/.test(title)
+    return isFeatureEmbed(embed) || /^(?:kick|ban|unban|timeout|untimeout|report)\s+log\b/.test(title)
         || /^(?:invite created|member joined using invite)$/.test(title);
 }
 
 function isFixedCloudyRecord(record) {
     if (['system-catalog', 'embed-builder'].includes(String(record?.source || ''))) return true;
+    if (record.snapshot && isFeatureEmbed(record.snapshot)) return true;
     const names = [record?.title, record?.name].map(cleanName).filter(Boolean);
     return names.some(title =>
         /^(?:welcome to cloudy(?: inc\.?)?|kick|ban|unban|timeout|untimeout|report)\b/.test(title)
@@ -253,7 +263,8 @@ export function isRegistrableCloudyEmbedMessage(message) {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
 
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
-    if (message.interaction || message.interactionMetadata) return false;
+    if (isBuilderSessionMessage(message)) return false;
+    if ((message.interaction || message.interactionMetadata) && (!message.author?.id || message.author.id !== message.client?.user?.id)) return false;
 
     return isSystemCatalogMessage(message) || message.embeds.some(isFixedCloudyEmbed);
 }
@@ -863,3 +874,4 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
     if (additions.length) await saveRecords(guild.id, additions);
     return { scanned, found };
 }
+

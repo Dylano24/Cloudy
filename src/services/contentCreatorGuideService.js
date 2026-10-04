@@ -38,6 +38,10 @@ export function createContentCreatorGuideManager() {
     saveState: (channel, state) => channel.client.db.set(key(channel), state),
     isGuide,
     async prepareExisting(message) {
+      if (message.guildId && message.channelId) {
+        const { registerCloudyEmbedMessage } = await import('./embedRegistryService.js');
+        await registerCloudyEmbedMessage(message, 'content-creators');
+      }
       if (message.embeds.some(embed => /content creators/i.test(embed.title || '') && embed.title !== '🎥 Content Creators')) {
         return message.edit({ embeds: buildContentCreatorPayload(message).embeds });
       }
@@ -66,3 +70,4 @@ export async function ensureContentCreatorGuides(client) {
     }
   }
 }
+

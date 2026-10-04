@@ -225,3 +225,22 @@ test('reopening restores creator access by ID before tagging, without depending 
   assert.ok(reopened.content.includes('<@' + creatorId + '>'));
 });
 
+
+test('Builder Save affects the next actual public reopen notice while keeping the creator ping', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture('closed', 'staff'); await f.initialize();
+  const { saveEmbedTemplateDecoration } = await import('../src/services/embedTemplateService.js');
+  await saveEmbedTemplateDecoration(f.guild.id, '1534506224312389813', ['Ticket reopened'], { title: 'Reopened again', description: '{dynamic} has reopened this ticket!', color: 0x00C49D, footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' } }, { applyFields: false });
+  await buttons.find(b => b.name === 'ticket_reopen').execute(f.interaction, f.client);
+  const notice = f.payloads.find(p => p.embeds?.some(e => (e.toJSON?.() || e).title === 'Reopened again'));
+  assert.ok(notice);
+  assert.match(notice.content, /<@1534506224312389801>/);
+  assert.equal((notice.embeds[0].toJSON?.() || notice.embeds[0]).color, 0x00C49D);
+});
+
+test('Owner role manages tickets and routes its deleted messages as Staff', () => {
+  const member = { id: 'owner-role-member', roles: { cache: new Collection([['owner-role', { name: 'Owner' }]]) }, permissions: new PermissionsBitField() };
+  assert.equal(ticketActorPermissions({ member, userId: member.id, ownerId: 'different-owner' }).canReopenTicket, true);
+  assert.equal(messageLogDestination({ id: CLOUDY_GUILD_ID }, member.id, member), OWNER_MOD_MESSAGE_LOG_ID);
+});
+
