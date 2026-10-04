@@ -49,7 +49,8 @@ function fixture() {
   channels.set(REPORT_CATEGORY_ID, { id: REPORT_CATEGORY_ID, type: ChannelType.GuildCategory });
   const report = { id: 'report', author: client.user, channelId: reports.id, channel: reports,
     embeds: [{ title: 'New report', fields: [{ name: 'Reported member', value: '<@target>' }, { name: 'Reported by', value: '<@reporter>' }, { name: 'Reason', value: 'TEST!' }] }],
-    components: buildReportActions('target').map(row => ({ components: row.toJSON().components.map(button => ({ customId: button.custom_id, ...button })) })) };
+    components: buildReportActions('target').map(row => ({ components: row.toJSON().components.map(button => ({ customId: button.custom_id, ...button })) })),
+    edit: async payload => { Object.assign(report, payload); return report; } };
   reports.messages.cache.set(report.id, report);
   function interaction(user = staff.user, message = report, channelId = reports.id) {
     const result = { id: '1556344268099166320', createdTimestamp: Date.now(), guild, guildId: guild.id, channel: channels.get(channelId), channelId, member: members.get(user.id), user, message,
@@ -72,7 +73,7 @@ function fixture() {
 test('Delete asks for a required reason before acting; two adjacent private cases keep the New report intact', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
-  const snapshot = structuredClone({ embeds: f.report.embeds, components: f.report.components });
+  const snapshot = structuredClone({ embeds: f.report.embeds });
   const click = f.interaction();
   await handleReportAction(click, f.client, ['delete', 'target']);
   assert.deepEqual(f.removed, []);
@@ -103,9 +104,11 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
   assert.equal(f.payloads.filter(message => message.channelId === 'reports').length, 0);
   assert.deepEqual(f.report.embeds, snapshot.embeds);
-  assert.deepEqual(f.report.components, snapshot.components);
-  assert.equal(f.dms.length, 1); assert.equal(f.dms[0].id, 'target');
-  assert.match(JSON.stringify(f.dms[0].payload), /Private action reason/);
+  assert.deepEqual(f.report.components, []);
+  for (const entry of Object.values(record.cases)) {
+    assert.deepEqual(f.logs.messages.cache.get(entry.createdLogId).components, []);
+  }
+  assert.equal(f.dms.length, 0);
 });
 
 test('empty reason, invalid duration and unauthorized submissions cannot perform actions or create cases', async t => {
@@ -140,7 +143,7 @@ test('target Close hides only their own case, notifies Staff once in ticket oran
   assert.equal(json(log.embeds[0]).title, 'Report case closed');
   assert.equal(log.content, '<@&staff-role>');
   assert.deepEqual(log.sentPayload.allowedMentions.roles, ['staff-role']);
-  assert.deepEqual(log.components[0].toJSON().components.map(button => [button.label, button.disabled]), [['Close', true], ['Delete', false]]);
+  assert.deepEqual(log.components[0].toJSON().components.map(button => [button.label, button.disabled]), [['Delete', false]]);
   const count = f.payloads.length;
   await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
   assert.equal(f.payloads.length, count);
@@ -178,7 +181,7 @@ test('reporter Close removes only reporter access; Staff can also Close and dele
   assert.deepEqual(log.components, []);
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   const targetLog = f.logs.messages.cache.get(record.cases.target.closeLogId);
-  assert.equal(targetLog.components.length, 1);
+  assert.deepEqual(targetLog.components[0].toJSON().components.map(button => button.label), ['Delete']);
   await handleReportCaseControl(f.interaction(f.staff.user, targetLog, REPORT_LOG_CHANNEL_ID), f.client, ['delete', 'report', 'target']);
   assert.deepEqual(targetLog.components, []);
   assert.deepEqual(log.components, []);
@@ -228,18 +231,27 @@ test('later outcomes reuse the same pair and deadline without exposing a new rea
   assert.equal(f.removed.filter(id => id === 'original-message').length, 1);
 });
 
-test('Ban modal requires a reason and requests DM before ban; Timeout passes the required reason and duration', async t => {
+test('Timeout passes the required reason and duration, sends no DM, and consumes the report controls', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.register();
-  const banned = [], timedOut = [];
-  t.mock.method(ModerationService, 'banUser', async data => { banned.push(data); });
+  const timedOut = [];
   t.mock.method(ModerationService, 'timeoutUser', async data => { timedOut.push(data); });
   const timeoutClick = f.interaction(); await handleReportAction(timeoutClick, f.client, ['timeout', 'target']);
   assert.deepEqual(timeoutClick.modal.components.map(row => [row.components[0].custom_id, row.components[0].required]), [['minutes', true], ['reason', true]]);
   await f.submit('timeout');
   assert.equal(timedOut[0].reason, 'Private action reason'); assert.equal(timedOut[0].durationMs, 600_000);
+  assert.equal(f.dms.length, 0);
+  assert.deepEqual(f.report.components, []);
+});
+
+test('Ban keeps the existing ban-only DM path and consumes the report controls', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); await f.register();
+  const banned = [];
+  t.mock.method(ModerationService, 'banUser', async data => { banned.push(data); });
   const record = await f.submit('ban', f.owner.user);
   assert.equal(banned[0].reason, 'Private action reason'); assert.equal(banned[0].notifyBeforeBan, true);
+  assert.deepEqual(f.report.components, []);
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   assert.match(JSON.stringify(json(reporter.embeds[0])), /banned/);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Private action reason/);
