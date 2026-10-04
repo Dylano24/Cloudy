@@ -6,7 +6,7 @@ const auditCounts = new Map();
 
 export function rememberMessageDeleter(message, user, source = 'staff') {
   const key = `${message.guild?.id}:${message.id}`;
-  const intent = { id: user?.id, label: source === 'automod' ? 'AutoMod' : user?.id ? `<@${user.id}>` : 'Unknown', source };
+  const intent = { id: user?.id, label: source === 'automod' ? (user?.id ? `<@${user.id}> (AutoMod)` : 'AutoMod') : user?.id ? `<@${user.id}>` : 'Unknown', source };
   intents.set(key, intent);
   const timer = setTimeout(() => { if (intents.get(key) === intent) intents.delete(key); }, 120_000);
   timer.unref?.();

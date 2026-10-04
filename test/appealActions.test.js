@@ -84,3 +84,26 @@ test('deny stores a mandatory reason for Discord/Rust, and wrong Discord targets
     assert.equal(denied.reason, 'Insufficient explanation');
   }
 });
+
+
+test('Owner role opens the appeal modal before username lookup; submission resolves the actual banned account', async t => {
+  const f = fixture();
+  f.member.roles.cache = new Collection([['owner-role', { name: 'Owner' }]]);
+  f.record.discordIdentity = 'player';
+  let lookups = 0;
+  f.guild.bans = { fetch: async () => { lookups++; return new Collection([['target', { user: { id: '12345678901234567', username: 'player' } }]]); } };
+  const fetchMember = f.guild.members.fetch;
+  f.guild.members.fetch = async value => typeof value === 'object' ? new Collection() : fetchMember(value);
+  await handleAppealAction(f.interaction, f.client, ['unban', f.record.id]);
+  assert.ok(f.interaction.modal);
+  assert.equal(lookups, 0);
+  assert.equal(f.interaction.modal.components[0].components[0].value, 'player');
+  const calls = [];
+  t.mock.method(ModerationService, 'unbanUser', async args => calls.push(args));
+  t.mock.method(InteractionHelper, 'safeEditReply', async () => {});
+  await handleAppealDecision(f.interaction, f.client, ['unban', f.record.id]);
+  assert.equal(lookups, 1);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].user.id, '12345678901234567');
+  assert.equal(calls[0].reason, 'Accepted after review');
+});

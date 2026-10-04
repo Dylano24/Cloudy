@@ -3,6 +3,7 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { createEmbed } from '../utils/embeds.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { logger, startupLog } from '../utils/logger.js';
+import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 
 export const REPORT_CATEGORY_ID = '1556215327526887555';
 export const REPORT_CASE_MS = 24 * 60 * 60_000;
@@ -52,7 +53,7 @@ export function reportStaffRole(guild, config) {
 
 export function caseStaffAllowed(guild, member, config) {
   const role = reportStaffRole(guild, config);
-  return member?.id === guild.ownerId || Boolean(member?.permissions?.has?.(PermissionFlagsBits.Administrator))
+  return member?.id === guild.ownerId || hasCloudyOwnerMember(member) || Boolean(member?.permissions?.has?.(PermissionFlagsBits.Administrator))
     || Boolean(role && member?.roles?.cache?.has?.(role));
 }
 
@@ -191,3 +192,4 @@ export async function restoreReportCaseTimers(client) {
   }
   startupLog(`Report case expiry restored: ${restored} active case(s).`);
 }
+

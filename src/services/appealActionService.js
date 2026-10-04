@@ -5,12 +5,13 @@ import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { logger, startupLog } from '../utils/logger.js';
 import { appealReviewKey, appealActions, buildAppealActions } from './appealPresentationService.js';
 import { resolveDiscordAppealIdentity } from './appealIdentityService.js';
+import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 export { appealReviewKey, buildAppealActions } from './appealPresentationService.js';
 
 const active = new Set();
 export function appealStaffAllowed(guild, member, action, config = {}) {
   const staffId = config.ticketStaffRoleId || guild.roles?.cache?.find(role => role.name.trim().toLowerCase() === 'staff')?.id;
-  return member?.id === guild.ownerId || Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator))
+  return member?.id === guild.ownerId || hasCloudyOwnerMember(member) || Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator))
     || Boolean(staffId && member?.roles?.cache?.has(staffId))
     || Boolean(member?.permissions?.has(action === 'unban' ? PermissionFlagsBits.BanMembers : PermissionFlagsBits.ModerateMembers));
 }
@@ -18,9 +19,9 @@ export function appealStaffAllowed(guild, member, action, config = {}) {
 export function buildAppealReasonModal(record, action) {
   const modal = new ModalBuilder().setCustomId(`appeal_decide:${action}:${record.id}`).setTitle(`${action === 'deny' ? 'Deny' : action === 'unmute' ? 'Unmute' : 'Unban'} appeal`);
   if (record.scope === 'discord' && action !== 'deny') {
-    const input = new TextInputBuilder().setCustomId('target').setLabel('Discord user ID').setStyle(TextInputStyle.Short).setRequired(true).setMinLength(17).setMaxLength(20);
-    const id = String(record.discordIdentity || '').match(/^(?:<@!?)?(\d{17,20})>?$/)?.[1];
-    if (id) input.setValue(id);
+    const input = new TextInputBuilder().setCustomId('target').setLabel('Discord username / ID').setStyle(TextInputStyle.Short).setRequired(true).setMinLength(1).setMaxLength(100);
+    const identity = String(record.discordIdentity || '').trim();
+    if (identity) input.setValue(identity.slice(0, 100));
     modal.addComponents(new ActionRowBuilder().addComponents(input));
   }
   return modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reason').setLabel('Reason').setStyle(TextInputStyle.Paragraph).setRequired(true).setMinLength(1).setMaxLength(512)));
@@ -48,9 +49,9 @@ export async function handleAppealAction(interaction, client, [action, id]) {
     const { record } = await authorized(interaction, client, action, id);
     if (interaction.message?.id !== record.messageId) throw new Error('This appeal is unavailable.');
     if (record.scope === 'rust' && action === 'unban') throw new Error('Rust unban is not connected yet.');
-    const resolved = record.scope === 'discord' && action !== 'deny'
-      ? { ...record, discordIdentity: await resolveDiscordAppealIdentity(interaction.guild, record.discordIdentity) } : record;
-    await interaction.showModal(buildAppealReasonModal(resolved, action));
+    // Resolve usernames only after the modal has been submitted and deferred.
+    // Member/ban lookups must not consume the button's three-second response window.
+    await interaction.showModal(buildAppealReasonModal(record, action));
   } catch (error) { await respond(interaction, error.message); }
 }
 
@@ -62,7 +63,8 @@ export async function executeAppealDecision({ client, guild, member, record, act
   if (action !== 'deny') {
     if (record.discordIdentity) {
       const resolvedId = await resolveDiscordAppealIdentity(guild, record.discordIdentity);
-      if (targetId && targetId !== resolvedId) throw new Error('The user ID must match this appeal.');
+      const submittedTarget = targetId && targetId !== record.discordIdentity ? await resolveDiscordAppealIdentity(guild, targetId) : resolvedId;
+      if (submittedTarget !== resolvedId) throw new Error('The user ID must match this appeal.');
       targetId = resolvedId;
     }
     if (!/^\d{17,20}$/.test(targetId || '')) throw new Error('Enter the correct Discord user ID.');

@@ -5,6 +5,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logModerationAction } from '../../utils/moderation.js';
+import { hasCloudyOwnerMember } from '../ownerRoleAccess.js';
 
 
 function getTargetLabel(target) {
@@ -161,7 +162,7 @@ export class ModerationService {
         this.assertModerationHierarchy(moderator, targetMember, 'ban');
       } else {
 
-        const isOwner = guild.ownerId === moderator.id;
+        const isOwner = guild.ownerId === moderator.id || hasCloudyOwnerMember(moderator);
         const hasHighPerms = moderator.permissions.has([
             PermissionFlagsBits.ManageGuild,
             PermissionFlagsBits.Administrator
@@ -447,3 +448,4 @@ export class ModerationService {
     }
   }
 }
+

@@ -166,6 +166,7 @@ export async function enforceProtectedIdentityMessage(message) {
         value: message.content,
     };
 
+    rememberMessageDeleter(message, message.client.user, 'automod');
     await message.delete().catch(() => {});
     return banDetectedMember(member, detection, 'Message');
 }
@@ -196,3 +197,5 @@ export async function scanProtectedIdentities(client) {
     logger.info(`Protected identity scan: ${members.size} scanned, ${detected} detected`);
     return { scanned: members.size, detected };
 }
+import { rememberMessageDeleter } from './deletionAttributionService.js';
+
