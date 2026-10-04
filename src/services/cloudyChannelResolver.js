@@ -1,4 +1,5 @@
 import { ChannelType } from 'discord.js';
+import { fetchGuildChannels } from '../utils/guildChannelFetch.js';
 
 const CHANNELS = Object.freeze({
   rules: { legacyId: '1533189582064062564', aliases: ['rules'] },
@@ -117,7 +118,7 @@ export async function resolveCloudyChannel(client, key, { guild = null, textOnly
   }
   if (!targetGuild) return null;
 
-  await targetGuild.channels.fetch().catch(() => null);
+  await fetchGuildChannels(targetGuild).catch(() => null);
 
   const candidates = [...targetGuild.channels.cache.values()].filter(channel => {
     if (channel.type === ChannelType.GuildCategory) return false;

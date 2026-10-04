@@ -246,7 +246,14 @@ export async function saveUserLevelData(client, guildId, userId, data) {
     };
 
     const key = getUserLevelKey(guildId, userId);
-    await client.db.set(key, sanitizedData);
+    const saved = await client.db.set(key, sanitizedData);
+    if (saved === false) {
+      throw new TitanBotError(
+        `Failed to persist user level data for ${userId}`,
+        ErrorTypes.DATABASE,
+        'Could not save level data at this time.'
+      );
+    }
   } catch (error) {
     logger.error(`Error saving user level data for ${userId}:`, error);
     if (error instanceof TitanBotError) throw error;
