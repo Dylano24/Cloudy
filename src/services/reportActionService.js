@@ -17,13 +17,13 @@ export function buildReportActions(userId) {
 }
 
 export function reportActionAllowed(interaction, action, config = {}) {
-  const isOwner = interaction.user.id === interaction.guild.ownerId || hasCloudyOwnerMember(interaction.member);
-  if (action === 'ban') return isOwner;
+  const hasOwnerRole = hasCloudyOwnerMember(interaction.member);
+  if (action === 'ban') return hasOwnerRole;
   const staffId = config.ticketStaffRoleId || interaction.guild.roles?.cache?.find(
     role => role.name.trim().toLowerCase() === 'staff',
   )?.id;
   const permission = action === 'timeout' ? PermissionFlagsBits.ModerateMembers : PermissionFlagsBits.ManageMessages;
-  return isOwner || Boolean(interaction.member?.permissions?.has?.(permission))
+  return hasOwnerRole || Boolean(interaction.member?.permissions?.has?.(permission))
     || Boolean(staffId && interaction.member?.roles?.cache?.has?.(staffId));
 }
 
@@ -40,11 +40,25 @@ async function deny(interaction, message) {
   });
 }
 
+function reportSuccessEmbed(action, record) {
+  const description = {
+    delete: 'The reported message has been deleted.',
+    timeout: 'The reported member has been timed out.',
+    ban: 'The reported member has been banned.',
+  }[action];
+  return createEmbed({
+    title: 'Success',
+    description,
+    color: 'success',
+    fields: [{ name: 'Report', value: `report-${record.number}` }],
+  });
+}
+
 export async function handleReportAction(interaction, client, [action, userId]) {
   if (!interaction.inGuild() || !['delete', 'timeout', 'ban'].includes(action)) return;
   if (interaction.message?.author?.id !== client.user.id) return;
   if (action === 'ban' && !reportActionAllowed(interaction, action)) {
-    return deny(interaction, 'Only the server owner or the Owner role can ban members from reports.');
+    return deny(interaction, 'Only members with the Owner role can ban members from reports.');
   }
   // Show the modal before any database work. Submission revalidates staff access.
   const modal = new ModalBuilder().setCustomId(`report_moderate:${action}:${userId}:${interaction.message.id}`)
@@ -65,7 +79,7 @@ export async function handleReportModeration(interaction, client, [action, userI
   if (!await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral })) return;
   const config = await getGuildConfig(client, interaction.guildId);
   if (!reportActionAllowed(interaction, action, config)) {
-    return deny(interaction, action === 'ban' ? 'Only the server owner or the Owner role can ban members from reports.' : 'Only the staff team can manage reports.');
+    return deny(interaction, action === 'ban' ? 'Only members with the Owner role can ban members from reports.' : 'Only the staff team can manage reports.');
   }
   const report = await interaction.channel.messages.fetch(messageId).catch(() => null);
   const ids = report?.components?.flatMap(row => row.components.map(button => button.customId)) || [];
@@ -77,7 +91,11 @@ export async function handleReportModeration(interaction, client, [action, userI
   if (action !== 'delete' && [interaction.user.id, client.user.id, interaction.guild.ownerId].includes(userId)) {
     return deny(interaction, 'You cannot moderate yourself, Cloudy, or the server owner.');
   }
-  await completeReportAction(interaction, client, report, action, userId, reason);
+  const completed = await completeReportAction(interaction, client, report, action, userId, reason);
+  await interaction.channel.send({
+    embeds: [reportSuccessEmbed(action, completed)],
+    allowedMentions: { parse: [] },
+  });
   await interaction.deleteReply().catch(() => {});
 }
 
@@ -111,7 +129,11 @@ async function completeReportAction(interaction, client, report, action, userId,
       }
       const config = await getGuildConfig(client, interaction.guildId);
       const freshMember = await interaction.guild.members.fetch(interaction.user.id);
-      if (!reportActionAllowed({ guild: interaction.guild, user: interaction.user, member: freshMember }, action, config)) throw new Error('Only authorized staff can perform this action.');
+      if (!reportActionAllowed({ guild: interaction.guild, user: interaction.user, member: freshMember }, action, config)) {
+        throw new Error(action === 'ban'
+          ? 'Only members with the Owner role can ban members from reports.'
+          : 'Only authorized staff can perform this action.');
+      }
       if (!reason) throw new Error('Please provide a reason.');
       const pending = { status: 'processing', actorId: interaction.user.id, reason, durationMs };
       record.actions = { ...record.actions, [action]: pending };
@@ -144,5 +166,6 @@ async function completeReportAction(interaction, client, report, action, userId,
     const notified = await publishReportOutcome(client, interaction.guild, report, record, action, outcome.actorId, outcome.reason);
     notified.actions[action] = { ...outcome, notified: true };
     if (await client.db.set(reportKey(record.guildId, record.messageId), notified) === false) throw new Error('The action notification could not be saved.');
+    return notified;
   });
 }
