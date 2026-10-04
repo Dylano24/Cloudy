@@ -18,20 +18,6 @@ function replaceRequired(text, before, after, label) {
 patchFile('src/services/embedManagerService.js', text => {
   text = replaceRequired(
     text,
-`export async function discoverEmbedManagerOverviewRecords(guild, records, botUserId) {
-    if (!guild || !botUserId) return [];`,
-`export async function discoverEmbedManagerOverviewRecords(guild, records, botUserId) {
-    // The registry already contains the canonical Builder inventory. Scanning
-    // every empty channel on each Builder open can generate dozens of Discord
-    // REST requests and make unrelated interactions feel frozen. Keep the old
-    // recovery scan available only as an explicit maintenance opt-in.
-    if (process.env.CLOUDY_BUILDER_GUILD_SCAN !== '1') return [];
-    if (!guild || !botUserId) return [];`,
-    'Embed Manager overview discovery guard',
-  );
-
-  text = replaceRequired(
-    text,
 `async function loadCurrentRegistry(guild, botUserId) {
     let result = await reconcileEmbedRegistry(guild);
     if (result.records.length) {
@@ -57,6 +43,16 @@ patchFile('src/services/embedManagerService.js', text => {
 }`,
     'registry-first Builder load',
   );
+
+  // Keep the explicit recovery helper available, but never fan out across all
+  // channels merely because the owner opened the Builder.
+  const openStart = text.indexOf('export async function openEmbedManager');
+  const discoveryCallStart = openStart === -1 ? -1 : text.indexOf('            discoverEmbedManagerOverviewRecords(', openStart);
+  const loadCallStart = discoveryCallStart === -1 ? -1 : text.indexOf('            loadCurrentRegistry(', discoveryCallStart);
+  if (openStart === -1 || discoveryCallStart === -1 || loadCallStart === -1) {
+    throw new Error('[RUNTIME_PERFORMANCE] Could not locate the Builder background discovery call.');
+  }
+  text = text.slice(0, discoveryCallStart) + '            Promise.resolve([]),\\n' + text.slice(loadCallStart);
 
   return text;
 });
