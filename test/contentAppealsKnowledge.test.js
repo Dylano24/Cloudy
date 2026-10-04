@@ -91,6 +91,8 @@ test('website appeals deliver Discord and Rust forms to the current channel and 
   const body = { scope: 'discord', action: 'Ban', discordIdentity: 'member', gamertag: 'player', email: 'member@example.com', punishmentReason: 'a'.repeat(1000), punishmentJustified: 'b'.repeat(1000), acceptanceReason: 'c'.repeat(1000), futureChanges: 'd'.repeat(1000), evidence: 'e'.repeat(1000), additionalInfo: 'f'.repeat(1000) };
   assert.equal((await submit(body, 'wrong')).code, 403);
   assert.equal((await submit({ ...body, email: '' })).code, 400);
+  for (const scope of ['discord', 'rust']) assert.equal((await submit({ ...body, scope, action: 'Other' })).code, 400);
+  assert.equal((await submit({ ...body, scope: 'rust', action: 'Mute' })).code, 400);
   for (const [scope, action] of [['discord', 'Ban'], ['rust', 'Ban'], ['discord', 'Mute']]) assert.equal((await submit({ ...body, scope, action })).code, 200);
   assert.equal(sent.length, 3);
   assert.equal(reviews.size, 3);
