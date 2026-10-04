@@ -1,7 +1,8 @@
+import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { PermissionFlagsBits } from 'discord.js';
 
 export function ticketActorPermissions({ member, userId, ownerId, staffRoleId, creatorId }) {
-  const staff = Boolean(ownerId && String(userId) === String(ownerId))
+  const staff = hasCloudyOwnerMember(member) || Boolean(ownerId && String(userId) === String(ownerId))
     || Boolean(member?.permissions?.has?.(PermissionFlagsBits.Administrator))
     || Boolean(staffRoleId && member?.roles?.cache?.has?.(staffRoleId));
   const creator = Boolean(creatorId && String(userId) === String(creatorId));
@@ -17,3 +18,4 @@ export function requireTicketCloseReason(value) {
   }
   return reason;
 }
+

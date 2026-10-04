@@ -50,3 +50,14 @@ edit('src/utils/transientResponse.js', 'export function isPersistentBotMessage(m
   if (/^report-\\d+$/.test(String(message?.channel?.name || ''))) return true;
   if ((message?.components || []).some(row => (row.components || []).some(button => /^report_case:/.test(button.customId || button.custom_id || '')))) return true;`);
 console.log('[PATCH] Requested ticket mentions, catalog footers and report lifetime exclusions applied.');
+
+// Reopening is a distinct reusable lifecycle; do not classify it as an old ticket artifact.
+edit('src/services/embedManagerService.js', '    const titleDefinitions = [', String.raw`    const titleDefinitions = [
+        ['reopen', 'Ticket reopened', /\breopen(?:ed)?\b/],`);
+edit('src/utils/ticket/ticketLogTemplates.js', "  if (!fields.has('ticket')) return null;", "  if (cleanTitle(data.title) === 'ticket reopened') return { key: 'reopen', label: 'Ticket reopened' };\n  if (!fields.has('ticket')) return null;");
+edit('src/services/ticket.js', "import { logTicketEvent }", "import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';\nimport { logTicketEvent }");
+edit('src/services/ticket.js', '    const closeStatusMessage = messages.find(m =>', String.raw`    const reopenConfig = await getGuildConfig(channel.client, channel.guild.id);
+    const decoratedReopen = await decorateEmbedWithSavedTemplate(channel.guild.id, reopenConfig.ticketLogsChannelId || channel.id, reopenEmbed);
+    const closeStatusMessage = messages.find(m =>`);
+edit('src/services/ticket.js', 'embeds: [forceCloudyTicketFooter(reopenEmbed)]', 'embeds: [forceCloudyTicketFooter(decoratedReopen.embed)]');
+
