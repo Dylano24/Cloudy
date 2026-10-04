@@ -49,10 +49,15 @@ patchFile('src/services/embedManagerService.js', text => {
   const openStart = text.indexOf('export async function openEmbedManager');
   const discoveryCallStart = openStart === -1 ? -1 : text.indexOf('            discoverEmbedManagerOverviewRecords(', openStart);
   const loadCallStart = discoveryCallStart === -1 ? -1 : text.indexOf('            loadCurrentRegistry(', discoveryCallStart);
-  if (openStart === -1 || discoveryCallStart === -1 || loadCallStart === -1) {
-    throw new Error('[RUNTIME_PERFORMANCE] Could not locate the Builder background discovery call.');
+  if (openStart === -1) {
+    throw new Error('[RUNTIME_PERFORMANCE] Could not locate openEmbedManager.');
   }
-  text = text.slice(0, discoveryCallStart) + '            Promise.resolve([]),\\n' + text.slice(loadCallStart);
+  if (discoveryCallStart !== -1) {
+    if (loadCallStart === -1) {
+      throw new Error('[RUNTIME_PERFORMANCE] Builder discovery call exists but its registry-load anchor is missing.');
+    }
+    text = text.slice(0, discoveryCallStart) + '            Promise.resolve([]),\\n' + text.slice(loadCallStart);
+  }
 
   return text;
 });
