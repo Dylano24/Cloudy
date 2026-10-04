@@ -62,29 +62,32 @@ patchFile('src/services/embedManagerService.js', text => {
 });
 
 patchFile('src/events/fullResponseCatalogReady.js', text => {
-  text = replaceRequired(
-    text,
-`    const timer = setTimeout(() => {
-      void scanRecentBotResponses(client).catch(error => {
-        logger.warn('[EMBED_BUILDER] Full response history sync failed: ' + error.message);
-      });
-    }, STARTUP_SCAN_DELAY_MS);
-    timer.unref?.();`,
-`    // Live responses are captured as they are created/updated. A full guild
-    // history sweep is expensive (many channel fetches) and is not needed on
-    // every deploy. Keep it available only for an intentional one-off recovery.
-    if (process.env.CLOUDY_HISTORY_BOOTSTRAP === '1') {
-      const timer = setTimeout(() => {
-        void scanRecentBotResponses(client).catch(error => {
-          logger.warn('[EMBED_BUILDER] Full response history sync failed: ' + error.message);
-        });
-      }, STARTUP_SCAN_DELAY_MS);
-      timer.unref?.();
-    }`,
-    'automatic full response history scan',
-  );
+  if (text.includes("process.env.CLOUDY_HISTORY_BOOTSTRAP === '1'")) return text;
 
-  return text;
+  const readyStart = text.indexOf('  execute(client) {');
+  const timerStart = readyStart === -1 ? -1 : text.indexOf('    const timer = setTimeout(() => {', readyStart);
+  const timerEndMarker = '    timer.unref?.();';
+  const timerEnd = timerStart === -1 ? -1 : text.indexOf(timerEndMarker, timerStart);
+
+  if (readyStart === -1 || timerStart === -1 || timerEnd === -1) {
+    throw new Error('[RUNTIME_PERFORMANCE] Could not locate the startup history timer; refusing to patch an unknown source shape.');
+  }
+
+  const timerBlock = text.slice(timerStart, timerEnd + timerEndMarker.length);
+  const nestedTimerBlock = timerBlock
+    .split('\n')
+    .map(line => '  ' + line)
+    .join('\n');
+
+  const guarded = [
+    '    // Live responses are captured as they are created/updated. A full guild',
+    '    // history sweep is expensive and is not needed on every deploy.',
+    "    if (process.env.CLOUDY_HISTORY_BOOTSTRAP === '1') {",
+    nestedTimerBlock,
+    '    }',
+  ].join('\n');
+
+  return text.slice(0, timerStart) + guarded + text.slice(timerEnd + timerEndMarker.length);
 });
 
 console.log('[RUNTIME_PERFORMANCE] Registry-first Builder loading and opt-in history recovery enabled.');
