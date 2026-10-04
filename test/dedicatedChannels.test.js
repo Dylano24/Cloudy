@@ -113,11 +113,11 @@ for (const mode of ['editReply', 'followUp', 'prefixReply', 'prefixEdit']) {
   });
 }
 
-test('normal validation uses sentence case while shop wrong-channel has no Close button', async () => {
+test('auto-deleting validation and wrong-channel errors have no Close button', async () => {
   const f = fixture();
   await handleInteractionError(f.interaction, createError('Bad value', ErrorTypes.VALIDATION, 'Check the value.'));
   assert.equal(f.sent[0].payload.embeds[0].toJSON().title, 'Invalid input');
-  assert.equal(f.sent[0].payload.components[0].toJSON().components[0].label, 'Close');
+  assert.deepEqual(f.sent[0].payload.components, []);
   let thrown;
   await assert.rejects(enforceDedicatedCommandChannel(f.interaction, 'shop'), error => {
     thrown = error;
