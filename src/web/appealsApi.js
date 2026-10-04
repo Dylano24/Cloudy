@@ -33,7 +33,7 @@ export function registerAppealsApi(app, client) {
       const scope = appeal.scope === 'rust' ? 'rust' : appeal.scope === 'discord' ? 'discord' : '';
       const action = ['Mute', 'Ban', 'Other'].includes(appeal.action) ? appeal.action : '';
       const discordIdentity = clean(appeal.discordIdentity, 100);
-      const gamertag = clean(appeal.gamertag, 100);
+      const gamertag = scope === 'rust' ? clean(appeal.gamertag, 100) : '';
       const email = clean(appeal.email, 254);
       const punishmentReason = clean(appeal.punishmentReason);
       const punishmentJustified = clean(appeal.punishmentJustified);
@@ -68,7 +68,7 @@ export function registerAppealsApi(app, client) {
       await channel.send({
         allowedMentions: { parse: [] },
         ...([punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo].some(value => value.length > 500)
-          ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, discordIdentity, gamertag, email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
+          ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, discordIdentity, ...(scope === 'rust' ? { gamertag } : {}), email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
           : {}),
         embeds: [{
           title: `${scopeLabel} appeal — ${action}`,
@@ -77,12 +77,12 @@ export function registerAppealsApi(app, client) {
           thumbnail: { url: CLOUDY_LOGO_URL },
           fields: [
             { name: 'Discord username / ID', value: shown(discordIdentity), inline: true },
-            { name: 'Gamertag', value: shown(gamertag), inline: true },
+            ...(scope === 'rust' ? [{ name: 'Gamertag', value: shown(gamertag), inline: true }] : []),
             { name: 'Email', value: shown(email), inline: false },
             { name: 'Why were you muted/banned?', value: shown(punishmentReason), inline: false },
             { name: 'Was the punishment justified?', value: shown(punishmentJustified), inline: false },
             { name: 'Why should the appeal be accepted?', value: shown(acceptanceReason), inline: false },
-            { name: 'What will they do differently?', value: shown(futureChanges), inline: false },
+            { name: 'What will you do differently if your appeal is accepted?', value: shown(futureChanges), inline: false },
             { name: 'Evidence', value: shown(evidence), inline: false },
             { name: 'Additional information', value: shown(additionalInfo), inline: false },
           ],
