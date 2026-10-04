@@ -77,4 +77,4 @@ export async function nextReportNumber(client, guildId) {
   });
 }
 
-export { deleteReportCase, scheduleReportCaseExpiry, publishReportOutcome, handleReportCaseControl, restoreReportCaseTimers, validateReportDestinations, updateReportCountdowns, REPORT_LOG_CHANNEL_ID, REPORT_COUNTDOWN_REFRESH_MS } from './reportCaseLifecycleService.js';
+export { deleteReportCase, scheduleReportCaseExpiry, publishReportOutcome, handleReportCaseControl, restoreReportCaseTimers, validateReportDestinations, REPORT_LOG_CHANNEL_ID } from './reportCaseLifecycleService.js';
