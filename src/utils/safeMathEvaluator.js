@@ -1,126 +1,181 @@
 /**
- * SAFE MATH EVALUATOR — replaces dangerous Function() constructor
- * Uses RPN (Reverse Polish Notation) instead of eval-like patterns
- * NO code injection possible
+ * Safe math evaluator for Cloudy counting-game expressions.
+ * Supports +, -, *, /, ^/**, decimals and parentheses without code generation.
  */
 
-function validateExpression(expr) {
-  // Allow only numbers, operators, parentheses, spaces, decimals
-  if (!/^[0-9+\-*/.() \t]+$/.test(expr)) {
+const MAX_EXPRESSION_LENGTH = 256;
+const MAX_PARENTHESES_DEPTH = 20;
+
+function normalizeExpression(expr) {
+  const normalized = String(expr ?? '').trim().replace(/\^/g, '**');
+  if (!normalized) throw new Error('Empty expression');
+  if (normalized.length > MAX_EXPRESSION_LENGTH) throw new Error('Expression too long');
+  if (!/^[0-9+\-*/.() \t]+$/.test(normalized)) {
     throw new Error('Invalid character in expression');
   }
-  // Prevent deeply nested parentheses (DoS attack)
+
   let depth = 0;
-  for (const char of expr) {
+  for (const char of normalized) {
     if (char === '(') {
-      depth++;
-      if (depth > 20) throw new Error('Expression too deeply nested');
+      depth += 1;
+      if (depth > MAX_PARENTHESES_DEPTH) throw new Error('Expression too deeply nested');
     } else if (char === ')') {
-      depth--;
+      depth -= 1;
       if (depth < 0) throw new Error('Mismatched parentheses');
     }
   }
   if (depth !== 0) throw new Error('Mismatched parentheses');
-  return true;
+  return normalized;
 }
 
-function tokenize(expr) {
+function tokenize(expression) {
   const tokens = [];
-  const pattern = /(\d+\.?\d*|\+|\-|\*|\/|\(|\))/g;
-  let match;
-  while ((match = pattern.exec(expr)) !== null) {
-    tokens.push(match[1]);
+
+  for (let index = 0; index < expression.length;) {
+    const char = expression[index];
+
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+
+    if (/\d|\./.test(char)) {
+      const start = index;
+      let dots = 0;
+      let digits = 0;
+
+      while (index < expression.length && /[\d.]/.test(expression[index])) {
+        if (expression[index] === '.') dots += 1;
+        else digits += 1;
+        if (dots > 1) throw new Error('Invalid number');
+        index += 1;
+      }
+
+      if (digits === 0) throw new Error('Invalid number');
+      const value = Number(expression.slice(start, index));
+      if (!Number.isFinite(value)) throw new Error('Invalid number');
+      tokens.push({ type: 'number', value });
+      continue;
+    }
+
+    if (char === '*' && expression[index + 1] === '*') {
+      tokens.push({ type: 'operator', value: '**' });
+      index += 2;
+      continue;
+    }
+
+    if ('+-*/'.includes(char)) {
+      tokens.push({ type: 'operator', value: char });
+      index += 1;
+      continue;
+    }
+
+    if (char === '(' || char === ')') {
+      tokens.push({ type: 'paren', value: char });
+      index += 1;
+      continue;
+    }
+
+    throw new Error('Invalid expression');
   }
+
   return tokens;
 }
 
-function precedence(op) {
-  if (op === '+' || op === '-') return 1;
-  if (op === '*' || op === '/') return 2;
-  return 0;
+function applyBinary(operator, left, right) {
+  let value;
+  if (operator === '+') value = left + right;
+  else if (operator === '-') value = left - right;
+  else if (operator === '*') value = left * right;
+  else if (operator === '/') {
+    if (right === 0) throw new Error('Division by zero');
+    value = left / right;
+  } else if (operator === '**') {
+    value = left ** right;
+  } else {
+    throw new Error('Unsupported operator');
+  }
+
+  if (!Number.isFinite(value)) throw new Error('Non-finite result');
+  return value;
 }
 
-function isOperator(token) {
-  return ['+', '-', '*', '/'].includes(token);
-}
+function parseTokens(tokens) {
+  let index = 0;
 
-function toRPN(tokens) {
-  const output = [];
-  const operators = [];
+  const peek = () => tokens[index];
+  const consume = () => tokens[index++];
 
-  for (const token of tokens) {
-    if (!isNaN(Number(token))) {
-      output.push(Number(token));
-    } else if (token === '(') {
-      operators.push(token);
-    } else if (token === ')') {
-      while (operators.length && operators[operators.length - 1] !== '(') {
-        output.push(operators.pop());
+  function parsePrimary() {
+    const token = consume();
+    if (!token) throw new Error('Unexpected end of expression');
+
+    if (token.type === 'number') return token.value;
+
+    if (token.type === 'paren' && token.value === '(') {
+      const value = parseAddSub();
+      const closing = consume();
+      if (!closing || closing.type !== 'paren' || closing.value !== ')') {
+        throw new Error('Mismatched parentheses');
       }
-      if (!operators.length) throw new Error('Mismatched parentheses');
-      operators.pop(); // Remove '('
-    } else if (isOperator(token)) {
-      while (
-        operators.length &&
-        operators[operators.length - 1] !== '(' &&
-        precedence(operators[operators.length - 1]) >= precedence(token)
-      ) {
-        output.push(operators.pop());
-      }
-      operators.push(token);
+      return value;
     }
+
+    throw new Error('Expected a number or parenthesis');
   }
 
-  while (operators.length) {
-    const op = operators.pop();
-    if (op === '(' || op === ')') throw new Error('Mismatched parentheses');
-    output.push(op);
-  }
-
-  return output;
-}
-
-function evaluateRPN(rpn) {
-  const stack = [];
-
-  for (const token of rpn) {
-    if (typeof token === 'number') {
-      stack.push(token);
-    } else if (isOperator(token)) {
-      if (stack.length < 2) throw new Error('Invalid expression');
-      const b = stack.pop();
-      const a = stack.pop();
-
-      if (token === '+') stack.push(a + b);
-      else if (token === '-') stack.push(a - b);
-      else if (token === '*') stack.push(a * b);
-      else if (token === '/') {
-        if (b === 0) throw new Error('Division by zero');
-        stack.push(a / b);
-      }
+  function parsePower() {
+    const left = parsePrimary();
+    const token = peek();
+    if (token?.type === 'operator' && token.value === '**') {
+      consume();
+      return applyBinary('**', left, parseUnary());
     }
+    return left;
   }
 
-  if (stack.length !== 1) throw new Error('Invalid expression');
-  return stack[0];
+  function parseUnary() {
+    const token = peek();
+    if (token?.type === 'operator' && (token.value === '+' || token.value === '-')) {
+      consume();
+      const value = parseUnary();
+      return token.value === '-' ? -value : value;
+    }
+    return parsePower();
+  }
+
+  function parseMulDiv() {
+    let value = parseUnary();
+    while (true) {
+      const token = peek();
+      if (token?.type !== 'operator' || (token.value !== '*' && token.value !== '/')) break;
+      consume();
+      value = applyBinary(token.value, value, parseUnary());
+    }
+    return value;
+  }
+
+  function parseAddSub() {
+    let value = parseMulDiv();
+    while (true) {
+      const token = peek();
+      if (token?.type !== 'operator' || (token.value !== '+' && token.value !== '-')) break;
+      consume();
+      value = applyBinary(token.value, value, parseMulDiv());
+    }
+    return value;
+  }
+
+  const result = parseAddSub();
+  if (index !== tokens.length) throw new Error('Unexpected token');
+  if (!Number.isFinite(result)) throw new Error('Non-finite result');
+  return result;
 }
 
-/**
- * SAFE evaluation — zero code injection risk
- * @param {string} expr - Mathematical expression like "2+2*3"
- * @returns {number} - Result
- * @throws {Error} - If expression is invalid
- */
 export function evaluateSafeMath(expr) {
-  validateExpression(expr);
-  const tokens = tokenize(expr);
-  if (tokens.length === 0) throw new Error('Empty expression');
-  const rpn = toRPN(tokens);
-  return evaluateRPN(rpn);
+  return parseTokens(tokenize(normalizeExpression(expr)));
 }
 
-// Backward compatibility with existing code
 export function evaluateMathExpression(expr) {
   return evaluateSafeMath(expr);
 }
-
