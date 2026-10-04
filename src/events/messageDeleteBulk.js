@@ -1,3 +1,4 @@
+import { logDeletedMessage } from './messageDelete.js';
 import { Events } from 'discord.js';
 import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
@@ -18,6 +19,9 @@ export default {
     }
 
     const results = await Promise.allSettled(removals);
+    for (const message of messages?.values?.() || []) {
+      await logDeletedMessage(message).catch(error => logger.warn(`Failed to log bulk-deleted message ${message.id}:`, error));
+    }
     const failed = results.filter(result => result.status === 'rejected');
     if (failed.length) {
       logger.warn(`Failed to remove ${failed.length} bulk-deleted message(s) from the embed registry.`);
