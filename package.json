@@ -83,6 +83,7 @@
     "scripts/patch-runtime-performance.js",
     "scripts/patch-builder-audit.js",
     "scripts/patch-builder-save-session.js",
-    "scripts/patch-report-case-privacy.js"
+    "scripts/patch-report-case-privacy.js",
+    "scripts/patch-ticket-pinned-lookup.js"
   ]
 }

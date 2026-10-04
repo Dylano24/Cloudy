@@ -349,18 +349,27 @@ class PostgreSQLDatabase {
     }
 
     async _getWithLegacyFallback(canonicalKey, originalKey, defaultValue) {
-        let value = await this._getTempValue(canonicalKey, defaultValue);
-        if (value !== defaultValue) {
-            return value;
-        }
-
-        const legacyKeys = new Set([
+        const candidateKeys = [...new Set([
+            canonicalKey,
             ...(originalKey !== canonicalKey ? [originalKey] : []),
             ...getLegacyVariantsForCanonical(canonicalKey),
-        ]);
+        ])];
 
-        for (const legacyKey of legacyKeys) {
-            value = await this._getTempValue(legacyKey, defaultValue);
+        if (candidateKeys.length === 1) {
+            return this._getTempValue(canonicalKey, defaultValue);
+        }
+
+        // Read canonical and legacy rows in one round trip. SQL row order is
+        // unspecified, so select the value in the same precedence as before.
+        const result = await this.pool.query(
+            `SELECT key, value FROM ${pgConfig.tables.temp_data} WHERE key = ANY($1::text[]) AND (expires_at IS NULL OR expires_at > NOW())`,
+            [candidateKeys],
+        );
+        const values = new Map(result.rows.map(row => [row.key, row.value]));
+
+        for (const candidateKey of candidateKeys) {
+            if (!values.has(candidateKey)) continue;
+            const value = values.get(candidateKey);
             if (value !== defaultValue) {
                 return value;
             }

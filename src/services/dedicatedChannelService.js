@@ -1,4 +1,5 @@
 import { EmbedBuilder } from 'discord.js';
+import { fetchGuildChannels } from '../utils/guildChannelFetch.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
@@ -34,7 +35,7 @@ export async function resolveDedicatedChannel(guild, key) {
   let channel = findBySlug(guild, rule.slug);
   if (channel) return channel;
 
-  await guild.channels.fetch().catch(() => null);
+  await fetchGuildChannels(guild).catch(() => null);
   channel = findBySlug(guild, rule.slug);
   return channel;
 }

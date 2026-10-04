@@ -9,6 +9,7 @@ import {
 import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
+import { createSingleFlight } from '../utils/singleFlight.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
 const RUST_NEWS_FEED = 'https://rust.facepunch.com/rss/news';
@@ -233,25 +234,30 @@ async function checkForRustPatch(client) {
     }
 }
 
-let patchNotesTimer = null;
+const patchNotesMonitors = new WeakMap();
 
 export function startRustPatchNotes(client) {
-    const beginMonitoring = async () => {
-        if (patchNotesTimer) return;
+    // Ready and app startup both request this monitor. Reserve it before any
+    // network await so they cannot install duplicate checks or intervals.
+    if (patchNotesMonitors.has(client)) return;
+    const runCheck = createSingleFlight(() => checkForRustPatch(client));
+    patchNotesMonitors.set(client, { runCheck });
 
-        const posted = await checkForRustPatch(client);
+    const beginMonitoring = async () => {
+        const posted = await runCheck();
         if (!posted) {
             const retry = setTimeout(() => {
-                void checkForRustPatch(client);
+                void runCheck();
             }, STARTUP_RETRY_MS);
             retry.unref?.();
         }
 
-        patchNotesTimer = setInterval(() => {
-            void checkForRustPatch(client);
+        const timer = setInterval(() => {
+            void runCheck();
         }, CHECK_INTERVAL_MS);
 
-        patchNotesTimer.unref?.();
+        patchNotesMonitors.get(client).timer = timer;
+        timer.unref?.();
         logger.info(`Rust patch notes monitor active for channel ${RUST_PATCH_CHANNEL_ID}`);
     };
 
