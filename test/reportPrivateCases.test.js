@@ -4,7 +4,7 @@ import { Collection, ChannelType, OverwriteType, PermissionOverwrites, Permissio
 import { db } from '../src/utils/database.js';
 import { buildReportActions, handleReportAction, handleReportModeration } from '../src/services/reportActionService.js';
 import { ModerationService } from '../src/services/moderation/moderationService.js';
-import { registerReport, reportKey, REPORT_CATEGORY_ID, REPORT_CASE_MS, REPORT_LOG_CHANNEL_ID, REPORT_COUNTDOWN_REFRESH_MS, restoreReportCaseTimers, handleReportCaseControl, publishReportOutcome, deleteReportCase } from '../src/services/reportCaseService.js';
+import { registerReport, reportKey, REPORT_CATEGORY_ID, REPORT_CASE_MS, REPORT_LOG_CHANNEL_ID, restoreReportCaseTimers, handleReportCaseControl, publishReportOutcome, deleteReportCase } from '../src/services/reportCaseService.js';
 import { TICKET_EVENT_STYLES } from '../src/utils/ticket/ticketLogging.js';
 import { applySavedResponsePayloadTemplates } from '../src/events/fullResponseCatalogReady.js';
 import { saveEmbedTemplateDecoration } from '../src/services/embedTemplateService.js';
@@ -187,18 +187,19 @@ test('reporter Close removes only reporter access; Staff can also Close and dele
   assert.deepEqual(log.components, []);
 });
 
-test('24-hour countdown updates both notices without new messages, survives restart and expires both channels with red logs', async t => {
+test('both notices show a static 24-hour deletion message, survive restart and expire both channels with red logs', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
   let record = await f.submit();
   const notices = Object.values(record.cases).map(entry => f.channels.get(entry.channelId).messages.cache.get(entry.messageId));
-  assert.ok(notices.every(notice => JSON.stringify(json(notice.embeds[0])).includes('24:00:00')));
-  const count = f.payloads.length;
-  t.mock.timers.tick(REPORT_COUNTDOWN_REFRESH_MS); await settle();
-  assert.ok(notices.every(notice => JSON.stringify(json(notice.embeds[0])).includes('23:59:30')));
-  assert.equal(f.payloads.length, count);
+  for (const notice of notices) {
+    const data = JSON.stringify(json(notice.embeds[0]));
+    assert.match(data, /Automatic deletion/);
+    assert.match(data, /automatically deleted after 24 hours/);
+    assert.doesNotMatch(data, /Time remaining|24:00:00|23:59/);
+  }
   await restoreReportCaseTimers(f.client);
-  t.mock.timers.tick(REPORT_CASE_MS - REPORT_COUNTDOWN_REFRESH_MS - 1); await settle();
+  t.mock.timers.tick(REPORT_CASE_MS - 1); await settle();
   assert.deepEqual(f.removed, ['original-message']);
   t.mock.timers.tick(1); await settle(); await settle();
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
@@ -281,7 +282,7 @@ test('legacy shared case upgrades on restart without repeating moderation or cha
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Legacy private reason/);
 });
 
-test('saved shared notification templates cannot leak private reasons or overwrite countdown and ticket colors', async () => {
+test('saved shared notification templates cannot leak private reasons or overwrite report case presentation', async () => {
   const f = fixture();
   await saveEmbedTemplateDecoration(f.guild.id, 'shared', ['Report case notification'], { title: 'Report case notification', description: 'Leaked reason', fields: [{ name: 'Reason', value: 'Private secret' }], color: 0xFFFFFF }, { sharedScope: true, applyFields: true });
   const payload = { embeds: [{ title: 'Report case notification', description: 'The reported member has been banned.', fields: [{ name: 'Time remaining', value: '23:59:30' }] }] };
