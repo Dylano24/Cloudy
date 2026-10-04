@@ -94,7 +94,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.ok(reporter.creation.permissionOverwrites.some(entry => entry.id === 'reporter' && entry.allow));
   assert.ok(!reporter.creation.permissionOverwrites.some(entry => entry.id === 'target'));
   assert.ok(target.creation.permissionOverwrites.some(entry => entry.id === 'target' && entry.allow));
-  assert.ok(target.creation.permissionOverwrites.every(entry => entry.type === (entry.id === 'everyone' || entry.id === 'staff-role' ? OverwriteType.Role : OverwriteType.Member)));
+  assert.ok(target.creation.permissionOverwrites.every(entry => entry.type === (['everyone', 'staff-role', 'owner-role'].includes(entry.id) ? OverwriteType.Role : OverwriteType.Member)));
   // Discord must resolve banned/uncached users without looking up cached structures.
   for (const entry of target.creation.permissionOverwrites) assert.equal(PermissionOverwrites.resolve(entry, {}).id, entry.id);
   assert.ok(!target.creation.permissionOverwrites.some(entry => entry.id === 'reporter'));
