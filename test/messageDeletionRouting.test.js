@@ -30,7 +30,7 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(message('member'));
   await logDeletedMessage(message('bot', { content: '', embeds: [{ title: 'Bot embed', description: 'Original bot content' }] }));
   assert.deepEqual(sent.map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID]);
-  for (const [index, type] of ['Owner', 'Moderator', 'Member', 'Bot'].entries()) {
+  for (const [index, type] of ['Staff', 'Staff', 'Member', 'Bot'].entries()) {
     assert.match(JSON.stringify(sent[index].embed), new RegExp(`Author type.*${type}`));
     assert.deepEqual(sent[index].allowedMentions, { parse: [] });
   }

@@ -20,7 +20,7 @@ export default {
 
     const results = await Promise.allSettled(removals);
     for (const message of messages?.values?.() || []) {
-      await logDeletedMessage(message).catch(error => logger.warn(`Failed to log bulk-deleted message ${message.id}:`, error));
+      await logDeletedMessage(message, { bulk: true }).catch(error => logger.warn(`Failed to log bulk-deleted message ${message.id}:`, error));
     }
     const failed = results.filter(result => result.status === 'rejected');
     if (failed.length) {

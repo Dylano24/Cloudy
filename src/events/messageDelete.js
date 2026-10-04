@@ -1,3 +1,4 @@
+import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback, resolveMessageDeleter } from '../services/deletionAttributionService.js';
 import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
@@ -62,12 +63,14 @@ export default {
   }
 };
 
-export async function logDeletedMessage(message) {
+export async function logDeletedMessage(message, options = {}) {
   if (!message.guild) return;
-  if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID].includes(message.channelId)) return;
+  if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID].includes(message.channelId) || isBotActionFeedback(message)) return;
+  const deletedBy = await resolveMessageDeleter(message, options);
   const media = await prepareDeletedMessageMedia(message);
 
   const metaLines = [
+    formatLogLine('Deleted by', deletedBy.label),
     formatLogLine('Channel', message.channel ? `${message.channel.name} ${message.channel.toString()}` : 'Unknown'),
     formatLogLine('Message ID', `\`${message.id}\``),
     formatLogLine('Message author', message.author ? message.author.toString() : 'Unknown'),
@@ -111,6 +114,8 @@ export async function logDeletedMessage(message) {
       section: messageBody ? { title: 'Message', body: messageBody || '*(empty message)*' } : null,
       userId: message.author?.id,
       authorBot: message.author?.bot === true,
+      deletedById: deletedBy.id,
+      deletionSource: deletedBy.source,
       channelId: message.channelId || message.channel?.id,
     }
   });

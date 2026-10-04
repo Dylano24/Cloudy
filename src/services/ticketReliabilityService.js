@@ -218,6 +218,13 @@ async function cleanupIncompleteTicket(channel) {
   return false;
 }
 
+export async function checkTicketCreationLimit(guild, userId, config) {
+  const maxTickets = Number(config.maxTicketsPerUser ?? 3);
+  const currentCount = await getStrictOpenTicketCount(guild.client, guild.id, userId);
+  if (currentCount >= maxTickets) throw ticketError('Ticket limit reached',
+    `You have reached the maximum number of open tickets (${maxTickets}). Please close your existing tickets before creating a new one.`, 'TICKET_LIMIT_REACHED');
+}
+
 export async function createTicket(guild, member, categoryId, reason, priority = 'none') {
   const queueKey = `${guild.id}:${member.id}`;
 

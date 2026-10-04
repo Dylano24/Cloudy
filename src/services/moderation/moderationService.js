@@ -1,3 +1,4 @@
+import { createEmbed } from '../../utils/embeds.js';
 // moderationService.js
 
 import { PermissionFlagsBits } from 'discord.js';
@@ -176,6 +177,7 @@ export class ModerationService {
       }
 
       await guild.members.ban(user.id, { reason });
+      if (typeof user.send === 'function') await user.send({ embeds: [createEmbed({ title: 'Ban notice', description: reason })] }).catch(error => logger.debug(`Ban DM unavailable: ${error.code || 'unknown'}`));
 
       const caseId = await logModerationAction({
         client: guild.client,
