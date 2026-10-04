@@ -16,7 +16,7 @@ export function buildContentCreatorPayload(existing) {
       content: existing.content || undefined,
       embeds: existing.embeds.map(embed => {
         const data = embed.toJSON ? embed.toJSON() : structuredClone(embed);
-        if (/content creators/i.test(data.title || '')) data.title = '🎥 Content Creators';
+        if (/^Cloudy template key:/i.test(data.author?.name || '')) delete data.author;
         return data;
       }),
       components: (existing.components || []).map(row => row.toJSON ? row.toJSON() : row),
@@ -42,7 +42,7 @@ export function createContentCreatorGuideManager() {
         const { registerCloudyEmbedMessage } = await import('./embedRegistryService.js');
         await registerCloudyEmbedMessage(message, 'content-creators');
       }
-      if (message.embeds.some(embed => /content creators/i.test(embed.title || '') && embed.title !== '🎥 Content Creators')) {
+      if (message.embeds.some(embed => /^Cloudy template key:/i.test(embed.author?.name || ''))) {
         return message.edit({ embeds: buildContentCreatorPayload(message).embeds });
       }
       return message;
@@ -70,4 +70,5 @@ export async function ensureContentCreatorGuides(client) {
     }
   }
 }
+
 

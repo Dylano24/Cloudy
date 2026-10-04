@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionsBitField } from 'discord.js';
 import { db } from '../src/utils/database.js';
 import { handleReportAction, reportActionAllowed } from '../src/services/reportActionService.js';
-import { registerReport, reportKey, reportCaseControls, REPORT_CATEGORY_ID, REPORT_CASE_MS, restoreReportCaseTimers, handleReportCaseControl } from '../src/services/reportCaseService.js';
+import { registerReport, reportKey, reportCaseControls, REPORT_CATEGORY_ID, REPORT_CASE_MS, restoreReportCaseTimers, handleReportCaseControl, publishReportOutcome } from '../src/services/reportCaseService.js';
 import { withCloudyFooter, CLOUDY_STANDARD_FOOTER } from '../src/utils/cloudyFooter.js';
 import { resolveDiscordAppealIdentity } from '../src/services/appealIdentityService.js';
 
@@ -44,7 +44,7 @@ test('report Delete targets original message; separate member/staff controls sur
   const memberNotice=f.payloads.find(p=>p.id===record.memberMessageIds[0]);
   assert.deepEqual(staffNotice.components[0].toJSON().components.map(b=>b.label),['Read','Delete']);
   assert.deepEqual(memberNotice.components[0].toJSON().components.map(b=>[b.label,b.style]),[['Read',2]]);
-  assert.match(staffNotice.content,/<@reporter> <@&staff-role>/);assert.match(JSON.stringify(memberNotice.embeds),/automatically deleted after 24 hours/);
+  assert.match(staffNotice.content,/<@reporter> <@target> <@&staff-role>/);assert.match(JSON.stringify(memberNotice.embeds),/automatically deleted after 24 hours/);
   await restoreReportCaseTimers(f.client);
   t.mock.timers.tick(REPORT_CASE_MS-1);await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(f.removed,['original-message']);
   t.mock.timers.tick(1);await new Promise(resolve=>setImmediate(resolve));
@@ -103,7 +103,7 @@ test('report case has one member notification and no staff-only Delete button in
   const record = await f.client.db.get(reportKey(f.guild.id, f.report.id));
   const notices = f.payloads.filter(p => p.channelId === record.caseChannelId);
   assert.equal(notices.length, 1);
-  assert.match(notices[0].content, /<@reporter> <@&staff-role>/);
+  assert.match(notices[0].content, /<@reporter> <@target> <@&staff-role>/);
   assert.deepEqual(notices[0].components[0].toJSON().components.map(b => b.label), ['Read']);
   const privateNotice = f.payloads.find(p => p.channelId === 'reports');
   assert.deepEqual(privateNotice.components[0].toJSON().components.map(b => b.label), ['Read', 'Delete']);
@@ -114,4 +114,28 @@ test('unmute username resolution needs member access without requiring ban-list 
   const guild = { members: { cache: new Collection([['target', { user }]]), fetch: async () => new Collection() }, bans: { fetch: async () => { throw new Error('Missing BanMembers'); } } };
   assert.equal(await resolveDiscordAppealIdentity(guild, 'mutedplayer', { includeBans: false }), user.id);
 });
+
+test('reported member is tagged and can Read; further actions and Read update notices without extra messages', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  await registerReport(f.client, f.report, { guildId: f.guild.id, reporterId: 'reporter', targetId: 'target', sourceChannelId: 'original', sourceMessageId: 'original-message' });
+  await handleReportAction(f.interaction, f.client, ['delete', 'target']);
+  let record = await f.client.db.get(reportKey(f.guild.id, f.report.id));
+  const memberNotice = f.payloads.find(p => p.id === record.memberMessageIds[0]);
+  const staffNotice = f.payloads.find(p => p.id === record.staffMessageIds[0]);
+  assert.ok(f.channels.get(record.caseChannelId).creation.permissionOverwrites.some(o => o.id === 'target' && o.allow.length));
+  assert.ok(memberNotice.allowedMentions.users.includes('target'));
+  const count = f.payloads.length;
+  Object.assign(f.interaction, { user: { id: 'target' }, message: memberNotice, channelId: record.caseChannelId });
+  await handleReportCaseControl(f.interaction, f.client, ['read', 'report']);
+  assert.equal(f.payloads.length, count);
+  assert.match(JSON.stringify(staffNotice.embeds), /Read by.*<@target>/);
+  record = await f.client.db.get(reportKey(f.guild.id, f.report.id));
+  assert.equal(record.readBy.target.notified, true);
+  const updated = await publishReportOutcome(f.client, f.guild, f.report, record, 'timeout', 'staff', 'Repeated abuse');
+  assert.equal(f.payloads.length, count);
+  assert.deepEqual(updated.memberMessageIds, record.memberMessageIds);
+  assert.match(JSON.stringify(memberNotice.embeds), /timed out/);
+});
+
 
