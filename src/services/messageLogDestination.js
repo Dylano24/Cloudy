@@ -4,13 +4,21 @@ export const CLOUDY_GUILD_ID = '1532882647838228723';
 export const OWNER_MOD_MESSAGE_LOG_ID = '1555895354187325552';
 export const MEMBER_MESSAGE_LOG_ID = '1555891729297580084';
 
-export function messageLogDestination(guild, userId, member, config = {}, authorBot = false) {
-  if (guild?.id !== CLOUDY_GUILD_ID) return null;
-  if (authorBot || member?.user?.bot || !userId) return MEMBER_MESSAGE_LOG_ID;
-  const staff = userId === guild.ownerId
-    || member?.permissions?.has?.(PermissionFlagsBits.Administrator)
+export function messageLogAuthorType(guild, userId, member, config = {}, authorBot = false) {
+  if (authorBot || member?.user?.bot) return 'Bot';
+  if (!userId) return 'Unknown';
+  if (userId === guild?.ownerId) return 'Owner';
+  const staff = member?.permissions?.has?.(PermissionFlagsBits.Administrator)
     || member?.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
     || member?.permissions?.has?.(PermissionFlagsBits.ManageMessages)
+    || member?.permissions?.has?.(PermissionFlagsBits.BanMembers)
+    || member?.permissions?.has?.(PermissionFlagsBits.KickMembers)
     || Boolean(config.ticketStaffRoleId && member?.roles?.cache?.has?.(config.ticketStaffRoleId));
-  return staff ? OWNER_MOD_MESSAGE_LOG_ID : MEMBER_MESSAGE_LOG_ID;
+  return staff ? 'Moderator' : 'Member';
+}
+
+export function messageLogDestination(guild, userId, member, config = {}, authorBot = false) {
+  if (guild?.id !== CLOUDY_GUILD_ID) return null;
+  const type = messageLogAuthorType(guild, userId, member, config, authorBot);
+  return ['Owner', 'Moderator', 'Bot'].includes(type) ? OWNER_MOD_MESSAGE_LOG_ID : MEMBER_MESSAGE_LOG_ID;
 }
