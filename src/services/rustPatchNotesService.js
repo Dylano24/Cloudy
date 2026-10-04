@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
+import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
 const RUST_NEWS_FEED = 'https://rust.facepunch.com/rss/news';
@@ -34,7 +35,7 @@ const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const STARTUP_RETRY_MS = 60 * 1000;
 
 function decodeXml(value = '') {
-    return value
+    return decodeHtmlEntities(value)
         .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
@@ -120,6 +121,16 @@ export function parseLatestPatch(feed) {
     return null;
 }
 
+export async function repairEncodedPatchText(message) {
+    const original = message.embeds.map(embed => embed.toJSON());
+    const embeds = original.map(data => ({
+        ...data,
+        ...(data.title ? { title: decodeHtmlEntities(data.title) } : {}),
+        ...(data.description ? { description: decodeHtmlEntities(data.description) } : {}),
+    }));
+    if (JSON.stringify(original) !== JSON.stringify(embeds)) await message.edit({ embeds });
+}
+
 async function checkForRustPatch(client) {
     try {
         let patch = LATEST_KNOWN_PATCH;
@@ -172,6 +183,7 @@ async function checkForRustPatch(client) {
             );
 
             if (existingMessage) {
+                await repairEncodedPatchText(existingMessage);
                 if (previousLink !== patch.link) {
                     await client.db.set(LAST_PATCH_KEY, patch.link);
                 }

@@ -1,4 +1,6 @@
 import { logger } from '../utils/logger.js';
+import { randomUUID } from 'node:crypto';
+import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const APPEALS_CHANNEL_ID = '1539372283418910810';
 const CLOUDY_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
@@ -11,7 +13,8 @@ function clean(value, max = 1000) {
 }
 
 function shown(value) {
-  return clean(value) || 'Not provided';
+  const text = clean(value) || 'Not provided';
+  return text.length > 500 ? `${text.slice(0, 497)}...` : text;
 }
 
 function validEmail(value) {
@@ -53,17 +56,20 @@ export function registerAppealsApi(app, client) {
         return res.status(503).json({ error: 'Cloudy is still starting. Please try again in a moment.' });
       }
 
-      const channel = client.channels.cache.get(APPEALS_CHANNEL_ID) || await client.channels.fetch(APPEALS_CHANNEL_ID);
+      const channel = await resolveCloudyChannel(client, 'banTimeoutAppeals', { textOnly: true });
       if (!channel?.isTextBased?.() || typeof channel.send !== 'function') {
         logger.error(`[Appeals] Channel ${APPEALS_CHANNEL_ID} is unavailable or not text based.`);
         return res.status(503).json({ error: 'Appeal delivery is temporarily unavailable.' });
       }
 
-      const id = `CLD-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+      const id = `CLD-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`;
       const scopeLabel = scope === 'discord' ? 'Discord' : 'Rust server';
 
       await channel.send({
         allowedMentions: { parse: [] },
+        ...([punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo].some(value => value.length > 500)
+          ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, discordIdentity, gamertag, email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
+          : {}),
         embeds: [{
           title: `${scopeLabel} appeal — ${action}`,
           description: `A new appeal was submitted through the Cloudy website.\n\n**Appeal ID:** ${id}`,
@@ -85,7 +91,7 @@ export function registerAppealsApi(app, client) {
         }],
       });
 
-      logger.info(`[Appeals] Delivered ${id} to channel ${APPEALS_CHANNEL_ID}.`);
+      logger.info(`[Appeals] Delivered ${id} to channel ${channel.id}.`);
       return res.status(200).json({ ok: true, id });
     } catch (error) {
       logger.error('[Appeals] Delivery failed:', error);
