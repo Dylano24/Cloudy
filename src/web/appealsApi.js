@@ -32,7 +32,7 @@ export function registerAppealsApi(app, client) {
 
       const appeal = req.body || {};
       const scope = appeal.scope === 'rust' ? 'rust' : appeal.scope === 'discord' ? 'discord' : '';
-      const action = ['Mute', 'Ban', 'Other'].includes(appeal.action) ? appeal.action : '';
+      const action = (scope === 'rust' ? ['Ban'] : ['Mute', 'Ban']).includes(appeal.action) ? appeal.action : '';
       const discordIdentity = scope === 'discord' ? clean(appeal.discordIdentity, 100) : '';
       const gamertag = scope === 'rust' ? clean(appeal.gamertag, 100) : '';
       const email = clean(appeal.email, 254);

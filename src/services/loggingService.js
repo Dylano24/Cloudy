@@ -9,11 +9,12 @@ import {
   buildLogDescription,
   buildStandardLogEmbed,
   fieldsToLines,
+  formatLogLine,
   splitComparisonFields,
 } from '../utils/logging/logEmbeds.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { enforceFixedLogPresentation } from './moderationLogPresentation.js';
-import { messageLogDestination } from './messageLogDestination.js';
+import { CLOUDY_GUILD_ID, messageLogAuthorType, messageLogDestination } from './messageLogDestination.js';
 
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
 const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
@@ -315,17 +316,18 @@ export async function logEvent({
     }
 
     const config = await getGuildConfig(client, guildId);
+    const requiredMessageDeletion = guildId === CLOUDY_GUILD_ID && eventType === EVENT_TYPES.MESSAGE_DELETE;
     const ignore = getIgnoreList(config);
 
-    if (data?.userId && ignore.users?.includes(data.userId)) {
+    if (!requiredMessageDeletion && data?.userId && ignore.users?.includes(data.userId)) {
       return null;
     }
-    if (data?.channelId && ignore.channels?.includes(data.channelId)) {
+    if (!requiredMessageDeletion && data?.channelId && ignore.channels?.includes(data.channelId)) {
       return null;
     }
 
     if (
-      ![
+      !requiredMessageDeletion && ![
         EVENT_TYPES.MODERATION_BAN,
         EVENT_TYPES.MODERATION_KICK,
         EVENT_TYPES.MODERATION_TIMEOUT,
@@ -343,6 +345,10 @@ export async function logEvent({
       : null;
     const audienceChannelId = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
       ? messageLogDestination(guild, data.userId, author, config, data.authorBot) : null;
+    if (requiredMessageDeletion && data.lines) {
+      const type = messageLogAuthorType(guild, data.userId, author, config, data.authorBot);
+      data = { ...data, lines: [...data.lines, formatLogLine('Author type', type)] };
+    }
     const logChannelId = audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);
     if (!logChannelId) {
       return null;
@@ -352,7 +358,9 @@ export async function logEvent({
       await guild.channels.fetch(logChannelId).catch(() => null);
 
     if (!channel) {
-      const restoredChannelKey = eventType === EVENT_TYPES.MODERATION_KICK
+      const restoredChannelKey = audienceChannelId
+        ? (audienceChannelId === '1555895354187325552' ? 'ownerModMessageLogs' : 'memberMessageLogs')
+        : eventType === EVENT_TYPES.MODERATION_KICK
         ? 'kickLogs'
         : [EVENT_TYPES.MODERATION_TIMEOUT, EVENT_TYPES.MODERATION_UNTIMEOUT].includes(eventType)
           ? 'timeoutLogs'
@@ -385,6 +393,7 @@ export async function logEvent({
 
     const presentedEmbed = enforceFixedLogPresentation(decorated.embed, { eventType });
     const messageOptions = { embeds: [presentedEmbed] };
+    if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };
     if (content) {
       messageOptions.content = content;
     }
