@@ -116,15 +116,23 @@ async function getRecentUsableMessages(channel, botUserId, { fullHistory = true 
         complete: false,
     };
 
-    mergeUsableMessages(state.messages, channel.messages.cache.values(), botUserId);
+    mergeUsableMessages(state.messages, channel.messages.cache?.values?.() || [], botUserId);
 
     // Always refresh exactly one newest page first. This is the only network
     // fetch used by live channel switching in the Embed Builder.
-    const newestBatch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE }).catch(() => null);
+    const newestBatch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE });
     if (newestBatch?.size) {
+        const oldestId = String(newestBatch.last()?.id || '');
+        for (const [id, message] of state.messages) {
+            const inRefreshedRange = id.length > oldestId.length || (id.length === oldestId.length && id >= oldestId);
+            if (message.deleted || (inRefreshedRange && !newestBatch.has(id))) state.messages.delete(id);
+        }
         mergeUsableMessages(state.messages, newestBatch.values(), botUserId);
         if (!state.oldestId) state.oldestId = newestBatch.last()?.id || null;
         if (newestBatch.size < DISCOVERY_PAGE_SIZE) state.complete = true;
+    } else if (newestBatch?.size === 0) {
+        state.messages.clear();
+        state.complete = true;
     }
 
     discoveryCache.set(cacheKey, state);
@@ -214,3 +222,4 @@ export async function discoverMissingChannelEmbed(guild, channelId, botUserId) {
 
     return { channel, message, embed, record };
 }
+
