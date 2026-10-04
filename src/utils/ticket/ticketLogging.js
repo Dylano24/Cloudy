@@ -78,7 +78,7 @@ function getLogChannelForEventType(config, eventType) {
   return null;
 }
 
-const TICKET_EVENT_STYLES = {
+export const TICKET_EVENT_STYLES = {
   open: { color: 0xFFFFFF, title: 'Ticket created' },
   close: { color: 0xFF7A00, title: 'Ticket closed' },
   delete: { color: 0xED4245, title: 'Ticket deleted' },
