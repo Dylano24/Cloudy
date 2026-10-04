@@ -1,5 +1,5 @@
 import { Events } from 'discord.js';
-import { polishExistingZorpGuideOnce, reconcileZorpGuide } from '../services/zorpGuideService.js';
+import { reconcileZorpGuide } from '../services/zorpGuideService.js';
 
 export default {
   name: Events.ClientReady,
@@ -7,6 +7,5 @@ export default {
 
   async execute(client) {
     await reconcileZorpGuide(client);
-    await polishExistingZorpGuideOnce(client);
   },
 };
