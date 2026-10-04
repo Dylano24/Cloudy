@@ -245,6 +245,7 @@ export async function logEvent({
   attachments = [],
   content = null,
   components = [],
+  allowedMentions = null,
   channelId: overrideChannelId = null,
 }) {
   try {
@@ -396,7 +397,8 @@ export async function logEvent({
 
     const presentedEmbed = enforceFixedLogPresentation(decorated.embed, { eventType });
     const messageOptions = { embeds: [presentedEmbed] };
-    if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };
+    if (allowedMentions) messageOptions.allowedMentions = allowedMentions;
+    else if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };
     if (content) {
       messageOptions.content = content;
     }
