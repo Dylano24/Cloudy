@@ -77,10 +77,12 @@ test('FAQ discovers arbitrary current channels while excluding unreadable channe
 test('website appeals deliver Discord and Rust forms to the current channel and retain long answers', async () => {
   let handler;
   const sent = [];
-  const channel = { id: 'current', name: '📨│ban-timeout-appeals', type: 0, isTextBased: () => true, send: async payload => sent.push(payload) };
+  const channel = { id: 'current', name: '📨│ban-timeout-appeals', type: 0, isTextBased: () => true, send: async payload => { sent.push(payload); return { id: `message-${sent.length}` }; } };
   const cache = new Collection([[channel.id, channel]]);
   const guild = { id: 'guild', channels: { cache, fetch: async () => cache } };
-  const client = { isReady: () => true, channels: { cache, fetch: async () => null }, guilds: { cache: new Collection([['guild', guild]]) } };
+  channel.guild = guild;
+  const reviews = new Map();
+  const client = { isReady: () => true, db: { get: async key => reviews.get(key), set: async (key, value) => { reviews.set(key, value); return true; } }, channels: { cache, fetch: async () => null }, guilds: { cache: new Collection([['guild', guild]]) } };
   registerAppealsApi({ post: (_path, callback) => { handler = callback; } }, client);
   const submit = async (body, source = 'cloudy-store-appeal-v1') => {
     const response = { code: 200, status(code) { this.code = code; return this; }, json(data) { this.data = data; return this; } };
@@ -91,6 +93,9 @@ test('website appeals deliver Discord and Rust forms to the current channel and 
   assert.equal((await submit({ ...body, email: '' })).code, 400);
   for (const [scope, action] of [['discord', 'Ban'], ['rust', 'Ban'], ['discord', 'Mute']]) assert.equal((await submit({ ...body, scope, action })).code, 200);
   assert.equal(sent.length, 3);
+  assert.equal(reviews.size, 3);
+  assert.equal(sent[0].components[0].toJSON().components[0].label, 'Unban');
+  assert.equal(sent[2].components[0].toJSON().components[0].label, 'Unmute');
   assert.equal(sent[0].embeds[0].fields.every(field => field.value.length <= 500), true);
   assert.equal(JSON.parse(sent[0].files[0].attachment.toString()).futureChanges.length, 1000);
   assert.match(sent[1].embeds[0].title, /Rust server appeal/);
