@@ -9,6 +9,7 @@ import {
 import { logger } from '../utils/logger.js';
 import { createSingleFlight } from '../utils/singleFlight.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
+import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
 
 const NITRADO_PATCH_CHANNEL_ID = '1539397467647377530';
 const NITRADO_NEWS_SOURCES = [
@@ -32,7 +33,7 @@ const MAX_ARTICLES_TO_INSPECT = 80;
 let lastFailureLogAt = 0;
 
 function decodeHtml(value = '') {
-  return String(value)
+  return decodeHtmlEntities(value)
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
