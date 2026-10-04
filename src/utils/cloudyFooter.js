@@ -41,4 +41,3 @@ export function installCloudyFooterOutput() {
   };
   Object.defineProperty(prototype, MARKER, { value: true });
 }
-

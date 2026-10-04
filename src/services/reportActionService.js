@@ -7,6 +7,7 @@ import { createEmbed } from '../utils/embeds.js';
 import { loadReport, publishReportOutcome, reportKey, withReportLock, REPORT_CATEGORY_ID } from './reportCaseService.js';
 import { rememberMessageDeleter } from './deletionAttributionService.js';
 import { ChannelType } from 'discord.js';
+import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 
 export function buildReportActions(userId) {
   return [new ActionRowBuilder().addComponents(
@@ -17,7 +18,7 @@ export function buildReportActions(userId) {
 }
 
 export function reportActionAllowed(interaction, action, config = {}) {
-  const isOwner = interaction.user.id === interaction.guild.ownerId;
+  const isOwner = interaction.user.id === interaction.guild.ownerId || hasCloudyOwnerMember(interaction.member);
   if (action === 'ban') return isOwner;
   const staffId = config.ticketStaffRoleId || interaction.guild.roles?.cache?.find(
     role => role.name.trim().toLowerCase() === 'staff',
@@ -45,7 +46,7 @@ export async function handleReportAction(interaction, client, [action, userId]) 
   if (interaction.message?.author?.id !== client.user.id) return;
   const config = await getGuildConfig(client, interaction.guildId);
   if (!reportActionAllowed(interaction, action, config)) {
-    return deny(interaction, action === 'ban' ? 'Only the server owner can ban members from reports.' : 'Only the staff team can manage reports.');
+    return deny(interaction, action === 'ban' ? 'Only the server owner or the Owner role can ban members from reports.' : 'Only the staff team can manage reports.');
   }
   if (action === 'delete') {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -71,7 +72,7 @@ export async function handleReportModeration(interaction, client, [action, userI
   if (!await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral })) return;
   const config = await getGuildConfig(client, interaction.guildId);
   if (!reportActionAllowed(interaction, action, config)) {
-    return deny(interaction, action === 'ban' ? 'Only the server owner can ban members from reports.' : 'Only the staff team can manage reports.');
+    return deny(interaction, action === 'ban' ? 'Only the server owner or the Owner role can ban members from reports.' : 'Only the staff team can manage reports.');
   }
   const report = await interaction.channel.messages.fetch(messageId).catch(() => null);
   const ids = report?.components?.flatMap(row => row.components.map(button => button.customId)) || [];
@@ -109,7 +110,7 @@ async function completeReportAction(interaction, client, report, action, userId,
       }
       const config = await getGuildConfig(client, interaction.guildId);
       const freshMember = await interaction.guild.members.fetch(interaction.user.id);
-      if (!reportActionAllowed({ ...interaction, member: freshMember }, action, config)) throw new Error('Only authorized staff can perform this action.');
+      if (!reportActionAllowed({ guild: interaction.guild, user: interaction.user, member: freshMember }, action, config)) throw new Error('Only authorized staff can perform this action.');
       const pending = { status: 'processing', actorId: interaction.user.id, reason };
       record.actions = { ...record.actions, [action]: pending };
       if (await client.db.set(reportKey(record.guildId, record.messageId), record) === false) throw new Error('The report action could not be saved.');
@@ -142,3 +143,4 @@ async function completeReportAction(interaction, client, report, action, userId,
     if (await client.db.set(reportKey(record.guildId, record.messageId), notified) === false) throw new Error('The action notification could not be saved.');
   });
 }
+

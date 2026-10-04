@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
 import { db } from '../src/utils/database.js';
 import { logDeletedMessage } from '../src/events/messageDelete.js';
+import { rememberMessageDeleter, AUTOMOD_LOG_CHANNEL_ID } from '../src/services/deletionAttributionService.js';
 import bulkDelete from '../src/events/messageDeleteBulk.js';
 import { CLOUDY_GUILD_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
 
@@ -20,7 +21,7 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   guild.members.cache.set('bot', { user: { bot: true }, permissions: new PermissionsBitField(PermissionFlagsBits.Administrator) });
   guild.members.cache.set('staff', { roles: { cache: new Collection([['staff-role', {}]]) } });
   const sent = [];
-  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
+  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
     permissionsFor: () => ({ has: () => true }), send: async payload => { sent.push({ id, embed: payload.embeds[0].toJSON(), files: payload.files, allowedMentions: payload.allowedMentions }); return { id: 'log' }; } });
   const message = (id, extra = {}) => ({ id: `message-${id}`, guild, guildId: guild.id, client,
     author: { id, bot: id === 'bot', toString: () => `<@${id}>` }, createdTimestamp: 1000,
@@ -65,6 +66,13 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   assert.equal(sent.at(-1).id, MEMBER_MESSAGE_LOG_ID);
   assert.match(JSON.stringify(sent.at(-1).embed), /not cached/);
   assert.doesNotMatch(JSON.stringify(sent.at(-1).embed), /NaN/);
+  const automatic = message('member', { id: 'automod-message' });
+  rememberMessageDeleter(automatic, client.user, 'automod');
+  await logDeletedMessage(automatic);
+  assert.equal(sent.at(-1).id, AUTOMOD_LOG_CHANNEL_ID);
+  assert.match(JSON.stringify(sent.at(-1).embed), /Deleted by.*<@bot>.*AutoMod/s);
+  assert.match(JSON.stringify(sent.at(-1).embed), /Author type.*Bot/s);
+  assert.match(JSON.stringify(sent.at(-1).embed), /Message author.*<@member>/s);
   const count = sent.length;
   await logDeletedMessage(message('bot', { channelId: MEMBER_MESSAGE_LOG_ID }));
   assert.equal(sent.length, count);
