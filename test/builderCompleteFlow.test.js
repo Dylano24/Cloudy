@@ -5,6 +5,7 @@ import { db } from '../src/utils/database.js';
 import { discoverRecentChannelEmbeds } from '../src/services/embedMissingChannelService.js';
 import { getCanonicalBuilderRecords, loadRecordSnapshotIntoState, saveModifiedEmbed } from '../src/services/embedManagerService.js';
 import { createEmbedColorPickerSession, applyEmbedColorPickerSession, deleteEmbedColorPickerSession } from '../src/services/embedColorPickerSessionService.js';
+import { saveExistingEmbed } from '../src/commands/Tools/embedbuilder.js';
 
 function fixture(id) {
   const stored = new Map(), messages = new Collection();
@@ -83,5 +84,67 @@ test('channel discovery fetches one page and drops deleted cached embeds on the 
   f.add('500', 'New panel', 5000);
   assert.equal((await discoverRecentChannelEmbeds(f.guild, f.channel.id, 'bot'))[0].messageId, '500');
   assert.equal(f.historyReads(), 3);
+});
+
+test('Appeal Save acknowledges before a blocked editor drain, deduplicates clicks and reopens all saved data', async () => {
+  const f = fixture('appeal-interaction-save');
+  const message = f.add('600', 'Original appeal', 6000);
+  const original = { ...message.embeds[0].toJSON(), fields: [{ name: 'Evidence', value: 'Keep evidence', inline: true }], image: { url: 'https://example.com/appeal.png' }, thumbnail: { url: 'https://example.com/logo.png' }, footer: { text: 'Keep footer', icon_url: 'https://example.com/footer.png' } };
+  message.embeds = [new Embed(original)];
+  message.components = [{ type: 1, components: [{ type: 2, style: 5, label: 'Appeal', url: 'https://example.com/appeal' }] }];
+  const record = f.record(message);
+  f.stored.set(`cloudy:embed-registry:${f.guild.id}`, [record]);
+  const state = { builderPreviewUnavailable: true };
+  loadRecordSnapshotIntoState(state, f.guild, record);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const drainStarted = new Promise(resolve => { started = resolve; });
+  const token = createEmbedColorPickerSession({ userId: 'owner', onEditorHold: async () => {}, getEditorState: () => state, onEditorUpdate: async (field, value) => {
+    if (field === 'title') { started(); await gate; state.title = value; }
+    if (field === 'message') state.message = value;
+  } });
+  state.colorSessionToken = token;
+  let edits = 0, acknowledgements = 0, confirmations = 0;
+  const edit = message.edit.bind(message);
+  message.edit = async payload => { edits++; return edit(payload); };
+  const button = () => ({ deferred: false, async deferUpdate() { acknowledgements++; this.deferred = true; }, async followUp() { confirmations++; return null; } });
+  try {
+    await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'title', value: 'Saved appeal title' }));
+    await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'message', value: 'Saved appeal message\n\nKeep spacing' }));
+    const click = button();
+    const saving = saveExistingEmbed(click, f.guild, state);
+    assert.equal(acknowledgements, 1, 'acknowledgement must start synchronously before the drain');
+    await drainStarted;
+    assert.equal(edits, 0);
+    assert.equal((await saveExistingEmbed(button(), f.guild, state)).reason, 'save-in-progress');
+    assert.equal(acknowledgements, 2);
+    release();
+    assert.equal((await saving).ok, true);
+    assert.equal(edits, 1);
+    assert.equal(confirmations, 1);
+    const savedData = message.embeds[0].toJSON();
+    assert.equal(savedData.title, 'Saved appeal title');
+    assert.equal(savedData.description, 'Saved appeal message\n\nKeep spacing');
+    for (const field of ['fields', 'image', 'thumbnail', 'footer', 'color']) assert.deepEqual(savedData[field], original[field]);
+    assert.equal(message.components[0].components[0].label, 'Appeal');
+    const reopenedRecords = await getCanonicalBuilderRecords(f.guild, null, { perChannel: true });
+    assert.equal(reopenedRecords.length, 1);
+    const reopened = {};
+    loadRecordSnapshotIntoState(reopened, f.guild, reopenedRecords[0], reopenedRecords[0].previewRecord, reopenedRecords[0].sourceRecord);
+    assert.equal(reopened.title, savedData.title);
+    assert.equal(reopened.message, savedData.description);
+    assert.deepEqual(reopened.embedFields, original.fields);
+    assert.equal(reopened.bottomLine, original.footer.text);
+    assert.equal(reopened.mediaUrl, original.image.url);
+    assert.equal(f.messages.size, 1);
+    assert.equal(f.historyReads(), 0);
+    assert.equal(state.saveInFlight, false);
+  } finally { release(); deleteEmbedColorPickerSession(token); }
+});
+
+test('failed acknowledgement prevents Save and releases the click guard', async () => {
+  const state = {};
+  await assert.rejects(saveExistingEmbed({ deferUpdate: async () => { throw new Error('ack failed'); } }, null, state), /ack failed/);
+  assert.equal(state.saveInFlight, false);
 });
 
