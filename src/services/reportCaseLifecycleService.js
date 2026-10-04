@@ -1,4 +1,4 @@
-import { ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
 import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
@@ -54,6 +54,13 @@ function timeRemaining(record) {
 }
 
 function participantId(record, audience) { return audience === 'reporter' ? record.reporterId : record.targetId; }
+
+function staffDeleteControls(record, audience, disabled = false) {
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`report_case:delete:${record.messageId}:${audience}`)
+      .setLabel('Delete').setStyle(ButtonStyle.Danger).setDisabled(disabled),
+  )];
+}
 
 function caseOverwrites(guild, client, config, participant) {
   const staffId = reportStaffRole(guild, config);
@@ -149,7 +156,7 @@ async function publishStaffLog(client, guild, record, audience, event, actorId) 
   const notify = event === 'close' && audience === 'target' && !existing;
   const payload = { content: notify ? (staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`) : null,
     embeds: [logEmbed(record, audience, event, actorId)],
-    components: event === 'delete' ? [] : reportCaseControls(record, true, false, audience, Boolean(entry.closedAt)),
+    components: event === 'close' ? staffDeleteControls(record, audience) : [],
     allowedMentions: { parse: [], users: notify && !staffId ? [guild.ownerId] : [], roles: notify && staffId ? [staffId] : [] } };
   const message = existing?.author?.id === client.user.id ? await existing.edit(payload) : await logs.send(payload);
   entry[key] = message.id;
@@ -160,9 +167,13 @@ async function publishStaffLog(client, guild, record, audience, event, actorId) 
 async function refreshLogControls(client, guild, record, audience) {
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   const entry = record.cases[audience];
-  for (const id of [entry.createdLogId, entry.closeLogId].filter(Boolean)) {
-    const notice = await fetchMessage(logs, id);
-    if (notice?.author?.id === client.user.id) await notice.edit({ components: entry.deletedAt ? [] : reportCaseControls(record, true, false, audience, Boolean(entry.closedAt)), allowedMentions: { parse: [] } });
+  const created = await fetchMessage(logs, entry.createdLogId);
+  if (created?.author?.id === client.user.id) {
+    await created.edit({ components: [], allowedMentions: { parse: [] } });
+  }
+  const closed = await fetchMessage(logs, entry.closeLogId);
+  if (closed?.author?.id === client.user.id) {
+    await closed.edit({ components: entry.deletedAt ? [] : staffDeleteControls(record, audience), allowedMentions: { parse: [] } });
   }
 }
 
@@ -286,13 +297,14 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       const member = await interaction.guild.members.fetch(interaction.user.id);
       const staff = caseStaffAllowed(interaction.guild, member, config);
       const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
-      const inLogs = interaction.channelId === REPORT_LOG_CHANNEL_ID && [entry.createdLogId, entry.closeLogId].includes(interaction.message.id);
-      if ((!inCase && !inLogs) || (inLogs && !staff)) throw new Error('You cannot use these report controls.');
+      const inCloseLog = interaction.channelId === REPORT_LOG_CHANNEL_ID && interaction.message.id === entry.closeLogId;
       if (action === 'delete') {
+        if (!inCloseLog || !entry.closedAt) throw new Error('Delete is only available to Staff after the report case is closed.');
         if (!staff) throw new Error('Only the staff team can delete report cases.');
         await deleteReportCase(client, interaction.guild, record, interaction.user.id, true, audience);
         return;
       }
+      if (!inCase) throw new Error('You cannot use these report controls.');
       if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can close this case.');
       // Close removes the participant's access, not the channel or Staff's access.
       if (!entry.closedAt) {
@@ -327,6 +339,11 @@ export async function restoreReportCaseTimers(client) {
         if (completed) {
           const source = await fetchChannel(guild, record.reportChannelId);
           record = await publishReportOutcome(client, guild, { channel: source }, record, completed[0], completed[1].actorId, completed[1].reason);
+        }
+      }
+      if (record.cases) {
+        for (const audience of audiences) {
+          if (record.cases[audience]) await refreshLogControls(client, guild, record, audience);
         }
       }
       scheduleReportCaseExpiry(client, guild, record); restored++;

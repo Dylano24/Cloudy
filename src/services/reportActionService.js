@@ -86,7 +86,16 @@ async function completeReportAction(interaction, client, report, action, userId,
     const record = await loadReport(client, interaction.guild, report, userId);
     if (record.closedAt || (record.expiresAt && record.expiresAt <= Date.now())) throw new Error('This report case has already closed.');
     const previous = record.actions?.[action];
-    if (previous?.notified) throw new Error('This report action has already been completed.');
+    const completedAction = Object.entries(record.actions || {}).find(([name, outcome]) =>
+      name !== action && (outcome?.status === 'completed' || outcome?.notified));
+    if (completedAction) {
+      if (report.components?.length) await report.edit({ components: [] });
+      throw new Error('This report has already been handled.');
+    }
+    if (previous?.notified) {
+      if (report.components?.length) await report.edit({ components: [] });
+      throw new Error('This report action has already been completed.');
+    }
     if (previous?.status === 'processing') throw new Error('This action is being processed. Staff must verify its outcome before retrying.');
     if (previous?.status !== 'completed') {
       // Validate the destination before performing a destructive moderation action.
@@ -111,14 +120,12 @@ async function completeReportAction(interaction, client, report, action, userId,
         if (action === 'delete') {
           rememberMessageDeleter(original, interaction.user);
           await original.delete();
-          await sendReportActionDM(client, interaction.guild, userId, action, reason);
         } else {
           const member = await interaction.guild.members.fetch(userId).catch(() => null);
           if (action === 'timeout') {
             if (!member) throw new Error('The reported member is no longer in this server.');
             await ModerationService.timeoutUser({ guild: interaction.guild, member, moderator: freshMember,
               durationMs, reason });
-            await sendReportActionDM(client, interaction.guild, userId, action, reason, durationMs);
           } else {
             const user = member?.user || await client.users.fetch(userId);
             await ModerationService.banUser({ guild: interaction.guild, user, moderator: freshMember, reason, notifyBeforeBan: true });
@@ -132,23 +139,10 @@ async function completeReportAction(interaction, client, report, action, userId,
       record.actions[action] = { ...pending, status: 'completed' };
       if (await client.db.set(reportKey(record.guildId, record.messageId), record) === false) throw new Error('The action completed but saving it failed. Do not repeat the action.');
     }
+    if (report.components?.length) await report.edit({ components: [] });
     const outcome = record.actions[action];
     const notified = await publishReportOutcome(client, interaction.guild, report, record, action, outcome.actorId, outcome.reason);
     notified.actions[action] = { ...outcome, notified: true };
     if (await client.db.set(reportKey(record.guildId, record.messageId), notified) === false) throw new Error('The action notification could not be saved.');
   });
 }
-
-async function sendReportActionDM(client, guild, userId, action, reason, durationMs) {
-  try {
-    const user = await client.users.fetch(userId);
-    await user.send({ embeds: [createEmbed({
-      title: action === 'delete' ? 'Reported message deleted' : 'Timeout notice',
-      description: `In ${guild.name || 'this server'}: ${action === 'delete' ? 'your reported message was deleted' : 'you were timed out'}.`,
-      fields: [{ name: 'Reason', value: reason }, ...(durationMs ? [{ name: 'Duration', value: `${durationMs / 60_000} minutes` }] : [])],
-    })], allowedMentions: { parse: [] } });
-  } catch {
-    // Closed DMs cannot undo a completed moderation action; the private case retains the reason.
-  }
-}
-
