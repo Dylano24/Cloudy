@@ -1,3 +1,4 @@
+import { rememberMessageDeleter } from './deletionAttributionService.js';
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
@@ -179,6 +180,7 @@ async function sendWarning(message, title, description) {
 async function punish(message, decision) {
   if (!decision) return false;
 
+  rememberMessageDeleter(message, message.client.user, 'automod');
   await message.delete().catch(() => {});
 
   if (decision.action === 'ban') {
@@ -210,6 +212,7 @@ async function handleImageModeration(message) {
   const unsafeResult = results.find(result => result.unsafe);
   if (!unsafeResult) return false;
 
+  rememberMessageDeleter(message, message.client.user, 'automod');
   await message.delete().catch(() => {});
 
   const key = getMessageKey(message);

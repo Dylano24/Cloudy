@@ -1,3 +1,4 @@
+import { registerReport } from '../../../services/reportCaseService.js';
 import { createEmbed } from '../../../utils/embeds.js';
 import { logEvent, EVENT_TYPES } from '../../../services/loggingService.js';
 import { formatLogLine, resolveUserAuthor } from '../../../utils/logging/logEmbeds.js';
@@ -112,6 +113,7 @@ export default {
         });
 
         if (!logged) throw new Error('The report could not be delivered to the reports channel.');
+        await registerReport(client, logged, { guildId, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id });
         setResponseLifetime(interaction, 120_000);
         await InteractionHelper.safeEditReply(interaction, {
             embeds: [createEmbed({

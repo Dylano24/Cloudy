@@ -1,3 +1,4 @@
+import { registerReport } from '../../services/reportCaseService.js';
 import {
   ActionRowBuilder,
   ApplicationCommandType,
@@ -123,6 +124,7 @@ export default {
       throw new Error('Cloudy report could not be delivered to the reports channel.');
     }
 
+    await registerReport(client, logged, { guildId: interaction.guildId, reporterId: interaction.user.id, targetId: message.author.id, sourceChannelId: message.channelId, sourceMessageId: message.id });
     setResponseLifetime(submitted, 120_000);
     await InteractionHelper.safeEditReply(submitted, {
       embeds: [createEmbed({
