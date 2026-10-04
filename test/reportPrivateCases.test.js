@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Collection, ChannelType, PermissionsBitField } from 'discord.js';
+import { Collection, ChannelType, OverwriteType, PermissionOverwrites, PermissionsBitField } from 'discord.js';
 import { db } from '../src/utils/database.js';
 import { buildReportActions, handleReportAction, handleReportModeration } from '../src/services/reportActionService.js';
 import { ModerationService } from '../src/services/moderation/moderationService.js';
@@ -88,6 +88,9 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.ok(reporter.creation.permissionOverwrites.some(entry => entry.id === 'reporter' && entry.allow));
   assert.ok(!reporter.creation.permissionOverwrites.some(entry => entry.id === 'target'));
   assert.ok(target.creation.permissionOverwrites.some(entry => entry.id === 'target' && entry.allow));
+  assert.ok(target.creation.permissionOverwrites.every(entry => entry.type === (entry.id === 'everyone' || entry.id === 'staff-role' ? OverwriteType.Role : OverwriteType.Member)));
+  // Discord must resolve banned/uncached users without looking up cached structures.
+  for (const entry of target.creation.permissionOverwrites) assert.equal(PermissionOverwrites.resolve(entry, {}).id, entry.id);
   assert.ok(!target.creation.permissionOverwrites.some(entry => entry.id === 'reporter'));
   const reporterNotice = reporter.messages.cache.get(record.cases.reporter.messageId), targetNotice = target.messages.cache.get(record.cases.target.messageId);
   assert.equal(reporterNotice.content, '<@reporter>');
