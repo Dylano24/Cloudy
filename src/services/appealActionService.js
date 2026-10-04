@@ -39,7 +39,7 @@ async function authorized(interaction, client, action, id) {
 }
 
 async function respond(interaction, content) {
-  return InteractionHelper.universalReply(interaction, { content, flags: MessageFlags.Ephemeral });
+  return InteractionHelper.universalReply(interaction, { content: `Error: ${content}`, flags: MessageFlags.Ephemeral });
 }
 
 export async function handleAppealAction(interaction, client, [action, id]) {
@@ -101,10 +101,10 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
       return data;
     });
     await message.edit({ embeds, components: buildAppealActions(decision), allowedMentions: { parse: [] } });
-    await InteractionHelper.safeEditReply(interaction, { content: 'The appeal has been reviewed.' });
+    await InteractionHelper.safeEditReply(interaction, { content: 'Success. The appeal has been reviewed.' });
   } catch (error) {
     logger.warn(`Appeal review failed: ${error.message}`);
-    await InteractionHelper.safeEditReply(interaction, { content: error.message });
+    await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` });
   }
 }
 
