@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
+import { appealReviewKey, buildAppealActions } from '../services/appealPresentationService.js';
 
 const APPEALS_CHANNEL_ID = '1539372283418910810';
 const CLOUDY_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
@@ -65,7 +66,9 @@ export function registerAppealsApi(app, client) {
       const id = `CLD-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`;
       const scopeLabel = scope === 'discord' ? 'Discord' : 'Rust server';
 
-      await channel.send({
+      const review = { id, guildId: channel.guild.id, channelId: channel.id, scope, action, discordIdentity, gamertag, status: 'pending' };
+      const sent = await channel.send({
+        components: buildAppealActions(review),
         allowedMentions: { parse: [] },
         ...([punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo].some(value => value.length > 500)
           ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, ...(scope === 'discord' ? { discordIdentity } : { gamertag }), email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
@@ -90,6 +93,8 @@ export function registerAppealsApi(app, client) {
           timestamp: new Date().toISOString(),
         }],
       });
+
+      if (await client.db.set(appealReviewKey(review.guildId, id), { ...review, messageId: sent.id }) === false) throw new Error('Appeal review could not be saved.');
 
       logger.info(`[Appeals] Delivered ${id} to channel ${channel.id}.`);
       return res.status(200).json({ ok: true, id });
