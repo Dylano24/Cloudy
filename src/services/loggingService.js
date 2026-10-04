@@ -342,7 +342,7 @@ export async function logEvent({
       ? guild.members.cache?.get(data.userId) || await guild.members.fetch(data.userId).catch(() => null)
       : null;
     const audienceChannelId = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
-      ? messageLogDestination(guild, data.userId, author, config) : null;
+      ? messageLogDestination(guild, data.userId, author, config, data.authorBot) : null;
     const logChannelId = audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);
     if (!logChannelId) {
       return null;

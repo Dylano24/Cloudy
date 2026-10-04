@@ -12,6 +12,7 @@ import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const NITRADO_PATCH_CHANNEL_ID = '1539397467647377530';
 const NITRADO_NEWS_SOURCES = [
+  'https://server.nitrado.net/en-US/news/news-sitemap-en',
   'https://server.nitrado.net/en-US/news',
   'https://server.nitrado.net/en-GB/news',
 ];
@@ -160,13 +161,12 @@ async function fetchText(url) {
   return response.text();
 }
 
-function articleLooksLikeRustServerNews(html, link) {
+export function articleLooksLikeRustServerNews(html) {
   const title = readMeta(html, 'og:title') || stripHtml(String(html).match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '');
   const description = readMeta(html, 'og:description') || readMeta(html, 'description');
-  const visible = stripHtml(html).slice(0, 24000);
-  const haystack = `${link}\n${title}\n${description}\n${visible}`.toLowerCase();
+  const haystack = `${title}\n${description}`.toLowerCase();
 
-  const mentionsRust = /\brust\b/.test(haystack);
+  const mentionsRust = /\brust\b/i.test(title);
   const serverRelated = /\b(server|servers|gameserver|hosting|console edition|devblog|update|wipe|oxide|performance|ddos)\b/.test(haystack);
   return mentionsRust && serverRelated;
 }
@@ -194,6 +194,7 @@ function buildArticle(link, html) {
     || 'A new official Nitrado Rust server update is available.';
   const publishedAt = readMeta(html, 'article:published_time')
     || decodeHtml(String(html).match(/<time[^>]+datetime=["']([^"']+)["']/i)?.[1] || '')
+    || decodeHtml(String(html).match(/"datePublished"\s*:\s*"([^"]+)"/i)?.[1] || '')
     || null;
 
   return {
@@ -229,8 +230,13 @@ async function collectSitemapCandidates(errors) {
   return candidates.sort((a, b) => b.lastmod - a.lastmod).map(entry => entry.link);
 }
 
-async function fetchLatestNitradoRustArticle() {
+export async function fetchLatestNitradoRustArticle() {
   const errors = [];
+  try {
+    return await fetchNitradoRustNewsApi();
+  } catch (error) {
+    errors.push(`Official news API: ${error.message}`);
+  }
   const candidates = [];
   const seen = new Set();
   const add = link => {
@@ -252,17 +258,44 @@ async function fetchLatestNitradoRustArticle() {
   for (const link of await collectSitemapCandidates(errors)) add(link);
   for (const link of KNOWN_RUST_ARTICLES) add(link);
 
-  for (const link of candidates.slice(0, MAX_ARTICLES_TO_INSPECT)) {
+  const articles = [];
+  const rustCandidates = candidates.filter(link => /(?:^|[\/\-_])rust(?:[\/\-_]|$)/i.test(new URL(link).pathname));
+  for (const link of rustCandidates.slice(0, MAX_ARTICLES_TO_INSPECT)) {
     try {
       const html = await fetchText(link);
-      if (!articleLooksLikeRustServerNews(html, link)) continue;
-      return buildArticle(link, html);
+      if (!articleLooksLikeRustServerNews(html)) continue;
+      articles.push(buildArticle(link, html));
     } catch (error) {
       errors.push(`${new URL(link).pathname}: ${error?.message || error}`);
     }
   }
 
+  if (articles.length) return articles.sort((a, b) => (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0))[0];
+
   throw new Error(`Could not find a Nitrado Rust server article (${errors.slice(-8).join('; ') || 'no matching articles'})`);
+}
+
+export async function fetchNitradoRustNewsApi() {
+  // Public query used by Nitrado's own news client. No account or token is needed.
+  const query = '{posts(where:{status:PUBLISH,orderby:{field:DATE,order:DESC},wpmlLanguage:"en",search:"Rust"},first:100){edges{node{date title(format:RENDERED) excerpt(format:RENDERED) slug featuredImage{node{sourceUrl}}}}}}';
+  const response = await fetch(`https://newsapi.nitrado.net/graphql?query=${encodeURIComponent(query)}`, {
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw new Error(`News API HTTP ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error('Nitrado news query failed');
+  const articles = (result.data?.posts?.edges || []).map(({ node }) => ({
+    title: stripHtml(node.title),
+    link: toCanonicalArticleUrl(`/en-US/news/${node.slug}`),
+    description: stripHtml(node.excerpt).slice(0, 3500),
+    publishedAt: node.date,
+    image: node.featuredImage?.node?.sourceUrl?.replace(/^.*\/wp-content\/uploads\//, 'https://newsimg.nitrado.net/') || null,
+  })).filter(article => article.link && /\brust\b/i.test(article.title)
+    && /\b(updates?|patch|servers?|hosting|performance|maintenance|ddos|wipe)\b/i.test(article.title)
+    && Number.isFinite(Date.parse(article.publishedAt)));
+  articles.sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+  if (!articles.length) throw new Error('No official Nitrado Rust updates found');
+  return articles[0];
 }
 
 function logNitradoFailure(error) {
@@ -275,7 +308,7 @@ function logNitradoFailure(error) {
   logger.debug(`Nitrado Rust update check still unavailable: ${error?.message || error}`);
 }
 
-async function checkForNitradoUpdate(client) {
+export async function checkForNitradoUpdate(client) {
   try {
     const article = await fetchLatestNitradoRustArticle();
     const channel = await resolveCloudyChannel(client, 'nitradoPatch', { textOnly: true });
@@ -339,6 +372,7 @@ export default {
   name: Events.ClientReady,
   once: true,
   async execute(client) {
+    logger.info('Nitrado Rust update monitor starting (official public news API).');
     await runNitradoUpdateCheck(client);
     const timer = setInterval(() => void runNitradoUpdateCheck(client), CHECK_INTERVAL_MS);
     timer.unref?.();
