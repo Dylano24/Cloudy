@@ -287,6 +287,12 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   t.mock.method(ModerationService, 'banUser', async data => { banned.push(data); });
   const record = await f.submit('ban', f.roleOwner.user);
   assert.equal(banned[0].reason, 'Private action reason'); assert.equal(banned[0].notifyBeforeBan, true);
+  const banDm = banned[0].notificationPayload;
+  assert.deepEqual(banDm.allowedMentions, { parse: [] });
+  assert.equal(banDm.embeds[0].title, 'You have been banned from the Cloudy server');
+  assert.match(banDm.embeds[0].description, /\*\*Reason\*\*\nPrivate action reason/);
+  assert.match(banDm.embeds[0].description, /https:\/\/cloudy-store-vert\.vercel\.app\/appeal/);
+  assert.equal(banDm.embeds[0].footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.deepEqual(f.report.components, []);
   const success = f.payloads.find(message => message.channelId === 'reports');
   const successData = json(success.embeds[0]);
