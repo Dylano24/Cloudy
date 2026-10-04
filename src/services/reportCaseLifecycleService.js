@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
 import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
@@ -60,7 +60,8 @@ function caseOverwrites(guild, client, config, participant) {
   const memberIds = [...new Set([participant, guild.ownerId, client.user.id].filter(Boolean))];
   const roleIds = [...new Set([staffId, ...[...guild.roles.cache.values()].filter(role => String(role.name || '').trim().toLowerCase() === 'owner').map(role => role.id)].filter(Boolean))];
   const allow = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
-  return [{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }, ...memberIds.map(id => ({ id, allow })), ...roleIds.map(id => ({ id, allow }))];
+  return [{ id: guild.roles.everyone.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
+    ...memberIds.map(id => ({ id, type: OverwriteType.Member, allow })), ...roleIds.map(id => ({ id, type: OverwriteType.Role, allow }))];
 }
 
 function syncAliases(record) {
@@ -298,7 +299,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         const channel = await fetchChannel(interaction.guild, entry.channelId);
         const participant = await interaction.guild.members.fetch(participantId(record, audience)).catch(() => null);
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
-          await channel.permissionOverwrites.edit(participantId(record, audience), { ViewChannel: false, SendMessages: false, ReadMessageHistory: false });
+          await channel.permissionOverwrites.edit(participantId(record, audience), { ViewChannel: false, SendMessages: false, ReadMessageHistory: false }, { type: OverwriteType.Member });
         }
         entry.closedAt = Date.now(); entry.closedBy = interaction.user.id;
         await save(client, record);
