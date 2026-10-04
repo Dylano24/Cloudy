@@ -61,7 +61,7 @@ export default {
       embeds[embedIndex] = updated;
       const edited = await message.edit({ embeds });
       await registerCloudyEmbedMessage(edited, 'embed-builder');
-      logger.warn('[ZORP_WIDTH_ONCE] VERIFIED updated message=' + edited.id + ' width=283px indent=14px');
+      logger.warn('[ZORP_WIDTH_ONCE] VERIFIED updated message=' + edited.id + ' width=286px indent=14px');
     } catch (error) {
       logger.error('[ZORP_WIDTH_ONCE] Failed:', error);
     }
