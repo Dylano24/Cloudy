@@ -66,7 +66,7 @@ patchFile('src/events/fullResponseCatalogReady.js', text => {
     text,
 `    const timer = setTimeout(() => {
       void scanRecentBotResponses(client).catch(error => {
-        logger.warn(`[EMBED_BUILDER] Full response history sync failed: ${error.message}`);
+        logger.warn('[EMBED_BUILDER] Full response history sync failed: ' + error.message);
       });
     }, STARTUP_SCAN_DELAY_MS);
     timer.unref?.();`,
@@ -76,7 +76,7 @@ patchFile('src/events/fullResponseCatalogReady.js', text => {
     if (process.env.CLOUDY_HISTORY_BOOTSTRAP === '1') {
       const timer = setTimeout(() => {
         void scanRecentBotResponses(client).catch(error => {
-          logger.warn(`[EMBED_BUILDER] Full response history sync failed: ${error.message}`);
+          logger.warn('[EMBED_BUILDER] Full response history sync failed: ' + error.message);
         });
       }, STARTUP_SCAN_DELAY_MS);
       timer.unref?.();
