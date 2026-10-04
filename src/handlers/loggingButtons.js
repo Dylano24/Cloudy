@@ -116,7 +116,7 @@ async function handleToggle(interaction) {
   const onCategoriesView = isCategoriesView(interaction);
 
   if (eventType === 'audit_enabled') {
-    await setLoggingEnabled(interaction.client, interaction.guildId, !Boolean(status.enabled));
+    await setLoggingEnabled(interaction.client, interaction.guildId, !status.enabled);
   } else if (eventType === 'all') {
     const newState = !Object.values(status.enabledEvents).every((v) => v !== false);
     const allTypes = Object.values(EVENT_TYPES);
