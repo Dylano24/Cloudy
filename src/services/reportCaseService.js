@@ -127,7 +127,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     const number = await nextReportNumber(client, guild.id);
     const overwrites = [{ id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
       ...[...new Set([record.reporterId, guild.ownerId, client.user.id])].map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
-      ...(staffId ? [{ id: staffId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }] : [])];
+      ...[...new Set([staffId, ...[...guild.roles.cache.values()].filter(role => String(role.name || '').trim().toLowerCase() === 'owner').map(role => role.id)].filter(Boolean))].map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }))];
     channel = await guild.channels.create({ name: `report-${number}`, type: ChannelType.GuildText, parent: category.id,
       permissionOverwrites: overwrites, reason: `Report ${record.messageId}` });
     record = { ...record, number, caseChannelId: channel.id, expiresAt: Date.now() + REPORT_CASE_MS };
@@ -140,9 +140,8 @@ export async function publishReportOutcome(client, guild, report, record, action
   const tags = `<@${record.reporterId}> ${staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`}`;
   const allowedMentions = { parse: [], users: [record.reporterId, guild.ownerId], roles: staffId ? [staffId] : [] };
   const staffMessage = await sourceChannel.send({ content: tags, embeds: [createEmbed(data)], components: reportCaseControls(record, true), allowedMentions });
-  await channel.send({ content: tags, embeds: [createEmbed(data)], allowedMentions });
-  const memberMessage = await channel.send({ content: `<@${record.reporterId}>`, embeds: [createEmbed({ ...data, title: 'Report case notification' })],
-    components: reportCaseControls(record), allowedMentions: { parse: [], users: [record.reporterId] } });
+  const memberMessage = await channel.send({ content: tags, embeds: [createEmbed({ ...data, title: 'Report case notification' })],
+    components: reportCaseControls(record), allowedMentions });
   return save(client, { ...record, staffMessageIds: [...(record.staffMessageIds || []), staffMessage.id], memberMessageIds: [...(record.memberMessageIds || []), memberMessage.id] });
 }
 
@@ -192,4 +191,5 @@ export async function restoreReportCaseTimers(client) {
   }
   startupLog(`Report case expiry restored: ${restored} active case(s).`);
 }
+
 

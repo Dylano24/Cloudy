@@ -1405,3 +1405,20 @@ test('audit log lookup returns immediately when Discord already has the entry', 
   assert.equal(result, expected);
   assert.equal(fetchCount, 1);
 });
+
+test('new persistent feature embeds appear in both normal selection and Search, including public replies', async () => {
+  installTestStorage();
+  const guildId = 'new-feature-guild', channelId = 'new-feature-channel';
+  const guild = { id: guildId, channels: { cache: new Map([[channelId, { id: channelId, name: 'youtube' }]]) } };
+  for (const [index, title] of ['🎥 Content Creators', 'Ticket reopened', 'Report case notification', 'New persistent feature'].entries()) {
+    const message = { id: 'feature-' + index, guildId, channelId, guild, client: { user: { id: 'bot' } }, author: { id: 'bot' }, channel: { name: 'youtube' }, embeds: [{ title, description: 'Real feature content' }], flags: { has: () => false }, interactionMetadata: { id: 'public-reply' } };
+    assert.equal(await registerCloudyEmbedMessage(message, 'automatic'), true);
+  }
+  const records = await getEmbedRegistry(guildId);
+  for (const title of ['🎥 Content Creators', 'Ticket reopened', 'Report case notification', 'New persistent feature']) {
+    assert.ok(records.some(r => r.title === title), title);
+    assert.ok(buildLiveSearchMatches(guild, records, title).length > 0, title);
+  }
+  assert.equal(templateIdentity(channelId, { title: 'Ticket reopened' }), 'ticket-log:reopen');
+});
+
