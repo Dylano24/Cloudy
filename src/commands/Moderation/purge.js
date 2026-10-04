@@ -75,7 +75,7 @@ export default {
         interaction.deleteReply().catch(err => 
           logger.debug('Failed to auto-delete purge response:', err)
         );
-      }, 3000);
+      }, 10_000);
     } catch (error) {
       logger.error('Purge command error:', error);
       await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An unexpected error occurred during message deletion. Note: Messages older than 14 days cannot be bulk deleted.' });

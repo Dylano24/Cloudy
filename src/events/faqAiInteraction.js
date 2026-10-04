@@ -101,14 +101,14 @@ function getLocalizedQuestionLabel(question, answer) {
   return QUESTION_LABELS[answerLanguage] || QUESTION_LABELS.en;
 }
 
-function scheduleEphemeralDeletion(interaction) {
+function scheduleEphemeralDeletion(interaction, delayMs = FAQ_RESPONSE_DELETE_DELAY_MS) {
   const timer = setTimeout(() => {
     interaction.deleteReply().catch(error => {
       if (![10008, 10062].includes(error?.code)) {
         logger.debug('FAQ AI auto-delete could not remove reply:', error?.message || error);
       }
     });
-  }, FAQ_RESPONSE_DELETE_DELAY_MS);
+  }, delayMs);
 
   timer.unref?.();
 }
@@ -120,7 +120,7 @@ async function replyEphemeral(interaction, content) {
     } else {
       await interaction.reply({ content, flags: MessageFlags.Ephemeral });
     }
-    scheduleEphemeralDeletion(interaction);
+    scheduleEphemeralDeletion(interaction, 10_000);
   } catch (error) {
     logger.warn('FAQ AI fallback response failed:', error?.message || error);
   }
@@ -138,7 +138,7 @@ export default {
             content: 'This FAQ assistant can only be used in the FAQ channel.',
             flags: MessageFlags.Ephemeral,
           });
-          scheduleEphemeralDeletion(interaction);
+          scheduleEphemeralDeletion(interaction, 10_000);
           return;
         }
 
@@ -149,7 +149,7 @@ export default {
             content: 'The private FAQ assistant is temporarily unavailable. Please open a support ticket.',
             flags: MessageFlags.Ephemeral,
           });
-          scheduleEphemeralDeletion(interaction);
+          scheduleEphemeralDeletion(interaction, 10_000);
           return;
         }
 

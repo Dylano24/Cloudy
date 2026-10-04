@@ -1,3 +1,5 @@
+import { getResponseLifetime } from './responseLifetime.js';
+import { isAdditionalStatusTitle, isAdditionalStatusContent } from './statusReplyPolicy.js';
 import { isBuilderSessionMessage } from './builderSessionCleanup.js';
 
 const TRANSIENT_TTL_MS = 10_000;
@@ -18,16 +20,16 @@ function cleanLeadingStatusText(value = '') {
 export function isTransientStatusEmbed(embed) {
   const data = embed?.toJSON?.() || embed || {};
   const title = cleanLeadingStatusText(data.title);
-  if (!TRANSIENT_TITLE.test(title)) return false;
+  if (!TRANSIENT_TITLE.test(title) && !isAdditionalStatusTitle(title)) return false;
 
   const fields = Array.isArray(data.fields) ? data.fields : [];
-  return fields.length <= 1 && !data.image && !data.video;
+  return (fields.length <= 1 || isAdditionalStatusTitle(title)) && !data.image && !data.video;
 }
 
 export function isTransientStatusContent(content = '') {
   const body = cleanLeadingStatusText(content);
   if (!body || body.length > 1200) return false;
-  return TRANSIENT_CONTENT.test(body);
+  return TRANSIENT_CONTENT.test(body) || isAdditionalStatusContent(body);
 }
 
 export function isTransientStatusPayload(payload = null, message = null) {
@@ -54,6 +56,9 @@ export function scheduleTransientMessageDeletion(message) {
 }
 
 export async function scheduleTransientInteractionReplyDeletion(interaction) {
+  // The lifecycle owns explicit exceptions, including the 120-second report acknowledgement.
+  // Never add a competing 10-second timer after command.execute().
+  if (getResponseLifetime(interaction) !== undefined) return false;
   if (!interaction?.replied && !interaction?.deferred) return false;
   const reply = await interaction.fetchReply?.().catch(() => null);
   // This helper is used outside interactionMessageLifecycle too, so enforce the

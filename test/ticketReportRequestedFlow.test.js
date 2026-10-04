@@ -13,6 +13,7 @@ import { buildReportActions, handleReportAction, handleReportModeration, timeout
 import { messageLogDestination, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, CLOUDY_GUILD_ID } from '../src/services/messageLogDestination.js';
 import { logEvent, EVENT_TYPES } from '../src/services/loggingService.js';
 import { setResponseLifetime } from '../src/utils/responseLifetime.js';
+import { scheduleTransientInteractionReplyDeletion } from '../src/utils/transientResponse.js';
 import { installInteractionMessageLifecycle } from '../src/utils/interactionMessageLifecycle.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import { formatChannelName } from '../src/services/joinToCreateService.js';
@@ -186,6 +187,8 @@ test('report confirmation keeps two minutes even with saved Success title', asyn
   f.interaction.fetchReply = async () => message; f.interaction.webhook = { deleteMessage: async () => { deleted += 1; } };
   InteractionHelper.patchInteractionResponses(f.interaction); setResponseLifetime(f.interaction, 120_000);
   await f.interaction.editReply({ embeds: message.embeds });
+  f.interaction.deleteReply = async () => { deleted += 1; };
+  assert.equal(await scheduleTransientInteractionReplyDeletion(f.interaction), false);
   t.mock.timers.tick(119_999); assert.equal(deleted, 0);
   t.mock.timers.tick(1); await new Promise(resolve => setImmediate(resolve)); assert.equal(deleted, 1);
 });
