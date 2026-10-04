@@ -162,7 +162,7 @@ async function refreshLogControls(client, guild, record, audience) {
   const entry = record.cases[audience];
   for (const id of [entry.createdLogId, entry.closeLogId].filter(Boolean)) {
     const notice = await fetchMessage(logs, id);
-    if (notice?.author?.id === client.user.id) await notice.edit({ components: reportCaseControls(record, true, Boolean(entry.deletedAt), audience, Boolean(entry.closedAt)), allowedMentions: { parse: [] } });
+    if (notice?.author?.id === client.user.id) await notice.edit({ components: entry.deletedAt ? [] : reportCaseControls(record, true, false, audience, Boolean(entry.closedAt)), allowedMentions: { parse: [] } });
   }
 }
 
@@ -183,10 +183,10 @@ export async function publishReportOutcome(client, guild, report, record, action
     const fields = [{ name: 'Case', value: `report-${record.number}`, inline: true },
       ...(audience === 'target' ? [{ name: 'Reason', value: reason || 'No reason recorded' }, { name: 'Handled by', value: `<@${actorId}>`, inline: true }] : []),
       { name: 'Time remaining', value: timeRemaining(record) }];
-    const payload = { content: `<@${participant}>${audience === 'target' ? ` ${staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`}` : ''}`,
-      embeds: [caseEmbed({ title: 'Report case notification', description: actionText, color: 0x00C49D, fields })],
+    const payload = { content: `<@${participant}> ${staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`}`,
+      embeds: [caseEmbed({ title: 'Report case notification', description: audience === 'reporter' ? actionText : undefined, color: 0x00C49D, fields })],
       components: reportCaseControls(record, false, Boolean(entry.closedAt), audience),
-      allowedMentions: { parse: [], users: [participant, ...(audience === 'target' && !staffId ? [guild.ownerId] : [])], roles: audience === 'target' && staffId ? [staffId] : [] } };
+      allowedMentions: { parse: [], users: [participant, ...(!staffId ? [guild.ownerId] : [])], roles: staffId ? [staffId] : [] } };
     const notice = existing?.author?.id === client.user.id ? await existing.edit(payload) : await channel.send(payload);
     entry.messageId = notice.id;
     await save(client, syncAliases(record));
