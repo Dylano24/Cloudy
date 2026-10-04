@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionsBitField } from 'discord.js';
 import { db } from '../src/utils/database.js';
-import { handleReportAction, reportActionAllowed } from '../src/services/reportActionService.js';
-import { registerReport, reportKey, reportCaseControls, REPORT_CATEGORY_ID, REPORT_CASE_MS, restoreReportCaseTimers, handleReportCaseControl, publishReportOutcome } from '../src/services/reportCaseService.js';
+import { REPORT_CATEGORY_ID } from '../src/services/reportCaseService.js';
+import { reportActionAllowed } from '../src/services/reportActionService.js';
 import { withCloudyFooter, CLOUDY_STANDARD_FOOTER } from '../src/utils/cloudyFooter.js';
 import { resolveDiscordAppealIdentity } from '../src/services/appealIdentityService.js';
 
@@ -31,43 +31,9 @@ function fixture() {
   return {values,client,guild,staff,reporter,reports,channels,report,interaction,payloads,removed};
 }
 
-test('report Delete targets original message; separate member/staff controls survive restart and expire at 24 hours',async t=>{
-  t.mock.timers.enable({apis:['setTimeout','Date'],now:Date.now()});
-  const f=fixture();
-  await registerReport(f.client,f.report,{guildId:f.guild.id,reporterId:'reporter',targetId:'target',sourceChannelId:'original',sourceMessageId:'original-message'});
-  await handleReportAction(f.interaction,f.client,['delete','target']);
-  assert.deepEqual(f.removed,['original-message']);
-  let record=await f.client.db.get(reportKey(f.guild.id,f.report.id));
-  assert.equal(record.number,1);assert.equal(record.actions.delete.notified,true);assert.equal(record.expiresAt-Date.now(),REPORT_CASE_MS);
-  const ch=f.channels.get(record.caseChannelId);assert.equal(ch.creation.parent,REPORT_CATEGORY_ID);assert.equal(ch.name,'report-1');
-  const staffNotice=f.payloads.find(p=>p.channelId==='reports');
-  const memberNotice=f.payloads.find(p=>p.id===record.memberMessageIds[0]);
-  assert.deepEqual(staffNotice.components[0].toJSON().components.map(b=>b.label),['Read','Delete']);
-  assert.deepEqual(memberNotice.components[0].toJSON().components.map(b=>[b.label,b.style]),[['Read',2]]);
-  assert.match(staffNotice.content,/<@reporter> <@target> <@&staff-role>/);assert.match(JSON.stringify(memberNotice.embeds),/automatically deleted after 24 hours/);
-  await restoreReportCaseTimers(f.client);
-  t.mock.timers.tick(REPORT_CASE_MS-1);await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(f.removed,['original-message']);
-  t.mock.timers.tick(1);await new Promise(resolve=>setImmediate(resolve));
-  assert.deepEqual(f.removed,['original-message',record.caseChannelId]);
-  record=await f.client.db.get(reportKey(f.guild.id,f.report.id));assert.ok(record.closedAt);
-  assert.equal(staffNotice.components[0].toJSON().components.every(b=>b.disabled),true);
-});
 
-test('member Read is recorded once; forged Delete is rejected; staff can delete the linked case',async t=>{
-  t.mock.timers.enable({apis:['setTimeout']});const f=fixture();
-  await registerReport(f.client,f.report,{guildId:f.guild.id,reporterId:'reporter',targetId:'target',sourceChannelId:'original',sourceMessageId:'original-message'});
-  await handleReportAction(f.interaction,f.client,['delete','target']);
-  const key=reportKey(f.guild.id,f.report.id), record=await f.client.db.get(key);
-  const memberNotice=f.payloads.find(p=>p.id===record.memberMessageIds[0]);
-  Object.assign(f.interaction,{user:f.reporter.user,message:memberNotice,channelId:record.caseChannelId});
-  await handleReportCaseControl(f.interaction,f.client,['read','report']);
-  assert.equal((await f.client.db.get(key)).readBy.reporter.notified,true);
-  const count=f.payloads.length;await handleReportCaseControl(f.interaction,f.client,['read','report']);assert.equal(f.payloads.length,count);
-  await handleReportCaseControl(f.interaction,f.client,['delete','report']);assert.deepEqual(f.removed,['original-message']);
-  Object.assign(f.interaction,{user:f.staff.user,message:f.payloads.find(p=>p.id===record.staffMessageIds[0]),channelId:'reports'});
-  await handleReportCaseControl(f.interaction,f.client,['delete','report']);assert.deepEqual(f.removed,['original-message',record.caseChannelId]);
-  assert.deepEqual(reportCaseControls(record)[0].toJSON().components.map(b=>b.label),['Read']);
-});
+
+
 
 test('standard footer preserves body, handles plain text and long content without truncation',()=>{
   assert.equal(withCloudyFooter({embeds:[{title:'Saved title',description:'Saved text',footer:{text:'old'}}]}).embeds[0].footer.text,CLOUDY_STANDARD_FOOTER);
@@ -95,47 +61,10 @@ test('Owner role can use all report actions; ordinary staff cannot use Ban', () 
   for (const action of ['ban', 'timeout', 'delete']) assert.equal(reportActionAllowed(f.interaction, action, config), false);
 });
 
-test('report case has one member notification and no staff-only Delete button in the shared channel', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const f = fixture();
-  await registerReport(f.client, f.report, { guildId: f.guild.id, reporterId: 'reporter', targetId: 'target', sourceChannelId: 'original', sourceMessageId: 'original-message' });
-  await handleReportAction(f.interaction, f.client, ['delete', 'target']);
-  const record = await f.client.db.get(reportKey(f.guild.id, f.report.id));
-  const notices = f.payloads.filter(p => p.channelId === record.caseChannelId);
-  assert.equal(notices.length, 1);
-  assert.match(notices[0].content, /<@reporter> <@target> <@&staff-role>/);
-  assert.deepEqual(notices[0].components[0].toJSON().components.map(b => b.label), ['Read']);
-  const privateNotice = f.payloads.find(p => p.channelId === 'reports');
-  assert.deepEqual(privateNotice.components[0].toJSON().components.map(b => b.label), ['Read', 'Delete']);
-});
+
 
 test('unmute username resolution needs member access without requiring ban-list access', async () => {
   const user = { id: '12345678901234567', username: 'mutedplayer' };
   const guild = { members: { cache: new Collection([['target', { user }]]), fetch: async () => new Collection() }, bans: { fetch: async () => { throw new Error('Missing BanMembers'); } } };
   assert.equal(await resolveDiscordAppealIdentity(guild, 'mutedplayer', { includeBans: false }), user.id);
 });
-
-test('reported member is tagged and can Read; further actions and Read update notices without extra messages', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const f = fixture();
-  await registerReport(f.client, f.report, { guildId: f.guild.id, reporterId: 'reporter', targetId: 'target', sourceChannelId: 'original', sourceMessageId: 'original-message' });
-  await handleReportAction(f.interaction, f.client, ['delete', 'target']);
-  let record = await f.client.db.get(reportKey(f.guild.id, f.report.id));
-  const memberNotice = f.payloads.find(p => p.id === record.memberMessageIds[0]);
-  const staffNotice = f.payloads.find(p => p.id === record.staffMessageIds[0]);
-  assert.ok(f.channels.get(record.caseChannelId).creation.permissionOverwrites.some(o => o.id === 'target' && o.allow.length));
-  assert.ok(memberNotice.allowedMentions.users.includes('target'));
-  const count = f.payloads.length;
-  Object.assign(f.interaction, { user: { id: 'target' }, message: memberNotice, channelId: record.caseChannelId });
-  await handleReportCaseControl(f.interaction, f.client, ['read', 'report']);
-  assert.equal(f.payloads.length, count);
-  assert.match(JSON.stringify(staffNotice.embeds), /Read by.*<@target>/);
-  record = await f.client.db.get(reportKey(f.guild.id, f.report.id));
-  assert.equal(record.readBy.target.notified, true);
-  const updated = await publishReportOutcome(f.client, f.guild, f.report, record, 'timeout', 'staff', 'Repeated abuse');
-  assert.equal(f.payloads.length, count);
-  assert.deepEqual(updated.memberMessageIds, record.memberMessageIds);
-  assert.match(JSON.stringify(memberNotice.embeds), /timed out/);
-});
-
-

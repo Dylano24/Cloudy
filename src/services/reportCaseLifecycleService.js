@@ -1,0 +1,335 @@
+import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { getGuildConfig } from './config/guildConfig.js';
+import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
+import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
+import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
+import { setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
+import { TICKET_EVENT_STYLES } from '../utils/ticket/ticketLogging.js';
+import { InteractionHelper } from '../utils/interactionHelper.js';
+import { logger, startupLog } from '../utils/logger.js';
+import { reportKey, withReportLock, reportStaffRole, caseStaffAllowed, nextReportNumber, reportCaseControls, REPORT_CATEGORY_ID, REPORT_CASE_MS } from './reportCaseService.js';
+
+export const REPORT_LOG_CHANNEL_ID = '1556344268099166319';
+export const REPORT_COUNTDOWN_REFRESH_MS = 30_000;
+const expiryTimers = new Map();
+const countdownTimers = new Map();
+const audiences = ['reporter', 'target'];
+
+function caseEmbed(data) {
+  const embed = buildStandardLogEmbed({ ...data, color: null, footer: { text: CLOUDY_STANDARD_FOOTER }, thumbnail: CLOUDY_LOGO_URL });
+  setPreservedEmbedColor(embed, data.color ?? 0xFFFFFF);
+  return embed;
+}
+
+async function save(client, record) {
+  if (await client.db.set(reportKey(record.guildId, record.messageId), record) === false) throw new Error('The report could not be saved.');
+  return record;
+}
+
+async function fetchChannel(guild, id) {
+  if (!id) return null;
+  return guild.channels.fetch(id).catch(error => { if (error.code === 10003) return null; throw error; });
+}
+
+async function fetchMessage(channel, id) {
+  if (!channel || !id) return null;
+  return channel.messages.fetch(id).catch(error => { if (error.code === 10008) return null; throw error; });
+}
+
+export async function validateReportDestinations(guild) {
+  const category = await fetchChannel(guild, REPORT_CATEGORY_ID);
+  const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
+  if (category?.type !== ChannelType.GuildCategory) throw new Error('The Reports category is unavailable.');
+  if (!logs?.send || logs.permissionsFor?.(guild.roles.everyone)?.has?.(PermissionFlagsBits.ViewChannel)) {
+    throw new Error('The private report-logs channel is unavailable.');
+  }
+  return { category, logs };
+}
+
+function timeRemaining(record) {
+  const seconds = Math.max(0, Math.ceil((record.expiresAt - Date.now()) / 1000));
+  const hours = Math.floor(seconds / 3600), minutes = Math.floor(seconds % 3600 / 60);
+  const countdown = [hours, minutes, seconds % 60].map(value => String(value).padStart(2, '0')).join(':');
+  return `**${countdown}** · <t:${Math.floor(record.expiresAt / 1000)}:R>\nThis case is automatically deleted after 24 hours.`;
+}
+
+function participantId(record, audience) { return audience === 'reporter' ? record.reporterId : record.targetId; }
+
+function caseOverwrites(guild, client, config, participant) {
+  const staffId = reportStaffRole(guild, config);
+  const memberIds = [...new Set([participant, guild.ownerId, client.user.id].filter(Boolean))];
+  const roleIds = [...new Set([staffId, ...[...guild.roles.cache.values()].filter(role => String(role.name || '').trim().toLowerCase() === 'owner').map(role => role.id)].filter(Boolean))];
+  const allow = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
+  return [{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }, ...memberIds.map(id => ({ id, allow })), ...roleIds.map(id => ({ id, allow }))];
+}
+
+function syncAliases(record) {
+  record.caseChannelId = record.cases.target?.channelId;
+  record.reporterCaseChannelId = record.cases.reporter?.channelId;
+  record.memberMessageIds = record.cases.target?.messageId ? [record.cases.target.messageId] : [];
+  return record;
+}
+
+async function ensurePrivateCases(client, guild, report, record, config) {
+  const { category } = await validateReportDestinations(guild);
+  if (!record.number) record.number = await nextReportNumber(client, guild.id);
+  if (!record.expiresAt) record.expiresAt = Date.now() + REPORT_CASE_MS;
+  if (!record.cases) {
+    record.cases = {};
+    if (record.caseChannelId) record.cases.target = { channelId: record.caseChannelId, messageId: record.memberMessageIds?.at(-1) };
+  }
+  // Persist each channel before creating the next one so notification retries
+  // resume the same pair rather than creating duplicate case channels.
+  for (const audience of audiences) {
+    let entry = record.cases[audience];
+    if (entry?.deletedAt) continue;
+    let channel = await fetchChannel(guild, entry?.channelId);
+    if (entry?.channelId && !channel) throw new Error('This report case channel was deleted. Staff must delete its remaining case record.');
+    const overwrites = caseOverwrites(guild, client, config, participantId(record, audience));
+    if (!channel) {
+      const first = audience === 'target' ? await fetchChannel(guild, record.cases.reporter.channelId) : null;
+      channel = await guild.channels.create({ name: `report-${record.number}`, type: ChannelType.GuildText, parent: category.id,
+        permissionOverwrites: overwrites, ...(Number.isFinite(first?.rawPosition) ? { position: first.rawPosition + 1 } : {}), reason: `Report ${record.messageId}: ${audience}` });
+      entry = { channelId: channel.id };
+      record.cases[audience] = entry;
+      try { await save(client, syncAliases(record)); }
+      catch (error) { await channel.delete('Report case could not be saved').catch(() => {}); throw error; }
+      scheduleReportCaseExpiry(client, guild, record);
+    } else if (!entry.privateLayout) {
+      // Upgrade an old shared case in place without retaining the reporter's access.
+      await channel.permissionOverwrites.set(overwrites);
+    }
+    if (!entry.privateLayout) {
+      entry.privateLayout = true;
+      await save(client, record);
+    }
+  }
+  const first = await fetchChannel(guild, record.cases.reporter?.channelId);
+  const second = await fetchChannel(guild, record.cases.target?.channelId);
+  if (first && second && !record.pairPositioned) {
+    if (Number.isFinite(first.rawPosition) && guild.channels.setPositions) {
+      await guild.channels.setPositions([{ channel: first.id, position: first.rawPosition }, { channel: second.id, position: first.rawPosition + 1 }]);
+    }
+    record.pairPositioned = true;
+    await save(client, record);
+  }
+  // Only remove the old extra action log, never the original New report embed.
+  const source = report.channel || await fetchChannel(guild, record.reportChannelId);
+  for (const id of record.staffMessageIds || []) {
+    if (id === record.messageId) continue;
+    const message = await fetchMessage(source, id);
+    if (message?.author?.id === client.user.id) await message.delete();
+  }
+  record.staffMessageIds = [];
+  return save(client, syncAliases(record));
+}
+
+function logEmbed(record, audience, event, actorId) {
+  const entry = record.cases[audience];
+  const title = event === 'close' ? 'Report case closed' : event === 'delete' ? 'Report case deleted' : 'Report case created';
+  const fields = [{ name: 'Case', value: `report-${record.number}`, inline: true },
+    { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
+    { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Deleted by' : 'Handled by', value: actorId === '24-hour expiry' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
+    { name: 'Channel', value: event === 'delete' ? `report-${record.number} (${entry.channelId})` : `<#${entry.channelId}>`, inline: true },
+    { name: 'Case type', value: audience === 'reporter' ? 'Reporter notification' : 'Reported member case', inline: true }];
+  const embed = caseEmbed({ title, fields });
+  if (event === 'close' || event === 'delete') setPreservedEmbedColor(embed, TICKET_EVENT_STYLES[event].color);
+  return embed;
+}
+
+async function publishStaffLog(client, guild, record, audience, event, actorId) {
+  const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
+  if (!logs?.send) throw new Error('The report-logs channel is unavailable.');
+  const entry = record.cases[audience];
+  const key = event === 'close' ? 'closeLogId' : event === 'delete' ? 'deleteLogId' : 'createdLogId';
+  const existing = await fetchMessage(logs, entry[key]);
+  const config = await getGuildConfig(client, guild.id);
+  const staffId = reportStaffRole(guild, config);
+  const notify = event === 'close' && audience === 'target' && !existing;
+  const payload = { content: notify ? (staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`) : null,
+    embeds: [logEmbed(record, audience, event, actorId)],
+    components: event === 'delete' ? [] : reportCaseControls(record, true, false, audience, Boolean(entry.closedAt)),
+    allowedMentions: { parse: [], users: notify && !staffId ? [guild.ownerId] : [], roles: notify && staffId ? [staffId] : [] } };
+  const message = existing?.author?.id === client.user.id ? await existing.edit(payload) : await logs.send(payload);
+  entry[key] = message.id;
+  await save(client, record);
+  return record;
+}
+
+async function refreshLogControls(client, guild, record, audience) {
+  const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
+  const entry = record.cases[audience];
+  for (const id of [entry.createdLogId, entry.closeLogId].filter(Boolean)) {
+    const notice = await fetchMessage(logs, id);
+    if (notice?.author?.id === client.user.id) await notice.edit({ components: reportCaseControls(record, true, Boolean(entry.deletedAt), audience, Boolean(entry.closedAt)), allowedMentions: { parse: [] } });
+  }
+}
+
+export async function publishReportOutcome(client, guild, report, record, action, actorId, reason) {
+  if (record.closedAt || (record.expiresAt && record.expiresAt <= Date.now())) throw new Error('This report case has expired or was deleted.');
+  const config = await getGuildConfig(client, guild.id);
+  const source = report.channel || await fetchChannel(guild, record.reportChannelId);
+  if (source?.permissionsFor?.(guild.roles.everyone)?.has?.(PermissionFlagsBits.ViewChannel)) throw new Error('Staff report controls require a private reports channel.');
+  record = await ensurePrivateCases(client, guild, report, record, config);
+  const actionText = { delete: 'The reported message has been deleted.', timeout: 'The reported member has been timed out.', ban: 'The reported member has been banned.' }[action];
+  for (const audience of audiences) {
+    const entry = record.cases[audience];
+    if (entry.deletedAt) continue;
+    const channel = await fetchChannel(guild, entry.channelId);
+    const existing = await fetchMessage(channel, entry.messageId);
+    const staffId = reportStaffRole(guild, config);
+    const participant = participantId(record, audience);
+    const fields = [{ name: 'Case', value: `report-${record.number}`, inline: true },
+      ...(audience === 'target' ? [{ name: 'Reason', value: reason || 'No reason recorded' }, { name: 'Handled by', value: `<@${actorId}>`, inline: true }] : []),
+      { name: 'Time remaining', value: timeRemaining(record) }];
+    const payload = { content: `<@${participant}>${audience === 'target' ? ` ${staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`}` : ''}`,
+      embeds: [caseEmbed({ title: 'Report case notification', description: actionText, color: 0x00C49D, fields })],
+      components: reportCaseControls(record, false, Boolean(entry.closedAt), audience),
+      allowedMentions: { parse: [], users: [participant, ...(audience === 'target' && !staffId ? [guild.ownerId] : [])], roles: audience === 'target' && staffId ? [staffId] : [] } };
+    const notice = existing?.author?.id === client.user.id ? await existing.edit(payload) : await channel.send(payload);
+    entry.messageId = notice.id;
+    await save(client, syncAliases(record));
+    if (!entry.createdLogId) await publishStaffLog(client, guild, record, audience, 'created', actorId);
+  }
+  scheduleReportCaseExpiry(client, guild, record);
+  return record;
+}
+
+export async function updateReportCountdowns(client, guild, record) {
+  for (const entry of Object.values(record.cases || {})) {
+    if (entry.deletedAt || !entry.messageId) continue;
+    const channel = await fetchChannel(guild, entry.channelId);
+    const notice = await fetchMessage(channel, entry.messageId);
+    if (notice?.author?.id !== client.user.id || !notice.embeds?.[0]) continue;
+    const data = notice.embeds[0].toJSON?.() || structuredClone(notice.embeds[0]);
+    data.fields = [...(data.fields || []).filter(field => field.name !== 'Time remaining'), { name: 'Time remaining', value: timeRemaining(record) }];
+    await notice.edit({ embeds: [caseEmbed(data)], allowedMentions: { parse: [] } });
+  }
+}
+
+function clearTimers(record) {
+  const key = reportKey(record.guildId, record.messageId);
+  clearTimeout(expiryTimers.get(key)); expiryTimers.delete(key);
+  clearTimeout(countdownTimers.get(key)); countdownTimers.delete(key);
+}
+
+function scheduleCountdown(client, guild, record) {
+  const key = reportKey(record.guildId, record.messageId);
+  clearTimeout(countdownTimers.get(key));
+  if (record.closedAt || record.expiresAt <= Date.now()) return;
+  const timer = setTimeout(() => {
+    countdownTimers.delete(key);
+    void withReportLock(key, async () => {
+      const fresh = await client.db.get(key);
+      if (!fresh || fresh.closedAt || fresh.expiresAt <= Date.now()) return;
+      try { await updateReportCountdowns(client, guild, fresh); }
+      finally { scheduleCountdown(client, guild, fresh); }
+    }).catch(error => {
+      logger.warn(`Report countdown failed: ${error.message}`);
+      if (!countdownTimers.has(key)) scheduleCountdown(client, guild, record);
+    });
+  }, REPORT_COUNTDOWN_REFRESH_MS);
+  timer.unref?.(); countdownTimers.set(key, timer);
+}
+
+export function scheduleReportCaseExpiry(client, guild, record, retryMs) {
+  if ((!record.caseChannelId && !record.cases) || record.closedAt) return;
+  const key = reportKey(record.guildId, record.messageId);
+  clearTimeout(expiryTimers.get(key));
+  const timer = setTimeout(() => {
+    expiryTimers.delete(key);
+    void deleteReportCase(client, guild, record).catch(error => {
+      logger.warn(`Report case expiry failed: ${error.message}`);
+      scheduleReportCaseExpiry(client, guild, record, 60_000);
+    });
+  }, retryMs ?? Math.max(0, record.expiresAt - Date.now()));
+  timer.unref?.(); expiryTimers.set(key, timer);
+  scheduleCountdown(client, guild, record);
+}
+
+export async function deleteReportCase(client, guild, record, executor = '24-hour expiry', alreadyLocked = false, audience) {
+  const operation = async () => {
+    record = await client.db.get(reportKey(record.guildId, record.messageId)) || record;
+    if (!record.cases && record.caseChannelId) record.cases = { target: { channelId: record.caseChannelId } };
+    for (const kind of audience ? [audience] : Object.keys(record.cases || {})) {
+      const entry = record.cases[kind];
+      if (!entry) continue;
+      if (!entry.deletedAt) {
+        const channel = await fetchChannel(guild, entry.channelId);
+        if (channel) await channel.delete(`Report ${record.number}: ${executor}`);
+        entry.deletedAt = Date.now(); entry.deletedBy = executor;
+        await save(client, record);
+      }
+      if (!entry.deleteLogId) await publishStaffLog(client, guild, record, kind, 'delete', entry.deletedBy || executor);
+      await refreshLogControls(client, guild, record, kind);
+    }
+    if (Object.values(record.cases || {}).every(entry => entry.deletedAt)) {
+      record.closedAt = Date.now();
+      await save(client, record);
+      clearTimers(record);
+    }
+  };
+  return alreadyLocked ? operation() : withReportLock(reportKey(record.guildId, record.messageId), operation);
+}
+
+export async function handleReportCaseControl(interaction, client, [action, messageId, audience = 'target']) {
+  if (!interaction.inGuild() || !['close', 'read', 'delete'].includes(action) || !audiences.includes(audience)) return;
+  await interaction.deferReply({ flags: 64 });
+  try {
+    const key = reportKey(interaction.guildId, messageId);
+    await withReportLock(key, async () => {
+      const record = await client.db.get(key);
+      const entry = record?.cases?.[audience];
+      if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report case is no longer available.');
+      const config = await getGuildConfig(client, interaction.guildId);
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      const staff = caseStaffAllowed(interaction.guild, member, config);
+      const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
+      const inLogs = interaction.channelId === REPORT_LOG_CHANNEL_ID && [entry.createdLogId, entry.closeLogId].includes(interaction.message.id);
+      if ((!inCase && !inLogs) || (inLogs && !staff)) throw new Error('You cannot use these report controls.');
+      if (action === 'delete') {
+        if (!staff) throw new Error('Only the staff team can delete report cases.');
+        await deleteReportCase(client, interaction.guild, record, interaction.user.id, true, audience);
+        return;
+      }
+      if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can close this case.');
+      // Close removes the participant's access, not the channel or Staff's access.
+      if (!entry.closedAt) {
+        const channel = await fetchChannel(interaction.guild, entry.channelId);
+        const participant = await interaction.guild.members.fetch(participantId(record, audience)).catch(() => null);
+        if (!caseStaffAllowed(interaction.guild, participant, config)) {
+          await channel.permissionOverwrites.edit(participantId(record, audience), { ViewChannel: false, SendMessages: false, ReadMessageHistory: false });
+        }
+        entry.closedAt = Date.now(); entry.closedBy = interaction.user.id;
+        await save(client, record);
+        const notice = await fetchMessage(channel, entry.messageId);
+        if (notice?.author?.id === client.user.id) await notice.edit({ components: reportCaseControls(record, false, true, audience), allowedMentions: { parse: [] } });
+      }
+      if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
+      await refreshLogControls(client, interaction.guild, record, audience);
+    });
+    await interaction.deleteReply().catch(() => {});
+  } catch (error) { await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` }); }
+}
+
+export async function restoreReportCaseTimers(client) {
+  let restored = 0;
+  for (const key of await client.db.list('global:report:')) {
+    try {
+      let record = await client.db.get(key);
+      const guild = record && client.guilds.cache.get(record.guildId);
+      if (!guild || (!record.caseChannelId && !record.cases) || record.closedAt) continue;
+      // Keep expiry active even if repairing an older notification fails.
+      scheduleReportCaseExpiry(client, guild, record);
+      if (!record.cases && record.expiresAt > Date.now()) {
+        const completed = Object.entries(record.actions || {}).filter(([, outcome]) => outcome.status === 'completed').at(-1);
+        if (completed) {
+          const source = await fetchChannel(guild, record.reportChannelId);
+          record = await publishReportOutcome(client, guild, { channel: source }, record, completed[0], completed[1].actorId, completed[1].reason);
+        }
+      }
+      scheduleReportCaseExpiry(client, guild, record); restored++;
+    } catch (error) { logger.warn(`Report case restore failed: ${error.message}`); }
+  }
+  startupLog(`Report case expiry restored: ${restored} active case(s).`);
+}
