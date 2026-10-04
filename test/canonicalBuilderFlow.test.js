@@ -83,6 +83,30 @@ test('stale aliases, runtime members and channels collapse to one canonical Bala
   assert.equal(buildMatches(g, view, 'too fast').length, 1);
 });
 
+test('channel browser retains one Content Creators guide in every platform while Search keeps one master', async () => {
+  storage();
+  const g = guild('guide-channel-dedup', ['botlog', 'youtube', 'twitch', 'tiktok']);
+  const master = record(g.id, 'botlog', 'guide-master', '🎥 Content Creators', 'botlog/content-creator-guide-service');
+  const records = [master];
+  for (const platform of ['youtube', 'twitch', 'tiktok']) {
+    for (const id of ['old', 'latest']) records.push({ guildId: g.id, channelId: platform, messageId: `${platform}-${id}`, embedIndex: 0, source: 'content-creators', snapshot: { title: '🎥 Content Creators', description: 'Subscribe to publish your content.', color: 0xFFFFFF } });
+  }
+  const canonical = await getCanonicalBuilderRecords(g, records, { perChannel: true });
+  for (const platform of ['youtube', 'twitch', 'tiktok']) {
+    assert.equal(canonical.filter(r => r.channelId === platform).length, 1);
+    const rows = options(buildEmbedPayload(g, canonical, platform));
+    assert.equal(rows.length, 1);
+    const selected = canonical.find(r => r.channelId === platform);
+    const state = {};
+    assert.equal(loadRecordSnapshotIntoState(state, g, selected, selected.previewRecord, selected.sourceRecord), true);
+    assert.equal(state.modifyTarget.channelId, platform);
+    assert.equal(state.message, 'Subscribe to publish your content.');
+  }
+  const search = await getCanonicalBuilderRecords(g, records);
+  assert.equal(search.length, 1);
+  assert.equal(buildMatches(g, search, 'Content Creators').length, 1);
+});
+
 test('Save through a canonical master persists repeated edits, media removals and styling across a fresh process', async () => {
   const values = storage();
   const g = guild('durable-canonical-save', ['commands', 'catalog']);
@@ -227,3 +251,4 @@ test('concurrent Saves within one millisecond retain the latest overlay until it
   assert.equal(duringWrite.embeds[0].description, 'Second body');
   releaseSecond(); assert.equal(await second, true);
 });
+
