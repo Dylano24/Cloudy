@@ -5,6 +5,7 @@ import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { getTicketData, saveTicketData } from '../database.js';
 import { logger } from '../logger.js';
 import { ticketActorPermissions } from '../../services/ticketActionPolicy.js';
+import { getPinnedMessages } from '../messagePins.js';
 
 const TICKET_IO_TIMEOUT_MS = 1800;
 
@@ -61,7 +62,7 @@ async function findTicketMessage(channel, botId) {
       'Pinned ticket message lookup',
     ).catch(() => null);
 
-    const pinnedTicket = pinnedResponse?.items?.find(message => isCloudyTicketMessage(message, botId));
+    const pinnedTicket = getPinnedMessages(pinnedResponse).find(message => isCloudyTicketMessage(message, botId));
     if (pinnedTicket) return pinnedTicket;
   } else if (typeof channel.messages?.fetchPinned === 'function') {
     const pinned = await withTimeout(

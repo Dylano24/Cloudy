@@ -1,4 +1,5 @@
 import { PermissionFlagsBits } from 'discord.js';
+import { fetchGuildChannels } from '../utils/guildChannelFetch.js';
 
 const MAX_CHANNELS = 60;
 const MESSAGES_PER_CHANNEL = 40;
@@ -124,7 +125,7 @@ export async function searchDiscordMedia(client, query, options = {}) {
 
   const channels = [];
   for (const guild of guilds) {
-    await guild.channels.fetch().catch(() => null);
+    await fetchGuildChannels(guild).catch(() => null);
     for (const channel of guild.channels.cache.values()) {
       if (canReadChannel(guild, channel)) {
         channels.push({ guild, channel });

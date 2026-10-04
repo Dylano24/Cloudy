@@ -60,6 +60,7 @@ function fixture(status = 'open', actor = 'creator') {
     member, user: member.user, inGuild: () => true,
     deferReply: async () => { interaction.deferred = true; }, deferUpdate: async () => { interaction.deferred = true; },
     editReply: async p => { replies.push(p); interaction.replied = true; }, reply: async p => { replies.push(p); interaction.replied = true; },
+    followUp: async p => { replies.push(p); },
     deleteReply: async () => { deletedReplies += 1; }, showModal: async m => { replies.push(m.toJSON()); },
     fields: { getTextInputValue: () => 'Resolved' } };
   const initialize = () => saveTicketData(guildId, channelId, { id: channelId, ticketNumber: 1, userId: creatorId,
