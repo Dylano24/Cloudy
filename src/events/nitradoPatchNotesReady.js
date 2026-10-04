@@ -51,12 +51,13 @@ function stripHtml(value = '') {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/\s*\[(?:…|\.{3})\]\s*$/u, '')
+    .replace(/\s*\bYou and\s*$/iu, '')
     .trim();
 }
 
 export async function repairNitradoNewsText(message) {
   const original = message.embeds.map(embed => embed.toJSON());
-  const cleanText = value => decodeHtml(decodeHtml(value)).replace(/\s*\[(?:…|\.{3})\]\s*$/u, '').trim();
+  const cleanText = value => decodeHtml(decodeHtml(value)).replace(/\s*\[(?:…|\.{3})\]\s*$/u, '').replace(/\s*\bYou and\s*$/iu, '').trim();
   const embeds = original.map(data => ({
     ...data,
     ...(data.title ? { title: cleanText(data.title) } : {}),
