@@ -3,6 +3,10 @@ import { REST } from '@discordjs/rest';
 export const CLOUDY_STANDARD_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const MARKER = Symbol.for('cloudy.standard-footer-output');
 
+export function isMentionOnlyContent(content) {
+  return typeof content === 'string' && /^(?:\s*(?:<@!?\d+>|<@&\d+>|<#\d+>|@everyone|@here)\s*)+$/.test(content);
+}
+
 export function withCloudyFooter(payload, { plainText = true } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   if (Array.isArray(payload.embeds) && payload.embeds.length) {
@@ -17,6 +21,7 @@ export function withCloudyFooter(payload, { plainText = true } = {}) {
       return { ...data, footer: { text: CLOUDY_STANDARD_FOOTER } };
     }) };
   }
+  if (isMentionOnlyContent(payload.content)) return payload;
   if (!plainText || !payload.content?.trim?.() || payload.content.includes(CLOUDY_STANDARD_FOOTER) || (Number(payload.flags) & 32768)) return payload;
   const content = `${payload.content}\n\n${CLOUDY_STANDARD_FOOTER}`;
   return content.length <= 2000 ? { ...payload, content } : { ...payload, embeds: [{ description: '\u200b', footer: { text: CLOUDY_STANDARD_FOOTER } }] };
@@ -36,3 +41,4 @@ export function installCloudyFooterOutput() {
   };
   Object.defineProperty(prototype, MARKER, { value: true });
 }
+
