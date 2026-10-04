@@ -32,7 +32,7 @@ export function registerAppealsApi(app, client) {
       const appeal = req.body || {};
       const scope = appeal.scope === 'rust' ? 'rust' : appeal.scope === 'discord' ? 'discord' : '';
       const action = ['Mute', 'Ban', 'Other'].includes(appeal.action) ? appeal.action : '';
-      const discordIdentity = clean(appeal.discordIdentity, 100);
+      const discordIdentity = scope === 'discord' ? clean(appeal.discordIdentity, 100) : '';
       const gamertag = scope === 'rust' ? clean(appeal.gamertag, 100) : '';
       const email = clean(appeal.email, 254);
       const punishmentReason = clean(appeal.punishmentReason);
@@ -68,7 +68,7 @@ export function registerAppealsApi(app, client) {
       await channel.send({
         allowedMentions: { parse: [] },
         ...([punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo].some(value => value.length > 500)
-          ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, discordIdentity, ...(scope === 'rust' ? { gamertag } : {}), email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
+          ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, ...(scope === 'discord' ? { discordIdentity } : { gamertag }), email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
           : {}),
         embeds: [{
           title: `${scopeLabel} appeal — ${action}`,
@@ -76,7 +76,7 @@ export function registerAppealsApi(app, client) {
           color: 0xFFFFFF,
           thumbnail: { url: CLOUDY_LOGO_URL },
           fields: [
-            { name: 'Discord username / ID', value: shown(discordIdentity), inline: true },
+            ...(scope === 'discord' ? [{ name: 'Discord username / ID', value: shown(discordIdentity), inline: true }] : []),
             ...(scope === 'rust' ? [{ name: 'Gamertag', value: shown(gamertag), inline: true }] : []),
             { name: 'Email', value: shown(email), inline: false },
             { name: 'Why were you muted/banned?', value: shown(punishmentReason), inline: false },
