@@ -7,6 +7,9 @@ import { createEmbed } from '../utils/embeds.js';
 import { loadReport, publishReportOutcome, reportKey, withReportLock, validateReportDestinations } from './reportCaseService.js';
 import { rememberMessageDeleter } from './deletionAttributionService.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
+import { withCloudyFooter } from '../utils/cloudyFooter.js';
+
+const CLOUDY_APPEAL_URL = 'https://cloudy-store-vert.vercel.app/appeal';
 
 export function buildReportActions(userId) {
   return [new ActionRowBuilder().addComponents(
@@ -37,6 +40,16 @@ export function timeoutDuration(value) {
 async function deny(interaction, message) {
   return InteractionHelper.universalReply(interaction, {
     flags: MessageFlags.Ephemeral, embeds: [createEmbed({ title: 'Permission denied', description: message })],
+  });
+}
+
+export function reportBanNotification(reason) {
+  return withCloudyFooter({
+    embeds: [createEmbed({
+      title: 'You have been banned from the Cloudy server',
+      description: `**Reason**\n${reason}\n\nIf you believe this sanction was incorrect or you would like us to review it, you can always submit an appeal using our appeal form.\n\n**Appeal:** [Cloudy appeal form](${CLOUDY_APPEAL_URL})`,
+    })],
+    allowedMentions: { parse: [] },
   });
 }
 
@@ -150,7 +163,14 @@ async function completeReportAction(interaction, client, report, action, userId,
               durationMs, reason });
           } else {
             const user = member?.user || await client.users.fetch(userId);
-            await ModerationService.banUser({ guild: interaction.guild, user, moderator: freshMember, reason, notifyBeforeBan: true });
+            await ModerationService.banUser({
+              guild: interaction.guild,
+              user,
+              moderator: freshMember,
+              reason,
+              notifyBeforeBan: true,
+              notificationPayload: reportBanNotification(reason),
+            });
           }
         }
       } catch (error) {
