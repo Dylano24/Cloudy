@@ -5,11 +5,8 @@ import test from 'node:test';
 test('Embed Manager normal open path stays registry-first', () => {
   const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
 
-  const discoveryStart = source.indexOf('export async function discoverEmbedManagerOverviewRecords');
-  const loadStart = source.indexOf('async function loadCurrentRegistry', discoveryStart);
-  assert.ok(discoveryStart >= 0 && loadStart > discoveryStart);
-  const discovery = source.slice(discoveryStart, loadStart);
-  assert.match(discovery, /CLOUDY_BUILDER_GUILD_SCAN/);
+  const loadStart = source.indexOf('async function loadCurrentRegistry');
+  assert.ok(loadStart >= 0);
 
   const openStart = source.indexOf('export async function openEmbedManager', loadStart);
   assert.ok(openStart > loadStart);
@@ -20,6 +17,12 @@ test('Embed Manager normal open path stays registry-first', () => {
   const populatedPath = loader.slice(0, loader.indexOf('if (records.length) return records') + 36);
   assert.doesNotMatch(populatedPath, /reconcileEmbedRegistry\(guild\)/);
   assert.doesNotMatch(populatedPath, /scanGuildForCloudyEmbeds/);
+
+  const openBody = source.slice(openStart);
+  const collectorStart = openBody.indexOf("collector.on('collect'");
+  const startupPart = collectorStart >= 0 ? openBody.slice(0, collectorStart) : openBody;
+  assert.match(startupPart, /Promise\.resolve\(\[\]\)/);
+  assert.doesNotMatch(startupPart, /discoverEmbedManagerOverviewRecords\(/);
 });
 
 test('full response history sweep is opt-in instead of automatic', () => {
