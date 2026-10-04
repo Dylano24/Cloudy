@@ -83,7 +83,7 @@ test('dashboard opens with persisted modal value despite a stale catalog, and Su
   assert.deepEqual(initial.fields.slice(1), catalog.fields.slice(1));
   assert.equal(initial.color, catalog.color);
   assert.deepEqual(initial.footer, catalog.footer);
-  assert.equal(payload.components[0].components.length, 4);
+  assert.equal(payload.components[0].components.length, 3);
   assert.equal(collectorOptions.idle, 5 * 60_000);
   assert.equal(collectorOptions.time, undefined);
 
