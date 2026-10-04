@@ -141,8 +141,8 @@ test('target Close hides only their own case, notifies Staff once in ticket oran
   const log = f.logs.messages.cache.get(record.cases.target.closeLogId);
   assert.equal(json(log.embeds[0]).color, TICKET_EVENT_STYLES.close.color);
   assert.equal(json(log.embeds[0]).title, 'Report case closed');
-  assert.equal(log.content, '<@&staff-role>');
-  assert.deepEqual(log.sentPayload.allowedMentions.roles, ['staff-role']);
+  assert.equal(log.content, null);
+  assert.deepEqual(log.sentPayload.allowedMentions, { parse: [] });
   assert.deepEqual(log.components[0].toJSON().components.map(button => [button.label, button.disabled]), [['Delete', false]]);
   const count = f.payloads.length;
   await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
