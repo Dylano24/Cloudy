@@ -69,7 +69,7 @@ function syncAliases(record) {
   return record;
 }
 
-async function ensurePrivateCases(client, guild, report, record, config) {
+async function ensurePrivateCases(client, guild, report, record, config, activeAudiences = audiences) {
   const { category } = await validateReportDestinations(guild);
   if (!record.number) record.number = await nextReportNumber(client, guild.id);
   if (!record.expiresAt) record.expiresAt = Date.now() + REPORT_CASE_MS;
@@ -79,7 +79,7 @@ async function ensurePrivateCases(client, guild, report, record, config) {
   }
   // Persist each channel before creating the next one so notification retries
   // resume the same pair rather than creating duplicate case channels.
-  for (const audience of audiences) {
+  for (const audience of activeAudiences) {
     let entry = record.cases[audience];
     if (entry?.deletedAt) continue;
     let channel = await fetchChannel(guild, entry?.channelId);
@@ -170,9 +170,10 @@ export async function publishReportOutcome(client, guild, report, record, action
   const config = await getGuildConfig(client, guild.id);
   const source = report.channel || await fetchChannel(guild, record.reportChannelId);
   if (source?.permissionsFor?.(guild.roles.everyone)?.has?.(PermissionFlagsBits.ViewChannel)) throw new Error('Staff report controls require a private reports channel.');
-  record = await ensurePrivateCases(client, guild, report, record, config);
+  const activeAudiences = action === 'ban' ? ['reporter'] : audiences;
+  record = await ensurePrivateCases(client, guild, report, record, config, activeAudiences);
   const actionText = { delete: 'The reported message has been deleted.', timeout: 'The reported member has been timed out.', ban: 'The reported member has been banned.' }[action];
-  for (const audience of audiences) {
+  for (const audience of activeAudiences) {
     const entry = record.cases[audience];
     if (entry.deletedAt) continue;
     const channel = await fetchChannel(guild, entry.channelId);
