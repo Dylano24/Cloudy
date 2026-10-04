@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Collection, ChannelType } from 'discord.js';
 import { articleLooksLikeRustServerNews, checkForNitradoUpdate, fetchLatestNitradoRustArticle, repairNitradoNewsText } from '../src/events/nitradoPatchNotesReady.js';
 
-const article = (title, slug, date) => ({ node: { title, slug, date, excerpt: '<p>Official server update. [&#8230;]</p>' } });
+const article = (title, slug, date) => ({ node: { title, slug, date, excerpt: '<p>Official server update. You and [&#8230;]</p>' } });
 test('Nitrado uses public news API, selects newest Rust update and posts once across repeated checks', async t => {
   t.mock.method(globalThis, 'fetch', async url => {
     assert.match(url, /^https:\/\/newsapi\.nitrado\.net\/graphql\?query=/);
@@ -31,11 +31,14 @@ test('Nitrado uses public news API, selects newest Rust update and posts once ac
 });
 
 test('existing Nitrado news loses encoded/truncated text without replacing saved presentation', async () => {
-  const data = { title: 'Saved Nitrado title', description: 'You and [&#8230;]', color: 123, footer: { text: 'Saved footer' }, image: { url: 'https://example.com/image.png' } };
+  const data = { title: 'Saved Nitrado title', description: 'Official update. You and [&#8230;]', color: 123, footer: { text: 'Saved footer' }, image: { url: 'https://example.com/image.png' } };
   let changed;
   const message = { id: 'existing', embeds: [{ toJSON: () => data }], edit: async payload => { changed = payload; } };
   assert.equal(await repairNitradoNewsText(message), true);
-  assert.deepEqual(changed, { embeds: [{ ...data, description: 'You and' }] });
+  assert.deepEqual(changed, { embeds: [{ ...data, description: 'Official update.' }] });
+  message.embeds = [{ toJSON: () => ({ ...data, description: 'Official update. You and' }) }];
+  assert.equal(await repairNitradoNewsText(message), true);
+  assert.equal(changed.embeds[0].description, 'Official update.');
   message.embeds = [{ toJSON: () => changed.embeds[0] }];
   assert.equal(await repairNitradoNewsText(message), false);
 });
