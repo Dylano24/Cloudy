@@ -313,8 +313,10 @@ async function sendErrorResponse(interaction, embed, context = {}) {
 
         const gamblingPolicy = getGamblingResponsePolicy(interaction, context);
         const ticketPermissionDenied = /ticket/i.test(`${interaction.customId || ''} ${interaction.commandName || ''}`) && /permission denied/i.test(embed?.data?.title || embed?.title || '');
-        const showCloseButton = ticketPermissionDenied ? false : gamblingPolicy?.showCloseButton ?? context.showCloseButton;
         const autoDelete = gamblingPolicy?.autoDelete ?? true;
+        const showCloseButton = autoDelete
+            ? false
+            : (ticketPermissionDenied ? false : gamblingPolicy?.showCloseButton ?? context.showCloseButton);
         const errorMessage = {
             embeds: [embed],
             components: showCloseButton !== false && interaction.user?.id
