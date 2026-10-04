@@ -308,11 +308,7 @@ async function handleConfigSubcommand(interaction, client) {
             .setCustomId(`jtc_config_bitrate_${triggerChannel.id}`)
             .setLabel('🎵 Bitrate')
             .setStyle(ButtonStyle.Secondary);
-        const deleteButton = new ButtonBuilder()
-            .setCustomId(`jtc_config_delete_${triggerChannel.id}`)
-            .setLabel('🗑️ Remove channel')
-            .setStyle(ButtonStyle.Danger);
-        const row = new ActionRowBuilder().addComponents(nameButton, limitButton, bitrateButton, deleteButton);
+        const row = new ActionRowBuilder().addComponents(nameButton, limitButton, bitrateButton);
 
         await InteractionHelper.safeEditReply(interaction, { embeds: [configEmbed], components: [row] });
         const message = await interaction.fetchReply();
@@ -350,8 +346,6 @@ async function handleConfigSubcommand(interaction, client) {
                     await handleUserLimitModal(buttonInteraction, triggerChannel, client, message);
                 } else if (customId.includes('jtc_config_bitrate_')) {
                     await handleBitrateModal(buttonInteraction, triggerChannel, client, message);
-                } else if (customId.includes('jtc_config_delete_')) {
-                    await handleChannelDeletion(buttonInteraction, triggerChannel, client);
                 }
 
                 // Completing a dashboard action (including a modal save) is activity.
