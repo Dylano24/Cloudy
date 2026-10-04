@@ -239,7 +239,10 @@ async function deleteRecentLinkMessagesFromUser(message) {
             );
 
             await Promise.allSettled(
-                matchingMessages.map(candidate => candidate.delete())
+                matchingMessages.map(candidate => {
+                    rememberMessageDeleter(candidate, message.client.user, 'automod');
+                    return candidate.delete();
+                })
             );
         })
     );
@@ -315,6 +318,7 @@ export async function enforceLinkProtection(message) {
         return false;
     }
 
+    rememberMessageDeleter(message, message.client.user, 'automod');
     await message.delete().catch(error => {
         logger.warn('Could not delete blocked link message:', error);
     });
@@ -353,3 +357,4 @@ export async function enforceLinkProtection(message) {
 
     return false;
 }
+import { rememberMessageDeleter } from './deletionAttributionService.js';

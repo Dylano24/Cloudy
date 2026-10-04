@@ -9,6 +9,23 @@ function edit(path, before, after) {
 edit('src/utils/embeds.js', '  if (!footerText || !isImportantFooter(footerText)) {', '  if (!footerText) {');
 edit('src/utils/embeds.js', "import {", "import { withCloudyFooter } from './cloudyFooter.js';\nimport {");
 edit('src/utils/embeds.js', '  return templated;\n}', "  templated.data = withCloudyFooter({ embeds: [templated.data] }).embeds[0];\n  return templated;\n}");
+edit('src/services/ticket.js', `    try {
+      const user = await channel.guild.members.fetch(ticketData.userId).catch(() => null);
+      if (user) {
+        await channel.permissionOverwrites.create(user, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+          AttachFiles: true
+        });
+      }
+    } catch (error) {
+      logger.warn(\`Could not restore access for user \${ticketData.userId}:\`, error.message);
+    }`, `    // Restore the creator by ID and await Discord before sending the real ping.
+    // A failed member fetch must not silently leave the reopened ticket hidden.
+    await channel.permissionOverwrites.edit(ticketData.userId, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true,
+    }, { type: 1, reason: 'Restore ticket creator access before reopen notification' });`);
 edit('src/services/ticket.js', `    if (closeStatusMessage) {
       await closeStatusMessage.edit({ embeds: [reopenEmbed], components: [] });
     } else {

@@ -349,7 +349,7 @@ export async function logEvent({
     const audienceChannelId = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
       ? messageLogDestination(guild, data.userId, author, config, data.authorBot, deleter) : null;
     if (requiredMessageDeletion && data.lines) {
-      const type = messageLogAuthorType(guild, data.userId, author, config, data.authorBot);
+      const type = automod ? 'Bot' : messageLogAuthorType(guild, data.userId, author, config, data.authorBot);
       data = { ...data, lines: [...data.lines, formatLogLine('Author type', type)] };
     }
     const logChannelId = automod ? AUTOMOD_LOG_CHANNEL_ID : audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);

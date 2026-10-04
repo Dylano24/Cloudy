@@ -5,6 +5,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logModerationAction } from '../../utils/moderation.js';
+import { hasCloudyOwnerMember } from '../ownerRoleAccess.js';
 
 
 function getTargetLabel(target) {
@@ -132,318 +133,242 @@ export class ModerationService {
     if (!modCheck.valid) {
       throw new TitanBotError(modCheck.error, ErrorTypes.PERMISSION, modCheck.error);
     }
+ …13549 tokens truncated…  throw ticketError('Ticket is closed', 'This ticket is already closed.');
+  }
+  if (ticketData.claimedBy && String(ticketData.claimedBy) !== String(claimer.id)) {
+    throw ticketError(
+      'Ticket already claimed',
+      `This ticket is already claimed by <@${ticketData.claimedBy}>.`,
+    );
+  }
+  if (String(ticketData.claimedBy || '') === String(claimer.id)) {
+    await syncCloudyTicketMessage(channel);
+    await sendPublicClaimStatus(channel, claimer);
+    return ticketData;
   }
 
-  static async banUser({
-    guild,
-    user,
-    moderator,
-    reason = 'No reason provided',
-    deleteDays = 0
-  }) {
-    try {
-      if (!guild || !user || !moderator) {
-        throw new TitanBotError(
-          'Missing required parameters',
-          ErrorTypes.VALIDATION,
-          'Guild, user, and moderator are required'
-        );
-      }
+  ticketData.claimedBy = claimer.id;
+  ticketData.claimedAt = new Date().toISOString();
+  await saveTicketDataFast(channel, ticketData);
+  await syncCloudyTicketMessage(channel);
 
-      let targetMember = null;
-      try {
-        targetMember = await guild.members.fetch(user.id).catch(() => null);
-      } catch (err) {
-        logger.debug('Target not in guild, proceeding with ban');
-      }
+  await sendPublicClaimStatus(channel, claimer);
 
-      if (targetMember) {
-        this.assertModerationHierarchy(moderator, targetMember, 'ban');
-      } else {
+  void logTicketEvent({
+    client: channel.client,
+    guildId: channel.guild.id,
+    event: {
+      type: 'claim',
+      ticketId: channel.id,
+      ticketNumber: ticketNumberOf(ticketData),
+      userId: ticketData.userId,
+      executorId: claimer.id,
+      metadata: { claimedAt: ticketData.claimedAt },
+    },
+  }).catch(() => {});
 
-        const isOwner = guild.ownerId === moderator.id;
-        const hasHighPerms = moderator.permissions.has([
-            PermissionFlagsBits.ManageGuild,
-            PermissionFlagsBits.Administrator
-        ]);
+  return ticketData;
+}
 
-        if (!isOwner && !hasHighPerms) {
-            throw new TitanBotError(
-                'You do not have sufficient permissions to ban users who are not in the server.',
-                ErrorTypes.PERMISSION,
-                'You need "Manage Server" or "Administrator" permissions to ban users not currently in the guild.'
-            );
-        }
-      }
-
-      await guild.members.ban(user.id, { reason });
-      if (typeof user.send === 'function') await user.send({ embeds: [createEmbed({ title: 'Ban notice', description: reason })] }).catch(error => logger.debug(`Ban DM unavailable: ${error.code || 'unknown'}`));
-
-      const caseId = await logModerationAction({
-        client: guild.client,
-        guild,
-        event: {
-          action: 'Member Banned',
-          target: `${user.tag} (${user.id})`,
-          executor: `${moderator.user.tag} (${moderator.id})`,
-          reason,
-          metadata: {
-            userId: user.id,
-            moderatorId: moderator.id,
-            permanent: true,
-            deleteDays
-          }
-        }
-      });
-
-      logger.info(`User banned: ${user.tag} by ${moderator.user.tag} in ${guild.name}`);
-      
-      return {
-        caseId,
-        user: user.tag,
-        reason
-      };
-    } catch (error) {
-      logger.error('Error banning user:', error);
-      throw error;
-    }
+export async function unclaimTicket(channel, unclaimer) {
+  const ticketData = await getTicketDataFast(channel);
+  if (!ticketData) {
+    throw ticketError('Ticket data not found', 'This is not a valid ticket channel.');
+  }
+  if (!ticketData.claimedBy) {
+    await syncCloudyTicketMessage(channel);
+    return ticketData;
   }
 
-  static async kickUser({
-    guild,
-    member,
-    moderator,
-    reason = 'No reason provided'
-  }) {
-    try {
-      if (!guild || !member || !moderator) {
-        throw new TitanBotError(
-          'Missing required parameters',
-          ErrorTypes.VALIDATION,
-          'Guild, member, and moderator are required'
-        );
+  const previousClaimer = ticketData.claimedBy;
+  ticketData.claimedBy = null;
+  ticketData.claimedAt = null;
+  await saveTicketDataFast(channel, ticketData);
+  await syncCloudyTicketMessage(channel);
+
+  await sendPublicUnclaimStatus(channel, unclaimer);
+
+  void logTicketEvent({
+    client: channel.client,
+    guildId: channel.guild.id,
+    event: {
+      type: 'unclaim',
+      ticketId: channel.id,
+      ticketNumber: ticketNumberOf(ticketData),
+      userId: ticketData.userId,
+      executorId: unclaimer.id,
+      metadata: { previousClaimer },
+    },
+  }).catch(() => {});
+
+  return ticketData;
+}
+
+async function finishCloseSideEffects(channel, ticketData) {
+  try {
+    const config = await withTimeout(
+      getGuildConfig(channel.client, channel.guild.id),
+      DB_TIMEOUT_MS,
+      'Close ticket config read',
+    ).catch(() => null);
+
+    const closedCategoryId = config?.ticketClosedCategoryId || null;
+    if (closedCategoryId && channel.parentId !== closedCategoryId) {
+      const category = channel.guild.channels.cache.get(closedCategoryId)
+        || await channel.guild.channels.fetch(closedCategoryId).catch(() => null);
+      if (category?.type === ChannelType.GuildCategory) {
+        await channel.setParent(closedCategoryId, { lockPermissions: false }).catch(() => {});
       }
-
-      this.assertModerationHierarchy(moderator, member, 'kick');
-
-      if (!member.kickable) {
-        const targetLabel = getTargetLabel(member);
-        throw new TitanBotError(
-          'Cannot kick member',
-          ErrorTypes.PERMISSION,
-          `I cannot kick **${targetLabel}**. They may have **Administrator** permission or a managed/integration role. ` +
-          'Ensure my bot role is above theirs in **Server Settings → Roles** and that they do not have Admin.'
-        );
-      }
-
-      await member.kick(reason);
-
-      const caseId = await logModerationAction({
-        client: guild.client,
-        guild,
-        event: {
-          action: 'Member Kicked',
-          target: `${member.user.tag} (${member.id})`,
-          executor: `${moderator.user.tag} (${moderator.id})`,
-          reason,
-          metadata: {
-            userId: member.id,
-            moderatorId: moderator.id
-          }
-        }
-      });
-
-      logger.info(`User kicked: ${member.user.tag} by ${moderator.user.tag} in ${guild.name}`);
-      
-      return {
-        caseId,
-        user: member.user.tag,
-        reason
-      };
-    } catch (error) {
-      logger.error('Error kicking user:', error);
-      throw error;
     }
-  }
 
-  static async timeoutUser({
-    guild,
-    member,
-    moderator,
-    durationMs,
-    reason = 'No reason provided'
-  }) {
-    try {
-      if (!guild || !member || !moderator || !durationMs) {
-        throw new TitanBotError(
-          'Missing required parameters',
-          ErrorTypes.VALIDATION,
-          'Guild, member, moderator, and duration are required'
-        );
-      }
-
-      this.assertModerationHierarchy(moderator, member, 'timeout');
-
-      if (!member.moderatable) {
-        const targetLabel = getTargetLabel(member);
-        throw new TitanBotError(
-          'Cannot timeout member',
-          ErrorTypes.PERMISSION,
-          `I cannot timeout **${targetLabel}**. They may have **Administrator** permission or a managed/integration role. ` +
-          'Ensure my bot role is above theirs in **Server Settings → Roles** and that they do not have Admin.'
-        );
-      }
-
-      await member.timeout(durationMs, reason);
-
-      const durationMinutes = Math.floor(durationMs / 60000);
-      const caseId = await logModerationAction({
-        client: guild.client,
-        guild,
-        event: {
-          action: 'Member Timed Out',
-          target: `${member.user.tag} (${member.id})`,
-          executor: `${moderator.user.tag} (${moderator.id})`,
-          reason,
-          duration: `${durationMinutes} minutes`,
-          metadata: {
-            userId: member.id,
-            moderatorId: moderator.id,
-            durationMs
-          }
-        }
-      });
-
-      logger.info(`User timed out: ${member.user.tag} by ${moderator.user.tag} in ${guild.name}`);
-      
-      return {
-        caseId,
-        user: member.user.tag,
-        duration: durationMinutes,
-        reason
-      };
-    } catch (error) {
-      logger.error('Error timing out user:', error);
-      throw error;
-    }
-  }
-
-  static async removeTimeoutUser({
-    guild,
-    member,
-    moderator,
-    reason = 'Timeout removed by moderator'
-  }) {
-    try {
-      if (!guild || !member || !moderator) {
-        throw new TitanBotError(
-          'Missing required parameters',
-          ErrorTypes.VALIDATION,
-          'Guild, member, and moderator are required'
-        );
-      }
-
-      this.assertModerationHierarchy(moderator, member, 'remove the timeout from');
-
-      if (!member.moderatable) {
-        const targetLabel = getTargetLabel(member);
-        throw new TitanBotError(
-          'Cannot modify member',
-          ErrorTypes.PERMISSION,
-          `I cannot modify **${targetLabel}**. They may have **Administrator** permission or a managed/integration role. ` +
-          'Ensure my bot role is above theirs in **Server Settings → Roles**.'
-        );
-      }
-
-      if (!member.isCommunicationDisabled()) {
-        throw new TitanBotError(
-          'User not timed out',
-          ErrorTypes.VALIDATION,
-          `${member.user.tag} is not currently timed out`
-        );
-      }
-
-      await member.timeout(null, reason);
-
-      await logModerationAction({
-        client: guild.client,
-        guild,
-        event: {
-          action: 'Member Untimeouted',
-          target: `${member.user.tag} (${member.id})`,
-          executor: `${moderator.user.tag} (${moderator.id})`,
-          reason,
-          metadata: {
-            userId: member.id,
-            moderatorId: moderator.id
-          }
-        }
-      });
-
-      logger.info(`Timeout removed: ${member.user.tag} by ${moderator.user.tag} in ${guild.name}`);
-      
-      return {
-        user: member.user.tag
-      };
-    } catch (error) {
-      logger.error('Error removing timeout:', error);
-      throw error;
-    }
-  }
-
-  static async unbanUser({
-    guild,
-    user,
-    moderator,
-    reason = 'No reason provided'
-  }) {
-    try {
-      if (!guild || !user || !moderator) {
-        throw new TitanBotError(
-          'Missing required parameters',
-          ErrorTypes.VALIDATION,
-          'Guild, user, and moderator are required'
-        );
-      }
-
-      const bans = await guild.bans.fetch();
-      const banInfo = bans.get(user.id);
-
-      if (!banInfo) {
-        throw new TitanBotError(
-          'User not banned',
-          ErrorTypes.VALIDATION,
-          `${user.tag} is not currently banned from this server`
-        );
-      }
-
-      await guild.members.unban(user.id, reason);
-
-      const caseId = await logModerationAction({
-        client: guild.client,
-        guild,
-        event: {
-          action: 'Member Unbanned',
-          target: `${user.tag} (${user.id})`,
-          executor: `${moderator.user.tag} (${moderator.id})`,
-          reason,
-          metadata: {
-            userId: user.id,
-            moderatorId: moderator.id
-          }
-        }
-      });
-
-      logger.info(`User unbanned: ${user.tag} by ${moderator.user.tag} in ${guild.name}`);
-      
-      return {
-        caseId,
-        user: user.tag,
-        reason
-      };
-    } catch (error) {
-      logger.error('Error unbanning user:', error);
-      throw error;
-    }
+    await hideClosedTicket(channel);
+  } catch (error) {
+    logger.warn('Ticket close side effects failed', {
+      guildId: channel.guild.id,
+      channelId: channel.id,
+      error: error.message,
+    });
   }
 }
+
+export async function closeTicket(channel, closer, reason = 'No reason provided') {
+  const ticketData = await getTicketDataFast(channel);
+  if (!ticketData) {
+    throw ticketError('Ticket data not found', 'This is not a valid ticket channel.');
+  }
+
+  await hideClosedTicket(channel, { closing: true });
+
+  if (String(ticketData.status || 'open').toLowerCase() === 'closed') {
+    await syncCloudyTicketMessage(channel);
+    return ticketData;
+  }
+
+  ticketData.status = 'closed';
+  ticketData.closedBy = closer.id;
+  ticketData.closedAt = new Date().toISOString();
+  ticketData.closeReason = reason;
+  await saveTicketDataFast(channel, ticketData);
+  await syncCloudyTicketMessage(channel);
+
+  const closeEmbed = createEmbed({
+    title: 'Ticket closed',
+    description:
+      `This ticket has been closed by ${closer}.\n` +
+      `**Reason:** ${reason}\n` +
+      `**Ticket:** #${ticketNumberOf(ticketData)}`,
+    color: '#FFFFFF',
+  });
+  const controlRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('ticket_reopen')
+      .setLabel('Reopen Ticket')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('🔓'),
+    new ButtonBuilder()
+      .setCustomId('ticket_delete')
+      .setLabel('Delete Ticket')
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('🗑️'),
+  );
+
+  await withTimeout(
+    channel.send({ embeds: [forceCloudyTicketFooter(closeEmbed)], components: [controlRow] }),
+    DISCORD_TIMEOUT_MS,
+    'Close ticket status message',
+  ).catch(error => {
+    logger.warn('Could not send close status message quickly', {
+      channelId: channel.id,
+      error: error.message,
+    });
+  });
+
+  void logTicketEvent({
+    client: channel.client,
+    guildId: channel.guild.id,
+    event: {
+      type: 'close',
+      ticketId: channel.id,
+      ticketNumber: ticketNumberOf(ticketData),
+      userId: ticketData.userId,
+      executorId: closer.id,
+      reason,
+      metadata: { closedAt: ticketData.closedAt, dmSent: false },
+    },
+  }).catch(() => {});
+
+  const timer = setTimeout(() => {
+    finishCloseSideEffects(channel, ticketData).catch(() => {});
+  }, 1000);
+  timer.unref?.();
+
+  return ticketData;
+}
+
+export async function reopenTicket(channel, reopener) {
+  let result;
+  try {
+    result = await reopenTicketBase(channel, reopener);
+  } finally {
+    await syncCloudyTicketMessage(channel);
+    await syncCloudyTicketChannelName(channel);
+  }
+  return result;
+}
+
+export async function updateTicketPriority(channel, priority, updater) {
+  const normalizedPriority = normalizePriorityKey(priority);
+  const priorityInfo = PRIORITY_MAP[normalizedPriority];
+  if (!priorityInfo) {
+    throw ticketError('Invalid ticket priority', 'Invalid priority selected.');
+  }
+
+  const ticketData = await getTicketDataFast(channel);
+  if (!ticketData) {
+    throw ticketError(
+      'Ticket data not found',
+      'This action can only be used in a valid ticket channel.',
+    );
+  }
+
+  const previousPriority = normalizePriorityKey(ticketData.priority);
+  ticketData.priority = normalizedPriority;
+  ticketData.priorityUpdatedBy = updater.id;
+  ticketData.priorityUpdatedAt = new Date().toISOString();
+
+  await saveTicketDataFast(channel, ticketData);
+  scheduleTicketChannelNameSync(channel, {
+    priority: normalizedPriority,
+    pinned: getQueuedPinnedState(channel),
+  });
+  await syncCloudyTicketMessage(channel);
+
+  void logTicketEvent({
+    client: channel.client,
+    guildId: channel.guild.id,
+    event: {
+      type: 'priority',
+      ticketId: channel.id,
+      ticketNumber: ticketNumberOf(ticketData),
+      userId: ticketData.userId,
+      executorId: updater.id,
+      priority: normalizedPriority,
+      metadata: { previousPriority, priority: normalizedPriority },
+    },
+  }).catch(() => {});
+
+  logger.info('Ticket priority updated', {
+    guildId: channel.guild.id,
+    channelId: channel.id,
+    previousPriority,
+    priority: normalizedPriority,
+    updaterId: updater.id,
+  });
+
+  return ticketData;
+}
+
+export {
+  deleteTicket,
+  getUserTicketCount,
+};

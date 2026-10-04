@@ -31,4 +31,3 @@ test('actual Discord REST message and interaction paths preserve bare tags and e
     assert.equal(captured[2].body.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
   } finally { REST.prototype.request = original; }
 });
-

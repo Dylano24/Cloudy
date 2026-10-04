@@ -210,3 +210,18 @@ test('Join to Create resolves username Room template for different members', () 
   assert.equal(formatChannelName("{username}'s Room", { username: 'Dylano' }), "Dylano's Room");
   assert.equal(formatChannelName("{username}'s Room", { username: 'feelfate' }), "feelfate's Room");
 });
+
+
+test('reopening restores creator access by ID before tagging, without depending on member lookup', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture('closed', 'staff'); await f.initialize();
+  const creatorId = '1534506224312389801';
+  const fetchMember = f.guild.members.fetch;
+  f.guild.members.fetch = async id => { if (id === creatorId) throw new Error('Lookup unavailable'); return fetchMember(id); };
+  await buttons.find(b => b.name === 'ticket_reopen').execute(f.interaction, f.client);
+  assert.ok(f.permissions.some(p => p.id === creatorId && p.value.ViewChannel === true));
+  const reopened = f.payloads.find(p => p.embeds?.some(e => (e.toJSON?.() || e).title === 'Ticket reopened'));
+  assert.ok(reopened);
+  assert.ok(reopened.content.includes('<@' + creatorId + '>'));
+});
+

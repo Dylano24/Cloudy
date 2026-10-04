@@ -668,11 +668,7 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
 export async function reopenTicket(channel, reopener) {
   let result;
   try {
-    result = await withTimeout(
-      reopenTicketBase(channel, reopener),
-      7000,
-      'Ticket reopen',
-    );
+    result = await reopenTicketBase(channel, reopener);
   } finally {
     await syncCloudyTicketMessage(channel);
     await syncCloudyTicketChannelName(channel);
@@ -736,3 +732,4 @@ export {
   deleteTicket,
   getUserTicketCount,
 };
+

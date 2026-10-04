@@ -10,7 +10,7 @@ test('explicit staff and AutoMod deletion intents identify the real actor',async
   rememberMessageDeleter(message,{id:'staff'});
   assert.deepEqual(await resolveMessageDeleter(message),{id:'staff',label:'<@staff>',source:'staff'});
   rememberMessageDeleter(message,{id:'bot'},'automod');
-  assert.deepEqual(await resolveMessageDeleter(message),{id:'bot',label:'AutoMod',source:'automod'});
+  assert.deepEqual(await resolveMessageDeleter(message),{id:'bot',label:'<@bot> (AutoMod)',source:'automod'});
 });
 
 test('audit attribution matches channel and author and refuses ambiguous executors',async()=>{
