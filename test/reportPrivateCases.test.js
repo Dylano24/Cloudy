@@ -227,7 +227,10 @@ test('later outcomes reuse the same pair and deadline without exposing a new rea
   assert.match(JSON.stringify(json(reporter.embeds[0])), /timed out/);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Another private reason/);
   assert.match(JSON.stringify(json(target.embeds[0])), /Another private reason/);
-  await assert.rejects(f.submit(), /already been completed/);
+  const actionsBeforeStaleSubmit = structuredClone((await f.client.db.get(reportKey(f.guild.id, 'report'))).actions);
+  await f.submit();
+  assert.deepEqual((await f.client.db.get(reportKey(f.guild.id, 'report'))).actions, actionsBeforeStaleSubmit);
+  assert.deepEqual(f.report.components, []);
   assert.equal(f.removed.filter(id => id === 'original-message').length, 1);
 });
 
