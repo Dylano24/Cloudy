@@ -107,3 +107,23 @@ test('Owner role opens the appeal modal before username lookup; submission resol
   assert.equal(calls[0].user.id, '12345678901234567');
   assert.equal(calls[0].reason, 'Accepted after review');
 });
+
+
+test('button opens the reason modal from its Discord payload; submission still refreshes staff rights', async t => {
+  const f = fixture();
+  let memberReads = 0, messageReads = 0;
+  f.guild.members.fetch = async () => { memberReads++; return f.member; };
+  f.interaction.channel.messages.fetch = async () => { messageReads++; return f.message; };
+  await handleAppealAction(f.interaction, f.client, ['deny', f.record.id]);
+  assert.ok(f.interaction.modal);
+  assert.equal(memberReads, 0);
+  assert.equal(messageReads, 0);
+  f.member.roles.cache.clear();
+  const responses = [];
+  t.mock.method(InteractionHelper, 'safeEditReply', async (_interaction, payload) => responses.push(payload.content));
+  await handleAppealDecision(f.interaction, f.client, ['deny', f.record.id]);
+  assert.equal(memberReads, 1);
+  assert.match(responses[0], /Only the staff team/);
+  assert.equal(f.record.status, 'pending');
+});
+

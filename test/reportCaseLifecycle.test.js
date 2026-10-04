@@ -94,3 +94,24 @@ test('Owner role can use all report actions; ordinary staff cannot use Ban', () 
   f.staff.roles.cache.clear();
   for (const action of ['ban', 'timeout', 'delete']) assert.equal(reportActionAllowed(f.interaction, action, config), false);
 });
+
+test('report case has one member notification and no staff-only Delete button in the shared channel', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  await registerReport(f.client, f.report, { guildId: f.guild.id, reporterId: 'reporter', targetId: 'target', sourceChannelId: 'original', sourceMessageId: 'original-message' });
+  await handleReportAction(f.interaction, f.client, ['delete', 'target']);
+  const record = await f.client.db.get(reportKey(f.guild.id, f.report.id));
+  const notices = f.payloads.filter(p => p.channelId === record.caseChannelId);
+  assert.equal(notices.length, 1);
+  assert.match(notices[0].content, /<@reporter> <@&staff-role>/);
+  assert.deepEqual(notices[0].components[0].toJSON().components.map(b => b.label), ['Read']);
+  const privateNotice = f.payloads.find(p => p.channelId === 'reports');
+  assert.deepEqual(privateNotice.components[0].toJSON().components.map(b => b.label), ['Read', 'Delete']);
+});
+
+test('unmute username resolution needs member access without requiring ban-list access', async () => {
+  const user = { id: '12345678901234567', username: 'mutedplayer' };
+  const guild = { members: { cache: new Collection([['target', { user }]]), fetch: async () => new Collection() }, bans: { fetch: async () => { throw new Error('Missing BanMembers'); } } };
+  assert.equal(await resolveDiscordAppealIdentity(guild, 'mutedplayer', { includeBans: false }), user.id);
+});
+

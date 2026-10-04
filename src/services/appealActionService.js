@@ -27,15 +27,17 @@ export function buildAppealReasonModal(record, action) {
   return modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reason').setLabel('Reason').setStyle(TextInputStyle.Paragraph).setRequired(true).setMinLength(1).setMaxLength(512)));
 }
 
-async function authorized(interaction, client, action, id) {
+async function authorized(interaction, client, action, id, { fresh = true } = {}) {
   if (!interaction.inGuild() || !['unmute', 'unban', 'deny'].includes(action)) throw new Error('This appeal is unavailable.');
   const record = await client.db.get(appealReviewKey(interaction.guildId, id));
   if (!record || record.guildId !== interaction.guildId || record.channelId !== interaction.channelId || !appealActions(record).includes(action)) throw new Error('This appeal is unavailable.');
-  const member = await interaction.guild.members.fetch(interaction.user.id);
+  const member = !fresh && interaction.member?.id === interaction.user.id && interaction.member.roles?.cache
+    ? interaction.member : await interaction.guild.members.fetch(interaction.user.id);
   const config = await getGuildConfig(client, interaction.guildId);
   if (!appealStaffAllowed(interaction.guild, member, action, config)) throw new Error('Only the staff team can review appeals.');
   if (record.status !== 'pending') throw new Error('This appeal has already been reviewed or is being processed.');
-  const message = await interaction.channel.messages.fetch(record.messageId);
+  const message = !fresh && interaction.message?.id === record.messageId
+    ? interaction.message : await interaction.channel.messages.fetch(record.messageId);
   if (message.author?.id !== client.user.id || !message.components.some(row => row.components.some(button => button.customId === `appeal_action:${action}:${id}`))) throw new Error('This appeal is unavailable.');
   return { record, message, member };
 }
@@ -46,7 +48,7 @@ async function respond(interaction, content) {
 
 export async function handleAppealAction(interaction, client, [action, id]) {
   try {
-    const { record } = await authorized(interaction, client, action, id);
+    const { record } = await authorized(interaction, client, action, id, { fresh: false });
     if (interaction.message?.id !== record.messageId) throw new Error('This appeal is unavailable.');
     if (record.scope === 'rust' && action === 'unban') throw new Error('Rust unban is not connected yet.');
     // Resolve usernames only after the modal has been submitted and deferred.
@@ -62,8 +64,8 @@ export async function executeAppealDecision({ client, guild, member, record, act
   if (record.scope === 'rust' && action === 'unban') throw new Error('Rust unban is not connected yet.');
   if (action !== 'deny') {
     if (record.discordIdentity) {
-      const resolvedId = await resolveDiscordAppealIdentity(guild, record.discordIdentity);
-      const submittedTarget = targetId && targetId !== record.discordIdentity ? await resolveDiscordAppealIdentity(guild, targetId) : resolvedId;
+      const resolvedId = await resolveDiscordAppealIdentity(guild, record.discordIdentity, { includeBans: action === 'unban' });
+      const submittedTarget = targetId && targetId !== record.discordIdentity ? await resolveDiscordAppealIdentity(guild, targetId, { includeBans: action === 'unban' }) : resolvedId;
       if (submittedTarget !== resolvedId) throw new Error('The user ID must match this appeal.');
       targetId = resolvedId;
     }
@@ -142,3 +144,4 @@ export async function ensureAppealActions(client) {
   }
   startupLog(`Appeal action buttons ready; ${restored} existing appeals linked.`);
 }
+

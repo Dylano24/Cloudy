@@ -1,4 +1,4 @@
-export async function resolveDiscordAppealIdentity(guild, identity) {
+export async function resolveDiscordAppealIdentity(guild, identity, { includeBans = true } = {}) {
   const raw = String(identity || '').trim();
   const id = raw.match(/^(?:<@!?)?(\d{17,20})>?$/)?.[1];
   if (id) return id;
@@ -13,8 +13,11 @@ export async function resolveDiscordAppealIdentity(guild, identity) {
   for (const member of members?.values?.() || []) add(member.user);
   // A banned player is not in the member list. Do not silently choose one
   // cached member without checking the banned accounts too.
-  const bans = await guild.bans.fetch();
-  for (const ban of bans.values()) add(ban.user);
+  if (includeBans) {
+    const bans = await guild.bans.fetch();
+    for (const ban of bans.values()) add(ban.user);
+  }
   if (matches.size !== 1) throw new Error(matches.size ? 'This Discord username is ambiguous. Use the correct user ID.' : 'The Discord account could not be found. Check the username or user ID.');
   return [...matches][0];
 }
+

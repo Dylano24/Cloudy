@@ -1,3 +1,4 @@
+import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { PermissionFlagsBits } from 'discord.js';
 
 export const CLOUDY_GUILD_ID = '1532882647838228723';
@@ -8,7 +9,7 @@ export function messageLogAuthorType(guild, userId, member, config = {}, authorB
   if (authorBot || member?.user?.bot) return 'Bot';
   if (!userId) return 'Unknown';
   if (userId === guild?.ownerId) return 'Staff';
-  const staff = member?.permissions?.has?.(PermissionFlagsBits.Administrator)
+  const staff = hasCloudyOwnerMember(member) || member?.permissions?.has?.(PermissionFlagsBits.Administrator)
     || member?.permissions?.has?.(PermissionFlagsBits.ModerateMembers)
     || member?.permissions?.has?.(PermissionFlagsBits.ManageMessages)
     || member?.permissions?.has?.(PermissionFlagsBits.BanMembers)
@@ -23,3 +24,4 @@ export function messageLogDestination(guild, userId, member, config = {}, author
   const type = messageLogAuthorType(guild, userId, member, config, authorBot);
   return ['Staff', 'Bot'].includes(type) ? OWNER_MOD_MESSAGE_LOG_ID : MEMBER_MESSAGE_LOG_ID;
 }
+
