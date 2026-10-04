@@ -3,8 +3,12 @@ import assert from 'node:assert/strict';
 import { Collection, Embed, MessageFlags } from 'discord.js';
 import { saveModifiedEmbed } from '../src/services/embedManagerService.js';
 import { discoverRecentChannelEmbeds } from '../src/services/embedMissingChannelService.js';
+import { db } from '../src/utils/database.js';
 
 function fixture(extra = {}) {
+  const stored = new Map();
+  db.initialized = true; db.useFallback = false;
+  db.db = { get: async key => stored.get(key) || null, set: async (key, value) => { stored.set(key, value); return true; } };
   const edits = [];
   const message = {
     id: 'beg-result', guildId: 'command-save-guild', channelId: 'gambling',
