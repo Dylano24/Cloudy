@@ -126,7 +126,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     if (category?.type !== ChannelType.GuildCategory) throw new Error('The Reports category is unavailable.');
     const number = await nextReportNumber(client, guild.id);
     const overwrites = [{ id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-      ...[...new Set([record.reporterId, guild.ownerId, client.user.id])].map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
+      ...[...new Set([record.reporterId, record.targetId, guild.ownerId, client.user.id].filter(Boolean))].map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
       ...[...new Set([staffId, ...[...guild.roles.cache.values()].filter(role => String(role.name || '').trim().toLowerCase() === 'owner').map(role => role.id)].filter(Boolean))].map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }))];
     channel = await guild.channels.create({ name: `report-${number}`, type: ChannelType.GuildText, parent: category.id,
       permissionOverwrites: overwrites, reason: `Report ${record.messageId}` });
@@ -137,12 +137,28 @@ export async function publishReportOutcome(client, guild, report, record, action
   const actionText = { delete: 'The reported message has been deleted.', timeout: 'The reported member has been timed out.', ban: 'The reported member has been banned.' }[action];
   const data = { title: 'Report action log', description: `${actionText}\n\n**Case:** report-${record.number}\n**Handled by:** <@${actorId}>${reason ? `\n**Reason:** ${reason}` : ''}\n**Case channel:** <#${channel.id}>`,
     color: 'success', fields: [{ name: 'Time remaining', value: `<t:${Math.floor(record.expiresAt / 1000)}:R>\nThis case is automatically deleted after 24 hours.` }] };
-  const tags = `<@${record.reporterId}> ${staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`}`;
-  const allowedMentions = { parse: [], users: [record.reporterId, guild.ownerId], roles: staffId ? [staffId] : [] };
-  const staffMessage = await sourceChannel.send({ content: tags, embeds: [createEmbed(data)], components: reportCaseControls(record, true), allowedMentions });
-  const memberMessage = await channel.send({ content: tags, embeds: [createEmbed({ ...data, title: 'Report case notification' })],
-    components: reportCaseControls(record), allowedMentions });
-  return save(client, { ...record, staffMessageIds: [...(record.staffMessageIds || []), staffMessage.id], memberMessageIds: [...(record.memberMessageIds || []), memberMessage.id] });
+  const readers = Object.keys(record.readBy || {});
+  if (readers.length) data.fields.push({ name: 'Read by', value: readers.map(id => `<@${id}>`).join(', ') });
+  const people = [...new Set([record.reporterId, record.targetId].filter(Boolean))];
+  const tags = `${people.map(id => `<@${id}>`).join(' ')} ${staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`}`;
+  const allowedMentions = { parse: [], users: [...people, guild.ownerId], roles: staffId ? [staffId] : [] };
+  if (channel.permissionOverwrites?.edit && record.targetId) {
+    await channel.permissionOverwrites.edit(record.targetId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+  }
+  for (const [destination, field, title, staff] of [
+    [sourceChannel, 'staffMessageIds', data.title, true],
+    [channel, 'memberMessageIds', 'Report case notification', false],
+  ]) {
+    const id = record[field]?.at(-1);
+    const existing = id ? await destination.messages.fetch(id).catch(error => {
+      if (error.code === 10008) return null;
+      throw error;
+    }) : null;
+    const payload = { content: tags, embeds: [createEmbed({ ...data, title })], components: reportCaseControls(record, staff), allowedMentions };
+    const notice = existing?.author?.id === client.user.id ? await existing.edit(payload) : await destination.send(payload);
+    record = await save(client, { ...record, [field]: [notice.id] });
+  }
+  return record;
 }
 
 export async function handleReportCaseControl(interaction, client, [action, messageId]) {
@@ -163,16 +179,18 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         if (!staff || !staffMessage) throw new Error('Only the staff team can delete report cases.');
         await deleteReportCase(client, interaction.guild, record, interaction.user.id, true);
       } else {
-        if (!staffMessage && interaction.user.id !== record.reporterId) throw new Error('Only the reporting member can acknowledge this message.');
+        if (!staffMessage && ![record.reporterId, record.targetId].includes(interaction.user.id)) throw new Error('Only the involved members can acknowledge this message.');
         const readBy = { ...(record.readBy || {}) };
         if (!readBy[interaction.user.id]?.notified) {
           readBy[interaction.user.id] = { at: Date.now(), notified: false };
           await save(client, { ...record, readBy });
           const channel = await interaction.guild.channels.fetch(record.reportChannelId);
-          const role = reportStaffRole(interaction.guild, config);
-          await channel.send({ content: role ? `<@&${role}>` : `<@${interaction.guild.ownerId}>`,
-            embeds: [createEmbed({ title: 'Report read log', description: `<@${interaction.user.id}> has read the notification for report-${record.number}.`, color: 'success' })],
-            allowedMentions: { parse: [], roles: role ? [role] : [], users: role ? [] : [interaction.guild.ownerId] } });
+          const notice = await channel.messages.fetch(record.staffMessageIds.at(-1));
+          const data = notice.embeds[0].toJSON?.() || structuredClone(notice.embeds[0]);
+          data.fields = [...(data.fields || []).filter(field => field.name !== 'Read by'), {
+            name: 'Read by', value: Object.keys(readBy).map(id => `<@${id}>`).join(', '),
+          }];
+          await notice.edit({ embeds: [createEmbed(data)] });
           readBy[interaction.user.id].notified = true;
           await save(client, { ...record, readBy });
         }
@@ -191,5 +209,6 @@ export async function restoreReportCaseTimers(client) {
   }
   startupLog(`Report case expiry restored: ${restored} active case(s).`);
 }
+
 
 
