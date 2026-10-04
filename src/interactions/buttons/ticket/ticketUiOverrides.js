@@ -19,6 +19,7 @@ import {
   claimTicket,
   unclaimTicket,
   reopenTicket,
+  checkTicketCreationLimit,
   toggleTicketPinned,
   updateTicketPriority,
 } from '../../../services/ticketReliabilityService.js';
@@ -28,6 +29,7 @@ import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
 import { logger } from '../../../utils/logger.js';
 
 const PANEL_STATE_PRECHECK_MS = 1200;
+export const TICKET_CREATION_LIMIT_PRECHECK_MS = 600;
 
 async function getPanelStateFast(client, guildId) {
   let timer;
@@ -36,6 +38,23 @@ async function getPanelStateFast(client, guildId) {
       getGuildConfig(client, guildId),
       new Promise(resolve => {
         timer = setTimeout(() => resolve(null), PANEL_STATE_PRECHECK_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function precheckTicketCreationLimit(guild, userId, config) {
+  if (!config) return false;
+
+  let timer;
+  try {
+    return await Promise.race([
+      checkTicketCreationLimit(guild, userId, config).then(() => true),
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve(false), TICKET_CREATION_LIMIT_PRECHECK_MS);
         timer.unref?.();
       }),
     ]);
@@ -113,8 +132,18 @@ const createTicketHandler = {
         });
       }
 
-      const { checkTicketCreationLimit } = await import('../../../services/ticketReliabilityService.js');
-      await checkTicketCreationLimit(interaction.guild, interaction.user.id, config);
+      const precheckCompleted = await precheckTicketCreationLimit(
+        interaction.guild,
+        interaction.user.id,
+        config,
+      );
+      if (!precheckCompleted) {
+        logger.debug('Ticket creation limit precheck timed out; deferring strict enforcement to modal submit', {
+          guildId: interaction.guildId,
+          userId: interaction.user.id,
+        });
+      }
+
       const modal = new ModalBuilder()
         .setCustomId('create_ticket_modal')
         .setTitle('Create a ticket');
