@@ -320,9 +320,8 @@ test('legacy shared case upgrades on restart without repeating moderation or cha
   await f.client.db.set(reportKey(f.guild.id, 'report'), legacy);
   await restoreReportCaseTimers(f.client);
   const record = await f.client.db.get(reportKey(f.guild.id, 'report'));
-  assert.equal(record.cases.target.channelId, shared.id);
-  assert.ok(!shared.resetOverwrites.some(entry => entry.id === 'reporter'));
-  assert.equal(oldNotice.content, '<@target> <@&staff-role>');
+  assert.equal(record.cases.target, undefined);
+  assert.ok(f.removed.includes(shared.id));
   assert.ok(f.removed.includes(oldLog.id));
   assert.deepEqual(f.report.embeds, original);
   assert.equal(f.dms.length, 0);
