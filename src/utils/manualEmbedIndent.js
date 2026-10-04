@@ -3,7 +3,7 @@
 // against a calibrated Discord-mobile text width and get a visual-width
 // hanging indent matching the rendered emoji + gap.
 const INVISIBLE_SEPARATOR = '\u2063';
-const ZORP_TEXT_WIDTH_PX = 283;
+const ZORP_TEXT_WIDTH_PX = 286;
 const ZORP_BODY_INDENT_PX = 14;
 
 const INDENT_GLYPHS = Object.freeze([
