@@ -1,39 +1,10 @@
 // Embed Builder saves preserve editor text byte-for-byte by default.
 // ZORP is the one explicit exception: custom glowing-dot lists are wrapped
-// against a calibrated Discord-mobile text width and get a visual-width
-// hanging indent matching the rendered emoji + gap.
-const INVISIBLE_SEPARATOR = '\u2063';
+// against a calibrated Discord-mobile text width. Continuation lines use a
+// fully transparent custom emoji so Discord renders the same fixed emoji box
+// width as the visible glowing-dot bullet on both mobile and desktop.
 const ZORP_TEXT_WIDTH_PX = 286;
-const ZORP_BODY_INDENT_PX = 14;
-
-const INDENT_GLYPHS = Object.freeze([
-  { text: INVISIBLE_SEPARATOR + '\u2002', px: 8.0 },
-  { text: INVISIBLE_SEPARATOR + '\u2009', px: 3.2 },
-  { text: INVISIBLE_SEPARATOR + '\u200A', px: 1.6 },
-]);
-
-function calibratedIndent(targetPx) {
-  let best = { text: '', error: Number.POSITIVE_INFINITY, glyphs: Number.POSITIVE_INFINITY };
-  for (let en = 0; en <= 3; en += 1) {
-    for (let thin = 0; thin <= 4; thin += 1) {
-      for (let hair = 0; hair <= 6; hair += 1) {
-        const px = (en * INDENT_GLYPHS[0].px) + (thin * INDENT_GLYPHS[1].px) + (hair * INDENT_GLYPHS[2].px);
-        const error = Math.abs(px - targetPx);
-        const glyphs = en + thin + hair;
-        if (error < best.error || (error === best.error && glyphs < best.glyphs)) {
-          best = {
-            text: INDENT_GLYPHS[0].text.repeat(en) + INDENT_GLYPHS[1].text.repeat(thin) + INDENT_GLYPHS[2].text.repeat(hair),
-            error,
-            glyphs,
-          };
-        }
-      }
-    }
-  }
-  return best.text;
-}
-
-const ZORP_HANG = calibratedIndent(ZORP_BODY_INDENT_PX);
+const ZORP_SPACER = '<:cloudy_zorp_indent:1556162804598317086>';
 
 function customDotParts(line) {
   const match = String(line || '').match(/^(\s*)(<a?:([^:>]+):\d+>)\s+(.*)$/u);
@@ -88,7 +59,7 @@ function wrapWordsByWidth(text, maxPx) {
 
 function stripZorpContinuation(line) {
   const value = String(line || '');
-  if (value.startsWith(ZORP_HANG)) return value.slice(ZORP_HANG.length).trim();
+  if (value.startsWith(ZORP_SPACER)) return value.slice(ZORP_SPACER.length).trim();
   const withoutProtectedSpaces = value.replace(/^(?:\u2063[\u2002\u2009\u200A])+/u, '');
   if (withoutProtectedSpaces !== value) return withoutProtectedSpaces.trim();
   const withoutLegacyBraille = value.replace(/^\u2800+/u, '');
@@ -134,7 +105,7 @@ export function normalizeManualIndent(value, { zorp = false } = {}) {
       .join(' ');
     const wrapped = wrapWordsByWidth(fullBody, ZORP_TEXT_WIDTH_PX);
     output.push(parts.indent + parts.marker + ' ' + wrapped[0]);
-    output.push(...wrapped.slice(1).map(text => parts.indent + ZORP_HANG + text));
+    output.push(...wrapped.slice(1).map(text => parts.indent + ZORP_SPACER + ' ' + text));
     index = cursor - 1;
   }
   return output.join('\n');
