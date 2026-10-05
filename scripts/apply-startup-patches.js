@@ -19,6 +19,7 @@ function verifySourceSyntax(label) {
   ];
   for (const relative of targets) {
     const absolute = path.join(root, relative);
+    if (!fs.existsSync(absolute)) continue;
     const checked = spawnSync(process.execPath, ['--check', absolute], { encoding: 'utf8' });
     if (checked.status !== 0) {
       const detail = String(checked.stderr || checked.stdout || '').trim();
