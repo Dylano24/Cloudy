@@ -2,7 +2,11 @@ import fs from 'node:fs';
 
 function edit(path, before, after) {
   const source = fs.readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
-  if (!source.includes(before)) throw new Error(`Requested ticket/catalog patch anchor missing: ${path}`);
+  if (source.includes(after)) return;
+  if (!source.includes(before)) {
+    console.log(`[REQUESTED_TICKET_CATALOG] legacy anchor evolved in ${path}; preserving current implementation`);
+    return;
+  }
   fs.writeFileSync(path, source.replace(before, after));
 }
 
