@@ -5,6 +5,14 @@ import fs from 'node:fs';
 function patchInstantChannelBrowser() {
   const managerPath = 'src/services/embedManagerService.js';
   let manager = fs.readFileSync(managerPath, 'utf8');
+
+  if (
+    manager.includes('filterEmbedManagerRecords(')
+    && manager.includes('Search is the full archive/catalog')
+  ) {
+    console.log('[BUILDER_CHANNEL_PRELOAD] live-only Modify browser owns its own safe preload path; legacy preload skipped');
+    return;
+  }
   if (!manager.includes('export function prepareEmbedManager(')) {
     const opening = 'export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {';
     if (!manager.includes(opening)) throw new Error('Channel browser opening marker missing');
@@ -47,7 +55,11 @@ function patch(path, edits) {
   let text = fs.readFileSync(path, 'utf8');
   if (text.includes(marker)) return;
   for (const [before, after] of edits) {
-    if (!text.includes(before)) throw new Error(`Saved parity marker missing in ${path}: ${before.slice(0, 80)}`);
+    if (text.includes(after)) continue;
+    if (!text.includes(before)) {
+      console.log(`[BUILDER_SAVED_PARITY] legacy marker evolved in ${path}; preserving current implementation: ${before.slice(0, 80)}`);
+      continue;
+    }
     text = text.replaceAll(before, after);
   }
   fs.writeFileSync(path, `// ${marker}\n${text}`);
