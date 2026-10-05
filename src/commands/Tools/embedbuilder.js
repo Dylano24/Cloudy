@@ -421,6 +421,8 @@ async function postBuiltMessage(channel, state, guild) {
                 guildId: guild.id,
                 channelId: channel.id,
                 messageId: sent.id,
+                originMessageId: sent.id,
+                embedIndex: 0,
                 every: state.reappearAfter,
                 count: 0,
                 embed: embeds[index].toJSON(),
