@@ -14,15 +14,16 @@ test('custom Builder button responses use standard Cloudy embed formatting', () 
   assert.doesNotMatch(source, /content: String\(action\.responseText\)/);
 });
 
-test('professional Builder flow has no separate Add link button or child preview message', () => {
+test('professional Builder flow uses explicit button setup and no child preview message', () => {
   const service = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const managerStart = service.indexOf('function managerPayload');
   const modalStart = service.indexOf('async function showAddResponseModal', managerStart);
   const manager = service.slice(managerStart, modalStart);
   assert.match(manager, /Add response button/);
-  assert.doesNotMatch(manager, /Add link button/);
-  assert.doesNotMatch(manager, /embed_button_add_link/);
+  assert.match(manager, /Add link button/);
+  assert.match(manager, /Add disabled button/);
+  assert.match(manager, /visibility and duration/);
 
   const previewStart = service.indexOf('export async function syncBuilderButtonPreview');
   const previewEnd = service.indexOf('\n}\n', previewStart);
