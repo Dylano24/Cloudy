@@ -14,13 +14,15 @@ test('custom Builder button responses use standard Cloudy embed formatting', () 
   assert.doesNotMatch(source, /content: String\(action\.responseText\)/);
 });
 
-test('professional Builder flow has one Add button creator with separate response and link fields', () => {
+test('professional Builder flow uses native color/visibility controls and one Add button creator', () => {
   const service = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const managerStart = service.indexOf('function managerPayload');
   const modalStart = service.indexOf('async function showAddResponseModal', managerStart);
   const manager = service.slice(managerStart, modalStart);
   assert.match(manager, /Add button/);
+  assert.match(manager, /embed_button_color_select/);
+  assert.match(manager, /embed_button_visibility_select/);
   assert.doesNotMatch(manager, /Add response button/);
   assert.doesNotMatch(manager, /Add link button/);
   assert.doesNotMatch(manager, /Add disabled button/);
@@ -28,9 +30,10 @@ test('professional Builder flow has one Add button creator with separate respons
   const modalEnd = service.indexOf('async function showAddLinkModal', modalStart);
   const modal = service.slice(modalStart, modalEnd);
   assert.match(modal, /button_label/);
-  assert.match(modal, /button_settings/);
+  assert.match(modal, /button_duration/);
   assert.match(modal, /button_response/);
   assert.match(modal, /button_url/);
+  assert.doesNotMatch(modal, /button_settings/);
   assert.doesNotMatch(modal, /button_action/);
   assert.match(modal, /ButtonStyle\.Link/);
   assert.match(modal, /blank stays/);
