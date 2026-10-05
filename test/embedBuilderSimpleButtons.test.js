@@ -2,14 +2,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('button editor exposes only Add response button as the creator', () => {
+test('button editor exposes only Add button as the creator', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
   const managerStart = source.indexOf('function managerPayload');
   const addStart = source.indexOf('async function showAddResponseModal', managerStart);
   assert.ok(managerStart >= 0 && addStart > managerStart);
   const manager = source.slice(managerStart, addStart);
 
-  assert.match(manager, /Add response button/);
+  assert.match(manager, /Add button/);
+  assert.doesNotMatch(manager, /Add response button/);
   assert.doesNotMatch(manager, /Add link button/);
   assert.doesNotMatch(manager, /Add disabled button/);
   assert.doesNotMatch(manager, /embed_button_edit_select/);
@@ -22,22 +23,25 @@ test('button editor exposes only Add response button as the creator', () => {
   assert.doesNotMatch(collector, /componentInteraction\.customId === 'embed_button_edit_select'/);
 });
 
-test('Add response button handles response or link in the same action field', () => {
+test('Add button keeps response message and link URL in separate fields', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
   const start = source.indexOf('async function showAddResponseModal');
   const end = source.indexOf('async function showAddLinkModal', start);
   assert.ok(start >= 0 && end > start);
   const body = source.slice(start, end);
 
-  assert.match(body, /button_style/);
-  assert.match(body, /button_visibility/);
-  assert.match(body, /button_action/);
+  assert.match(body, /button_label/);
+  assert.match(body, /button_settings/);
+  assert.match(body, /button_response/);
+  assert.match(body, /button_url/);
+  assert.doesNotMatch(body, /button_action/);
   assert.match(body, /button_duration/);
   assert.match(body, /normalizeButtonVisibility/);
   assert.match(body, /parseButtonDuration/);
   assert.match(body, /deleteAfterMs: duration\.ms/);
   assert.match(body, /ButtonStyle\.Link/);
-  assert.match(body, /const isLink = \/\^https\?:/);
+  assert.match(body, /if \(responseText && url\)/);
+  assert.match(body, /if \(url && !\/\^https\?:/);
 });
 
 test('new buttons fill each row left-to-right before creating the next row', () => {
