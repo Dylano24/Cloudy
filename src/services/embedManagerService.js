@@ -149,7 +149,7 @@ export function canonicalBuilderResponseTitle(value) {
 }
 
 function recordEmbedData(record) {
-    const snapshot = migrateCloudyLogoEmbedData(getEmbedRegistrySnapshot(record) || {}).data || {};
+    const snapshot = migrateCloudyLogoEmbedData(record?.snapshot || getEmbedRegistrySnapshot(record) || {}).data || {};
     return {
         ...snapshot,
         title: snapshot.title || record?.title || record?.name || '',
@@ -180,12 +180,29 @@ function stableSystemTemplateContext(value) {
     return String(match?.[1] || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+function stableSystemTemplateKind(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const authorName = String(data.author?.name || '').trim();
+    if (!authorName.toLowerCase().startsWith('cloudy template key:')) return 'embed';
+    const match = authorName.match(/\|\|\s*Cloudy kind:\s*([^|]+)/i);
+    const kind = String(match?.[1] || 'embed').replace(/\s+/g, ' ').trim().toLowerCase();
+    return kind === 'content' ? 'content' : 'embed';
+}
+
+// CONTENT_TEMPLATE_EDITOR_V1: a plain response has a management name, not a Discord embed title.
 function curatedGameTemplateContext(templateKey) {
     const match = String(templateKey || '').match(/^game:(blackjack|baccarat|roulette):/i);
     return match ? `gambling/${match[1].toLowerCase()}` : '';
 }
 
 export function prefersCatalogPreview(records) {
+    // RESPONSE_EMBED_SOURCE_ALIAS_PREVIEW_V1
+    // A real Discord response is the most complete preview. The hidden catalog
+    // remains the reusable Save source, but it must not replace a full live
+    // response with a sparse title-only card when both are available.
+    const realRecords = records.filter(record => String(record?.source || '') !== 'system-catalog');
+    if (realRecords.length) return false;
+
     const catalogRecords = records.filter(record => String(record?.source || '') === 'system-catalog');
     if (catalogRecords.length > 1) return true;
 
@@ -204,8 +221,208 @@ function standardDynamicTemplateName(value) {
     return title;
 }
 
+function normalizedTicketLogTitle(value) {
+    return String(value || '')
+        .replace(/<a?:[^:>]+:\d+>/g, ' ')
+        .replace(/[^a-z0-9\s-]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function ticketLogFieldNames(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    return new Set((Array.isArray(data.fields) ? data.fields : [])
+        .map(field => String(field?.name || '')
+            .replace(/<a?:[^:>]+:\d+>/g, ' ')
+            .replace(/[^a-z0-9&\s-]/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase())
+        .filter(Boolean));
+}
+
+function canonicalTicketLogTemplate(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const fields = ticketLogFieldNames(data);
+    const title = normalizedTicketLogTitle(data.title);
+    if (!fields.has('ticket') && !/\b(?:ticket|transcript|feedback|priority)\b/.test(title)) return null;
+
+    const fieldDefinitions = [
+        ['unclaim', 'Ticket unclaimed', ['unclaimed by']],
+        ['claim', 'Ticket claimed', ['claimed by']],
+        ['close', 'Ticket closed', ['closed by']],
+        ['delete', 'Ticket deleted', ['deleted by']],
+        ['unpin', 'Ticket unpinned', ['unpinned by']],
+        ['pin', 'Ticket pinned', ['pinned by']],
+        ['priority', 'Priority updated', ['priority']],
+        ['feedback', 'Feedback received', ['rating']],
+    ];
+    for (const [key, label, names] of fieldDefinitions) {
+        if (names.some(name => fields.has(name))) return { key, label };
+    }
+
+    if (fields.has('creator') && fields.has('messages')) return { key: 'transcript', label: 'Transcript generated' };
+    if (fields.has('creator') && (fields.has('channel') || /\b(?:created|opened|open)\b/.test(title))) {
+        return { key: 'open', label: 'Ticket created' };
+    }
+
+    const titleDefinitions = [
+        ['unclaim', 'Ticket unclaimed', /\bunclaim(?:ed)?\b|\bunclaimed\b/],
+        ['claim', 'Ticket claimed', /\bclaim(?:ed)?\b/],
+        ['close', 'Ticket closed', /\bclos(?:e|ed)\b/],
+        ['delete', 'Ticket deleted', /\bdelet(?:e|ed)\b/],
+        ['unpin', 'Ticket unpinned', /\bunpin(?:ned)?\b/],
+        ['pin', 'Ticket pinned', /\bpin(?:ned)?\b/],
+        ['priority', 'Priority updated', /\bpriority\b/],
+        ['transcript', 'Transcript generated', /\btranscript\b/],
+        ['feedback', 'Feedback received', /\bfeedback\b|\brating\b/],
+        ['open', 'Ticket created', /\bcreat(?:e|ed)\b|\bopen(?:ed)?\b/],
+    ];
+    for (const [key, label, match] of titleDefinitions) {
+        if (match.test(title)) return { key, label };
+    }
+
+    return null;
+}
+
+function isLegacyTicketLog(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const fields = ticketLogFieldNames(data);
+    const title = normalizedTicketLogTitle(data.title);
+    if (!fields.has('ticket')) return false;
+    return /\b(?:ticket|transcript|feedback|priority)\b/.test(title)
+        || ['creator', 'claimed by', 'unclaimed by', 'closed by', 'deleted by', 'pinned by', 'unpinned by', 'priority', 'messages', 'rating']
+            .some(name => fields.has(name));
+}
+
+function strictTicketLogTemplate(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const fields = ticketLogFieldNames(data);
+    const title = normalizedTicketLogTitle(data.title);
+
+    // Prefer structural fields whenever the snapshot is already warm.
+    if (fields.has('ticket')) {
+        if (fields.has('unclaimed by')) return { key: 'unclaim', label: 'Ticket unclaimed' };
+        if (fields.has('claimed by')) return { key: 'claim', label: 'Ticket claimed' };
+        if (fields.has('closed by')) return { key: 'close', label: 'Ticket closed' };
+        if (fields.has('deleted by')) return { key: 'delete', label: 'Ticket deleted' };
+        if (fields.has('unpinned by')) return { key: 'unpin', label: 'Ticket unpinned' };
+        if (fields.has('pinned by')) return { key: 'pin', label: 'Ticket pinned' };
+        if (fields.has('rating')) return { key: 'feedback', label: 'Feedback received' };
+        if (fields.has('priority')) return { key: 'priority', label: 'Priority updated' };
+        if (fields.has('creator') && fields.has('messages')) return { key: 'transcript', label: 'Transcript generated' };
+        if (fields.has('creator') && fields.has('channel')) return { key: 'open', label: 'Ticket created' };
+    }
+
+    // Registry rows survive restarts while the in-memory snapshot cache does
+    // not. Exact canonical event titles are therefore an equally safe fallback
+    // for the first paint. No generic "ticket" matching is allowed here.
+    const exact = new Map([
+        ['ticket created', { key: 'open', label: 'Ticket created' }],
+        ['ticket claimed', { key: 'claim', label: 'Ticket claimed' }],
+        ['ticket unclaimed', { key: 'unclaim', label: 'Ticket unclaimed' }],
+        ['ticket closed', { key: 'close', label: 'Ticket closed' }],
+        ['ticket deleted', { key: 'delete', label: 'Ticket deleted' }],
+        ['ticket pinned', { key: 'pin', label: 'Ticket pinned' }],
+        ['ticket unpinned', { key: 'unpin', label: 'Ticket unpinned' }],
+        ['priority updated', { key: 'priority', label: 'Priority updated' }],
+        ['transcript generated', { key: 'transcript', label: 'Transcript generated' }],
+        ['feedback received', { key: 'feedback', label: 'Feedback received' }],
+    ]);
+    return exact.get(title) || null;
+}
+
+function isTicketLogsBuilderChannel(guild, channelId) {
+    const channel = guild?.channels?.cache?.get?.(String(channelId)) || null;
+    const name = normalizedTicketLogTitle(channel?.name || '');
+    return /^ticket(?:-|\s)*logs?$/.test(name);
+}
+
+function builderRecordsForChannel(guild, channelId, records) {
+    const list = Array.isArray(records) ? records : [];
+    if (!isTicketLogsBuilderChannel(guild, channelId)) return list;
+    return list.filter(record => Boolean(strictTicketLogTemplate(recordEmbedData(record))));
+}
+
+
+function customEmojiOption(value) {
+    const match = String(value || '').match(/<(a?):([^:>]+):(\d+)>/);
+    if (!match) return null;
+    return { id: match[3], name: match[2], animated: match[1] === 'a' };
+}
+
+function canonicalCasinoBuilderTemplate(value) {
+    const data = value && typeof value === 'object' ? value : {};
+    const stableKey = stableSystemTemplateKey(data);
+    const stableLabels = new Map([
+        ['game:roulette:won', 'Roulette win'],
+        ['game:roulette:lost', 'Roulette loss'],
+        ['game:blackjack:bet', 'Blackjack bet'],
+        ['game:blackjack:result:bust', 'Blackjack bust'],
+        ['game:blackjack:result:blackjack', 'Blackjack natural win'],
+        ['game:blackjack:result:win', 'Blackjack win'],
+        ['game:blackjack:result:push', 'Blackjack push'],
+        ['game:blackjack:result:loss', 'Blackjack loss'],
+        ['game:blackjack:result:expired', 'Blackjack expired'],
+        ['game:baccarat:bet', 'Baccarat bet'],
+        ['game:baccarat:win', 'Baccarat win'],
+        ['game:baccarat:loss', 'Baccarat loss'],
+        ['game:baccarat:tie', 'Baccarat tie'],
+        ['game:baccarat:push', 'Baccarat push'],
+        ['game:baccarat:expired', 'Baccarat expired'],
+    ]);
+    if (stableLabels.has(stableKey)) return { key: stableKey, label: stableLabels.get(stableKey) };
+
+    const title = stripCustomEmojiMarkup(data.title || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const description = stripCustomEmojiMarkup(data.description || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const fields = new Set((Array.isArray(data.fields) ? data.fields : [])
+        .map(field => stripCustomEmojiMarkup(field?.name || '').replace(/\s+/g, ' ').trim().toLowerCase())
+        .filter(Boolean));
+    const context = stableSystemTemplateContext(data);
+
+    let game = context.match(/^gambling\/(blackjack|baccarat|roulette)$/)?.[1] || '';
+    if (!game) {
+        if (/^result\s*:\s*(?:bust|blackjack|win|push|loss|expired)$/.test(title)) game = 'blackjack';
+        else if (/\bblackjack\b/.test(title) || (fields.has('your hand') && fields.has('dealer hand'))) game = 'blackjack';
+        else if (/\bbaccarat\b/.test(title) || (fields.has('player hand') && fields.has('banker hand'))) game = 'baccarat';
+        else if (/\broulette\b|wheel landed/.test(`${title} ${description}`) || (fields.has('your bet') && fields.has('result'))) game = 'roulette';
+    }
+    if (!game) return null;
+
+    const signal = `${title} ${description}`;
+    if (game === 'roulette') {
+        if (/\b(?:loss|lost)\b/.test(signal)) return { key: 'game:roulette:lost', label: 'Roulette loss' };
+        if (/\b(?:win|won)\b/.test(signal)) return { key: 'game:roulette:won', label: 'Roulette win' };
+        return null;
+    }
+
+    if (game === 'blackjack') {
+        if (/\bbet\b/.test(title)) return { key: 'game:blackjack:bet', label: 'Blackjack bet' };
+        if (/\bexpired\b/.test(signal)) return { key: 'game:blackjack:result:expired', label: 'Blackjack expired' };
+        if (/\bbust\b/.test(signal)) return { key: 'game:blackjack:result:bust', label: 'Blackjack bust' };
+        if (/\b(?:natural|blackjack)\s+win\b|\bnatural\b/.test(signal)) return { key: 'game:blackjack:result:blackjack', label: 'Blackjack natural win' };
+        if (/\b(?:push|tie)\b/.test(signal)) return { key: 'game:blackjack:result:push', label: 'Blackjack push' };
+        if (/\b(?:loss|lost)\b/.test(signal)) return { key: 'game:blackjack:result:loss', label: 'Blackjack loss' };
+        if (/\b(?:win|won)\b/.test(signal)) return { key: 'game:blackjack:result:win', label: 'Blackjack win' };
+        return null;
+    }
+
+    if (/\bbet\b/.test(title)) return { key: 'game:baccarat:bet', label: 'Baccarat bet' };
+    if (/\bexpired\b/.test(signal)) return { key: 'game:baccarat:expired', label: 'Baccarat expired' };
+    if (/\b(?:tie|push)\b/.test(signal)) return { key: 'game:baccarat:push', label: 'Baccarat push' };
+    if (/\b(?:loss|lost)\b/.test(signal)) return { key: 'game:baccarat:loss', label: 'Baccarat loss' };
+    if (/\b(?:win|won)\b/.test(signal)) return { key: 'game:baccarat:win', label: 'Baccarat win' };
+    return null;
+}
+
+
 export function templateIdentity(channelId, value) {
     const data = value && typeof value === 'object' ? value : { title: value };
+    const ticketLog = canonicalTicketLogTemplate(data);
+    if (ticketLog) return `ticket-log:${ticketLog.key}`;
+    const visibleTitle = stripCustomEmojiMarkup(data.title || '');
+    if (/^cloudy(?: support)? assistant$/i.test(visibleTitle)) return 'cloudy-assistant';
     const stableKey = stableSystemTemplateKey(data);
     // Old generic embed/source hashes are storage identities, not separate
     // response types. Named/game/ticket keys stay authoritative.
@@ -236,6 +453,39 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
 
     for (const record of channelRecords) {
         const rawName = recordName(record);
+        const recordData = recordEmbedData(record);
+        const casinoTemplate = canonicalCasinoBuilderTemplate(recordData);
+        if (casinoTemplate) {
+            const key = `casino:${casinoTemplate.key}`;
+            if (!groups.has(key)) groups.set(key, {
+                label: casinoTemplate.label,
+                records: [],
+                templateMode: true,
+                canonicalCasinoKey: casinoTemplate.key,
+            });
+            groups.get(key).records.push(record);
+            continue;
+        }
+
+        const ticketLog = canonicalTicketLogTemplate(recordData);
+        if (ticketLog) {
+            const key = `ticket-log:${ticketLog.key}`;
+            if (!groups.has(key)) groups.set(key, {
+                label: ticketLog.label,
+                records: [],
+                templateMode: false,
+                preventTemplateMode: true,
+            });
+            const group = groups.get(key);
+            if (String(record.source || '') === 'ticket-log') {
+                group.templateMode = true;
+                group.preventTemplateMode = false;
+            }
+            group.records.push(record);
+            continue;
+        }
+        if (isLegacyTicketLog(recordData)) continue;
+
         const rule = strictTemplateMode
             ? getChannelTemplateRule(channelId, rawName)
             : getTemplateRule(channelId, rawName);
@@ -254,8 +504,11 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
             continue;
         }
 
-        const name = standardDynamicTemplateName(rawName) || 'Untitled embed';
-        const key = `template:${templateIdentity(channelId, recordEmbedData(record))}`;
+        const stableKey = stableSystemTemplateKey(recordData);
+        const name = stableKey === 'ticket-main'
+            ? 'Ticket'
+            : (standardDynamicTemplateName(rawName) || 'Untitled embed');
+        const key = `template:${templateIdentity(channelId, recordData)}`;
         if (!groups.has(key)) groups.set(key, { label: name, records: [], templateMode: false });
         groups.get(key).records.push(record);
     }
@@ -265,13 +518,33 @@ function collapseDisplayRecords(channelRecords, channelId = null) {
         // Show the newest real message when there is one, so the Builder opens
         // with live cards/bets/cash. The hidden peers remain linked for Save.
         const realRecords = group.records.filter(record => record.source !== 'system-catalog');
-        const representative = (realRecords.length ? realRecords : group.records).at(-1);
+        const canonicalCatalogRecords = group.canonicalCasinoKey
+            ? group.records.filter(record => stableSystemTemplateKey(recordEmbedData(record)) === group.canonicalCasinoKey)
+            : [];
+        const sourceCatalogRecords = group.canonicalCasinoKey
+            ? []
+            : group.records.filter(record =>
+                record.source === 'system-catalog'
+                && /^(?:embed|embed-type):/i.test(stableSystemTemplateKey(recordEmbedData(record)))
+            );
+        // The hidden catalog master is the Save target for a reusable response
+        // type. A real runtime message is preview data only. This prevents
+        // slash-command/interactions from failing Save and guarantees one Save
+        // changes the reusable template for every future matching response.
+        const representative = canonicalCatalogRecords.at(-1)
+            || sourceCatalogRecords.at(-1)
+            || (realRecords.length ? realRecords.at(-1) : null)
+            || group.records.at(-1);
+        const displayEmojiSource = group.records
+            .map(record => recordEmbedData(record).title || record.title || record.name || '')
+            .find(value => customEmojiOption(value)) || '';
         return {
             ...representative,
             name: group.label,
+            displayEmojiSource,
             duplicateCount: group.records.length,
             templateCount: group.records.length,
-            templateMode: Boolean(group.templateMode) || group.records.length > 1 || representative.source === 'system-catalog',
+            templateMode: group.preventTemplateMode ? false : (Boolean(group.templateMode) || group.records.length > 1 || representative.source === 'system-catalog'),
         };
     });
 }
@@ -357,7 +630,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
             .setMaxValues(1)
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
-                const count = collapseDisplayRecords(group.records, group.channelId).length;
+                const count = collapseDisplayRecords(builderRecordsForChannel(guild, group.channelId, group.records), group.channelId).length;
                 const checking = !count && checkingChannelIds?.has?.(String(group.channelId));
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(name))
@@ -378,7 +651,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
             .setDescription([
                 'Choose a channel first, then choose the embed you want to edit.',
                 '',
-                `**Embeds found:** ${groups.reduce((sum, group) => sum + collapseDisplayRecords(group.records, group.channelId).length, 0)}`,
+                `**Embeds found:** ${groups.reduce((sum, group) => sum + collapseDisplayRecords(builderRecordsForChannel(guild, group.channelId, group.records), group.channelId).length, 0)}`,
                 `**Channels:** ${groups.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
             ].join('\n'))
@@ -389,9 +662,10 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
 
 export function buildEmbedPayload(guild, records, channelId, page = 0) {
     const channel = guild.channels.cache.get(channelId) || null;
-    const channelRecords = filterEmbedManagerRecords(records)
+    const visibleChannelRecords = filterEmbedManagerRecords(records)
         .filter(record => String(record.channelId) === String(channelId))
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    const channelRecords = builderRecordsForChannel(guild, channelId, visibleChannelRecords);
     const strictTemplateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
     const displayRecords = collapseDisplayRecords(channelRecords, channelId);
     const result = pageItems(displayRecords, page);
@@ -410,10 +684,13 @@ export function buildEmbedPayload(guild, records, channelId, page = 0) {
                 const description = isTemplate
                     ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
                     : 'Edit this embed';
-                return new StringSelectMenuOptionBuilder()
+                const option = new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(displayName, 'Untitled embed'))
                     .setDescription(description.slice(0, 100))
                     .setValue(`${record.messageId}:${record.embedIndex || 0}`);
+                const emoji = customEmojiOption(record.displayEmojiSource || recordEmbedData(record).title || record.title || record.name);
+                if (emoji) option.setEmoji(emoji);
+                return option;
             }));
         components.push(new ActionRowBuilder().addComponents(select));
     }
@@ -445,8 +722,8 @@ export function buildEmbedPayload(guild, records, channelId, page = 0) {
     };
 }
 
-function loadRecordSnapshotIntoState(state, guild, record) {
-    const snapshot = getEmbedRegistrySnapshot(record);
+export function loadRecordSnapshotIntoState(state, guild, record) {
+    const snapshot = record?.snapshot || getEmbedRegistrySnapshot(record);
     if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
 
     const data = migrateCloudyLogoEmbedData(snapshot).data || {};
@@ -454,8 +731,9 @@ function loadRecordSnapshotIntoState(state, guild, record) {
     const logicalChannelId = String(record.channelId || '');
     const backingChannelId = String(record.backingChannelId || record.channelId || '');
     const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
+    const templateKind = stableSystemTemplateKind(data);
 
-    state.title = data.title || null;
+    state.title = templateKind === 'content' ? null : (data.title || null);
     state.message = data.description || null;
     state.embedFields = Array.isArray(data.fields)
         ? data.fields.map(field => ({
@@ -483,6 +761,8 @@ function loadRecordSnapshotIntoState(state, guild, record) {
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
+        templateKind,
+        catalogTitle: data.title || null,
         cachedMessage: null,
     };
     return true;
@@ -496,8 +776,9 @@ function loadEmbedIntoState(state, resolved) {
     // points to the feature channel where future responses are sent.
     const logicalChannelId = String(record.channelId || channel.id);
     const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
+    const templateKind = stableSystemTemplateKind(data);
 
-    state.title = data.title || null;
+    state.title = templateKind === 'content' ? null : (data.title || null);
     state.message = data.description || null;
     state.embedFields = Array.isArray(data.fields)
         ? data.fields.map(field => ({
@@ -525,6 +806,8 @@ function loadEmbedIntoState(state, resolved) {
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
+        templateKind,
+        catalogTitle: data.title || null,
         cachedMessage: message,
     };
 }
@@ -834,77 +1117,40 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
                 if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
-                    const channelRecords = records.filter(record => String(record.channelId) === String(channelId));
-                    const catalogRecords = channelRecords.filter(record =>
-                        String(record.source || '') === 'system-catalog'
-                    );
-                    const realChannelRecords = channelRecords.filter(record =>
-                        String(record.source || '') !== 'system-catalog'
-                        && String(record.backingChannelId || record.channelId || '') === String(channelId)
-                    );
-                    const useCatalogPreview = prefersCatalogPreview(channelRecords);
-                    const previewRecords = useCatalogPreview
-                        ? catalogRecords
-                        : (realChannelRecords.length ? realChannelRecords : channelRecords);
-                    let firstRecord = collapseDisplayRecords(
-                        previewRecords,
+
+                    // Immediate paint from registry/catalog state. This keeps channel
+                    // switching responsive even when a channel has a long history.
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    if (selectionVersion !== session.selectionVersion) return;
+
+                    const discoveredRecords = await discoverRecentChannelEmbeds(
+                        guild,
                         channelId,
-                    )[0] || null;
+                        buttonInteraction.client.user.id,
+                    ).catch(error => {
+                        logger.debug(`On-demand channel embed discovery skipped: ${error?.message || error}`);
+                        return [];
+                    });
 
-                    if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                        if (selectionVersion !== session.selectionVersion) return;
-                        void Promise.resolve(refreshBuilder()).catch(error => {
-                            logger.debug(`Immediate channel preview refresh skipped: ${error?.message || error}`);
-                        });
-                    } else if (useCatalogPreview && firstRecord) {
-                        const resolved = await resolveEmbedRegistryRecord(guild, firstRecord).catch(() => null);
-                        if (selectionVersion !== session.selectionVersion) return;
-                        if (resolved) {
-                            loadEmbedIntoState(state, resolved);
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Resolved catalog preview refresh skipped: ${error?.message || error}`);
-                            });
-                        }
-                    } else {
-                        // If this channel only has a virtual system-catalog entry,
-                        // fetch the real panel from the selected channel instead of
-                        // showing a {dynamic} placeholder in the preview.
-                        const discovered = await discoverMissingChannelEmbed(
-                            guild,
-                            channelId,
-                            buttonInteraction.client.user.id,
-                        ).catch(error => {
-                            logger.debug(`On-demand channel embed discovery skipped: ${error?.message || error}`);
-                            return null;
-                        });
+                    if (selectionVersion !== session.selectionVersion) return;
 
-                        // A slower older channel lookup must never overwrite the
-                        // newest selection in the live preview.
-                        if (selectionVersion !== session.selectionVersion) return;
+                    if (discoveredRecords.length) {
+                        const otherChannelRecords = records.filter(record =>
+                            String(record.channelId) !== String(channelId)
+                            || String(record.source || '') === 'system-catalog'
+                        );
+                        const existingCatalogRecords = records.filter(record =>
+                            String(record.channelId) === String(channelId)
+                            && String(record.source || '') === 'system-catalog'
+                        );
 
-                        if (discovered) {
-                            loadEmbedIntoState(state, discovered);
-                            firstRecord = discovered.record;
-                            liveOverviewRecords = mergeEmbedManagerRecords(
-                                liveOverviewRecords,
-                                [discovered.record],
-                            );
-                            records = mergeEmbedManagerRecords(
-                                records.filter(record => !(
-                                    String(record.channelId) === String(channelId)
-                                    && String(record.source || '') === 'embed-builder'
-                                    && String(record.messageId) !== String(discovered.record.messageId)
-                                )),
-                                [discovered.record],
-                            );
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Discovered channel preview refresh skipped: ${error?.message || error}`);
-                            });
-                        } else if (firstRecord && loadRecordSnapshotIntoState(state, guild, firstRecord)) {
-                            void Promise.resolve(refreshBuilder()).catch(error => {
-                                logger.debug(`Catalog fallback preview refresh skipped: ${error?.message || error}`);
-                            });
-                        }
+                        // Session-only discovery replaces stale real-message rows
+                        // for this channel. Nothing is written back to the registry.
+                        records = [
+                            ...otherChannelRecords,
+                            ...existingCatalogRecords.filter(record => !otherChannelRecords.includes(record)),
+                            ...discoveredRecords,
+                        ];
                     }
 
                     if (selectionVersion !== session.selectionVersion) return;
@@ -999,14 +1245,18 @@ function applyStateToExistingEmbed(state) {
     const target = state.modifyTarget;
     const data = { ...(target?.sourceEmbedData || {}) };
 
-    if (state.title) data.title = state.title.slice(0, 256);
+    if (target?.templateKind === 'content') {
+        if (target.catalogTitle) data.title = String(target.catalogTitle).slice(0, 256);
+        else if (!data.title) data.title = 'Message';
+    } else if (state.title) data.title = state.title.slice(0, 256);
     else delete data.title;
-    if (state.message) data.description = normalizeManualIndent(state.message).slice(0, 4096);
+    const zorp = isZorpGuideTitle(state.title || data.title);
+    if (state.message) data.description = normalizeManualIndent(state.message, { zorp }).slice(0, 4096);
     else delete data.description;
     if (Array.isArray(state.embedFields) && state.embedFields.length) {
         data.fields = state.embedFields.slice(0, 25).map(field => ({
             name: String(field.name || '\u200B').slice(0, 256),
-            value: normalizeManualIndent(String(field.value || '\u200B')).slice(0, 1024),
+            value: normalizeManualIndent(String(field.value || '\u200B'), { zorp }).slice(0, 1024),
             inline: Boolean(field.inline),
         }));
     } else {
@@ -1111,7 +1361,10 @@ function applyStateToTemplatePeer(state, peerData, savedData, mediaChanges) {
     const source = target?.sourceEmbedData || {};
     const data = { ...peerData };
 
-    if (state.title) data.title = mergeDynamicTemplateText(source.title, state.title, peerData.title).slice(0, 256);
+    if (target?.templateKind === 'content') {
+        if (peerData.title) data.title = peerData.title;
+        else if (target.catalogTitle) data.title = String(target.catalogTitle).slice(0, 256);
+    } else if (state.title) data.title = mergeDynamicTemplateText(source.title, state.title, peerData.title).slice(0, 256);
     else delete data.title;
 
     if (state.message) data.description = mergeTemplateDescription(source.description, state.message, peerData.description);
@@ -1427,6 +1680,16 @@ export async function saveModifiedEmbed(guild, state) {
             primeSystemEmbedCatalogMessage(edited);
             await syncSystemEmbedCatalogMessage(edited)
                 .catch(error => logger.error('Failed to sync saved system embed template:', error));
+        }
+
+        if (String(target.templateTitle || '') === 'ticket-main') {
+            void import('./ticketUiService.js')
+                .then(({ syncCloudyTicketMessage }) => Promise.all(
+                    [...guild.channels.cache.values()]
+                        .filter(channel => /ticket-\d+/i.test(String(channel?.name || '')) && channel?.messages?.fetch)
+                        .map(channel => syncCloudyTicketMessage(channel)),
+                ))
+                .catch(error => logger.error('Failed to refresh active ticket embeds after template save:', error));
         }
 
         const targetSnapshot = {
