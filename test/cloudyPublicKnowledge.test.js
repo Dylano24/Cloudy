@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   CLOUDY_KNOWLEDGE_FOOTER,
+  buildCloudyPublicKnowledgeEvidence,
   buildVerifiedCloudyFacts,
   cleanupGeneratedKnowledgePanels,
 } from '../src/services/cloudyPublicKnowledgeService.js';
@@ -101,4 +102,65 @@ test('standalone knowledge panels are never recreated and only tracked bot panel
   assert.deepEqual(deleted.sort(), ['msg-free', 'msg-info', 'msg-link']);
   assert.equal(deletedKeys.length, 3);
   assert.equal(tracked.size, 0);
+});
+
+
+test('FAQ knowledge reads independent channels concurrently instead of blocking serially', async () => {
+  let started = 0;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const makeChannel = (id, name) => ({
+    id,
+    name,
+    guildId: '1532882647838228723',
+    type: 0,
+    isTextBased: () => true,
+    isThread: () => false,
+    permissionsFor: () => ({ has: () => true }),
+    messages: {
+      fetch: async () => {
+        started += 1;
+        await gate;
+        return new Map([[id, {
+          id: `message-${id}`,
+          content: `Cloudy information from ${name}`,
+          embeds: [],
+          createdTimestamp: Date.now(),
+        }]]);
+      },
+    },
+  });
+
+  const first = makeChannel('channel-one', 'rules');
+  const second = makeChannel('channel-two', 'general');
+  const cache = new Map([[first.id, first], [second.id, second]]);
+  const member = { id: 'user' };
+  const botMember = { id: 'bot' };
+  const guild = {
+    id: '1532882647838228723',
+    channels: {
+      cache,
+      fetch: async id => id ? cache.get(String(id)) || null : cache,
+      fetchActiveThreads: async () => ({ threads: new Map() }),
+    },
+    members: {
+      me: botMember,
+      fetch: async () => member,
+      fetchMe: async () => botMember,
+    },
+    commands: { fetch: async () => new Map() },
+  };
+  const client = { channels: guild.channels };
+  const actor = { client, guild, user: { id: member.id } };
+
+  const pending = buildCloudyPublicKnowledgeEvidence(actor, { question: 'Cloudy information' });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const concurrentStarts = started;
+  release();
+  const result = await pending;
+
+  assert.equal(concurrentStarts, 2);
+  assert.equal(result.channels, 2);
+  assert.match(result.text, /Cloudy information from rules/);
+  assert.match(result.text, /Cloudy information from general/);
 });
