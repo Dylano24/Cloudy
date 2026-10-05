@@ -36,11 +36,16 @@ const replacement = `    function closeEditorSession() {
 
 let pageSource = fs.readFileSync(pageTarget, 'utf8');
 if (!pageSource.includes(replacement)) {
-  if (!pageSource.includes(oldLine)) {
-    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected heartbeat lifecycle marker not found');
-    process.exit(1);
+  if (pageSource.includes(oldLine)) {
+    pageSource = pageSource.replace(oldLine, replacement);
+  } else if (pageSource.includes('closeEditorSession') || pageSource.includes('__CLOUDY_EMBED_CLOSE__')) {
+    console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] heartbeat lifecycle already customized; leaving current page lifecycle intact');
+  } else {
+    // This startup script is a migration, not a runtime requirement. The web
+    // editor may evolve independently; never crash the bot because an obsolete
+    // historical marker disappeared.
+    console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] legacy heartbeat marker absent; skipping obsolete migration');
   }
-  pageSource = pageSource.replace(oldLine, replacement);
 }
 
 pageSource = pageSource
