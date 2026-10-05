@@ -267,30 +267,22 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     text = text.slice(0, saveButtonStart) + saveButton + text.slice(saveButtonEnd);
   }
 
-  text = replaceRequired(
-    text,
-    `    const closeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('simple_embed_close')
-            .setLabel('Close message')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('✖️'),
-    );`,
-    `    const closeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
+  if (!text.includes("setCustomId('simple_embed_delete_from_builder')")) {
+    const closeId = text.indexOf(".setCustomId('simple_embed_close')");
+    const closeButtonStart = text.lastIndexOf('new ButtonBuilder()', closeId);
+    if (closeId < 0 || closeButtonStart < 0) {
+      throw new Error('[BUILDER_SAFE_DELETE] Close button block missing');
+    }
+
+    const deleteButton = `new ButtonBuilder()
             .setCustomId('simple_embed_delete_from_builder')
             .setLabel(state.pendingBuilderDelete ? 'Cancel delete' : 'Delete from Builder')
             .setStyle(state.pendingBuilderDelete ? ButtonStyle.Secondary : ButtonStyle.Danger)
             .setEmoji(state.pendingBuilderDelete ? '↩️' : '🗑️')
             .setDisabled(!canDeleteBuilderRecord(state.modifyTarget)),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_close')
-            .setLabel('Close message')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('✖️'),
-    );`,
-    'Delete from Builder control',
-  );
+        `;
+    text = text.slice(0, closeButtonStart) + deleteButton + text.slice(closeButtonStart);
+  }
 
   text = replaceRequired(
     text,
