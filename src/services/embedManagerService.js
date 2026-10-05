@@ -296,15 +296,12 @@ function compareChannelsByDiscordOrder(a, b) {
 function buildChannelGroups(guild, records) {
     const groups = new Map();
 
-    // Show every real text/announcement channel, even when it does not have a
-    // registered embed yet. The Modify browser is a channel browser first.
-    for (const channel of guild.channels.cache.values()) {
-        if (![0, 5].includes(channel?.type) || !channel?.messages?.fetch) continue;
-        groups.set(String(channel.id), []);
-    }
-
-    for (const record of records) {
+    // Modify shows only channels that currently contain an editable Cloudy
+    // embed or have a real virtual template routed there. Search is the full
+    // archive/catalog and remains intentionally broader.
+    for (const record of filterEmbedManagerRecords(records)) {
         const channelId = String(record.channelId);
+        if (!channelId || !guild.channels.cache.has(channelId)) continue;
         if (!groups.has(channelId)) groups.set(channelId, []);
         groups.get(channelId).push(record);
     }
@@ -387,7 +384,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
 
 export function buildEmbedPayload(guild, records, channelId, page = 0) {
     const channel = guild.channels.cache.get(channelId) || null;
-    const channelRecords = records
+    const channelRecords = filterEmbedManagerRecords(records)
         .filter(record => String(record.channelId) === String(channelId))
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     const strictTemplateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
@@ -584,10 +581,39 @@ function managerRecordKey(record) {
     ].join(':');
 }
 
+export function isEmbedManagerVisibleRecord(record, { includeBotHistory = true } = {}) {
+    if (!record?.messageId || record.detached) return false;
+
+    const source = String(record.source || '').toLowerCase();
+
+    // Full runtime/history capture belongs to Search. The channel browser may
+    // show those records only after live reconciliation has confirmed them.
+    if (!includeBotHistory && source === 'bot-history') return false;
+
+    // The system catalog physically lives in botlog. Generic catalog-only
+    // responses belong to Search; only templates virtually placed into a real
+    // feature channel (tickets, gambling, etc.) belong in the channel browser.
+    if (source === 'system-catalog') {
+        const logicalChannelId = String(record.channelId || '');
+        const backingChannelId = String(record.backingChannelId || '');
+        return Boolean(
+            logicalChannelId
+            && backingChannelId
+            && logicalChannelId !== backingChannelId
+        );
+    }
+
+    return true;
+}
+
+export function filterEmbedManagerRecords(records = [], options = {}) {
+    return (Array.isArray(records) ? records : [])
+        .filter(record => isEmbedManagerVisibleRecord(record, options));
+}
+
 export function mergeEmbedManagerRecords(baseRecords = [], additions = []) {
     const merged = new Map();
-    for (const record of [...baseRecords, ...additions]) {
-        if (!record?.messageId) continue;
+    for (const record of filterEmbedManagerRecords([...baseRecords, ...additions])) {
         merged.set(managerRecordKey(record), record);
     }
     return [...merged.values()];
@@ -698,7 +724,14 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         // Render immediately from the local registry. Empty rows are explicitly
         // marked as "Checking" rather than falsely claiming there is no saved
         // embed. Discord lookups run in the background and fill those rows in.
-        const storedRecords = await getEmbedRegistry(guild.id);
+        const allStoredRecords = await getEmbedRegistry(guild.id);
+        // Do not flash stale history rows while live reconciliation is still
+        // running. Manual Builder records and routed future templates appear
+        // immediately; verified live bot-history records are merged in shortly.
+        const storedRecords = filterEmbedManagerRecords(
+            allStoredRecords,
+            { includeBotHistory: false },
+        );
         let liveOverviewRecords = [];
         let records = [...storedRecords];
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
@@ -748,8 +781,11 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
 
             records = mergeEmbedManagerRecords(
-                mergeEmbedManagerRecords(refreshedRecords, storedRecords),
-                liveOverviewRecords,
+                mergeEmbedManagerRecords(
+                    filterEmbedManagerRecords(refreshedRecords),
+                    storedRecords,
+                ),
+                filterEmbedManagerRecords(liveOverviewRecords),
             );
 
             await buttonInteraction.webhook.editMessage(
@@ -896,7 +932,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 );
 
                 if (!record) {
-                    records = await getEmbedRegistry(guild.id);
+                    records = filterEmbedManagerRecords(await getEmbedRegistry(guild.id));
                     record = records.find(item =>
                         String(item.channelId) === String(channelId) &&
                         String(item.messageId) === String(messageId) &&
