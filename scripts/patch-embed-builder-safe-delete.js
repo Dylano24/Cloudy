@@ -64,10 +64,7 @@ function canDeleteBuilderRecord(target) {
         target?.messageId
         && target?.channelId
         && target?.source !== 'system-catalog'
-        // Detached records are exactly the stale Search entries the Delete
-        // button is meant to remove. Canonical Search may mark them as a
-        // template-shaped result, but that must never disable Delete.
-        && (!target?.templateMode || target?.detached)
+        && !target?.templateMode
     );
 }
 
@@ -222,23 +219,6 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         return false;
     }
 
-    // If this stale Builder record owns a Reappear rule, the visible copy may
-    // have a newer Discord message ID than the original deleted message. Remove
-    // that active copy too so "Delete from Builder" really removes the old embed.
-    const reappearKey = `cloudy:embed-reappear:${guild.id}:${pending.channelId}:${pending.messageId}`;
-    const reappearConfig = await getFromDb(reappearKey, null);
-    const activeReappearMessageId = reappearConfig?.messageId
-        ? String(reappearConfig.messageId)
-        : null;
-    if (activeReappearMessageId && activeReappearMessageId !== String(pending.messageId)) {
-        const reappearChannel = guild.channels.cache.get(String(pending.channelId))
-            || await guild.channels.fetch(String(pending.channelId)).catch(() => null);
-        const activeReappearMessage = reappearChannel?.messages?.fetch
-            ? await reappearChannel.messages.fetch(activeReappearMessageId).catch(() => null)
-            : null;
-        await activeReappearMessage?.delete?.().catch(() => {});
-    }
-
     await purgeEmbedRegistryRecord(
         guild.id,
         pending.channelId,
@@ -252,7 +232,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     await sendBuilderDeleteNotice(
         buttonInteraction,
         'Removed from Builder',
-        'The stale record was removed from the Embed Builder, including any active Reappear copy.',
+        'The stale record was removed from the Embed Builder. No Discord message was deleted.',
         0x57F287,
     );
     return true;
