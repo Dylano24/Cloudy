@@ -2,6 +2,15 @@ import { pgDb } from '../postgresDatabase.js';
 import { MemoryStorage } from '../memoryStorage.js';
 import { logger } from '../logger.js';
 import { validateGuildConfigOrThrow } from '../schemas.js';
+import { redisDelete, redisGetJson, redisSetJson } from '../redisCache.js';
+
+function redisCacheTtlForKey(key) {
+    if (typeof key !== 'string') return 0;
+    if (key.startsWith('cloudy:builder-button-action:')) return 6 * 60 * 60_000;
+    if (key.startsWith('cloudy:embed-reappear-index:')) return 60_000;
+    if (key.startsWith('cloudy:embed-reappear:')) return 30_000;
+    return 0;
+}
 
 function requiresPersistentStorage(key) {
     if (typeof key !== 'string') return false;
@@ -204,7 +213,16 @@ export async function initializeDatabase() {
 
 export async function getFromDb(key, defaultValue = null) {
     try {
+        const cacheTtl = redisCacheTtlForKey(key);
+        if (cacheTtl > 0) {
+            const cached = await redisGetJson(key);
+            if (cached !== null) return cached;
+        }
+
         const value = await db.get(key);
+        if (value !== null && cacheTtl > 0) {
+            void redisSetJson(key, value, cacheTtl);
+        }
         return value === null ? defaultValue : value;
     } catch (error) {
         logger.error(`Error getting value for key ${key}:`, error);
@@ -215,7 +233,12 @@ export async function getFromDb(key, defaultValue = null) {
 export async function setInDb(key, value, ttl = null) {
     try {
         const result = await db.set(key, value, ttl);
-        return result !== false;
+        const ok = result !== false;
+        const cacheTtl = redisCacheTtlForKey(key);
+        if (ok && cacheTtl > 0) {
+            void redisSetJson(key, value, cacheTtl);
+        }
+        return ok;
     } catch (error) {
         logger.error(`Error setting value for key ${key}:`, error);
         return false;
@@ -225,7 +248,11 @@ export async function setInDb(key, value, ttl = null) {
 export async function deleteFromDb(key) {
     try {
         const result = await db.delete(key);
-        return result !== false;
+        const ok = result !== false;
+        if (redisCacheTtlForKey(key) > 0) {
+            void redisDelete(key);
+        }
+        return ok;
     } catch (error) {
         logger.error(`Error deleting key ${key}:`, error);
         return false;
