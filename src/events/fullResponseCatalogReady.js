@@ -19,7 +19,10 @@ import { getGuildConfig } from '../services/config/guildConfig.js';
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
 const HISTORY_LIMIT = 100;
-const STARTUP_SCAN_DELAY_MS = 7000;
+// Historical reconciliation is background maintenance. Keep it away from the
+// first minute after startup so dashboards and Builder interactions get all
+// available Discord/API bandwidth first.
+const STARTUP_SCAN_DELAY_MS = 90_000;
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
 const autoApplyingMessageIds = new Set();
 const FIXED_NON_TICKET_LOG_CHANNEL_IDS = new Set([

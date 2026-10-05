@@ -167,12 +167,14 @@ export default {
             }
 
             const subcommand = interaction.options.getSubcommand();
-            await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
 
             if (subcommand === "setup") {
+                await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
                 await handleSetupSubcommand(interaction, client);
                 return;
             } else if (subcommand === "dashboard") {
+                // Dashboard configuration is a small local/DB read. Avoid a
+                // defer + edit pair so the panel can arrive in one Discord call.
                 await handleConfigSubcommand(interaction, client);
                 return;
             }
@@ -310,7 +312,11 @@ async function handleConfigSubcommand(interaction, client) {
             .setStyle(ButtonStyle.Secondary);
         const row = new ActionRowBuilder().addComponents(nameButton, limitButton, bitrateButton);
 
-        await InteractionHelper.safeEditReply(interaction, { embeds: [configEmbed], components: [row] });
+        await InteractionHelper.safeReply(interaction, {
+            embeds: [configEmbed],
+            components: [row],
+            flags: MessageFlags.Ephemeral,
+        });
         const message = await interaction.fetchReply();
 
         if (!message || typeof message.createMessageComponentCollector !== 'function') {
@@ -335,10 +341,8 @@ async function handleConfigSubcommand(interaction, client) {
                     return;
                 }
 
-                // Always refresh from storage before acting. An older dashboard may never
-                // overwrite the latest value just because another administrator opened it first.
-                await refreshDashboard(message, triggerChannel, client);
-
+                // Each editor action reads the latest configuration itself. Do
+                // not add a database read + Discord edit before opening a modal.
                 const customId = buttonInteraction.customId;
                 if (customId.includes('jtc_config_name_')) {
                     await handleNameTemplateModal(buttonInteraction, triggerChannel, client, message);

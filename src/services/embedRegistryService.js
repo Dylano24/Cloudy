@@ -35,8 +35,8 @@ const SYSTEM_TEMPLATE_PLACEMENTS = [
         channelSlugs: ['gambling'],
     },
     {
-        match: /\b(ticket|transcript|claim ticket|close ticket|reopen ticket)\b/i,
-        channelSlugs: ['ticket-logs', 'ticket-panel', 'tickets'],
+        match: /\b(?:ticket\s+(?:created|claimed|unclaimed|closed|deleted|pinned|unpinned)|priority updated|transcript generated|feedback received)\b/i,
+        channelSlugs: ['ticket-logs'],
     },
     {
         match: /\b(appeal|ban appeal)\b/i,
@@ -330,7 +330,10 @@ function placementSlugsForTemplateContext(context) {
     const root = cleanName(context).split('/')[0];
     const placements = {
         gambling: ['gambling'],
-        tickets: ['ticket-logs', 'ticket-panel', 'tickets'],
+        tickets: [],
+        'contact-us': ['contact-us'],
+        contact: ['contact-us'],
+        support: ['contact-us'],
         'ticket-logs': ['ticket-logs'],
         'ticket-transcripts': ['ticket-transcripts', 'ticket-transcript', 'transcripts'],
         'ban-appeal': ['ban-appeal', 'appeal'],
