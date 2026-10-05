@@ -2,22 +2,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Reset is bottom-left and Close message takes the former Reset position', () => {
+test('Reset is below Close message after the Builder layout swap', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const controlsEnd = source.indexOf('function getPreviewUpdateQueue');
+  assert.ok(controlsEnd > 0);
 
-  const closeRowStart = source.indexOf('const closeRow =');
-  const returnStart = source.indexOf('return [', closeRowStart);
-  assert.ok(closeRowStart >= 0 && returnStart > closeRowStart);
+  const controls = source.slice(0, controlsEnd);
+  const closeIndex = controls.indexOf("setCustomId('simple_embed_close')");
+  const resetIndex = controls.indexOf("setCustomId('simple_embed_reset')");
 
-  const actionRowStart = source.lastIndexOf('const actionRow =', closeRowStart);
-  assert.ok(actionRowStart >= 0);
+  assert.ok(closeIndex >= 0, 'Close message button missing from Builder controls');
+  assert.ok(resetIndex >= 0, 'Reset button missing from Builder controls');
+  assert.ok(
+    closeIndex < resetIndex,
+    'Close message must occupy the former Reset position and Reset must be lower/bottom-left',
+  );
 
-  const actionRow = source.slice(actionRowStart, closeRowStart);
-  const bottomRow = source.slice(closeRowStart, returnStart);
-
-  assert.match(actionRow, /setCustomId\('simple_embed_close'\)/);
-  assert.doesNotMatch(actionRow, /setCustomId\('simple_embed_reset'\)/);
-
-  assert.match(bottomRow, /setCustomId\('simple_embed_reset'\)/);
-  assert.doesNotMatch(bottomRow, /setCustomId\('simple_embed_close'\)/);
+  assert.equal((controls.match(/setCustomId\('simple_embed_close'\)/g) || []).length, 1);
+  assert.equal((controls.match(/setCustomId\('simple_embed_reset'\)/g) || []).length, 1);
 });
