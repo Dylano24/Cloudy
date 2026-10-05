@@ -2,17 +2,25 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('button editor closes after a successful all-in-one button mutation', () => {
+test('button editor closes after successful response, link and disabled mutations', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
   assert.match(source, /export async function cleanupBuilderButtonUi/);
   assert.match(source, /async function closeButtonEditorPanel/);
 
-  const addStart = source.indexOf('async function showAddResponseModal');
-  const editStart = source.indexOf('async function showEditButtonModal', addStart);
-  const addBody = source.slice(addStart, editStart);
-  assert.match(addBody, /refreshBuilder\(submitted, state\)/);
-  assert.match(addBody, /closeButtonEditorPanel\(submitted, state\)/);
-  assert.doesNotMatch(addBody, /showAddLinkModal/);
+  const responseStart = source.indexOf('async function showAddResponseModal');
+  const linkStart = source.indexOf('async function showAddLinkModal', responseStart);
+  const disabledStart = source.indexOf('async function showAddDisabledModal', linkStart);
+  const editStart = source.indexOf('async function showEditButtonModal', disabledStart);
+  assert.ok(responseStart >= 0 && linkStart > responseStart && disabledStart > linkStart && editStart > disabledStart);
+
+  const responseBody = source.slice(responseStart, linkStart);
+  const linkBody = source.slice(linkStart, disabledStart);
+  const disabledBody = source.slice(disabledStart, editStart);
+
+  for (const body of [responseBody, linkBody, disabledBody]) {
+    assert.match(body, /refreshBuilder\(submitted, state\)/);
+    assert.match(body, /closeButtonEditorPanel\(submitted, state\)/);
+  }
 });
 
 test('Close, Reset, Delete from builder and Builder end clean child editor state', () => {
