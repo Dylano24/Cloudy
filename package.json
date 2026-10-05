@@ -92,6 +92,7 @@
     "scripts/patch-embed-builder-search-everything.js",
     "scripts/patch-ticket-private-status-10s.js",
     "scripts/patch-embed-builder-add-delete-buttons.js",
-    "scripts/patch-builder-button-modal-delete-flow.js"
+    "scripts/patch-builder-button-modal-delete-flow.js",
+    "scripts/patch-builder-button-live-preview.js"
   ]
 }
