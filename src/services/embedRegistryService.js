@@ -1,7 +1,7 @@
 import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { isTransientStatusEmbed } from '../utils/transientResponse.js';
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
+import { deleteFromDb, getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
 import { peekGuildConfigCache } from './config/guildConfig.js';
@@ -638,9 +638,28 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
             return false;
         });
 
-        if (!changed) return false;
-        await setInDb(registryKey(guildId), sortRecords(next));
-        return true;
+        if (changed) {
+            await setInDb(registryKey(guildId), sortRecords(next));
+        }
+
+        // A stale Builder record can still own a Reappear rule under its
+        // original message ID. Purging the Builder record must permanently
+        // disable that rule, even if the live Discord copy has already moved.
+        const reappearKey = `cloudy:embed-reappear:${guildId}:${channelId}:${messageId}`;
+        await deleteFromDb(reappearKey);
+
+        const reappearIndexKey = `cloudy:embed-reappear-index:${guildId}:${channelId}`;
+        const reappearIndex = await getFromDb(reappearIndexKey, []);
+        if (Array.isArray(reappearIndex)) {
+            const nextReappearIndex = reappearIndex.filter(
+                id => String(id) !== String(messageId),
+            );
+            if (nextReappearIndex.length !== reappearIndex.length) {
+                await setInDb(reappearIndexKey, nextReappearIndex);
+            }
+        }
+
+        return changed;
     });
 }
 
