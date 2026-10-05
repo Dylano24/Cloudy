@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Builder response button uses explicit visibility and duration fields', () => {
+test('Builder response modal contains response and optional link in one five-row form', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const start = source.indexOf('async function showAddResponseModal');
@@ -10,34 +10,38 @@ test('Builder response button uses explicit visibility and duration fields', () 
   assert.ok(start >= 0 && end > start);
   const body = source.slice(start, end);
 
-  assert.doesNotMatch(body, /button_function/);
-  assert.match(body, /setCustomId\('button_visibility'\)/);
-  assert.match(body, /setLabel\('Visibility \(optional\)'\)/);
-  assert.match(body, /private or public/);
+  assert.match(body, /setCustomId\('button_label'\)/);
+  assert.match(body, /setCustomId\('button_settings'\)/);
+  assert.match(body, /Color \/ visibility \(optional\)/);
   assert.match(body, /setCustomId\('button_duration'\)/);
-  assert.match(body, /setLabel\('Duration \(optional\)'\)/);
-  assert.match(body, /10s, 30s, 1m, 5m/);
+  assert.match(body, /10s, 30s, 1m, 5m • blank stays/);
+  assert.doesNotMatch(body, /blank = stays/);
   assert.match(body, /setCustomId\('button_response'\)/);
-  assert.match(body, /setRequired\(true\)/);
-  assert.doesNotMatch(body, /button_url/);
+  assert.match(body, /Response message \(optional\)/);
+  assert.match(body, /setCustomId\('button_url'\)/);
+  assert.match(body, /Add link \(optional\)/);
+  assert.match(body, /ButtonStyle\.Link/);
 });
 
-test('Builder offers separate response, link and disabled button setup', () => {
+test('Embed buttons panel exposes only Add response button', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
-  assert.match(source, /setCustomId\('embed_button_add_response'\)/);
-  assert.match(source, /setCustomId\('embed_button_add_link'\)/);
-  assert.match(source, /setCustomId\('embed_button_add_disabled'\)/);
-  assert.match(source, /async function showAddLinkModal/);
-  assert.match(source, /async function showAddDisabledModal/);
+  const managerStart = source.indexOf('function managerPayload');
+  const modalStart = source.indexOf('async function showAddResponseModal', managerStart);
+  assert.ok(managerStart >= 0 && modalStart > managerStart);
+  const manager = source.slice(managerStart, modalStart);
+
+  assert.match(manager, /setCustomId\('embed_button_add_response'\)/);
+  assert.doesNotMatch(manager, /setCustomId\('embed_button_add_link'\)/);
+  assert.doesNotMatch(manager, /setCustomId\('embed_button_add_disabled'\)/);
 
   const collector = source.slice(source.indexOf("collector.on('collect'"));
   assert.match(collector, /showAddResponseModal/);
-  assert.match(collector, /showAddLinkModal/);
-  assert.match(collector, /showAddDisabledModal/);
+  assert.doesNotMatch(collector, /componentInteraction\.customId === 'embed_button_add_link'/);
+  assert.doesNotMatch(collector, /componentInteraction\.customId === 'embed_button_add_disabled'/);
 });
 
-test('Builder response duration supports clear values up to 15 minutes', () => {
+test('Builder response duration still supports values up to 15 minutes', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
   assert.match(source, /function parseButtonDuration/);
   assert.match(source, /15 \* 60_000/);

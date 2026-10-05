@@ -63,8 +63,7 @@ patchFile('src/services/embedBuilderButtonEditorService.js', text => {
         .setDescription([
           ...lines,
           '',
-          'Response buttons use separate fields for visibility and duration.',
-          'Link and disabled buttons have their own setup so no function code needs to be typed.',
+          'Add a response or link button from the same form.',
         ].join('\\n').slice(0, 4096))
         .setColor(0xFFFFFF),
     ],
@@ -74,14 +73,7 @@ patchFile('src/services/embedBuilderButtonEditorService.js', text => {
           .setCustomId('embed_button_add_response')
           .setLabel('Add response button')
           .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId('embed_button_add_link')
-          .setLabel('Add link button')
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId('embed_button_add_disabled')
-          .setLabel('Add disabled button')
-          .setStyle(ButtonStyle.Secondary),
+
       ),
     ],
   };
@@ -145,20 +137,11 @@ async function replyButtonEditorError(interaction, content) {
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId('button_style')
-          .setLabel('Color (optional)')
+          .setCustomId('button_settings')
+          .setLabel('Color / visibility (optional)')
           .setStyle(TextInputStyle.Short)
-          .setPlaceholder('gray, blue, green or red')
-          .setMaxLength(12)
-          .setRequired(false),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('button_visibility')
-          .setLabel('Visibility (optional)')
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder('private or public • default: private')
-          .setMaxLength(12)
+          .setPlaceholder('gray private • default: gray private')
+          .setMaxLength(32)
           .setRequired(false),
       ),
       new ActionRowBuilder().addComponents(
@@ -166,17 +149,26 @@ async function replyButtonEditorError(interaction, content) {
           .setCustomId('button_duration')
           .setLabel('Duration (optional)')
           .setStyle(TextInputStyle.Short)
-          .setPlaceholder('10s, 30s, 1m, 5m • blank = stays')
+          .setPlaceholder('10s, 30s, 1m, 5m • blank stays')
           .setMaxLength(16)
           .setRequired(false),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('button_response')
-          .setLabel('Response message')
+          .setLabel('Response message (optional)')
           .setStyle(TextInputStyle.Paragraph)
           .setMaxLength(4000)
-          .setRequired(true),
+          .setRequired(false),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('button_url')
+          .setLabel('Add link (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('https://example.com')
+          .setMaxLength(512)
+          .setRequired(false),
       ),
     );
 
@@ -189,17 +181,25 @@ async function replyButtonEditorError(interaction, content) {
   if (!submitted) return;
 
   const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
-  const style = parseButtonStyle(
-    submitted.fields.getTextInputValue('button_style'),
-    ButtonStyle.Secondary,
-  );
-  const visibility = normalizeButtonVisibility(
-    submitted.fields.getTextInputValue('button_visibility'),
-  );
+  const settingsParts = submitted.fields
+    .getTextInputValue('button_settings')
+    .trim()
+    .toLowerCase()
+    .split(/[\\s,|/]+/)
+    .filter(Boolean);
+  const styleName = settingsParts.find(value =>
+    ['gray', 'grey', 'blue', 'green', 'red'].includes(value)
+  ) || '';
+  const visibilityName = settingsParts.find(value =>
+    ['private', 'public', 'ephemeral', 'privé', 'publiek'].includes(value)
+  ) || '';
+  const style = parseButtonStyle(styleName, ButtonStyle.Secondary);
+  const visibility = normalizeButtonVisibility(visibilityName);
   const duration = parseButtonDuration(
     submitted.fields.getTextInputValue('button_duration'),
   );
   const responseText = submitted.fields.getTextInputValue('button_response').trim().slice(0, 4000);
+  const url = submitted.fields.getTextInputValue('button_url').trim().slice(0, 512);
 
   if (!visibility) {
     await replyButtonEditorError(submitted, 'Visibility must be private or public.');
@@ -212,28 +212,46 @@ async function replyButtonEditorError(interaction, content) {
     );
     return;
   }
-  if (!responseText) {
-    await replyButtonEditorError(submitted, 'A response button needs a response message.');
+  if (responseText && url) {
+    await replyButtonEditorError(submitted, 'Use either Response message or Add link, not both.');
+    return;
+  }
+  if (!responseText && !url) {
+    await replyButtonEditorError(submitted, 'Add a response message or a link.');
+    return;
+  }
+  if (url && !/^https?:\\/\\//i.test(url)) {
+    await replyButtonEditorError(submitted, 'The link must start with http:// or https://.');
     return;
   }
 
-  const actionId = randomUUID().replaceAll('-', '').slice(0, 24);
-  const saved = await saveBuilderButtonAction(submitted.guildId, actionId, {
-    responseText,
-    visibility,
-    deleteAfterMs: duration.ms,
-  });
-  if (!saved) {
-    await replyButtonEditorError(submitted, 'Could not save the button action. Nothing was added.');
-    return;
-  }
+  let next;
+  if (url) {
+    next = appendButton(state.componentRows, {
+      type: BUTTON_COMPONENT_TYPE,
+      style: ButtonStyle.Link,
+      label,
+      url,
+    });
+  } else {
+    const actionId = randomUUID().replaceAll('-', '').slice(0, 24);
+    const saved = await saveBuilderButtonAction(submitted.guildId, actionId, {
+      responseText,
+      visibility,
+      deleteAfterMs: duration.ms,
+    });
+    if (!saved) {
+      await replyButtonEditorError(submitted, 'Could not save the button action. Nothing was added.');
+      return;
+    }
 
-  const next = appendButton(state.componentRows, {
-    type: BUTTON_COMPONENT_TYPE,
-    style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
-    label,
-    custom_id: ACTION_CUSTOM_ID + ':' + actionId,
-  });
+    next = appendButton(state.componentRows, {
+      type: BUTTON_COMPONENT_TYPE,
+      style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
+      label,
+      custom_id: ACTION_CUSTOM_ID + ':' + actionId,
+    });
+  }
   if (!next) {
     await replyButtonEditorError(
       submitted,
@@ -256,77 +274,6 @@ async function replyButtonEditorError(interaction, content) {
     text = text.slice(0, start) + replacement + text.slice(end);
   }
 
-  // Keep link setup separate and add an equally explicit disabled-button setup.
-  if (!text.includes('async function showAddDisabledModal(')) {
-    const editStart = text.indexOf('async function showEditButtonModal(');
-    if (editStart < 0) throw new Error('[BUILDER_PRO_BUTTONS] edit modal block missing');
-    const disabledModal = `async function showAddDisabledModal(componentInteraction, state, refreshBuilder, panelMessage) {
-  const modal = new ModalBuilder()
-    .setCustomId('embed_button_add_disabled_modal')
-    .setTitle('Add disabled button')
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('button_label')
-          .setLabel('Button name')
-          .setStyle(TextInputStyle.Short)
-          .setMaxLength(80)
-          .setRequired(true),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('button_style')
-          .setLabel('Color (optional)')
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder('gray, blue, green or red')
-          .setMaxLength(12)
-          .setRequired(false),
-      ),
-    );
-
-  await componentInteraction.showModal(modal);
-  const submitted = await componentInteraction.awaitModalSubmit({
-    filter: interaction => interaction.customId === 'embed_button_add_disabled_modal'
-      && interaction.user.id === componentInteraction.user.id,
-    time: 120_000,
-  }).catch(() => null);
-  if (!submitted) return;
-
-  const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
-  const style = parseButtonStyle(
-    submitted.fields.getTextInputValue('button_style'),
-    ButtonStyle.Secondary,
-  );
-  const next = appendButton(state.componentRows, {
-    type: BUTTON_COMPONENT_TYPE,
-    style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
-    label,
-    custom_id: 'cloudy_builder_disabled:' + randomUUID().replaceAll('-', '').slice(0, 24),
-    disabled: true,
-  });
-  if (!next) {
-    await replyButtonEditorError(
-      submitted,
-      'Discord allows at most 5 component rows. Remove a button before adding another one.',
-    );
-    return;
-  }
-
-  state.componentRows = next;
-  state.componentRowsSourceMessageId = state.modifyTarget?.messageId
-    ? String(state.modifyTarget.messageId)
-    : 'new';
-  state.componentsDirty = true;
-  await submitted.deferUpdate().catch(() => {});
-  await panelMessage.edit(managerPayload(state)).catch(() => {});
-  await refreshBuilder(submitted, state).catch(() => {});
-  await closeButtonEditorPanel(submitted, state).catch(() => {});
-}
-
-`;
-    text = text.slice(0, editStart) + disabledModal + text.slice(editStart);
-  }
-
   const responseCase = `        if (componentInteraction.customId === 'embed_button_add_response') {
           await showAddResponseModal(componentInteraction, state, refreshBuilder, panelMessage);
           return;
@@ -340,14 +287,11 @@ async function replyButtonEditorError(interaction, content) {
           return;
         }`;
 
-  if (!text.includes(linkCase)) {
-    if (!text.includes(responseCase)) throw new Error('[BUILDER_PRO_BUTTONS] response collector branch missing');
-    text = text.replace(responseCase, responseCase + '\n' + linkCase);
+  if (!text.includes(responseCase)) {
+    throw new Error('[BUILDER_PRO_BUTTONS] response collector branch missing');
   }
-  if (!text.includes(disabledCase)) {
-    const anchor = text.includes(linkCase) ? linkCase : responseCase;
-    text = text.replace(anchor, anchor + '\n' + disabledCase);
-  }
+  text = text.replace('\n' + linkCase, '');
+  text = text.replace('\n' + disabledCase, '');
 
   // The main Builder now owns the live button preview. Remove any old child preview.
   {
