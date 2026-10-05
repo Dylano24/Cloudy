@@ -468,7 +468,7 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
 
     const replacement = `function queueBuilderRefresh(interaction, state, includeDashboard = true) {
     if (state.colorSessionToken) {
-        state.colorPickerUrl = \`${COLOR_PICKER_URL}/embed-color?session=${state.colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}\`;
+        state.colorPickerUrl = COLOR_PICKER_URL + '/embed-color?session=' + state.colorSessionToken + '&color=' + encodeURIComponent(colorToHex(state.sideColor));
     }
 
     const previewPayload = {
