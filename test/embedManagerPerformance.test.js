@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Embed Manager normal open path stays registry-first', () => {
+test('Embed Manager normal open path stays registry-first and live-only', () => {
   const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
 
   const loadStart = source.indexOf('async function loadCurrentRegistry');
@@ -14,34 +14,20 @@ test('Embed Manager normal open path stays registry-first', () => {
   assert.match(loader, /const records = await getEmbedRegistry\(guild\.id\)/);
   assert.match(loader, /if \(records\.length\) return records/);
 
-  const populatedPath = loader.slice(0, loader.indexOf('if (records.length) return records') + 36);
-  assert.doesNotMatch(populatedPath, /reconcileEmbedRegistry\(guild\)/);
-  assert.doesNotMatch(populatedPath, /scanGuildForCloudyEmbeds/);
+  const followUp = source.indexOf('const managerMessage = await buttonInteraction.followUp', openStart);
+  assert.ok(followUp > openStart);
+  const firstPaint = source.slice(openStart, followUp);
 
-  const openBody = source.slice(openStart);
-  const collectorStart = openBody.indexOf("collector.on('collect'");
-  const startupPart = collectorStart >= 0 ? openBody.slice(0, collectorStart) : openBody;
-  assert.doesNotMatch(startupPart, /discoverEmbedManagerOverviewRecords\(/);
-  assert.match(
-    startupPart,
-    /let records = preparedData\?\.records[\s\S]*?getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\)/,
-  );
+  // First paint is DB/local only and excludes Search-only archive records.
+  assert.match(firstPaint, /const allStoredRecords = await getEmbedRegistry\(guild\.id\)/);
+  assert.match(firstPaint, /filterEmbedManagerRecords\([\s\S]*includeBotHistory: false/);
+  assert.doesNotMatch(firstPaint, /discoverEmbedManagerOverviewRecords\(/);
+  assert.doesNotMatch(firstPaint, /reconcileEmbedRegistry\(/);
 
-  const channelSelectStart = openBody.indexOf(
-    "interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')",
-  );
-  const embedPageStart = openBody.indexOf(
-    "interaction.customId.startsWith('simple_embed_modify_embed_page:')",
-    channelSelectStart,
-  );
-  assert.ok(channelSelectStart >= 0 && embedPageStart > channelSelectStart);
-  const channelSelectPath = openBody.slice(channelSelectStart, embedPageStart);
-  const immediatePaint = channelSelectPath.indexOf('await updateEmbedManager(');
-  const backgroundRefresh = channelSelectPath.indexOf('void (async () =>');
-  const backgroundCanonical = channelSelectPath.indexOf('getCanonicalBuilderRecords(', backgroundRefresh);
-  assert.ok(immediatePaint >= 0);
-  assert.ok(backgroundRefresh > immediatePaint);
-  assert.ok(backgroundCanonical > backgroundRefresh);
+  // Slow Discord discovery may happen only after the manager is already visible.
+  const afterPaint = source.slice(followUp);
+  assert.match(afterPaint, /discoverEmbedManagerOverviewRecords\(/);
+  assert.match(afterPaint, /loadCurrentRegistry\(guild, buttonInteraction\.client\.user\.id\)/);
 });
 
 test('full response history sweep is opt-in instead of automatic', () => {
