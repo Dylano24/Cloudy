@@ -20,30 +20,44 @@ const oldDisplay = `function builderSearchDisplayRecords(records) {
 }`;
 
 const newDisplay = `function builderSearchDisplayRecords(records) {
-    // Search is intentionally broader than the channel browser. Do not apply
-    // channel-specific visibility/collapse rules here: every canonical record
-    // is allowed into the Search index. buildMatches still groups repeated
-    // runtime peers of the same logical template into one result.
-    const unique = new Map();
+    const resolved = (records || [])
+        .map(record => sourceResolvedSearchRecord(record))
+        .filter(record => record?.messageId);
 
-    for (const rawRecord of records || []) {
-        const record = sourceResolvedSearchRecord(rawRecord);
-        if (!record?.messageId) continue;
-
-        const canonical = String(record?.canonicalIdentity || '').trim();
-        const key = canonical
-            ? 'canonical:' + canonical
-            : [
-                'physical',
-                String(record?.channelId || ''),
-                String(record?.messageId || ''),
-                Number(record?.embedIndex || 0),
-            ].join(':');
-
-        unique.set(key, record);
+    // The live Search path receives canonical Builder records. Those records
+    // are already one reusable response type each, so channel-specific browser
+    // filtering must not hide any of them.
+    if (resolved.some(record => record?.canonicalIdentity)) {
+        const unique = new Map();
+        for (const record of resolved) {
+            const canonical = String(record?.canonicalIdentity || '').trim();
+            const key = canonical
+                ? 'canonical:' + canonical
+                : [
+                    'physical',
+                    String(record?.channelId || ''),
+                    String(record?.messageId || ''),
+                    Number(record?.embedIndex || 0),
+                ].join(':');
+            unique.set(key, record);
+        }
+        return [...unique.values()];
     }
 
-    return [...unique.values()];
+    // Raw/legacy callers still need the existing peer collapse so the correct
+    // catalog master remains the Save target and repeated runtime examples do
+    // not become duplicate Search results.
+    const groups = new Map();
+    for (const record of resolved) {
+        const channelId = String(record?.channelId || '');
+        if (!channelId) continue;
+        if (!groups.has(channelId)) groups.set(channelId, []);
+        groups.get(channelId).push(record);
+    }
+
+    return [...groups.entries()].flatMap(([channelId, channelRecords]) =>
+        collapseDisplayRecords(channelRecords, channelId)
+    );
 }`;
 
 if (!text.includes(oldDisplay)) {
