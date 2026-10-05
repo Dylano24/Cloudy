@@ -303,46 +303,32 @@ function mergeSearchRecords(guildId, registryRecords) {
 }
 
 function builderSearchDisplayRecords(records) {
-    // Search stays broader than the channel browser, but repeated copies of the
-    // same automated/template response are one searchable item. User-created
-    // Builder embeds remain physical records so two genuinely different embeds
-    // are never merged just because they share a title.
+    // Search contains reusable templates plus embeds that are still real Builder
+    // messages. Runtime notification/history copies are examples, not templates:
+    // never expose them as separate Search results and never keep deleted channel
+    // messages alive here.
     const unique = new Map();
 
     for (const rawRecord of records || []) {
         const record = sourceResolvedSearchRecord(rawRecord);
+        const source = String(record?.source || '').toLowerCase();
         const channelId = String(record?.channelId || '');
         const messageId = String(record?.messageId || '');
         if (!channelId || !messageId) continue;
 
-        const source = String(record?.source || '').toLowerCase();
-        const physicalKey = [
-            String(record?.backingChannelId || channelId),
-            messageId,
-            Number(record?.embedIndex || 0),
-        ].join(':');
+        if (['bot-history', 'history'].includes(source)) continue;
+        if (record?.detached && source !== 'system-catalog') continue;
 
-        let key = `physical:${physicalKey}`;
-
-        if (source !== 'embed-builder') {
-            const document = recordDocument(null, record);
-            const templateKey = stableSearchTemplateKey(record);
-            const context = stableSearchTemplateContext(record);
-
-            if (templateKey || context) {
-                key = [
-                    'template',
-                    templateKey || normalize(document.title),
-                    context || channelId,
-                ].join(':');
-            } else if (['system-catalog', 'bot-history', 'history'].includes(source)) {
-                key = [
-                    'automated',
-                    channelId,
-                    normalize(document.title),
-                ].join(':');
-            }
-        }
+        const stableKey = stableSearchTemplateKey(record);
+        const stableContext = stableSearchTemplateContext(record);
+        const key = source === 'system-catalog' && stableKey
+            ? ['template', stableKey, stableContext].join(':')
+            : [
+                'physical',
+                String(record?.backingChannelId || channelId),
+                messageId,
+                Number(record?.embedIndex || 0),
+            ].join(':');
 
         const existing = unique.get(key);
         if (!existing || priority(record) >= priority(existing)) {
@@ -520,6 +506,13 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
 
         const focused = interaction.options.getFocused(true);
         if (focused?.name !== 'search') {
+            await interaction.respond([]).catch(() => {});
+            return;
+        }
+
+        // Empty autocomplete must stay empty. Search only starts after the user
+        // types something; opening /embedbuilder must never dump a template list.
+        if (!normalize(focused.value)) {
             await interaction.respond([]).catch(() => {});
             return;
         }
