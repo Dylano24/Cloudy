@@ -222,7 +222,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     // Reappear stores its rule under the original message ID while its current
     // visible copy can have a newer ID. Remove that current copy before purging
     // the rule so the deleted embed cannot come back or remain visible.
-    const reappearKey = `cloudy:embed-reappear:${guild.id}:${pending.channelId}:${pending.messageId}`;
+    const reappearKey = \`cloudy:embed-reappear:\${guild.id}:\${pending.channelId}:\${pending.messageId}\`;
     const reappearConfig = await getFromDb(reappearKey, null);
     const activeReappearMessageId = reappearConfig?.messageId
         ? String(reappearConfig.messageId)
