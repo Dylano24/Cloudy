@@ -14,7 +14,7 @@ test('custom Builder buttons render with the top preview, not under Message buil
   assert.doesNotMatch(controls, /previewRows/);
   assert.doesNotMatch(controls, /buttonPreviewComponents/);
 
-  const refreshStart = source.indexOf('async function refreshBuilder(interaction, state)');
+  const refreshStart = source.indexOf('function queueBuilderRefresh(interaction, state');
   const refreshEnd = source.indexOf('async function editContent', refreshStart);
   assert.ok(refreshStart >= 0 && refreshEnd > refreshStart);
   const refresh = source.slice(refreshStart, refreshEnd);
@@ -26,11 +26,11 @@ test('custom Builder buttons render with the top preview, not under Message buil
   const execute = source.slice(source.indexOf('async execute(interaction)'));
   assert.match(
     execute,
-    /safeReply\(interaction, \{[\s\S]*?embeds: \[buildPreviewEmbed\(state\)\][\s\S]*?components: getBuilderMessageComponents\(state\)/,
+    /const previewResponsePromise = interaction\.reply\(\{[\s\S]*?embeds: \[buildPreviewEmbed\(state\)\][\s\S]*?components: getBuilderMessageComponents\(state\)[\s\S]*?withResponse: true/,
   );
   assert.match(
     execute,
-    /const dashboardPromise = interaction\.followUp\(\{[\s\S]*?embeds: \[buildControlEmbed\(state\)\][\s\S]*?components: buildControls\(state\)/,
+    /const dashboardPromise = interaction\.channel\.send\(\{[\s\S]*?embeds: \[buildControlEmbed\(state\)\][\s\S]*?components: buildControls\(state\)/,
   );
-  assert.match(execute, /await Promise\.all\(\[[\s\S]*?interaction\.fetchReply\(\)[\s\S]*?dashboardPromise/);
+  assert.match(execute, /await Promise\.all\(\[[\s\S]*?previewResponsePromise[\s\S]*?dashboardPromise/);
 });
