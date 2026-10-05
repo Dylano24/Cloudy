@@ -85,6 +85,15 @@ export async function syncBuilderButtonPreview(interaction, state) {
   await syncBuilderButtonPreview(submitted, state).catch(() => {});`,
   );
 
+  if (
+    text.includes('state.activeButtonEditorMessageId')
+    && text.includes('state.activeButtonEditorCollector = collector;')
+    && text.includes('deletePrivateBuilderMessage')
+  ) {
+    console.log('[BUILDER_BUTTON_PREVIEW] native editor lifecycle detected; obsolete open-editor migration skipped');
+    return text;
+  }
+
   const openAnchor = `export async function openEmbedButtonEditor(buttonInteraction, state, refreshBuilder) {
   await ensureRowsLoaded(buttonInteraction, state);
   await buttonInteraction.deferUpdate().catch(() => {});
