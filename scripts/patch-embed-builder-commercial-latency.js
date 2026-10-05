@@ -61,7 +61,7 @@ function invalidateBuilderRecordCaches(guildId) {
 
 export async function openEmbedManager`);
 
-  const openPreparedPattern = / {8}const prepared = state\.embedManagerPrepared;\n {8}delete state\.embedManagerPrepared;\n {8}const storedRecords = \(prepared && await prepared\) \|\| await getEmbedRegistry\(guild\.id\);\n {8}await warmSavedEmbedTemplateScopes\(guild\.id, storedRecords\.map\(record => record\.channelId\)\);\n {8}let records = await getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\);/;
+  const openPreparedPattern = / {8}const prepared = state\.embedManagerPrepared;\n {8}delete state\.embedManagerPrepared;\n {8}const storedRecords = \(prepared && await prepared\) \|\| await getEmbedRegistry\(guild\.id\);\n {8}await warmSavedEmbedTemplateScopes\(guild\.id, storedRecords\.map\(record => record\.channelId\)\);\n {8}let records = await getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\);\n {8}const checkingChannelIds = embedManagerCheckingChannelIds\(guild, storedRecords\);\n {8}const initialPayload = guild\.channels\.cache\.size\n {12}\? buildChannelPayload\(guild, records, 0, checkingChannelIds\)\n {12}: buildEmptyManagerPayload\(\);/;
   if (!openPreparedPattern.test(text)) throw new Error('[BUILDER_COMMERCIAL_LATENCY] prepared open block missing');
   text = text.replace(openPreparedPattern, `        const prepared = state.embedManagerPrepared;
         delete state.embedManagerPrepared;
@@ -78,16 +78,6 @@ export async function openEmbedManager`);
             || (guild.channels.cache.size
                 ? buildChannelPayload(guild, records, 0, checkingChannelIds)
                 : buildEmptyManagerPayload());`);
-
-  text = replaceRequired(
-    text,
-    `        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
-        const initialPayload = guild.channels.cache.size
-            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
-            : buildEmptyManagerPayload();`,
-    '',
-    'original open Modify payload',
-  );
 
   text = text.replaceAll(
     '                        records = refreshedRecords;\n                        await updateEmbedManager(',
