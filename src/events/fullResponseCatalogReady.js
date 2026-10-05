@@ -307,10 +307,6 @@ function captureMessage(message) {
   if (!message?.client?.user?.id || !message.guildId) return false;
   if (message.author?.id !== message.client.user.id) return false;
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
-  // Ticket lifecycle logs are already styled before send by ticketLogging.js,
-  // including any saved Builder template and their fixed lifecycle colors.
-  // Never run the generic response catalog over them afterward.
-  if (await isTicketLifecycleLogChannel(message)) return false;
 
   const source = messageContext(message);
   return capturePayload({
