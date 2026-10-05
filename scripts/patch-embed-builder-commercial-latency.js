@@ -26,7 +26,11 @@ patchFile('src/services/embedManagerService.js', text => {
         const storedRecords = await getEmbedRegistry(guild.id);
         await warmSavedEmbedTemplateScopes(guild.id, storedRecords.map(record => record.channelId));
         const records = await getCanonicalBuilderRecords(guild, storedRecords, { perChannel: true });
-        return { storedRecords, records };
+        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = guild.channels.cache.size
+            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+            : buildEmptyManagerPayload();
+        return { storedRecords, records, initialPayload };
     })().catch(error => {
         logger.debug(\`Channel browser preload skipped: \${error?.message || error}\`);
         return null;
