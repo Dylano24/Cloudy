@@ -39,7 +39,8 @@ test('Remove buttons and Reset clear the live button preview', () => {
   assert.match(source.slice(removeStart, modifyStart), /syncBuilderButtonPreview\(buttonInteraction, state\)/);
 
   const resetStart = source.indexOf("case 'simple_embed_reset':");
-  const closeStart = source.indexOf("case 'simple_embed_close':", resetStart);
-  assert.ok(resetStart >= 0 && closeStart > resetStart);
-  assert.match(source.slice(resetStart, closeStart), /syncBuilderButtonPreview\(buttonInteraction, state\)/);
+  const resetNextCase = source.indexOf("\n                        case '", resetStart + 8);
+  assert.ok(resetStart >= 0);
+  const resetBody = source.slice(resetStart, resetNextCase >= 0 ? resetNextCase : source.length);
+  assert.match(resetBody, /syncBuilderButtonPreview\(buttonInteraction, state\)/);
 });
