@@ -1,5 +1,6 @@
 import { Events, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 import { deleteFromDb, getFromDb, setInDb } from '../utils/database.js';
 import { getLevelingConfig } from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
@@ -29,7 +30,14 @@ export default {
   name: Events.MessageCreate,
   async execute(message, client) {
     try {
-      if (!message.guild || message.author.id === client.user?.id) return;
+      if (!message.guild) return;
+      if (message.author.id === client.user?.id) {
+        if (message.embeds?.length) {
+          void registerCloudyEmbedMessage(message, 'bot-history')
+            .catch(error => logger.debug(`Embed Builder live index skipped: ${error?.message || error}`));
+        }
+        return;
+      }
 
       const isAiRequest = String(message.channel?.name || '').toLowerCase() === 'botlog-commands' && /^!ai\s/.test(message.content || '');
       logger.debug(`Message received from ${message.author.tag}: ${isAiRequest ? '[AI request omitted]' : message.content}`);
