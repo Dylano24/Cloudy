@@ -186,17 +186,6 @@ export async function applyEmbedColorPickerSession(token, value) {
     if (value === HEARTBEAT_PREFIX) {
         const touched = await touchEditorSession(token, session);
         if (!touched.ok) return touched;
-
-        // Keep the Discord-side Builder collector alive for the full browser
-        // editor lease too. Search -> Edit previously kept the web token alive
-        // while the 5-minute Discord collector expired underneath it.
-        if (typeof session.onEditorUpdate === 'function') {
-            try {
-                await session.onEditorUpdate('__heartbeat__', '');
-            } catch (error) {
-                if (error?.code !== 'EMBED_BUILDER_EXPIRED') throw error;
-            }
-        }
         return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
     }
 
