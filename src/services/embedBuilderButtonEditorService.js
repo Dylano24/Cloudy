@@ -309,16 +309,20 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
     return;
   }
 
-  const next = appendButton(state.componentRows, {
+  const next = appendButton(state.componentRows, url ? {
+    type: BUTTON_COMPONENT_TYPE,
+    style: ButtonStyle.Link,
+    label,
+    url: url.slice(0, 512),
+  } : {
     type: BUTTON_COMPONENT_TYPE,
     style,
     label,
     custom_id: `${ACTION_CUSTOM_ID}:${actionId}`,
   });
-  // Discord link buttons cannot also have a custom action. Keep the optional URL
-  // as part of the same saved action so one submit still creates exactly one button.
-  if (url) await setInDb(actionKey(submitted.guildId, actionId), { responseText, url: url.slice(0, 512), deleteAfterMs: DEFAULT_RESPONSE_DELETE_MS, updatedAt: new Date().toISOString() });
-  else await setInDb(actionKey(submitted.guildId, actionId), { responseText, deleteAfterMs: DEFAULT_RESPONSE_DELETE_MS, updatedAt: new Date().toISOString() });
+  // One submit always creates one button. With a URL, that same button becomes
+  // Discord's native link button instead of creating a separate response/link item.
+  if (!url) await setInDb(actionKey(submitted.guildId, actionId), { responseText, deleteAfterMs: DEFAULT_RESPONSE_DELETE_MS, updatedAt: new Date().toISOString() });
   if (!next) {
     await submitted.reply({ content: 'Discord allows at most 5 component rows. Remove/reuse a row before adding another button.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
