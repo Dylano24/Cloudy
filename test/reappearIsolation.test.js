@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+
+test('Reappear deletion is isolated to the exact embed rule', () => {
+  const messageCreate = fs.readFileSync('src/events/messageCreate.js', 'utf8');
+  assert.match(messageCreate, /embed-reappear-disabled:/);
+  assert.match(messageCreate, /Number\(record\?\.embedIndex \|\| 0\) === embedIndex/);
+  assert.match(messageCreate, /const removedIds = new Set\(\)/);
+  assert.match(messageCreate, /const latestIndex = await getFromDb\(indexKey, \[\]\)/);
+  assert.doesNotMatch(messageCreate, /const survivingIds = \[\]/);
+
+  const registry = fs.readFileSync('src/services/embedRegistryService.js', 'utf8');
+  assert.match(
+    registry,
+    /embed-reappear-disabled:\$\{guildId\}:\$\{channelId\}:\$\{messageId\}:\$\{Math\.max\(0, Number\(embedIndex\) \|\| 0\)\}/,
+  );
+
+  const builder = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  assert.match(builder, /embed-reappear-disabled:/);
+  assert.match(builder, /pending\.embedIndex/);
+  assert.match(builder, /originMessageId: sent\.id/);
+  assert.match(builder, /embedIndex: 0/);
+});
+
+test('Reappear cleanup never rebuilds the whole channel index from a stale snapshot', () => {
+  const source = fs.readFileSync('src/events/messageCreate.js', 'utf8');
+  const start = source.indexOf('async function handleEmbedReappear');
+  const body = source.slice(start);
+  assert.match(body, /removedIds\.add\(originalMessageId\)/);
+  assert.match(body, /latestIndex\.filter\(id => !removedIds\.has\(String\(id\)\)\)/);
+  assert.doesNotMatch(body, /setInDb\(indexKey, survivingIds\)/);
+});
