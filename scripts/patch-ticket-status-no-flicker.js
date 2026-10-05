@@ -21,8 +21,9 @@ for (const { label, green, white } of replacements) {
   if (text.includes(green)) {
     text = text.replace(green, white);
   } else if (!text.includes(white)) {
-    console.error(`[TICKET_STATUS_NO_FLICKER] marker not found (${label})`);
-    process.exit(1);
+    // ticketUiService has evolved; this migration is cosmetic and must never
+    // prevent the bot from starting when the historical marker has changed.
+    console.log(`[TICKET_STATUS_NO_FLICKER] marker evolved (${label}); skipping obsolete migration`);
   }
 }
 
