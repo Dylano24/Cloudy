@@ -12,7 +12,7 @@ test('Builder button preview is attached to the top preview message, not Message
   assert.doesNotMatch(controls, /buttonPreviewComponents/);
   assert.doesNotMatch(controls, /previewRows/);
 
-  const refreshStart = source.indexOf('async function refreshBuilder(interaction, state)');
+  const refreshStart = source.indexOf('function queueBuilderRefresh(interaction, state');
   const refreshEnd = source.indexOf('async function editContent', refreshStart);
   assert.ok(refreshStart >= 0 && refreshEnd > refreshStart);
   const refresh = source.slice(refreshStart, refreshEnd);
@@ -20,6 +20,7 @@ test('Builder button preview is attached to the top preview message, not Message
   assert.match(refresh, /components: getBuilderMessageComponents\(state\)/);
   assert.match(refresh, /embeds: \[buildControlEmbed\(state\)\]/);
   assert.match(refresh, /components: buildControls\(state\)/);
+  assert.match(refresh, /refreshBuilderPreviewOnly/);
 });
 
 test('separate child button preview is disabled and stale preview is cleaned up', () => {
