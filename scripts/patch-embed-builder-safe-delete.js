@@ -219,6 +219,24 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         return false;
     }
 
+    // Reappear stores its rule under the original message ID while its current
+    // visible copy can have a newer ID. Remove that current copy before purging
+    // the rule so the deleted embed cannot come back or remain visible.
+    const reappearKey = `cloudy:embed-reappear:${guild.id}:${pending.channelId}:${pending.messageId}`;
+    const reappearConfig = await getFromDb(reappearKey, null);
+    const activeReappearMessageId = reappearConfig?.messageId
+        ? String(reappearConfig.messageId)
+        : null;
+
+    if (activeReappearMessageId && activeReappearMessageId !== String(pending.messageId)) {
+        const reappearChannel = guild.channels.cache.get(String(pending.channelId))
+            || await guild.channels.fetch(String(pending.channelId)).catch(() => null);
+        const activeMessage = reappearChannel?.messages?.fetch
+            ? await reappearChannel.messages.fetch(activeReappearMessageId).catch(() => null)
+            : null;
+        await activeMessage?.delete?.().catch(() => {});
+    }
+
     await purgeEmbedRegistryRecord(
         guild.id,
         pending.channelId,
@@ -232,7 +250,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     await sendBuilderDeleteNotice(
         buttonInteraction,
         'Removed from Builder',
-        'The stale record was removed from the Embed Builder. No Discord message was deleted.',
+        'The stale record and its Reappear rule were removed from the Embed Builder.',
         0x57F287,
     );
     return true;
