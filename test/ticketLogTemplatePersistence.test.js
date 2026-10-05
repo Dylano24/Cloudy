@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import { EmbedBuilder } from 'discord.js';
 
 import { db } from '../src/utils/database.js';
@@ -259,4 +260,36 @@ test('saving a ticket-log template recolors the next delete log and preserves dy
   assert.equal(data.color, 0x123456);
   assert.equal(data.fields[0].value, '#99');
   assert.equal(data.fields[1].value, '<@202>');
+});
+
+
+test('generic response templating never restyles configured ticket lifecycle log channels', async () => {
+  const source = await fs.readFile('src/events/fullResponseCatalogReady.js', 'utf8');
+
+  assert.match(source, /async function isTicketLifecycleLogChannel\(message\)/);
+  assert.match(source, /config\.ticketLogsChannelId/);
+  assert.match(source, /config\.ticketTranscriptChannelId/);
+
+  const applyStart = source.indexOf('async function applyTemplatesToExistingMessage');
+  const applyEnd = source.indexOf('\n}\n\nfunction seedKnownGameResponses', applyStart);
+  const applyBody = source.slice(applyStart, applyEnd);
+  assert.match(applyBody, /if \(await isTicketLifecycleLogChannel\(message\)\) return false;/);
+
+  const createStart = source.indexOf('client.on(Events.MessageCreate');
+  const updateStart = source.indexOf('client.on(Events.MessageUpdate', createStart);
+  const createBody = source.slice(createStart, updateStart);
+  assert.ok(
+    createBody.indexOf('isTicketLifecycleLogChannel(message)')
+      < createBody.indexOf('captureMessage(message)'),
+    'ticket logs must be excluded before generic capture on MessageCreate',
+  );
+
+  const scanStart = source.indexOf('async function scanRecentBotResponses');
+  const defaultExportStart = source.indexOf('export default', scanStart);
+  const scanBody = source.slice(scanStart, defaultExportStart);
+  assert.ok(
+    scanBody.indexOf('isTicketLifecycleLogChannel(message)')
+      < scanBody.indexOf('applySavedEmbedTemplates(message)'),
+    'ticket logs must be excluded before historical template replay',
+  );
 });

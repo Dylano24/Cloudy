@@ -14,6 +14,7 @@ import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js
 import { logger } from '../utils/logger.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
+import { getGuildConfig } from '../services/config/guildConfig.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
@@ -28,6 +29,18 @@ const FIXED_NON_TICKET_LOG_CHANNEL_IDS = new Set([
   '1539371572442435646',
   '1539372511089926244',
 ]);
+
+async function isTicketLifecycleLogChannel(message) {
+  if (!message?.guildId || !message?.channelId) return false;
+  const config = await getGuildConfig(message.client, message.guildId).catch(() => null);
+  return Boolean(
+    config
+    && (
+      String(message.channelId) === String(config.ticketLogsChannelId || '')
+      || String(message.channelId) === String(config.ticketTranscriptChannelId || '')
+    )
+  );
+}
 
 function canonicalComponentCommand(customId = '') {
   const value = String(customId || '').toLowerCase();
@@ -313,9 +326,8 @@ async function applyTemplatesToExistingMessage(message, { initialCreation = fals
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
   if (isEmbedManagerSaveInProgress(message.id)) return false;
   if (autoApplyingMessageIds.has(message.id)) return false;
-  // These logs are styled in their own send path. Applying the generic system
-  // catalog afterward restores stale colors and user avatars. Ticket logs are
-  // intentionally not part of this exemption.
+  // Fixed moderation/system logs are styled in their own send path too.
+  // Ticket lifecycle logs were already excluded above using live guild config.
   if (FIXED_NON_TICKET_LOG_CHANNEL_IDS.has(message.channelId)) return false;
 
   const source = messageContext(message);
@@ -492,6 +504,11 @@ async function scanRecentBotResponses(client) {
         if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) continue;
         messagesScanned += 1;
         try {
+          // Ticket lifecycle logs have their own Builder/template path and
+          // fixed colors. Generic history replay must never restyle or capture
+          // them as ordinary response templates.
+          if (await isTicketLifecycleLogChannel(message)) continue;
+
           // Reapply Builder styling to recent interaction replies too. These
           // replies do not pass through the normal registry on creation.
           if (!isBlackjackEmbed(message.embeds?.[0])) {
@@ -519,11 +536,12 @@ export default {
     patchMessageEdits();
     seedKnownGameResponses();
 
-    client.on(Events.MessageCreate, message => {
+    client.on(Events.MessageCreate, async message => {
       if (String(message?.content || '').trim() === SYSTEM_CATALOG_CONTENT) return;
       try {
+        if (await isTicketLifecycleLogChannel(message)) return;
         captureMessage(message);
-        void applyTemplatesToExistingMessage(message, { initialCreation: true });
+        await applyTemplatesToExistingMessage(message, { initialCreation: true });
       } catch (error) {
         logger.debug(`[EMBED_BUILDER] Live message processing skipped: ${error?.message || error}`);
       }
@@ -539,6 +557,7 @@ export default {
       if (autoApplyingMessageIds.has(message.id)) return;
 
       try {
+        if (await isTicketLifecycleLogChannel(message)) return;
         captureMessage(message);
         await applyTemplatesToExistingMessage(message);
       } catch (error) {
