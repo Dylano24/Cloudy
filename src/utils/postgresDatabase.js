@@ -46,6 +46,7 @@ class PostgreSQLDatabase {
         this.pool = null;
         this.isConnected = false;
         this.connectionPromise = null;
+        this.isClosing = false;
         this.allowedTableIdentifiers = new Set(Object.values(pgConfig.tables));
         this.allowedMigrationIdentifiers = new Set([pgConfig.migration.table]);
         this.lastFailureReason = null;
@@ -53,6 +54,7 @@ class PostgreSQLDatabase {
     }
 
     async connect() {
+        this.isClosing = false;
         if (this.connectionPromise) {
             return this.connectionPromise;
         }
@@ -194,7 +196,20 @@ class PostgreSQLDatabase {
     }
 
     isAvailable() {
-        return this.isConnected && this.pool;
+        return this.isConnected && this.pool && !this.isClosing;
+    }
+
+    async close() {
+        if (this.isClosing) return;
+        this.isClosing = true;
+        this.isConnected = false;
+
+        const pool = this.pool;
+        this.pool = null;
+        this.connectionPromise = null;
+
+        if (!pool) return;
+        await pool.end();
     }
 
     getLastFailure() {
