@@ -32,6 +32,7 @@ import {
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds, discoverRecentChannelEmbeds } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
+import { getBuilderMessageComponents } from './embedBuilderButtonEditorService.js';
 import {
     primeSystemEmbedCatalogMessage,
     primeSystemEmbedTemplateData,
@@ -1310,6 +1311,7 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     const payload = { embeds };
+    if (state.componentsDirty) payload.components = getBuilderMessageComponents(state);
     if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
 
     // Catalog identity is internal; it must never become a public embed author.
@@ -1326,6 +1328,11 @@ export async function saveModifiedEmbed(guild, state) {
     const releaseSaveGuard = setTimeout(() => activeEmbedManagerSaves.delete(String(message.id)), 2_000);
     releaseSaveGuard.unref?.();
     if (!edited) return { ok: false, reason: 'edit-failed' };
+    if (state.componentsDirty) {
+        state.componentRows = getBuilderMessageComponents(state);
+        state.componentRowsSourceMessageId = String(edited.id);
+        state.componentsDirty = false;
+    }
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
     const mediaChanges = mediaChangeState(sourceData, current);
