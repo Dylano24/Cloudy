@@ -185,7 +185,7 @@ async function replyButtonEditorError(interaction, content) {
     .getTextInputValue('button_settings')
     .trim()
     .toLowerCase()
-    .split(/[\s,|/]+/)
+    .split(/[\\s,|/]+/)
     .filter(Boolean);
   const styleName = settingsParts.find(value =>
     ['gray', 'grey', 'blue', 'green', 'red'].includes(value)
@@ -220,7 +220,7 @@ async function replyButtonEditorError(interaction, content) {
     await replyButtonEditorError(submitted, 'Add a response message or a link.');
     return;
   }
-  if (url && !/^https?:\/\//i.test(url)) {
+  if (url && !/^https?:\\/\\//i.test(url)) {
     await replyButtonEditorError(submitted, 'The link must start with http:// or https://.');
     return;
   }
