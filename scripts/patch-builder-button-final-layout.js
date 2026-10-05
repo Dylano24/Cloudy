@@ -522,10 +522,11 @@ async function editContent`);
 
             const collector = dashboardMessage.createMessageComponentCollector({`;
 
-  if (!text.includes(initAnchor)) {
+  if (text.includes(initAnchor)) {
+    text = text.replace(initAnchor, initReplacement);
+  } else if (!text.includes('state.dashboardMessageId = String(dashboardMessage.id);')) {
     throw new Error('[BUILDER_BUTTON_FINAL] initial dashboard anchor missing');
   }
-  text = text.replace(initAnchor, initReplacement);
 
   const closeStart = text.indexOf("case 'simple_embed_close':");
   if (closeStart >= 0) {
