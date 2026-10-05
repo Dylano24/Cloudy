@@ -77,12 +77,8 @@ export async function openEmbedManager`);
 
   text = replaceRequired(
     text,
-    `    if (!edited) return { ok: false, reason: 'edit-failed' };
-
-    const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);`,
-    `    if (!edited) return { ok: false, reason: 'edit-failed' };
-
-    invalidateBuilderRecordCaches(guild.id);
+    '    const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);',
+    `    invalidateBuilderRecordCaches(guild.id);
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);`,
     'save cache invalidation',
