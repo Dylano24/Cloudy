@@ -296,13 +296,18 @@ function compareChannelsByDiscordOrder(a, b) {
 function buildChannelGroups(guild, records) {
     const groups = new Map();
 
-    // Modify shows only channels that currently contain an editable Cloudy
-    // embed or have a real virtual template routed there. Search is the full
-    // archive/catalog and remains intentionally broader.
+    // Restore the original channel browser behavior: show every real
+    // text/announcement channel, even when it currently has no saved embed.
+    // Search remains the complete archive/catalog; only live/routed records are
+    // attached to these channel rows.
+    for (const channel of guild.channels.cache.values()) {
+        if (![0, 5].includes(channel?.type) || !channel?.messages?.fetch) continue;
+        groups.set(String(channel.id), []);
+    }
+
     for (const record of filterEmbedManagerRecords(records)) {
         const channelId = String(record.channelId);
-        if (!channelId || !guild.channels.cache.has(channelId)) continue;
-        if (!groups.has(channelId)) groups.set(channelId, []);
+        if (!channelId || !groups.has(channelId)) continue;
         groups.get(channelId).push(record);
     }
 
