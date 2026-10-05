@@ -123,8 +123,11 @@ async function replyButtonEditorError(interaction, content) {
     const end = text.indexOf('\nasync function showAddLinkModal(', start);
     if (start < 0 || end < 0) throw new Error('[BUILDER_PRO_BUTTONS] response modal block missing');
     const replacement = `async function showAddResponseModal(componentInteraction, state, refreshBuilder, panelMessage) {
+  const modalGeneration = (state.buttonModalGeneration || 0) + 1;
+  state.buttonModalGeneration = modalGeneration;
+  const modalId = 'embed_button_add_response_modal:' + randomUUID().replaceAll('-', '').slice(0, 12);
   const modal = new ModalBuilder()
-    .setCustomId('embed_button_add_response_modal')
+    .setCustomId(modalId)
     .setTitle('Add response button')
     .addComponents(
       new ActionRowBuilder().addComponents(
@@ -176,11 +179,17 @@ async function replyButtonEditorError(interaction, content) {
 
   await componentInteraction.showModal(modal);
   const submitted = await componentInteraction.awaitModalSubmit({
-    filter: interaction => interaction.customId === 'embed_button_add_response_modal'
+    filter: interaction => interaction.customId === modalId
       && interaction.user.id === componentInteraction.user.id,
     time: 120_000,
   }).catch(() => null);
   if (!submitted) return;
+  if (state.buttonModalGeneration !== modalGeneration) {
+    if (!submitted.replied && !submitted.deferred) {
+      await submitted.deferUpdate().catch(() => {});
+    }
+    return;
+  }
 
   const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
   const style = parseButtonStyle(
