@@ -421,6 +421,7 @@ function buildControlEmbed(state) {
             `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Media** › ${mediaLabel}`,
+            `**Reappear after** › ${state.reappearAfter ? `${state.reappearAfter} message(s)` : '`Off`'}`,
         ].join('\n'))
         .setColor(0xFFFFFF)
         .setFooter({ text: 'Preview the embed above live' });
@@ -495,6 +496,14 @@ function buildControls(state) {
             .setEmoji('🛠️'),
     );
 
+    const reappearRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('simple_embed_reappear')
+            .setLabel('Reappear after')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🔁'),
+    );
+
     const closeRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('simple_embed_close')
@@ -503,7 +512,7 @@ function buildControls(state) {
             .setEmoji('✖️'),
     );
 
-    return [contentRow, actionRow, closeRow];
+    return [contentRow, actionRow, reappearRow, closeRow];
 }
 
 function getPreviewUpdateQueue(state) {
@@ -1036,6 +1045,7 @@ export default {
                 title: null,
                 message: null,
                 embedFields: [],
+                reappearAfter: null,
                 sideColor: 0xFFFFFF,
                 showLogo: true,
                 removeExistingLogo: false,
@@ -1154,6 +1164,24 @@ export default {
                             }
                             await postMessage(buttonInteraction, state, interaction.guild);
                             break;
+                        case 'simple_embed_reappear': {
+                            const modal = new ModalBuilder().setCustomId(`simple_embed_reappear_modal:${Date.now()}`).setTitle('Reappear after messages').addComponents(
+                                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reappear_count').setLabel('Messages (1-100, blank = off)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(3))
+                            );
+                            await buttonInteraction.showModal(modal);
+                            const submitted = await buttonInteraction.awaitModalSubmit({ filter: i => i.user.id === buttonInteraction.user.id && i.customId === modal.data.custom_id, time: 120000 }).catch(() => null);
+                            if (!submitted) break;
+                            const raw = submitted.fields.getTextInputValue('reappear_count').trim();
+                            const count = raw === '' ? null : Number(raw);
+                            if (count !== null && (!Number.isInteger(count) || count < 1 || count > 100)) {
+                                await submitted.reply({ content: 'Enter a number from 1 to 100, or leave it blank to turn reappear off.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                                break;
+                            }
+                            state.reappearAfter = count;
+                            await submitted.deferUpdate().catch(() => {});
+                            await refreshBuilder(submitted, state);
+                            break;
+                        }
                         case 'simple_embed_close':
                             await buttonInteraction.deferUpdate().catch(() => {});
                             collector.stop('manual-close');
