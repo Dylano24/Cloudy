@@ -47,13 +47,21 @@ export async function hideClosedTicket(channel, { closing = false } = {}) {
   if (staffRoleId) await channel.permissionOverwrites.edit(staffRoleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true });
 }
 
-export async function restoreReopenedTicketAccess(channel) {
-  const data = await getTicketData(channel.guild.id, channel.id);
+export async function restoreReopenedTicketAccess(channel, currentTicketData = null) {
+  const data = currentTicketData || await getTicketData(channel.guild.id, channel.id);
   if (!data?.closedAccessSnapshot) return;
-  for (const overwrite of data.closedAccessSnapshot) {
-    if (overwrite.id === data.userId) continue;
-    await channel.permissionOverwrites.edit(overwrite.id, { ViewChannel: overwrite.view, SendMessages: overwrite.send });
-  }
+
+  // The permission edits are independent. Restore them together instead of
+  // serially waiting for every overwrite before the reopen action can finish.
+  await Promise.all(
+    data.closedAccessSnapshot
+      .filter(overwrite => overwrite.id !== data.userId)
+      .map(overwrite => channel.permissionOverwrites.edit(overwrite.id, {
+        ViewChannel: overwrite.view,
+        SendMessages: overwrite.send,
+      })),
+  );
+
   delete data.closedAccessSnapshot;
   await saveTicketData(channel.guild.id, channel.id, data);
 }
