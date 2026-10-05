@@ -94,6 +94,7 @@
     "scripts/patch-embed-builder-add-delete-buttons.js",
     "scripts/patch-builder-button-modal-delete-flow.js",
     "scripts/patch-builder-button-live-preview.js",
-    "scripts/patch-builder-button-preview-lifecycle.js"
+    "scripts/patch-builder-button-preview-lifecycle.js",
+    "scripts/patch-builder-simple-buttons.js"
   ]
 }
