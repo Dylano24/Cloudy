@@ -14,44 +14,33 @@ test('custom Builder button responses use standard Cloudy embed formatting', () 
   assert.doesNotMatch(source, /content: String\(action\.responseText\)/);
 });
 
-test('professional Builder flow uses one response/link setup and no disabled creator', () => {
+test('professional Builder flow uses explicit button setup and no child preview message', () => {
   const service = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const managerStart = service.indexOf('function managerPayload');
   const modalStart = service.indexOf('async function showAddResponseModal', managerStart);
   const manager = service.slice(managerStart, modalStart);
   assert.match(manager, /Add response button/);
-  assert.match(manager, /response or link button from one form/);
-  assert.match(manager, /seconds only/);
-  assert.doesNotMatch(manager, /Add link button/);
-  assert.doesNotMatch(manager, /Add disabled button/);
+  assert.match(manager, /Add link button/);
+  assert.match(manager, /Add disabled button/);
+  assert.match(manager, /visibility and duration/);
 
-  const modalEnd = service.indexOf('async function showEditButtonModal', modalStart);
-  const modal = service.slice(modalStart, modalEnd);
-  assert.match(modal, /button_url/);
-  assert.match(modal, /ButtonStyle\.Link/);
-  assert.match(modal, /button_settings/);
+  const previewStart = service.indexOf('export async function syncBuilderButtonPreview');
+  const previewEnd = service.indexOf('\n}\n', previewStart);
+  const preview = service.slice(previewStart, previewEnd);
+  assert.doesNotMatch(preview, /followUp\(/);
+  assert.match(preview, /activeButtonPreviewMessageId = null/);
 });
 
-test('top preview owns live buttons and Message builder controls live in a separate follow-up', () => {
+test('main Builder reserves the first component row for up to five live button previews', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const start = source.indexOf('function buildControls(state)');
+  const end = source.indexOf('function getPreviewUpdateQueue', start);
+  const body = source.slice(start, end);
 
-  const previewStart = source.indexOf('function buildPreviewPayload(state)');
-  const dashboardStart = source.indexOf('function buildDashboardPayload(state)', previewStart);
-  assert.ok(previewStart >= 0 && dashboardStart > previewStart);
-  const preview = source.slice(previewStart, dashboardStart);
-  assert.match(preview, /embeds: \[new EmbedBuilder\(previewData\)\]/);
-  assert.match(preview, /components: getBuilderMessageComponents\(state\)/);
-
-  const controlsStart = source.indexOf('function buildControls(state)');
-  const controlsEnd = source.indexOf('function buildPreviewPayload(state)', controlsStart);
-  const controls = source.slice(controlsStart, controlsEnd);
-  assert.doesNotMatch(controls, /previewRows/);
-  assert.doesNotMatch(controls, /buttonPreviewComponents/);
-
-  const executeStart = source.indexOf('async execute(interaction)');
-  const executeBody = source.slice(executeStart);
-  assert.match(executeBody, /state\.rootInteraction = interaction/);
-  assert.match(executeBody, /interaction\.followUp\(\{[\s\S]*?buildDashboardPayload\(state\)/);
-  assert.match(executeBody, /state\.dashboardMessageId = String\(dashboardMessage\.id\)/);
+  assert.match(body, /\.slice\(0, 5\)/);
+  assert.match(body, /const previewRows = buttonPreviewComponents\.length/);
+  assert.match(body, /return \[\.\.\.previewRows, titleRow, contentRow, editRow, saveRow\]\.slice\(0, 5\)/);
+  assert.match(body, /Delete from builder/);
+  assert.match(body, /Save deletion/);
 });
