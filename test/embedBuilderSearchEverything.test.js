@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Embed Builder Search does not reuse channel-specific collapse filtering', () => {
+test('canonical Builder Search indexes every canonical record without channel filtering', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
 
   const displayStart = source.indexOf('function builderSearchDisplayRecords');
@@ -10,9 +10,18 @@ test('Embed Builder Search does not reuse channel-specific collapse filtering', 
   assert.ok(displayStart >= 0 && previewStart > displayStart);
   const displayBody = source.slice(displayStart, previewStart);
 
-  assert.match(displayBody, /Search is intentionally broader than the channel browser/);
-  assert.match(displayBody, /record\?\.canonicalIdentity/);
-  assert.doesNotMatch(displayBody, /collapseDisplayRecords\(/);
+  assert.match(displayBody, /resolved\.some\(record => record\?\.canonicalIdentity\)/);
+  assert.match(displayBody, /return \[\.\.\.unique\.values\(\)\]/);
+});
+
+test('legacy/raw Search peers still use existing duplicate/master grouping', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+
+  const displayStart = source.indexOf('function builderSearchDisplayRecords');
+  const previewStart = source.indexOf('export function latestRealPreviewRecord', displayStart);
+  const displayBody = source.slice(displayStart, previewStart);
+
+  assert.match(displayBody, /collapseDisplayRecords\(channelRecords, channelId\)/);
 });
 
 test('Search still groups repeated runtime peers into one logical result', () => {
