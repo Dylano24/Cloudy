@@ -54,6 +54,11 @@ const CHANNEL_PAGE_SIZE = 100;
 const CHANNEL_SELECT_SIZE = 25;
 const OWNER_SERVER_LIMIT = 125;
 const BUILDER_IDLE_TIMEOUT = 5 * 60_000;
+const ACTIVE_BUILDER_SESSIONS = new Map();
+
+function builderSessionKey(interaction) {
+    return `${interaction.guildId || 'dm'}:${interaction.user?.id || 'unknown'}`;
+}
 
 function getMediaKind(attachment) {
     if (!attachment) return null;
@@ -257,6 +262,7 @@ async function saveExistingEmbed(buttonInteraction, guild, state) {
         }).catch(() => null);
     }
     if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
+    state.finishBuilder?.('saved');
     return saved;
 }
 
@@ -938,6 +944,10 @@ async function postMessage(buttonInteraction, state, guild) {
         components: initialPicker.components,
         flags: MessageFlags.Ephemeral,
     });
+    if (!state.builderChildMessages) state.builderChildMessages = new Map();
+    if (channelPickerMessage?.id) {
+        state.builderChildMessages.set(channelPickerMessage.id, channelPickerMessage);
+    }
 
     // The channel picker is an interactive continuation of Post message, not a
     // 10-second status reply. Keep it alive until a channel is successfully
@@ -996,12 +1006,14 @@ async function postMessage(buttonInteraction, state, guild) {
         } else {
             await channelPickerMessage.delete?.().catch(() => {});
         }
+        state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
         const sentMessage = await channelInteraction.followUp({
             embeds: [successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
             flags: MessageFlags.Ephemeral,
         });
         removeTransientMessage(channelInteraction, sentMessage);
+        state.finishBuilder?.('posted');
     });
 }
 
@@ -1097,6 +1109,20 @@ export default {
                     buttonInteraction.customId.startsWith('simple_embed_'),
                 idle: BUILDER_IDLE_TIMEOUT,
             });
+
+            const sessionKey = builderSessionKey(interaction);
+            const previousSession = ACTIVE_BUILDER_SESSIONS.get(sessionKey);
+            if (previousSession && previousSession.collector !== collector) {
+                previousSession.collector?.stop?.('replaced');
+                await previousSession.message?.delete?.().catch(() => {});
+            }
+            ACTIVE_BUILDER_SESSIONS.set(sessionKey, {
+                collector,
+                message: dashboardMessage,
+            });
+            state.finishBuilder = reason => {
+                if (!collector.ended) collector.stop(reason || 'completed');
+            };
 
             collector.on('collect', async buttonInteraction => {
                 try {
@@ -1235,6 +1261,18 @@ export default {
             });
 
             collector.on('end', async () => {
+                const currentSession = ACTIVE_BUILDER_SESSIONS.get(builderSessionKey(interaction));
+                if (currentSession?.collector === collector) {
+                    ACTIVE_BUILDER_SESSIONS.delete(builderSessionKey(interaction));
+                }
+
+                // Invalidate every Add-button modal waiter from this session before
+                // deleting its UI. A modal opened in an older Builder may never
+                // consume a submit from a newer Builder.
+                state.buttonModalGeneration = (state.buttonModalGeneration || 0) + 1;
+                state.activeButtonEditorCollector?.stop?.('builder-ended');
+                state.activeButtonEditorCollector = null;
+
                 // The root builder owns all ephemeral editor/helper panels. When
                 // it closes or expires, remove those panels as one session.
                 for (const childMessage of state.builderChildMessages?.values?.() || []) {
@@ -1249,6 +1287,15 @@ export default {
                     state.activeEmbedManager.closed = true;
                     state.activeEmbedManager.collector?.stop('builder-ended');
                     state.activeEmbedManager = null;
+                }
+
+                // The Builder/dashboard itself is temporary UI. The only messages
+                // that survive completion are the real embed that was saved or posted.
+                const rootDeleted = await dashboardMessage.delete?.()
+                    .then(() => true)
+                    .catch(() => false);
+                if (!rootDeleted) {
+                    await interaction.deleteReply().catch(() => {});
                 }
                 deleteEmbedColorPickerSession(colorSessionToken);
             });
