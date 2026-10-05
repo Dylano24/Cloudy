@@ -932,7 +932,9 @@ async function postMessage(buttonInteraction, state, guild) {
     }
 
     if (!state.title && !state.message && !hasMedia(state)) {
-        await buttonInteraction.deferUpdate().catch(() => {});
+        // Do not deferUpdate here: replyUserError would otherwise edit the builder's
+        // original interaction reply and replace the whole builder with the error.
+        // A direct ephemeral reply keeps the builder alive; only this error expires.
         await replyUserError(buttonInteraction, {
             type: ErrorTypes.VALIDATION,
             message: 'Add a title, message, picture, GIF, or video before posting.',
