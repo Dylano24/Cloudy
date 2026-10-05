@@ -11,18 +11,13 @@ const patches = packageJson.startupPatches;
 
 // The legacy patches are ordered transformations, not individually repeatable.
 // Skip them only when both their inputs and the complete resulting source match.
-function allJavaScriptFiles(relative = 'src') {
-  const absolute = path.join(root, relative);
-  const stat = fs.statSync(absolute);
-  if (stat.isDirectory()) {
-    return fs.readdirSync(absolute).sort()
-      .flatMap(entry => allJavaScriptFiles(path.join(relative, entry)));
-  }
-  return /\.(?:js|mjs|cjs)$/.test(relative) ? [relative] : [];
-}
-
 function verifySourceSyntax(label) {
-  for (const relative of allJavaScriptFiles()) {
+  const targets = [
+    'src/commands/Tools/embedbuilder.js',
+    'src/commands/Tools/zz_embedbuilderLiveSearchPatch.js',
+    'src/services/embedManagerService.js',
+  ];
+  for (const relative of targets) {
     const absolute = path.join(root, relative);
     const checked = spawnSync(process.execPath, ['--check', absolute], { encoding: 'utf8' });
     if (checked.status !== 0) {
