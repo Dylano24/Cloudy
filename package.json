@@ -100,6 +100,7 @@
     "scripts/patch-builder-preview-button-placement.js",
     "scripts/patch-builder-preview-session-cleanup.js",
     "scripts/patch-builder-live-polish.js",
-    "scripts/patch-builder-native-color-instant.js"
+    "scripts/patch-builder-native-color-instant.js",
+    "scripts/patch-builder-final-controls.js"
   ]
 }
