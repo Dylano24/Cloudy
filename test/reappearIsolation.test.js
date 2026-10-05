@@ -31,3 +31,15 @@ test('Reappear cleanup never rebuilds the whole channel index from a stale snaps
   assert.match(body, /latestIndex\.filter\(id => !removedIds\.has\(String\(id\)\)\)/);
   assert.doesNotMatch(body, /setInDb\(indexKey, survivingIds\)/);
 });
+
+
+test('Reappear remains active when Search registry changes', () => {
+  const source = fs.readFileSync('src/events/messageCreate.js', 'utf8');
+  const start = source.indexOf('async function handleEmbedReappear');
+  const body = source.slice(start);
+
+  assert.match(body, /Only an exact Delete tombstone may stop this rule/);
+  assert.doesNotMatch(body, /stillInBuilder/);
+  assert.doesNotMatch(body, /registryRecords\.some/);
+  assert.match(body, /const disabled = await getFromDb\(disableKey, null\)/);
+});
