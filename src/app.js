@@ -391,28 +391,29 @@ class TitanBot extends Client {
         logger.info('✅ Web server closed');
       }
 
-      // Close database connection
-      // Close database connection
-      if (this.db && this.db.db) {
-        logger.info('Closing database connection...');
-        try {
-          if (this.db.db.pool) {
-            await this.db.db.pool.end();
-            logger.info('✅ Database connection closed');
-          }
-        } catch (error) {
-          logger.warn('Error closing database pool:', error.message);
-        }
-      }
-
+      // Stop Discord events before closing PostgreSQL so in-flight message
+      // handlers cannot start new registry writes against a closing pool.
       logger.info('Destroying Discord client...');
       if (this.isReady()) {
         try {
           this.destroy();
           logger.info('✅ Discord client destroyed');
         } catch (error) {
-
           logger.warn('Discord client destroy warning (non-critical):', error.message);
+        }
+      }
+
+      if (this.db && this.db.db) {
+        logger.info('Closing database connection...');
+        try {
+          if (typeof this.db.db.close === 'function') {
+            await this.db.db.close();
+          } else if (this.db.db.pool) {
+            await this.db.db.pool.end();
+          }
+          logger.info('✅ Database connection closed');
+        } catch (error) {
+          logger.warn('Error closing database pool:', error.message);
         }
       }
 
