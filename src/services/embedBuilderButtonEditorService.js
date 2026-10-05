@@ -238,8 +238,9 @@ function managerPayload(state) {
 }
 
 async function showAddResponseModal(componentInteraction, state, refreshBuilder, panelMessage) {
+  const modalId = `embed_button_add_response_modal:${randomUUID().replaceAll('-', '').slice(0, 12)}`;
   const modal = new ModalBuilder()
-    .setCustomId('embed_button_add_response_modal')
+    .setCustomId(modalId)
     .setTitle('Add response button')
     .addComponents(
       new ActionRowBuilder().addComponents(
@@ -280,7 +281,7 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
 
   await componentInteraction.showModal(modal);
   const submitted = await componentInteraction.awaitModalSubmit({
-    filter: interaction => interaction.customId === 'embed_button_add_response_modal'
+    filter: interaction => interaction.customId === modalId
       && interaction.user.id === componentInteraction.user.id,
     time: 120_000,
   }).catch(() => null);
@@ -303,10 +304,12 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
   }
 
   const actionId = randomUUID().replaceAll('-', '').slice(0, 24);
-  const saved = await saveBuilderButtonAction(submitted.guildId, actionId, responseText);
-  if (!saved) {
-    await submitted.reply({ content: 'Could not save the button action. Nothing was added.', flags: MessageFlags.Ephemeral }).catch(() => {});
-    return;
+  if (!url) {
+    const saved = await setInDb(actionKey(submitted.guildId, actionId), { responseText, deleteAfterMs: DEFAULT_RESPONSE_DELETE_MS, updatedAt: new Date().toISOString() });
+    if (!saved) {
+      await submitted.reply({ content: 'Could not save the button action. Nothing was added.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    }
   }
 
   const next = appendButton(state.componentRows, url ? {
@@ -320,9 +323,8 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
     label,
     custom_id: `${ACTION_CUSTOM_ID}:${actionId}`,
   });
-  // One submit always creates one button. With a URL, that same button becomes
-  // Discord's native link button instead of creating a separate response/link item.
-  if (!url) await setInDb(actionKey(submitted.guildId, actionId), { responseText, deleteAfterMs: DEFAULT_RESPONSE_DELETE_MS, updatedAt: new Date().toISOString() });
+  // One unique modal submit commits exactly one button. Opening, closing or
+  // switching editor options never mutates componentRows.
   if (!next) {
     await submitted.reply({ content: 'Discord allows at most 5 component rows. Remove/reuse a row before adding another button.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
