@@ -90,14 +90,14 @@ patchFile('src/events/embedManagerTitleSearchReady.js', text => {
   const oldGroup = `    const logicalName = document.templateKey
       || searchKey(record?.name)
       || searchKey(record?.source)
-      || \`${record.messageId}:${record.embedIndex || 0}\`;
-    const groupKey = \`${record.channelId}:${logicalName}\`;
+      || \`\${record.messageId}:\${record.embedIndex || 0}\`;
+    const groupKey = \`\${record.channelId}:\${logicalName}\`;
     const candidate = { record, ...document, score };
     grouped.set(groupKey, preferredRecord(grouped.get(groupKey), candidate));`;
 
   const newGroup = `    const canonicalIdentity = String(record?.canonicalIdentity || '').trim();
     const groupKey = canonicalIdentity
-      ? \`canonical:${canonicalIdentity}\`
+      ? \`canonical:\${canonicalIdentity}\`
       : [
           'physical',
           String(record?.channelId || ''),
