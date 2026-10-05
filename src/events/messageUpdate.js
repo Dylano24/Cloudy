@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
+import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 import { formatLogLine } from '../utils/logging/logEmbeds.js';
 
 const MAX_LOGGED_EDIT_CONTENT_LENGTH = 512;
@@ -11,7 +12,14 @@ export default {
 
   async execute(oldMessage, newMessage) {
     try {
-      if (!newMessage.guild || newMessage.author?.bot) return;
+      if (!newMessage.guild) return;
+      if (newMessage.author?.id === newMessage.client.user?.id) {
+        if (newMessage.embeds?.length) {
+          await registerCloudyEmbedMessage(newMessage, 'bot-history');
+        }
+        return;
+      }
+      if (newMessage.author?.bot) return;
 
       if (oldMessage.content === newMessage.content) return;
 
