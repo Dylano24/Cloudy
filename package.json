@@ -98,6 +98,7 @@
     "scripts/patch-builder-simple-buttons.js",
     "scripts/patch-builder-professional-buttons.js",
     "scripts/patch-builder-preview-button-placement.js",
-    "scripts/patch-builder-preview-session-cleanup.js"
+    "scripts/patch-builder-preview-session-cleanup.js",
+    "scripts/patch-builder-live-polish.js"
   ]
 }
