@@ -2,23 +2,33 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Builder button additions sync to a real live component preview', () => {
-  const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
+test('Builder button preview is attached to the main Builder message', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const controlsStart = source.indexOf('function buildControls(state)');
+  const controlsEnd = source.indexOf('function getPreviewUpdateQueue', controlsStart);
+  assert.ok(controlsStart >= 0 && controlsEnd > controlsStart);
+  const controls = source.slice(controlsStart, controlsEnd);
 
-  assert.match(source, /export async function syncBuilderButtonPreview/);
-  assert.match(source, /components: rows/);
-  assert.match(source, /flags: MessageFlags\.Ephemeral/);
-
-  const addResponseStart = source.indexOf('async function showAddResponseModal');
-  const addLinkStart = source.indexOf('async function showAddLinkModal');
-  const editStart = source.indexOf('async function showEditButtonModal');
-
-  assert.ok(addResponseStart >= 0 && addLinkStart > addResponseStart && editStart > addLinkStart);
-  assert.match(source.slice(addResponseStart, addLinkStart), /syncBuilderButtonPreview\(submitted, state\)/);
-  assert.match(source.slice(addLinkStart, editStart), /syncBuilderButtonPreview\(submitted, state\)/);
+  assert.match(controls, /getBuilderMessageComponents\(state\)/);
+  assert.match(controls, /buttonPreviewComponents/);
+  assert.match(controls, /const previewRows = buttonPreviewComponents\.length/);
+  assert.match(controls, /return \[\.\.\.previewRows, titleRow, contentRow, editRow, saveRow\]/);
 });
 
-test('opening Add buttons reuses the current private editor instead of creating another embed', () => {
+test('separate child button preview is disabled and stale preview is cleaned up', () => {
+  const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
+  const start = source.indexOf('export async function syncBuilderButtonPreview');
+  const end = source.indexOf('\n}\n', start);
+  assert.ok(start >= 0 && end > start);
+  const body = source.slice(start, end);
+
+  assert.match(body, /deletePrivateBuilderMessage/);
+  assert.match(body, /state\.activeButtonPreviewMessageId = null/);
+  assert.match(body, /return null/);
+  assert.doesNotMatch(body, /interaction\.followUp/);
+});
+
+test('opening Add buttons reuses the current private editor instead of creating duplicates', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
   const start = source.indexOf('export async function openEmbedButtonEditor');
   assert.ok(start >= 0);
@@ -26,21 +36,5 @@ test('opening Add buttons reuses the current private editor instead of creating 
 
   assert.match(body, /state\.activeButtonEditorMessageId/);
   assert.match(body, /buttonInteraction\.webhook\.editMessage/);
-  assert.match(body, /return;/);
   assert.match(body, /deletePrivateBuilderMessage/);
-});
-
-test('Remove buttons and Reset clear the live button preview', () => {
-  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
-
-  const removeStart = source.indexOf("case 'simple_embed_remove_buttons':");
-  const modifyStart = source.indexOf("case 'simple_embed_modify':", removeStart);
-  assert.ok(removeStart >= 0 && modifyStart > removeStart);
-  assert.match(source.slice(removeStart, modifyStart), /syncBuilderButtonPreview\(buttonInteraction, state\)/);
-
-  const resetStart = source.indexOf("case 'simple_embed_reset':");
-  const resetNextCase = source.indexOf("\n                        case '", resetStart + 8);
-  assert.ok(resetStart >= 0);
-  const resetBody = source.slice(resetStart, resetNextCase >= 0 ? resetNextCase : source.length);
-  assert.match(resetBody, /syncBuilderButtonPreview\(buttonInteraction, state\)/);
 });
