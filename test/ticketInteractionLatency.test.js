@@ -48,8 +48,8 @@ function fixture({ staff = false, record = true } = {}) {
   return { interaction, client, guild, channel, storage, ticketKey, values, trace, replies, publicPayloads };
 }
 
-test('claim and unclaim acknowledge before a slow permission database lookup', async () => {
-  for (const name of ['ticket_claim', 'ticket_unclaim']) {
+test('ticket mutation buttons acknowledge before a slow permission database lookup', async () => {
+  for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture({ record: false });
     let finishLookup;
     const originalGet = f.storage.get;
@@ -71,8 +71,8 @@ test('claim and unclaim acknowledge before a slow permission database lookup', a
   }
 });
 
-test('unauthorized claim and unclaim preserve state and deliver permission denial privately', async () => {
-  for (const name of ['ticket_claim', 'ticket_unclaim']) {
+test('unauthorized ticket mutation buttons preserve state and deliver permission denial privately', async () => {
+  for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture();
     const original = structuredClone(f.values.get(f.ticketKey));
     await buttons.find(button => button.name === name).execute(f.interaction, f.client);
@@ -85,8 +85,8 @@ test('unauthorized claim and unclaim preserve state and deliver permission denia
   }
 });
 
-test('permission lookup failure after component acknowledgement stays private and does not mutate state', async () => {
-  for (const name of ['ticket_claim', 'ticket_unclaim']) {
+test('ticket mutation permission lookup failure stays private and does not mutate state', async () => {
+  for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture({ staff: true });
     const original = structuredClone(f.values.get(f.ticketKey));
     const originalGet = f.storage.get;
@@ -103,7 +103,7 @@ test('permission lookup failure after component acknowledgement stays private an
 });
 
 test('failed component acknowledgement skips permission reads and ticket mutations', async () => {
-  for (const name of ['ticket_claim', 'ticket_unclaim']) {
+  for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture({ staff: true });
     const original = structuredClone(f.values.get(f.ticketKey));
     f.interaction.deferUpdate = async () => { throw Object.assign(new Error('Unknown interaction'), { code: 10062 }); };
@@ -161,4 +161,63 @@ test('ticket permission recovery still falls back to recent history when no pinn
   const context = await getTicketPermissionContext({ client: f.client, interaction: f.interaction });
   assert.equal(context.ticketData.ticketMessageId, main.id);
   assert.equal(recentReads, 1);
+});
+
+
+test('staff reopen reuses stored ticket messages and does not scan recent history', async () => {
+  const f = fixture({ staff: true });
+  const creatorId = '1634506224312389802';
+  f.values.set(f.ticketKey, {
+    ...f.values.get(f.ticketKey),
+    status: 'closed',
+    ticketMessageId: 'stored-main-ticket',
+    closedAccessSnapshot: [],
+  });
+
+  const creator = { id: creatorId };
+  f.guild.members = {
+    cache: new Collection([[creatorId, creator]]),
+    fetch: async id => id === creatorId ? creator : null,
+  };
+
+  const permissionCreates = [];
+  f.channel.permissionOverwrites = {
+    cache: new Collection(),
+    create: async (target, permissions) => {
+      permissionCreates.push({ target: target.id || target, permissions });
+      return true;
+    },
+    edit: async () => true,
+  };
+
+  let mainEdits = 0;
+  let closeStatusEdits = 0;
+  let recentHistoryReads = 0;
+  const mainMessage = {
+    id: 'stored-main-ticket',
+    embeds: [new EmbedBuilder().setTitle('Ticket #1')],
+    edit: async () => { mainEdits += 1; return mainMessage; },
+  };
+  const closeStatusMessage = {
+    id: 'close-status',
+    embeds: [new EmbedBuilder().setTitle('Ticket closed')],
+    components: [{ components: [{ customId: 'ticket_reopen' }] }],
+    edit: async () => { closeStatusEdits += 1; return closeStatusMessage; },
+  };
+  f.interaction.message = closeStatusMessage;
+  f.channel.messages.fetch = async query => {
+    if (query === 'stored-main-ticket') return mainMessage;
+    recentHistoryReads += 1;
+    throw new Error('Reopen should not scan recent history when both message references are available');
+  };
+
+  await buttons.find(button => button.name === 'ticket_reopen').execute(f.interaction, f.client);
+
+  assert.equal(f.trace[0], 'ack');
+  assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'open');
+  assert.equal(mainEdits, 1);
+  assert.equal(closeStatusEdits, 1);
+  assert.equal(recentHistoryReads, 0);
+  assert.equal(permissionCreates.length, 1);
+  assert.equal(f.replies.length, 0);
 });
