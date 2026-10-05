@@ -18,8 +18,9 @@ test('Embed Builder precomputes canonical Modify data before the button click', 
 test('local Builder state changes refresh preview and dashboard without a defer round-trip', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   assert.match(source, /async function editBuilderDashboardMessage/);
-  assert.match(source, /const previewUpdated = await editBuilderPreviewMessage\(/);
-  assert.match(source, /await editBuilderDashboardMessage\(/);
+  assert.match(source, /const previewPromise = editBuilderPreviewMessage\(/);
+  assert.match(source, /const dashboardPromise = state\.builderDashboardMessageId/);
+  assert.match(source, /await Promise\.all\(\[/);
 
   for (const id of ['simple_embed_logo', 'simple_embed_remove_logo', 'simple_embed_clear_media', 'simple_embed_reset']) {
     const start = source.indexOf(`case '${id}':`);
