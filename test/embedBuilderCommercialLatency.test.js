@@ -18,8 +18,9 @@ test('Embed Builder precomputes canonical Modify data before the button click', 
 test('local Builder state changes refresh preview and dashboard without a defer round-trip', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   assert.match(source, /async function editBuilderDashboardMessage/);
+  assert.match(source, /function queueBuilderRefresh/);
   assert.match(source, /const previewPromise = editBuilderPreviewMessage\(/);
-  assert.match(source, /const dashboardPromise = state\.builderDashboardMessageId/);
+  assert.match(source, /const dashboardPromise = next\.dashboardPayload && state\.builderDashboardMessageId/);
   assert.match(source, /await Promise\.all\(\[/);
 
   for (const id of ['simple_embed_logo', 'simple_embed_remove_logo', 'simple_embed_clear_media', 'simple_embed_reset']) {
@@ -91,3 +92,29 @@ test('Modify and manager pagination use the one-request fast path on real Discor
   }
 });
 
+
+
+test('browser title/message edits use the preview-only fast path', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  assert.match(source, /function refreshBuilderPreviewOnly/);
+
+  const editorStart = source.indexOf('onEditorUpdate: async (field, value)');
+  const editorEnd = source.indexOf('onColor: async color', editorStart);
+  assert.ok(editorStart >= 0 && editorEnd > editorStart);
+  const editor = source.slice(editorStart, editorEnd);
+  assert.match(editor, /refreshBuilderPreviewOnly\(interaction, state\)/);
+  assert.doesNotMatch(editor, /refreshBuilder\(interaction, state\)/);
+
+  const session = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
+  assert.match(session, /EDIT_FLUSH_DELAY_MS = 0/);
+});
+
+test('editor heartbeat no longer performs a Discord message edit', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const start = source.indexOf('onEditorHold: async () =>');
+  const end = source.indexOf('onEditorUpdate: async (field, value)', start);
+  assert.ok(start >= 0 && end > start);
+  const block = source.slice(start, end);
+  assert.match(block, /touchBuilderSessionMessage\(state\.builderDashboardMessage\)/);
+  assert.doesNotMatch(block, /refreshBuilder\(/);
+});
