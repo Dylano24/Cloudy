@@ -96,7 +96,6 @@
     "scripts/patch-builder-button-live-preview.js",
     "scripts/patch-builder-button-preview-lifecycle.js",
     "scripts/patch-builder-simple-buttons.js",
-    "scripts/patch-builder-professional-buttons.js",
-    "scripts/patch-builder-button-explicit-fields.js"
+    "scripts/patch-builder-professional-buttons.js"
   ]
 }
