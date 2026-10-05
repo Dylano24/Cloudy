@@ -57,7 +57,7 @@ function invalidateBuilderRecordCaches(guildId) {
 
 export async function openEmbedManager`);
 
-  const openPreparedPattern = /        const prepared = state\.embedManagerPrepared;\n        delete state\.embedManagerPrepared;\n        const storedRecords = \(prepared && await prepared\) \|\| await getEmbedRegistry\(guild\.id\);\n        await warmSavedEmbedTemplateScopes\(guild\.id, storedRecords\.map\(record => record\.channelId\)\);\n        let records = await getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\);/;
+  const openPreparedPattern = / {8}const prepared = state\.embedManagerPrepared;\n {8}delete state\.embedManagerPrepared;\n {8}const storedRecords = \(prepared && await prepared\) \|\| await getEmbedRegistry\(guild\.id\);\n {8}await warmSavedEmbedTemplateScopes\(guild\.id, storedRecords\.map\(record => record\.channelId\)\);\n {8}let records = await getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\);/;
   if (!openPreparedPattern.test(text)) throw new Error('[BUILDER_COMMERCIAL_LATENCY] prepared open block missing');
   text = text.replace(openPreparedPattern, `        const prepared = state.embedManagerPrepared;
         delete state.embedManagerPrepared;
