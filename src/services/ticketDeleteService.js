@@ -27,7 +27,7 @@ function enqueue(key, operation) {
   return current;
 }
 
-export async function deleteTicketSafely(channel, deleter) {
+export async function deleteTicketSafely(channel, deleter, providedTicketData = null) {
   if (!channel?.guild?.id || !channel?.id) {
     throw ticketDeleteError('Invalid ticket channel', 'This is not a valid ticket channel.');
   }
@@ -36,13 +36,9 @@ export async function deleteTicketSafely(channel, deleter) {
   const key = `${channel.guild.id}:${channel.id}`;
 
   return enqueue(key, async () => {
-    await ensureTicketDestinationConfig(
-      channel.client,
-      channel.guild,
-      { refreshIfMissing: true },
-    );
-
-    const ticketData = await getTicketData(channel.guild.id, channel.id);
+    const ticketData = providedTicketData
+      ? structuredClone(providedTicketData)
+      : await getTicketData(channel.guild.id, channel.id);
     if (!ticketData) {
       throw ticketDeleteError('Ticket data not found', 'This is not a valid ticket channel.', 'TICKET_NOT_FOUND');
     }
@@ -67,7 +63,26 @@ export async function deleteTicketSafely(channel, deleter) {
     ticketData.deletionScheduledBy = deleter.id;
     await saveTicketData(channel.guild.id, channel.id, ticketData);
 
+    const deleterId = String(deleter?.id || deleter?.user?.id || '').trim();
+    const deleterMention = deleterId ? `<@${deleterId}>` : 'A staff member';
+    const deleteNotice = await channel.send({
+      embeds: [buildCloudyTicketEmbed({
+        title: 'Ticket deleted',
+        description: `${deleterMention} has deleted this ticket.\n\nThis ticket will be permanently deleted in ${Math.ceil(DELETE_DELAY_MS / 1000)} seconds.`,
+      })],
+      allowedMentions: deleterId
+        ? { parse: [], users: [deleterId] }
+        : { parse: [] },
+    }).catch(() => null);
+
     try {
+      // Destination discovery and transcript generation can be the slowest part
+      // of deletion. Run them only after the user-visible delete notice exists.
+      await ensureTicketDestinationConfig(
+        channel.client,
+        channel.guild,
+        { refreshIfMissing: true },
+      );
       if (!ticketData.transcriptArchivedAt) {
         const transcript = await archiveTicketTranscript({
           channel,
@@ -108,19 +123,6 @@ export async function deleteTicketSafely(channel, deleter) {
           channelId: channel.id,
         });
       }
-
-      const deleterId = String(deleter?.id || deleter?.user?.id || '').trim();
-      const deleterMention = deleterId ? `<@${deleterId}>` : 'A staff member';
-
-      await channel.send({
-        embeds: [buildCloudyTicketEmbed({
-          title: 'Ticket deleted',
-          description: `${deleterMention} has deleted this ticket.\n\nThis ticket will be permanently deleted in ${Math.ceil(DELETE_DELAY_MS / 1000)} seconds.`,
-        })],
-        allowedMentions: deleterId
-          ? { parse: [], users: [deleterId] }
-          : { parse: [] },
-      }).catch(() => {});
 
       const timer = setTimeout(async () => {
         try {
@@ -166,6 +168,7 @@ export async function deleteTicketSafely(channel, deleter) {
       ticketData.deletionFailedAt = new Date().toISOString();
       ticketData.deletionFailure = error.message;
       await saveTicketData(channel.guild.id, channel.id, ticketData).catch(() => {});
+      await deleteNotice?.delete?.().catch(() => {});
       throw error;
     }
   });
