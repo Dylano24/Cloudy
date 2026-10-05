@@ -68,7 +68,7 @@ export default {
       const storedPriority = String(context.ticketData.priority || 'none').toLowerCase();
       const currentPriority = storedPriority === 'urgent' ? 'high' : storedPriority;
 
-      await updateTicketPriority(interaction.channel, priority, interaction.user);
+      await updateTicketPriority(interaction.channel, priority, interaction.user, context.ticketData);
 
       await interaction.editReply({
         content: '',
