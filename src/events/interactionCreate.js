@@ -409,6 +409,7 @@ export default {
             || interaction.customId.startsWith('embed_button_add_response_modal:')
             || interaction.customId.startsWith('embed_button_add_link_modal')
             || interaction.customId.startsWith('embed_button_edit_modal:')
+            || interaction.customId.startsWith('simple_embed_reappear_modal:')
           ) {
             logger.debug(`Skipping modal handler lookup for inline-awaited modal: ${interaction.customId}`, {
               event: 'interaction.modal.inline_skipped',
