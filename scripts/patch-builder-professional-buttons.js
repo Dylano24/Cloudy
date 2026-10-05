@@ -26,14 +26,18 @@ patchFile('src/services/embedBuilderButtonEditorService.js', text => {
   return setInDb(actionKey(guildId, actionId), {
     responseText: String(source.responseText || '').slice(0, 4000),
     visibility: source.visibility === 'public' ? 'public' : 'private',
-    deleteAfterMs: Number(source.deleteAfterMs) === 10_000 ? 10_000 : null,
+    deleteAfterMs: Number.isFinite(Number(source.deleteAfterMs))
+      && Number(source.deleteAfterMs) >= 1_000
+      && Number(source.deleteAfterMs) <= 15 * 60_000
+        ? Number(source.deleteAfterMs)
+        : null,
     updatedAt: new Date().toISOString(),
   });
 }`;
     text = text.slice(0, start) + replacement + text.slice(end + 2);
   }
 
-  // Compact editor: one Add response button. Link is an optional action inside it.
+  // Keep each button behavior explicit instead of overloading one Function field.
   {
     const start = text.indexOf('function managerPayload(state) {');
     const end = text.indexOf('\n}\n\nasync function showAddResponseModal', start);
@@ -59,8 +63,8 @@ patchFile('src/services/embedBuilderButtonEditorService.js', text => {
         .setDescription([
           ...lines,
           '',
-          'Add a button and choose its function in one place. Response, visibility and URL are optional.',
-          'Supported functions: private response, public response, 10-second response, link or disabled.',
+          'Response buttons use separate fields for visibility and duration.',
+          'Link and disabled buttons have their own setup so no function code needs to be typed.',
         ].join('\\n').slice(0, 4096))
         .setColor(0xFFFFFF),
     ],
@@ -70,43 +74,42 @@ patchFile('src/services/embedBuilderButtonEditorService.js', text => {
           .setCustomId('embed_button_add_response')
           .setLabel('Add response button')
           .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('embed_button_add_link')
+          .setLabel('Add link button')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('embed_button_add_disabled')
+          .setLabel('Add disabled button')
+          .setStyle(ButtonStyle.Secondary),
       ),
     ],
   };
 }
 
-function normalizeButtonFunction(value, responseText, url) {
-  const raw = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replaceAll('_', ' ')
-    .replaceAll('-', ' ')
-    .replace(/\\s+/g, ' ');
+function normalizeButtonVisibility(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw || raw === 'private' || raw === 'ephemeral' || raw === 'privé') return 'private';
+  if (raw === 'public' || raw === 'publiek') return 'public';
+  return null;
+}
 
-  if (!raw) {
-    if (url && responseText) return 'ambiguous';
-    if (url) return 'link';
-    if (responseText) return 'private';
-    return 'disabled';
+function parseButtonDuration(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/\\s+/g, '');
+  if (!raw || ['none', 'off', 'keep', 'stay', 'stays', 'permanent'].includes(raw)) {
+    return { valid: true, ms: null };
   }
 
-  const aliases = new Map([
-    ['private', 'private'],
-    ['ephemeral', 'private'],
-    ['privé', 'private'],
-    ['private 10s', 'private10'],
-    ['private10', 'private10'],
-    ['ephemeral 10s', 'private10'],
-    ['public', 'public'],
-    ['publiek', 'public'],
-    ['public 10s', 'public10'],
-    ['public10', 'public10'],
-    ['link', 'link'],
-    ['url', 'link'],
-    ['disabled', 'disabled'],
-    ['off', 'disabled'],
-  ]);
-  return aliases.get(raw) || 'invalid';
+  const match = raw.match(/^(\\d{1,3})(s|sec|secs|second|seconds|m|min|mins|minute|minutes)$/);
+  if (!match) return { valid: false, ms: null };
+
+  const amount = Number(match[1]);
+  const unit = match[2].startsWith('m') ? 60_000 : 1_000;
+  const ms = amount * unit;
+  if (!Number.isFinite(ms) || ms < 1_000 || ms > 15 * 60_000) {
+    return { valid: false, ms: null };
+  }
+  return { valid: true, ms };
 }
 
 async function replyButtonEditorError(interaction, content) {
@@ -122,7 +125,7 @@ async function replyButtonEditorError(interaction, content) {
     text = text.slice(0, start) + replacement + text.slice(end + 2);
   }
 
-  // One professional modal handles response/link/disabled actions.
+  // Response buttons get explicit visibility and duration fields.
   {
     const start = text.indexOf('async function showAddResponseModal(');
     const end = text.indexOf('\nasync function showAddLinkModal(', start);
@@ -151,29 +154,29 @@ async function replyButtonEditorError(interaction, content) {
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId('button_function')
-          .setLabel('Function (optional)')
+          .setCustomId('button_visibility')
+          .setLabel('Visibility (optional)')
           .setStyle(TextInputStyle.Short)
-          .setPlaceholder('private, public, private 10s, public 10s, link, disabled')
-          .setMaxLength(24)
+          .setPlaceholder('private or public • default: private')
+          .setMaxLength(12)
+          .setRequired(false),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('button_duration')
+          .setLabel('Duration (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('10s, 30s, 1m, 5m • blank = stays')
+          .setMaxLength(16)
           .setRequired(false),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('button_response')
-          .setLabel('Response message (optional)')
+          .setLabel('Response message')
           .setStyle(TextInputStyle.Paragraph)
           .setMaxLength(4000)
-          .setRequired(false),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('button_url')
-          .setLabel('URL (optional)')
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder('https://example.com')
-          .setMaxLength(512)
-          .setRequired(false),
+          .setRequired(true),
       ),
     );
 
@@ -190,75 +193,47 @@ async function replyButtonEditorError(interaction, content) {
     submitted.fields.getTextInputValue('button_style'),
     ButtonStyle.Secondary,
   );
-  const responseText = submitted.fields.getTextInputValue('button_response').trim().slice(0, 4000);
-  const url = submitted.fields.getTextInputValue('button_url').trim().slice(0, 512);
-  const action = normalizeButtonFunction(
-    submitted.fields.getTextInputValue('button_function'),
-    responseText,
-    url,
+  const visibility = normalizeButtonVisibility(
+    submitted.fields.getTextInputValue('button_visibility'),
   );
+  const duration = parseButtonDuration(
+    submitted.fields.getTextInputValue('button_duration'),
+  );
+  const responseText = submitted.fields.getTextInputValue('button_response').trim().slice(0, 4000);
 
-  if (action === 'ambiguous') {
+  if (!visibility) {
+    await replyButtonEditorError(submitted, 'Visibility must be private or public.');
+    return;
+  }
+  if (!duration.valid) {
     await replyButtonEditorError(
       submitted,
-      'Choose a function when both a response message and URL are filled in.',
+      'Duration must be blank or a time such as 10s, 30s, 1m, 5m or 15m.',
     );
     return;
   }
-  if (action === 'invalid') {
-    await replyButtonEditorError(
-      submitted,
-      'Use private, public, private 10s, public 10s, link or disabled.',
-    );
+  if (!responseText) {
+    await replyButtonEditorError(submitted, 'A response button needs a response message.');
     return;
   }
 
-  let component;
-  if (action === 'link') {
-    if (!/^https?:\\/\\//i.test(url)) {
-      await replyButtonEditorError(submitted, 'A link button needs a valid http:// or https:// URL.');
-      return;
-    }
-    component = {
-      type: BUTTON_COMPONENT_TYPE,
-      style: ButtonStyle.Link,
-      label,
-      url,
-    };
-  } else if (action === 'disabled') {
-    component = {
-      type: BUTTON_COMPONENT_TYPE,
-      style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
-      label,
-      custom_id: 'cloudy_builder_disabled:' + randomUUID().replaceAll('-', '').slice(0, 24),
-      disabled: true,
-    };
-  } else {
-    if (!responseText) {
-      await replyButtonEditorError(submitted, 'A response button needs a response message.');
-      return;
-    }
-
-    const actionId = randomUUID().replaceAll('-', '').slice(0, 24);
-    const saved = await saveBuilderButtonAction(submitted.guildId, actionId, {
-      responseText,
-      visibility: action.startsWith('public') ? 'public' : 'private',
-      deleteAfterMs: action.endsWith('10') ? 10_000 : null,
-    });
-    if (!saved) {
-      await replyButtonEditorError(submitted, 'Could not save the button action. Nothing was added.');
-      return;
-    }
-
-    component = {
-      type: BUTTON_COMPONENT_TYPE,
-      style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
-      label,
-      custom_id: ACTION_CUSTOM_ID + ':' + actionId,
-    };
+  const actionId = randomUUID().replaceAll('-', '').slice(0, 24);
+  const saved = await saveBuilderButtonAction(submitted.guildId, actionId, {
+    responseText,
+    visibility,
+    deleteAfterMs: duration.ms,
+  });
+  if (!saved) {
+    await replyButtonEditorError(submitted, 'Could not save the button action. Nothing was added.');
+    return;
   }
 
-  const next = appendButton(state.componentRows, component);
+  const next = appendButton(state.componentRows, {
+    type: BUTTON_COMPONENT_TYPE,
+    style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
+    label,
+    custom_id: ACTION_CUSTOM_ID + ':' + actionId,
+  });
   if (!next) {
     await replyButtonEditorError(
       submitted,
@@ -281,20 +256,98 @@ async function replyButtonEditorError(interaction, content) {
     text = text.slice(0, start) + replacement + text.slice(end);
   }
 
-  // Remove the separate Add link implementation entirely.
-  {
-    const start = text.indexOf('async function showAddLinkModal(');
-    const end = text.indexOf('\nasync function showEditButtonModal(', start);
-    if (start >= 0 && end > start) {
-      text = text.slice(0, start) + text.slice(end + 1);
-    }
+  // Keep link setup separate and add an equally explicit disabled-button setup.
+  if (!text.includes('async function showAddDisabledModal(')) {
+    const editStart = text.indexOf('async function showEditButtonModal(');
+    if (editStart < 0) throw new Error('[BUILDER_PRO_BUTTONS] edit modal block missing');
+    const disabledModal = `async function showAddDisabledModal(componentInteraction, state, refreshBuilder, panelMessage) {
+  const modal = new ModalBuilder()
+    .setCustomId('embed_button_add_disabled_modal')
+    .setTitle('Add disabled button')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('button_label')
+          .setLabel('Button name')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(80)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('button_style')
+          .setLabel('Color (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('gray, blue, green or red')
+          .setMaxLength(12)
+          .setRequired(false),
+      ),
+    );
+
+  await componentInteraction.showModal(modal);
+  const submitted = await componentInteraction.awaitModalSubmit({
+    filter: interaction => interaction.customId === 'embed_button_add_disabled_modal'
+      && interaction.user.id === componentInteraction.user.id,
+    time: 120_000,
+  }).catch(() => null);
+  if (!submitted) return;
+
+  const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
+  const style = parseButtonStyle(
+    submitted.fields.getTextInputValue('button_style'),
+    ButtonStyle.Secondary,
+  );
+  const next = appendButton(state.componentRows, {
+    type: BUTTON_COMPONENT_TYPE,
+    style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
+    label,
+    custom_id: 'cloudy_builder_disabled:' + randomUUID().replaceAll('-', '').slice(0, 24),
+    disabled: true,
+  });
+  if (!next) {
+    await replyButtonEditorError(
+      submitted,
+      'Discord allows at most 5 component rows. Remove a button before adding another one.',
+    );
+    return;
   }
 
-  // Remove the obsolete collector branch if an earlier patch left it behind.
-  text = text.replace(
-    /\n\s*if \(componentInteraction\.customId === 'embed_button_add_link'\) \{[\s\S]*?\n\s*\}\n/,
-    '\n',
-  );
+  state.componentRows = next;
+  state.componentRowsSourceMessageId = state.modifyTarget?.messageId
+    ? String(state.modifyTarget.messageId)
+    : 'new';
+  state.componentsDirty = true;
+  await submitted.deferUpdate().catch(() => {});
+  await panelMessage.edit(managerPayload(state)).catch(() => {});
+  await refreshBuilder(submitted, state).catch(() => {});
+  await closeButtonEditorPanel(submitted, state).catch(() => {});
+}
+
+`;
+    text = text.slice(0, editStart) + disabledModal + text.slice(editStart);
+  }
+
+  const responseCase = `        if (componentInteraction.customId === 'embed_button_add_response') {
+          await showAddResponseModal(componentInteraction, state, refreshBuilder, panelMessage);
+          return;
+        }`;
+  const linkCase = `        if (componentInteraction.customId === 'embed_button_add_link') {
+          await showAddLinkModal(componentInteraction, state, refreshBuilder, panelMessage);
+          return;
+        }`;
+  const disabledCase = `        if (componentInteraction.customId === 'embed_button_add_disabled') {
+          await showAddDisabledModal(componentInteraction, state, refreshBuilder, panelMessage);
+          return;
+        }`;
+
+  if (!text.includes(linkCase)) {
+    if (!text.includes(responseCase)) throw new Error('[BUILDER_PRO_BUTTONS] response collector branch missing');
+    text = text.replace(responseCase, responseCase + '\n' + linkCase);
+  }
+  if (!text.includes(disabledCase)) {
+    const anchor = text.includes(linkCase) ? linkCase : responseCase;
+    text = text.replace(anchor, anchor + '\n' + disabledCase);
+  }
 
   // The main Builder now owns the live button preview. Remove any old child preview.
   {
@@ -430,4 +483,4 @@ function getPreviewUpdateQueue`);
   return text;
 });
 
-console.log('[BUILDER_PRO_BUTTONS] Professional all-in-one button flow enabled.');
+console.log('[BUILDER_PRO_BUTTONS] Professional explicit button fields enabled.');
