@@ -1076,7 +1076,6 @@ export default {
                     // Browser activity is Builder activity. This is especially
                     // important for Search -> Edit, where no Discord component
                     // click occurs while the user types in the web editor.
-                    collector?.resetTimer?.();
                     if (field === '__heartbeat__') return;
 
                     if (field === 'title') state.title = value.trim() || null;
@@ -1110,8 +1109,7 @@ export default {
             await refreshBuilder(interaction, state);
 
             const dashboardMessage = await interaction.fetchReply();
-            let collector;
-            collector = dashboardMessage.createMessageComponentCollector({
+            const collector = dashboardMessage.createMessageComponentCollector({
                 filter: buttonInteraction =>
                     buttonInteraction.isButton() &&
                     buttonInteraction.user.id === interaction.user.id &&
