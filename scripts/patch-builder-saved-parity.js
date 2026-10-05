@@ -83,11 +83,18 @@ patch('src/services/embedManagerService.js', [
 patch('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', [
   ["    return `${record?.channelId}:${titleKey}`;", "    const statusTitle = canonicalBuilderResponseTitle(document.title);\n    if (/^(?:failed|success|warning|error|information|invalid|expired|too fast|cooldown|on cooldown|please wait|slow down)$/.test(statusTitle)) return `status:${statusTitle}`;\n    return `${record?.channelId}:${titleKey}`;"],
   ["import { collapseDisplayRecords } from '../../services/embedManagerService.js';", "import { collapseDisplayRecords, canonicalBuilderResponseTitle } from '../../services/embedManagerService.js';\nimport { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';\nimport { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';"],
-  ["import { getSystemSourceDefinitionPreview } from '../../services/systemEmbedCatalogService.js';", "import { getSystemSourceDefinitionPreview, getSystemSourceDefinitionPreviewForEmbed } from '../../services/systemEmbedCatalogService.js';"],
+  [`import {
+    getSearchableSystemCatalogRecords,
+    getSystemSourceDefinitionPreview,
+} from '../../services/systemEmbedCatalogService.js';`, `import {
+    getSearchableSystemCatalogRecords,
+    getSystemSourceDefinitionPreview,
+    getSystemSourceDefinitionPreviewForEmbed,
+} from '../../services/systemEmbedCatalogService.js';`],
   ["function snapshot(record) {\n    return getEmbedRegistrySnapshot(record) || record?.snapshot || {};\n}", "function snapshot(record) {\n    const raw = getEmbedRegistrySnapshot(record) || record?.snapshot || {};\n    const source = getSystemSourceDefinitionPreviewForEmbed(raw) || {};\n    const complete = { ...source, ...raw };\n    return getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, complete).data;\n}"],
   ["const candidates = [data?.title, record?.name, record?.title]", "const candidates = [record?.previewRecord ? record?.name : null, data?.title, record?.name, record?.title]"],
   ["                    previewRecord: record.previewRecord\n                        || latestRealPreviewRecord(interaction.guild, records, record),", "                    previewRecord: await hydrateBuilderPreviewRecord(interaction.guild, record, record.previewRecord || latestRealPreviewRecord(interaction.guild, records, record), interaction.user.id).catch(() => record.previewRecord || latestRealPreviewRecord(interaction.guild, records, record)),"],
-  ["const records = await getEmbedRegistry(interaction.guildId);", "const records = await getEmbedRegistry(interaction.guildId);\n        await warmSavedEmbedTemplateScopes(interaction.guildId, records.map(record => record.channelId));"],
+  ["const registryRecords = await getEmbedRegistry(interaction.guildId);\n        const records = mergeSearchRecords(interaction.guildId, registryRecords);", "const registryRecords = await getEmbedRegistry(interaction.guildId);\n        await warmSavedEmbedTemplateScopes(interaction.guildId, registryRecords.map(record => record.channelId));\n        const records = mergeSearchRecords(interaction.guildId, registryRecords);"],
 ]);
 
 patch('src/events/fullResponseCatalogReady.js', [
