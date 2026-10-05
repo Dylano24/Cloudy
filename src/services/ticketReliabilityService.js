@@ -418,13 +418,13 @@ export async function closeTicket(channel, closer, reason) {
   });
 }
 
-export async function reopenTicket(channel, reopener, options = {}) {
+export async function reopenTicket(channel, reopener) {
   return mutate(channel, async () => {
     // The core reopen already restores the open state, category, creator access,
     // controls and close-status message. Calling ticketUiService here used to
     // render the ticket again, followed by an immediate full reconcile, causing
     // multiple serial Discord API round-trips before the button could finish.
-    const result = await reopenTicketCore(channel, reopener, options);
+    const result = await reopenTicketCore(channel, reopener);
     await restoreReopenedTicketAccess(channel, result?.ticketData);
 
     // Keep reliability repair as a background safety net instead of blocking
