@@ -1,5 +1,6 @@
 import { Events, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { getFromDb, setInDb } from '../utils/database.js';
 import { getLevelingConfig } from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
@@ -45,6 +46,8 @@ export default {
 
       // Other bots are scanned for links, but never processed as users.
       if (message.author.bot) return;
+
+      await handleEmbedReappear(message);
 
       const countingProcessed = await handleCountingGame(message, client);
       if (countingProcessed) {
@@ -280,5 +283,34 @@ async function handleLeveling(message, client) {
     }
   } catch (error) {
     logger.error('Error handling leveling for message:', error);
+  }
+}
+
+
+async function handleEmbedReappear(message) {
+  try {
+    const prefix = `cloudy:embed-reappear:${message.guild.id}:${message.channel.id}:`;
+    // Reappear configs are indexed by original message id. Database adapters used
+    // by Cloudy expose prefix scans through getFromDb on this collection key.
+    const configs = await getFromDb(`cloudy:embed-reappear-index:${message.guild.id}:${message.channel.id}`, []);
+    if (!Array.isArray(configs) || !configs.length) return;
+    for (const id of configs) {
+      const key = prefix + id;
+      const config = await getFromDb(key, null);
+      if (!config?.every || !config?.embed) continue;
+      config.count = (Number(config.count) || 0) + 1;
+      if (config.count < config.every) {
+        await setInDb(key, config);
+        continue;
+      }
+      const sent = await message.channel.send({ embeds: [config.embed], components: config.components || [] }).catch(() => null);
+      if (!sent) continue;
+      config.count = 0;
+      config.messageId = sent.id;
+      config.updatedAt = new Date().toISOString();
+      await setInDb(key, config);
+    }
+  } catch (error) {
+    logger.error('Embed reappear handler failed:', error);
   }
 }
