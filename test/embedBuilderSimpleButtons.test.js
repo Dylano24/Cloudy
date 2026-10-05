@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('button editor is add-only with no edit/select step', () => {
+test('button editor has one all-in-one Add response button and no separate link/edit step', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
   const managerStart = source.indexOf('function managerPayload');
   const addStart = source.indexOf('async function showAddResponseModal', managerStart);
@@ -10,13 +10,35 @@ test('button editor is add-only with no edit/select step', () => {
   const manager = source.slice(managerStart, addStart);
 
   assert.match(manager, /Add response button/);
-  assert.match(manager, /Add link button/);
+  assert.doesNotMatch(manager, /Add link button/);
+  assert.doesNotMatch(manager, /embed_button_add_link/);
   assert.doesNotMatch(manager, /embed_button_edit_select/);
-  assert.doesNotMatch(manager, /Edit button name \/ color/);
+  assert.match(manager, /private response/);
+  assert.match(manager, /public response/);
+  assert.match(manager, /link or disabled/);
 
   const collectorStart = source.indexOf("collector.on('collect'");
   assert.ok(collectorStart >= 0);
-  assert.doesNotMatch(source.slice(collectorStart), /componentInteraction\.customId === 'embed_button_edit_select'/);
+  const collector = source.slice(collectorStart);
+  assert.doesNotMatch(collector, /componentInteraction\.customId === 'embed_button_add_link'/);
+  assert.doesNotMatch(collector, /componentInteraction\.customId === 'embed_button_edit_select'/);
+});
+
+test('Add response button exposes optional response, visibility and URL functions', () => {
+  const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
+  const start = source.indexOf('async function showAddResponseModal');
+  const end = source.indexOf('async function showEditButtonModal', start);
+  assert.ok(start >= 0 && end > start);
+  const body = source.slice(start, end);
+
+  assert.match(body, /button_function/);
+  assert.match(body, /button_response/);
+  assert.match(body, /button_url/);
+  assert.match(body, /private 10s/);
+  assert.match(body, /public 10s/);
+  assert.match(body, /action === 'link'/);
+  assert.match(body, /action === 'disabled'/);
+  assert.match(body, /visibility: action\.startsWith\('public'\) \? 'public' : 'private'/);
 });
 
 test('new buttons fill each row left-to-right before creating the next row', () => {
