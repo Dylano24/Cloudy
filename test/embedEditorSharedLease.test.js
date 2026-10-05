@@ -59,3 +59,13 @@ test('no direct Builder cleanup can delete a message while editor or Color Picke
   assert.equal(await deleteBuilderSessionMessage(message), false);
   assert.equal(deleted, 0);
 });
+
+
+test('editor URL acquires the Builder hold before rendering so preview cannot disappear on open', () => {
+  const app = fs.readFileSync('src/app.js', 'utf8');
+  assert.match(app, /BUILDER_EDITOR_PREVIEW_HOLD_ON_GET_V1/);
+  assert.match(app, /app\.get\('\/embed-color', async \(req, res\) =>/);
+  assert.match(app, /req\.query\?\.session/);
+  assert.match(app, /__CLOUDY_EMBED_HEARTBEAT__/);
+  assert.match(app, /await applyEmbedColorPickerSession/);
+});
