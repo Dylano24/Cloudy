@@ -8,7 +8,7 @@ test('every guild Embed Builder uses a bot-managed preview message', () => {
   assert.match(source, /builderBotManaged = Boolean\(interaction\.guild && interaction\.channel\)/);
   assert.doesNotMatch(source, /!isPublicToEveryone\(interaction\.guild, interaction\.channel\)/);
   assert.match(source, /builderBotManaged \? \{\} : \{ flags: MessageFlags\.Ephemeral \}/);
-  assert.match(source, /state\.builderMessage = previewMessage/);
+  assert.match(source, /state\.builderMessage\s*=\s*previewMessage/);
   assert.match(source, /touchBuilderSessionMessage\(state\.builderMessage\)/);
   assert.match(source, /await state\.builderMessage\.edit\(payload\)/);
 });
