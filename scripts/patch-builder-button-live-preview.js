@@ -11,7 +11,17 @@ function patchFile(path, patcher) {
   console.log(`[BUILDER_BUTTON_PREVIEW] ${path}: patched`);
 }
 
+function skip(path, reason) {
+  console.warn(`[BUILDER_BUTTON_PREVIEW] ${path}: skipped (${reason})`);
+}
+
 patchFile('src/services/embedBuilderButtonEditorService.js', text => {
+  const original = text;
+  const servicePath = 'src/services/embedBuilderButtonEditorService.js';
+  if (text.includes('export async function syncBuilderButtonPreview')) {
+    return original;
+  }
+
   const helperAnchor = `export function countBuilderButtons(state) {
   return getBuilderMessageComponents(state).reduce(
     (total, row) => total + row.components.filter(component => Number(component?.type) === BUTTON_COMPONENT_TYPE).length,
@@ -70,12 +80,11 @@ export async function syncBuilderButtonPreview(interaction, state) {
 }
 `;
 
-  if (!text.includes('export async function syncBuilderButtonPreview')) {
-    if (!text.includes(helperAnchor)) {
-      throw new Error('[BUILDER_BUTTON_PREVIEW] count helper anchor missing');
-    }
-    text = text.replace(helperAnchor, helperReplacement);
+  if (!text.includes(helperAnchor)) {
+    skip(servicePath, 'count helper anchor missing');
+    return original;
   }
+  text = text.replace(helperAnchor, helperReplacement);
 
   text = text.replaceAll(
     `  await panelMessage.edit(managerPayload(state)).catch(() => {});
@@ -135,7 +144,8 @@ export async function syncBuilderButtonPreview(interaction, state) {
   const panelMessage = await buttonInteraction.followUp({`;
 
   if (!text.includes(openAnchor)) {
-    throw new Error('[BUILDER_BUTTON_PREVIEW] open editor anchor missing');
+    skip(servicePath, 'open editor anchor missing');
+    return original;
   }
   text = text.replace(openAnchor, openReplacement);
 
@@ -149,7 +159,8 @@ export async function syncBuilderButtonPreview(interaction, state) {
 
   const collector = panelMessage.createMessageComponentCollector({`;
   if (!text.includes(activeAnchor)) {
-    throw new Error('[BUILDER_BUTTON_PREVIEW] editor message state anchor missing');
+    skip(servicePath, 'editor message state anchor missing');
+    return original;
   }
   text = text.replace(activeAnchor, activeReplacement);
 
@@ -169,7 +180,8 @@ export async function syncBuilderButtonPreview(interaction, state) {
     }
   });`;
   if (!text.includes(endAnchor)) {
-    throw new Error('[BUILDER_BUTTON_PREVIEW] editor cleanup anchor missing');
+    skip(servicePath, 'editor cleanup anchor missing');
+    return original;
   }
   text = text.replace(endAnchor, endReplacement);
 
@@ -182,12 +194,14 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
   const importReplacement = `    openEmbedButtonEditor,
     syncBuilderButtonPreview,
 } from '../../services/embedBuilderButtonEditorService.js';`;
-  if (!text.includes('syncBuilderButtonPreview')) {
-    if (!text.includes(importAnchor)) {
-      throw new Error('[BUILDER_BUTTON_PREVIEW] Builder button import anchor missing');
-    }
-    text = text.replace(importAnchor, importReplacement);
+  if (text.includes('syncBuilderButtonPreview')) {
+    return text;
   }
+  if (!text.includes(importAnchor)) {
+    skip('src/commands/Tools/embedbuilder.js', 'import anchor missing');
+    return text;
+  }
+  text = text.replace(importAnchor, importReplacement);
 
   function ensurePreviewSyncInCase(caseId) {
     const start = text.indexOf(`case '${caseId}':`);
