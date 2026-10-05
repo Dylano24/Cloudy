@@ -16,6 +16,7 @@ import {
   reconcileEmbedRegistry,
   registerCloudyEmbedMessage,
   removeEmbedRegistryMessage,
+  purgeEmbedRegistryRecord,
 } from '../src/services/embedRegistryService.js';
 import {
   buildEmbedPayload,
@@ -1422,3 +1423,31 @@ test('new persistent feature embeds appear in both normal selection and Search, 
   assert.equal(templateIdentity(channelId, { title: 'Ticket reopened' }), 'ticket-log:reopen');
 });
 
+
+
+test('purgeEmbedRegistryRecord permanently removes a stale manual Builder record', async () => {
+  installTestStorage();
+  const guildId = 'safe-delete-guild';
+  const channelId = 'safe-delete-channel';
+  const messageId = 'safe-delete-message';
+
+  await setInDb(`cloudy:embed-registry:${guildId}`, [{
+    guildId,
+    channelId,
+    messageId,
+    embedIndex: 0,
+    source: 'embed-builder',
+    title: 'Ghost embed',
+    name: 'Ghost embed',
+    snapshot: {
+      title: 'Ghost embed',
+      description: 'No Discord message exists anymore.',
+    },
+    detached: true,
+    createdAt: '2026-10-05T09:00:00.000Z',
+  }]);
+
+  assert.equal((await getEmbedRegistry(guildId)).length, 1);
+  assert.equal(await purgeEmbedRegistryRecord(guildId, channelId, messageId, 0), true);
+  assert.equal((await getEmbedRegistry(guildId)).length, 0);
+});
