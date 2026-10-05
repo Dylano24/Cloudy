@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-import { getTicketData, saveTicketData } from '../utils/database.js';
+import { deleteFromDb, getFromDb, getTicketData, saveTicketData, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 
 const privateTicketCreationConfirmations = new Map();
@@ -66,6 +66,10 @@ async function deletePersistedPrivateConfirmation(reference) {
   }
 }
 
+function privateConfirmationStorageKey(guildId, ticketId) {
+  return `cloudy:ticket-private-creation-confirmation:${String(guildId)}:${String(ticketId)}`;
+}
+
 function privateConfirmationKey(ticketChannel) {
   return `${ticketChannel?.guild?.id || ''}:${ticketChannel?.id || ''}`;
 }
@@ -81,11 +85,18 @@ export async function registerPrivateTicketCreationConfirmation(ticketChannel, i
   try {
     const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
     if (!data) return true;
-    data.privateCreationConfirmation = {
+    const reference = {
       applicationId,
       encryptedInteractionToken,
       createdAt: new Date().toISOString(),
     };
+    await setInDb(
+      privateConfirmationStorageKey(ticketChannel.guild.id, ticketChannel.id),
+      reference,
+    );
+    // Keep the legacy field temporarily for backward compatibility with
+    // already-running ticket data, but the dedicated key is authoritative.
+    data.privateCreationConfirmation = reference;
     await saveTicketData(ticketChannel.guild.id, ticketChannel.id, data);
   } catch (error) {
     logger.warn('Could not persist private ticket creation confirmation cleanup reference', {
@@ -122,10 +133,15 @@ export async function prepareTicketCreationConfirmationCleanup(ticketChannel, pr
   const data = providedData
     ? structuredClone(providedData)
     : await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+  const dedicatedReference = await getFromDb(
+    privateConfirmationStorageKey(ticketChannel.guild.id, ticketChannel.id),
+    null,
+  ).catch(() => null);
 
   const prepared = {
     privateKey,
     privateInteraction,
+    dedicatedReference: dedicatedReference ? structuredClone(dedicatedReference) : null,
     data: data ? structuredClone(data) : null,
   };
 
@@ -159,9 +175,20 @@ export async function deleteTicketCreationConfirmation(ticketChannel, prepared =
     }
   }
 
-  if (!deleted && data?.privateCreationConfirmation) {
-    deleted = await deletePersistedPrivateConfirmation(data.privateCreationConfirmation);
+  const dedicatedReference = prepared?.dedicatedReference
+    || await getFromDb(
+      privateConfirmationStorageKey(ticketChannel.guild.id, ticketChannel.id),
+      null,
+    ).catch(() => null);
+  const persistedReference = dedicatedReference || data?.privateCreationConfirmation || null;
+
+  if (!deleted && persistedReference) {
+    deleted = await deletePersistedPrivateConfirmation(persistedReference);
   }
+
+  await deleteFromDb(
+    privateConfirmationStorageKey(ticketChannel.guild.id, ticketChannel.id),
+  ).catch(() => {});
 
   if (data?.privateCreationConfirmation) {
     delete data.privateCreationConfirmation;
