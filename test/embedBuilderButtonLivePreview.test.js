@@ -2,17 +2,24 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Builder button preview is attached to the main Builder message', () => {
+test('Builder button preview is attached to the top preview message, not Message builder controls', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+
   const controlsStart = source.indexOf('function buildControls(state)');
   const controlsEnd = source.indexOf('function getPreviewUpdateQueue', controlsStart);
   assert.ok(controlsStart >= 0 && controlsEnd > controlsStart);
   const controls = source.slice(controlsStart, controlsEnd);
+  assert.doesNotMatch(controls, /buttonPreviewComponents/);
+  assert.doesNotMatch(controls, /previewRows/);
 
-  assert.match(controls, /getBuilderMessageComponents\(state\)/);
-  assert.match(controls, /buttonPreviewComponents/);
-  assert.match(controls, /const previewRows = buttonPreviewComponents\.length/);
-  assert.match(controls, /return \[\.\.\.previewRows, titleRow, contentRow, editRow, saveRow\]/);
+  const refreshStart = source.indexOf('async function refreshBuilder(interaction, state)');
+  const refreshEnd = source.indexOf('async function editContent', refreshStart);
+  assert.ok(refreshStart >= 0 && refreshEnd > refreshStart);
+  const refresh = source.slice(refreshStart, refreshEnd);
+  assert.match(refresh, /embeds: \[buildPreviewEmbed\(state\)\]/);
+  assert.match(refresh, /components: getBuilderMessageComponents\(state\)/);
+  assert.match(refresh, /embeds: \[buildControlEmbed\(state\)\]/);
+  assert.match(refresh, /components: buildControls\(state\)/);
 });
 
 test('separate child button preview is disabled and stale preview is cleaned up', () => {
