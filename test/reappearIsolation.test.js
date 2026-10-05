@@ -5,7 +5,7 @@ import test from 'node:test';
 test('Reappear deletion is isolated to the exact embed rule', () => {
   const messageCreate = fs.readFileSync('src/events/messageCreate.js', 'utf8');
   assert.match(messageCreate, /embed-reappear-disabled:/);
-  assert.match(messageCreate, /Number\(record\?\.embedIndex \|\| 0\) === embedIndex/);
+  assert.match(messageCreate, /const disabled = await getFromDb\(disableKey, null\)/);
   assert.match(messageCreate, /const removedIds = new Set\(\)/);
   assert.match(messageCreate, /const latestIndex = await getFromDb\(indexKey, \[\]\)/);
   assert.doesNotMatch(messageCreate, /const survivingIds = \[\]/);
