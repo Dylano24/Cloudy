@@ -25,6 +25,7 @@ import { createEmbed } from '../utils/embeds.js';
 import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
+import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 
 const creationQueues = new Map();
 const mutationQueues = new Map();
@@ -682,30 +683,32 @@ export async function reopenTicket(channel, reopener, options = {}) {
     ticketData.closeReason = null;
     await saveTicketData(channel.guild.id, channel.id, ticketData);
 
-    const reopenPayload = {
-      embeds: [forceCloudyTicketFooter(createEmbed({
-        title: 'Ticket reopened',
-        description: `🔓 ${reopener} has reopened this ticket!`,
-        color: '#2ecc71',
-      }))],
-      components: [],
-      allowedMentions: { parse: [] },
-    };
-
-    // The clicked close-status message is already in hand in real interactions.
-    // Editing it directly avoids a 50-message history scan before users see the
-    // reopen succeed.
-    let statusUpdated = false;
-    if (options.statusMessage?.edit) {
-      statusUpdated = await options.statusMessage.edit(reopenPayload)
-        .then(() => true)
-        .catch(() => false);
-    }
-    if (!statusUpdated) {
-      await channel.send(reopenPayload).catch(() => {});
-    }
-
     const config = options.config || await getGuildConfig(channel.client, channel.guild.id).catch(() => ({}));
+    const reopenEmbed = createEmbed({
+      title: 'Ticket reopened',
+      description: `🔓 ${reopener} has reopened this ticket!`,
+      color: '#2ecc71',
+    });
+
+    // Keep the saved Builder decoration and creator ping from the established
+    // reopen lifecycle, but use the already-known close status message instead
+    // of scanning channel history to find it.
+    const decorationPromise = decorateEmbedWithSavedTemplate(
+      channel.guild.id,
+      config.ticketLogsChannelId || channel.id,
+      reopenEmbed,
+    );
+    const closeStatusCleanup = options.statusMessage?.edit
+      ? options.statusMessage.edit({ components: [] }).catch(() => null)
+      : Promise.resolve(null);
+    const [decoratedReopen] = await Promise.all([decorationPromise, closeStatusCleanup]);
+
+    await channel.send({
+      content: `<@${ticketData.userId}>`,
+      embeds: [forceCloudyTicketFooter(decoratedReopen.embed)],
+      allowedMentions: { parse: [], users: [String(ticketData.userId)] },
+    }).catch(() => {});
+
     const openCategoryId = config?.ticketCategoryId || null;
 
     const categoryTask = async () => {
