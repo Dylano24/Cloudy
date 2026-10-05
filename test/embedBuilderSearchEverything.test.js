@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('canonical Builder Search indexes every canonical record without channel filtering', () => {
+test('Builder Search exposes every indexed physical record instead of hiding peers', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
 
   const displayStart = source.indexOf('function builderSearchDisplayRecords');
@@ -10,28 +10,20 @@ test('canonical Builder Search indexes every canonical record without channel fi
   assert.ok(displayStart >= 0 && previewStart > displayStart);
   const displayBody = source.slice(displayStart, previewStart);
 
-  assert.match(displayBody, /resolved\.some\(record => record\?\.canonicalIdentity\)/);
-  assert.match(displayBody, /return \[\.\.\.unique\.values\(\)\]/);
+  assert.match(displayBody, /Only the exact same physical message\/embed is de-duplicated/);
+  assert.match(displayBody, /record\?\.backingChannelId \|\| channelId/);
+  assert.doesNotMatch(displayBody, /collapseDisplayRecords\(channelRecords, channelId\)/);
 });
 
-test('legacy/raw Search peers still use existing duplicate/master grouping', () => {
-  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-
-  const displayStart = source.indexOf('function builderSearchDisplayRecords');
-  const previewStart = source.indexOf('export function latestRealPreviewRecord', displayStart);
-  const displayBody = source.slice(displayStart, previewStart);
-
-  assert.match(displayBody, /collapseDisplayRecords\(channelRecords, channelId\)/);
-});
-
-test('Search still groups repeated runtime peers into one logical result', () => {
+test('Search no longer collapses matching records by logical template identity', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
   const buildStart = source.indexOf('export function buildMatches');
   const selectionStart = source.indexOf('function selectionValue', buildStart);
   const buildBody = source.slice(buildStart, selectionStart);
 
-  assert.match(buildBody, /const key = logicalKey\(record, document\)/);
-  assert.match(buildBody, /chooseBetter\(grouped\.get\(key\), candidate\)/);
+  assert.match(buildBody, /const matches = \[\]/);
+  assert.match(buildBody, /matches\.push\(\{ record, document, score \}\)/);
+  assert.doesNotMatch(buildBody, /grouped\.set\(/);
 });
 
 test('channel browsing keeps its existing unique-embed grouping', () => {
@@ -57,4 +49,12 @@ test('Removed from Builder is a searchable catalog response', () => {
   assert.match(source, /title: 'Removed from Builder'/);
   assert.match(source, /context: 'embed-builder\/delete'/);
   assert.match(source, /getSearchableSystemCatalogRecords/);
+});
+
+
+test('Discord autocomplete disambiguates duplicate titles without hiding them', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  assert.match(source, /const titleCounts = new Map\(\)/);
+  assert.match(source, /duplicateTitle/);
+  assert.match(source, /stableSearchTemplateContext\(record\)/);
 });
