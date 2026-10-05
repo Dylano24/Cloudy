@@ -400,7 +400,8 @@ async function postBuiltMessage(channel, state, guild) {
         const sent = await channel.send(payload);
         await registerCloudyEmbedMessage(sent, 'embed-builder');
         if (state.reappearAfter) {
-            await setInDb(`cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`, {
+            const reappearKey = `cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`;
+            await setInDb(reappearKey, {
                 guildId: guild.id,
                 channelId: channel.id,
                 messageId: sent.id,
@@ -410,6 +411,10 @@ async function postBuiltMessage(channel, state, guild) {
                 components: isLast ? (state.componentRows || []) : [],
                 updatedAt: new Date().toISOString(),
             });
+            const indexKey = `cloudy:embed-reappear-index:${guild.id}:${channel.id}`;
+            const existingIndex = await getFromDb(indexKey, []);
+            const nextIndex = [...new Set([...(Array.isArray(existingIndex) ? existingIndex : []), sent.id])];
+            await setInDb(indexKey, nextIndex);
         }
     }
 
