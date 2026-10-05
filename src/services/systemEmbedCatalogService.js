@@ -27,6 +27,7 @@ const sourceDefinitionCache = new Map();
 const sourceDefinitionKeyCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
+const searchableCatalogRecords = new Map();
 let flushTimer = null;
 let discoveryPromise = null;
 
@@ -501,9 +502,34 @@ export function primeSystemSourceDefinitionPreview(definition = {}) {
 }
 
 function rememberCatalogMessage(message) {
-  for (const embed of message?.embeds || []) {
+  if (!message?.guildId || !message?.channelId || !message?.id) return;
+
+  const messagePrefix = `${message.guildId}:${message.id}:`;
+  for (const key of [...searchableCatalogRecords.keys()]) {
+    if (key.startsWith(messagePrefix)) searchableCatalogRecords.delete(key);
+  }
+
+  for (let embedIndex = 0; embedIndex < (message.embeds || []).length; embedIndex += 1) {
+    const embed = message.embeds[embedIndex];
     const metadata = parseTemplateMetadata(embed);
     if (!metadata.key || !isEditableSystemCatalogTemplate(metadata.key, metadata.context)) continue;
+
+    const data = cloneData(embed);
+    searchableCatalogRecords.set(`${messagePrefix}${embedIndex}`, {
+      guildId: String(message.guildId),
+      channelId: String(message.channelId),
+      backingChannelId: String(message.channelId),
+      messageId: String(message.id),
+      embedIndex,
+      source: 'system-catalog',
+      name: String(data.title || metadata.key || 'Cloudy response').slice(0, 256),
+      title: String(data.title || metadata.key || 'Cloudy response').slice(0, 256),
+      snapshot: data,
+      createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
+      updatedAt: message.editedAt?.toISOString?.()
+        || message.createdAt?.toISOString?.()
+        || new Date().toISOString(),
+    });
 
     const canonicalKey = semanticCatalogKey(metadata, embed);
     catalogEntries.add(cacheIdentity(metadata.key, metadata.context));
@@ -518,6 +544,16 @@ function rememberCatalogMessage(message) {
       rememberTemplate(canonicalKey, embed, metadata.context);
     }
   }
+}
+
+export function getSearchableSystemCatalogRecords(guildId) {
+  const id = String(guildId || '');
+  return [...searchableCatalogRecords.values()]
+    .filter(record => String(record.guildId) === id)
+    .map(record => ({
+      ...record,
+      snapshot: cloneData(record.snapshot),
+    }));
 }
 
 async function loadCatalogMessages(context) {
@@ -703,6 +739,7 @@ async function appendCatalogEntry(context, entry, messages) {
     embeds[existingLocation.index] = new EmbedBuilder(mergedData);
     const edited = await existingLocation.message.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
     if (!edited) return false;
+    rememberCatalogMessage(edited);
 
     catalogEntries.add(identity);
     rememberTemplate(entry.key, mergedData, entry.context);
@@ -722,6 +759,7 @@ async function appendCatalogEntry(context, entry, messages) {
   embeds.push(new EmbedBuilder(entry.data));
   const edited = await target.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
   if (!edited) return false;
+  rememberCatalogMessage(edited);
 
   catalogEntries.add(identity);
   rememberTemplate(entry.key, entry.data, entry.context);
