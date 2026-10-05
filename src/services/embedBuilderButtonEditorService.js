@@ -462,9 +462,18 @@ export async function openEmbedButtonEditor(buttonInteraction, state, refreshBui
   }).catch(() => null);
   if (!panelMessage) return;
 
+  // Register this child panel with the root builder session. Closing/expiring
+  // the builder must also remove every panel that belongs to it.
+  if (!state.builderChildMessages) state.builderChildMessages = new Map();
+  state.builderChildMessages.set(panelMessage.id, panelMessage);
+
   const collector = panelMessage.createMessageComponentCollector({
     filter: interaction => interaction.user.id === buttonInteraction.user.id,
     idle: EDITOR_IDLE_MS,
+  });
+
+  collector.on('end', () => {
+    state.builderChildMessages?.delete(panelMessage.id);
   });
 
   collector.on('collect', componentInteraction => {
