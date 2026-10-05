@@ -14,16 +14,23 @@ test('custom Builder button responses use standard Cloudy embed formatting', () 
   assert.doesNotMatch(source, /content: String\(action\.responseText\)/);
 });
 
-test('professional Builder flow uses explicit button setup and no child preview message', () => {
+test('professional Builder flow has one creator and supports response or link in it', () => {
   const service = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const managerStart = service.indexOf('function managerPayload');
   const modalStart = service.indexOf('async function showAddResponseModal', managerStart);
   const manager = service.slice(managerStart, modalStart);
   assert.match(manager, /Add response button/);
-  assert.match(manager, /Add link button/);
-  assert.match(manager, /Add disabled button/);
-  assert.match(manager, /visibility and duration/);
+  assert.doesNotMatch(manager, /Add link button/);
+  assert.doesNotMatch(manager, /Add disabled button/);
+
+  const modalEnd = service.indexOf('async function showAddLinkModal', modalStart);
+  const modal = service.slice(modalStart, modalEnd);
+  assert.match(modal, /button_response/);
+  assert.match(modal, /button_url/);
+  assert.match(modal, /ButtonStyle\.Link/);
+  assert.match(modal, /blank stays/);
+  assert.doesNotMatch(modal, /blank = stays/);
 
   const previewStart = service.indexOf('export async function syncBuilderButtonPreview');
   const previewEnd = service.indexOf('\n}\n', previewStart);
@@ -32,15 +39,14 @@ test('professional Builder flow uses explicit button setup and no child preview 
   assert.match(preview, /activeButtonPreviewMessageId = null/);
 });
 
-test('main Builder reserves the first component row for up to five live button previews', () => {
+test('custom buttons are not part of Message builder controls', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   const start = source.indexOf('function buildControls(state)');
   const end = source.indexOf('function getPreviewUpdateQueue', start);
   const body = source.slice(start, end);
 
-  assert.match(body, /\.slice\(0, 5\)/);
-  assert.match(body, /const previewRows = buttonPreviewComponents\.length/);
-  assert.match(body, /return \[\.\.\.previewRows, titleRow, contentRow, editRow, saveRow\]\.slice\(0, 5\)/);
+  assert.doesNotMatch(body, /previewRows/);
+  assert.doesNotMatch(body, /buttonPreviewComponents/);
   assert.match(body, /Delete from builder/);
   assert.match(body, /Save deletion/);
 });
