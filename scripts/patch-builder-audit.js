@@ -17,12 +17,30 @@ edit(manager, '        const master = bestBuilderSourceRecord(catalogs, peers.at
                 || String(b.messageId).length - String(a.messageId).length
                 || String(b.messageId).localeCompare(String(a.messageId)));
         const master = perChannel && live.length ? live[0] : bestBuilderSourceRecord(catalogs, live[0] || peers.at(-1));`);
-edit(manager, '                    const discoveredRecords = await discoverRecentChannelEmbeds(guild, channelId, buttonInteraction.client.user.id)', String.raw`                    // Paint indexed embeds immediately; refresh only the selected channel.
+{
+  const source = fs.readFileSync(manager, 'utf8').replaceAll('\r\n', '\n');
+  const legacyDiscovery = '                    const discoveredRecords = await discoverRecentChannelEmbeds(guild, channelId, buttonInteraction.client.user.id)';
+  const optimizedDiscovery = '                        const [discoveredRecords, registeredRecords] = await Promise.all([';
+  if (source.includes(legacyDiscovery)) {
+    edit(manager, legacyDiscovery, String.raw`                    // Paint indexed embeds immediately; refresh only the selected channel.
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
                     const discoveredRecords = await discoverRecentChannelEmbeds(guild, channelId, buttonInteraction.client.user.id)`);
-edit(manager, '                    records = await getCanonicalBuilderRecords(guild, mergeEmbedManagerRecords(registeredRecords, discoveredRecords), { perChannel: true });', String.raw`                    const nextRecords = await getCanonicalBuilderRecords(guild, mergeEmbedManagerRecords(registeredRecords, discoveredRecords), { perChannel: true });
+  } else if (!source.includes(optimizedDiscovery)) {
+    throw new Error('Builder audit channel discovery anchor missing: ' + manager);
+  }
+}
+{
+  const source = fs.readFileSync(manager, 'utf8').replaceAll('\r\n', '\n');
+  const legacyCanonical = '                    records = await getCanonicalBuilderRecords(guild, mergeEmbedManagerRecords(registeredRecords, discoveredRecords), { perChannel: true });';
+  const optimizedCanonical = '                        const refreshedRecords = await getCanonicalBuilderRecords(';
+  if (source.includes(legacyCanonical)) {
+    edit(manager, legacyCanonical, String.raw`                    const nextRecords = await getCanonicalBuilderRecords(guild, mergeEmbedManagerRecords(registeredRecords, discoveredRecords), { perChannel: true });
                     if (selectionVersion !== session.selectionVersion) return;
                     records = nextRecords;`);
+  } else if (!source.includes(optimizedCanonical)) {
+    throw new Error('Builder audit canonical refresh anchor missing: ' + manager);
+  }
+}
 edit(manager, 'export async function saveModifiedEmbed(guild, state) {', String.raw`export async function saveModifiedEmbed(guild, state) {
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);`);

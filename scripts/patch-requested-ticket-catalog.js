@@ -73,9 +73,63 @@ edit('src/services/embedManagerService.js', String.raw`        if (!groups.has(i
     return [...groups.entries()].map(([groupKey, peers]) => {
         const identity = perChannel ? groupKey.slice(groupKey.indexOf('|') + 1) : groupKey;`);
 edit('src/services/embedManagerService.js', 'let records = await getCanonicalBuilderRecords(guild, storedRecords);', 'let records = await getCanonicalBuilderRecords(guild, storedRecords, { perChannel: true });');
-edit('src/services/embedManagerService.js', '                    records = await getCanonicalBuilderRecords(guild);', String.raw`                    const discoveredRecords = await discoverRecentChannelEmbeds(guild, channelId, buttonInteraction.client.user.id)
-                        .catch(error => { logger.debug('Channel embed discovery skipped: ' + error.message); return []; });
-                    const registeredRecords = await getEmbedRegistry(guild.id);
-                    records = await getCanonicalBuilderRecords(guild, mergeEmbedManagerRecords(registeredRecords, discoveredRecords), { perChannel: true });`);
+edit('src/services/embedManagerService.js', String.raw`                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
+                    const channelId = interaction.values?.[0];
+
+                    records = await getCanonicalBuilderRecords(guild);
+                    if (selectionVersion !== session.selectionVersion) return;
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    return;
+                }`, String.raw`                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
+                    const channelId = interaction.values?.[0];
+
+                    // Paint instantly from the canonical records already loaded for
+                    // this manager session. Fresh Discord/registry discovery runs
+                    // after the visible response, so a slow channel can never hold
+                    // the channel picker spinner open.
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
+                    if (selectionVersion !== session.selectionVersion) return;
+
+                    void (async () => {
+                        const [discoveredRecords, registeredRecords] = await Promise.all([
+                            discoverRecentChannelEmbeds(guild, channelId, buttonInteraction.client.user.id)
+                                .catch(error => {
+                                    logger.debug('Channel embed discovery skipped: ' + error.message);
+                                    return [];
+                                }),
+                            getEmbedRegistry(guild.id).catch(error => {
+                                logger.debug('Channel registry refresh skipped: ' + error.message);
+                                return [];
+                            }),
+                        ]);
+
+                        if (selectionVersion !== session.selectionVersion
+                            || session.closed
+                            || state.activeEmbedManager !== session) return;
+
+                        const refreshedRecords = await getCanonicalBuilderRecords(
+                            guild,
+                            mergeEmbedManagerRecords(registeredRecords, discoveredRecords),
+                            { perChannel: true },
+                        ).catch(error => {
+                            logger.debug('Canonical channel refresh skipped: ' + error.message);
+                            return null;
+                        });
+                        if (!refreshedRecords
+                            || selectionVersion !== session.selectionVersion
+                            || session.closed
+                            || state.activeEmbedManager !== session) return;
+
+                        records = refreshedRecords;
+                        await updateEmbedManager(
+                            interaction,
+                            buildEmbedPayload(guild, records, channelId, 0),
+                            state,
+                            session,
+                        );
+                    })();
+
+                    return;
+                }`);
 
 
