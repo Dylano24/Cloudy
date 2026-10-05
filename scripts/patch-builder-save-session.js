@@ -88,7 +88,7 @@ edit(manager, `registerCloudyEmbedMessage(edited, registrySource)`, `registerClo
 
 const registry = 'src/services/embedRegistryService.js';
 edit(registry, `export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {`, `export async function registerCloudyEmbedMessages(messages, source = 'cloudy', { manualSave = false, manualSaveIndex = 0 } = {}) {`);
-edit(registry, `            if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;`, `            if (!manualSave && !isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;`);
+edit(registry, `            if (isBotHistoryMessage) {\n                if (!isSearchableCloudyBotEmbedMessage(message)) continue;\n            } else if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;`, `            if (isBotHistoryMessage) {\n                if (!isSearchableCloudyBotEmbedMessage(message)) continue;\n            } else if (!manualSave && !isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;`);
 edit(registry, `                    || isManualBuilderMessage
                     || (!isInternalEmbedRecord(addition)`, `                    || isManualBuilderMessage
                     || (manualSave && addition.embedIndex === manualSaveIndex)
