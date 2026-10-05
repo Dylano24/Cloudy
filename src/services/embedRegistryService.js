@@ -245,7 +245,7 @@ function isFixedCloudyEmbed(embed) {
 }
 
 function isFixedCloudyRecord(record) {
-    if (['system-catalog', 'embed-builder'].includes(String(record?.source || ''))) return true;
+    if (['system-catalog', 'embed-builder', 'bot-history'].includes(String(record?.source || ''))) return true;
     if (record.snapshot && isFeatureEmbed(record.snapshot)) return true;
     const names = [record?.title, record?.name].map(cleanName).filter(Boolean);
     return names.some(title =>
@@ -267,6 +267,14 @@ export function isRegistrableCloudyEmbedMessage(message) {
     if ((message.interaction || message.interactionMetadata) && (!message.author?.id || message.author.id !== message.client?.user?.id)) return false;
 
     return isSystemCatalogMessage(message) || message.embeds.some(isFixedCloudyEmbed);
+}
+
+export function isSearchableCloudyBotEmbedMessage(message, botUserId = message?.client?.user?.id) {
+    if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
+    if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
+    if (isBuilderSessionMessage(message)) return false;
+    if (!botUserId || String(message.author?.id || '') !== String(botUserId)) return false;
+    return true;
 }
 
 function embedName(embed) {
@@ -486,7 +494,22 @@ async function saveRecords(guildId, additions) {
             const record = normalizeRecord(addition);
             if (!record) continue;
             const key = recordKey(record);
-            next.set(key, { ...(next.get(key) || {}), ...record });
+            const existing = next.get(key) || null;
+
+            if (
+                record.source === 'bot-history'
+                && ['embed-builder', 'system-catalog'].includes(String(existing?.source || ''))
+            ) {
+                next.set(key, {
+                    ...record,
+                    ...existing,
+                    snapshot: record.snapshot || existing.snapshot,
+                    updatedAt: record.updatedAt,
+                });
+                continue;
+            }
+
+            next.set(key, { ...(existing || {}), ...record });
         }
 
         return setInDb(registryKey(guildId), sortRecords([...next.values()]));
@@ -499,11 +522,14 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
     // template and must remain editable even when its title is custom. Normal
     // bot traffic stays restricted to the fixed template types below.
     const isManualBuilderMessage = source === 'embed-builder';
+    const isBotHistoryMessage = source === 'bot-history';
     const loadedJoinToCreateGuilds = new Set();
 
     try {
         for (const message of Array.isArray(messages) ? messages : []) {
-            if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;
+            if (isBotHistoryMessage) {
+                if (!isSearchableCloudyBotEmbedMessage(message)) continue;
+            } else if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;
 
             if (isSystemCatalogMessage(message)
                 && message.embeds.some(isJoinToCreateCatalogEmbed)
@@ -537,6 +563,7 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                 })
                 .filter(addition => isSystemCatalogMessage(message)
                     || isManualBuilderMessage
+                    || isBotHistoryMessage
                     || (!isInternalEmbedRecord(addition) && isFixedCloudyEmbed(message.embeds[addition.embedIndex])));
 
             if (!additions.length) continue;
@@ -558,7 +585,7 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
 }
 
 function detachedBuilderRecord(record) {
-    if (!isManualBuilderRecord(record)) return null;
+    if (!isFixedCloudyRecord(record)) return null;
     const snapshot = getEmbedRegistrySnapshot(record);
     if (!snapshot) return null;
 
@@ -779,7 +806,9 @@ async function resolveRegistryMessage(guild, records) {
     if (
         !message ||
         message.author?.id !== guild.client.user?.id ||
-        (!isRegistrableCloudyEmbedMessage(message) && !records.some(isManualBuilderRecord))
+        (!isRegistrableCloudyEmbedMessage(message)
+            && !records.some(isManualBuilderRecord)
+            && !records.some(record => String(record?.source || '') === 'bot-history'))
     ) {
         return { status: 'missing', records: [] };
     }
@@ -787,7 +816,8 @@ async function resolveRegistryMessage(guild, records) {
     return {
         status: 'resolved',
         records: recordsFromMessage(message, records, {
-            allowManual: records.some(isManualBuilderRecord),
+            allowManual: records.some(isManualBuilderRecord)
+                || records.some(record => String(record?.source || '') === 'bot-history'),
         }),
     };
 }
@@ -884,20 +914,23 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
             for (const message of batch.values()) {
                 scanned += 1;
                 channelScanned += 1;
-                if (message.author?.id !== botUserId || !isRegistrableCloudyEmbedMessage(message)) continue;
+                if (!isSearchableCloudyBotEmbedMessage(message, botUserId)) continue;
 
                 for (let embedIndex = 0; embedIndex < message.embeds.length; embedIndex += 1) {
                     const embed = message.embeds[embedIndex];
-                    if (!isSystemCatalogMessage(message) && !isFixedCloudyEmbed(embed)) continue;
+                    if (isInternalEmbedRecord({ title: embed?.title || '', name: embedName(embed) })) continue;
                     const location = recordLocationForEmbed(message, embed);
                     const addition = {
                         guildId: guild.id,
                         ...location,
                         messageId: message.id,
                         embedIndex,
-                        source: isSystemCatalogMessage(message) ? 'system-catalog' : 'history',
+                        source: isSystemCatalogMessage(message) ? 'system-catalog' : 'bot-history',
                         title: embed?.title || '',
                         name: embedName(embed),
+                        channelName: message.channel?.name || '',
+                        snapshot: normalizeEmbedSnapshot(embed),
+                        detached: false,
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
                     if (isInternalEmbedRecord(addition)) continue;
