@@ -17,8 +17,9 @@ test('Reappear deletion is isolated to the exact embed rule', () => {
   );
 
   const builder = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
-  assert.match(builder, /embed-reappear-disabled:/);
-  assert.match(builder, /pending\.embedIndex/);
+  const safeDeletePatch = fs.readFileSync('scripts/patch-embed-builder-safe-delete.js', 'utf8');
+  assert.match(safeDeletePatch, /embed-reappear-disabled:/);
+  assert.match(safeDeletePatch, /pending\.embedIndex/);
   assert.match(builder, /originMessageId: sent\.id/);
   assert.match(builder, /embedIndex: 0/);
 });
