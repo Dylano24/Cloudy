@@ -20,50 +20,44 @@ const oldDisplay = `function builderSearchDisplayRecords(records) {
 }`;
 
 const newDisplay = `function builderSearchDisplayRecords(records) {
-    const resolved = (records || [])
-        .map(record => sourceResolvedSearchRecord(record))
-        .filter(record => record?.messageId);
-
-    // The live Search path receives canonical Builder records. Those records
-    // are already one reusable response type each, so channel-specific browser
-    // filtering must not hide any of them.
-    if (resolved.some(record => record?.canonicalIdentity)) {
-        const unique = new Map();
-        for (const record of resolved) {
-            const canonical = String(record?.canonicalIdentity || '').trim();
-            const key = canonical
-                ? 'canonical:' + canonical
-                : [
-                    'physical',
-                    String(record?.channelId || ''),
-                    String(record?.messageId || ''),
-                    Number(record?.embedIndex || 0),
-                ].join(':');
-            unique.set(key, record);
-        }
-        return [...unique.values()];
-    }
-
-    // Raw/legacy callers still need the existing peer collapse so the correct
-    // catalog master remains the Save target and repeated runtime examples do
-    // not become duplicate Search results.
     const groups = new Map();
-    for (const record of resolved) {
+
+    for (const rawRecord of records || []) {
+        const record = sourceResolvedSearchRecord(rawRecord);
         const channelId = String(record?.channelId || '');
         if (!channelId) continue;
         if (!groups.has(channelId)) groups.set(channelId, []);
         groups.get(channelId).push(record);
     }
 
-    return [...groups.entries()].flatMap(([channelId, channelRecords]) =>
-        collapseDisplayRecords(channelRecords, channelId)
-    );
+    const output = [];
+    for (const [channelId, channelRecords] of groups.entries()) {
+        // Preserve the proven canonical grouping/Save-target behavior first.
+        const collapsed = collapseDisplayRecords(channelRecords, channelId);
+        output.push(...collapsed);
+
+        // Search is broader than the channel browser: add records that the
+        // channel-specific collapse intentionally hides, but only when their
+        // visible Search identity is not already represented.
+        const represented = new Set(
+            collapsed.map(record => normalize(recordTitle(record))).filter(Boolean)
+        );
+
+        for (const record of channelRecords) {
+            const visibleKey = normalize(recordTitle(record));
+            if (!visibleKey || represented.has(visibleKey)) continue;
+            output.push(record);
+            represented.add(visibleKey);
+        }
+    }
+
+    return output;
 }`;
 
 if (!text.includes(oldDisplay)) {
-  throw new Error('[BUILDER_SEARCH_ALL] Search display collapse block missing');
+  throw new Error('[BUILDER_SEARCH_ALL] Search display block missing');
 }
 text = text.replace(oldDisplay, newDisplay);
 
 fs.writeFileSync(path, text);
-console.log('[BUILDER_SEARCH_ALL] Search indexes every canonical record while preserving logical duplicate grouping.');
+console.log('[BUILDER_SEARCH_ALL] Search includes hidden unique records while preserving canonical grouping.');
