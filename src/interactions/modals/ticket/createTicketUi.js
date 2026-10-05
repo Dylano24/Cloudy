@@ -167,8 +167,11 @@ const closeTicketModal = {
 
       const reason = requireTicketCloseReason(interaction.fields.getTextInputValue('reason'));
 
-      await closeTicket(interaction.channel, interaction.user, reason);
-      await interaction.deleteReply().catch(() => {});
+      await closeTicket(interaction.channel, interaction.user, reason, {
+        ticketData: context.ticketData,
+        config: context.config,
+        onVisible: () => interaction.deleteReply(),
+      });
     } catch (error) {
       logger.error('Ticket close modal failed', {
         error: error.message,
