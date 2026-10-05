@@ -244,7 +244,12 @@ class TitanBot extends Client {
 
     app.post('/api/embed-color/:token', async (req, res) => {
       try {
-        const result = await applyEmbedColorPickerSession(req.params.token, req.body?.color);
+        // EMBED_EDITOR_EXACT_OPEN_LEASE_V2: forward the page identity for exact open/close ownership.
+        const result = await applyEmbedColorPickerSession(
+          req.params.token,
+          req.body?.color,
+          { editorInstanceId: req.body?.editorInstanceId },
+        );
         if (!result.ok) {
           const status = result.reason === 'invalid_color' ? 400 : 410;
           return res.status(status).json({

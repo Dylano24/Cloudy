@@ -161,16 +161,15 @@ export default {
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === 'dashboard') {
-      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-      if (!deferred) {
-        return;
-      }
-
-      const view = await buildDashboardView(client, interaction.guildId, interaction.guild, 'overview');
-      await InteractionHelper.safeEditReply(interaction, {
+      // The dispatcher already resolved the guild config. Build locally and use
+      // a single Discord reply instead of defer + edit + duplicate config read.
+      const view = await buildDashboardView(client, interaction.guildId, interaction.guild, 'overview', null, config);
+      const shown = await InteractionHelper.safeReply(interaction, {
         embeds: [view.embed],
         components: view.components,
+        flags: MessageFlags.Ephemeral,
       });
+      if (!shown) return;
 
       const replyMessage = await interaction.fetchReply().catch(() => null);
       if (!replyMessage) {
