@@ -48,7 +48,7 @@ patchFile('src/services/embedBuilderButtonEditorService.js', text => {
         : item.component.disabled
           ? 'Disabled'
           : 'Response';
-      return `**${index + 1}. ${buttonLabel(item.component, index)}** — ${type}`;
+      return '**' + (index + 1) + '. ' + buttonLabel(item.component, index) + '** — ' + type;
     })
     : ['No buttons are attached yet.'];
 
@@ -230,7 +230,7 @@ async function replyButtonEditorError(interaction, content) {
       type: BUTTON_COMPONENT_TYPE,
       style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
       label,
-      custom_id: `cloudy_builder_disabled:${randomUUID().replaceAll('-', '').slice(0, 24)}`,
+      custom_id: 'cloudy_builder_disabled:' + randomUUID().replaceAll('-', '').slice(0, 24),
       disabled: true,
     };
   } else {
@@ -254,7 +254,7 @@ async function replyButtonEditorError(interaction, content) {
       type: BUTTON_COMPONENT_TYPE,
       style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
       label,
-      custom_id: `${ACTION_CUSTOM_ID}:${actionId}`,
+      custom_id: ACTION_CUSTOM_ID + ':' + actionId,
     };
   }
 
