@@ -276,6 +276,7 @@ async function replyButtonEditorError(interaction, content) {
   await submitted.deferUpdate().catch(() => {});
   await panelMessage.edit(managerPayload(state)).catch(() => {});
   await refreshBuilder(submitted, state).catch(() => {});
+  await closeButtonEditorPanel(submitted, state).catch(() => {});
 }`;
     text = text.slice(0, start) + replacement + text.slice(end);
   }
