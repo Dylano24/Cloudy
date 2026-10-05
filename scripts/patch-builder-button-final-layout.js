@@ -482,7 +482,7 @@ function getPreviewUpdateQueue`);
 
 function refreshBuilder(interaction, state) {
     if (state.colorSessionToken) {
-        state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${state.colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
+        state.colorPickerUrl = COLOR_PICKER_URL + '/embed-color?session=' + state.colorSessionToken + '&color=' + encodeURIComponent(colorToHex(state.sideColor));
     }
 
     const queue = getPreviewUpdateQueue(state);
