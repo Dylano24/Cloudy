@@ -58,3 +58,20 @@ test('Discord autocomplete disambiguates duplicate titles without hiding them', 
   assert.match(source, /duplicateTitle/);
   assert.match(source, /stableSearchTemplateContext\(record\)/);
 });
+
+
+test('Modify browser excludes Search-only archive records while Search stays complete', () => {
+  const manager = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+
+  assert.match(manager, /function isEmbedManagerVisibleRecord|export function isEmbedManagerVisibleRecord/);
+  assert.match(manager, /if \(!record\?\.messageId \|\| record\.detached\) return false/);
+  assert.match(manager, /if \(!includeBotHistory && source === 'bot-history'\) return false/);
+  assert.match(manager, /source === 'system-catalog'/);
+  assert.match(manager, /logicalChannelId !== backingChannelId/);
+
+  const groupsStart = manager.indexOf('function buildChannelGroups');
+  const groupsEnd = manager.indexOf('\nfunction pageItems', groupsStart);
+  const groupsBody = manager.slice(groupsStart, groupsEnd);
+  assert.match(groupsBody, /filterEmbedManagerRecords\(records\)/);
+  assert.doesNotMatch(groupsBody, /for \(const channel of guild\.channels\.cache\.values\(\)\)/);
+});
