@@ -72,7 +72,22 @@ export async function openEmbedManager`);
         }
         let records = preparedData?.records
             || await getCanonicalBuilderRecords(guild, storedRecords, { perChannel: true });
-        rememberEmbedManagerRecordCache(guild.id, buttonInteraction.user.id, records);`);
+        rememberEmbedManagerRecordCache(guild.id, buttonInteraction.user.id, records);
+        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = preparedData?.initialPayload
+            || (guild.channels.cache.size
+                ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+                : buildEmptyManagerPayload());`);
+
+  text = replaceRequired(
+    text,
+    `        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = guild.channels.cache.size
+            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+            : buildEmptyManagerPayload();`,
+    '',
+    'original open Modify payload',
+  );
 
   text = text.replaceAll(
     '                        records = refreshedRecords;\n                        await updateEmbedManager(',
@@ -86,20 +101,6 @@ export async function openEmbedManager`);
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);`,
     'save cache invalidation',
-  );
-
-  text = replaceRequired(
-    text,
-    `        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
-        const initialPayload = guild.channels.cache.size
-            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
-            : buildEmptyManagerPayload();`,
-    `        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
-        const initialPayload = preparedData?.initialPayload
-            || (guild.channels.cache.size
-                ? buildChannelPayload(guild, records, 0, checkingChannelIds)
-                : buildEmptyManagerPayload());`,
-    'prebuilt Modify payload',
   );
 
   text = replaceRequired(
