@@ -225,7 +225,20 @@ class TitanBot extends Client {
       });
     });
 
-    app.get('/embed-color', (req, res) => {
+    app.get('/embed-color', async (req, res) => {
+      // BUILDER_EDITOR_PREVIEW_HOLD_ON_GET_V1
+      // A link button does not generate a Discord component interaction. Acquire
+      // the Builder hold as soon as the editor URL is opened so the live preview
+      // cannot hit its normal 5-minute cleanup while the editor page is loading
+      // or being used. The page's explicit editor-open handshake then owns the
+      // normal fixed 14-minute editor lease.
+      const token = String(req.query?.session || '').trim();
+      if (token) {
+        await applyEmbedColorPickerSession(
+          token,
+          '__CLOUDY_EMBED_HEARTBEAT__',
+        ).catch(() => null);
+      }
       res.type('html').send(embedColorPickerPage());
     });
 
