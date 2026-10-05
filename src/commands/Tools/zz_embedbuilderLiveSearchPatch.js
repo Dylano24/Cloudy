@@ -10,7 +10,10 @@ import {
     getEmbedRegistrySnapshot,
 } from '../../services/embedRegistryService.js';
 import { collapseDisplayRecords } from '../../services/embedManagerService.js';
-import { getSystemSourceDefinitionPreview } from '../../services/systemEmbedCatalogService.js';
+import {
+    getSearchableSystemCatalogRecords,
+    getSystemSourceDefinitionPreview,
+} from '../../services/systemEmbedCatalogService.js';
 
 const RUNTIME_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchRuntime');
 const RESPONSE_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchResponses');
