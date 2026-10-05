@@ -284,26 +284,21 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     text = text.slice(0, closeButtonStart) + deleteButton + text.slice(closeButtonStart);
   }
 
-  text = replaceRequired(
-    text,
-    `                        case 'simple_embed_post':
-                            if (state.modifyTarget) {
-                                await buttonInteraction.deferUpdate().catch(() => {});
-                                await saveExistingEmbed(buttonInteraction, interaction.guild, state);
-                                break;
-                            }`,
-    `                        case 'simple_embed_post':
-                            if (state.modifyTarget) {
-                                await buttonInteraction.deferUpdate().catch(() => {});
-                                if (state.pendingBuilderDelete) {
+  if (!text.includes('await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);')) {
+    const postCase = text.indexOf("case 'simple_embed_post':");
+    const modifyBranch = text.indexOf('if (state.modifyTarget) {', postCase);
+    if (postCase < 0 || modifyBranch < 0) {
+      throw new Error('[BUILDER_SAFE_DELETE] Save modify branch missing');
+    }
+    const insertAt = text.indexOf('\n', modifyBranch) + 1;
+    const pendingBranch = `                                if (state.pendingBuilderDelete) {
+                                    await buttonInteraction.deferUpdate().catch(() => {});
                                     await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
                                     break;
                                 }
-                                await saveExistingEmbed(buttonInteraction, interaction.guild, state);
-                                break;
-                            }`,
-    'Save pending deletion branch',
-  );
+`;
+    text = text.slice(0, insertAt) + pendingBranch + text.slice(insertAt);
+  }
 
   text = replaceRequired(
     text,
