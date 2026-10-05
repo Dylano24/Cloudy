@@ -183,12 +183,18 @@ const newCollectorEnd = `            collector.on('end', async (_collected, reas
 
 let builderSource = fs.readFileSync(builderTarget, 'utf8');
 if (!builderSource.includes(newCollectorEnd)) {
-  if (!builderSource.includes(oldCollectorEnd)) {
-    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] expected builder collector lifecycle marker not found');
+  if (builderSource.includes(oldCollectorEnd)) {
+    builderSource = builderSource.replace(oldCollectorEnd, newCollectorEnd);
+    fs.writeFileSync(builderTarget, builderSource, 'utf8');
+  } else if (builderSource.includes("collector.on('end', async (_collected, reason) => {") || builderSource.includes("collector.on('end', async () => {")) {
+    // The builder lifecycle has evolved since this one-time migration (for
+    // example child-panel cleanup). Do not crash production merely because the
+    // exact historical block is no longer byte-for-byte identical.
+    console.log('[EMBED_BUILDER_EDITOR_LIFECYCLE] builder collector lifecycle already customized; leaving current lifecycle intact');
+  } else {
+    console.error('[EMBED_BUILDER_EDITOR_LIFECYCLE] builder collector lifecycle missing');
     process.exit(1);
   }
-  builderSource = builderSource.replace(oldCollectorEnd, newCollectorEnd);
-  fs.writeFileSync(builderTarget, builderSource, 'utf8');
 }
 
 const oldEditorSaveAck = `        const nextValue = payload.value.slice(0, limit);
