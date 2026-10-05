@@ -37,8 +37,10 @@ test('Add logo sits directly next to Remove logo in the top control row', () => 
   assert.ok(addLogo >= 0, 'Add logo button missing');
   assert.ok(removeLogo > addLogo, 'Remove logo must come immediately after Add logo');
   assert.ok(contentRow > removeLogo, 'Add logo and Remove logo must stay in the same title row');
-  assert.doesNotMatch(
-    controls.slice(addLogo, removeLogo),
-    /setCustomId\('simple_embed_[^']+'\)/,
+  const nextCustomId = controls.indexOf("setCustomId('simple_embed_", addLogo + 1);
+  assert.equal(
+    nextCustomId,
+    removeLogo,
+    'No other Builder button may sit between Add logo and Remove logo',
   );
 });
