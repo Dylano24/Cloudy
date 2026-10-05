@@ -11,9 +11,9 @@ function patchFile(path, patcher) {
 }
 
 function replaceRequired(text, before, after, label) {
+  if (text.includes(before)) return text.replace(before, after);
   if (text.includes(after)) return text;
-  if (!text.includes(before)) throw new Error(`[BUILDER_COMMERCIAL_LATENCY] Missing ${label}`);
-  return text.replace(before, after);
+  throw new Error(`[BUILDER_COMMERCIAL_LATENCY] Missing ${label}`);
 }
 
 patchFile('src/services/embedManagerService.js', text => {
@@ -130,15 +130,35 @@ export async function openEmbedManager`);
             fetchReply: true,
         }).catch(() => null);
         if (!managerMessage) return;`,
-    `        const managerResponse = await buttonInteraction.reply({
-            ...initialPayload,
-            flags: MessageFlags.Ephemeral,
-            withResponse: true,
-        }).catch(error => {
-            logger.error('Embed manager direct reply failed:', error);
-            return null;
-        });
-        const managerMessage = managerResponse?.resource?.message || null;
+    `        let managerMessage = null;
+        if (typeof buttonInteraction.reply === 'function'
+            && !buttonInteraction.deferred
+            && !buttonInteraction.replied) {
+            const managerResponse = await buttonInteraction.reply({
+                ...initialPayload,
+                flags: MessageFlags.Ephemeral,
+                withResponse: true,
+            }).catch(error => {
+                logger.error('Embed manager direct reply failed:', error);
+                return null;
+            });
+            managerMessage = managerResponse?.resource?.message || null;
+        }
+
+        // Compatibility fallback for legacy/test interaction shims. Real
+        // Discord button interactions take the direct one-request path above.
+        if (!managerMessage) {
+            if (!buttonInteraction.deferred
+                && !buttonInteraction.replied
+                && typeof buttonInteraction.deferUpdate === 'function') {
+                await buttonInteraction.deferUpdate().catch(() => {});
+            }
+            managerMessage = await buttonInteraction.followUp({
+                ...initialPayload,
+                flags: MessageFlags.Ephemeral,
+                fetchReply: true,
+            }).catch(() => null);
+        }
         if (!managerMessage) return;`,
     'single-roundtrip Modify reply',
   );
