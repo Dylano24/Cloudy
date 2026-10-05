@@ -616,6 +616,86 @@ async function refreshBuilderPreviewOnly(interaction, state) {
     text = text.slice(0, start) + block + text.slice(end);
   }
 
+  {
+    const startupStart = text.indexOf(
+      '            const initialShown = await InteractionHelper.safeReply(interaction, {',
+    );
+    const startupEndNeedle = '            state.builderDashboardWebhook = interaction.webhook;';
+    const startupEnd = text.indexOf(startupEndNeedle, startupStart);
+    if (startupStart < 0 || startupEnd < 0) {
+      throw new Error('[BUILDER_NATIVE_COLOR_INSTANT] initial Builder delivery block missing');
+    }
+
+    const startupReplacement = `            // ${marker}: for guild Builders, launch the preview interaction reply and
+            // the normal bot-managed dashboard send in the same turn. They are independent
+            // Discord requests, so neither waits on a second follow-up round-trip.
+            let previewMessage = null;
+            let dashboardMessage = null;
+
+            if (builderBotManaged
+                && interaction.channel?.send
+                && !interaction.replied
+                && !interaction.deferred) {
+                const previewResponsePromise = interaction.reply({
+                    embeds: [buildPreviewEmbed(state)],
+                    components: getBuilderMessageComponents(state),
+                    withResponse: true,
+                }).catch(() => null);
+                const dashboardPromise = interaction.channel.send({
+                    embeds: [buildControlEmbed(state)],
+                    components: buildControls(state),
+                }).catch(() => null);
+
+                const [previewResponse, sentDashboard] = await Promise.all([
+                    previewResponsePromise,
+                    dashboardPromise,
+                ]);
+                previewMessage = previewResponse?.resource?.message || null;
+                dashboardMessage = sentDashboard || null;
+
+                if (!previewMessage && interaction.replied) {
+                    previewMessage = await interaction.fetchReply().catch(() => null);
+                }
+            } else {
+                const initialShown = await InteractionHelper.safeReply(interaction, {
+                    embeds: [buildPreviewEmbed(state)],
+                    components: getBuilderMessageComponents(state),
+                    flags: MessageFlags.Ephemeral,
+                });
+                if (initialShown) {
+                    const dashboardPromise = interaction.followUp({
+                        embeds: [buildControlEmbed(state)],
+                        components: buildControls(state),
+                        flags: MessageFlags.Ephemeral,
+                        fetchReply: true,
+                    }).catch(() => null);
+                    [previewMessage, dashboardMessage] = await Promise.all([
+                        interaction.fetchReply().catch(() => null),
+                        dashboardPromise,
+                    ]);
+                }
+            }
+
+            if (!previewMessage || !dashboardMessage) {
+                await interaction.deleteReply().catch(() => {});
+                await dashboardMessage?.delete?.().catch(() => {});
+                return;
+            }
+
+            state.builderMessage = previewMessage;
+            state.builderMessageId = previewMessage.id;
+            state.builderWebhook = interaction.webhook;
+            state.builderPreviewUnavailable = false;
+
+            state.builderDashboardMessage = dashboardMessage;
+            state.builderDashboardMessageId = dashboardMessage.id;
+            state.builderDashboardWebhook = builderBotManaged ? null : interaction.webhook;`;
+
+    text = text.slice(0, startupStart)
+      + startupReplacement
+      + text.slice(startupEnd + startupEndNeedle.length);
+  }
+
   return text;
 });
 
