@@ -19,8 +19,9 @@ function replaceOnce(find, replace, label) {
 }
 
 replaceOnce(
-  'const pendingTemplates = new Map();\nlet flushTimer = null;',
+  'const pendingTemplates = new Map();\nconst searchableCatalogRecords = new Map();\nlet flushTimer = null;',
   `const pendingTemplates = new Map();
+const searchableCatalogRecords = new Map();
 const plainSourceAliases = new Map();
 const SOURCE_BASELINE_PREFIX = 'cloudy:system-embed-source-baseline:';
 // SOURCE_RESPONSE_SYNC_V1: source-discovered plain responses have durable identities.
