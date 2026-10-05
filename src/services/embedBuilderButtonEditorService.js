@@ -13,6 +13,7 @@ import {
 } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { redisAcquireLock } from '../utils/redisCache.js';
 
 const ACTION_PREFIX = 'cloudy:builder-button-action:';
 const ACTION_CUSTOM_ID = 'cloudy_builder_action';
@@ -339,6 +340,14 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
   }).catch(() => null);
   if (!submitted) return;
   if (state.buttonModalGeneration !== modalGeneration) {
+    if (!submitted.replied && !submitted.deferred) await submitted.deferUpdate().catch(() => {});
+    return;
+  }
+
+  // Redis-backed idempotency: even if Discord or an old collector delivers the
+  // same modal submit twice, only one handler is allowed to create a button.
+  const ownsSubmit = await redisAcquireLock(`embed-button-submit:${submitted.id}`, 5 * 60_000);
+  if (!ownsSubmit) {
     if (!submitted.replied && !submitted.deferred) await submitted.deferUpdate().catch(() => {});
     return;
   }
