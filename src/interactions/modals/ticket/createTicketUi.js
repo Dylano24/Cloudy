@@ -8,7 +8,6 @@ import {
   closeTicket,
   createTicket,
 } from '../../../services/ticketReliabilityService.js';
-import { sendTicketCreationConfirmation } from '../../../services/ticketCreationConfirmationService.js';
 import { logger } from '../../../utils/logger.js';
 import { requireTicketCloseReason } from '../../../services/ticketActionPolicy.js';
 import { setResponseLifetime } from '../../../utils/responseLifetime.js';
@@ -97,8 +96,8 @@ const createTicketModal = {
       }
 
       const channelLink = buildTicketChannelLink(channel);
-      setResponseLifetime(interaction, null);
-      await sendTicketCreationConfirmation(channel, interaction.channel, {
+      setResponseLifetime(interaction, 10_000);
+      await InteractionHelper.safeEditReply(interaction, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
           title: 'Ticket created',
@@ -106,7 +105,7 @@ const createTicketModal = {
         })],
         components: [],
       });
-      await interaction.deleteReply();
+      scheduleTicketReplyDeletion(interaction, 10_000);
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
         if (error.code === 'TICKET_LIMIT_REACHED') setResponseLifetime(interaction, 10_000);
