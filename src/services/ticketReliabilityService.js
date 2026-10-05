@@ -19,7 +19,6 @@ import {
 } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { requireTicketCloseReason } from './ticketActionPolicy.js';
-import { deleteTicketCreationConfirmation } from './ticketCreationConfirmationService.js';
 import { getPinnedMessages } from '../utils/messagePins.js';
 import { createEmbed } from '../utils/embeds.js';
 import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
@@ -647,7 +646,6 @@ export async function closeTicket(channel, closer, reason, options = {}) {
     await Promise.allSettled([
       hideClosedTicket(channel),
       syncCloudyTicketMessage(channel),
-      deleteTicketCreationConfirmation(channel),
     ]);
 
     logTicketMutation(channel, {
@@ -795,7 +793,6 @@ export async function reconcileTicketChannelState(channel) {
 
   if (isClosed) {
     await hideClosedTicket(channel);
-    await deleteTicketCreationConfirmation(channel);
   }
 
   const ownerPermissions = isClosed
