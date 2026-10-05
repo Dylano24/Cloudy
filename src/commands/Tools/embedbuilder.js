@@ -1179,13 +1179,28 @@ export default {
                     }
                 } catch (error) {
                     logger.error('Error in simple embed builder:', error);
+                    // Never deferUpdate before an error response here. A deferred component
+                    // interaction makes replyUserError edit the original builder reply,
+                    // which can replace the whole builder with the error embed.
                     if (!buttonInteraction.replied && !buttonInteraction.deferred) {
-                        await buttonInteraction.deferUpdate().catch(() => {});
+                        await replyUserError(buttonInteraction, {
+                            type: ErrorTypes.UNKNOWN,
+                            message: 'The message builder could not complete that action.',
+                        }).catch(() => {});
+                    } else {
+                        const errorMessage = await buttonInteraction.followUp({
+                            embeds: [new EmbedBuilder()
+                                .setTitle('Something went wrong')
+                                .setDescription('The message builder could not complete that action. The builder is still open.')
+                                .setColor(getColor('error'))],
+                            flags: MessageFlags.Ephemeral,
+                            fetchReply: true,
+                        }).catch(() => null);
+                        if (errorMessage) removeTransientMessage(buttonInteraction, errorMessage);
                     }
-                    await replyUserError(buttonInteraction, {
-                        type: ErrorTypes.UNKNOWN,
-                        message: 'The message builder could not complete that action.',
-                    }).catch(() => {});
+                    // Best effort: keep the canonical builder dashboard rendered after any
+                    // failed child action. Errors must never become a close condition.
+                    await refreshBuilder(interaction, state).catch(() => {});
                 }
             });
 
