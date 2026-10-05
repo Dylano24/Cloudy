@@ -279,6 +279,26 @@ function chooseBetter(left, right) {
     return { ...chosen, score: bestScore };
 }
 
+function mergeSearchRecords(guildId, registryRecords) {
+    const combined = [
+        ...(Array.isArray(registryRecords) ? registryRecords : []),
+        ...getSearchableSystemCatalogRecords(guildId),
+    ];
+    const unique = new Map();
+    for (const record of combined) {
+        const key = [
+            String(record?.backingChannelId || record?.channelId || ''),
+            String(record?.messageId || ''),
+            Number(record?.embedIndex || 0),
+        ].join(':');
+        const existing = unique.get(key);
+        if (!existing || String(record?.source || '') === 'system-catalog') {
+            unique.set(key, record);
+        }
+    }
+    return [...unique.values()];
+}
+
 function builderSearchDisplayRecords(records) {
     const groups = new Map();
 
@@ -462,7 +482,8 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             return;
         }
 
-        const records = await getEmbedRegistry(interaction.guildId);
+        const registryRecords = await getEmbedRegistry(interaction.guildId);
+        const records = mergeSearchRecords(interaction.guildId, registryRecords);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
         const choices = matches.map(({ record, document }) => ({
             name: clean(document.title, 100),
@@ -479,7 +500,8 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
         const selected = parseSelection(rawSelection);
 
         if (selected && interaction.guildId) {
-            const records = await getEmbedRegistry(interaction.guildId);
+            const registryRecords = await getEmbedRegistry(interaction.guildId);
+            const records = mergeSearchRecords(interaction.guildId, registryRecords);
             const displayRecords = builderSearchDisplayRecords(records);
             const record = displayRecords.find(item =>
                 String(item.channelId) === selected.channelId
