@@ -156,13 +156,19 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
   }
 
   // Timeout / any other Builder end must not leave private child messages behind.
-  const endAnchor = `            collector.on('end', async () => {
-                if (state.activeEmbedManager) {`;
-  const endReplacement = `            collector.on('end', async () => {
-                await cleanupBuilderButtonUi(interaction, state).catch(() => {});
-                if (state.activeEmbedManager) {`;
-  if (text.includes(endAnchor) && !text.includes(endReplacement)) {
-    text = text.replace(endAnchor, endReplacement);
+  {
+    const endStart = text.indexOf("collector.on('end', async (");
+    if (endStart >= 0) {
+      const bodyStart = text.indexOf('{', endStart);
+      if (bodyStart >= 0) {
+        const blockProbe = text.slice(bodyStart, bodyStart + 500);
+        if (!blockProbe.includes('cleanupBuilderButtonUi(interaction, state)')) {
+          text = text.slice(0, bodyStart + 1)
+            + "\n                await cleanupBuilderButtonUi(interaction, state).catch(() => {});"
+            + text.slice(bodyStart + 1);
+        }
+      }
+    }
   }
 
   return text;
