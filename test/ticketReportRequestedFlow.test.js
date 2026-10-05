@@ -131,7 +131,7 @@ test('close modal requires reason and rejects whitespace before changing state',
   await modals.find(m => m.name === 'ticket_close_modal').execute(f.interaction, f.client);
   assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'open');
 });
-test('closing hides all non-staff access and deletes the public confirmation in its source channel', async t => {
+test('closing hides all non-staff access and keeps the creation confirmation until ticket deletion', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.initialize(); let deleted = 0;
   const source = { id: 'ticket-panel-channel', guild: f.guild,
@@ -144,7 +144,7 @@ test('closing hides all non-staff access and deletes the public confirmation in 
   }
   await sendTicketCreationConfirmation(f.channel, source, { embeds: [new EmbedBuilder({ title: 'Ticket created' })] });
   await modals.find(m => m.name === 'ticket_close_modal').execute(f.interaction, f.client);
-  assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'closed'); assert.equal(deleted, 1);
+  assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'closed'); assert.equal(deleted, 0);
   for (const id of [creatorId, 'guest', 'member-role', f.guild.id]) {
     assert.equal(f.permissions.filter(p => p.id === id).at(-1).value.ViewChannel, false);
   }

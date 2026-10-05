@@ -12,6 +12,7 @@ import { logger } from '../../../utils/logger.js';
 import { requireTicketCloseReason } from '../../../services/ticketActionPolicy.js';
 import { setResponseLifetime } from '../../../utils/responseLifetime.js';
 import { scheduleTicketReplyDeletion } from '../../../utils/ticket/ticketBranding.js';
+import { registerPrivateTicketCreationConfirmation } from '../../../services/ticketCreationConfirmationService.js';
 
 async function ensureTicketCreatorAccess(channel, userId) {
   const requiredPermissions = [
@@ -96,7 +97,9 @@ const createTicketModal = {
       }
 
       const channelLink = buildTicketChannelLink(channel);
-      setResponseLifetime(interaction, 10_000);
+      // Successful ticket creation stays private and persistent. It is cleaned
+      // up by the ticket delete lifecycle rather than by a short response timer.
+      setResponseLifetime(interaction, null);
       await InteractionHelper.safeEditReply(interaction, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
@@ -105,7 +108,7 @@ const createTicketModal = {
         })],
         components: [],
       });
-      scheduleTicketReplyDeletion(interaction, 10_000);
+      registerPrivateTicketCreationConfirmation(channel, interaction);
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
         if (error.code === 'TICKET_LIMIT_REACHED') setResponseLifetime(interaction, 10_000);
