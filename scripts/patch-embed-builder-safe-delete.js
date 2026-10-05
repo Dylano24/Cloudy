@@ -97,7 +97,7 @@ async function inspectBuilderDeleteTarget(guild, target) {
 }
 
 function clearBuilderRecordCaches(guildId) {
-    const prefix = \`${guildId}:\`;
+    const prefix = String(guildId) + ':';
     const managerCache = globalThis.__cloudyEmbedManagerRecordCache;
     if (managerCache?.keys) {
         for (const key of managerCache.keys()) {
