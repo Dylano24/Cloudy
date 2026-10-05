@@ -421,9 +421,7 @@ const reopenTicketHandler = {
       const context = await requireStaff(interaction, client, 'reopen tickets', true);
       if (!context) return;
 
-      await reopenTicket(interaction.channel, interaction.member, {
-        statusMessage: interaction.message,
-      });
+      await reopenTicket(interaction.channel, interaction.member);
     } catch (error) {
       logger.error('Ticket reopen button failed', { error: error.message, channelId: interaction.channelId });
       const message = error?.userMessage || 'An error occurred while reopening the ticket.';
