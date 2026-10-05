@@ -20,13 +20,22 @@ test('new Builder buttons remain dirty and target the current message until Save
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const responseStart = source.indexOf('async function showAddResponseModal');
-  const responseEnd = source.indexOf('async function showEditButtonModal', responseStart);
-  const responseBody = source.slice(responseStart, responseEnd);
-  assert.match(responseBody, /state\.componentRows = next/);
-  assert.match(responseBody, /state\.componentRowsSourceMessageId = state\.modifyTarget\?\.messageId/);
-  assert.match(responseBody, /state\.componentsDirty = true/);
-  assert.match(responseBody, /ButtonStyle\.Link/);
-  assert.doesNotMatch(source, /async function showAddLinkModal/);
+  const linkStart = source.indexOf('async function showAddLinkModal', responseStart);
+  const disabledStart = source.indexOf('async function showAddDisabledModal', linkStart);
+  const editStart = source.indexOf('async function showEditButtonModal', disabledStart);
+  assert.ok(responseStart >= 0 && linkStart > responseStart && disabledStart > linkStart && editStart > disabledStart);
+
+  for (const body of [
+    source.slice(responseStart, linkStart),
+    source.slice(linkStart, disabledStart),
+    source.slice(disabledStart, editStart),
+  ]) {
+    assert.match(body, /state\.componentRows = next/);
+    assert.match(body, /state\.componentRowsSourceMessageId = state\.modifyTarget\?\.messageId/);
+    assert.match(body, /state\.componentsDirty = true/);
+  }
+
+  assert.match(source.slice(linkStart, disabledStart), /ButtonStyle\.Link/);
 });
 
 test('Post message and Save changes both write Builder buttons to Discord', () => {
