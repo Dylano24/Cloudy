@@ -10,6 +10,8 @@ test('button editor exposes only Add button as the creator', () => {
   const manager = source.slice(managerStart, addStart);
 
   assert.match(manager, /Add button/);
+  assert.match(manager, /embed_button_color_select/);
+  assert.match(manager, /embed_button_visibility_select/);
   assert.doesNotMatch(manager, /Add response button/);
   assert.doesNotMatch(manager, /Add link button/);
   assert.doesNotMatch(manager, /Add disabled button/);
@@ -18,6 +20,8 @@ test('button editor exposes only Add button as the creator', () => {
   const collectorStart = source.indexOf("collector.on('collect'");
   assert.ok(collectorStart >= 0);
   const collector = source.slice(collectorStart);
+  assert.match(collector, /componentInteraction\.customId === 'embed_button_color_select'/);
+  assert.match(collector, /componentInteraction\.customId === 'embed_button_visibility_select'/);
   assert.doesNotMatch(collector, /componentInteraction\.customId === 'embed_button_add_link'/);
   assert.doesNotMatch(collector, /componentInteraction\.customId === 'embed_button_add_disabled'/);
   assert.doesNotMatch(collector, /componentInteraction\.customId === 'embed_button_edit_select'/);
@@ -31,16 +35,17 @@ test('Add button keeps response message and link URL in separate fields', () => 
   const body = source.slice(start, end);
 
   assert.match(body, /button_label/);
-  assert.match(body, /button_settings/);
   assert.match(body, /button_response/);
   assert.match(body, /button_url/);
+  assert.doesNotMatch(body, /button_settings/);
   assert.doesNotMatch(body, /button_action/);
   assert.match(body, /button_duration/);
-  assert.match(body, /normalizeButtonVisibility/);
+  assert.match(body, /buttonDraftVisibility/);
+  assert.match(body, /buttonDraftStyleName/);
   assert.match(body, /parseButtonDuration/);
   assert.match(body, /deleteAfterMs: duration\.ms/);
   assert.match(body, /ButtonStyle\.Link/);
-  assert.match(body, /if \(responseText && url\)/);
+  assert.doesNotMatch(body, /if \(responseText && url\)/);
   assert.match(body, /if \(url && !\/\^https\?:/);
 });
 
