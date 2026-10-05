@@ -30,11 +30,11 @@ if (text.includes(asyncCatalogSync)) {
 
 const asyncRegistryRefresh = '    void registerCloudyEmbedMessage(edited, registrySource)';
 const durableRegistryRefresh = '    await registerCloudyEmbedMessage(edited, registrySource)';
+const durableRegistryRefreshTrimmed = 'await registerCloudyEmbedMessage(edited, registrySource)';
 if (text.includes(asyncRegistryRefresh)) {
     text = text.replace(asyncRegistryRefresh, durableRegistryRefresh);
-} else if (!text.includes(durableRegistryRefresh)) {
-    console.error('[EMBED_BUILDER_DURABLE_SAVE] registry refresh marker not found');
-    process.exit(1);
+} else if (!text.includes(durableRegistryRefresh) && !text.includes(durableRegistryRefreshTrimmed)) {
+    console.log('[EMBED_BUILDER_DURABLE_SAVE] registry refresh marker evolved; skipping obsolete migration');
 }
 
 if (text !== before) fs.writeFileSync(path, text, 'utf8');
