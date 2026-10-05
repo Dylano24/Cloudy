@@ -621,6 +621,29 @@ export async function removeEmbedRegistryRecord(guildId, channelId, messageId, e
     });
 }
 
+export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
+    return mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        let changed = false;
+        const next = records.filter(item => {
+            const matches = (
+                (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
+                && String(item.messageId) === String(messageId)
+                && Number(item.embedIndex || 0) === Number(embedIndex || 0)
+            );
+            if (!matches) return true;
+
+            changed = true;
+            embedSnapshotCache.delete(recordKey(item));
+            return false;
+        });
+
+        if (!changed) return false;
+        await setInDb(registryKey(guildId), sortRecords(next));
+        return true;
+    });
+}
+
 export async function removeEmbedRegistryMessage(guildId, channelId, messageId) {
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
