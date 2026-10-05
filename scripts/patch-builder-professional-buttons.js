@@ -129,14 +129,6 @@ async function replyButtonEditorError(interaction, content) {
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId('button_label')
-          .setLabel('Button / link name')
-          .setStyle(TextInputStyle.Short)
-          .setMaxLength(80)
-          .setRequired(true),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
           .setCustomId('button_style')
           .setLabel('Color (optional)')
           .setStyle(TextInputStyle.Short)
@@ -161,6 +153,15 @@ async function replyButtonEditorError(interaction, content) {
           .setPlaceholder('10s, 30s, 1m, 5m • blank stays')
           .setMaxLength(16)
           .setRequired(false),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('button_label')
+          .setLabel('Button / link name')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('This becomes the button or link name')
+          .setMaxLength(80)
+          .setRequired(true),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
