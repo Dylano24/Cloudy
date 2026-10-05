@@ -1,6 +1,6 @@
 import { Events, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
-import { getFromDb, setInDb } from '../utils/database.js';
+import { deleteFromDb, getFromDb, setInDb } from '../utils/database.js';
 import { getLevelingConfig } from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
@@ -290,22 +290,50 @@ async function handleLeveling(message, client) {
 async function handleEmbedReappear(message) {
   try {
     const prefix = `cloudy:embed-reappear:${message.guild.id}:${message.channel.id}:`;
-    // Reappear configs are indexed by original message id. Database adapters used
-    // by Cloudy expose prefix scans through getFromDb on this collection key.
-    const configs = await getFromDb(`cloudy:embed-reappear-index:${message.guild.id}:${message.channel.id}`, []);
+    const indexKey = `cloudy:embed-reappear-index:${message.guild.id}:${message.channel.id}`;
+    const configs = await getFromDb(indexKey, []);
     if (!Array.isArray(configs) || !configs.length) return;
+
+    // The Builder registry is authoritative. If an embed was deleted from the
+    // Embed Builder, its old Reappear rule is an orphan and must never recreate it.
+    const registry = await getFromDb(`cloudy:embed-registry:${message.guild.id}`, []);
+    const registryRecords = Array.isArray(registry) ? registry : [];
+    const survivingIds = [];
+
     for (const id of configs) {
-      const key = prefix + id;
+      const originalMessageId = String(id);
+      const key = prefix + originalMessageId;
       const config = await getFromDb(key, null);
-      if (!config?.every || !config?.embed) continue;
+      if (!config?.every || !config?.embed) {
+        await deleteFromDb(key);
+        continue;
+      }
+
+      const stillInBuilder = registryRecords.some(record =>
+        String(record?.channelId || '') === String(message.channel.id)
+        && String(record?.messageId || '') === originalMessageId
+        && String(record?.source || '') === 'embed-builder'
+      );
+
+      if (!stillInBuilder) {
+        const activeMessageId = config.messageId ? String(config.messageId) : null;
+        if (activeMessageId) {
+          const activeMessage = await message.channel.messages.fetch(activeMessageId).catch(() => null);
+          await activeMessage?.delete?.().catch(() => {});
+        }
+        await deleteFromDb(key);
+        continue;
+      }
+
+      survivingIds.push(originalMessageId);
       config.count = (Number(config.count) || 0) + 1;
       if (config.count < config.every) {
         await setInDb(key, config);
         continue;
       }
+
       // Reappear means move the same logical embed back to the bottom, not
-      // keep stacking copies. Post the replacement first; if the previous copy
-      // cannot be removed, delete the replacement again so only one remains.
+      // keep stacking copies.
       const sent = await message.channel.send({
         embeds: [config.embed],
         components: config.components || [],
@@ -314,16 +342,9 @@ async function handleEmbedReappear(message) {
 
       const previousMessageId = config.messageId ? String(config.messageId) : null;
       if (previousMessageId && previousMessageId !== String(sent.id)) {
-        const previous = await message.channel.messages
-          .fetch(previousMessageId)
-          .catch(error => error?.code === 10008 ? null : Promise.reject(error))
-          .catch(() => null);
-
+        const previous = await message.channel.messages.fetch(previousMessageId).catch(() => null);
         if (previous) {
-          const removedPrevious = await previous.delete()
-            .then(() => true)
-            .catch(() => false);
-
+          const removedPrevious = await previous.delete().then(() => true).catch(() => false);
           if (!removedPrevious) {
             await sent.delete().catch(() => {});
             config.count = Math.max(Number(config.every) || 1, Number(config.count) || 0);
@@ -337,6 +358,10 @@ async function handleEmbedReappear(message) {
       config.messageId = sent.id;
       config.updatedAt = new Date().toISOString();
       await setInDb(key, config);
+    }
+
+    if (survivingIds.length !== configs.length) {
+      await setInDb(indexKey, survivingIds);
     }
   } catch (error) {
     logger.error('Embed reappear handler failed:', error);
