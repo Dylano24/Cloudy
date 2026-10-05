@@ -508,8 +508,10 @@ async function showEditButtonModal(componentInteraction, state, key, refreshBuil
 }
 
 export async function openEmbedButtonEditor(buttonInteraction, state, refreshBuilder) {
-  await ensureRowsLoaded(buttonInteraction, state);
+  // Acknowledge the Builder click before any database/message lookup so Discord
+  // never shows "This interaction failed" while the editor is opening.
   await buttonInteraction.deferUpdate().catch(() => {});
+  await ensureRowsLoaded(buttonInteraction, state);
   await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});
 
   const existingEditorId = state.activeButtonEditorMessageId
