@@ -16,7 +16,7 @@ import {
   getFaqQuestionCooldown,
 } from '../services/faqAiService.js';
 
-const FAQ_RESPONSE_DELETE_DELAY_MS = 5 * 60 * 1000;
+export const FAQ_RESPONSE_DELETE_DELAY_MS = 10_000;
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 function isFaqChannel(interaction) {
@@ -101,22 +101,39 @@ function getLocalizedQuestionLabel(question, answer) {
   return QUESTION_LABELS[answerLanguage] || QUESTION_LABELS.en;
 }
 
-function scheduleEphemeralDeletion(interaction, delayMs = FAQ_RESPONSE_DELETE_DELAY_MS) {
-  const timer = setTimeout(() => {
-    interaction.deleteReply().catch(error => {
-      if (![10008, 10062].includes(error?.code)) {
-        logger.debug('FAQ AI auto-delete could not remove reply:', error?.message || error);
-      }
-    });
+export function scheduleEphemeralDeletion(interaction, delayMs = FAQ_RESPONSE_DELETE_DELAY_MS) {
+  const timer = setTimeout(async () => {
+    let deleted = false;
+
+    if (interaction.webhook?.deleteMessage) {
+      deleted = await interaction.webhook.deleteMessage('@original')
+        .then(() => true)
+        .catch(() => false);
+    }
+
+    if (!deleted && interaction.deleteReply) {
+      await interaction.deleteReply().catch(error => {
+        if (![10008, 10062].includes(error?.code)) {
+          logger.debug('FAQ AI auto-delete could not remove reply:', error?.message || error);
+        }
+      });
+    }
   }, delayMs);
 
   timer.unref?.();
 }
 
+export async function editFaqOriginalReply(interaction, payload) {
+  if (interaction.webhook?.editMessage) {
+    return interaction.webhook.editMessage('@original', payload);
+  }
+  return interaction.editReply(payload);
+}
+
 async function replyEphemeral(interaction, content) {
   try {
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({ content, embeds: [], components: [] });
+      await editFaqOriginalReply(interaction, { content, embeds: [], components: [] });
     } else {
       await interaction.reply({ content, flags: MessageFlags.Ephemeral });
     }
@@ -227,7 +244,10 @@ export default {
       const embedPayload = embed.toJSON();
       embedPayload.footer = { text: CLOUDY_FOOTER };
 
-      await interaction.editReply({
+      // Edit the deferred interaction through its webhook directly. The generic
+      // response-template layer wraps interaction.editReply() and can otherwise
+      // replace this dynamic AI answer with the saved static FAQ panel.
+      await editFaqOriginalReply(interaction, {
         content: '',
         embeds: [embedPayload],
         components: [],
