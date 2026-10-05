@@ -87,6 +87,7 @@
     "scripts/patch-ticket-pinned-lookup.js",
     "scripts/patch-embed-builder-commercial-latency.js",
     "scripts/patch-embed-builder-safe-delete.js",
-    "scripts/patch-ticket-log-color-stability.js"
+    "scripts/patch-ticket-log-color-stability.js",
+    "scripts/patch-embed-builder-reset-close-layout.js"
   ]
 }
