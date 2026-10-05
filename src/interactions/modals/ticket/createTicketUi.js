@@ -55,6 +55,12 @@ function buildTicketChannelLink(channel) {
   return `[#${safeName}](https://discord.com/channels/${channel.guild.id}/${channel.id})`;
 }
 
+async function editTransientPrivateTicketReply(interaction, payload) {
+  setResponseLifetime(interaction, 10_000);
+  await InteractionHelper.safeEditReply(interaction, payload).catch(() => {});
+  scheduleTicketReplyDeletion(interaction, 10_000);
+}
+
 const createTicketModal = {
   name: 'create_ticket_modal',
 
@@ -72,7 +78,7 @@ const createTicketModal = {
       // ticket system. Treat PostgreSQL as the source of truth and block that
       // stale submit instead of allowing a deleted panel to create new tickets.
       if (config.ticketSystemDisabled === true) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await editTransientPrivateTicketReply(interaction, {
           content: 'The ticket system is currently disabled. Please wait until an administrator enables it again.',
           embeds: [],
           components: [],
@@ -111,13 +117,11 @@ const createTicketModal = {
       registerPrivateTicketCreationConfirmation(channel, interaction);
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
-        if (error.code === 'TICKET_LIMIT_REACHED') setResponseLifetime(interaction, 10_000);
-        await InteractionHelper.safeEditReply(interaction, {
+        await editTransientPrivateTicketReply(interaction, {
           content: error.userMessage,
           embeds: [],
           components: [],
-        }).catch(() => {});
-        if (error.code === 'TICKET_LIMIT_REACHED') scheduleTicketReplyDeletion(interaction, 10_000);
+        });
         return;
       }
 
@@ -126,6 +130,10 @@ const createTicketModal = {
         handler: 'ticket',
         customId: interaction.customId,
       });
+      if (interaction.deferred || interaction.replied) {
+        setResponseLifetime(interaction, 10_000);
+        scheduleTicketReplyDeletion(interaction, 10_000);
+      }
     }
   },
 };
@@ -141,7 +149,7 @@ const closeTicketModal = {
       const context = await getTicketPermissionContext({ client, interaction });
 
       if (context.ticketDataLookupFailed) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await editTransientPrivateTicketReply(interaction, {
           content: 'The ticket database is temporarily unavailable. Please try again.',
           embeds: [],
           components: [],
@@ -150,7 +158,7 @@ const closeTicketModal = {
       }
 
       if (!context.ticketData) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await editTransientPrivateTicketReply(interaction, {
           content: 'This action can only be used in a valid ticket channel.',
           embeds: [],
           components: [],
@@ -159,7 +167,7 @@ const closeTicketModal = {
       }
 
       if (!context.canCloseTicket) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await editTransientPrivateTicketReply(interaction, {
           content: 'Only the ticket creator, admins, or the configured Ticket Staff Role can close this ticket.',
           embeds: [],
           components: [],
@@ -181,11 +189,11 @@ const closeTicketModal = {
         channelId: interaction.channelId,
       });
 
-      await InteractionHelper.safeEditReply(interaction, {
+      await editTransientPrivateTicketReply(interaction, {
         content: error?.userMessage || 'An error occurred while closing the ticket. Please try again.',
         embeds: [],
         components: [],
-      }).catch(() => {});
+      });
     }
   },
 };
