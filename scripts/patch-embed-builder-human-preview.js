@@ -421,21 +421,25 @@ function builderDisplayChannel(guild, channelId) {
 `;
     text = replaceOnce(text, channelGroupsMarker, channelGroupsHelper + channelGroupsMarker, 'saved template display helpers');
 
-    text = replaceOnce(
-      text,
-      `    for (const record of records) {
+    if (text.includes('for (const record of filterEmbedManagerRecords(records))')) {
+      console.log('[BUILDER_HUMAN_PREVIEW] live-only channel grouping already current; Search-only archive remains hidden from Modify');
+    } else {
+      text = replaceOnce(
+        text,
+        `    for (const record of records) {
         const channelId = String(record.channelId);
         if (!groups.has(channelId)) groups.set(channelId, []);
         groups.get(channelId).push(record);
     }`,
-      `    for (const record of records) {
+        `    for (const record of records) {
         const channelId = builderDisplayChannelId(guild, record);
         if (!channelId) continue;
         if (!groups.has(channelId)) groups.set(channelId, []);
         groups.get(channelId).push(record);
     }`,
-      'saved template channel grouping',
-    );
+        'saved template channel grouping',
+      );
+    }
 
     text = replaceOnce(
       text,
@@ -451,16 +455,23 @@ function builderDisplayChannel(guild, channelId) {
       'saved template embed browser channel',
     );
 
-    text = replaceOnce(
-      text,
-      `    const rawChannelRecords = records
+    if (
+      text.includes('const visibleChannelRecords = filterEmbedManagerRecords(records)')
+      || text.includes('const channelRecords = filterEmbedManagerRecords(records)')
+    ) {
+      console.log('[BUILDER_HUMAN_PREVIEW] live-only embed list already current; detached Search archive remains out of Modify');
+    } else {
+      text = replaceOnce(
+        text,
+        `    const rawChannelRecords = records
         .filter(record => String(record.channelId) === String(channelId))
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));`,
-      `    const rawChannelRecords = records
+        `    const rawChannelRecords = records
         .filter(record => builderDisplayChannelId(guild, record) === String(channelId))
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));`,
-      'saved template embed list',
-    );
+        'saved template embed list',
+      );
+    }
 
     text = replaceOnce(
       text,
