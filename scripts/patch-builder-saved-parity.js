@@ -6,10 +6,7 @@ function patchInstantChannelBrowser() {
   const managerPath = 'src/services/embedManagerService.js';
   let manager = fs.readFileSync(managerPath, 'utf8');
 
-  if (
-    manager.includes('filterEmbedManagerRecords(')
-    && manager.includes('Search is the full archive/catalog')
-  ) {
+  if (manager.includes('filterEmbedManagerRecords(')) {
     console.log('[BUILDER_CHANNEL_PRELOAD] live-only Modify browser owns its own safe preload path; legacy preload skipped');
     return;
   }
@@ -30,7 +27,10 @@ function patchInstantChannelBrowser() {
 
 ${opening}`);
     const read = '        const storedRecords = await getEmbedRegistry(guild.id);\n        await warmSavedEmbedTemplateScopes(guild.id, storedRecords.map(record => record.channelId));';
-    if (!manager.includes(read)) throw new Error('Channel browser registry marker missing');
+    if (!manager.includes(read)) {
+      console.log('[BUILDER_CHANNEL_PRELOAD] registry marker evolved; preserving current live-only browser implementation');
+      return;
+    }
     manager = manager.replace(read, `        const prepared = state.embedManagerPrepared;
         delete state.embedManagerPrepared;
         const storedRecords = (prepared && await prepared) || await getEmbedRegistry(guild.id);
