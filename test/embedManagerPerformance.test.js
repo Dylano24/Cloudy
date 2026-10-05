@@ -22,6 +22,10 @@ test('Embed Manager normal open path stays registry-first', () => {
   const collectorStart = openBody.indexOf("collector.on('collect'");
   const startupPart = collectorStart >= 0 ? openBody.slice(0, collectorStart) : openBody;
   assert.doesNotMatch(startupPart, /discoverEmbedManagerOverviewRecords\(/);
+
+  const emptyRegistryGuard = startupPart.indexOf('if (!storedRecords.length)');
+  const backgroundRegistryLoad = startupPart.indexOf('loadCurrentRegistry(', emptyRegistryGuard);
+  assert.ok(emptyRegistryGuard >= 0 && backgroundRegistryLoad > emptyRegistryGuard);
 });
 
 test('full response history sweep is opt-in instead of automatic', () => {
