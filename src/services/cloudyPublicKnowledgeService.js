@@ -15,6 +15,44 @@ export const VERIFIED_CLOUDY_TEXT = Object.freeze({
   supportText: 'Contact us',
 });
 
+const KNOWLEDGE_FETCH_CONCURRENCY = 8;
+const KNOWLEDGE_CHANNEL_FETCH_TIMEOUT_MS = 2500;
+
+async function withTimeout(promise, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    () => runWorker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 function channelUrl(guildId, channelId) {
   return channelId ? `https://discord.com/channels/${guildId}/${channelId}` : null;
 }
@@ -153,37 +191,46 @@ export async function buildCloudyPublicKnowledgeEvidence(actor, request) {
   const directory = resolved.filter(({ channel }) => channel.permissionsFor(member)?.has(PermissionFlagsBits.ViewChannel)
     && channel.permissionsFor(botMember)?.has(PermissionFlagsBits.ViewChannel))
     .map(({ channel }) => ({ channelId: channel.id, channelName: channel.name }));
+  const readable = resolved.filter(({ channel }) => channel?.messages?.fetch
+    && channel.permissionsFor(member)?.has(required)
+    && channel.permissionsFor(botMember)?.has(required));
 
-  const rows = [];
-  let readableChannels = 0;
+  const channelRows = await mapWithConcurrency(
+    readable,
+    KNOWLEDGE_FETCH_CONCURRENCY,
+    async ({ key, channel }) => {
+      const batch = await withTimeout(
+        channel.messages.fetch({ limit: 50, cache: false }).catch(() => null),
+        KNOWLEDGE_CHANNEL_FETCH_TIMEOUT_MS,
+      );
+      if (!batch?.size) return [];
 
-  for (const { key, channel } of resolved) {
-    if (!channel?.messages?.fetch) continue;
-    if (!channel.permissionsFor(member)?.has(required) || !channel.permissionsFor(botMember)?.has(required)) continue;
+      const name = String(channel.name || '').toLowerCase();
+      const channelScore = tokens.reduce((score, token) => score + (name.includes(token) ? 3 : 0), 0);
+      const rows = [];
 
-    readableChannels += 1;
-    const batch = await channel.messages.fetch({ limit: 50, cache: false }).catch(() => null);
-    if (!batch?.size) continue;
+      for (const message of batch.values()) {
+        const text = contentFromMessage(message);
+        if (!text.trim()) continue;
+        const lower = text.toLowerCase();
+        const score = channelScore + tokens.reduce((total, token) => total + (lower.includes(token) ? 1 : 0), 0);
+        rows.push({
+          key,
+          channelId: channel.id,
+          channelName: channel.name,
+          messageId: message.id,
+          text,
+          score,
+          createdTimestamp: Number(message.createdTimestamp || 0),
+        });
+      }
 
-    const name = String(channel.name || '').toLowerCase();
-    const channelScore = tokens.reduce((score, token) => score + (name.includes(token) ? 3 : 0), 0);
+      return rows;
+    },
+  );
 
-    for (const message of batch.values()) {
-      const text = contentFromMessage(message);
-      if (!text.trim()) continue;
-      const lower = text.toLowerCase();
-      const score = channelScore + tokens.reduce((total, token) => total + (lower.includes(token) ? 1 : 0), 0);
-      rows.push({
-        key,
-        channelId: channel.id,
-        channelName: channel.name,
-        messageId: message.id,
-        text,
-        score,
-        createdTimestamp: Number(message.createdTimestamp || 0),
-      });
-    }
-  }
+  const rows = channelRows.flat();
+  const readableChannels = readable.length;
 
   const hasRelevant = rows.some(row => row.score > 0);
   const selected = rows
