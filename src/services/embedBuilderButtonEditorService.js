@@ -21,6 +21,8 @@ const ACTION_ROW_TYPE = 1;
 const MAX_ROWS = 5;
 const MAX_BUTTONS_PER_ROW = 5;
 const EDITOR_IDLE_MS = 5 * 60_000;
+const DEFAULT_RESPONSE_DELETE_MS = 10_000;
+const modalSubmissions = new Set();
 
 const STYLE_BY_NAME = new Map([
   ['blue', ButtonStyle.Primary],
@@ -197,10 +199,6 @@ function managerPayload(state) {
         .setCustomId('embed_button_add_response')
         .setLabel('Add response button')
         .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId('embed_button_add_link')
-        .setLabel('Add link button')
-        .setStyle(ButtonStyle.Secondary),
     ),
   ];
 
@@ -269,6 +267,15 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
           .setMaxLength(2000)
           .setRequired(true),
       ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('button_url')
+          .setLabel('Link (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('https://example.com')
+          .setMaxLength(512)
+          .setRequired(false),
+      ),
     );
 
   await componentInteraction.showModal(modal);
@@ -282,6 +289,14 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
   const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
   const style = parseButtonStyle(submitted.fields.getTextInputValue('button_style'), ButtonStyle.Secondary);
   const responseText = submitted.fields.getTextInputValue('button_response').trim().slice(0, 2000);
+  const url = submitted.fields.getTextInputValue('button_url').trim();
+  if (modalSubmissions.has(submitted.id)) return;
+  modalSubmissions.add(submitted.id);
+  setTimeout(() => modalSubmissions.delete(submitted.id), 5 * 60_000).unref?.();
+  if (url && !/^https?:\/\//i.test(url)) {
+    await submitted.reply({ content: 'The optional link must start with http:// or https://.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    return;
+  }
   if (style === ButtonStyle.Link) {
     await submitted.reply({ content: 'Use Add link button for link buttons.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
@@ -300,6 +315,10 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
     label,
     custom_id: `${ACTION_CUSTOM_ID}:${actionId}`,
   });
+  // Discord link buttons cannot also have a custom action. Keep the optional URL
+  // as part of the same saved action so one submit still creates exactly one button.
+  if (url) await setInDb(actionKey(submitted.guildId, actionId), { responseText, url: url.slice(0, 512), deleteAfterMs: DEFAULT_RESPONSE_DELETE_MS, updatedAt: new Date().toISOString() });
+  else await setInDb(actionKey(submitted.guildId, actionId), { responseText, deleteAfterMs: DEFAULT_RESPONSE_DELETE_MS, updatedAt: new Date().toISOString() });
   if (!next) {
     await submitted.reply({ content: 'Discord allows at most 5 component rows. Remove/reuse a row before adding another button.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
