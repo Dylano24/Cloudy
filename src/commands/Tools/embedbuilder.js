@@ -399,6 +399,18 @@ async function postBuiltMessage(channel, state, guild) {
 
         const sent = await channel.send(payload);
         await registerCloudyEmbedMessage(sent, 'embed-builder');
+        if (state.reappearAfter) {
+            await setInDb(`cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`, {
+                guildId: guild.id,
+                channelId: channel.id,
+                messageId: sent.id,
+                every: state.reappearAfter,
+                count: 0,
+                embed: embeds[index].toJSON(),
+                components: isLast ? (state.componentRows || []) : [],
+                updatedAt: new Date().toISOString(),
+            });
+        }
     }
 
     return { ok: true, destination: channel };
