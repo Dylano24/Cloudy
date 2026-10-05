@@ -313,6 +313,12 @@ async function handleEmbedReappear(message) {
       const key = prefix + originalMessageId;
       const config = await getFromDb(key, null);
       const embedIndex = Math.max(0, Number(config?.embedIndex) || 0);
+      if (config) {
+        // Normalize legacy rules in-place so every existing Reappear rule also
+        // gets the same exact ownership metadata as newly posted embeds.
+        if (!config.originMessageId) config.originMessageId = originalMessageId;
+        if (config.embedIndex == null) config.embedIndex = embedIndex;
+      }
       const disableKey = `cloudy:embed-reappear-disabled:${message.guild.id}:${message.channel.id}:${originalMessageId}:${embedIndex}`;
 
       if (!config?.every || !config?.embed) {
