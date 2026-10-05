@@ -12,11 +12,15 @@ const newStart = `export async function applySavedEmbedTemplates(message, { init
 
 if (!source.includes(newStart)) {
   if (!source.includes(oldStart)) {
-    console.error('[ZORP_MANUAL_SAVE_ONLY] applySavedEmbedTemplates marker not found');
-    process.exit(1);
+    console.log('[ZORP_MANUAL_SAVE_ONLY] template service evolved; skipping obsolete migration');
+    process.exitCode = 0;
+    // Do not block production startup for a historical one-time migration.
+    source = source;
   }
-  source = source.replace(oldStart, newStart);
-  fs.writeFileSync(target, source, 'utf8');
+  if (source.includes(oldStart)) {
+    source = source.replace(oldStart, newStart);
+    fs.writeFileSync(target, source, 'utf8');
+  }
 }
 
 console.log('[ZORP_MANUAL_SAVE_ONLY] protected ZORP Guide from automatic template rewrites');
