@@ -64,7 +64,10 @@ function canDeleteBuilderRecord(target) {
         target?.messageId
         && target?.channelId
         && target?.source !== 'system-catalog'
-        && !target?.templateMode
+        // Detached records are exactly the stale Search entries the Delete
+        // button is meant to remove. Canonical Search may mark them as a
+        // template-shaped result, but that must never disable Delete.
+        && (!target?.templateMode || target?.detached)
     );
 }
 
