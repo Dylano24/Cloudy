@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { db, saveTicketData } from '../src/utils/database.js';
+import { db, getTicketData, saveTicketData } from '../src/utils/database.js';
 import {
   deleteTicketCreationConfirmation,
   registerPrivateTicketCreationConfirmation,
@@ -66,7 +66,7 @@ test('private Ticket created confirmation is registered and removed through dele
     },
   };
 
-  assert.equal(registerPrivateTicketCreationConfirmation(ticketChannel, interaction), true);
+  assert.equal(await registerPrivateTicketCreationConfirmation(ticketChannel, interaction), true);
   assert.equal(await deleteTicketCreationConfirmation(ticketChannel), true);
   assert.equal(deletes, 1);
 });
@@ -94,4 +94,75 @@ test('Ticket created cleanup runs only after the real ticket channel delete succ
     confirmationDelete > channelDelete,
     'creation confirmation cleanup must happen after successful channel deletion',
   );
+});
+
+
+test('private Ticket created cleanup survives a bot restart while the Discord interaction token is valid', async () => {
+  installTestStorage();
+  const previousToken = process.env.DISCORD_TOKEN;
+  const previousFetch = global.fetch;
+  process.env.DISCORD_TOKEN = 'test-discord-token-for-confirmation-encryption';
+
+  try {
+    await saveTicketData('guild-restart-confirmation', 'ticket-restart-confirmation', {
+      id: 'ticket-restart-confirmation',
+      status: 'open',
+      userId: 'user-restart-confirmation',
+    });
+
+    const ticketChannel = {
+      id: 'ticket-restart-confirmation',
+      guild: {
+        id: 'guild-restart-confirmation',
+        channels: { fetch: async () => null },
+      },
+      client: { user: { id: 'cloudy-bot' } },
+    };
+
+    const interaction = {
+      applicationId: 'application-restart-confirmation',
+      token: 'interaction-restart-token',
+      deleteReply: async () => true,
+    };
+
+    assert.equal(
+      await registerPrivateTicketCreationConfirmation(ticketChannel, interaction),
+      true,
+    );
+
+    const stored = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+    assert.equal(stored.privateCreationConfirmation.applicationId, interaction.applicationId);
+    assert.notEqual(
+      stored.privateCreationConfirmation.encryptedInteractionToken,
+      interaction.token,
+      'interaction token must never be stored in plaintext',
+    );
+
+    let deleteUrl = '';
+    global.fetch = async (url, options) => {
+      deleteUrl = String(url);
+      assert.equal(options?.method, 'DELETE');
+      return { ok: true, status: 204 };
+    };
+
+    // Cache-busting the module simulates a fresh process with an empty in-memory
+    // confirmation map, while PostgreSQL-backed ticket data remains available.
+    const restarted = await import(
+      `../src/services/ticketCreationConfirmationService.js?restart=${Date.now()}`
+    );
+
+    assert.equal(
+      await restarted.deleteTicketCreationConfirmation(ticketChannel),
+      true,
+    );
+    assert.match(deleteUrl, /application-restart-confirmation/);
+    assert.match(deleteUrl, /interaction-restart-token/);
+
+    const afterCleanup = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+    assert.equal(afterCleanup.privateCreationConfirmation, undefined);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.DISCORD_TOKEN;
+    else process.env.DISCORD_TOKEN = previousToken;
+  }
 });
