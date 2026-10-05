@@ -88,6 +88,91 @@ export async function openEmbedManager`);
     'save cache invalidation',
   );
 
+  text = replaceRequired(
+    text,
+    `        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = guild.channels.cache.size
+            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+            : buildEmptyManagerPayload();`,
+    `        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = preparedData?.initialPayload
+            || (guild.channels.cache.size
+                ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+                : buildEmptyManagerPayload());`,
+    'prebuilt Modify payload',
+  );
+
+  text = replaceRequired(
+    text,
+    `    await buttonInteraction.deferUpdate().catch(() => {});
+
+    try {`,
+    `    try {`,
+    'Modify open defer',
+  );
+
+  text = replaceRequired(
+    text,
+    `            if (previousSession.messageId) {
+                await buttonInteraction.webhook.deleteMessage(previousSession.messageId).catch(() => {});
+            }`,
+    `            if (previousSession.messageId) {
+                void buttonInteraction.webhook.deleteMessage(previousSession.messageId).catch(() => {});
+            }`,
+    'previous Modify session cleanup',
+  );
+
+  text = replaceRequired(
+    text,
+    `        const managerMessage = await buttonInteraction.followUp({
+            ...initialPayload,
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
+        if (!managerMessage) return;`,
+    `        const managerResponse = await buttonInteraction.reply({
+            ...initialPayload,
+            flags: MessageFlags.Ephemeral,
+            withResponse: true,
+        }).catch(error => {
+            logger.error('Embed manager direct reply failed:', error);
+            return null;
+        });
+        const managerMessage = managerResponse?.resource?.message || null;
+        if (!managerMessage) return;`,
+    'single-roundtrip Modify reply',
+  );
+
+  text = replaceRequired(
+    text,
+    `    try {
+        await interaction.editReply(payload);
+        return true;`,
+    `    try {
+        if (!interaction.deferred && !interaction.replied && typeof interaction.update === 'function') {
+            await interaction.update(payload);
+        } else {
+            await interaction.editReply(payload);
+        }
+        return true;`,
+    'single-roundtrip manager update',
+  );
+
+  text = replaceRequired(
+    text,
+    `            const acknowledged = await interaction.deferUpdate()
+                .then(() => true)
+                .catch(error => {
+                    logger.error('Embed manager acknowledgement failed:', error);
+                    return interaction.deferred || interaction.replied;
+                });
+            if (!acknowledged) return;
+
+            const selectionVersion = (session.selectionVersion || 0) + 1;`,
+    `            const selectionVersion = (session.selectionVersion || 0) + 1;`,
+    'universal manager defer',
+  );
+
   return text;
 });
 
