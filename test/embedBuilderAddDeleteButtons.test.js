@@ -20,18 +20,13 @@ test('new Builder buttons remain dirty and target the current message until Save
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const responseStart = source.indexOf('async function showAddResponseModal');
-  const responseEnd = source.indexOf('async function showAddLinkModal', responseStart);
+  const responseEnd = source.indexOf('async function showEditButtonModal', responseStart);
   const responseBody = source.slice(responseStart, responseEnd);
   assert.match(responseBody, /state\.componentRows = next/);
   assert.match(responseBody, /state\.componentRowsSourceMessageId = state\.modifyTarget\?\.messageId/);
   assert.match(responseBody, /state\.componentsDirty = true/);
-
-  const linkStart = source.indexOf('async function showAddLinkModal');
-  const linkEnd = source.indexOf('async function showEditButtonModal', linkStart);
-  const linkBody = source.slice(linkStart, linkEnd);
-  assert.match(linkBody, /state\.componentRows = next/);
-  assert.match(linkBody, /state\.componentRowsSourceMessageId = state\.modifyTarget\?\.messageId/);
-  assert.match(linkBody, /state\.componentsDirty = true/);
+  assert.match(responseBody, /ButtonStyle\.Link/);
+  assert.doesNotMatch(source, /async function showAddLinkModal/);
 });
 
 test('Post message and Save changes both write Builder buttons to Discord', () => {
