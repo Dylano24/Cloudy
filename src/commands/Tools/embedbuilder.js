@@ -1046,6 +1046,7 @@ export default {
                 mediaConvertedFromVideo: false,
                 modifyTarget: null,
                 colorSessionToken: null,
+                builderChildMessages: new Map(),
             };
 
             const guildEmojis = interaction.guild
@@ -1205,6 +1206,16 @@ export default {
             });
 
             collector.on('end', async () => {
+                // The root builder owns all ephemeral editor/helper panels. When
+                // it closes or expires, remove those panels as one session.
+                for (const childMessage of state.builderChildMessages?.values?.() || []) {
+                    if (childMessage?.id && interaction.webhook?.deleteMessage) {
+                        await interaction.webhook.deleteMessage(childMessage.id).catch(() => childMessage?.delete?.().catch(() => {}));
+                    } else {
+                        await childMessage?.delete?.().catch(() => {});
+                    }
+                }
+                state.builderChildMessages?.clear?.();
                 if (state.activeEmbedManager) {
                     state.activeEmbedManager.closed = true;
                     state.activeEmbedManager.collector?.stop('builder-ended');
