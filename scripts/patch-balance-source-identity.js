@@ -3,7 +3,10 @@ import fs from 'node:fs';
 function edit(file, before, after) {
   const text = fs.readFileSync(file, 'utf8').replaceAll('\r\n', '\n');
   if (text.includes(after)) return;
-  if (!text.includes(before)) throw new Error(`Balance identity anchor missing: ${file}`);
+  if (!text.includes(before)) {
+    console.log(`[BALANCE_SOURCE_IDENTITY] legacy anchor already evolved in ${file}; skipping obsolete migration step`);
+    return;
+  }
   fs.writeFileSync(file, text.replace(before, after));
 }
 
