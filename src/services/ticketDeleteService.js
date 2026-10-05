@@ -5,7 +5,7 @@ import { requirePersistentTicketDatabase } from './ticketReliabilityService.js';
 import { archiveTicketTranscript } from './ticketTranscriptService.js';
 import { ensureTicketDestinationConfig } from './ticketDestinationAutoConfig.js';
 import { logger } from '../utils/logger.js';
-import { deleteTicketCreationConfirmation } from './ticketCreationConfirmationService.js';
+import { prepareTicketCreationConfirmationCleanup } from './ticketCreationConfirmationService.js';
 
 export const DELETE_DELAY_MS = 10_000;
 const deleteQueues = new Map();
@@ -124,10 +124,21 @@ export async function deleteTicketSafely(channel, deleter, providedTicketData = 
         });
       }
 
+      const cleanupCreationConfirmation = await prepareTicketCreationConfirmationCleanup(
+        channel,
+        ticketData,
+      );
+
       const timer = setTimeout(async () => {
         try {
           await channel.delete(`Ticket deleted by ${deleter.username || deleter.id}`);
-          await deleteTicketCreationConfirmation(channel).catch(() => false);
+          const confirmationRemoved = await cleanupCreationConfirmation().catch(() => false);
+          if (!confirmationRemoved) {
+            logger.debug('Private Ticket created confirmation could not be removed after ticket deletion', {
+              guildId: channel.guild.id,
+              channelId: channel.id,
+            });
+          }
           logger.info('Ticket channel permanently deleted after transcript archive', {
             guildId: channel.guild.id,
             channelId: channel.id,
