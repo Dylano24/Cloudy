@@ -4,11 +4,9 @@ const path = 'src/commands/Tools/embedbuilder.js';
 const marker = 'BUILDER_FINAL_CONTROLS_V1';
 let text = fs.readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
 
-if (text.includes(marker)) {
-  console.log('[BUILDER_FINAL_CONTROLS] already current');
-  process.exit(0);
-}
-
+// Always enforce the final control layout. Earlier ordered migrations may
+// legitimately rewrite buildControls after a previous run while leaving this
+// marker behind, so marker presence alone is not proof that the buttons remain.
 const start = text.indexOf('function buildControls(state) {');
 const end = text.indexOf('\n}\n\nfunction getPreviewUpdateQueue', start);
 if (start < 0 || end < 0) {
