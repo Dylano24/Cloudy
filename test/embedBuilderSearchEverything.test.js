@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Embed Builder Search does not reuse the channel browser collapse filter', () => {
+test('Embed Builder Search does not reuse channel-specific collapse filtering', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
 
   const displayStart = source.indexOf('function builderSearchDisplayRecords');
@@ -11,29 +11,26 @@ test('Embed Builder Search does not reuse the channel browser collapse filter', 
   const displayBody = source.slice(displayStart, previewStart);
 
   assert.match(displayBody, /Search is intentionally broader than the channel browser/);
-  assert.match(displayBody, /searchRecordIdentity\(record\)/);
+  assert.match(displayBody, /record\?\.canonicalIdentity/);
   assert.doesNotMatch(displayBody, /collapseDisplayRecords\(/);
 });
 
-test('Search result grouping keeps distinct canonical response types visible', () => {
-  const live = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-  const buildStart = live.indexOf('export function buildMatches');
-  const selectionStart = live.indexOf('function selectionValue', buildStart);
-  const buildBody = live.slice(buildStart, selectionStart);
+test('Search still groups repeated runtime peers into one logical result', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  const buildStart = source.indexOf('export function buildMatches');
+  const selectionStart = source.indexOf('function selectionValue', buildStart);
+  const buildBody = source.slice(buildStart, selectionStart);
 
-  assert.match(buildBody, /const key = searchRecordIdentity\(record\)/);
-  assert.doesNotMatch(buildBody, /const key = logicalKey\(record, document\)/);
-
-  const modal = fs.readFileSync('src/events/embedManagerTitleSearchReady.js', 'utf8');
-  const matchStart = modal.indexOf('function findSearchMatches');
-  const segmentStart = modal.indexOf('function segmentSearchResults', matchStart);
-  const matchBody = modal.slice(matchStart, segmentStart);
-
-  assert.match(matchBody, /record\?\.canonicalIdentity/);
-  assert.match(matchBody, /canonical:/);
+  assert.match(buildBody, /const key = logicalKey\(record, document\)/);
+  assert.match(buildBody, /chooseBetter\(grouped\.get\(key\), candidate\)/);
 });
 
-test('channel browsing still keeps its existing collapse behavior', () => {
+test('channel browsing keeps its existing unique-embed grouping', () => {
   const manager = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
-  assert.match(manager, /collapseDisplayRecords\(group\.records, group\.channelId\)/);
+  const embedPayloadStart = manager.indexOf('export function buildEmbedPayload');
+  const nextFunction = manager.indexOf('\nfunction ', embedPayloadStart + 1);
+  const body = manager.slice(embedPayloadStart, nextFunction);
+
+  assert.match(body, /collapseDisplayRecords\(channelRecords, channelId\)/);
+  assert.match(body, /Only unique embeds are shown/);
 });
