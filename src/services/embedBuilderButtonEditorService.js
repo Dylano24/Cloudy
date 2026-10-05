@@ -91,6 +91,54 @@ export function countBuilderButtons(state) {
   );
 }
 
+async function deletePrivateBuilderMessage(interaction, messageId, message = null) {
+  if (!messageId) return;
+  const deleted = interaction?.webhook?.deleteMessage
+    ? await interaction.webhook.deleteMessage(String(messageId)).then(() => true).catch(() => false)
+    : false;
+  if (!deleted) await message?.delete?.().catch(() => {});
+}
+
+export async function syncBuilderButtonPreview(interaction, state) {
+  const rows = getBuilderMessageComponents(state);
+  const existingId = state?.activeButtonPreviewMessageId
+    ? String(state.activeButtonPreviewMessageId)
+    : null;
+
+  if (!rows.length) {
+    if (existingId) {
+      await deletePrivateBuilderMessage(interaction, existingId, state.activeButtonPreviewMessage);
+    }
+    state.activeButtonPreviewMessageId = null;
+    state.activeButtonPreviewMessage = null;
+    return null;
+  }
+
+  if (existingId && interaction?.webhook?.editMessage) {
+    const edited = await interaction.webhook.editMessage(existingId, {
+      content: '',
+      embeds: [],
+      components: rows,
+    }).catch(() => null);
+    if (edited) {
+      state.activeButtonPreviewMessage = edited;
+      return edited;
+    }
+  }
+
+  const preview = await interaction.followUp({
+    components: rows,
+    flags: MessageFlags.Ephemeral,
+    fetchReply: true,
+  }).catch(() => null);
+
+  if (preview) {
+    state.activeButtonPreviewMessageId = String(preview.id);
+    state.activeButtonPreviewMessage = preview;
+  }
+  return preview;
+}
+
 export function parseButtonStyle(value, fallback = ButtonStyle.Secondary) {
   return STYLE_BY_NAME.get(String(value || '').trim().toLowerCase()) || fallback;
 }
@@ -462,6 +510,38 @@ async function showEditButtonModal(componentInteraction, state, key, refreshBuil
 export async function openEmbedButtonEditor(buttonInteraction, state, refreshBuilder) {
   await ensureRowsLoaded(buttonInteraction, state);
   await buttonInteraction.deferUpdate().catch(() => {});
+  await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});
+
+  const existingEditorId = state.activeButtonEditorMessageId
+    ? String(state.activeButtonEditorMessageId)
+    : null;
+
+  if (
+    existingEditorId
+    && state.activeButtonEditorCollector
+    && !state.activeButtonEditorCollector.ended
+    && buttonInteraction.webhook?.editMessage
+  ) {
+    const edited = await buttonInteraction.webhook.editMessage(
+      existingEditorId,
+      managerPayload(state),
+    ).catch(() => null);
+    if (edited) {
+      state.activeButtonEditorMessage = edited;
+      return;
+    }
+  }
+
+  if (existingEditorId) {
+    await deletePrivateBuilderMessage(
+      buttonInteraction,
+      existingEditorId,
+      state.activeButtonEditorMessage,
+    );
+  }
+  state.activeButtonEditorMessageId = null;
+  state.activeButtonEditorMessage = null;
+  state.activeButtonEditorCollector?.stop?.('replaced');
 
   const panelMessage = await buttonInteraction.followUp({
     ...managerPayload(state),
@@ -470,19 +550,27 @@ export async function openEmbedButtonEditor(buttonInteraction, state, refreshBui
   }).catch(() => null);
   if (!panelMessage) return;
 
-  // Register this child panel with the root builder session. Closing/expiring
-  // the builder must also remove every panel that belongs to it.
   if (!state.builderChildMessages) state.builderChildMessages = new Map();
   state.builderChildMessages.set(panelMessage.id, panelMessage);
+
+  state.activeButtonEditorMessage = panelMessage;
+  state.activeButtonEditorMessageId = String(panelMessage.id);
 
   const collector = panelMessage.createMessageComponentCollector({
     filter: interaction => interaction.user.id === buttonInteraction.user.id,
     idle: EDITOR_IDLE_MS,
   });
+  state.activeButtonEditorCollector = collector;
 
-  collector.on('end', () => {
+  collector.on('end', async () => {
     state.builderChildMessages?.delete(panelMessage.id);
     state.buttonModalGeneration = (state.buttonModalGeneration || 0) + 1;
+    if (state.activeButtonEditorCollector === collector) state.activeButtonEditorCollector = null;
+    if (state.activeButtonEditorMessageId === String(panelMessage.id)) {
+      state.activeButtonEditorMessage = null;
+      state.activeButtonEditorMessageId = null;
+      await deletePrivateBuilderMessage(buttonInteraction, panelMessage.id, panelMessage);
+    }
   });
 
   collector.on('collect', componentInteraction => {
