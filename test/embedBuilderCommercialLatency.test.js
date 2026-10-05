@@ -51,7 +51,7 @@ test('slash autocomplete coalesces canonical Builder reads', () => {
   assert.doesNotMatch(source, /await getCanonicalBuilderRecords\(interaction\.guild\)/);
 });
 
-test('Modify and manager pagination render in a single Discord response', () => {
+test('Modify and manager pagination use the one-request fast path on real Discord interactions', () => {
   const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
   const openStart = source.indexOf('export async function openEmbedManager');
   assert.ok(openStart >= 0);
@@ -59,10 +59,15 @@ test('Modify and manager pagination render in a single Discord response', () => 
   const collectorStart = openBody.indexOf("collector.on('collect'");
   const startup = collectorStart >= 0 ? openBody.slice(0, collectorStart) : openBody;
 
-  assert.doesNotMatch(startup, /buttonInteraction\.deferUpdate\(\)/);
-  assert.match(startup, /buttonInteraction\.reply\(\{/);
+  const directReplyCheck = startup.indexOf("typeof buttonInteraction.reply === 'function'");
+  const directReply = startup.indexOf('buttonInteraction.reply({', directReplyCheck);
+  const fallbackDefer = startup.indexOf('buttonInteraction.deferUpdate()', directReply);
+  const fallbackFollowUp = startup.indexOf('buttonInteraction.followUp({', directReply);
+  assert.ok(directReplyCheck >= 0 && directReply > directReplyCheck);
   assert.match(startup, /withResponse:\s*true/);
   assert.match(startup, /managerResponse\?\.resource\?\.message/);
+  assert.ok(fallbackDefer > directReply, 'defer must only exist after the direct reply fast path');
+  assert.ok(fallbackFollowUp > directReply, 'followUp must only exist after the direct reply fast path');
 
   const updateStart = source.indexOf('async function updateEmbedManager');
   const updateEnd = source.indexOf('\n}\n\nfunction managerRecordKey', updateStart);
