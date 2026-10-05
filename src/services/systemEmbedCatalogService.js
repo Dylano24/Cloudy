@@ -53,6 +53,15 @@ const DEFAULT_TEMPLATES = [
   { key: 'input error', context: 'botlog', kind: 'embed', title: 'Input Error', description: 'There was a problem with your request. Check your input and try again.', color: CLOUDY_RED_COLOR },
   { key: 'too fast', context: 'botlog', kind: 'embed', title: 'Too Fast', description: "You're doing that too quickly. Wait a moment and try again.", color: CLOUDY_YELLOW_COLOR },
   { key: 'something went wrong', context: 'botlog', kind: 'embed', title: 'Something Went Wrong', description: 'Something went wrong. Please try again in a moment.', color: CLOUDY_RED_COLOR },
+
+  // Embed Builder status messages are real Cloudy responses too. Some are
+  // ephemeral and therefore cannot be recovered from Discord history later,
+  // so seed them into the searchable catalog and also learn future variants.
+  { key: 'builder:delete-unavailable', context: 'embed-builder/delete', kind: 'embed', title: 'Delete unavailable', description: 'This is a protected Cloudy template or no editable Builder record is selected.', color: CLOUDY_RED_COLOR },
+  { key: 'builder:delete-blocked', context: 'embed-builder/delete', kind: 'embed', title: 'Delete blocked', description: 'The real Discord message still exists. Delete that message first; Cloudy will never remove a live embed through **Delete from Builder**.', color: CLOUDY_RED_COLOR },
+  { key: 'builder:delete-verify-failed', context: 'embed-builder/delete', kind: 'embed', title: 'Could not verify safely', description: 'Cloudy could not confirm that the original Discord message is gone, so nothing was marked for deletion.', color: CLOUDY_RED_COLOR },
+  { key: 'builder:delete-cancelled', context: 'embed-builder/delete', kind: 'embed', title: 'Delete cancelled', description: 'The selected Builder record changed, so the pending deletion was cancelled.', color: CLOUDY_RED_COLOR },
+  { key: 'builder:removed', context: 'embed-builder/delete', kind: 'embed', title: 'Removed from Builder', description: 'The stale record and its Reappear rule were removed from the Embed Builder.', color: CLOUDY_GREEN_COLOR },
 ];
 
 // Deliberate Builder masters, never captured runtime ticket messages. Their
@@ -298,7 +307,7 @@ function inferContextHint(source = null) {
       : source?.commandName || source?.customId || trace?.command || '',
   );
 
-  if (/embed.?builder|simple_embed|message.?builder/.test(raw)) return null;
+  if (/embed.?builder|simple_embed|message.?builder/.test(raw)) return contextualize('embed-builder', raw);
   if (/gambl|coin.?flip|slots?|blackjack|roulette|baccarat|fight|dice|roll|balance|daily|beg|crime|rob|fish|mine|pay|deposit|withdraw|inventory|economy|wallet|cash/.test(raw)) return contextualize('gambling', raw);
   if (/ticket|transcript|claim|reopen/.test(raw)) return contextualize('tickets', raw);
   if (/music|play|skip|pause|resume|queue|now.?playing|volume/.test(raw)) return contextualize('music', raw);
