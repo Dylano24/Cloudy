@@ -1,15 +1,98 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { getTicketData, saveTicketData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 
 const privateTicketCreationConfirmations = new Map();
 
+function privateConfirmationCryptoKey() {
+  const secret = process.env.DISCORD_TOKEN
+    || process.env.TOKEN
+    || process.env.BOT_TOKEN
+    || process.env.DISCORD_BOT_TOKEN
+    || '';
+  if (!secret) return null;
+  return createHash('sha256').update(secret).digest();
+}
+
+function encryptInteractionToken(token) {
+  const key = privateConfirmationCryptoKey();
+  if (!key || !token) return null;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(String(token), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [iv, tag, ciphertext].map(part => part.toString('base64url')).join('.');
+}
+
+function decryptInteractionToken(value) {
+  const key = privateConfirmationCryptoKey();
+  if (!key || !value) return null;
+  try {
+    const [ivPart, tagPart, cipherPart] = String(value).split('.');
+    if (!ivPart || !tagPart || !cipherPart) return null;
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivPart, 'base64url'));
+    decipher.setAuthTag(Buffer.from(tagPart, 'base64url'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(cipherPart, 'base64url')),
+      decipher.final(),
+    ]).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+async function deletePersistedPrivateConfirmation(reference) {
+  const applicationId = String(reference?.applicationId || '').trim();
+  const token = decryptInteractionToken(reference?.encryptedInteractionToken);
+  if (!applicationId || !token) return false;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3_000);
+  timeout.unref?.();
+
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(token)}/messages/@original`,
+      { method: 'DELETE', signal: controller.signal },
+    );
+    return response.ok || response.status === 404;
+  } catch (error) {
+    logger.debug('Persisted private ticket confirmation cleanup skipped', {
+      error: error?.message || String(error),
+    });
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function privateConfirmationKey(ticketChannel) {
   return `${ticketChannel?.guild?.id || ''}:${ticketChannel?.id || ''}`;
 }
 
-export function registerPrivateTicketCreationConfirmation(ticketChannel, interaction) {
+export async function registerPrivateTicketCreationConfirmation(ticketChannel, interaction) {
   if (!ticketChannel?.guild?.id || !ticketChannel?.id || typeof interaction?.deleteReply !== 'function') return false;
   privateTicketCreationConfirmations.set(privateConfirmationKey(ticketChannel), interaction);
+
+  const encryptedInteractionToken = encryptInteractionToken(interaction.token);
+  const applicationId = String(interaction.applicationId || interaction.client?.application?.id || '').trim();
+  if (!encryptedInteractionToken || !applicationId) return true;
+
+  try {
+    const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+    if (!data) return true;
+    data.privateCreationConfirmation = {
+      applicationId,
+      encryptedInteractionToken,
+      createdAt: new Date().toISOString(),
+    };
+    await saveTicketData(ticketChannel.guild.id, ticketChannel.id, data);
+  } catch (error) {
+    logger.warn('Could not persist private ticket creation confirmation cleanup reference', {
+      ticketId: ticketChannel.id,
+      error: error?.message || String(error),
+    });
+  }
   return true;
 }
 
@@ -35,6 +118,7 @@ export async function deleteTicketCreationConfirmation(ticketChannel) {
   if (!ticketChannel?.guild?.id) return false;
 
   let deleted = false;
+  const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
   const privateKey = privateConfirmationKey(ticketChannel);
   const privateInteraction = privateTicketCreationConfirmations.get(privateKey);
   if (privateInteraction) {
@@ -54,7 +138,15 @@ export async function deleteTicketCreationConfirmation(ticketChannel) {
     }
   }
 
-  const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+  if (!deleted && data?.privateCreationConfirmation) {
+    deleted = await deletePersistedPrivateConfirmation(data.privateCreationConfirmation);
+  }
+
+  if (data?.privateCreationConfirmation) {
+    delete data.privateCreationConfirmation;
+    await saveTicketData(ticketChannel.guild.id, ticketChannel.id, data).catch(() => {});
+  }
+
   const reference = data?.creationConfirmation;
   if (!reference?.messageId || !reference?.channelId) return deleted;
 
