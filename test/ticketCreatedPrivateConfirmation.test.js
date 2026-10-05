@@ -95,3 +95,32 @@ test('Ticket created cleanup runs only after the real ticket channel delete succ
     'creation confirmation cleanup must happen after successful channel deletion',
   );
 });
+
+
+test('all other private create/close ticket replies use the 10-second lifecycle', () => {
+  const source = fs.readFileSync('src/interactions/modals/ticket/createTicketUi.js', 'utf8');
+
+  const helperStart = source.indexOf('async function editTransientPrivateTicketReply');
+  const createStart = source.indexOf('const createTicketModal =');
+  assert.ok(helperStart >= 0 && createStart > helperStart);
+  const helper = source.slice(helperStart, createStart);
+  assert.match(helper, /setResponseLifetime\(interaction, 10_000\)/);
+  assert.match(helper, /scheduleTicketReplyDeletion\(interaction, 10_000\)/);
+
+  const createEnd = source.indexOf('const closeTicketModal =', createStart);
+  const createFlow = source.slice(createStart, createEnd);
+  assert.match(createFlow, /editTransientPrivateTicketReply\(interaction, \{/);
+  assert.match(createFlow, /setResponseLifetime\(interaction, null\)/);
+  assert.equal(
+    (createFlow.match(/setResponseLifetime\(interaction, null\)/g) || []).length,
+    1,
+    'Ticket created must be the only persistent private create reply',
+  );
+
+  const closeFlow = source.slice(createEnd);
+  assert.ok(
+    (closeFlow.match(/editTransientPrivateTicketReply\(interaction, \{/g) || []).length >= 4,
+    'close validation/error replies should all use the 10-second helper',
+  );
+  assert.doesNotMatch(closeFlow, /setResponseLifetime\(interaction, null\)/);
+});
