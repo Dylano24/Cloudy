@@ -23,7 +23,7 @@ test('Reset is below Close message after the Builder layout swap', () => {
 });
 
 
-test('Add logo sits directly next to Remove logo in the top control row', () => {
+test('Add logo sits directly next to Remove logo in a dedicated mobile-safe row', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   const controlsStart = source.indexOf('function buildControls(state)');
   const controlsEnd = source.indexOf('function getPreviewUpdateQueue', controlsStart);
@@ -32,15 +32,18 @@ test('Add logo sits directly next to Remove logo in the top control row', () => 
   const controls = source.slice(controlsStart, controlsEnd);
   const addLogo = controls.indexOf("setCustomId('simple_embed_logo')");
   const removeLogo = controls.indexOf("setCustomId('simple_embed_remove_logo')");
+  const logoRow = controls.indexOf('const logoRow =');
   const contentRow = controls.indexOf('const contentRow =', addLogo);
 
+  assert.ok(logoRow >= 0 && logoRow < addLogo, 'Dedicated logo row missing');
   assert.ok(addLogo >= 0, 'Add logo button missing');
   assert.ok(removeLogo > addLogo, 'Remove logo must come immediately after Add logo');
-  assert.ok(contentRow > removeLogo, 'Add logo and Remove logo must stay in the same title row');
+  assert.ok(contentRow > removeLogo, 'Add logo and Remove logo must stay together before the content row');
   const nextCustomId = controls.indexOf("setCustomId('simple_embed_", addLogo + 1);
   assert.equal(
     nextCustomId,
     removeLogo,
     'No other Builder button may sit between Add logo and Remove logo',
   );
+  assert.match(controls, /return \[titleRow, logoRow, contentRow, editRow, saveRow\]/);
 });
