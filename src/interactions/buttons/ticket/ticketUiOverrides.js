@@ -188,7 +188,7 @@ const claimTicketHandler = {
       const context = await requireStaff(interaction, client, 'claim tickets', true);
       if (!context) return;
 
-      await claimTicket(interaction.channel, interaction.user);
+      await claimTicket(interaction.channel, interaction.user, context.ticketData);
     } catch (error) {
       logger.error('Ticket claim button failed', { error: error.message, channelId: interaction.channelId });
       const message = error?.userMessage || 'An error occurred while claiming the ticket.';
@@ -219,7 +219,7 @@ const pinTicketHandler = {
       const context = await requireStaff(interaction, client, 'pin tickets');
       if (!context) return;
 
-      const willBePinned = await toggleTicketPinned(interaction.channel);
+      const willBePinned = await toggleTicketPinned(interaction.channel, context.ticketData);
 
       interaction.channel.setPosition(willBePinned ? 0 : 999).catch(error => {
         logger.warn('Could not update ticket channel position', {
@@ -323,7 +323,7 @@ const legacyPriorityHandler = {
         return;
       }
 
-      await updateTicketPriority(interaction.channel, priority, interaction.user);
+      await updateTicketPriority(interaction.channel, priority, interaction.user, context.ticketData);
       await editBasicTicketReply(
         interaction,
         'Priority Updated',
@@ -386,7 +386,7 @@ const unclaimTicketHandler = {
       const context = await requireStaff(interaction, client, 'unclaim tickets', true);
       if (!context) return;
 
-      await unclaimTicket(interaction.channel, interaction.member);
+      await unclaimTicket(interaction.channel, interaction.member, context.ticketData);
     } catch (error) {
       logger.error('Ticket unclaim button failed', { error: error.message, channelId: interaction.channelId });
       const message = error?.userMessage || 'An error occurred while unclaiming the ticket.';
@@ -421,7 +421,11 @@ const reopenTicketHandler = {
       const context = await requireStaff(interaction, client, 'reopen tickets', true);
       if (!context) return;
 
-      await reopenTicket(interaction.channel, interaction.member);
+      await reopenTicket(interaction.channel, interaction.member, {
+        ticketData: context.ticketData,
+        config: context.config,
+        statusMessage: interaction.message,
+      });
     } catch (error) {
       logger.error('Ticket reopen button failed', { error: error.message, channelId: interaction.channelId });
       const message = error?.userMessage || 'An error occurred while reopening the ticket.';
@@ -455,7 +459,7 @@ const deleteTicketHandler = {
       const context = await requireStaff(interaction, client, 'delete tickets', true);
       if (!context) return;
 
-      await deleteTicket(interaction.channel, interaction.user);
+      await deleteTicket(interaction.channel, interaction.user, context.ticketData);
     } catch (error) {
       logger.error('Ticket delete button failed', { error: error.message, channelId: interaction.channelId });
       const message = error?.userMessage || 'An error occurred while deleting the ticket.';
