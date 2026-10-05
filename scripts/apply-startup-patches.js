@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -41,10 +42,26 @@ if (previous) {
   }
   console.log('[STARTUP_PATCHES] Verified patched source; no rewrites needed.');
 } else {
+  const syntaxTargets = [
+    'src/commands/Tools/embedbuilder.js',
+    'src/commands/Tools/zz_embedbuilderLiveSearchPatch.js',
+  ];
+
   for (const patch of patches) {
     // Run the ordered transformations in one process so each reads the exact
     // source written by its predecessor before the final fingerprint is saved.
     await import(pathToFileURL(path.join(root, patch)).href);
+
+    for (const relative of syntaxTargets) {
+      const absolute = path.join(root, relative);
+      const checked = spawnSync(process.execPath, ['--check', absolute], {
+        encoding: 'utf8',
+      });
+      if (checked.status !== 0) {
+        const detail = String(checked.stderr || checked.stdout || '').trim();
+        throw new Error(`Startup patch ${patch} broke syntax in ${relative}:\n${detail}`);
+      }
+    }
   }
   fs.writeFileSync(stampPath, JSON.stringify({ fingerprint: fingerprint() }) + '\n');
 }
