@@ -330,9 +330,8 @@ async function applyTemplatesToExistingMessage(message, { initialCreation = fals
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
   if (isEmbedManagerSaveInProgress(message.id)) return false;
   if (autoApplyingMessageIds.has(message.id)) return false;
-  // These logs are styled in their own send path. Applying the generic system
-  // catalog afterward restores stale colors and user avatars. Ticket logs are
-  // intentionally not part of this exemption.
+  // Fixed moderation/system logs are styled in their own send path too.
+  // Ticket lifecycle logs were already excluded above using live guild config.
   if (FIXED_NON_TICKET_LOG_CHANNEL_IDS.has(message.channelId)) return false;
 
   const source = messageContext(message);
