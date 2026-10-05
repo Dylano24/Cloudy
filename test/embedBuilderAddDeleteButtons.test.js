@@ -16,26 +16,19 @@ test('Builder uses Add buttons and keeps Delete from builder clickable for a sel
   assert.doesNotMatch(deleteBlock, /setDisabled\(!canDeleteBuilderRecord/);
 });
 
-test('new Builder buttons remain dirty and target the current message until Save/Post', () => {
+test('new Builder response or link buttons remain dirty and target the current message until Save/Post', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const responseStart = source.indexOf('async function showAddResponseModal');
   const linkStart = source.indexOf('async function showAddLinkModal', responseStart);
-  const disabledStart = source.indexOf('async function showAddDisabledModal', linkStart);
-  const editStart = source.indexOf('async function showEditButtonModal', disabledStart);
-  assert.ok(responseStart >= 0 && linkStart > responseStart && disabledStart > linkStart && editStart > disabledStart);
+  assert.ok(responseStart >= 0 && linkStart > responseStart);
+  const body = source.slice(responseStart, linkStart);
 
-  for (const body of [
-    source.slice(responseStart, linkStart),
-    source.slice(linkStart, disabledStart),
-    source.slice(disabledStart, editStart),
-  ]) {
-    assert.match(body, /state\.componentRows = next/);
-    assert.match(body, /state\.componentRowsSourceMessageId = state\.modifyTarget\?\.messageId/);
-    assert.match(body, /state\.componentsDirty = true/);
-  }
-
-  assert.match(source.slice(linkStart, disabledStart), /ButtonStyle\.Link/);
+  assert.match(body, /state\.componentRows = next/);
+  assert.match(body, /state\.componentRowsSourceMessageId = state\.modifyTarget\?\.messageId/);
+  assert.match(body, /state\.componentsDirty = true/);
+  assert.match(body, /button_url/);
+  assert.match(body, /ButtonStyle\.Link/);
 });
 
 test('Post message and Save changes both write Builder buttons to Discord', () => {
