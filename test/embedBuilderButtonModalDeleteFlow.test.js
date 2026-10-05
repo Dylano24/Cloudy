@@ -21,11 +21,12 @@ test('Embed buttons keeps only one private editor panel per Builder session', ()
   assert.ok(openStart >= 0);
   const body = source.slice(openStart);
 
-  assert.match(body, /state\.activeButtonEditorMessage\?\.delete/);
+  assert.match(body, /state\.activeButtonEditorMessageId/);
+  assert.match(body, /buttonInteraction\.webhook\.editMessage/);
   assert.match(body, /state\.activeButtonEditorCollector\?\.stop\?\.\('replaced'\)/);
   assert.match(body, /state\.activeButtonEditorMessage = panelMessage/);
   assert.match(body, /collector\.on\('end'/);
-  assert.match(body, /panelMessage\.delete\?\.\(\)/);
+  assert.match(body, /deletePrivateBuilderMessage/);
 });
 
 test('Delete from builder allows stale template records while preserving live-message checks', () => {
