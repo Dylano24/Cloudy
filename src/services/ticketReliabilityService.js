@@ -636,6 +636,12 @@ export async function closeTicket(channel, closer, reason, options = {}) {
       components: [controlRow],
     });
 
+    // Allow the interaction layer to clear its private "thinking" response as
+    // soon as the public close result is visible, before permission cleanup.
+    if (typeof options.onVisible === 'function') {
+      await options.onVisible().catch(() => {});
+    }
+
     await Promise.allSettled([
       hideClosedTicket(channel),
       syncCloudyTicketMessage(channel),
