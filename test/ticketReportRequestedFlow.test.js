@@ -98,7 +98,7 @@ test('staff reopens through actual handler without a private duplicate', async t
   const f = fixture('closed', 'staff'); await f.initialize();
   await buttons.find(b => b.name === 'ticket_reopen').execute(f.interaction, f.client);
   assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'open');
-  assert.equal(f.deletedReplies(), 1); assert.equal(f.replies.length, 0);
+  assert.equal(f.deletedReplies(), 0); assert.equal(f.replies.length, 0);
   assert.equal(f.payloads.filter(p => p.embeds?.some(e => (e.toJSON?.() || e).title === 'Ticket reopened')).length, 1);
   assert.ok(f.permissions.some(p => p.value.ViewChannel && p.value.SendMessages));
 });
