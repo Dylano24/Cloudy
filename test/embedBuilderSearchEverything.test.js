@@ -106,3 +106,16 @@ test('Modify browser shows every real channel while keeping Search-only archive 
   assert.match(groupsBody, /\!\[0, 5\]\.includes\(channel\?\.type\)/);
   assert.match(groupsBody, /filterEmbedManagerRecords\(records\)/);
 });
+
+
+test('Search hides history mirrors and deduplicates canonical catalog templates', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  const start = source.indexOf('function builderSearchDisplayRecords');
+  const end = source.indexOf('\nexport function latestRealPreviewRecord', start);
+  const body = source.slice(start, end);
+  assert.match(body, /\['bot-history', 'history'\]\.includes\(source\)/);
+  assert.match(body, /stableSearchTemplateKey\(record\)/);
+  assert.match(body, /stableSearchTemplateContext\(record\)/);
+  assert.match(body, /\['template', stableKey, stableContext\]/);
+  assert.match(body, /\['catalog', stableContext, title\]/);
+});
