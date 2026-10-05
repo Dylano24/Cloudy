@@ -11,9 +11,9 @@ function patchFile(path, patcher) {
 }
 
 function replaceRequired(text, before, after, label) {
+  if (text.includes(before)) return text.replace(before, after);
   if (text.includes(after)) return text;
-  if (!text.includes(before)) throw new Error(`[BUILDER_COMMERCIAL_LATENCY] Missing ${label}`);
-  return text.replace(before, after);
+  throw new Error(`[BUILDER_COMMERCIAL_LATENCY] Missing ${label}`);
 }
 
 patchFile('src/services/embedManagerService.js', text => {
@@ -26,7 +26,11 @@ patchFile('src/services/embedManagerService.js', text => {
         const storedRecords = await getEmbedRegistry(guild.id);
         await warmSavedEmbedTemplateScopes(guild.id, storedRecords.map(record => record.channelId));
         const records = await getCanonicalBuilderRecords(guild, storedRecords, { perChannel: true });
-        return { storedRecords, records };
+        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = guild.channels.cache.size
+            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+            : buildEmptyManagerPayload();
+        return { storedRecords, records, initialPayload };
     })().catch(error => {
         logger.debug(\`Channel browser preload skipped: \${error?.message || error}\`);
         return null;
@@ -57,7 +61,7 @@ function invalidateBuilderRecordCaches(guildId) {
 
 export async function openEmbedManager`);
 
-  const openPreparedPattern = / {8}const prepared = state\.embedManagerPrepared;\n {8}delete state\.embedManagerPrepared;\n {8}const storedRecords = \(prepared && await prepared\) \|\| await getEmbedRegistry\(guild\.id\);\n {8}await warmSavedEmbedTemplateScopes\(guild\.id, storedRecords\.map\(record => record\.channelId\)\);\n {8}let records = await getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\);/;
+  const openPreparedPattern = / {8}const prepared = state\.embedManagerPrepared;\n {8}delete state\.embedManagerPrepared;\n {8}const storedRecords = \(prepared && await prepared\) \|\| await getEmbedRegistry\(guild\.id\);\n {8}await warmSavedEmbedTemplateScopes\(guild\.id, storedRecords\.map\(record => record\.channelId\)\);\n {8}let records = await getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\);\n {8}const checkingChannelIds = embedManagerCheckingChannelIds\(guild, storedRecords\);\n {8}const initialPayload = guild\.channels\.cache\.size\n {12}\? buildChannelPayload\(guild, records, 0, checkingChannelIds\)\n {12}: buildEmptyManagerPayload\(\);/;
   if (!openPreparedPattern.test(text)) throw new Error('[BUILDER_COMMERCIAL_LATENCY] prepared open block missing');
   text = text.replace(openPreparedPattern, `        const prepared = state.embedManagerPrepared;
         delete state.embedManagerPrepared;
@@ -68,7 +72,12 @@ export async function openEmbedManager`);
         }
         let records = preparedData?.records
             || await getCanonicalBuilderRecords(guild, storedRecords, { perChannel: true });
-        rememberEmbedManagerRecordCache(guild.id, buttonInteraction.user.id, records);`);
+        rememberEmbedManagerRecordCache(guild.id, buttonInteraction.user.id, records);
+        const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
+        const initialPayload = preparedData?.initialPayload
+            || (guild.channels.cache.size
+                ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+                : buildEmptyManagerPayload());`);
 
   text = text.replaceAll(
     '                        records = refreshedRecords;\n                        await updateEmbedManager(',
@@ -82,6 +91,97 @@ export async function openEmbedManager`);
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);`,
     'save cache invalidation',
+  );
+
+  text = replaceRequired(
+    text,
+    `    await buttonInteraction.deferUpdate().catch(() => {});
+
+    try {`,
+    `    try {`,
+    'Modify open defer',
+  );
+
+  text = replaceRequired(
+    text,
+    `            if (previousSession.messageId) {
+                await buttonInteraction.webhook.deleteMessage(previousSession.messageId).catch(() => {});
+            }`,
+    `            if (previousSession.messageId) {
+                void buttonInteraction.webhook.deleteMessage(previousSession.messageId).catch(() => {});
+            }`,
+    'previous Modify session cleanup',
+  );
+
+  text = replaceRequired(
+    text,
+    `        const managerMessage = await buttonInteraction.followUp({
+            ...initialPayload,
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
+        if (!managerMessage) return;`,
+    `        let managerMessage = null;
+        if (typeof buttonInteraction.reply === 'function'
+            && !buttonInteraction.deferred
+            && !buttonInteraction.replied) {
+            const managerResponse = await buttonInteraction.reply({
+                ...initialPayload,
+                flags: MessageFlags.Ephemeral,
+                withResponse: true,
+            }).catch(error => {
+                logger.error('Embed manager direct reply failed:', error);
+                return null;
+            });
+            managerMessage = managerResponse?.resource?.message || null;
+        }
+
+        // Compatibility fallback for legacy/test interaction shims. Real
+        // Discord button interactions take the direct one-request path above.
+        if (!managerMessage) {
+            if (!buttonInteraction.deferred
+                && !buttonInteraction.replied
+                && typeof buttonInteraction.deferUpdate === 'function') {
+                await buttonInteraction.deferUpdate().catch(() => {});
+            }
+            managerMessage = await buttonInteraction.followUp({
+                ...initialPayload,
+                flags: MessageFlags.Ephemeral,
+                fetchReply: true,
+            }).catch(() => null);
+        }
+        if (!managerMessage) return;`,
+    'single-roundtrip Modify reply',
+  );
+
+  text = replaceRequired(
+    text,
+    `    try {
+        await interaction.editReply(payload);
+        return true;`,
+    `    try {
+        if (!interaction.deferred && !interaction.replied && typeof interaction.update === 'function') {
+            await interaction.update(payload);
+        } else {
+            await interaction.editReply(payload);
+        }
+        return true;`,
+    'single-roundtrip manager update',
+  );
+
+  text = replaceRequired(
+    text,
+    `            const acknowledged = await interaction.deferUpdate()
+                .then(() => true)
+                .catch(error => {
+                    logger.error('Embed manager acknowledgement failed:', error);
+                    return interaction.deferred || interaction.replied;
+                });
+            if (!acknowledged) return;
+
+            const selectionVersion = (session.selectionVersion || 0) + 1;`,
+    `            const selectionVersion = (session.selectionVersion || 0) + 1;`,
+    'universal manager defer',
   );
 
   return text;

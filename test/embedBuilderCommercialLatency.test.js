@@ -50,3 +50,44 @@ test('slash autocomplete coalesces canonical Builder reads', () => {
   assert.match(source, /cached\?\.promise/);
   assert.doesNotMatch(source, /await getCanonicalBuilderRecords\(interaction\.guild\)/);
 });
+
+test('Modify and manager pagination use the one-request fast path on real Discord interactions', () => {
+  const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+  const openStart = source.indexOf('export async function openEmbedManager');
+  assert.ok(openStart >= 0);
+  const openBody = source.slice(openStart);
+  const collectorStart = openBody.indexOf("collector.on('collect'");
+  const startup = collectorStart >= 0 ? openBody.slice(0, collectorStart) : openBody;
+
+  const directReplyCheck = startup.indexOf("typeof buttonInteraction.reply === 'function'");
+  const directReply = startup.indexOf('buttonInteraction.reply({', directReplyCheck);
+  const fallbackDefer = startup.indexOf('buttonInteraction.deferUpdate()', directReply);
+  const fallbackFollowUp = startup.indexOf('buttonInteraction.followUp({', directReply);
+  assert.ok(directReplyCheck >= 0 && directReply > directReplyCheck);
+  assert.match(startup, /withResponse:\s*true/);
+  assert.match(startup, /managerResponse\?\.resource\?\.message/);
+  assert.ok(fallbackDefer > directReply, 'defer must only exist after the direct reply fast path');
+  assert.ok(fallbackFollowUp > directReply, 'followUp must only exist after the direct reply fast path');
+
+  const updateStart = source.indexOf('async function updateEmbedManager');
+  const updateEnd = source.indexOf('\n}\n\nfunction managerRecordKey', updateStart);
+  const updateBody = source.slice(updateStart, updateEnd);
+  assert.match(updateBody, /interaction\.update\(payload\)/);
+  assert.match(updateBody, /interaction\.editReply\(payload\)/);
+
+  const collectorBody = openBody.slice(collectorStart);
+  const selectionVersion = collectorBody.indexOf('const selectionVersion');
+  assert.ok(selectionVersion >= 0);
+  const beforeSelection = collectorBody.slice(0, selectionVersion);
+  assert.doesNotMatch(beforeSelection, /interaction\.deferUpdate\(\)/);
+
+  for (const id of ['simple_embed_modify_channel_page:', 'simple_embed_modify_embed_page:']) {
+    const start = collectorBody.indexOf(id);
+    assert.ok(start >= 0, `missing ${id}`);
+    const end = collectorBody.indexOf('return;', start);
+    const block = collectorBody.slice(start, end);
+    assert.match(block, /updateEmbedManager\(interaction/);
+    assert.doesNotMatch(block, /deferUpdate\(\)/);
+  }
+});
+
