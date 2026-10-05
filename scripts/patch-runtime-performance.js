@@ -56,7 +56,7 @@ patchFile('src/services/embedManagerService.js', text => {
     if (loadCallStart === -1) {
       throw new Error('[RUNTIME_PERFORMANCE] Builder discovery call exists but its registry-load anchor is missing.');
     }
-    text = text.slice(0, discoveryCallStart) + '            Promise.resolve([]),\\n' + text.slice(loadCallStart);
+    text = text.slice(0, discoveryCallStart) + '            Promise.resolve([]),\n' + text.slice(loadCallStart);
   }
 
   return text;
