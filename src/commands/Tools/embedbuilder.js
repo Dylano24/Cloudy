@@ -455,7 +455,7 @@ function buildControlEmbed(state) {
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Media** › ${mediaLabel}`,
             `**Buttons** › ${countBuilderButtons(state)}`,
-            `**Reappear after** › ${state.reappearAfter ? `${state.reappearAfter} message(s)` : '`Off`'}`,
+            `**Reappear** › ${state.reappearAfter ? `${state.reappearAfter} message(s)` : '`Off`'}`,
         ].join('\n'))
         .setColor(0xFFFFFF)
         .setFooter({ text: 'Preview the embed above live' });
@@ -486,7 +486,7 @@ function buildControls(state) {
         new ButtonBuilder().setCustomId('simple_embed_buttons').setLabel('Add buttons').setStyle(ButtonStyle.Secondary).setEmoji('⚪'),
         new ButtonBuilder().setCustomId('simple_embed_clear_buttons').setLabel('Remove buttons').setStyle(ButtonStyle.Secondary).setEmoji('⛔'),
         new ButtonBuilder().setCustomId('simple_embed_modify').setLabel('Modify embed').setStyle(ButtonStyle.Secondary).setEmoji('🛠️'),
-        new ButtonBuilder().setCustomId('simple_embed_reappear').setLabel(state.reappearAfter ? `Reappear: ${state.reappearAfter}` : 'Reappear after').setStyle(ButtonStyle.Secondary).setEmoji('🔁'),
+        new ButtonBuilder().setCustomId('simple_embed_reappear').setLabel(state.reappearAfter ? `Reappear: ${state.reappearAfter}` : 'Reappear').setStyle(ButtonStyle.Secondary).setEmoji('🔁'),
     );
     const row4 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('simple_embed_post').setLabel(state.modifyTarget ? 'Save changes' : 'Post message').setStyle(ButtonStyle.Success).setEmoji(state.modifyTarget ? '💾' : '📤'),
@@ -1189,7 +1189,7 @@ export default {
                             await postMessage(buttonInteraction, state, interaction.guild);
                             break;
                         case 'simple_embed_reappear': {
-                            const modal = new ModalBuilder().setCustomId(`simple_embed_reappear_modal:${Date.now()}`).setTitle('Reappear after messages').addComponents(
+                            const modal = new ModalBuilder().setCustomId(`simple_embed_reappear_modal:${Date.now()}`).setTitle('Reappear').addComponents(
                                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reappear_count').setLabel('Messages (1-100, blank = off)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(3))
                             );
                             await buttonInteraction.showModal(modal);
