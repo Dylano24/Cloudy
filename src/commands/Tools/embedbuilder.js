@@ -454,82 +454,32 @@ export function buildBuilderEmbeds(state) {
 function buildControls(state) {
     const sourceHasLogo = Boolean(state.modifyTarget?.sourceEmbedData?.thumbnail?.url);
     const hasLogo = !state.removeExistingLogo && (state.showLogo || sourceHasLogo);
-    const contentRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setURL(state.contentEditorUrl)
-            .setLabel('Edit title and message')
-            .setStyle(ButtonStyle.Link)
-            .setEmoji('✍🏼'),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_logo')
-            .setLabel('Add Cloudy logo')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('☁️')
-            .setDisabled(state.showLogo && !state.removeExistingLogo),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_remove_logo')
-            .setLabel('Remove logo')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🗑️')
-            .setDisabled(!hasLogo),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_footer')
-            .setLabel('Edit footer')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📝'),
-        new ButtonBuilder()
-            .setURL(state.colorPickerUrl)
-            .setLabel('Set side color')
-            .setStyle(ButtonStyle.Link)
-            .setEmoji('🎨'),
+    const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setURL(state.contentEditorUrl).setLabel('Edit title & message').setStyle(ButtonStyle.Link).setEmoji('✍🏼'),
+        new ButtonBuilder().setCustomId('simple_embed_logo').setLabel('Add logo').setStyle(ButtonStyle.Secondary).setEmoji('☁️').setDisabled(state.showLogo && !state.removeExistingLogo),
+        new ButtonBuilder().setCustomId('simple_embed_remove_logo').setLabel('Remove logo').setStyle(ButtonStyle.Secondary).setEmoji('🗑️').setDisabled(!hasLogo),
     );
-
-    const actionRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('simple_embed_media')
-            .setLabel('Set picture/video GIF')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📷'),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_clear_media')
-            .setLabel('Remove media')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🗑️')
-            .setDisabled(!hasMedia(state)),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_post')
-            .setLabel(state.modifyTarget ? 'Save changes' : 'Post message')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji(state.modifyTarget ? '💾' : '📤'),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_reset')
-            .setLabel('Reset everything')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('♻️'),
-        new ButtonBuilder()
-            .setCustomId('simple_embed_modify')
-            .setLabel('Modify embed')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🛠️'),
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('simple_embed_media').setLabel('Add media').setStyle(ButtonStyle.Secondary).setEmoji('📷'),
+        new ButtonBuilder().setCustomId('simple_embed_clear_media').setLabel('Remove media').setStyle(ButtonStyle.Secondary).setEmoji('❌').setDisabled(!hasMedia(state)),
+        new ButtonBuilder().setCustomId('simple_embed_footer').setLabel('Edit footer').setStyle(ButtonStyle.Secondary).setEmoji('📝'),
+        new ButtonBuilder().setURL(state.colorPickerUrl).setLabel('Set side color').setStyle(ButtonStyle.Link).setEmoji('🎨'),
     );
-
-    const reappearRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('simple_embed_reappear')
-            .setLabel('Reappear after')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🔁'),
+    const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('simple_embed_buttons').setLabel('Add buttons').setStyle(ButtonStyle.Secondary).setEmoji('⚪'),
+        new ButtonBuilder().setCustomId('simple_embed_clear_buttons').setLabel('Remove buttons').setStyle(ButtonStyle.Secondary).setEmoji('⛔'),
+        new ButtonBuilder().setCustomId('simple_embed_modify').setLabel('Modify embed').setStyle(ButtonStyle.Secondary).setEmoji('🛠️'),
+        new ButtonBuilder().setCustomId('simple_embed_reappear').setLabel(state.reappearAfter ? `Reappear: ${state.reappearAfter}` : 'Reappear after').setStyle(ButtonStyle.Secondary).setEmoji('🔁'),
     );
-
-    const closeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('simple_embed_close')
-            .setLabel('Close message')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('✖️'),
+    const row4 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('simple_embed_post').setLabel(state.modifyTarget ? 'Save changes' : 'Post message').setStyle(ButtonStyle.Success).setEmoji(state.modifyTarget ? '💾' : '📤'),
+        new ButtonBuilder().setCustomId('simple_embed_close').setLabel('Close message').setStyle(ButtonStyle.Danger).setEmoji('✖️'),
     );
-
-    return [contentRow, actionRow, reappearRow, closeRow];
+    const row5 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('simple_embed_reset').setLabel('Reset').setStyle(ButtonStyle.Danger).setEmoji('♻️'),
+        new ButtonBuilder().setCustomId('simple_embed_delete').setLabel('Delete').setStyle(ButtonStyle.Danger).setEmoji('🗑️').setDisabled(!state.modifyTarget),
+    );
+    return [row1, row2, row3, row4, row5];
 }
 
 function getPreviewUpdateQueue(state) {
