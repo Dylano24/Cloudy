@@ -24,7 +24,7 @@ test('Embed Manager normal open path stays registry-first', () => {
   assert.doesNotMatch(startupPart, /discoverEmbedManagerOverviewRecords\(/);
   assert.match(
     startupPart,
-    /let records = await getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\)/,
+    /let records = preparedData\?\.records[\s\S]*?getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\)/,
   );
 
   const channelSelectStart = openBody.indexOf(
