@@ -133,6 +133,19 @@ managerText = managerText.replace(
     const channelRecords = builderRecordsForChannel(guild, channelId, rawChannelRecords);`,
 );
 
+// Newer Builder code first separates Search-only archive records from the live
+// Modify browser. Preserve that split and layer strict ticket-log filtering on
+// top of the already-visible channel records.
+managerText = managerText.replace(
+`    const channelRecords = filterEmbedManagerRecords(records)
+        .filter(record => String(record.channelId) === String(channelId))
+        .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));`,
+`    const visibleChannelRecords = filterEmbedManagerRecords(records)
+        .filter(record => String(record.channelId) === String(channelId))
+        .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    const channelRecords = builderRecordsForChannel(guild, channelId, visibleChannelRecords);`,
+);
+
 // Live channel switching only reads Discord's newest page plus cache. Exhaustive
 // history walks are recovery work, never interaction work.
 const channelStartMarker = "                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {";
@@ -147,7 +160,10 @@ managerText = managerText.slice(0, channelStart) + channelBlock + managerText.sl
 if (!managerText.includes('discoverRecentChannelEmbeds(')) {
     throw new Error('Fast channel discovery was not applied to the Embed Manager.');
 }
-if (!managerText.includes('builderRecordsForChannel(guild, channelId, rawChannelRecords)')) {
+if (
+    !managerText.includes('builderRecordsForChannel(guild, channelId, rawChannelRecords)')
+    && !managerText.includes('builderRecordsForChannel(guild, channelId, visibleChannelRecords)')
+) {
     throw new Error('Strict Builder channel filtering was not applied.');
 }
 
