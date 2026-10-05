@@ -211,6 +211,14 @@ function managerPayload(state) {
     return;
   }
 
+  const ownsSubmit = await redisAcquireLock('embed-button-submit:' + submitted.id, 5 * 60_000);
+  if (!ownsSubmit) {
+    if (!submitted.replied && !submitted.deferred) {
+      await submitted.deferUpdate().catch(() => {});
+    }
+    return;
+  }
+
   const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
   const style = parseButtonStyle(buttonDraftStyleName(state), ButtonStyle.Secondary);
   const visibility = buttonDraftVisibility(state);
