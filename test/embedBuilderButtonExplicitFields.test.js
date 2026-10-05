@@ -10,8 +10,23 @@ test('Builder response modal keeps separate color and visibility fields within f
   assert.ok(start >= 0 && end > start);
   const body = source.slice(start, end);
 
+  const styleIndex = body.indexOf("setCustomId('button_style')");
+  const visibilityIndex = body.indexOf("setCustomId('button_visibility')");
+  const durationIndex = body.indexOf("setCustomId('button_duration')");
+  const nameIndex = body.indexOf("setCustomId('button_label')");
+  const actionIndex = body.indexOf("setCustomId('button_action')");
+  assert.ok(
+    styleIndex >= 0
+      && styleIndex < visibilityIndex
+      && visibilityIndex < durationIndex
+      && durationIndex < nameIndex
+      && nameIndex < actionIndex,
+    'Expected color, visibility, duration, link/button name, then response/link field',
+  );
+
   assert.match(body, /setCustomId\('button_label'\)/);
   assert.match(body, /Button \/ link name/);
+  assert.match(body, /This becomes the button or link name/);
   assert.match(body, /setCustomId\('button_style'\)/);
   assert.match(body, /Color \(optional\)/);
   assert.match(body, /gray, blue, green or red/);
