@@ -360,13 +360,21 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
     const sourceHasLogo = Boolean(state.modifyTarget?.sourceEmbedData?.thumbnail?.url);
     const hasLogo = !state.removeExistingLogo && (state.showLogo || sourceHasLogo);
 
-    const titleRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
+    const titleButton = new ButtonBuilder()
+        .setLabel('Edit title & message')
+        .setEmoji('✍🏼');
+    if (state.contentEditorUrl) {
+        titleButton
             .setURL(state.contentEditorUrl)
-            .setLabel('Edit title & message')
-            .setStyle(ButtonStyle.Link)
-            .setEmoji('✍🏼'),
-    );
+            .setStyle(ButtonStyle.Link);
+    } else {
+        titleButton
+            .setCustomId('simple_embed_content')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true);
+    }
+
+    const titleRow = new ActionRowBuilder().addComponents(titleButton);
 
     // ${marker}: keep Add logo and Remove logo in their own row so Discord
     // mobile cannot wrap another control between them.
@@ -402,11 +410,20 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
             .setLabel('Edit footer')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📝'),
-        new ButtonBuilder()
-            .setURL(state.colorPickerUrl)
-            .setLabel('Set side color')
-            .setStyle(ButtonStyle.Link)
-            .setEmoji('🎨'),
+        (() => {
+            const button = new ButtonBuilder()
+                .setLabel('Set side color')
+                .setEmoji('🎨');
+            if (state.colorPickerUrl) {
+                return button
+                    .setURL(state.colorPickerUrl)
+                    .setStyle(ButtonStyle.Link);
+            }
+            return button
+                .setCustomId('simple_embed_color_unavailable')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true);
+        })(),
     );
 
     const editRow = new ActionRowBuilder().addComponents(
@@ -526,11 +543,11 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
     })();
 }
 
-function refreshBuilder(interaction, state) {
+async function refreshBuilder(interaction, state) {
     return queueBuilderRefresh(interaction, state, true);
 }
 
-function refreshBuilderPreviewOnly(interaction, state) {
+async function refreshBuilderPreviewOnly(interaction, state) {
     return queueBuilderRefresh(interaction, state, false);
 }`;
 
@@ -548,6 +565,10 @@ function refreshBuilderPreviewOnly(interaction, state) {
     block = block.replace(
       'const refreshed = await refreshBuilder(interaction, state);',
       'const refreshed = await refreshBuilderPreviewOnly(interaction, state);',
+    );
+    block = block.replace(
+      'void refreshBuilder(interaction, state).catch(error => {',
+      'void refreshBuilderPreviewOnly(interaction, state).catch(error => {',
     );
     text = text.slice(0, editorStart) + block + text.slice(editorEnd);
   }
