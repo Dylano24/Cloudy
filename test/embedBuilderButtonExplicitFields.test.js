@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Builder response modal contains response and optional link in one five-row form', () => {
+test('Builder response modal keeps separate color and visibility fields within five rows', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
 
   const start = source.indexOf('async function showAddResponseModal');
@@ -10,16 +10,35 @@ test('Builder response modal contains response and optional link in one five-row
   assert.ok(start >= 0 && end > start);
   const body = source.slice(start, end);
 
+  const styleIndex = body.indexOf("setCustomId('button_style')");
+  const visibilityIndex = body.indexOf("setCustomId('button_visibility')");
+  const durationIndex = body.indexOf("setCustomId('button_duration')");
+  const nameIndex = body.indexOf("setCustomId('button_label')");
+  const actionIndex = body.indexOf("setCustomId('button_action')");
+  assert.ok(
+    styleIndex >= 0
+      && styleIndex < visibilityIndex
+      && visibilityIndex < durationIndex
+      && durationIndex < nameIndex
+      && nameIndex < actionIndex,
+    'Expected color, visibility, duration, link/button name, then response/link field',
+  );
+
   assert.match(body, /setCustomId\('button_label'\)/);
-  assert.match(body, /setCustomId\('button_settings'\)/);
-  assert.match(body, /Color \/ visibility \(optional\)/);
+  assert.match(body, /Button \/ link name/);
+  assert.match(body, /This becomes the button or link name/);
+  assert.match(body, /setCustomId\('button_style'\)/);
+  assert.match(body, /Color \(optional\)/);
+  assert.match(body, /gray, blue, green or red/);
+  assert.match(body, /setCustomId\('button_visibility'\)/);
+  assert.match(body, /Visibility \(optional\)/);
+  assert.match(body, /private or public • default: private/);
   assert.match(body, /setCustomId\('button_duration'\)/);
   assert.match(body, /10s, 30s, 1m, 5m • blank stays/);
   assert.doesNotMatch(body, /blank = stays/);
-  assert.match(body, /setCustomId\('button_response'\)/);
-  assert.match(body, /Response message \(optional\)/);
-  assert.match(body, /setCustomId\('button_url'\)/);
-  assert.match(body, /Add link \(optional\)/);
+  assert.match(body, /setCustomId\('button_action'\)/);
+  assert.match(body, /Response message \/ add link/);
+  assert.match(body, /https:\/\/example\.com/);
   assert.match(body, /ButtonStyle\.Link/);
 });
 
