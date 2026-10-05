@@ -105,8 +105,13 @@ export async function syncBuilderButtonPreview(interaction, state) {
   const existingEditorId = state.activeButtonEditorMessageId
     ? String(state.activeButtonEditorMessageId)
     : null;
-  if (existingEditorId && state.activeButtonEditorCollector && !state.activeButtonEditorCollector.ended) {
-    const edited = await buttonInteraction.webhook?.editMessage?.(
+  if (
+    existingEditorId
+    && state.activeButtonEditorCollector
+    && !state.activeButtonEditorCollector.ended
+    && buttonInteraction.webhook?.editMessage
+  ) {
+    const edited = await buttonInteraction.webhook.editMessage(
       existingEditorId,
       managerPayload(state),
     ).catch(() => null);
