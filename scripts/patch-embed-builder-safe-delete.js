@@ -311,15 +311,25 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     'Delete from Builder handler',
   );
 
-  text = replaceRequired(
-    text,
-    `                            state.modifyTarget = null;
-                            await refreshBuilder(buttonInteraction, state);`,
-    `                            state.modifyTarget = null;
-                            state.pendingBuilderDelete = null;
-                            await refreshBuilder(buttonInteraction, state);`,
-    'Reset clears pending deletion',
-  );
+  {
+    const resetCase = text.indexOf("case 'simple_embed_reset':");
+    const resetEnd = text.indexOf('break;', resetCase);
+    if (resetCase < 0 || resetEnd < 0) {
+      throw new Error('[BUILDER_SAFE_DELETE] Reset case missing');
+    }
+
+    const resetBlock = text.slice(resetCase, resetEnd);
+    if (!resetBlock.includes('state.pendingBuilderDelete = null;')) {
+      const targetReset = resetBlock.indexOf('state.modifyTarget = null;');
+      if (targetReset < 0) {
+        throw new Error('[BUILDER_SAFE_DELETE] Reset modify target clear missing');
+      }
+      const insertAt = resetCase + targetReset + 'state.modifyTarget = null;'.length;
+      text = text.slice(0, insertAt)
+        + '\n                            state.pendingBuilderDelete = null;'
+        + text.slice(insertAt);
+    }
+  }
 
   return text;
 });
