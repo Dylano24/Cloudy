@@ -189,31 +189,38 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
     text = text.replace(importAnchor, importReplacement);
   }
 
-  const removeAnchor = `                            state.componentsDirty = true;
-                            await buttonInteraction.deferUpdate();
-                            await refreshBuilder(buttonInteraction, state);
-                            break;`;
-  const removeReplacement = `                            state.componentsDirty = true;
-                            await buttonInteraction.deferUpdate();
-                            await refreshBuilder(buttonInteraction, state);
-                            await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});
-                            break;`;
-  if (text.includes(removeAnchor)) {
-    text = text.replace(removeAnchor, removeReplacement);
+  function ensurePreviewSyncInCase(caseId) {
+    const start = text.indexOf(`case '${caseId}':`);
+    if (start < 0) return;
+    const next = text.indexOf("\n                        case '", start + 8);
+    const end = next >= 0 ? next : text.length;
+    let block = text.slice(start, end);
+    if (block.includes('syncBuilderButtonPreview(buttonInteraction, state)')) return;
+
+    const refreshNeedle = 'await refreshBuilder(buttonInteraction, state);';
+    const refreshIndex = block.lastIndexOf(refreshNeedle);
+    if (refreshIndex >= 0) {
+      const insertAt = refreshIndex + refreshNeedle.length;
+      block = block.slice(0, insertAt)
+        + "\n                            await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});"
+        + block.slice(insertAt);
+      text = text.slice(0, start) + block + text.slice(end);
+      return;
+    }
+
+    const deferNeedle = 'await buttonInteraction.deferUpdate();';
+    const deferIndex = block.lastIndexOf(deferNeedle);
+    if (deferIndex >= 0) {
+      const insertAt = deferIndex + deferNeedle.length;
+      block = block.slice(0, insertAt)
+        + "\n                            await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});"
+        + block.slice(insertAt);
+      text = text.slice(0, start) + block + text.slice(end);
+    }
   }
 
-  const resetAnchor = `                            state.componentRows = [];
-                            state.componentRowsSourceMessageId = 'new';
-                            state.componentsDirty = false;
-                            await buttonInteraction.deferUpdate();`;
-  const resetReplacement = `                            state.componentRows = [];
-                            state.componentRowsSourceMessageId = 'new';
-                            state.componentsDirty = false;
-                            await buttonInteraction.deferUpdate();
-                            await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});`;
-  if (text.includes(resetAnchor)) {
-    text = text.replace(resetAnchor, resetReplacement);
-  }
+  ensurePreviewSyncInCase('simple_embed_remove_buttons');
+  ensurePreviewSyncInCase('simple_embed_reset');
 
   return text;
 });
