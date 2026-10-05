@@ -508,7 +508,7 @@ export async function claimTicket(channel, claimer) {
   }
 }
 
-export async function reopenTicket(channel, reopener, options = {}) {
+export async function reopenTicket(channel, reopener) {
   try {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
     
@@ -552,8 +552,7 @@ export async function reopenTicket(channel, reopener, options = {}) {
     }
     
     try {
-      const user = channel.guild.members.cache.get(ticketData.userId)
-        || await channel.guild.members.fetch(ticketData.userId).catch(() => null);
+      const user = await channel.guild.members.fetch(ticketData.userId).catch(() => null);
       if (user) {
         await channel.permissionOverwrites.create(user, {
           ViewChannel: true,
@@ -565,37 +564,12 @@ export async function reopenTicket(channel, reopener, options = {}) {
     } catch (error) {
       logger.warn(`Could not restore access for user ${ticketData.userId}:`, error.message);
     }
-
-    const isMainTicketMessage = message => Boolean(
-      message?.embeds?.length > 0
-      && message.embeds[0].title?.startsWith('Ticket #')
+    
+    const messages = await channel.messages.fetch({ limit: 50 });
+    const ticketMessage = messages.find(m => 
+      m.embeds.length > 0 && 
+      m.embeds[0].title?.startsWith('Ticket #')
     );
-    const isCloseStatusMessage = message => Boolean(
-      message?.embeds?.length > 0
-      && message.embeds[0].title === 'Ticket closed'
-      && message.components?.length > 0
-      && message.components[0].components?.some(c => c.customId === 'ticket_reopen')
-    );
-
-    // Reopen is triggered from the close-status button, so reuse that exact
-    // message and the stored main ticket message ID whenever possible. This
-    // avoids scanning the latest 50 messages on every reopen.
-    let ticketMessage = null;
-    if (ticketData.ticketMessageId) {
-      ticketMessage = await channel.messages.fetch(ticketData.ticketMessageId).catch(() => null);
-      if (!isMainTicketMessage(ticketMessage)) ticketMessage = null;
-    }
-
-    let closeStatusMessage = isCloseStatusMessage(options.statusMessage)
-      ? options.statusMessage
-      : null;
-    let messages = null;
-
-    if (!ticketMessage || !closeStatusMessage) {
-      messages = await channel.messages.fetch({ limit: 50 });
-      if (!ticketMessage) ticketMessage = messages.find(isMainTicketMessage) || null;
-      if (!closeStatusMessage) closeStatusMessage = messages.find(isCloseStatusMessage) || null;
-    }
     
     if (ticketMessage) {
       const embed = ticketMessage.embeds[0];
@@ -618,6 +592,13 @@ export async function reopenTicket(channel, reopener, options = {}) {
       description: `🔓 ${reopener} has reopened this ticket!`,
       color: '#2ecc71'
     });
+
+    const closeStatusMessage = messages.find(m =>
+      m.embeds.length > 0 &&
+      m.embeds[0].title === 'Ticket closed' &&
+      m.components.length > 0 &&
+      m.components[0].components.some(c => c.customId === 'ticket_reopen')
+    );
 
     if (closeStatusMessage) {
       await closeStatusMessage.edit({ embeds: [reopenEmbed], components: [] });
