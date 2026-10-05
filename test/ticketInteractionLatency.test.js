@@ -48,8 +48,8 @@ function fixture({ staff = false, record = true } = {}) {
   return { interaction, client, guild, channel, storage, ticketKey, values, trace, replies, publicPayloads };
 }
 
-test('claim and unclaim acknowledge before a slow permission database lookup', async () => {
-  for (const name of ['ticket_claim', 'ticket_unclaim']) {
+test('ticket mutation buttons acknowledge before a slow permission database lookup', async () => {
+  for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture({ record: false });
     let finishLookup;
     const originalGet = f.storage.get;
@@ -71,8 +71,8 @@ test('claim and unclaim acknowledge before a slow permission database lookup', a
   }
 });
 
-test('unauthorized claim and unclaim preserve state and deliver permission denial privately', async () => {
-  for (const name of ['ticket_claim', 'ticket_unclaim']) {
+test('unauthorized ticket mutation buttons preserve state and deliver permission denial privately', async () => {
+  for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture();
     const original = structuredClone(f.values.get(f.ticketKey));
     await buttons.find(button => button.name === name).execute(f.interaction, f.client);
@@ -85,8 +85,8 @@ test('unauthorized claim and unclaim preserve state and deliver permission denia
   }
 });
 
-test('permission lookup failure after component acknowledgement stays private and does not mutate state', async () => {
-  for (const name of ['ticket_claim', 'ticket_unclaim']) {
+test('ticket mutation permission lookup failure stays private and does not mutate state', async () => {
+  for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture({ staff: true });
     const original = structuredClone(f.values.get(f.ticketKey));
     const originalGet = f.storage.get;
@@ -103,7 +103,7 @@ test('permission lookup failure after component acknowledgement stays private an
 });
 
 test('failed component acknowledgement skips permission reads and ticket mutations', async () => {
-  for (const name of ['ticket_claim', 'ticket_unclaim']) {
+  for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture({ staff: true });
     const original = structuredClone(f.values.get(f.ticketKey));
     f.interaction.deferUpdate = async () => { throw Object.assign(new Error('Unknown interaction'), { code: 10062 }); };

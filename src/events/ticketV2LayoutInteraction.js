@@ -8,7 +8,6 @@ const TICKET_INTERACTIONS = new Set([
   'ticket_priority_menu',
   'ticket_priority_select',
   'ticket_close_modal',
-  'ticket_reopen',
 ]);
 
 export default {
