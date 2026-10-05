@@ -238,6 +238,10 @@ function managerPayload(state) {
 }
 
 async function showAddResponseModal(componentInteraction, state, refreshBuilder, panelMessage) {
+  // Only one Add-response modal may own a submit for this builder session.
+  // Re-opening the editor invalidates every older waiter immediately.
+  const modalGeneration = (state.buttonModalGeneration || 0) + 1;
+  state.buttonModalGeneration = modalGeneration;
   const modalId = `embed_button_add_response_modal:${randomUUID().replaceAll('-', '').slice(0, 12)}`;
   const modal = new ModalBuilder()
     .setCustomId(modalId)
@@ -286,6 +290,10 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
     time: 120_000,
   }).catch(() => null);
   if (!submitted) return;
+  if (state.buttonModalGeneration !== modalGeneration) {
+    if (!submitted.replied && !submitted.deferred) await submitted.deferUpdate().catch(() => {});
+    return;
+  }
 
   const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
   const style = parseButtonStyle(submitted.fields.getTextInputValue('button_style'), ButtonStyle.Secondary);
@@ -474,6 +482,7 @@ export async function openEmbedButtonEditor(buttonInteraction, state, refreshBui
 
   collector.on('end', () => {
     state.builderChildMessages?.delete(panelMessage.id);
+    state.buttonModalGeneration = (state.buttonModalGeneration || 0) + 1;
   });
 
   collector.on('collect', componentInteraction => {
