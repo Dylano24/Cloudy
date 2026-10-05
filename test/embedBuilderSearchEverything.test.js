@@ -43,3 +43,18 @@ test('channel browsing keeps its existing unique-embed grouping', () => {
   assert.match(body, /collapseDisplayRecords\(channelRecords, channelId\)/);
   assert.match(body, /Only unique embeds are shown/);
 });
+
+
+test('Search merges direct system catalog records so catalog responses cannot disappear from autocomplete', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  assert.match(source, /getSearchableSystemCatalogRecords/);
+  assert.match(source, /function mergeSearchRecords\(/);
+  assert.match(source, /mergeSearchRecords\(interaction\.guildId, registryRecords\)/);
+});
+
+test('Removed from Builder is a searchable catalog response', () => {
+  const source = fs.readFileSync('src/services/systemEmbedCatalogService.js', 'utf8');
+  assert.match(source, /title: 'Removed from Builder'/);
+  assert.match(source, /context: 'embed-builder\/delete'/);
+  assert.match(source, /getSearchableSystemCatalogRecords/);
+});
