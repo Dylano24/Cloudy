@@ -242,16 +242,30 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     text = text.replace(helperAnchor, helpers + helperAnchor);
   }
 
-  text = replaceRequired(
-    text,
-    `.setLabel(state.modifyTarget ? 'Save changes' : 'Post message')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji(state.modifyTarget ? '💾' : '📤'),`,
-    `.setLabel(state.pendingBuilderDelete ? 'Save deletion' : (state.modifyTarget ? 'Save changes' : 'Post message'))
-            .setStyle(state.pendingBuilderDelete ? ButtonStyle.Danger : ButtonStyle.Success)
-            .setEmoji(state.pendingBuilderDelete ? '🗑️' : (state.modifyTarget ? '💾' : '📤')),`,
-    'Save deletion button state',
-  );
+  if (!text.includes('Save deletion')) {
+    const saveButtonStart = text.indexOf(".setCustomId('simple_embed_post')");
+    const saveButtonEnd = text.indexOf('new ButtonBuilder()', saveButtonStart + 1);
+    if (saveButtonStart < 0 || saveButtonEnd < 0) {
+      throw new Error('[BUILDER_SAFE_DELETE] Save button block missing');
+    }
+
+    let saveButton = text.slice(saveButtonStart, saveButtonEnd);
+    saveButton = saveButton
+      .replace(
+        /\.setLabel\([^\n]+\)/,
+        ".setLabel(state.pendingBuilderDelete ? 'Save deletion' : (state.modifyTarget ? 'Save changes' : 'Post message'))",
+      )
+      .replace(
+        /\.setStyle\([^\n]+\)/,
+        '.setStyle(state.pendingBuilderDelete ? ButtonStyle.Danger : ButtonStyle.Success)',
+      )
+      .replace(
+        /\.setEmoji\([^\n]+\)/,
+        ".setEmoji(state.pendingBuilderDelete ? '🗑️' : (state.modifyTarget ? '💾' : '📤'))",
+      );
+
+    text = text.slice(0, saveButtonStart) + saveButton + text.slice(saveButtonEnd);
+  }
 
   text = replaceRequired(
     text,
