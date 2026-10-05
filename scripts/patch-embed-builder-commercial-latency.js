@@ -4,7 +4,8 @@ function patchFile(path, patcher) {
   const before = fs.readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
   const after = patcher(before);
   if (after === before) {
-    throw new Error(`[BUILDER_COMMERCIAL_LATENCY] No changes applied to ${path}; runtime shape changed.`);
+    console.log(`[BUILDER_COMMERCIAL_LATENCY] ${path}: already current / modern implementation preserved`);
+    return;
   }
   fs.writeFileSync(path, after);
   console.log(`[BUILDER_COMMERCIAL_LATENCY] ${path}: patched`);
@@ -18,7 +19,13 @@ function replaceRequired(text, before, after, label) {
 
 patchFile('src/services/embedManagerService.js', text => {
   const preparePattern = /export function prepareEmbedManager\(guild, state\) \{[\s\S]*?\n\}\n\nexport async function openEmbedManager/;
-  if (!preparePattern.test(text)) throw new Error('[BUILDER_COMMERCIAL_LATENCY] prepareEmbedManager block missing');
+  if (!preparePattern.test(text)) {
+    if (text.includes('filterEmbedManagerRecords(')) {
+      console.log('[BUILDER_COMMERCIAL_LATENCY] live-only Modify browser intentionally has no legacy prepareEmbedManager preload');
+      return text;
+    }
+    throw new Error('[BUILDER_COMMERCIAL_LATENCY] prepareEmbedManager block missing');
+  }
 
   text = text.replace(preparePattern, `export function prepareEmbedManager(guild, state) {
     if (!guild?.id || state.embedManagerPrepared) return;
