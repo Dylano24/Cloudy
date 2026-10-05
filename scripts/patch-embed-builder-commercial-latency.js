@@ -285,7 +285,8 @@ async function getFastCanonicalBuilderRecords(guild) {
   }
 
   if (!text.includes('await getCanonicalBuilderRecords(interaction.guild)')) {
-    throw new Error('[BUILDER_COMMERCIAL_LATENCY] canonical search calls missing');
+    console.log('[BUILDER_COMMERCIAL_LATENCY] Search no longer uses canonical-record calls; keeping the current faster registry+catalog path');
+    return text;
   }
   return text.replaceAll(
     'await getCanonicalBuilderRecords(interaction.guild)',
