@@ -15,12 +15,11 @@ test('Embed Builder precomputes canonical Modify data before the button click', 
   assert.match(openBody, /rememberEmbedManagerRecordCache\(guild\.id, buttonInteraction\.user\.id, records\)/);
 });
 
-test('local Builder state changes can acknowledge and paint in one Discord update', () => {
+test('local Builder state changes refresh preview and dashboard without a defer round-trip', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
-  assert.match(source, /async function deliverBuilderPreviewUpdate/);
-  assert.match(source, /typeof interaction\?\.update === 'function'/);
-  assert.match(source, /await interaction\.update\(payload\)/);
-  assert.match(source, /result = await deliverBuilderPreviewUpdate\(state, interaction, nextPayload\)/);
+  assert.match(source, /async function editBuilderDashboardMessage/);
+  assert.match(source, /const previewUpdated = await editBuilderPreviewMessage\(/);
+  assert.match(source, /await editBuilderDashboardMessage\(/);
 
   for (const id of ['simple_embed_logo', 'simple_embed_remove_logo', 'simple_embed_clear_media', 'simple_embed_reset']) {
     const start = source.indexOf(`case '${id}':`);

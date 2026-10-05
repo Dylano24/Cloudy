@@ -2,13 +2,13 @@ import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-test('every guild Embed Builder uses a bot-managed Discord message', () => {
+test('every guild Embed Builder uses a bot-managed preview message', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   assert.match(source, /EMBED_BUILDER_BOT_MANAGED_ALL_GUILD_V2/);
   assert.match(source, /builderBotManaged = Boolean\(interaction\.guild && interaction\.channel\)/);
   assert.doesNotMatch(source, /!isPublicToEveryone\(interaction\.guild, interaction\.channel\)/);
   assert.match(source, /builderBotManaged \? \{\} : \{ flags: MessageFlags\.Ephemeral \}/);
-  assert.match(source, /state\.builderMessage = dashboardMessage/);
+  assert.match(source, /state\.builderMessage\s*=\s*previewMessage/);
   assert.match(source, /touchBuilderSessionMessage\(state\.builderMessage\)/);
   assert.match(source, /await state\.builderMessage\.edit\(payload\)/);
 });
