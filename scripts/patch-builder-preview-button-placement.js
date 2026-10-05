@@ -22,7 +22,7 @@ if (controlsStart < 0 || controlsEnd < 0) {
 
 let controls = text.slice(controlsStart, controlsEnd + 2);
 controls = controls.replace(
-  /\n    const buttonPreviewComponents = getBuilderMessageComponents\(state\)[\s\S]*?    const previewRows = buttonPreviewComponents\.length\n        \? \[\{ type: 1, components: buttonPreviewComponents \}\]\n        : \[\];\n/,
+  /\n {4}const buttonPreviewComponents = getBuilderMessageComponents\(state\)[\s\S]*? {4}const previewRows = buttonPreviewComponents\.length\n {8}\? \[\{ type: 1, components: buttonPreviewComponents \}\]\n {8}: \[\];\n/,
   '\n',
 );
 controls = controls.replace(
