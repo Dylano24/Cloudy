@@ -2,25 +2,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('button editor closes after a successful mutation so preview sits directly under Builder', () => {
+test('button editor closes after a successful all-in-one button mutation', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
   assert.match(source, /export async function cleanupBuilderButtonUi/);
   assert.match(source, /async function closeButtonEditorPanel/);
 
   const addStart = source.indexOf('async function showAddResponseModal');
-  const addLinkStart = source.indexOf('async function showAddLinkModal', addStart);
-  const addBody = source.slice(addStart, addLinkStart);
-  assert.match(addBody, /syncBuilderButtonPreview\(submitted, state\)/);
+  const editStart = source.indexOf('async function showEditButtonModal', addStart);
+  const addBody = source.slice(addStart, editStart);
+  assert.match(addBody, /refreshBuilder\(submitted, state\)/);
   assert.match(addBody, /closeButtonEditorPanel\(submitted, state\)/);
-
-  const linkStart = addLinkStart;
-  const editStart = source.indexOf('async function showEditButtonModal', linkStart);
-  const linkBody = source.slice(linkStart, editStart);
-  assert.match(linkBody, /syncBuilderButtonPreview\(submitted, state\)/);
-  assert.match(linkBody, /closeButtonEditorPanel\(submitted, state\)/);
+  assert.doesNotMatch(addBody, /showAddLinkModal/);
 });
 
-test('Close, Reset, Delete from builder and Builder end clean child button UI', () => {
+test('Close, Reset, Delete from builder and Builder end clean child editor state', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
 
   const closeStart = source.indexOf("case 'simple_embed_close':");
