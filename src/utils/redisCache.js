@@ -237,8 +237,13 @@ export async function redisDelete(name) {
 }
 
 export async function redisAcquireLock(name, ttlMs = 30_000) {
+  if (!REDIS_URL) return true;
   const ttl = Math.max(1_000, Number(ttlMs) || 30_000);
   const result = await command(['SET', key('lock:' + name), '1', 'NX', 'PX', ttl]);
+  // Redis is an acceleration/idempotency layer, never a hard dependency.
+  // If it is temporarily unavailable, keep Cloudy working via the existing
+  // local/session guards instead of blocking the user action.
+  if (result === null) return true;
   return result === 'OK';
 }
 
