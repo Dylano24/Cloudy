@@ -114,13 +114,34 @@ export async function registerTicketCreationConfirmation(ticketChannel, message)
   return true;
 }
 
-export async function deleteTicketCreationConfirmation(ticketChannel) {
+export async function prepareTicketCreationConfirmationCleanup(ticketChannel, providedData = null) {
+  if (!ticketChannel?.guild?.id || !ticketChannel?.id) return async () => false;
+
+  const privateKey = privateConfirmationKey(ticketChannel);
+  const privateInteraction = privateTicketCreationConfirmations.get(privateKey) || null;
+  const data = providedData
+    ? structuredClone(providedData)
+    : await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+
+  const prepared = {
+    privateKey,
+    privateInteraction,
+    data: data ? structuredClone(data) : null,
+  };
+
+  return async () => deleteTicketCreationConfirmation(ticketChannel, prepared);
+}
+
+export async function deleteTicketCreationConfirmation(ticketChannel, prepared = null) {
   if (!ticketChannel?.guild?.id) return false;
 
   let deleted = false;
-  const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
-  const privateKey = privateConfirmationKey(ticketChannel);
-  const privateInteraction = privateTicketCreationConfirmations.get(privateKey);
+  const data = prepared?.data
+    ? structuredClone(prepared.data)
+    : await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+  const privateKey = prepared?.privateKey || privateConfirmationKey(ticketChannel);
+  const privateInteraction = prepared?.privateInteraction
+    || privateTicketCreationConfirmations.get(privateKey);
   if (privateInteraction) {
     privateTicketCreationConfirmations.delete(privateKey);
     try {
