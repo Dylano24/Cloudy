@@ -5,6 +5,7 @@ import test from 'node:test';
 import { db, getTicketData, saveTicketData } from '../src/utils/database.js';
 import {
   deleteTicketCreationConfirmation,
+  prepareTicketCreationConfirmationCleanup,
   registerPrivateTicketCreationConfirmation,
 } from '../src/services/ticketCreationConfirmationService.js';
 
@@ -84,15 +85,17 @@ test('closing or reconciling a closed ticket does not remove Ticket created conf
   assert.doesNotMatch(reconcileBody, /deleteTicketCreationConfirmation/);
 });
 
-test('Ticket created cleanup runs only after the real ticket channel delete succeeds', () => {
+test('Ticket created cleanup is prepared before deletion and executed only after channel delete succeeds', () => {
   const source = fs.readFileSync('src/services/ticketDeleteService.js', 'utf8');
-  const channelDelete = source.indexOf('await channel.delete(');
-  const confirmationDelete = source.indexOf('await deleteTicketCreationConfirmation(channel)', channelDelete);
+  const prepareCleanup = source.indexOf('await prepareTicketCreationConfirmationCleanup(');
+  const channelDelete = source.indexOf('await channel.delete(', prepareCleanup);
+  const confirmationDelete = source.indexOf('await cleanupCreationConfirmation()', channelDelete);
 
-  assert.ok(channelDelete >= 0, 'ticket channel delete call missing');
+  assert.ok(prepareCleanup >= 0, 'creation confirmation cleanup snapshot must be prepared');
+  assert.ok(channelDelete > prepareCleanup, 'ticket channel delete must happen after cleanup preparation');
   assert.ok(
     confirmationDelete > channelDelete,
-    'creation confirmation cleanup must happen after successful channel deletion',
+    'prepared creation confirmation cleanup must run only after successful channel deletion',
   );
 });
 
@@ -165,4 +168,38 @@ test('private Ticket created cleanup survives a bot restart while the Discord in
     if (previousToken === undefined) delete process.env.DISCORD_TOKEN;
     else process.env.DISCORD_TOKEN = previousToken;
   }
+});
+
+
+test('prepared private Ticket created cleanup does not need a post-delete ticket lookup', async () => {
+  installTestStorage();
+  await saveTicketData('guild-prepared-confirmation', 'ticket-prepared-confirmation', {
+    id: 'ticket-prepared-confirmation',
+    status: 'open',
+    userId: 'user-prepared-confirmation',
+  });
+
+  let deletes = 0;
+  const ticketChannel = {
+    id: 'ticket-prepared-confirmation',
+    guild: { id: 'guild-prepared-confirmation' },
+    client: { user: { id: 'cloudy-bot' } },
+  };
+  const interaction = {
+    deleteReply: async () => {
+      deletes += 1;
+    },
+  };
+
+  await registerPrivateTicketCreationConfirmation(ticketChannel, interaction);
+  const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+  const cleanup = await prepareTicketCreationConfirmationCleanup(ticketChannel, data);
+
+  // Simulate the ticket/channel lifecycle moving on after the cleanup snapshot.
+  db.db.get = async () => {
+    throw new Error('post-delete lookup should not be required');
+  };
+
+  assert.equal(await cleanup(), true);
+  assert.equal(deletes, 1);
 });
