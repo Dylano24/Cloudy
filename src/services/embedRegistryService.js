@@ -669,9 +669,15 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
             await setInDb(registryKey(guildId), sortRecords(next));
         }
 
-        // A stale Builder record can still own a Reappear rule under its
-        // original message ID. Purging the Builder record must permanently
-        // disable that rule, even if the live Discord copy has already moved.
+        // Disable only this exact Reappear owner. The tombstone closes the race
+        // where a message event is already processing this rule while Delete is
+        // being saved; unrelated embeds keep their own independent rule.
+        const reappearDisableKey = `cloudy:embed-reappear-disabled:${guildId}:${channelId}:${messageId}:${Math.max(0, Number(embedIndex) || 0)}`;
+        await setInDb(reappearDisableKey, {
+            disabled: true,
+            deletedAt: new Date().toISOString(),
+        });
+
         const reappearKey = `cloudy:embed-reappear:${guildId}:${channelId}:${messageId}`;
         await deleteFromDb(reappearKey);
 
