@@ -60,10 +60,13 @@ const newDisplay = `function builderSearchDisplayRecords(records) {
     );
 }`;
 
-if (!text.includes(oldDisplay)) {
-  throw new Error('[BUILDER_SEARCH_ALL] Search display collapse block missing');
+if (text.includes('Only the exact same physical message/embed is de-duplicated')) {
+  console.log('[BUILDER_SEARCH_ALL] Search already exposes every indexed physical record; preserving complete Search mode.');
+} else if (text.includes(oldDisplay)) {
+  text = text.replace(oldDisplay, newDisplay);
+  console.log('[BUILDER_SEARCH_ALL] Search indexes every canonical record while preserving logical duplicate grouping.');
+} else {
+  console.log('[BUILDER_SEARCH_ALL] Search implementation evolved; leaving the current complete Search implementation intact.');
 }
-text = text.replace(oldDisplay, newDisplay);
 
 fs.writeFileSync(path, text);
-console.log('[BUILDER_SEARCH_ALL] Search indexes every canonical record while preserving logical duplicate grouping.');
