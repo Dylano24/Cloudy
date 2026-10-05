@@ -303,10 +303,8 @@ function mergeSearchRecords(guildId, registryRecords) {
 }
 
 function builderSearchDisplayRecords(records) {
-    // Search contains reusable templates plus embeds that are still real Builder
-    // messages. Runtime notification/history copies are examples, not templates:
-    // never expose them as separate Search results and never keep deleted channel
-    // messages alive here.
+    // Search stays complete, but a canonical Cloudy template is shown only once.
+    // Runtime/history mirrors are not separate editable Builder items.
     const unique = new Map();
 
     for (const rawRecord of records || []) {
@@ -321,18 +319,29 @@ function builderSearchDisplayRecords(records) {
 
         const stableKey = stableSearchTemplateKey(record);
         const stableContext = stableSearchTemplateContext(record);
-        const key = source === 'system-catalog' && stableKey
+        const title = normalize(recordTitle(record));
+
+        const key = stableKey
             ? ['template', stableKey, stableContext].join(':')
-            : [
-                'physical',
-                String(record?.backingChannelId || channelId),
-                messageId,
-                Number(record?.embedIndex || 0),
-            ].join(':');
+            : source === 'system-catalog'
+                ? ['catalog', stableContext, title].join(':')
+                : [
+                    'physical',
+                    String(record?.backingChannelId || channelId),
+                    messageId,
+                    Number(record?.embedIndex || 0),
+                ].join(':');
 
         const existing = unique.get(key);
-        if (!existing || priority(record) >= priority(existing)) {
+        if (!existing || priority(record) > priority(existing)) {
             unique.set(key, record);
+            continue;
+        }
+
+        if (priority(record) === priority(existing)) {
+            const currentTime = new Date(record?.updatedAt || record?.createdAt || 0).getTime();
+            const existingTime = new Date(existing?.updatedAt || existing?.createdAt || 0).getTime();
+            if (currentTime >= existingTime) unique.set(key, record);
         }
     }
 
