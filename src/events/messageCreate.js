@@ -303,8 +303,36 @@ async function handleEmbedReappear(message) {
         await setInDb(key, config);
         continue;
       }
-      const sent = await message.channel.send({ embeds: [config.embed], components: config.components || [] }).catch(() => null);
+      // Reappear means move the same logical embed back to the bottom, not
+      // keep stacking copies. Post the replacement first; if the previous copy
+      // cannot be removed, delete the replacement again so only one remains.
+      const sent = await message.channel.send({
+        embeds: [config.embed],
+        components: config.components || [],
+      }).catch(() => null);
       if (!sent) continue;
+
+      const previousMessageId = config.messageId ? String(config.messageId) : null;
+      if (previousMessageId && previousMessageId !== String(sent.id)) {
+        const previous = await message.channel.messages
+          .fetch(previousMessageId)
+          .catch(error => error?.code === 10008 ? null : Promise.reject(error))
+          .catch(() => null);
+
+        if (previous) {
+          const removedPrevious = await previous.delete()
+            .then(() => true)
+            .catch(() => false);
+
+          if (!removedPrevious) {
+            await sent.delete().catch(() => {});
+            config.count = Math.max(Number(config.every) || 1, Number(config.count) || 0);
+            await setInDb(key, config);
+            continue;
+          }
+        }
+      }
+
       config.count = 0;
       config.messageId = sent.id;
       config.updatedAt = new Date().toISOString();
