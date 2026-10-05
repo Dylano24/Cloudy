@@ -13,9 +13,7 @@ const newStart = `export async function applySavedEmbedTemplates(message, { init
 if (!source.includes(newStart)) {
   if (!source.includes(oldStart)) {
     console.log('[ZORP_MANUAL_SAVE_ONLY] template service evolved; skipping obsolete migration');
-    process.exitCode = 0;
     // Do not block production startup for a historical one-time migration.
-    source = source;
   }
   if (source.includes(oldStart)) {
     source = source.replace(oldStart, newStart);
