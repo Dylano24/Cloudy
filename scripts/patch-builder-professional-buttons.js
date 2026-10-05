@@ -130,18 +130,27 @@ async function replyButtonEditorError(interaction, content) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('button_label')
-          .setLabel('Button name')
+          .setLabel('Button / link name')
           .setStyle(TextInputStyle.Short)
           .setMaxLength(80)
           .setRequired(true),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId('button_settings')
-          .setLabel('Color / visibility (optional)')
+          .setCustomId('button_style')
+          .setLabel('Color (optional)')
           .setStyle(TextInputStyle.Short)
-          .setPlaceholder('gray private • default: gray private')
-          .setMaxLength(32)
+          .setPlaceholder('gray, blue, green or red')
+          .setMaxLength(12)
+          .setRequired(false),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('button_visibility')
+          .setLabel('Visibility (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('private or public • default: private')
+          .setMaxLength(12)
           .setRequired(false),
       ),
       new ActionRowBuilder().addComponents(
@@ -155,20 +164,12 @@ async function replyButtonEditorError(interaction, content) {
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId('button_response')
-          .setLabel('Response message (optional)')
+          .setCustomId('button_action')
+          .setLabel('Response message / add link')
           .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Response text or https://example.com')
           .setMaxLength(4000)
-          .setRequired(false),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('button_url')
-          .setLabel('Add link (optional)')
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder('https://example.com')
-          .setMaxLength(512)
-          .setRequired(false),
+          .setRequired(true),
       ),
     );
 
@@ -181,25 +182,20 @@ async function replyButtonEditorError(interaction, content) {
   if (!submitted) return;
 
   const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
-  const settingsParts = submitted.fields
-    .getTextInputValue('button_settings')
-    .trim()
-    .toLowerCase()
-    .split(/[\\s,|/]+/)
-    .filter(Boolean);
-  const styleName = settingsParts.find(value =>
-    ['gray', 'grey', 'blue', 'green', 'red'].includes(value)
-  ) || '';
-  const visibilityName = settingsParts.find(value =>
-    ['private', 'public', 'ephemeral', 'privé', 'publiek'].includes(value)
-  ) || '';
-  const style = parseButtonStyle(styleName, ButtonStyle.Secondary);
-  const visibility = normalizeButtonVisibility(visibilityName);
+  const style = parseButtonStyle(
+    submitted.fields.getTextInputValue('button_style'),
+    ButtonStyle.Secondary,
+  );
+  const visibility = normalizeButtonVisibility(
+    submitted.fields.getTextInputValue('button_visibility'),
+  );
   const duration = parseButtonDuration(
     submitted.fields.getTextInputValue('button_duration'),
   );
-  const responseText = submitted.fields.getTextInputValue('button_response').trim().slice(0, 4000);
-  const url = submitted.fields.getTextInputValue('button_url').trim().slice(0, 512);
+  const actionValue = submitted.fields.getTextInputValue('button_action').trim();
+  const isLink = /^https?:\\/\\//i.test(actionValue);
+  const responseText = isLink ? '' : actionValue.slice(0, 4000);
+  const url = isLink ? actionValue.slice(0, 512) : '';
 
   if (!visibility) {
     await replyButtonEditorError(submitted, 'Visibility must be private or public.');
@@ -212,16 +208,8 @@ async function replyButtonEditorError(interaction, content) {
     );
     return;
   }
-  if (responseText && url) {
-    await replyButtonEditorError(submitted, 'Use either Response message or Add link, not both.');
-    return;
-  }
-  if (!responseText && !url) {
+  if (!actionValue) {
     await replyButtonEditorError(submitted, 'Add a response message or a link.');
-    return;
-  }
-  if (url && !/^https?:\\/\\//i.test(url)) {
-    await replyButtonEditorError(submitted, 'The link must start with http:// or https://.');
     return;
   }
 
