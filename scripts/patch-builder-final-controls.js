@@ -98,7 +98,7 @@ const replacement = `function buildControls(state) {
             .setEmoji('🛠️'),
         new ButtonBuilder()
             .setCustomId('simple_embed_reappear')
-            .setLabel(state.reappearAfter ? \`Reappear: \${state.reappearAfter}\` : 'Reappear after')
+            .setLabel(state.reappearAfter ? \`Reappear: \${state.reappearAfter}\` : 'Reappear')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🔁'),
     );
