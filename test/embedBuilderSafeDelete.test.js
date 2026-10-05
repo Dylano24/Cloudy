@@ -23,14 +23,14 @@ test('Delete from Builder is staged first and only purged on Save', () => {
   assert.match(saveBody, /purgeEmbedRegistryRecord\(/);
 });
 
-test('Delete from Builder protects live and system/template embeds', () => {
+test('Delete from builder protects live/system catalog records but allows stale templates', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
 
   const eligibilityStart = source.indexOf('function canDeleteBuilderRecord');
   const eligibilityEnd = source.indexOf('async function inspectBuilderDeleteTarget', eligibilityStart);
   const eligibility = source.slice(eligibilityStart, eligibilityEnd);
   assert.match(eligibility, /target\?\.source !== 'system-catalog'/);
-  assert.match(eligibility, /!target\?\.templateMode/);
+  assert.doesNotMatch(eligibility, /!target\?\.templateMode/);
 
   const inspectStart = source.indexOf('async function inspectBuilderDeleteTarget');
   const inspectEnd = source.indexOf('function clearBuilderRecordCaches', inspectStart);
