@@ -108,7 +108,7 @@ const createTicketModal = {
         })],
         components: [],
       });
-      registerPrivateTicketCreationConfirmation(channel, interaction);
+      await registerPrivateTicketCreationConfirmation(channel, interaction);
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
         if (error.code === 'TICKET_LIMIT_REACHED') setResponseLifetime(interaction, 10_000);
