@@ -306,20 +306,29 @@ async function handleEmbedReappear(message) {
     // Embed Builder, its old Reappear rule is an orphan and must never recreate it.
     const registry = await getFromDb(`cloudy:embed-registry:${message.guild.id}`, []);
     const registryRecords = Array.isArray(registry) ? registry : [];
-    const survivingIds = [];
+    const removedIds = new Set();
 
     for (const id of configs) {
       const originalMessageId = String(id);
       const key = prefix + originalMessageId;
       const config = await getFromDb(key, null);
+      const embedIndex = Math.max(0, Number(config?.embedIndex) || 0);
+      const disableKey = `cloudy:embed-reappear-disabled:${message.guild.id}:${message.channel.id}:${originalMessageId}:${embedIndex}`;
+
       if (!config?.every || !config?.embed) {
+        removedIds.add(originalMessageId);
         await deleteFromDb(key);
         continue;
       }
 
-      const stillInBuilder = registryRecords.some(record =>
+      // Each Reappear rule owns exactly one Builder record. A deletion marker is
+      // scoped to message + embed index, so removing one embed can never disable
+      // another Reappear rule in the same channel.
+      const disabled = await getFromDb(disableKey, null);
+      const stillInBuilder = !disabled && registryRecords.some(record =>
         String(record?.channelId || '') === String(message.channel.id)
         && String(record?.messageId || '') === originalMessageId
+        && Number(record?.embedIndex || 0) === embedIndex
         && String(record?.source || '') === 'embed-builder'
       );
 
@@ -329,13 +338,18 @@ async function handleEmbedReappear(message) {
           const activeMessage = await message.channel.messages.fetch(activeMessageId).catch(() => null);
           await activeMessage?.delete?.().catch(() => {});
         }
+        removedIds.add(originalMessageId);
         await deleteFromDb(key);
         continue;
       }
 
-      survivingIds.push(originalMessageId);
       config.count = (Number(config.count) || 0) + 1;
       if (config.count < config.every) {
+        if (await getFromDb(disableKey, null)) {
+          removedIds.add(originalMessageId);
+          await deleteFromDb(key);
+          continue;
+        }
         await setInDb(key, config);
         continue;
       }
@@ -347,6 +361,15 @@ async function handleEmbedReappear(message) {
         components: config.components || [],
       }).catch(() => null);
       if (!sent) continue;
+
+      // Delete may race with a user message that triggered Reappear. Re-check
+      // the exact tombstone after sending and remove only this just-created copy.
+      if (await getFromDb(disableKey, null)) {
+        await sent.delete().catch(() => {});
+        removedIds.add(originalMessageId);
+        await deleteFromDb(key);
+        continue;
+      }
 
       const previousMessageId = config.messageId ? String(config.messageId) : null;
       if (previousMessageId && previousMessageId !== String(sent.id)) {
@@ -362,14 +385,30 @@ async function handleEmbedReappear(message) {
         }
       }
 
+      if (await getFromDb(disableKey, null)) {
+        await sent.delete().catch(() => {});
+        removedIds.add(originalMessageId);
+        await deleteFromDb(key);
+        continue;
+      }
+
       config.count = 0;
       config.messageId = sent.id;
       config.updatedAt = new Date().toISOString();
       await setInDb(key, config);
     }
 
-    if (survivingIds.length !== configs.length) {
-      await setInDb(indexKey, survivingIds);
+    // Never rewrite the index from the stale snapshot read at the beginning of
+    // this handler. Re-read it and remove only the rules proven dead here; this
+    // prevents one Reappear deletion from dropping unrelated/newer embeds.
+    if (removedIds.size) {
+      const latestIndex = await getFromDb(indexKey, []);
+      if (Array.isArray(latestIndex)) {
+        const nextIndex = latestIndex.filter(id => !removedIds.has(String(id)));
+        if (nextIndex.length !== latestIndex.length) {
+          await setInDb(indexKey, nextIndex);
+        }
+      }
     }
   } catch (error) {
     logger.error('Embed reappear handler failed:', error);
