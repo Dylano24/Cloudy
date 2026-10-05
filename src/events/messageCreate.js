@@ -302,10 +302,10 @@ async function handleEmbedReappear(message) {
     const configs = await getFromDb(indexKey, []);
     if (!Array.isArray(configs) || !configs.length) return;
 
-    // The Builder registry is authoritative. If an embed was deleted from the
-    // Embed Builder, its old Reappear rule is an orphan and must never recreate it.
-    const registry = await getFromDb(`cloudy:embed-registry:${message.guild.id}`, []);
-    const registryRecords = Array.isArray(registry) ? registry : [];
+    // Reappear ownership is independent from Search/registry indexing.
+    // Delete writes an exact tombstone for the one embed being removed; only
+    // that tombstone may disable this rule. Search/catalog updates must never
+    // make a live Reappear embed disappear.
     const removedIds = new Set();
 
     for (const id of configs) {
@@ -327,18 +327,11 @@ async function handleEmbedReappear(message) {
         continue;
       }
 
-      // Each Reappear rule owns exactly one Builder record. A deletion marker is
-      // scoped to message + embed index, so removing one embed can never disable
-      // another Reappear rule in the same channel.
+      // Only an exact Delete tombstone may stop this rule. Do not infer deletion
+      // from the Embed Registry: registry/Search indexing is asynchronous and
+      // can temporarily miss or reclassify a freshly posted Builder embed.
       const disabled = await getFromDb(disableKey, null);
-      const stillInBuilder = !disabled && registryRecords.some(record =>
-        String(record?.channelId || '') === String(message.channel.id)
-        && String(record?.messageId || '') === originalMessageId
-        && Number(record?.embedIndex || 0) === embedIndex
-        && String(record?.source || '') === 'embed-builder'
-      );
-
-      if (!stillInBuilder) {
+      if (disabled) {
         const activeMessageId = config.messageId ? String(config.messageId) : null;
         if (activeMessageId) {
           const activeMessage = await message.channel.messages.fetch(activeMessageId).catch(() => null);
