@@ -85,6 +85,7 @@
     "scripts/patch-builder-save-session.js",
     "scripts/patch-report-case-privacy.js",
     "scripts/patch-ticket-pinned-lookup.js",
-    "scripts/patch-embed-builder-commercial-latency.js"
+    "scripts/patch-embed-builder-commercial-latency.js",
+    "scripts/patch-embed-builder-safe-delete.js"
   ]
 }
