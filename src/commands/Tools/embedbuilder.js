@@ -40,7 +40,9 @@ import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManager
 import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
 import { getFromDb, setInDb } from '../../utils/database.js';
 import {
+    countBuilderButtons,
     getBuilderMessageComponents,
+    openEmbedButtonEditor,
 } from '../../services/embedBuilderButtonEditorService.js';
 
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -396,6 +398,10 @@ async function postBuiltMessage(channel, state, guild) {
     for (let index = 0; index < embeds.length; index += 1) {
         const isLast = index === embeds.length - 1;
         const payload = { embeds: [embeds[index]] };
+        if (isLast) {
+            const components = getBuilderMessageComponents(state);
+            if (components.length) payload.components = components;
+        }
 
         if (isLast && state.mediaBuffer && state.mediaName) {
             payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
@@ -442,6 +448,7 @@ function buildControlEmbed(state) {
             `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Media** › ${mediaLabel}`,
+            `**Buttons** › ${countBuilderButtons(state)}`,
             `**Reappear after** › ${state.reappearAfter ? `${state.reappearAfter} message(s)` : '`Off`'}`,
         ].join('\n'))
         .setColor(0xFFFFFF)
@@ -1026,6 +1033,9 @@ export default {
                 mediaName: null,
                 mediaConvertedFromVideo: false,
                 modifyTarget: null,
+                componentRows: [],
+                componentRowsSourceMessageId: 'new',
+                componentsDirty: false,
                 colorSessionToken: null,
                 builderChildMessages: new Map(),
             };
@@ -1120,6 +1130,23 @@ export default {
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
                             break;
+                        case 'simple_embed_buttons':
+                            await openEmbedButtonEditor(
+                                buttonInteraction,
+                                state,
+                                (editorInteraction, editorState) => refreshBuilder(editorInteraction, editorState),
+                            );
+                            break;
+                        case 'simple_embed_clear_buttons':
+                        case 'simple_embed_remove_buttons':
+                            state.componentRows = [];
+                            state.componentRowsSourceMessageId = state.modifyTarget?.messageId
+                                ? String(state.modifyTarget.messageId)
+                                : 'new';
+                            state.componentsDirty = true;
+                            await buttonInteraction.deferUpdate().catch(() => {});
+                            await refreshBuilder(buttonInteraction, state);
+                            break;
                         case 'simple_embed_modify':
                             await openEmbedManager(
                                 buttonInteraction,
@@ -1171,6 +1198,9 @@ export default {
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
                             state.modifyTarget = null;
+                            state.componentRows = [];
+                            state.componentRowsSourceMessageId = 'new';
+                            state.componentsDirty = false;
                             await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
                             break;
