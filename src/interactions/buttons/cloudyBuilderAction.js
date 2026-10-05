@@ -12,10 +12,11 @@ function buildButtonResponseEmbed(responseText) {
 }
 
 function scheduleReplyDeletion(interaction, delayMs) {
-  if (Number(delayMs) !== 10_000) return;
+  const ms = Number(delayMs);
+  if (!Number.isFinite(ms) || ms < 1_000 || ms > 15 * 60_000) return;
   const timer = setTimeout(() => {
     void interaction.deleteReply().catch(() => {});
-  }, 10_000);
+  }, ms);
   timer.unref?.();
 }
 
