@@ -1,7 +1,7 @@
 import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { isTransientStatusEmbed } from '../utils/transientResponse.js';
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
+import { deleteFromDb, getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
 import { peekGuildConfigCache } from './config/guildConfig.js';
@@ -558,7 +558,10 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
 }
 
 function detachedBuilderRecord(record) {
-    if (!isManualBuilderRecord(record)) return null;
+    // Keep every real Cloudy embed snapshot searchable after its Discord message
+    // disappears. Search is the user's archive/editor; deleting the live message
+    // must not silently erase the Builder record.
+    if (!isFixedCloudyRecord(record)) return null;
     const snapshot = getEmbedRegistrySnapshot(record);
     if (!snapshot) return null;
 
@@ -640,6 +643,19 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
 
         if (!changed) return false;
         await setInDb(registryKey(guildId), sortRecords(next));
+
+        // A Builder record may own a Reappear rule. Purging the record must also
+        // disable that rule so a deleted embed can never resurrect later.
+        const reappearKey = `cloudy:embed-reappear:${guildId}:${channelId}:${messageId}`;
+        await deleteFromDb(reappearKey);
+        const reappearIndexKey = `cloudy:embed-reappear-index:${guildId}:${channelId}`;
+        const reappearIndex = await getFromDb(reappearIndexKey, []);
+        if (Array.isArray(reappearIndex) && reappearIndex.some(id => String(id) === String(messageId))) {
+            await setInDb(
+                reappearIndexKey,
+                reappearIndex.filter(id => String(id) !== String(messageId)),
+            );
+        }
         return true;
     });
 }
