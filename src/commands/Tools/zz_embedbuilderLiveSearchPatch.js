@@ -303,19 +303,31 @@ function mergeSearchRecords(guildId, registryRecords) {
 }
 
 function builderSearchDisplayRecords(records) {
-    const groups = new Map();
+    // Search is intentionally NOT the same as the channel browser.
+    // The browser groups templates for a clean editing view; Search must expose
+    // every individual indexed record so nothing is hidden by canonical/template
+    // collapsing. Only the exact same physical message/embed is de-duplicated.
+    const unique = new Map();
 
     for (const rawRecord of records || []) {
         const record = sourceResolvedSearchRecord(rawRecord);
         const channelId = String(record?.channelId || '');
-        if (!channelId) continue;
-        if (!groups.has(channelId)) groups.set(channelId, []);
-        groups.get(channelId).push(record);
+        const messageId = String(record?.messageId || '');
+        if (!channelId || !messageId) continue;
+
+        const key = [
+            String(record?.backingChannelId || channelId),
+            messageId,
+            Number(record?.embedIndex || 0),
+        ].join(':');
+
+        const existing = unique.get(key);
+        if (!existing || priority(record) >= priority(existing)) {
+            unique.set(key, record);
+        }
     }
 
-    return [...groups.entries()].flatMap(([channelId, channelRecords]) =>
-        collapseDisplayRecords(channelRecords, channelId)
-    );
+    return [...unique.values()];
 }
 
 export function latestRealPreviewRecord(guild, records, selectedRecord) {
@@ -336,28 +348,32 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
 }
 
 export function buildMatches(guild, records, query) {
-    const grouped = new Map();
     const hasQuery = Boolean(normalize(query));
-    const displayRecords = builderSearchDisplayRecords(records);
+    const matches = [];
 
-    for (const record of displayRecords) {
+    for (const record of builderSearchDisplayRecords(records)) {
         const document = recordDocument(guild, record);
         if (!document.title) continue;
         const score = hasQuery ? searchScore(document, query) : 0;
         if (hasQuery && score == null) continue;
-        const candidate = { record, document, score };
-        const key = logicalKey(record, document);
-        grouped.set(key, chooseBetter(grouped.get(key), candidate));
+        matches.push({ record, document, score });
     }
 
-    return [...grouped.values()].sort((a, b) => {
+    return matches.sort((a, b) => {
         if (hasQuery && b.score !== a.score) return b.score - a.score;
 
-        const aBot = String(a.record?.source || '').toLowerCase() === 'system-catalog';
-        const bBot = String(b.record?.source || '').toLowerCase() === 'system-catalog';
-        if (!hasQuery && aBot !== bBot) return aBot ? -1 : 1;
+        const priorityDelta = priority(b.record) - priority(a.record);
+        if (priorityDelta) return priorityDelta;
 
-        return a.document.title.localeCompare(b.document.title, undefined, { sensitivity: 'base' });
+        const titleDelta = a.document.title.localeCompare(
+            b.document.title,
+            undefined,
+            { sensitivity: 'base' },
+        );
+        if (titleDelta) return titleDelta;
+
+        return new Date(b.record?.updatedAt || b.record?.createdAt || 0).getTime()
+            - new Date(a.record?.updatedAt || a.record?.createdAt || 0).getTime();
     });
 }
 
@@ -488,10 +504,27 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
         const registryRecords = await getEmbedRegistry(interaction.guildId);
         const records = mergeSearchRecords(interaction.guildId, registryRecords);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
-        const choices = matches.map(({ record, document }) => ({
-            name: clean(document.title, 100),
-            value: selectionValue(record),
-        }));
+        const titleCounts = new Map();
+        for (const { document } of matches) {
+            const title = normalize(document.title);
+            titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
+        }
+
+        const choices = matches.map(({ record, document }) => {
+            const title = clean(document.title, 100);
+            const duplicateTitle = (titleCounts.get(normalize(title)) || 0) > 1;
+            if (!duplicateTitle) {
+                return { name: title, value: selectionValue(record) };
+            }
+
+            const context = stableSearchTemplateContext(record);
+            const channelName = document.channel?.name ? `#${document.channel.name}` : '';
+            const suffix = clean(context || channelName || String(record?.source || 'Cloudy'), 45);
+            return {
+                name: clean(suffix ? `${title} • ${suffix}` : title, 100),
+                value: selectionValue(record),
+            };
+        });
 
         await interaction.respond(choices).catch(() => {});
     };
