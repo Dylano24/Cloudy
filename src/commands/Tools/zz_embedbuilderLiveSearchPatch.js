@@ -303,10 +303,10 @@ function mergeSearchRecords(guildId, registryRecords) {
 }
 
 function builderSearchDisplayRecords(records) {
-    // Search is intentionally NOT the same as the channel browser.
-    // The browser groups templates for a clean editing view; Search must expose
-    // every individual indexed record so nothing is hidden by canonical/template
-    // collapsing. Only the exact same physical message/embed is de-duplicated.
+    // Search stays broader than the channel browser, but repeated copies of the
+    // same automated/template response are one searchable item. User-created
+    // Builder embeds remain physical records so two genuinely different embeds
+    // are never merged just because they share a title.
     const unique = new Map();
 
     for (const rawRecord of records || []) {
@@ -315,11 +315,34 @@ function builderSearchDisplayRecords(records) {
         const messageId = String(record?.messageId || '');
         if (!channelId || !messageId) continue;
 
-        const key = [
+        const source = String(record?.source || '').toLowerCase();
+        const physicalKey = [
             String(record?.backingChannelId || channelId),
             messageId,
             Number(record?.embedIndex || 0),
         ].join(':');
+
+        let key = `physical:${physicalKey}`;
+
+        if (source !== 'embed-builder') {
+            const document = recordDocument(null, record);
+            const templateKey = stableSearchTemplateKey(record);
+            const context = stableSearchTemplateContext(record);
+
+            if (templateKey || context) {
+                key = [
+                    'template',
+                    templateKey || normalize(document.title),
+                    context || channelId,
+                ].join(':');
+            } else if (['system-catalog', 'bot-history', 'history'].includes(source)) {
+                key = [
+                    'automated',
+                    channelId,
+                    normalize(document.title),
+                ].join(':');
+            }
+        }
 
         const existing = unique.get(key);
         if (!existing || priority(record) >= priority(existing)) {
@@ -510,16 +533,22 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
         }
 
+        const seenTitleIndexes = new Map();
         const choices = matches.map(({ record, document }) => {
             const title = clean(document.title, 100);
-            const duplicateTitle = (titleCounts.get(normalize(title)) || 0) > 1;
-            if (!duplicateTitle) {
+            const normalizedTitle = normalize(title);
+            const duplicateCount = titleCounts.get(normalizedTitle) || 0;
+            if (duplicateCount <= 1) {
                 return { name: title, value: selectionValue(record) };
             }
 
-            const context = stableSearchTemplateContext(record);
             const channelName = document.channel?.name ? `#${document.channel.name}` : '';
-            const suffix = clean(context || channelName || String(record?.source || 'Cloudy'), 45);
+            const index = (seenTitleIndexes.get(normalizedTitle) || 0) + 1;
+            seenTitleIndexes.set(normalizedTitle, index);
+            const suffix = clean(
+                channelName || (duplicateCount > 1 ? `${index}/${duplicateCount}` : ''),
+                45,
+            );
             return {
                 name: clean(suffix ? `${title} • ${suffix}` : title, 100),
                 value: selectionValue(record),
