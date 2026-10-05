@@ -22,7 +22,10 @@ test('Embed Manager normal open path stays registry-first', () => {
   const collectorStart = openBody.indexOf("collector.on('collect'");
   const startupPart = collectorStart >= 0 ? openBody.slice(0, collectorStart) : openBody;
   assert.doesNotMatch(startupPart, /discoverEmbedManagerOverviewRecords\(/);
-  assert.match(startupPart, /let records = await getCanonicalBuilderRecords\(guild, storedRecords\)/);
+  assert.match(
+    startupPart,
+    /let records = await getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\)/,
+  );
 
   const channelSelectStart = openBody.indexOf(
     "interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')",
@@ -33,7 +36,12 @@ test('Embed Manager normal open path stays registry-first', () => {
   );
   assert.ok(channelSelectStart >= 0 && embedPageStart > channelSelectStart);
   const channelSelectPath = openBody.slice(channelSelectStart, embedPageStart);
-  assert.doesNotMatch(channelSelectPath, /getCanonicalBuilderRecords\(guild\)/);
+  const immediatePaint = channelSelectPath.indexOf('await updateEmbedManager(');
+  const backgroundRefresh = channelSelectPath.indexOf('void (async () =>');
+  const backgroundCanonical = channelSelectPath.indexOf('getCanonicalBuilderRecords(', backgroundRefresh);
+  assert.ok(immediatePaint >= 0);
+  assert.ok(backgroundRefresh > immediatePaint);
+  assert.ok(backgroundCanonical > backgroundRefresh);
 });
 
 test('full response history sweep is opt-in instead of automatic', () => {
