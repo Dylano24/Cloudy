@@ -18,6 +18,30 @@ test('Builder Search keeps user embeds separate but collapses duplicate automate
   assert.doesNotMatch(displayBody, /collapseDisplayRecords\(channelRecords, channelId\)/);
 });
 
+test('Builder Search excludes runtime notification history and deleted detached messages', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+
+  const displayStart = source.indexOf('function builderSearchDisplayRecords');
+  const previewStart = source.indexOf('export function latestRealPreviewRecord', displayStart);
+  assert.ok(displayStart >= 0 && previewStart > displayStart);
+  const displayBody = source.slice(displayStart, previewStart);
+
+  assert.match(displayBody, /\['bot-history', 'history'\]\.includes\(source\)/);
+  assert.match(displayBody, /record\?\.detached && source !== 'system-catalog'/);
+  assert.match(displayBody, /stableSearchTemplateKey\(record\)/);
+  assert.match(displayBody, /stableSearchTemplateContext\(record\)/);
+});
+
+test('Builder Search returns no autocomplete list until text is typed', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  const autocompleteStart = source.indexOf('embedBuilderCommand.autocomplete');
+  const executeStart = source.indexOf('const originalExecute', autocompleteStart);
+  const autocompleteBody = source.slice(autocompleteStart, executeStart);
+
+  assert.match(autocompleteBody, /if \(!normalize\(focused\.value\)\)/);
+  assert.match(autocompleteBody, /interaction\.respond\(\[\]\)/);
+});
+
 test('Search still scores every remaining unique result after duplicate cleanup', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
   const buildStart = source.indexOf('export function buildMatches');
