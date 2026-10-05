@@ -4,13 +4,13 @@ import {
   claimTicket as claimTicketBase,
   closeTicket as closeTicketBase,
   createTicket as createTicketBase,
-  reopenTicket as reopenTicketBase,
   setTicketPinned as setTicketPinnedBase,
   syncCloudyTicketChannelName,
   syncCloudyTicketMessage,
   unclaimTicket as unclaimTicketBase,
   updateTicketPriority as updateTicketPriorityBase,
 } from './ticketUiService.js';
+import { reopenTicket as reopenTicketCore } from './ticket.js';
 import { deleteTicketSafely } from './ticketDeleteService.js';
 import { getGuildConfig, updateGuildConfig } from './config/guildConfig.js';
 import {
@@ -420,9 +420,15 @@ export async function closeTicket(channel, closer, reason) {
 
 export async function reopenTicket(channel, reopener) {
   return mutate(channel, async () => {
-    const result = await reopenTicketBase(channel, reopener);
-    await restoreReopenedTicketAccess(channel);
-    await reconcileTicketChannelState(channel).catch(() => {});
+    // The core reopen already restores the open state, category, creator access,
+    // controls and close-status message. Calling ticketUiService here used to
+    // render the ticket again, followed by an immediate full reconcile, causing
+    // multiple serial Discord API round-trips before the button could finish.
+    const result = await reopenTicketCore(channel, reopener);
+    await restoreReopenedTicketAccess(channel, result?.ticketData);
+
+    // Keep reliability repair as a background safety net instead of blocking
+    // the interaction on another full render/permission reconciliation.
     scheduleTicketReconcile(channel, [5000, 20000]);
     return result;
   });

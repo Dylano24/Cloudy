@@ -410,20 +410,33 @@ const unclaimTicketHandler = {
 const reopenTicketHandler = {
   name: 'ticket_reopen',
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
-
     try {
-      const context = await requireStaff(interaction, client, 'reopen tickets');
+      // Acknowledge the component immediately. Unlike an ephemeral deferReply,
+      // deferUpdate clears Discord's button spinner without keeping a private
+      // "thinking" reply open while category/permission updates finish.
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferUpdate();
+      }
+
+      const context = await requireStaff(interaction, client, 'reopen tickets', true);
       if (!context) return;
 
       await reopenTicket(interaction.channel, interaction.member);
-      await interaction.deleteReply().catch(() => {});
     } catch (error) {
       logger.error('Ticket reopen button failed', { error: error.message, channelId: interaction.channelId });
+      const message = error?.userMessage || 'An error occurred while reopening the ticket.';
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({
+          embeds: [buildCloudyTicketEmbed({ title: 'Error', description: message })],
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+        return;
+      }
+
       await replyUserError(interaction, {
         type: ErrorTypes.UNKNOWN,
-        message: error?.userMessage || 'An error occurred while reopening the ticket.',
+        message,
       });
     }
   },
@@ -432,20 +445,32 @@ const reopenTicketHandler = {
 const deleteTicketHandler = {
   name: 'ticket_delete',
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
-
     try {
-      const context = await requireStaff(interaction, client, 'delete tickets');
+      // Transcript archival can take longer than a normal button action. Ack the
+      // public component immediately so Discord never leaves the button loading.
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferUpdate();
+      }
+
+      const context = await requireStaff(interaction, client, 'delete tickets', true);
       if (!context) return;
 
       await deleteTicket(interaction.channel, interaction.user);
-      await interaction.deleteReply().catch(() => {});
     } catch (error) {
       logger.error('Ticket delete button failed', { error: error.message, channelId: interaction.channelId });
+      const message = error?.userMessage || 'An error occurred while deleting the ticket.';
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({
+          embeds: [buildCloudyTicketEmbed({ title: 'Error', description: message })],
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+        return;
+      }
+
       await replyUserError(interaction, {
         type: ErrorTypes.UNKNOWN,
-        message: error?.userMessage || 'An error occurred while deleting the ticket.',
+        message,
       });
     }
   },
