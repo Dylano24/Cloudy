@@ -501,7 +501,8 @@ export async function unclaimTicket(channel, unclaimer, providedTicketData = nul
 }
 
 export async function updateTicketPriority(channel, priority, updater, providedTicketData = null) {
-  const normalizedPriority = normalizePriority(priority);
+  const requestedPriority = String(priority || '').toLowerCase();
+  const normalizedPriority = requestedPriority === 'urgent' ? 'high' : requestedPriority;
   if (!PRIORITY_MAP[normalizedPriority]) {
     throw ticketError('Invalid ticket priority', 'Invalid priority selected.');
   }
