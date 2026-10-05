@@ -425,7 +425,7 @@ export async function reopenTicket(channel, reopener, options = {}) {
     // render the ticket again, followed by an immediate full reconcile, causing
     // multiple serial Discord API round-trips before the button could finish.
     const result = await reopenTicketCore(channel, reopener, options);
-    await restoreReopenedTicketAccess(channel);
+    await restoreReopenedTicketAccess(channel, result?.ticketData);
 
     // Keep reliability repair as a background safety net instead of blocking
     // the interaction on another full render/permission reconciliation.
