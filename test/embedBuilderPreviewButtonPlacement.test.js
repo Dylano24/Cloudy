@@ -30,6 +30,7 @@ test('custom Builder buttons render with the top preview, not under Message buil
   );
   assert.match(
     execute,
-    /interaction\.followUp\(\{[\s\S]*?embeds: \[buildControlEmbed\(state\)\][\s\S]*?components: buildControls\(state\)/,
+    /const dashboardPromise = interaction\.followUp\(\{[\s\S]*?embeds: \[buildControlEmbed\(state\)\][\s\S]*?components: buildControls\(state\)/,
   );
+  assert.match(execute, /await Promise\.all\(\[[\s\S]*?interaction\.fetchReply\(\)[\s\S]*?dashboardPromise/);
 });

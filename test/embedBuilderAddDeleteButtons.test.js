@@ -27,7 +27,7 @@ test('new Builder response or link buttons remain dirty and target the current m
   assert.match(body, /state\.componentRows = next/);
   assert.match(body, /state\.componentRowsSourceMessageId = state\.modifyTarget\?\.messageId/);
   assert.match(body, /state\.componentsDirty = true/);
-  assert.match(body, /button_url/);
+  assert.match(body, /button_action/);
   assert.match(body, /ButtonStyle\.Link/);
 });
 

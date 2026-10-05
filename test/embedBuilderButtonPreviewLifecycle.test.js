@@ -12,7 +12,7 @@ test('button editor closes after a successful response or link mutation from the
   assert.ok(responseStart >= 0 && linkStart > responseStart);
 
   const responseBody = source.slice(responseStart, linkStart);
-  assert.match(responseBody, /button_url/);
+  assert.match(responseBody, /button_action/);
   assert.match(responseBody, /ButtonStyle\.Link/);
   assert.match(responseBody, /refreshBuilder\(submitted, state\)/);
   assert.match(responseBody, /closeButtonEditorPanel\(submitted, state\)/);

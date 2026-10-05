@@ -175,22 +175,29 @@ if (dashboardStart < 0 || collectorStart < 0) {
   process.exit(0);
 }
 
-const dashboardReplacement = `            const previewMessage = await interaction.fetchReply();
-            state.builderMessage = previewMessage;
-            state.builderMessageId = previewMessage.id;
-            state.builderWebhook = interaction.webhook;
-            state.builderPreviewUnavailable = false;
-
-            const dashboardMessage = await interaction.followUp({
+const dashboardReplacement = `            // Start both post-reply network operations together so the
+            // dashboard appears with the preview instead of one round-trip later.
+            const dashboardPromise = interaction.followUp({
                 embeds: [buildControlEmbed(state)],
                 components: buildControls(state),
                 ...(builderBotManaged ? {} : { flags: MessageFlags.Ephemeral }),
                 fetchReply: true,
             }).catch(() => null);
-            if (!dashboardMessage) {
+            const [previewMessage, dashboardMessage] = await Promise.all([
+                interaction.fetchReply().catch(() => null),
+                dashboardPromise,
+            ]);
+
+            if (!previewMessage || !dashboardMessage) {
                 await interaction.deleteReply().catch(() => {});
+                await dashboardMessage?.delete?.().catch(() => {});
                 return;
             }
+
+            state.builderMessage = previewMessage;
+            state.builderMessageId = previewMessage.id;
+            state.builderWebhook = interaction.webhook;
+            state.builderPreviewUnavailable = false;
 
             state.builderDashboardMessage = dashboardMessage;
             state.builderDashboardMessageId = dashboardMessage.id;
