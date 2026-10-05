@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('canonical Builder Search indexes every canonical record without channel filtering', () => {
+test('Embed Builder Search adds hidden unique records beyond channel browsing', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
 
   const displayStart = source.indexOf('function builderSearchDisplayRecords');
@@ -10,21 +10,13 @@ test('canonical Builder Search indexes every canonical record without channel fi
   assert.ok(displayStart >= 0 && previewStart > displayStart);
   const displayBody = source.slice(displayStart, previewStart);
 
-  assert.match(displayBody, /resolved\.some\(record => record\?\.canonicalIdentity\)/);
-  assert.match(displayBody, /return \[\.\.\.unique\.values\(\)\]/);
-});
-
-test('legacy/raw Search peers still use existing duplicate/master grouping', () => {
-  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-
-  const displayStart = source.indexOf('function builderSearchDisplayRecords');
-  const previewStart = source.indexOf('export function latestRealPreviewRecord', displayStart);
-  const displayBody = source.slice(displayStart, previewStart);
-
+  assert.match(displayBody, /Preserve the proven canonical grouping\/Save-target behavior first/);
   assert.match(displayBody, /collapseDisplayRecords\(channelRecords, channelId\)/);
+  assert.match(displayBody, /Search is broader than the channel browser/);
+  assert.match(displayBody, /output\.push\(record\)/);
 });
 
-test('Search still groups repeated runtime peers into one logical result', () => {
+test('Search keeps duplicate grouping and canonical Save-target selection', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
   const buildStart = source.indexOf('export function buildMatches');
   const selectionStart = source.indexOf('function selectionValue', buildStart);
@@ -34,7 +26,7 @@ test('Search still groups repeated runtime peers into one logical result', () =>
   assert.match(buildBody, /chooseBetter\(grouped\.get\(key\), candidate\)/);
 });
 
-test('channel browsing keeps its existing unique-embed grouping', () => {
+test('channel browsing still keeps its current unique-embed grouping', () => {
   const manager = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
   const embedPayloadStart = manager.indexOf('export function buildEmbedPayload');
   const nextFunction = manager.indexOf('\nfunction ', embedPayloadStart + 1);
