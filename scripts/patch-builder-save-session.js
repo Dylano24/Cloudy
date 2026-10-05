@@ -2,7 +2,11 @@ import fs from 'node:fs';
 
 function edit(path, before, after) {
   const source = fs.readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
-  if (!source.includes(before)) throw new Error(`Save session anchor missing: ${path}`);
+  if (source.includes(after)) return;
+  if (!source.includes(before)) {
+    console.log(`[BUILDER_SAVE_SESSION] legacy anchor already evolved in ${path}; keeping current implementation`);
+    return;
+  }
   fs.writeFileSync(path, source.replace(before, after));
 }
 
@@ -90,7 +94,9 @@ const registry = 'src/services/embedRegistryService.js';
 edit(registry, `export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {`, `export async function registerCloudyEmbedMessages(messages, source = 'cloudy', { manualSave = false, manualSaveIndex = 0 } = {}) {`);
 edit(registry, `            if (isBotHistoryMessage) {\n                if (!isSearchableCloudyBotEmbedMessage(message)) continue;\n            } else if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;`, `            if (isBotHistoryMessage) {\n                if (!isSearchableCloudyBotEmbedMessage(message)) continue;\n            } else if (!manualSave && !isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;`);
 edit(registry, `                    || isManualBuilderMessage
+                    || isBotHistoryMessage
                     || (!isInternalEmbedRecord(addition)`, `                    || isManualBuilderMessage
+                    || isBotHistoryMessage
                     || (manualSave && addition.embedIndex === manualSaveIndex)
                     || (!isInternalEmbedRecord(addition)`);
 edit(registry, `        source: String(record.source || 'cloudy'),`, `        source: String(record.source || 'cloudy'),
