@@ -342,7 +342,10 @@ function navigationRow(prefix, page, pageCount) {
 }
 
 export function buildChannelPayload(guild, records, page = 0, checkingChannelIds = null) {
-    const groups = buildChannelGroups(guild, records);
+    const groups = buildChannelGroups(guild, records).map(group => ({
+        ...group,
+        displayCount: collapseDisplayRecords(group.records, group.channelId).length,
+    }));
     const result = pageItems(groups, page);
     const components = [];
 
@@ -354,7 +357,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
             .setMaxValues(1)
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
-                const count = collapseDisplayRecords(group.records, group.channelId).length;
+                const count = group.displayCount;
                 const checking = !count && checkingChannelIds?.has?.(String(group.channelId));
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(name))
@@ -375,7 +378,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
             .setDescription([
                 'Choose a channel first, then choose the embed you want to edit.',
                 '',
-                `**Embeds found:** ${groups.reduce((sum, group) => sum + collapseDisplayRecords(group.records, group.channelId).length, 0)}`,
+                `**Embeds found:** ${groups.reduce((sum, group) => sum + group.displayCount, 0)}`,
                 `**Channels:** ${groups.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
             ].join('\n'))
@@ -728,38 +731,43 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         });
         session.collector = collector;
 
-        void Promise.all([
-            discoverEmbedManagerOverviewRecords(
-                guild,
-                storedRecords,
-                buttonInteraction.client.user.id,
-            ).catch(error => {
-                logger.error('Embed manager live overview discovery failed:', error);
-                return [];
-            }),
-            loadCurrentRegistry(guild, buttonInteraction.client.user.id)
-                .catch(error => {
-                    logger.error('Embed manager registry refresh failed:', error);
-                    return storedRecords;
+        // A populated registry is already the complete fast path. Avoid a
+        // second DB read and a no-op Discord edit after the first manager render.
+        // Recovery/import work is only needed when the registry is genuinely empty.
+        if (!storedRecords.length) {
+            void Promise.all([
+                discoverEmbedManagerOverviewRecords(
+                    guild,
+                    storedRecords,
+                    buttonInteraction.client.user.id,
+                ).catch(error => {
+                    logger.error('Embed manager live overview discovery failed:', error);
+                    return [];
                 }),
-        ]).then(async ([discoveredRecords, refreshedRecords]) => {
-            liveOverviewRecords = discoveredRecords;
-            if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
+                loadCurrentRegistry(guild, buttonInteraction.client.user.id)
+                    .catch(error => {
+                        logger.error('Embed manager registry refresh failed:', error);
+                        return storedRecords;
+                    }),
+            ]).then(async ([discoveredRecords, refreshedRecords]) => {
+                liveOverviewRecords = discoveredRecords;
+                if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
 
-            records = mergeEmbedManagerRecords(
-                mergeEmbedManagerRecords(refreshedRecords, storedRecords),
-                liveOverviewRecords,
-            );
+                records = mergeEmbedManagerRecords(
+                    mergeEmbedManagerRecords(refreshedRecords, storedRecords),
+                    liveOverviewRecords,
+                );
 
-            await buttonInteraction.webhook.editMessage(
-                managerMessage.id,
-                buildChannelPayload(guild, records, 0),
-            ).catch(error => {
-                if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
-                    logger.error('Failed to refresh the embed manager registry:', error);
-                }
+                await buttonInteraction.webhook.editMessage(
+                    managerMessage.id,
+                    buildChannelPayload(guild, records, 0),
+                ).catch(error => {
+                    if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+                        logger.error('Failed to refresh the embed manager registry:', error);
+                    }
+                });
             });
-        });
+        }
 
         collector.on('collect', async interaction => {
             session.hasInteracted = true;
