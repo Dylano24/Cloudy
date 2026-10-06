@@ -24,6 +24,7 @@ const urls = {
 };
 
 let state = {
+  monitorStateVersion: MONITOR_STATE_VERSION,
   startedAt: new Date().toISOString(),
   lastCheckAt: null,
   lastHealthyAt: null,
