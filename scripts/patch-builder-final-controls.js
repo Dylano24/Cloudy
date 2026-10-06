@@ -570,3 +570,23 @@ patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
 });
 
 console.log('[BUILDER_COMMERCIAL_COMPONENTS] live buttons, right-to-left removal and final component hydration enforced.');
+
+
+const buttonCustomEmojiMarker = 'BUILDER_BUTTON_CUSTOM_EMOJI_V1';
+
+patchPreviewLifetimeFile('src/services/embedBuilderButtonEditorService.js', source => {
+  const required = [
+    'export function setBuilderButtonEmoji',
+    'export function buildButtonEmojiPagePayload',
+    'async function openButtonEmojiBrowser',
+    "setCustomId('embed_button_emoji_target')",
+    "componentInteraction.customId === 'embed_button_emoji_target'",
+  ];
+  const missing = required.filter(value => !source.includes(value));
+  if (missing.length) {
+    throw new Error('[BUILDER_BUTTON_CUSTOM_EMOJI] final runtime invariant missing: ' + missing.join(', '));
+  }
+  return source;
+});
+
+console.log('[BUILDER_BUTTON_CUSTOM_EMOJI] ' + buttonCustomEmojiMarker + ': custom emoji browser preserved after all startup migrations.');
