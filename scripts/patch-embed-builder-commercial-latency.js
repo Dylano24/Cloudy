@@ -260,6 +260,11 @@ patchFile('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', text => {
     || (globalThis.__cloudyEmbedBuilderSearchSelections = new Map());`;
   if (!text.includes(marker)) throw new Error('[BUILDER_COMMERCIAL_LATENCY] autocomplete marker missing');
 
+  if (!text.includes('await getCanonicalBuilderRecords(interaction.guild)')) {
+    console.log('[BUILDER_COMMERCIAL_LATENCY] Search no longer uses canonical-record calls; keeping the current faster registry+catalog path');
+    return text;
+  }
+
   if (!text.includes('async function getFastCanonicalBuilderRecords(')) {
     text = text.replace(marker, `${marker}
 const CANONICAL_SEARCH_CACHE_TTL = 1500;
@@ -291,10 +296,6 @@ async function getFastCanonicalBuilderRecords(guild) {
 }`);
   }
 
-  if (!text.includes('await getCanonicalBuilderRecords(interaction.guild)')) {
-    console.log('[BUILDER_COMMERCIAL_LATENCY] Search no longer uses canonical-record calls; keeping the current faster registry+catalog path');
-    return text;
-  }
   return text.replaceAll(
     'await getCanonicalBuilderRecords(interaction.guild)',
     'await getFastCanonicalBuilderRecords(interaction.guild)',
