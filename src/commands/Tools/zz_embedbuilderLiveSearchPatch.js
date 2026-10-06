@@ -8,6 +8,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
     getEmbedRegistry,
     getEmbedRegistrySnapshot,
+    resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
 import { collapseDisplayRecords } from '../../services/embedManagerService.js';
 import {
@@ -365,16 +366,51 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
         .at(-1) || null;
 }
 
+function exactAutomatedSearchIdentity(record) {
+    const source = String(record?.source || '').toLowerCase();
+    if (source === 'embed-builder') return '';
+
+    const data = snapshot(record);
+    let body = '';
+    try {
+        body = JSON.stringify(data || {});
+    } catch {
+        return '';
+    }
+
+    return [
+        String(record?.channelId || ''),
+        normalize(recordTitle(record)),
+        body,
+    ].join(':');
+}
+
 export function buildMatches(guild, records, query) {
     const hasQuery = Boolean(normalize(query));
     const matches = [];
+    const exactAutomated = new Map();
 
     for (const record of builderSearchDisplayRecords(records)) {
         const document = recordDocument(guild, record);
         if (!document.title) continue;
         const score = hasQuery ? searchScore(document, query) : 0;
         if (hasQuery && score == null) continue;
-        matches.push({ record, document, score });
+
+        const match = { record, document, score };
+        const exactKey = exactAutomatedSearchIdentity(record);
+        if (!exactKey) {
+            matches.push(match);
+            continue;
+        }
+
+        const existingIndex = exactAutomated.get(exactKey);
+        if (existingIndex == null) {
+            exactAutomated.set(exactKey, matches.length);
+            matches.push(match);
+            continue;
+        }
+
+        matches[existingIndex] = chooseBetter(matches[existingIndex], match);
     }
 
     return matches.sort((a, b) => {
@@ -406,6 +442,22 @@ function parseSelection(value) {
         channelId: match[1],
         messageId: match[2],
         embedIndex: Number(match[3] || 0),
+    };
+}
+
+async function hydrateLiveSearchRecord(guild, record) {
+    if (!guild || !record || record.detached || String(record.source || '').toLowerCase() === 'system-catalog') {
+        return record;
+    }
+
+    const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
+    if (!resolved?.message || !resolved?.embed) return record;
+
+    return {
+        ...record,
+        snapshot: resolved.embed.toJSON?.() || record.snapshot,
+        components: (resolved.message.components || []).map(row => row?.toJSON ? row.toJSON() : row),
+        source: record.source || 'reconciled',
     };
 }
 
@@ -576,10 +628,16 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                 && Number(item.embedIndex || 0) === selected.embedIndex,
             );
             if (record) {
+                const liveCandidate = record.previewRecord
+                    || latestRealPreviewRecord(interaction.guild, records, record)
+                    || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
+                const previewRecord = liveCandidate
+                    ? await hydrateLiveSearchRecord(interaction.guild, liveCandidate)
+                    : null;
+
                 pendingSelections.set(selectionKey(interaction), {
                     record,
-                    previewRecord: record.previewRecord
-                        || latestRealPreviewRecord(interaction.guild, records, record),
+                    previewRecord,
                     sourceRecord: record.sourceRecord || null,
                     expiresAt: Date.now() + PENDING_TTL,
                 });

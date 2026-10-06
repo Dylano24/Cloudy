@@ -86,7 +86,7 @@ const replacement = `function buildControls(state) {
             .setEmoji('🔘'),
         new ButtonBuilder()
             .setCustomId('simple_embed_remove_buttons')
-            .setLabel('Remove buttons')
+            .setLabel('Remove button')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('⛔'),
         new ButtonBuilder()
@@ -445,3 +445,128 @@ patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
 });
 
 console.log('[BUILDER_EXISTING_REAPPEAR] existing embed Save now persists Reappear after every startup migration.');
+
+
+const commercialComponentsMarker = 'BUILDER_COMMERCIAL_COMPONENTS_V1';
+
+patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
+  let next = builder;
+
+  // The top live preview must render safe copies of existing/custom buttons.
+  next = next.replaceAll(
+    'components: getBuilderMessageComponents(state),',
+    'components: getBuilderPreviewComponents(state),',
+  );
+
+  // Earlier startup migrations may rewrite this import. Re-add the helpers
+  // needed by the final commercial behavior without touching unrelated imports.
+  const importMatch = next.match(/import \{([\s\S]*?)\} from '\.\.\/\.\.\/services\/embedBuilderButtonEditorService\.js';/);
+  if (importMatch) {
+    const names = importMatch[1]
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
+    for (const name of [
+      'getBuilderPreviewComponents',
+      'hydrateBuilderMessageComponents',
+      'removeRightmostBuilderButton',
+    ]) {
+      if (!names.includes(name)) names.push(name);
+    }
+    const replacement = `import {
+    ${names.join(',\n    ')},
+} from '../../services/embedBuilderButtonEditorService.js';`;
+    next = next.replace(importMatch[0], replacement);
+  } else {
+    throw new Error('[BUILDER_COMMERCIAL_COMPONENTS] Builder button import missing');
+  }
+
+  const removeStart = next.indexOf("case 'simple_embed_clear_buttons':");
+  if (removeStart >= 0) {
+    const removeEnd = next.indexOf("\n                        case '", removeStart + 8);
+    const end = removeEnd >= 0 ? removeEnd : next.length;
+    const block = next.slice(removeStart, end);
+    if (!block.includes('removeRightmostBuilderButton(state.componentRows)')) {
+      const replacement = `case 'simple_embed_clear_buttons':
+                        case 'simple_embed_remove_buttons': {
+                            if (state.modifyTarget && !state.componentsDirty) {
+                                await hydrateBuilderMessageComponents(buttonInteraction.guild, state).catch(() => false);
+                            }
+                            const beforeCount = countBuilderButtons(state);
+                            const nextRows = removeRightmostBuilderButton(state.componentRows);
+                            const afterCount = nextRows.reduce(
+                                (total, row) => total + (row.components || []).filter(component => Number(component?.type) === 2).length,
+                                0,
+                            );
+                            if (afterCount < beforeCount) {
+                                state.componentRows = nextRows;
+                                state.componentRowsSourceMessageId = state.modifyTarget?.messageId
+                                    ? String(state.modifyTarget.messageId)
+                                    : 'new';
+                                state.componentsDirty = true;
+                            }
+                            await buttonInteraction.deferUpdate().catch(() => {});
+                            await refreshBuilder(buttonInteraction, state);
+                            break;
+                        }`;
+      next = next.slice(0, removeStart) + replacement + next.slice(end);
+    }
+  }
+
+  return next;
+});
+
+patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
+  let next = manager;
+
+  const importMatch = next.match(/import \{([\s\S]*?)\} from '\.\/embedBuilderButtonEditorService\.js';/);
+  if (importMatch) {
+    const names = importMatch[1]
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
+    for (const name of [
+      'hydrateBuilderMessageComponents',
+      'loadBuilderComponentsFromMessage',
+      'loadBuilderComponentsFromRecord',
+    ]) {
+      if (!names.includes(name)) names.push(name);
+    }
+    const replacement = `import {
+    ${names.join(',\n    ')},
+} from './embedBuilderButtonEditorService.js';`;
+    next = next.replace(importMatch[0], replacement);
+  } else {
+    throw new Error('[BUILDER_COMMERCIAL_COMPONENTS] manager button import missing');
+  }
+
+  const loaderStart = next.indexOf('function loadRecordSnapshotIntoState(');
+  const loaderEnd = next.indexOf('\nfunction loadEmbedIntoState', loaderStart);
+  if (loaderStart >= 0 && loaderEnd > loaderStart) {
+    let block = next.slice(loaderStart, loaderEnd);
+    if (!block.includes('loadBuilderComponentsFromRecord(')) {
+      block = block.replace(
+        /\n {4}return true;\n}\s*$/,
+        "\n    loadBuilderComponentsFromRecord(state, previewRecord || record);\n    return true;\n}\n",
+      );
+      next = next.slice(0, loaderStart) + block + next.slice(loaderEnd);
+    }
+  }
+
+  const embedStart = next.indexOf('function loadEmbedIntoState(');
+  const embedEnd = next.indexOf('\nfunction ', embedStart + 20);
+  if (embedStart >= 0 && embedEnd > embedStart) {
+    let block = next.slice(embedStart, embedEnd);
+    if (!block.includes('loadBuilderComponentsFromMessage(state, message);')) {
+      block = block.replace(
+        /\n}\s*$/,
+        "\n    loadBuilderComponentsFromMessage(state, message);\n}\n",
+      );
+      next = next.slice(0, embedStart) + block + next.slice(embedEnd);
+    }
+  }
+
+  return next;
+});
+
+console.log('[BUILDER_COMMERCIAL_COMPONENTS] live buttons, right-to-left removal and final component hydration enforced.');
