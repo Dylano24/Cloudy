@@ -10,6 +10,7 @@ const DATA_DIR = process.env.DATA_DIR || '/data';
 const STATE_FILE = path.join(DATA_DIR, 'cloudy-monitor-state.json');
 const MAX_INCIDENTS = 100;
 const FETCH_TIMEOUT_MS = 12_000;
+const CLOUDY_SERVICE_ID = process.env.CLOUDY_SERVICE_ID || 'b853c72c-bee0-4ac9-9824-573ff6a84988';
 
 const urls = {
   health: `${CLOUDY_BASE}/health`,
@@ -255,7 +256,7 @@ async function runPoll() {
       source: 'poller',
       severity: severityFor(checks),
       summary: `Cloudy monitor detected failing checks: ${failedChecks.join(', ')}`,
-      evidence: { githubHead: checks.github.headSha, failedChecks },
+      evidence: { failedChecks },
       likelyCause: checks.health.ok && checks.ready.ok
         ? 'Runtime is reachable; the failure is currently in one or more release/CI checks rather than basic availability.'
         : 'Cloudy health/readiness is failing or unreachable; inspect Railway runtime/deployment logs first.',
@@ -265,18 +266,6 @@ async function runPoll() {
     });
   } else if (previousOverall !== 'healthy' && state.overall === 'healthy') {
     closeRecoveredIncidents('poller');
-  }
-
-  const headChanged = previousChecks?.github?.headSha && checks.github.headSha
-    && previousChecks.github.headSha !== checks.github.headSha;
-  if (headChanged && checks.quality.status === 'failure') {
-    await recordIncident({
-      source: 'github',
-      severity: 'high',
-      summary: 'New Cloudy main commit detected while Fast Quality Check is failing.',
-      evidence: { githubHead: checks.github.headSha, failedChecks: ['github.fast-quality'] },
-      impact: 'A new revision exists on main without a green Fast Quality release gate.',
-    });
   }
 
   await saveState().catch(() => {});
@@ -326,6 +315,12 @@ async function handleRailwayWebhook(body) {
   // Railway's webhook tester can send a synthetic event with no resource IDs.
   // It proves delivery only and must never become a production incident.
   if (!deploymentId && !serviceId && !environmentId && !projectId) {
+    return;
+  }
+
+  // The project webhook also sees this monitor service's own deploy lifecycle.
+  // Only Cloudy's Discord-bot service is relevant to Cloudy production incidents.
+  if (serviceId && String(serviceId) !== String(CLOUDY_SERVICE_ID)) {
     return;
   }
 
