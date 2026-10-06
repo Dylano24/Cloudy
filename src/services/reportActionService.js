@@ -238,7 +238,7 @@ async function completeReportAction(interaction, client, report, action, userId,
     // and only then discovering that the member cannot be timed out.
     let targetMember = null;
     if (requestedActions.includes('timeout') && record.actions?.timeout?.status !== 'completed') {
-      targetMember = interaction.guild.members.cache.get(userId)
+      targetMember = interaction.guild.members.cache?.get?.(userId)
         || await interaction.guild.members.fetch(userId).catch(() => null);
       if (!targetMember) {
         const error = new Error('The reported member is no longer in this server.');
@@ -250,7 +250,7 @@ async function completeReportAction(interaction, client, report, action, userId,
 
     let targetUser = null;
     if (requestedActions.includes('ban') && record.actions?.ban?.status !== 'completed') {
-      targetMember = interaction.guild.members.cache.get(userId)
+      targetMember = interaction.guild.members.cache?.get?.(userId)
         || await interaction.guild.members.fetch(userId).catch(() => null);
       targetUser = targetMember?.user || await client.users.fetch(userId).catch(() => null);
       if (!targetUser) {
