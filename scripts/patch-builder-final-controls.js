@@ -198,17 +198,33 @@ const searchEditorMarker = 'BUILDER_SEARCH_EDITOR_STATE_V1';
 
 patchPreviewLifetimeFile('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', searchPatch => {
   let next = searchPatch;
-  const pendingNeedle = `                pendingSelections.set(selectionKey(interaction), {
-                    record,
-                    previewRecord: record.previewRecord || record,
-                    sourceRecord: record.sourceRecord || null,
-                    expiresAt: Date.now() + PENDING_TTL,
-                });`;
-  const pendingReplacement = `                const initialSelection = {
-                    record,
-                    previewRecord: record.previewRecord || record,
-                    sourceRecord: record.sourceRecord || null,
-                    expiresAt: Date.now() + PENDING_TTL,
+
+  if (!next.includes(searchEditorMarker)) {
+    const setStart = next.indexOf('                pendingSelections.set(selectionKey(interaction), {');
+    if (setStart < 0) {
+      // Deploy-safe invariant: an already-consolidated source is valid too.
+      if (next.includes('interaction.__cloudyInitialBuilderSelection = initialSelection')) {
+        return next;
+      }
+      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Search selection setter missing');
+    }
+
+    const setEndToken = '                });';
+    const setEnd = next.indexOf(setEndToken, setStart);
+    if (setEnd < 0) {
+      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Search selection setter is incomplete');
+    }
+
+    const originalBlock = next.slice(setStart, setEnd + setEndToken.length);
+    const objectStart = originalBlock.indexOf('{');
+    const objectEnd = originalBlock.lastIndexOf('});');
+    if (objectStart < 0 || objectEnd < 0) {
+      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Search selection object could not be parsed');
+    }
+
+    const objectBody = originalBlock.slice(objectStart + 1, objectEnd).trim();
+    const replacementBlock = `                const initialSelection = {
+                    ${objectBody.split('\n').map((line, index) => index === 0 ? line.trim() : line.trim()).join('\n                    ')}
                 };
                 pendingSelections.set(selectionKey(interaction), initialSelection);
                 // ${searchEditorMarker}: make Search state available before the Builder
@@ -216,11 +232,7 @@ patchPreviewLifetimeFile('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js',
                 // pendingSelections later, but live preview/editor state is immediate.
                 interaction.__cloudyInitialBuilderSelection = initialSelection;`;
 
-  if (!next.includes(searchEditorMarker)) {
-    if (!next.includes(pendingNeedle)) {
-      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Search pending selection block missing');
-    }
-    next = next.replace(pendingNeedle, pendingReplacement);
+    next = next.slice(0, setStart) + replacementBlock + next.slice(setEnd + setEndToken.length);
   }
   return next;
 });
