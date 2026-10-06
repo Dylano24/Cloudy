@@ -8,6 +8,9 @@ import {
   removeRightmostBuilderButton,
 } from '../src/services/embedBuilderButtonEditorService.js';
 import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { hydrateBuilderPreviewRecord, rememberBuilderRuntimePreview } from '../src/services/builderRuntimePreviewService.js';
+import { db } from '../src/utils/database.js';
+import { getEmbedRegistry, registerCloudyEmbedMessage } from '../src/services/embedRegistryService.js';
 
 function row(...labels) {
   return {
@@ -266,4 +269,81 @@ test('same Builder rules apply across embed families instead of one hard-coded t
     snapshot: { title, description },
   }));
   assert.equal(buildMatches(guild, manualRecords, '').length, manualRecords.length);
+});
+
+
+test('live existing embed wins over same-title runtime response preview for every panel', async () => {
+  db.initialized = true;
+  db.useFallback = false;
+  db.db = {
+    get: async () => null,
+    set: async () => true,
+    delete: async () => true,
+    list: async () => [],
+  };
+
+  const guild = { id: 'guild-live', client: {} };
+  const livePanel = {
+    guildId: 'guild-live',
+    channelId: 'faq',
+    messageId: 'panel-message',
+    embedIndex: 0,
+    source: 'cloudy',
+    title: 'Cloudy support assistant',
+    snapshot: {
+      title: 'Cloudy support assistant',
+      description: 'Have a question or need help with something?',
+    },
+  };
+
+  await rememberBuilderRuntimePreview({
+    embeds: [{
+      title: 'Cloudy support assistant',
+      description: 'Temporary AI answer',
+      fields: [{ name: 'Jouw vraag', value: 'Ik heb mijn producten niet ontvangen' }],
+    }],
+  }, { guildId: 'guild-live', channelId: 'faq' });
+
+  const hydrated = await hydrateBuilderPreviewRecord(guild, livePanel, livePanel, 'user');
+  assert.equal(hydrated.messageId, 'panel-message');
+  assert.equal(hydrated.snapshot.description, 'Have a question or need help with something?');
+  assert.equal(hydrated.snapshot.fields, undefined);
+});
+
+test('registry persists existing message components for instant Builder preview hydration', async () => {
+  const values = new Map();
+  db.initialized = true;
+  db.useFallback = false;
+  db.db = {
+    get: async key => values.has(key) ? structuredClone(values.get(key)) : null,
+    set: async (key, value) => {
+      values.set(key, structuredClone(value));
+      return true;
+    },
+    delete: async key => values.delete(key),
+    list: async prefix => [...values.keys()].filter(key => key.startsWith(prefix)),
+  };
+
+  const message = {
+    id: 'faq-panel',
+    guildId: 'guild-components',
+    channelId: 'faq',
+    author: { id: 'cloudy-bot' },
+    client: { user: { id: 'cloudy-bot' } },
+    channel: { id: 'faq', name: 'faq' },
+    createdAt: new Date('2026-10-06T09:00:00.000Z'),
+    flags: { has: () => false },
+    embeds: [{
+      title: 'Cloudy support assistant',
+      description: 'Have a question or need help with something?',
+      footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+    }],
+    components: [row('Ask a question')],
+  };
+
+  assert.equal(await registerCloudyEmbedMessage(message, 'bot-history'), true);
+  const records = await getEmbedRegistry('guild-components');
+  const record = records.find(item => item.messageId === 'faq-panel');
+  assert.ok(record);
+  assert.equal(record.components?.[0]?.components?.[0]?.label, 'Ask a question');
 });
