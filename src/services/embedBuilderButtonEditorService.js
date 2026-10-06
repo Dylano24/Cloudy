@@ -23,10 +23,6 @@ const MAX_ROWS = 5;
 const MAX_BUTTONS_PER_ROW = 5;
 const EDITOR_IDLE_MS = 5 * 60_000;
 const DEFAULT_RESPONSE_DELETE_MS = 10_000;
-const BUTTON_EMOJI_SELECT_ROWS = 3;
-const BUTTON_EMOJIS_PER_SELECT = 25;
-const BUTTON_EMOJIS_PER_PAGE = BUTTON_EMOJI_SELECT_ROWS * BUTTON_EMOJIS_PER_SELECT;
-const BUTTON_EMOJI_GUILD_LIMIT = 125;
 const modalSubmissions = new Set();
 
 const STYLE_BY_NAME = new Map([
@@ -277,198 +273,6 @@ export function removeRightmostBuilderButton(rows) {
   return next;
 }
 
-function parseButtonKey(key) {
-  const [rowIndexRaw, componentIndexRaw] = String(key || '').split(':');
-  const rowIndex = Number(rowIndexRaw);
-  const componentIndex = Number(componentIndexRaw);
-  if (!Number.isInteger(rowIndex) || rowIndex < 0 || !Number.isInteger(componentIndex) || componentIndex < 0) {
-    return null;
-  }
-  return { rowIndex, componentIndex };
-}
-
-function buttonAt(rows, key) {
-  const parsed = parseButtonKey(key);
-  if (!parsed) return null;
-  const component = rows?.[parsed.rowIndex]?.components?.[parsed.componentIndex];
-  if (!component || Number(component.type) !== BUTTON_COMPONENT_TYPE) return null;
-  return { ...parsed, component };
-}
-
-function normalizeCustomEmoji(emoji) {
-  const id = String(emoji?.id || '').trim();
-  if (!id) return null;
-  const name = String(emoji?.name || 'emoji').trim().slice(0, 32) || 'emoji';
-  return {
-    id,
-    name,
-    animated: Boolean(emoji?.animated),
-  };
-}
-
-export function setBuilderButtonEmoji(rows, key, emoji) {
-  const next = normalizeRows(rows);
-  const target = buttonAt(next, key);
-  if (!target) return next;
-
-  const normalized = normalizeCustomEmoji(emoji);
-  if (normalized) target.component.emoji = normalized;
-  else delete target.component.emoji;
-  return next;
-}
-
-function lastButtonKey(rows) {
-  const next = normalizeRows(rows);
-  for (let rowIndex = next.length - 1; rowIndex >= 0; rowIndex -= 1) {
-    for (let componentIndex = next[rowIndex].components.length - 1; componentIndex >= 0; componentIndex -= 1) {
-      if (Number(next[rowIndex].components[componentIndex]?.type) === BUTTON_COMPONENT_TYPE) {
-        return `${rowIndex}:${componentIndex}`;
-      }
-    }
-  }
-  return null;
-}
-
-function encodedButtonKey(key) {
-  return String(key || '').replace(':', '.');
-}
-
-function decodedButtonKey(value) {
-  const match = String(value || '').match(/^(\d+)\.(\d+)$/);
-  return match ? `${match[1]}:${match[2]}` : null;
-}
-
-function buttonEmojiText(component) {
-  const emoji = component?.emoji;
-  if (!emoji?.id) return '';
-  return `<${emoji.animated ? 'a' : ''}:${emoji.name || 'emoji'}:${emoji.id}>`;
-}
-
-async function getSharedEmojiGuilds(client, userId) {
-  const shared = [];
-  for (const guild of client?.guilds?.cache?.values?.() || []) {
-    const member = guild.members?.cache?.get?.(userId)
-      || await guild.members?.fetch?.(userId).catch(() => null);
-    if (member) shared.push(guild);
-  }
-  return shared.sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
-}
-
-function buildButtonEmojiServerPayload(guilds, key) {
-  const visible = guilds.slice(0, BUTTON_EMOJI_GUILD_LIMIT);
-  const components = [];
-  const safeKey = encodedButtonKey(key);
-
-  for (let offset = 0; offset < visible.length && components.length < 5; offset += 25) {
-    const segment = visible.slice(offset, offset + 25);
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(`embed_button_emoji_server:${safeKey}:${Math.floor(offset / 25)}`)
-          .setPlaceholder(`Servers ${offset + 1}-${offset + segment.length} of ${guilds.length}`)
-          .setMinValues(1)
-          .setMaxValues(1)
-          .addOptions(...segment.map(guild =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel(String(guild.name || 'Discord server').slice(0, 100))
-              .setDescription(`${guild.memberCount || 0} members • ${guild.id}`.slice(0, 100))
-              .setValue(String(guild.id))
-          )),
-      ),
-    );
-  }
-
-  return {
-    embeds: [
-      new EmbedBuilder()
-        .setTitle('Button custom emoji')
-        .setDescription([
-          'Choose a Discord server that both you and Cloudy are in.',
-          '',
-          `**Shared servers:** ${guilds.length}`,
-          guilds.length > BUTTON_EMOJI_GUILD_LIMIT
-            ? `Showing the first ${BUTTON_EMOJI_GUILD_LIMIT} servers.`
-            : null,
-        ].filter(Boolean).join('\n'))
-        .setColor(0xFFFFFF),
-    ],
-    components,
-  };
-}
-
-export function buildButtonEmojiPagePayload(guild, emojis, key, page = 0) {
-  const values = [...(emojis?.values?.() || [])]
-    .sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || '')));
-  const totalPages = Math.max(1, Math.ceil(values.length / BUTTON_EMOJIS_PER_PAGE));
-  const safePage = Math.max(0, Math.min(Number(page) || 0, totalPages - 1));
-  const start = safePage * BUTTON_EMOJIS_PER_PAGE;
-  const pageValues = values.slice(start, start + BUTTON_EMOJIS_PER_PAGE);
-  const safeKey = encodedButtonKey(key);
-  const components = [];
-
-  for (let offset = 0; offset < pageValues.length; offset += BUTTON_EMOJIS_PER_SELECT) {
-    const segment = pageValues.slice(offset, offset + BUTTON_EMOJIS_PER_SELECT);
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(`embed_button_emoji_pick:${guild.id}:${safeKey}:${safePage}:${Math.floor(offset / BUTTON_EMOJIS_PER_SELECT)}`)
-          .setPlaceholder(`Emojis ${start + offset + 1}-${start + offset + segment.length} of ${values.length}`)
-          .setMinValues(1)
-          .setMaxValues(1)
-          .addOptions(...segment.map(emoji => {
-            const option = new StringSelectMenuOptionBuilder()
-              .setLabel(`:${emoji.name || 'emoji'}:`.slice(0, 100))
-              .setDescription('Use this custom emoji on the selected button')
-              .setValue(String(emoji.id));
-            if (emoji?.id) {
-              option.setEmoji({
-                id: String(emoji.id),
-                name: String(emoji.name || 'emoji'),
-                animated: Boolean(emoji.animated),
-              });
-            }
-            return option;
-          })),
-      ),
-    );
-  }
-
-  components.push(
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`embed_button_emoji_prev:${guild.id}:${safeKey}:${safePage}`)
-        .setLabel('Previous')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(safePage <= 0),
-      new ButtonBuilder()
-        .setCustomId(`embed_button_emoji_remove:${safeKey}`)
-        .setLabel('Remove emoji')
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`embed_button_emoji_back:${safeKey}`)
-        .setLabel('Servers')
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`embed_button_emoji_next:${guild.id}:${safeKey}:${safePage}`)
-        .setLabel('Next')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(safePage >= totalPages - 1),
-    ),
-  );
-
-  return {
-    embeds: [
-      new EmbedBuilder()
-        .setTitle(`Button emoji • ${guild.name}`.slice(0, 256))
-        .setDescription(values.length
-          ? `Choose an emoji for the selected button. Page ${safePage + 1}/${totalPages} • ${values.length} custom emojis.`
-          : 'This server has no custom emojis available to Cloudy.')
-        .setColor(0xFFFFFF),
-    ],
-    components,
-  };
-}
-
 async function ensureRowsLoaded(buttonInteraction, state) {
   const targetId = state?.modifyTarget?.messageId ? String(state.modifyTarget.messageId) : 'new';
   if (state.componentRowsSourceMessageId === targetId && Array.isArray(state.componentRows)) return;
@@ -525,28 +329,6 @@ function managerPayload(state) {
     );
   }
 
-  if (editable.length) {
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('embed_button_emoji_target')
-          .setPlaceholder('Add custom emoji to button')
-          .setMinValues(1)
-          .setMaxValues(1)
-          .addOptions(...editable.map((item, index) =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel(buttonLabel(item.component, index))
-              .setDescription(
-                (buttonEmojiText(item.component)
-                  ? `Current emoji: ${buttonEmojiText(item.component)}`
-                  : 'Choose custom emoji').slice(0, 100)
-              )
-              .setValue(item.key)
-          )),
-      ),
-    );
-  }
-
   return {
     embeds: [
       new EmbedBuilder()
@@ -561,10 +343,6 @@ function managerPayload(state) {
     ],
     components,
   };
-}
-
-export function buildBuilderButtonManagerPayload(state) {
-  return managerPayload(state);
 }
 
 async function showAddResponseModal(componentInteraction, state, refreshBuilder, panelMessage) {
@@ -797,130 +575,6 @@ async function showEditButtonModal(componentInteraction, state, key, refreshBuil
   await refreshBuilder(submitted, state).catch(() => {});
 }
 
-async function openButtonEmojiBrowser(componentInteraction, state, key, refreshBuilder, panelMessage) {
-  const target = buttonAt(state.componentRows, key);
-  if (!target) {
-    if (!componentInteraction.replied && !componentInteraction.deferred) {
-      await componentInteraction.deferUpdate().catch(() => {});
-    }
-    return;
-  }
-
-  if (!componentInteraction.replied && !componentInteraction.deferred) {
-    await componentInteraction.deferUpdate().catch(() => {});
-  }
-
-  const sharedGuilds = await getSharedEmojiGuilds(componentInteraction.client, componentInteraction.user.id);
-  if (!sharedGuilds.length) {
-    await componentInteraction.followUp({
-      content: 'Cloudy could not find a shared server with custom emojis.',
-      flags: MessageFlags.Ephemeral,
-    }).catch(() => {});
-    return;
-  }
-
-  const browserMessage = await componentInteraction.followUp({
-    ...buildButtonEmojiServerPayload(sharedGuilds, key),
-    flags: MessageFlags.Ephemeral,
-    fetchReply: true,
-  }).catch(() => null);
-  if (!browserMessage) return;
-
-  if (!state.builderChildMessages) state.builderChildMessages = new Map();
-  state.builderChildMessages.set(browserMessage.id, browserMessage);
-
-  let currentGuild = null;
-  let currentEmojis = null;
-  let currentPage = 0;
-
-  const collector = browserMessage.createMessageComponentCollector({
-    filter: interaction => interaction.user.id === componentInteraction.user.id,
-    idle: EDITOR_IDLE_MS,
-  });
-
-  collector.on('end', async () => {
-    state.builderChildMessages?.delete(browserMessage.id);
-    await deletePrivateBuilderMessage(componentInteraction, browserMessage.id, browserMessage);
-  });
-
-  collector.on('collect', interaction => {
-    void (async () => {
-      try {
-        const customId = String(interaction.customId || '');
-
-        if (customId.startsWith('embed_button_emoji_server:')) {
-          const guildId = interaction.values?.[0];
-          currentGuild = guildId ? interaction.client.guilds.cache.get(guildId) : null;
-          if (!currentGuild) {
-            await interaction.deferUpdate().catch(() => {});
-            return;
-          }
-          currentEmojis = await currentGuild.emojis.fetch().catch(() => currentGuild.emojis.cache);
-          currentPage = 0;
-          await interaction.update(buildButtonEmojiPagePayload(currentGuild, currentEmojis, key, currentPage));
-          return;
-        }
-
-        if (customId.startsWith('embed_button_emoji_prev:') || customId.startsWith('embed_button_emoji_next:')) {
-          if (!currentGuild || !currentEmojis) {
-            await interaction.deferUpdate().catch(() => {});
-            return;
-          }
-          const parts = customId.split(':');
-          const page = Number(parts.at(-1)) || 0;
-          currentPage = customId.startsWith('embed_button_emoji_prev:')
-            ? Math.max(0, page - 1)
-            : page + 1;
-          await interaction.update(buildButtonEmojiPagePayload(currentGuild, currentEmojis, key, currentPage));
-          return;
-        }
-
-        if (customId.startsWith('embed_button_emoji_back:')) {
-          currentGuild = null;
-          currentEmojis = null;
-          currentPage = 0;
-          await interaction.update(buildButtonEmojiServerPayload(sharedGuilds, key));
-          return;
-        }
-
-        if (customId.startsWith('embed_button_emoji_remove:')) {
-          state.componentRows = setBuilderButtonEmoji(state.componentRows, key, null);
-          state.componentsDirty = true;
-          await interaction.deferUpdate().catch(() => {});
-          await panelMessage.edit(managerPayload(state)).catch(() => {});
-          await refreshBuilder(interaction, state).catch(() => {});
-          await syncBuilderButtonPreview(interaction, state).catch(() => {});
-          return;
-        }
-
-        if (customId.startsWith('embed_button_emoji_pick:')) {
-          const emojiId = interaction.values?.[0];
-          const emoji = emojiId && currentEmojis ? currentEmojis.get(emojiId) : null;
-          if (!emoji) {
-            await interaction.deferUpdate().catch(() => {});
-            return;
-          }
-
-          state.componentRows = setBuilderButtonEmoji(state.componentRows, key, emoji);
-          state.componentsDirty = true;
-          await interaction.deferUpdate().catch(() => {});
-          await panelMessage.edit(managerPayload(state)).catch(() => {});
-          await refreshBuilder(interaction, state).catch(() => {});
-          await syncBuilderButtonPreview(interaction, state).catch(() => {});
-          return;
-        }
-
-        await interaction.deferUpdate().catch(() => {});
-      } catch (error) {
-        logger.error('Button custom emoji browser failed:', error);
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.deferUpdate().catch(() => {});
-        }
-      }
-    })();
-  });
-}
-
 export async function openEmbedButtonEditor(buttonInteraction, state, refreshBuilder) {
   // Acknowledge the Builder click before any database/message lookup so Discord
   // never shows "This interaction failed" while the editor is opening.
@@ -1002,16 +656,6 @@ export async function openEmbedButtonEditor(buttonInteraction, state, refreshBui
         }
         if (componentInteraction.customId === 'embed_button_edit_select') {
           await showEditButtonModal(
-            componentInteraction,
-            state,
-            componentInteraction.values?.[0],
-            refreshBuilder,
-            panelMessage,
-          );
-          return;
-        }
-        if (componentInteraction.customId === 'embed_button_emoji_target') {
-          await openButtonEmojiBrowser(
             componentInteraction,
             state,
             componentInteraction.values?.[0],
