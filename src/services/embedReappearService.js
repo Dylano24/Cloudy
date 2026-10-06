@@ -61,16 +61,31 @@ export async function syncExistingEmbedReappearRule({
   const disableKey = `cloudy:embed-reappear-disabled:${guild}:${channel}:${originMessageId}:${index}`;
 
   if (interval === null) {
-    if (!existing) return { ok: true, disabled: true, originMessageId: null };
+    // Write the exact tombstone first. messageCreate may already have loaded an
+    // older copy of this rule; without a persistent tombstone that in-flight
+    // handler can write the rule back after the Builder turns Reappear off.
+    const tombstoneSaved = await setInDb(disableKey, {
+      disabledAt: new Date().toISOString(),
+      originMessageId,
+      messageId: activeMessageId,
+      embedIndex: index,
+    });
+
+    if (!existing) {
+      return {
+        ok: Boolean(tombstoneSaved),
+        disabled: true,
+        originMessageId,
+      };
+    }
 
     const nextIndex = indexedIds.filter(id => id !== originMessageId);
     const [ruleDeleted, indexSaved] = await Promise.all([
       deleteFromDb(key),
       setInDb(indexKey, nextIndex),
-      deleteFromDb(disableKey),
     ]);
     return {
-      ok: Boolean(ruleDeleted && indexSaved),
+      ok: Boolean(tombstoneSaved && ruleDeleted && indexSaved),
       disabled: true,
       originMessageId,
     };

@@ -219,23 +219,43 @@ const closeTicketHandler = {
 const closeTicketModalHandler = {
   name: 'ticket_close_modal',
   async execute(interaction, client) {
+    const fromMessage = interaction.isFromMessage?.() === true;
+
     try {
       if (!(await ensureGuildContext(interaction))) return;
 
-      await assertTicketPermission(interaction, client, 'close this ticket', { allowTicketCreator: true }, 2000);
+      if (fromMessage) {
+        // Modal came from the ticket button: acknowledge immediately before any
+        // permission/database work so Discord clears the submit spinner at once.
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.deferUpdate();
+        }
+      } else {
+        const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+        if (!deferSuccess) return;
+      }
 
-      const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-      if (!deferSuccess) return;
+      await assertTicketPermission(interaction, client, 'close this ticket', { allowTicketCreator: true }, 2000);
 
       const providedReason = interaction.fields.getTextInputValue('reason')?.trim();
       const reason = providedReason || 'Closed via ticket button without a specific reason.';
 
       await closeTicket(interaction.channel, interaction.user, reason);
-      await interaction.editReply({ embeds: [successEmbed('Ticket closed', 'This ticket has been closed.')] });
+
+      // Button/modal close already has a public Ticket closed status message.
+      // Only the non-message fallback needs a private confirmation.
+      if (!fromMessage) {
+        await interaction.editReply({ embeds: [successEmbed('Ticket closed', 'This ticket has been closed.')] });
+      }
     } catch (error) {
       logger.error('Error submitting close ticket modal:', error);
       if (!interaction.replied && !interaction.deferred) {
         await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred while closing the ticket.' });
+      } else if (fromMessage) {
+        await interaction.followUp({
+          embeds: [createEmbed({ title: 'Error', description: 'An error occurred while closing the ticket.' })],
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
       } else if (interaction.deferred) {
         await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred while closing the ticket.' });
       }
