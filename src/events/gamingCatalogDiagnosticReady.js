@@ -4,6 +4,7 @@ import { logger } from '../utils/logger.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
+const ENABLE_CATALOG_DIAGNOSTICS = process.env.CLOUDY_CATALOG_DIAGNOSTICS === '1';
 
 function compact(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -120,6 +121,11 @@ export default {
       }
     }, 1000);
     cleanupTimer.unref?.();
+
+    // Orphan cleanup remains automatic because it is corrective. The two
+    // full-registry inspection passes are diagnostics only and are disabled in
+    // normal production to avoid duplicate DB reads, array scans and large logs.
+    if (!ENABLE_CATALOG_DIAGNOSTICS) return;
 
     for (const [phase, delay] of [['early', 8000], ['settled', 35000]]) {
       const timer = setTimeout(() => {

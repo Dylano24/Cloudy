@@ -109,6 +109,22 @@ function sortRecords(records) {
     return records.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 }
 
+function botHistorySnapshotIdentity(record) {
+    if (String(record?.source || '') !== 'bot-history' || !record?.snapshot) return '';
+    try {
+        // Bot-history is never shown as a separate editable Builder item. Two
+        // byte-for-byte identical snapshots in the same channel/index carry the
+        // same preview information, so only the newest mirror is useful.
+        return [
+            physicalChannelId(record),
+            Math.max(0, Number(record?.embedIndex) || 0),
+            JSON.stringify(record.snapshot),
+        ].join(':');
+    } catch {
+        return '';
+    }
+}
+
 function cleanStoredRecords(records) {
     const unique = new Map();
 
@@ -117,7 +133,18 @@ function cleanStoredRecords(records) {
         unique.set(recordKey(record), record);
     }
 
-    return sortRecords([...unique.values()]);
+    const sorted = sortRecords([...unique.values()]);
+    const seenHistorySnapshots = new Set();
+    const cleaned = [];
+
+    for (const record of sorted) {
+        const historyIdentity = botHistorySnapshotIdentity(record);
+        if (historyIdentity && seenHistorySnapshots.has(historyIdentity)) continue;
+        if (historyIdentity) seenHistorySnapshots.add(historyIdentity);
+        cleaned.push(record);
+    }
+
+    return cleaned;
 }
 
 async function mutateRegistry(guildId, operation) {
