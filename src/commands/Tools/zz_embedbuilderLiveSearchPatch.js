@@ -427,6 +427,9 @@ function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return '';
 
+    const normalizedTitle = normalize(recordTitle(record));
+    if (normalizedTitle === 'too fast') return 'shared-status:too-fast';
+
     const stableContext = stableSearchTemplateContext(record);
     const definition = getSystemSourceDefinitionPreview(
         recordTitle(record),
@@ -763,10 +766,14 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                     ? await hydrateLiveSearchRecord(interaction.guild, liveCandidate)
                     : null;
 
-                pendingSelections.set(selectionKey(interaction), {
+                const initialSelection = {
                     record,
-                    previewRecord,
+                    previewRecord: previewRecord || record,
                     sourceRecord: record.sourceRecord || null,
+                };
+                interaction.__cloudyInitialBuilderSelection = initialSelection;
+                pendingSelections.set(selectionKey(interaction), {
+                    ...initialSelection,
                     expiresAt: Date.now() + PENDING_TTL,
                 });
             }
