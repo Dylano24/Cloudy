@@ -36,7 +36,11 @@ import {
     refreshAllTicketChannels,
 } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
-import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
+import {
+    loadRecordSnapshotIntoState,
+    openEmbedManager,
+    saveModifiedEmbed,
+} from '../../services/embedManagerService.js';
 import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { getFromDb, setInDb } from '../../utils/database.js';
@@ -63,6 +67,22 @@ const ACTIVE_BUILDER_SESSIONS = new Map();
 
 function builderSessionKey(interaction) {
     return `${interaction.guildId || 'dm'}:${interaction.user?.id || 'unknown'}`;
+}
+
+function applyInitialSearchSelectionToState(interaction, state) {
+    const initialSelection = interaction?.__cloudyInitialBuilderSelection;
+    if (!initialSelection?.record || !interaction?.guild) return false;
+
+    const loaded = loadRecordSnapshotIntoState(
+        state,
+        interaction.guild,
+        initialSelection.record,
+        initialSelection.previewRecord,
+        initialSelection.sourceRecord,
+    );
+
+    delete interaction.__cloudyInitialBuilderSelection;
+    return loaded;
 }
 
 function touchActiveBuilderSession(interaction, idle = BUILDER_IDLE_TIMEOUT) {
@@ -1188,6 +1208,10 @@ export default {
                 colorSessionToken: null,
                 builderChildMessages: new Map(),
             };
+
+            // A slash Search selection must be the Builder's initial state,
+            // before browser/editor callbacks can emit any updates.
+            applyInitialSearchSelectionToState(interaction, state);
 
             const guildEmojis = interaction.guild
                 ? await interaction.guild.emojis.fetch().catch(() => interaction.guild.emojis.cache)
