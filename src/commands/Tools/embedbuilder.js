@@ -43,7 +43,9 @@ import { getFromDb, setInDb } from '../../utils/database.js';
 import {
     countBuilderButtons,
     getBuilderMessageComponents,
+    hydrateBuilderMessageComponents,
     openEmbedButtonEditor,
+    removeRightmostBuilderButton,
 } from '../../services/embedBuilderButtonEditorService.js';
 
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -588,9 +590,10 @@ function buildControls(state) {
             .setEmoji('🔘'),
         new ButtonBuilder()
             .setCustomId('simple_embed_remove_buttons')
-            .setLabel('Remove buttons')
+            .setLabel('Remove button')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('⛔'),
+            .setEmoji('⛔')
+            .setDisabled(countBuilderButtons(state) === 0),
         new ButtonBuilder()
             .setCustomId('simple_embed_modify')
             .setLabel('Modify embed')
@@ -1240,6 +1243,9 @@ export default {
             state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
 
             await refreshBuilder(interaction, state);
+            void hydrateBuilderMessageComponents(interaction.guild, state)
+                .then(changed => changed ? refreshBuilder(interaction, state) : null)
+                .catch(() => null);
 
             const dashboardMessage = await interaction.fetchReply();
             const collector = dashboardMessage.createMessageComponentCollector({
@@ -1304,15 +1310,19 @@ export default {
                             );
                             break;
                         case 'simple_embed_clear_buttons':
-                        case 'simple_embed_remove_buttons':
-                            state.componentRows = [];
+                        case 'simple_embed_remove_buttons': {
+                            await hydrateBuilderMessageComponents(interaction.guild, state);
+                            const before = countBuilderButtons(state);
+                            state.componentRows = removeRightmostBuilderButton(state.componentRows);
+                            const after = countBuilderButtons(state);
+                            if (after < before) state.componentsDirty = true;
                             state.componentRowsSourceMessageId = state.modifyTarget?.messageId
                                 ? String(state.modifyTarget.messageId)
                                 : 'new';
-                            state.componentsDirty = true;
                             await buttonInteraction.deferUpdate().catch(() => {});
                             await refreshBuilder(buttonInteraction, state);
                             break;
+                        }
                         case 'simple_embed_modify':
                             await openEmbedManager(
                                 buttonInteraction,
