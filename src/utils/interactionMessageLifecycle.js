@@ -180,10 +180,7 @@ export function shouldUseGenericDashboardTimer(payload, message) {
   return isDashboardSessionPayload(payload, message);
 }
 
-export function shouldUseTransientTimer(payload, message, interaction = null) {
-  // BUILDER_PREVIEW_LIFETIME_V2: the split top preview is still Builder UI.
-  // Its visible title can legitimately look like a normal 10-second status reply.
-  if (String(interaction?.commandName || '').trim().toLowerCase() === 'embedbuilder') return false;
+export function shouldUseTransientTimer(payload, message) {
   // The Message Builder renders the selected embed as its first embed. Titles
   // such as Success, Warning, Information or Could not... are valid preview
   // content and must never make the whole Builder look like a 10-second status
@@ -239,7 +236,7 @@ export function installInteractionMessageLifecycle() {
         // left on this same ephemeral message ID.
         clearBuilderLifecycleTimers(message);
         scheduleDashboardIfNeeded(payload, message, interaction);
-        if (shouldUseTransientTimer(payload, message, interaction)) {
+        if (shouldUseTransientTimer(payload, message)) {
           schedule(transientTimers, message, interaction, TRANSIENT_MESSAGE_MS);
         }
         return result;
