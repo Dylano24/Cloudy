@@ -177,6 +177,13 @@ export async function applyEmbedColorPickerSession(token, value) {
     if (value === CLOSE_PREFIX) {
         // Closing/leaving the browser editor no longer destroys the token.
         // It simply releases the Discord hold and starts a fresh 14-minute idle window.
+        if (typeof session.onEditorUpdate === 'function') {
+            try {
+                await session.onEditorUpdate('__editor_close__', '');
+            } catch (error) {
+                if (error?.code !== 'EMBED_BUILDER_EXPIRED') throw error;
+            }
+        }
         session.holdActive = false;
         releaseBuilderSessionHold(token);
         scheduleSessionIdleExpiry(token, session);
@@ -186,6 +193,13 @@ export async function applyEmbedColorPickerSession(token, value) {
     if (value === HEARTBEAT_PREFIX) {
         const touched = await touchEditorSession(token, session);
         if (!touched.ok) return touched;
+        if (typeof session.onEditorUpdate === 'function') {
+            try {
+                await session.onEditorUpdate('__heartbeat__', '');
+            } catch (error) {
+                if (error?.code !== 'EMBED_BUILDER_EXPIRED') throw error;
+            }
+        }
         return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
     }
 

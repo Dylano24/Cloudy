@@ -54,10 +54,18 @@ const CHANNEL_PAGE_SIZE = 100;
 const CHANNEL_SELECT_SIZE = 25;
 const OWNER_SERVER_LIMIT = 125;
 const BUILDER_IDLE_TIMEOUT = 5 * 60_000;
+const BUILDER_EDITOR_IDLE_TIMEOUT = 14 * 60_000;
 const ACTIVE_BUILDER_SESSIONS = new Map();
 
 function builderSessionKey(interaction) {
     return `${interaction.guildId || 'dm'}:${interaction.user?.id || 'unknown'}`;
+}
+
+function touchActiveBuilderSession(interaction, idle = BUILDER_IDLE_TIMEOUT) {
+    const session = ACTIVE_BUILDER_SESSIONS.get(builderSessionKey(interaction));
+    if (!session?.collector || session.collector.ended) return false;
+    session.collector.resetTimer({ idle });
+    return true;
 }
 
 function getMediaKind(attachment) {
@@ -1073,6 +1081,15 @@ export default {
                     fields: Array.isArray(state.embedFields) ? state.embedFields : [],
                 }),
                 onEditorUpdate: async (field, value) => {
+                    if (field === '__heartbeat__') {
+                        touchActiveBuilderSession(interaction, BUILDER_EDITOR_IDLE_TIMEOUT);
+                        return;
+                    }
+                    if (field === '__editor_close__') {
+                        touchActiveBuilderSession(interaction, BUILDER_IDLE_TIMEOUT);
+                        return;
+                    }
+                    touchActiveBuilderSession(interaction, BUILDER_EDITOR_IDLE_TIMEOUT);
                     if (field === 'title') state.title = value.trim() || null;
                     if (field === 'message') state.message = value || null;
                     if (field === 'footer') state.bottomLine = value.trim() || null;
@@ -1088,6 +1105,7 @@ export default {
                     }
                 },
                 onColor: async color => {
+                    touchActiveBuilderSession(interaction, BUILDER_EDITOR_IDLE_TIMEOUT);
                     state.sideColor = color;
                     const refreshed = await refreshBuilder(interaction, state);
                     if (!refreshed) {
@@ -1179,7 +1197,10 @@ export default {
                             await openEmbedManager(
                                 buttonInteraction,
                                 state,
-                                () => refreshBuilder(buttonInteraction, state),
+                                () => {
+                                    touchActiveBuilderSession(interaction, BUILDER_IDLE_TIMEOUT);
+                                    return refreshBuilder(buttonInteraction, state);
+                                },
                             );
                             break;
                         case 'simple_embed_post':
