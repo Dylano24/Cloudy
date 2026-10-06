@@ -49,7 +49,7 @@ function participantId(record, audience) { return audience === 'reporter' ? reco
 function privateDeleteControls(record, audience, disabled = false) {
   return [new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`report_case:delete:${record.messageId}:${audience}`)
-      .setLabel('Delete case').setStyle(ButtonStyle.Danger).setDisabled(disabled),
+      .setLabel('Delete').setStyle(ButtonStyle.Danger).setDisabled(disabled),
   )];
 }
 
