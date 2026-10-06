@@ -54,3 +54,20 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Railway project: `cdfc01a5-81dc-412d-bd0e-27321529ea39`.
 - Railway production environment: `91a30755-f4b4-4fa0-ba92-f932168c1065`.
 - Railway service: `b853c72c-bee0-4ac9-9824-573ff6a84988`.
+
+
+## Cross-chat production monitor
+
+- Cloudy has an isolated Railway service named `Cloudy Monitor`.
+- It does not run inside the Discord bot process and must not be used to rewrite or mutate Cloudy bot state.
+- Monitor handoff endpoint:
+  `https://cloudy-monitor-production.up.railway.app/handoff`
+- Monitor status endpoint:
+  `https://cloudy-monitor-production.up.railway.app/status`
+- Incident history endpoint:
+  `https://cloudy-monitor-production.up.railway.app/incidents`
+- The monitor polls Cloudy health/readiness and GitHub release-check badges every 60 seconds.
+- Railway deployment failures, crashes, OOM events, monitor triggers and recoveries are also forwarded to it by a Railway project webhook, so those events can be captured immediately rather than waiting for the next poll.
+- Before a new Cloudy ChatGPT chat diagnoses a production problem, read the handoff endpoint together with current GitHub `main`, Railway production state, this AGENTS.md and Linear DYL-6.
+- A monitor incident is evidence to investigate, not permission to change code automatically. Root cause must still be verified from the matching commit, deployment and logs.
+- Never claim 100% monitoring coverage: client-side Discord behavior, upstream Discord failures, semantic/data-correctness bugs and code paths that neither fail a monitored health check nor emit observable errors may still require explicit instrumentation.
