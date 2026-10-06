@@ -84,7 +84,7 @@ export default {
 
         const reportNumber = await nextReportNumber(client, guildId);
         const blockFields = [
-            { name: `Report #${reportNumber}`, value: '\u200B', inline: true },
+            { name: 'Report', value: `#${reportNumber}`, inline: true },
             { name: 'Reason', value: reason },
         ];
         if (reportedMessage?.content) {
