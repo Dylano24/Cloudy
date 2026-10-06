@@ -366,22 +366,77 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
         .at(-1) || null;
 }
 
-function exactAutomatedSearchIdentity(record) {
+const GENERIC_SEARCH_TITLES = new Set([
+    'success',
+    'error',
+    'information',
+    'warning',
+    'failed',
+    'failure',
+    'invalid',
+    'denied',
+]);
+
+function normalizeAutomatedSearchText(value) {
+    return normalize(
+        String(value || '')
+            .replace(/\{dynamic\}/gi, ' dynamic ')
+            .replace(/<t:\d+(?::[tTdDfFR])?>/g, ' dynamic ')
+            .replace(/<@!?\d+>|<@&\d+>|<#\d+>/g, ' dynamic ')
+            .replace(/<a?:[^:>]+:\d+>/g, ' dynamic ')
+            .replace(/https?:\/\/\S+/gi, ' dynamic ')
+            .replace(/[$€£]\s?\d[\d.,]*/g, ' dynamic ')
+            .replace(/\b\d{2,}\b/g, ' dynamic ')
+    );
+}
+
+function automatedFieldShape(record, { includeValues = false } = {}) {
+    const fields = Array.isArray(snapshot(record)?.fields) ? snapshot(record).fields : [];
+    return fields.map(field => {
+        const name = normalizeAutomatedSearchText(field?.name);
+        if (!includeValues) return name;
+        return `${name}=${normalizeAutomatedSearchText(field?.value)}`;
+    }).join('|');
+}
+
+function canonicalAutomatedSearchIdentity(record) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return '';
 
+    const stableKey = stableSearchTemplateKey(record);
+    if (stableKey) {
+        return ['template', stableKey, stableSearchTemplateContext(record)].join(':');
+    }
+
+    const title = normalize(recordTitle(record));
+    if (!title) return '';
+
+    // Lifecycle/status titles already describe the response type. Their body is
+    // expected to contain runtime values (task names, users, channels, etc.),
+    // so repeated captures are one canonical Search item.
+    if (/\b(?:removed|added|updated|deleted|created|enabled|disabled|assigned|unassigned|claimed|unclaimed|opened|closed|expired|purged|banned|unbanned|timed out|timeout)$/.test(title)) {
+        return ['status', title, automatedFieldShape(record)].join(':');
+    }
+
     const data = snapshot(record);
-    let body = '';
-    try {
-        body = JSON.stringify(data || {});
-    } catch {
-        return '';
+    const description = normalizeAutomatedSearchText(data?.description);
+
+    // Generic titles such as Success/Error can represent many unrelated bot
+    // responses, so their static body/field shape remains part of the identity.
+    if (GENERIC_SEARCH_TITLES.has(title)) {
+        return [
+            'generic',
+            title,
+            description,
+            automatedFieldShape(record, { includeValues: true }),
+        ].join(':');
     }
 
     return [
-        String(record?.channelId || ''),
-        normalize(recordTitle(record)),
-        body,
+        'response',
+        title,
+        description,
+        automatedFieldShape(record),
     ].join(':');
 }
 
@@ -397,7 +452,7 @@ export function buildMatches(guild, records, query) {
         if (hasQuery && score == null) continue;
 
         const match = { record, document, score };
-        const exactKey = exactAutomatedSearchIdentity(record);
+        const exactKey = canonicalAutomatedSearchIdentity(record);
         if (!exactKey) {
             matches.push(match);
             continue;
