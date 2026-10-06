@@ -77,9 +77,7 @@ function managerPayload(state) {
         : item.component.disabled
           ? 'Disabled'
           : 'Response';
-      const emoji = buttonEmojiText(item.component);
-      return '**' + (index + 1) + '. ' + buttonLabel(item.component, index) + '** — ' + type
-        + (emoji ? ' • ' + emoji : '');
+      return '**' + (index + 1) + '. ' + buttonLabel(item.component, index) + '** — ' + type;
     })
     : ['No buttons are attached yet.'];
 
@@ -105,56 +103,6 @@ function managerPayload(state) {
       .setDefault(visibility === value)
   );
 
-  const components = [
-    new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId('embed_button_color_select')
-        .setPlaceholder('Color • ' + styleName.charAt(0).toUpperCase() + styleName.slice(1))
-        .setMinValues(1)
-        .setMaxValues(1)
-        .addOptions(...colorOptions),
-    ),
-    new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId('embed_button_visibility_select')
-        .setPlaceholder('Visibility (optional) • ' + (visibility === 'public' ? 'Public' : 'Private'))
-        .setMinValues(1)
-        .setMaxValues(1)
-        .addOptions(...visibilityOptions),
-    ),
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('embed_button_add_response')
-        .setLabel('Add button')
-        .setStyle(ButtonStyle.Secondary),
-    ),
-  ];
-
-  const emojiTargets = buttons
-    .filter(item => Number(item.component.style) !== ButtonStyle.Premium)
-    .slice(0, 25);
-  if (emojiTargets.length) {
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('embed_button_emoji_target')
-          .setPlaceholder('Custom emoji • choose button')
-          .setMinValues(1)
-          .setMaxValues(1)
-          .addOptions(...emojiTargets.map((item, index) =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel(buttonLabel(item.component, index))
-              .setDescription(
-                (buttonEmojiText(item.component)
-                  ? 'Current emoji: ' + buttonEmojiText(item.component)
-                  : 'Choose custom emoji').slice(0, 100)
-              )
-              .setValue(item.key)
-          )),
-      ),
-    );
-  }
-
   return {
     embeds: [
       new EmbedBuilder()
@@ -163,11 +111,33 @@ function managerPayload(state) {
           ...lines,
           '',
           'Choose the button color and visibility below, then press Add button.',
-          emojiTargets.length ? 'Custom emoji: choose a button below.' : null,
-        ].filter(Boolean).join('\\n').slice(0, 4096))
+        ].join('\\n').slice(0, 4096))
         .setColor(0xFFFFFF),
     ],
-    components,
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('embed_button_color_select')
+          .setPlaceholder('Color • ' + styleName.charAt(0).toUpperCase() + styleName.slice(1))
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(...colorOptions),
+      ),
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('embed_button_visibility_select')
+          .setPlaceholder('Visibility (optional) • ' + (visibility === 'public' ? 'Public' : 'Private'))
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(...visibilityOptions),
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('embed_button_add_response')
+          .setLabel('Add button')
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ],
   };
 }`;
 
@@ -318,13 +288,9 @@ function managerPayload(state) {
     : 'new';
   state.componentsDirty = true;
 
-  const emojiTarget = lastButtonKey(next);
   await submitted.deferUpdate().catch(() => {});
   await panelMessage.edit(managerPayload(state)).catch(() => {});
   await refreshBuilder(submitted, state).catch(() => {});
-  if (emojiTarget) {
-    await openButtonEmojiBrowser(submitted, state, emojiTarget, refreshBuilder, panelMessage).catch(() => {});
-  }
   await closeButtonEditorPanel(submitted, state).catch(() => {});
 }`;
 
