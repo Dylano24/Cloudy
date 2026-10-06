@@ -111,13 +111,26 @@ const createTicketModal = {
       await registerPrivateTicketCreationConfirmation(channel, interaction);
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
-        if (error.code === 'TICKET_LIMIT_REACHED') setResponseLifetime(interaction, 10_000);
-        await InteractionHelper.safeEditReply(interaction, {
-          content: error.userMessage,
-          embeds: [],
-          components: [],
-        }).catch(() => {});
-        if (error.code === 'TICKET_LIMIT_REACHED') scheduleTicketReplyDeletion(interaction, 10_000);
+        const ticketLimitReached = error.code === 'TICKET_LIMIT_REACHED';
+        if (ticketLimitReached) setResponseLifetime(interaction, 10_000);
+
+        await InteractionHelper.safeEditReply(interaction, ticketLimitReached
+          ? {
+              content: '',
+              embeds: [buildCloudyTicketEmbed({
+                title: 'Ticket limit reached',
+                description: error.userMessage,
+                color: '#ED4245',
+              })],
+              components: [],
+            }
+          : {
+              content: error.userMessage,
+              embeds: [],
+              components: [],
+            }).catch(() => {});
+
+        if (ticketLimitReached) scheduleTicketReplyDeletion(interaction, 10_000);
         return;
       }
 
