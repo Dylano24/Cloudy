@@ -50,7 +50,13 @@ export function scheduleTransientMessageDeletion(message) {
   if (!message || isBuilderSessionMessage(message) || isPersistentBotMessage(message) || !isTransientStatusPayload(null, message)) return false;
   if (!message.deletable || typeof message.delete !== 'function') return false;
 
-  const timer = setTimeout(() => message.delete().catch(() => {}), TRANSIENT_TTL_MS);
+  const timer = setTimeout(() => {
+    // A split Embed Builder preview can be registered immediately after the
+    // Discord reply resolves. Re-check ownership at deletion time so a timer
+    // scheduled a few milliseconds earlier can never delete Builder UI.
+    if (isBuilderSessionMessage(message)) return;
+    void message.delete().catch(() => {});
+  }, TRANSIENT_TTL_MS);
   timer.unref?.();
   return true;
 }
