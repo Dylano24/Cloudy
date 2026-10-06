@@ -366,23 +366,62 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
         .at(-1) || null;
 }
 
-function exactAutomatedSearchIdentity(record) {
+function visibleSearchShape(value = {}) {
+    const data = value?.toJSON ? value.toJSON() : (value || {});
+    const authorName = String(data?.author?.name || '');
+    const technicalAuthor = /^Cloudy template key:/i.test(authorName);
+
+    return {
+        title: clean(data?.title, 256),
+        description: String(data?.description || '').trim(),
+        fields: Array.isArray(data?.fields)
+            ? data.fields.map(field => ({
+                name: String(field?.name || '').trim(),
+                value: String(field?.value || '').trim(),
+                inline: Boolean(field?.inline),
+            }))
+            : [],
+        footer: data?.footer?.text ? { text: String(data.footer.text).trim() } : null,
+        image: data?.image?.url ? { url: String(data.image.url) } : null,
+        thumbnail: data?.thumbnail?.url ? { url: String(data.thumbnail.url) } : null,
+        author: !technicalAuthor && authorName ? { name: authorName.trim() } : null,
+    };
+}
+
+function searchContext(record, document = null) {
+    return stableSearchTemplateContext(record)
+        || normalize(document?.channel?.name)
+        || normalize(record?.channelName)
+        || normalize(record?.channelId);
+}
+
+function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return '';
 
-    const data = snapshot(record);
-    let body = '';
+    const context = searchContext(record, document);
+
+    // Prefer the canonical source definition when this title/context resolves
+    // unambiguously. That collapses runtime copies whose only differences are
+    // dynamic values, while ambiguous same-title responses stay separate.
+    const definition = getSystemSourceDefinitionPreview(
+        recordTitle(record),
+        context,
+    );
+    const shape = definition
+        ? visibleSearchShape(definition)
+        : visibleSearchShape(snapshot(record));
+
     try {
-        body = JSON.stringify(data || {});
+        return [
+            definition ? 'definition' : 'visible',
+            context,
+            normalize(recordTitle(record)),
+            JSON.stringify(shape),
+        ].join(':');
     } catch {
         return '';
     }
-
-    return [
-        String(record?.channelId || ''),
-        normalize(recordTitle(record)),
-        body,
-    ].join(':');
 }
 
 export function buildMatches(guild, records, query) {
@@ -397,7 +436,7 @@ export function buildMatches(guild, records, query) {
         if (hasQuery && score == null) continue;
 
         const match = { record, document, score };
-        const exactKey = exactAutomatedSearchIdentity(record);
+        const exactKey = exactAutomatedSearchIdentity(record, document);
         if (!exactKey) {
             matches.push(match);
             continue;
@@ -428,6 +467,87 @@ export function buildMatches(guild, records, query) {
 
         return new Date(b.record?.updatedAt || b.record?.createdAt || 0).getTime()
             - new Date(a.record?.updatedAt || a.record?.createdAt || 0).getTime();
+    });
+}
+
+function choiceDetail(match) {
+    const { record, document } = match;
+    const data = snapshot(record);
+    const channelName = clean(document?.channel?.name, 30);
+    const description = String(data?.description || '')
+        .split('\n')
+        .map(line => clean(
+            line
+                .replace(/<a?:[^:>]+:\d+>/g, '')
+                .replace(/<[@#&!]?\d+>/g, '')
+                .replace(/[*_`~>|#]+/g, ' '),
+            48,
+        ))
+        .find(Boolean);
+
+    if (description && normalize(description) !== normalize(document.title)) return description;
+    if (channelName) return `#${channelName}`;
+    return '';
+}
+
+function shortRecordId(record) {
+    const id = String(record?.messageId || '');
+    return id.length > 6 ? id.slice(-6) : id;
+}
+
+export function buildSearchChoices(matches) {
+    const list = Array.isArray(matches) ? matches : [];
+    const titleCounts = new Map();
+
+    for (const { document } of list) {
+        const key = normalize(document?.title);
+        titleCounts.set(key, (titleCounts.get(key) || 0) + 1);
+    }
+
+    const usedNames = new Map();
+
+    return list.map(match => {
+        const { record, document } = match;
+        const title = clean(document?.title || 'Embed', 100);
+        const titleKey = normalize(title);
+        const duplicateCount = titleCounts.get(titleKey) || 0;
+
+        let name = title;
+        if (duplicateCount > 1) {
+            const channelName = clean(document?.channel?.name, 24);
+            const detail = choiceDetail(match);
+            const parts = [
+                title,
+                channelName ? `#${channelName}` : '',
+                detail && normalize(detail) !== normalize(channelName) ? detail : '',
+            ].filter(Boolean);
+
+            name = clean(parts.join(' • '), 100);
+        }
+
+        const baseName = name;
+        const seen = usedNames.get(baseName) || 0;
+        usedNames.set(baseName, seen + 1);
+
+        if (seen > 0) {
+            const idSuffix = shortRecordId(record);
+            name = clean(
+                `${baseName} • ${idSuffix || seen + 1}`,
+                100,
+            );
+
+            let collision = usedNames.get(name) || 0;
+            while (collision > 0) {
+                name = clean(`${baseName} • ${idSuffix || 'item'}-${collision + 1}`, 100);
+                collision = usedNames.get(name) || 0;
+            }
+            usedNames.set(name, 1);
+        }
+
+        return {
+            name,
+            value: selectionValue(record),
+        };
     });
 }
 
@@ -581,34 +701,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
         const registryRecords = await getEmbedRegistry(interaction.guildId);
         const records = mergeSearchRecords(interaction.guildId, registryRecords);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
-        const titleCounts = new Map();
-        for (const { document } of matches) {
-            const title = normalize(document.title);
-            titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
-        }
-
-        const seenTitleIndexes = new Map();
-        const choices = matches.map(({ record, document }) => {
-            const title = clean(document.title, 100);
-            const normalizedTitle = normalize(title);
-            const duplicateCount = titleCounts.get(normalizedTitle) || 0;
-            if (duplicateCount <= 1) {
-                return { name: title, value: selectionValue(record) };
-            }
-
-            const channelName = document.channel?.name ? `#${document.channel.name}` : '';
-            const index = (seenTitleIndexes.get(normalizedTitle) || 0) + 1;
-            seenTitleIndexes.set(normalizedTitle, index);
-            const suffix = clean(
-                channelName || (duplicateCount > 1 ? `${index}/${duplicateCount}` : ''),
-                45,
-            );
-            return {
-                name: clean(suffix ? `${title} • ${suffix}` : title, 100),
-                value: selectionValue(record),
-            };
-        });
-
+        const choices = buildSearchChoices(matches);
         await interaction.respond(choices).catch(() => {});
     };
 
