@@ -20,7 +20,9 @@ async function save(client, record) {
 }
 
 export async function registerReport(client, message, details) {
-  return save(client, { ...details, guildId: details.guildId || message.guildId || message.guild?.id,
+  const guildId = details.guildId || message.guildId || message.guild?.id;
+  const number = details.number || await nextReportNumber(client, guildId);
+  return save(client, { ...details, guildId, number,
     messageId: message.id, reportChannelId: message.channelId || message.channel?.id, actions: {}, createdAt: Date.now() });
 }
 
