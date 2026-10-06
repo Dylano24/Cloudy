@@ -8,14 +8,14 @@ import { registerReport, reportKey, REPORT_CATEGORY_ID, REPORT_CASE_MS, REPORT_L
 import { TICKET_EVENT_STYLES } from '../src/utils/ticket/ticketLogging.js';
 import { applySavedResponsePayloadTemplates } from '../src/events/fullResponseCatalogReady.js';
 import { saveEmbedTemplateDecoration } from '../src/services/embedTemplateService.js';
-import { CLOUDY_GREEN_COLOR } from '../src/utils/embedColorPolicy.js';
+import { CLOUDY_GREEN_COLOR, CLOUDY_RED_COLOR } from '../src/utils/embedColorPolicy.js';
 
 const settle = async () => { await new Promise(resolve => { setImmediate(resolve); }); };
 const json = embed => embed.toJSON?.() || embed;
 
 let fixtureNumber = 0;
 function fixture() {
-  const values = new Map(), payloads = [], removed = [], dms = [], positions = [];
+  const values = new Map(), payloads = [], removed = [], dms = [], positions = [], replyDeletes = [];
   const storage = { get: async key => structuredClone(values.get(key) || null), set: async (key, value) => { values.set(key, structuredClone(value)); return true; }, list: async prefix => [...values.keys()].filter(key => key.startsWith(prefix)) };
   db.initialized = true; db.useFallback = false; db.connectionType = 'test'; db.db = storage;
   const member = id => ({ id, user: { id, tag: id, send: async payload => { dms.push({ id, payload }); } }, permissions: new PermissionsBitField(), roles: { cache: new Collection() } });
@@ -65,7 +65,7 @@ function fixture() {
   reports.messages.cache.set(report.id, report);
   function interaction(user = staff.user, message = report, channelId = reports.id) {
     const result = { id: '1556344268099166320', createdTimestamp: Date.now(), guild, guildId: guild.id, channel: channels.get(channelId), channelId, member: members.get(user.id), user, message,
-      inGuild: () => true, deferReply: async () => { result.deferred = true; }, deleteReply: async () => {}, editReply: async payload => { result.error = payload; },
+      inGuild: () => true, deferReply: async () => { result.deferred = true; }, deleteReply: async () => { replyDeletes.push(result.id); }, editReply: async payload => { result.error = payload; },
       showModal: async modal => { result.modal = modal.toJSON(); }, fields: { getTextInputValue: field => field === 'minutes' ? '10' : 'Private action reason' } };
     return result;
   }
@@ -78,7 +78,7 @@ function fixture() {
     return storage.get(reportKey(guild.id, report.id));
   }
   async function register() { await registerReport(client, report, { guildId: guild.id, reporterId: reporter.id, targetId: target.id, sourceChannelId: originalChannel.id, sourceMessageId: 'original-message' }); }
-  return { values, client, guild, staff, reporter, target, owner, roleOwner, reports, logs, channels, report, interaction, payloads, removed, dms, positions, submit, register };
+  return { values, client, guild, staff, reporter, target, owner, roleOwner, reports, logs, channels, report, interaction, payloads, removed, dms, positions, replyDeletes, submit, register };
 }
 
 test('Delete asks for a required reason before acting; two adjacent private cases keep the New report intact', async t => {
@@ -145,40 +145,73 @@ test('empty reason, invalid duration and unauthorized submissions cannot perform
   await assert.rejects(handleReportModeration(timeout, f.client, ['timeout', 'target', 'report']), /Timeout must/);
 });
 
-test('target Close hides only their own case, notifies Staff once in ticket orange, and Staff Delete uses ticket red', async t => {
+test('target Close creates a private red Delete case prompt while report logs stay informational', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
   let record = await f.submit();
-  const channel = f.channels.get(record.cases.target.channelId), notice = channel.messages.cache.get(record.cases.target.messageId);
+  const channel = f.channels.get(record.cases.target.channelId);
+  const notice = channel.messages.cache.get(record.cases.target.messageId);
+
   const forged = f.interaction(f.reporter.user, notice, channel.id);
   await handleReportCaseControl(forged, f.client, ['close', 'report', 'target']);
   assert.equal(channel.overwriteEdits.length, 0);
+
   const close = f.interaction(f.target.user, notice, channel.id);
   await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
+
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
-  assert.ok(record.cases.target.closedAt); assert.equal(record.closedAt, undefined);
+  assert.ok(record.cases.target.closedAt);
+  assert.equal(record.closedAt, undefined);
   assert.deepEqual(channel.overwriteEdits, [{ id: 'target', permissions: { ViewChannel: false, SendMessages: false, ReadMessageHistory: false } }]);
-  assert.deepEqual(f.removed, ['original-message']);
+  assert.deepEqual(notice.components, []);
+
+  const prompt = channel.messages.cache.get(record.cases.target.deletePromptId);
+  const promptData = json(prompt.embeds[0]);
+  assert.equal(promptData.title, 'Delete case');
+  assert.equal(promptData.color, CLOUDY_RED_COLOR);
+  assert.ok(promptData.thumbnail?.url);
+  assert.deepEqual(prompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
+
   const log = f.logs.messages.cache.get(record.cases.target.closeLogId);
-  assert.equal(json(log.embeds[0]).color, TICKET_EVENT_STYLES.close.color);
-  assert.equal(json(log.embeds[0]).title, 'Report case closed');
+  const logData = json(log.embeds[0]);
+  assert.equal(logData.color, TICKET_EVENT_STYLES.close.color);
+  assert.equal(logData.title, 'Report case closed');
   assert.equal(log.content, null);
-  assert.deepEqual(log.sentPayload.allowedMentions, { parse: [] });
-  assert.deepEqual(log.components[0].toJSON().components.map(button => [button.label, button.disabled]), [['Delete', false]]);
-  const count = f.payloads.length;
-  await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
-  assert.equal(f.payloads.length, count);
-  await handleReportCaseControl(f.interaction(f.target.user, log, REPORT_LOG_CHANNEL_ID), f.client, ['delete', 'report', 'target']);
-  assert.deepEqual(f.removed, ['original-message']);
-  await handleReportCaseControl(f.interaction(f.staff.user, log, REPORT_LOG_CHANNEL_ID), f.client, ['delete', 'report', 'target']);
-  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
-  assert.ok(record.cases.target.deletedAt); assert.equal(record.cases.reporter.deletedAt, undefined);
   assert.deepEqual(log.components, []);
+  assert.ok(!logData.fields.some(field => field.name === 'Channel'));
+
+  const promptId = record.cases.target.deletePromptId;
+  await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
+  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  assert.equal(record.cases.target.deletePromptId, promptId);
+
+  const beforeDeniedDeletes = f.replyDeletes.length;
+  const denied = f.interaction(f.target.user, prompt, channel.id);
+  await handleReportCaseControl(denied, f.client, ['delete', 'report', 'target']);
+  assert.deepEqual(f.removed, ['original-message']);
+  const deniedData = json(denied.error.embeds[0]);
+  assert.equal(deniedData.title, 'Permission denied');
+  assert.equal(deniedData.description, 'Only the staff can delete this case.');
+  assert.equal(deniedData.color, CLOUDY_RED_COLOR);
+  assert.ok(deniedData.thumbnail?.url);
+  t.mock.timers.tick(9_999);
+  assert.equal(f.replyDeletes.length, beforeDeniedDeletes);
+  t.mock.timers.tick(1);
+  assert.equal(f.replyDeletes.length, beforeDeniedDeletes + 1);
+
+  await handleReportCaseControl(f.interaction(f.staff.user, prompt, channel.id), f.client, ['delete', 'report', 'target']);
+  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  assert.ok(record.cases.target.deletedAt);
+  assert.equal(record.cases.reporter.deletedAt, undefined);
   assert.equal(record.cases.target.createdLogId, undefined);
   assert.ok(f.channels.has(record.cases.reporter.channelId));
+
   const deleted = f.logs.messages.cache.get(record.cases.target.deleteLogId);
-  assert.equal(json(deleted.embeds[0]).color, TICKET_EVENT_STYLES.delete.color);
-  assert.match(JSON.stringify(json(deleted.embeds[0])), /Deleted by.*staff/);
+  const deletedData = json(deleted.embeds[0]);
+  assert.equal(deletedData.color, TICKET_EVENT_STYLES.delete.color);
+  assert.match(JSON.stringify(deletedData), /Deleted by.*staff/);
+  assert.ok(!deletedData.fields.some(field => field.name === 'Channel'));
+  assert.deepEqual(deleted.components, []);
 });
 
 test('Close survives an old participant overwrite when the member is no longer in the guild', async t => {
@@ -210,31 +243,48 @@ test('Close survives an old participant overwrite when the member is no longer i
   });
 });
 
-test('reporter Close removes only reporter access; Staff can also Close and delete that case', async t => {
+test('reporter Close removes only reporter access; Staff deletes each closed case from its private prompt', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
   let record = await f.submit();
-  const entry = record.cases.reporter, channel = f.channels.get(entry.channelId), notice = channel.messages.cache.get(entry.messageId);
-  await handleReportCaseControl(f.interaction(f.reporter.user, notice, channel.id), f.client, ['close', 'report', 'reporter']);
-  assert.equal(channel.overwriteEdits[0].id, 'reporter');
+
+  const reporterEntry = record.cases.reporter;
+  const reporterChannel = f.channels.get(reporterEntry.channelId);
+  const reporterNotice = reporterChannel.messages.cache.get(reporterEntry.messageId);
+  await handleReportCaseControl(f.interaction(f.reporter.user, reporterNotice, reporterChannel.id), f.client, ['close', 'report', 'reporter']);
+  assert.equal(reporterChannel.overwriteEdits[0].id, 'reporter');
+
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.equal(record.cases.target.closedAt, undefined);
-  assert.equal(f.logs.messages.cache.get(record.cases.reporter.closeLogId).content, null);
-  const target = record.cases.target, targetChannel = f.channels.get(target.channelId);
-  await handleReportCaseControl(f.interaction(f.staff.user, targetChannel.messages.cache.get(target.messageId), target.channelId), f.client, ['close', 'report', 'target']);
+  const reporterLog = f.logs.messages.cache.get(record.cases.reporter.closeLogId);
+  assert.deepEqual(reporterLog.components, []);
+  assert.ok(!json(reporterLog.embeds[0]).fields.some(field => field.name === 'Channel'));
+
+  const targetEntry = record.cases.target;
+  const targetChannel = f.channels.get(targetEntry.channelId);
+  const targetNotice = targetChannel.messages.cache.get(targetEntry.messageId);
+  await handleReportCaseControl(f.interaction(f.staff.user, targetNotice, targetChannel.id), f.client, ['close', 'report', 'target']);
+
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.equal(record.cases.target.closedBy, 'staff');
   assert.equal(targetChannel.overwriteEdits[0].id, 'target');
-  const log = f.logs.messages.cache.get(record.cases.reporter.closeLogId);
-  await handleReportCaseControl(f.interaction(f.staff.user, log, REPORT_LOG_CHANNEL_ID), f.client, ['delete', 'report', 'reporter']);
-  assert.ok(f.channels.has(target.channelId));
-  assert.deepEqual(log.components, []);
+
+  const reporterPrompt = reporterChannel.messages.cache.get(record.cases.reporter.deletePromptId);
+  const targetPrompt = targetChannel.messages.cache.get(record.cases.target.deletePromptId);
+  assert.deepEqual(reporterPrompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
+  assert.deepEqual(targetPrompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
+
+  await handleReportCaseControl(f.interaction(f.staff.user, reporterPrompt, reporterChannel.id), f.client, ['delete', 'report', 'reporter']);
+  assert.ok(f.channels.has(targetChannel.id));
+
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  await handleReportCaseControl(f.interaction(f.staff.user, targetPrompt, targetChannel.id), f.client, ['delete', 'report', 'target']);
+  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  assert.ok(record.closedAt);
+
   const targetLog = f.logs.messages.cache.get(record.cases.target.closeLogId);
-  assert.deepEqual(targetLog.components[0].toJSON().components.map(button => button.label), ['Delete']);
-  await handleReportCaseControl(f.interaction(f.staff.user, targetLog, REPORT_LOG_CHANNEL_ID), f.client, ['delete', 'report', 'target']);
   assert.deepEqual(targetLog.components, []);
-  assert.deepEqual(log.components, []);
+  assert.deepEqual(reporterLog.components, []);
 });
 
 test('both notices show a static 24-hour deletion message, survive restart and expire both channels with red logs', async t => {
