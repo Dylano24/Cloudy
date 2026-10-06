@@ -365,16 +365,51 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
         .at(-1) || null;
 }
 
+function exactAutomatedSearchIdentity(record) {
+    const source = String(record?.source || '').toLowerCase();
+    if (source === 'embed-builder') return '';
+
+    const data = snapshot(record);
+    let body = '';
+    try {
+        body = JSON.stringify(data || {});
+    } catch {
+        return '';
+    }
+
+    return [
+        String(record?.channelId || ''),
+        normalize(recordTitle(record)),
+        body,
+    ].join(':');
+}
+
 export function buildMatches(guild, records, query) {
     const hasQuery = Boolean(normalize(query));
     const matches = [];
+    const exactAutomated = new Map();
 
     for (const record of builderSearchDisplayRecords(records)) {
         const document = recordDocument(guild, record);
         if (!document.title) continue;
         const score = hasQuery ? searchScore(document, query) : 0;
         if (hasQuery && score == null) continue;
-        matches.push({ record, document, score });
+
+        const match = { record, document, score };
+        const exactKey = exactAutomatedSearchIdentity(record);
+        if (!exactKey) {
+            matches.push(match);
+            continue;
+        }
+
+        const existingIndex = exactAutomated.get(exactKey);
+        if (existingIndex == null) {
+            exactAutomated.set(exactKey, matches.length);
+            matches.push(match);
+            continue;
+        }
+
+        matches[existingIndex] = chooseBetter(matches[existingIndex], match);
     }
 
     return matches.sort((a, b) => {
