@@ -108,3 +108,12 @@ test('blank Reappear disables only the matching existing embed rule', async () =
   assert.equal(values.has('cloudy:embed-reappear:guild:nsfw:origin-a'), false);
   assert.equal(values.has('cloudy:embed-reappear:guild:nsfw:origin-b'), true);
 });
+
+
+test('Reappear loads channel rules in parallel for lower message latency', async () => {
+  const fs = await import('node:fs');
+  const source = fs.readFileSync('src/events/messageCreate.js', 'utf8');
+  const start = source.indexOf('async function handleEmbedReappear');
+  const body = source.slice(start);
+  assert.match(body, /Promise\.all\(\s*configs\.map/);
+});
