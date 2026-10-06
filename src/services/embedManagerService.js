@@ -32,7 +32,12 @@ import {
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds, discoverRecentChannelEmbeds } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
-import { getBuilderMessageComponents } from './embedBuilderButtonEditorService.js';
+import {
+    getBuilderMessageComponents,
+    hydrateBuilderMessageComponents,
+    loadBuilderComponentsFromMessage,
+    loadBuilderComponentsFromRecord,
+} from './embedBuilderButtonEditorService.js';
 import {
     primeSystemEmbedCatalogMessage,
     primeSystemEmbedTemplateData,
@@ -485,6 +490,7 @@ function loadRecordSnapshotIntoState(state, guild, record) {
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
         cachedMessage: null,
     };
+    loadBuilderComponentsFromRecord(state, record);
     return true;
 }
 
@@ -527,6 +533,7 @@ function loadEmbedIntoState(state, resolved) {
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
         cachedMessage: message,
     };
+    loadBuilderComponentsFromMessage(state, message);
 }
 
 function isEmbedManagerComponent(interaction) {
