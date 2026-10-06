@@ -15,6 +15,7 @@ const pendingManagerParents = new Map();
 const sessionHoldIds = new Map();
 const holdMessages = new Map();
 const editorHoldContext = new AsyncLocalStorage();
+const builderPreviewMessageIds = new Set();
 
 function embedTitle(embed) {
   return String(embed?.title ?? embed?.data?.title ?? '').trim().toLowerCase();
@@ -29,9 +30,25 @@ function hasBuilderTitle(message, title) {
   );
 }
 
+export function registerBuilderPreviewMessage(message) {
+  const id = String(message?.id || message || '').trim();
+  if (!id) return false;
+  builderPreviewMessageIds.add(id);
+  return true;
+}
+
+export function unregisterBuilderPreviewMessage(message) {
+  const id = String(message?.id || message || '').trim();
+  if (!id) return false;
+  return builderPreviewMessageIds.delete(id);
+}
+
 export function isBuilderSessionMessage(message) {
+  const id = String(message?.id || '').trim();
+  if (id && builderPreviewMessageIds.has(id)) return true;
+
   return Boolean(
-    message?.id
+    id
     && Array.isArray(message?.embeds)
     && message.embeds.some(embed => BUILDER_TITLES.has(embedTitle(embed)))
   );
@@ -197,6 +214,7 @@ export async function deleteBuilderSessionMessage(message) {
   sessionCollectors.delete(key);
   parentSessions.delete(key);
   removeMessageFromHolds(key);
+  builderPreviewMessageIds.delete(key);
   const deleteThroughWebhook = sessionDeleters.get(key);
   sessionDeleters.delete(key);
 
