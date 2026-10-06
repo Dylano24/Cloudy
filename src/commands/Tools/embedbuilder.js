@@ -38,6 +38,7 @@ import {
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
 import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
+import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { getFromDb, setInDb } from '../../utils/database.js';
 import {
     countBuilderButtons,
@@ -254,6 +255,47 @@ async function saveExistingEmbed(buttonInteraction, guild, state) {
             });
         }
         return saved;
+    }
+
+    if (state.reappearTouched) {
+        const targetIndex = Math.max(0, Number(state.modifyTarget?.embedIndex) || 0);
+        const activeEmbed = saved.message?.embeds?.[targetIndex]?.toJSON?.() || null;
+        const activeComponents = (saved.message?.components || []).map(row =>
+            row?.toJSON ? row.toJSON() : row
+        );
+        const reappear = await syncExistingEmbedReappearRule({
+            guildId: guild.id,
+            channelId: saved.message?.channelId
+                || state.modifyTarget?.backingChannelId
+                || state.modifyTarget?.channelId,
+            messageId: saved.message?.id || state.modifyTarget?.messageId,
+            embedIndex: targetIndex,
+            every: state.reappearAfter,
+            embed: activeEmbed,
+            components: activeComponents,
+        });
+
+        if (!reappear.ok) {
+            const failurePayload = {
+                content: null,
+                embeds: [new EmbedBuilder()
+                    .setTitle('Reappear could not be saved')
+                    .setDescription('The embed itself was saved, but the Reappear setting was not. Try Save changes again.')
+                    .setColor(getColor('error'))],
+            };
+            let failure = await replaceSaveFeedback(buttonInteraction, feedbackMessage, failurePayload);
+            if (!failure) {
+                failure = await buttonInteraction.followUp({
+                    ...failurePayload,
+                    flags: MessageFlags.Ephemeral,
+                    fetchReply: true,
+                }).catch(() => null);
+            }
+            if (failure) removeTransientMessage(buttonInteraction, failure);
+            return { ...saved, ok: false, reason: 'reappear-persistence-failed' };
+        }
+
+        state.reappearTouched = false;
     }
 
     void refreshBuilder(buttonInteraction, state).catch(() => {});
@@ -1127,6 +1169,7 @@ export default {
                 message: null,
                 embedFields: [],
                 reappearAfter: null,
+                reappearTouched: false,
                 sideColor: 0xFFFFFF,
                 showLogo: true,
                 removeExistingLogo: false,
@@ -1302,6 +1345,7 @@ export default {
                                 break;
                             }
                             state.reappearAfter = count;
+                            state.reappearTouched = true;
                             await submitted.deferUpdate().catch(() => {});
                             await refreshBuilder(submitted, state);
                             break;

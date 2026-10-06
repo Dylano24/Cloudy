@@ -308,10 +308,22 @@ async function handleEmbedReappear(message) {
     // make a live Reappear embed disappear.
     const removedIds = new Set();
 
-    for (const id of configs) {
-      const originalMessageId = String(id);
-      const key = prefix + originalMessageId;
-      const config = await getFromDb(key, null);
+    // Reappear can be attached to several embeds in one channel. Read their
+    // independent configs concurrently so a normal user message never waits on
+    // N sequential database/cache round-trips before the counter is updated.
+    const configEntries = await Promise.all(
+      configs.map(async id => {
+        const originalMessageId = String(id);
+        const key = prefix + originalMessageId;
+        return {
+          originalMessageId,
+          key,
+          config: await getFromDb(key, null),
+        };
+      }),
+    );
+
+    for (const { originalMessageId, key, config } of configEntries) {
       const embedIndex = Math.max(0, Number(config?.embedIndex) || 0);
       if (config) {
         // Normalize legacy rules in-place so every existing Reappear rule also
