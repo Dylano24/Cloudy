@@ -75,14 +75,23 @@ jobs:
           grep -Eq "(async )?function refreshBuilderPreviewOnly\\(" src/commands/Tools/embedbuilder.js
           node --test test/commercialBuilderButtons.test.js
 
-      # Final release gate: lint and the complete regression suite must both stay green.
-      - name: Lint and tests in parallel
+      # Final release gate: lint reads the immutable checkout while tests run
+      # startup migrations in an isolated copy. This prevents npm test from
+      # rewriting a file while ESLint is parsing it.
+      - name: Lint and tests without source races
         shell: bash
         run: |
+          TEST_DIR="$(mktemp -d)"
+          cp -a . "$TEST_DIR/repo"
+
           set +e
           npm run lint:fast &
           LINT_PID=$!
-          npm test &
+          (
+            cd "$TEST_DIR/repo"
+            rm -f .startup-patches.json
+            npm test
+          ) &
           TEST_PID=$!
 
           LINT_STATUS=0
