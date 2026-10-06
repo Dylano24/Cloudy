@@ -224,11 +224,9 @@ const closeTicketModalHandler = {
     try {
       if (!(await ensureGuildContext(interaction))) return;
 
-      await assertTicketPermission(interaction, client, 'close this ticket', { allowTicketCreator: true }, 2000);
-
       if (fromMessage) {
-        // Modal came from the ticket button: acknowledge the original message
-        // update directly so Discord never shows a private "thinking" reply.
+        // Modal came from the ticket button: acknowledge immediately before any
+        // permission/database work so Discord clears the submit spinner at once.
         if (!interaction.deferred && !interaction.replied) {
           await interaction.deferUpdate();
         }
@@ -236,6 +234,8 @@ const closeTicketModalHandler = {
         const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
         if (!deferSuccess) return;
       }
+
+      await assertTicketPermission(interaction, client, 'close this ticket', { allowTicketCreator: true }, 2000);
 
       const providedReason = interaction.fields.getTextInputValue('reason')?.trim();
       const reason = providedReason || 'Closed via ticket button without a specific reason.';
