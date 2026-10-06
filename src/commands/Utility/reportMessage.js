@@ -99,8 +99,8 @@ export default {
         title: 'New report',
         blockFields: [
           {
-            name: 'Report',
-            value: `Report #${reportNumber}`,
+            name: `Report #${reportNumber}`,
+            value: '\u200B',
             inline: true,
           },
           {
