@@ -74,6 +74,14 @@ jobs:
           grep -Fq "registerBuilderPreviewMessage(previewMessage)" src/commands/Tools/embedbuilder.js
           grep -Eq "(async )?function refreshBuilderPreviewOnly\\(" src/commands/Tools/embedbuilder.js
 
+      # Production applies these ordered startup migrations before Cloudy starts.
+      # Run regression tests against that same effective runtime source so CI
+      # validates what Railway actually executes instead of the pre-patch checkout.
+      - name: Apply Railway runtime patches for regression tests
+        run: |
+          rm -f .startup-patches.json
+          node scripts/apply-startup-patches.js
+
       # Final release gate: lint and the complete regression suite must both stay green.
       - name: Lint and tests in parallel
         shell: bash
