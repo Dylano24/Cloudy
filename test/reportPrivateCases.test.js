@@ -170,7 +170,7 @@ test('target Close creates a private red Delete case prompt while report logs st
   assert.equal(promptData.title, 'Delete case');
   assert.equal(promptData.color, CLOUDY_RED_COLOR);
   assert.ok(promptData.thumbnail?.url);
-  assert.deepEqual(prompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
+  assert.deepEqual(prompt.components[0].toJSON().components.map(button => button.label), ['Delete']);
 
   const log = f.logs.messages.cache.get(record.cases.target.closeLogId);
   const logData = json(log.embeds[0]);
@@ -271,8 +271,8 @@ test('reporter Close removes only reporter access; Staff deletes each closed cas
 
   const reporterPrompt = reporterChannel.messages.cache.get(record.cases.reporter.deletePromptId);
   const targetPrompt = targetChannel.messages.cache.get(record.cases.target.deletePromptId);
-  assert.deepEqual(reporterPrompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
-  assert.deepEqual(targetPrompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
+  assert.deepEqual(reporterPrompt.components[0].toJSON().components.map(button => button.label), ['Delete']);
+  assert.deepEqual(targetPrompt.components[0].toJSON().components.map(button => button.label), ['Delete']);
 
   await handleReportCaseControl(f.interaction(f.staff.user, reporterPrompt, reporterChannel.id), f.client, ['delete', 'report', 'reporter']);
   assert.ok(f.channels.has(targetChannel.id));
