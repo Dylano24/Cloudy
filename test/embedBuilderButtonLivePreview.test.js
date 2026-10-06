@@ -17,7 +17,7 @@ test('Builder button preview is attached to the top preview message, not Message
   assert.ok(refreshStart >= 0 && refreshEnd > refreshStart);
   const refresh = source.slice(refreshStart, refreshEnd);
   assert.match(refresh, /embeds: \[buildPreviewEmbed\(state\)\]/);
-  assert.match(refresh, /components: getBuilderMessageComponents\(state\)/);
+  assert.match(refresh, /components: getBuilderPreviewComponents\\(state\\)/);
   assert.match(refresh, /embeds: \[buildControlEmbed\(state\)\]/);
   assert.match(refresh, /components: buildControls\(state\)/);
   assert.match(refresh, /refreshBuilderPreviewOnly/);
