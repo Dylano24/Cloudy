@@ -108,7 +108,7 @@ export default {
             content: ownerMention,
             attachments: reportAttachments,
             data: {
-                title: `New report • #${reportNumber}`,
+                title: 'New report',
                 lines,
                 blockFields,
                 author: await resolveUserAuthor(client, targetUser.id),
