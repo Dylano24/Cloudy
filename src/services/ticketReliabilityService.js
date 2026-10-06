@@ -633,7 +633,7 @@ export async function closeTicket(channel, closer, reason, options = {}) {
         `This ticket has been closed by ${closer}.\n`
         + `**Reason:** ${reason}\n`
         + `**Ticket:** #${ticketNumberOf(ticketData)}`,
-      color: '#FFFFFF',
+      color: 0xFF7A00,
       components: [controlRow],
     });
 
