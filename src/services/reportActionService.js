@@ -117,7 +117,7 @@ function reportHandledEmbed(actions, record, actorId, handledAt) {
     description: reportActionText(actions),
     color: 'success',
     fields: [
-      { name: 'Report', value: `Report #${record.number}`, inline: true },
+      { name: `Report #${record.number}`, value: '\u200B', inline: true },
       { name: 'Handled by', value: `<@${actorId}>`, inline: true },
       { name: 'Handled at', value: `<t:${Math.floor(handledAt / 1000)}:F>`, inline: false },
     ],
