@@ -584,7 +584,11 @@ async function updateEmbedManager(interaction, payload, state, session) {
     if (session.closed || state.activeEmbedManager !== session) return false;
 
     try {
-        await interaction.editReply(payload);
+        if (!interaction.deferred && !interaction.replied && typeof interaction.update === 'function') {
+            await interaction.update(payload);
+        } else {
+            await interaction.editReply(payload);
+        }
         return true;
     } catch (error) {
         if (CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
@@ -698,15 +702,13 @@ export async function discoverEmbedManagerOverviewRecords(guild, records, botUse
 }
 
 async function loadCurrentRegistry(guild, botUserId) {
-    let result = await reconcileEmbedRegistry(guild);
-    if (result.records.length) {
-        void refreshRecentEmbedHistory(guild, botUserId)
-            .catch(error => logger.error('Background embed history sync failed:', error));
-        return result.records;
-    }
+    // Normal Builder opens must stay local/DB-first. Only bootstrap from
+    // Discord history when the durable registry is genuinely empty.
+    const records = await getEmbedRegistry(guild.id);
+    if (records.length) return records;
 
     await refreshRecentEmbedHistory(guild, botUserId, true);
-    result = await reconcileEmbedRegistry(guild);
+    const result = await reconcileEmbedRegistry(guild);
     return result.records;
 }
 
@@ -733,14 +735,12 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
 
-    await buttonInteraction.deferUpdate().catch(() => {});
-
     try {
         const previousSession = state.activeEmbedManager;
         if (previousSession) {
             closeEmbedManagerSession(state, previousSession, 'replaced');
             if (previousSession.messageId) {
-                await buttonInteraction.webhook.deleteMessage(previousSession.messageId).catch(() => {});
+                void buttonInteraction.webhook.deleteMessage(previousSession.messageId).catch(() => {});
             }
         }
 
@@ -761,11 +761,35 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         const initialPayload = guild.channels.cache.size
             ? buildChannelPayload(guild, records, 0, checkingChannelIds)
             : buildEmptyManagerPayload();
-        const managerMessage = await buttonInteraction.followUp({
-            ...initialPayload,
-            flags: MessageFlags.Ephemeral,
-            fetchReply: true,
-        }).catch(() => null);
+        let managerMessage = null;
+        if (typeof buttonInteraction.reply === 'function'
+            && !buttonInteraction.deferred
+            && !buttonInteraction.replied) {
+            const managerResponse = await buttonInteraction.reply({
+                ...initialPayload,
+                flags: MessageFlags.Ephemeral,
+                withResponse: true,
+            }).catch(error => {
+                logger.error('Embed manager direct reply failed:', error);
+                return null;
+            });
+            managerMessage = managerResponse?.resource?.message || null;
+        }
+
+        // Compatibility fallback for older interaction shims. Real Discord
+        // interactions take the one-request reply path above.
+        if (!managerMessage) {
+            if (!buttonInteraction.deferred
+                && !buttonInteraction.replied
+                && typeof buttonInteraction.deferUpdate === 'function') {
+                await buttonInteraction.deferUpdate().catch(() => {});
+            }
+            managerMessage = await buttonInteraction.followUp({
+                ...initialPayload,
+                flags: MessageFlags.Ephemeral,
+                fetchReply: true,
+            }).catch(() => null);
+        }
         if (!managerMessage) return;
 
         const session = {
@@ -786,14 +810,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         session.collector = collector;
 
         void Promise.all([
-            discoverEmbedManagerOverviewRecords(
-                guild,
-                storedRecords,
-                buttonInteraction.client.user.id,
-            ).catch(error => {
-                logger.error('Embed manager live overview discovery failed:', error);
-                return [];
-            }),
+            // Do not fan out across every Discord channel just because Modify
+            // opened. Channel-specific discovery remains available on demand.
+            Promise.resolve([]),
             loadCurrentRegistry(guild, buttonInteraction.client.user.id)
                 .catch(error => {
                     logger.error('Embed manager registry refresh failed:', error);
@@ -823,14 +842,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
         collector.on('collect', async interaction => {
             session.hasInteracted = true;
-            const acknowledged = await interaction.deferUpdate()
-                .then(() => true)
-                .catch(error => {
-                    logger.error('Embed manager acknowledgement failed:', error);
-                    return interaction.deferred || interaction.replied;
-                });
-            if (!acknowledged) return;
-
             const selectionVersion = (session.selectionVersion || 0) + 1;
             session.selectionVersion = selectionVersion;
             discardPendingEmbedEditorUpdates(state.colorSessionToken);
