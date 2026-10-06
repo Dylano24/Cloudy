@@ -203,7 +203,7 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
     text = text.replace(
       importBlock,
       `import {
-    ${names.join(',\\n    ')},
+    ${names.join(',\n    ')},
 } from '../../services/embedBuilderButtonEditorService.js';`,
     );
   }
