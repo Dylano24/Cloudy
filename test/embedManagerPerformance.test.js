@@ -24,9 +24,10 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
   assert.doesNotMatch(firstPaint, /discoverEmbedManagerOverviewRecords\(/);
   assert.doesNotMatch(firstPaint, /reconcileEmbedRegistry\(/);
 
-  // Slow Discord discovery may happen only after the manager is already visible.
+  // Normal opening must not fan out across Discord channel history. Recovery is
+  // reserved for the genuinely empty-registry path inside loadCurrentRegistry.
   const afterPaint = source.slice(followUp);
-  assert.match(afterPaint, /discoverEmbedManagerOverviewRecords\(/);
+  assert.doesNotMatch(afterPaint, /discoverEmbedManagerOverviewRecords\(/);
   assert.match(afterPaint, /loadCurrentRegistry\(guild, buttonInteraction\.client\.user\.id\)/);
 });
 
