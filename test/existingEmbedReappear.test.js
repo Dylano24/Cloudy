@@ -117,3 +117,22 @@ test('Reappear loads channel rules in parallel for lower message latency', async
   const body = source.slice(start);
   assert.match(body, /Promise\.all\(\s*configs\.map/);
 });
+
+
+test('existing Builder save path keeps Reappear persistence after startup patches', async () => {
+  const fs = await import('node:fs');
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+
+  assert.match(source, /import \{ syncExistingEmbedReappearRule \} from '..\/..\/services\/embedReappearService\.js';/);
+  assert.match(source, /reappearTouched:\s*false/);
+  assert.match(source, /state\.reappearTouched\s*=\s*true/);
+
+  const saveStart = Math.max(
+    source.indexOf('async function finishExistingEmbedSave('),
+    source.indexOf('async function saveExistingEmbed('),
+  );
+  const saveBody = source.slice(saveStart, saveStart + 9000);
+  assert.match(saveBody, /if \(state\.reappearTouched\)/);
+  assert.match(saveBody, /syncExistingEmbedReappearRule\(\{/);
+  assert.match(saveBody, /state\.reappearTouched\s*=\s*false/);
+});
