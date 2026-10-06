@@ -32,7 +32,12 @@ import {
 import { saveEmbedTemplateDecoration } from './embedTemplateService.js';
 import { discoverMissingChannelEmbed, discoverMissingChannelEmbeds, discoverRecentChannelEmbeds } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
-import { getBuilderMessageComponents } from './embedBuilderButtonEditorService.js';
+import {
+    getBuilderMessageComponents,
+    hydrateBuilderMessageComponents,
+    loadBuilderComponentsFromMessage,
+    loadBuilderComponentsFromRecord,
+} from './embedBuilderButtonEditorService.js';
 import {
     primeSystemEmbedCatalogMessage,
     primeSystemEmbedTemplateData,
@@ -485,6 +490,7 @@ function loadRecordSnapshotIntoState(state, guild, record) {
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
         cachedMessage: null,
     };
+    loadBuilderComponentsFromRecord(state, record?.previewRecord || record);
     return true;
 }
 
@@ -527,6 +533,18 @@ function loadEmbedIntoState(state, resolved) {
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
         cachedMessage: message,
     };
+    loadBuilderComponentsFromMessage(state, message);
+}
+
+async function refreshSelectedBuilderComponents(guild, state, refreshBuilder, expectedMessageId) {
+    const targetId = String(expectedMessageId || state?.modifyTarget?.messageId || '');
+    if (!targetId || String(state?.modifyTarget?.messageId || '') !== targetId) return false;
+
+    const changed = await hydrateBuilderMessageComponents(guild, state).catch(() => false);
+    if (!changed || String(state?.modifyTarget?.messageId || '') !== targetId) return false;
+
+    await Promise.resolve(refreshBuilder()).catch(() => {});
+    return true;
 }
 
 function isEmbedManagerComponent(interaction) {
@@ -856,6 +874,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         void Promise.resolve(refreshBuilder()).catch(error => {
                             logger.debug(`Immediate channel preview refresh skipped: ${error?.message || error}`);
                         });
+                        void refreshSelectedBuilderComponents(guild, state, refreshBuilder, firstRecord.messageId);
                     } else if (useCatalogPreview && firstRecord) {
                         const resolved = await resolveEmbedRegistryRecord(guild, firstRecord).catch(() => null);
                         if (selectionVersion !== session.selectionVersion) return;
@@ -951,6 +970,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         logger.debug(`Immediate embed preview refresh skipped: ${error?.message || error}`);
                     });
                     if (selectionVersion !== session.selectionVersion) return;
+                    void refreshSelectedBuilderComponents(guild, state, refreshBuilder, messageId);
                 } else {
                     const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                     if (selectionVersion !== session.selectionVersion) return;

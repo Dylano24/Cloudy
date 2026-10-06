@@ -59,6 +59,19 @@ export async function rememberBuilderRuntimePreview(payload, source) {
 }
 
 export async function hydrateBuilderPreviewRecord(guild, record, previewRecord, userId) {
+  // LIVE_PREVIEW_WINS_V1: when a real Discord message exists, its current
+  // embed is the Builder truth. Runtime snapshots are only fallbacks for
+  // catalog/dynamic responses with no live peer.
+  const livePreviewSource = String(previewRecord?.source || '').toLowerCase();
+  if (previewRecord && !previewRecord.detached && livePreviewSource !== 'system-catalog') {
+    return previewRecord;
+  }
+
+  const recordSource = String(record?.source || '').toLowerCase();
+  if (!record?.detached && recordSource && recordSource !== 'system-catalog') {
+    return record;
+  }
+
   if (!record) return previewRecord;
   const snapshot = record.snapshot || {};
   const title = snapshot.title || record.title || record.name;
