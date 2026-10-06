@@ -381,6 +381,28 @@ test('failed Delete + timeout performs no partial delete and still allows No san
   assert.deepEqual(f.report.components, []);
 });
 
+test('No sanction can recover an old partial Delete + timeout report', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+
+  let record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  record.actions = {
+    delete: { status: 'completed', actorId: 'staff', reason: 'Old partial action', completedAt: Date.now() - 1000 },
+    timeout: { status: 'failed', actorId: 'staff', reason: 'Old partial action', durationMs: 600_000 },
+  };
+  await f.client.db.set(reportKey(f.guild.id, 'report'), record);
+
+  record = await f.submit('no_sanction');
+  assert.equal(record.actions.delete.notified, true);
+  assert.equal(record.actions.no_sanction.notified, true);
+  assert.deepEqual(record.handledActions, ['delete', 'no_sanction']);
+
+  const handled = f.payloads.find(message => message.channelId === 'reports');
+  const data = json(handled.embeds[0]);
+  assert.match(data.description, /reported message has been deleted/i);
+  assert.match(data.description, /no sanction was applied/i);
+});
+
 test('Delete + timeout performs both actions once and explains both outcomes', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
