@@ -202,13 +202,30 @@ async function publishStaffLog(client, guild, record, audience, event, actorId) 
 async function refreshLogControls(client, guild, record, audience) {
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   const entry = record.cases[audience];
+
   const created = await fetchMessage(logs, entry.createdLogId);
   if (created?.author?.id === client.user.id) {
     await created.edit({ content: null, components: [], allowedMentions: { parse: [] } });
   }
+
   const closed = await fetchMessage(logs, entry.closeLogId);
   if (closed?.author?.id === client.user.id) {
-    await closed.edit({ content: null, components: [], allowedMentions: { parse: [] } });
+    await closed.edit({
+      content: null,
+      embeds: [logEmbed(record, audience, 'close', entry.closedBy || 'Unknown')],
+      components: [],
+      allowedMentions: { parse: [] },
+    });
+  }
+
+  const deleted = await fetchMessage(logs, entry.deleteLogId);
+  if (deleted?.author?.id === client.user.id) {
+    await deleted.edit({
+      content: null,
+      embeds: [logEmbed(record, audience, 'delete', entry.deletedBy || '24-hour expiry')],
+      components: [],
+      allowedMentions: { parse: [] },
+    });
   }
 }
 
@@ -395,7 +412,17 @@ export async function restoreReportCaseTimers(client) {
     try {
       let record = await client.db.get(key);
       const guild = record && client.guilds.cache.get(record.guildId);
-      if (!guild || (!record.caseChannelId && !record.cases) || record.closedAt) continue;
+      if (!guild || (!record.caseChannelId && !record.cases)) continue;
+
+      // Clean legacy report-log presentation even for already deleted cases:
+      // no stale channel mentions and no Delete buttons in report-logs.
+      if (record.cases) {
+        for (const audience of audiences) {
+          if (record.cases[audience]) await refreshLogControls(client, guild, record, audience);
+        }
+      }
+      if (record.closedAt) continue;
+
       // Keep expiry active even if repairing an older notification fails.
       scheduleReportCaseExpiry(client, guild, record);
       if (!record.cases && record.expiresAt > Date.now()) {
@@ -414,11 +441,6 @@ export async function restoreReportCaseTimers(client) {
           record.handledBy = actorId;
           record.handledActions = actions;
           await save(client, record);
-        }
-      }
-      if (record.cases) {
-        for (const audience of audiences) {
-          if (record.cases[audience]) await refreshLogControls(client, guild, record, audience);
         }
       }
       scheduleReportCaseExpiry(client, guild, record); restored++;
