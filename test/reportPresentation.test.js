@@ -14,7 +14,7 @@ test('every newly filed report gets its number before the original report is sen
     assert.ok(numberAt >= 0 && sendAt > numberAt, `${file} must reserve the number before logEvent`);
     assert.match(source, /title: 'New report'/);
     assert.doesNotMatch(source, /New report • #\$\{reportNumber\}/);
-    assert.match(source, /name: `Report #\$\{reportNumber\}`[\s\S]*value: '\\u200B'/);
+    assert.match(source, /name: 'Report'[\s\S]*value: `#\$\{reportNumber\}`/);
     assert.match(source, /number: reportNumber/);
   }
 });
