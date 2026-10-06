@@ -46,6 +46,7 @@ import {
     hydrateBuilderMessageComponents,
     openEmbedButtonEditor,
     removeRightmostBuilderButton,
+    syncBuilderButtonPreview,
 } from '../../services/embedBuilderButtonEditorService.js';
 
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -1243,8 +1244,12 @@ export default {
             state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
 
             await refreshBuilder(interaction, state);
+            await syncBuilderButtonPreview(interaction, state).catch(() => {});
             void hydrateBuilderMessageComponents(interaction.guild, state)
-                .then(changed => changed ? refreshBuilder(interaction, state) : null)
+                .then(async changed => {
+                    if (changed) await refreshBuilder(interaction, state);
+                    await syncBuilderButtonPreview(interaction, state).catch(() => {});
+                })
                 .catch(() => null);
 
             const dashboardMessage = await interaction.fetchReply();
@@ -1327,9 +1332,11 @@ export default {
                             await openEmbedManager(
                                 buttonInteraction,
                                 state,
-                                () => {
+                                async () => {
                                     touchActiveBuilderSession(interaction, BUILDER_IDLE_TIMEOUT);
-                                    return refreshBuilder(buttonInteraction, state);
+                                    const refreshed = await refreshBuilder(buttonInteraction, state);
+                                    await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});
+                                    return refreshed;
                                 },
                             );
                             break;
