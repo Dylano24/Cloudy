@@ -320,7 +320,7 @@ export async function restoreReportCaseTimers(client) {
       scheduleReportCaseExpiry(client, guild, record);
       if (!record.cases && record.expiresAt > Date.now()) {
         const completed = Object.entries(record.actions || {}).filter(([, outcome]) =>
-          outcome.status === 'completed' && !outcome.notified);
+          outcome.status === 'completed');
         if (completed.length) {
           const source = await fetchChannel(guild, record.reportChannelId);
           const actions = completed.map(([name]) => name);
