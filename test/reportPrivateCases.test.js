@@ -39,7 +39,13 @@ function fixture() {
     const messages = new Collection();
     const ch = { id, name, guild, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => false }),
       overwriteEdits: [], messages: { cache: messages, fetch: async id => messages.get(id) },
-      permissionOverwrites: { edit: async (id, permissions) => { ch.overwriteEdits.push({ id, permissions }); }, set: async overwrites => { ch.resetOverwrites = overwrites; } },
+      permissionOverwrites: {
+        cache: new Collection(),
+        edit: async (subject, permissions) => {
+          ch.overwriteEdits.push({ id: subject?.id || subject, permissions });
+        },
+        set: async overwrites => { ch.resetOverwrites = overwrites; },
+      },
       delete: async () => { removed.push(id); channels.delete(id); },
       send: async payload => {
         const msg = { id: `sent-${payloads.length}`, author: client.user, channelId: id, channel: ch, ...payload, sentPayload: payload,
@@ -173,6 +179,35 @@ test('target Close hides only their own case, notifies Staff once in ticket oran
   const deleted = f.logs.messages.cache.get(record.cases.target.deleteLogId);
   assert.equal(json(deleted.embeds[0]).color, TICKET_EVENT_STYLES.delete.color);
   assert.match(JSON.stringify(json(deleted.embeds[0])), /Deleted by.*staff/);
+});
+
+test('Close survives an old participant overwrite when the member is no longer in the guild', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  let record = await f.submit();
+
+  const entry = record.cases.target;
+  const channel = f.channels.get(entry.channelId);
+  const notice = channel.messages.cache.get(entry.messageId);
+  const originalFetch = f.guild.members.fetch;
+  f.guild.members.fetch = async id => id === 'target' ? null : originalFetch(id);
+
+  let edited = null;
+  channel.permissionOverwrites.cache.set('target', {
+    id: 'target',
+    edit: async permissions => { edited = permissions; },
+  });
+
+  const close = f.interaction(f.staff.user, notice, channel.id);
+  await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
+
+  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  assert.ok(record.cases.target.closedAt);
+  assert.deepEqual(edited, {
+    ViewChannel: false,
+    SendMessages: false,
+    ReadMessageHistory: false,
+  });
 });
 
 test('reporter Close removes only reporter access; Staff can also Close and delete that case', async t => {
