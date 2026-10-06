@@ -4,6 +4,18 @@ const path = 'src/commands/Tools/embedbuilder.js';
 const before = fs.readFileSync(path, 'utf8');
 let text = before;
 
+const hasPermanentControls = text.includes("setCustomId('simple_embed_reappear')")
+    && (
+        text.includes("setCustomId('simple_embed_delete_from_builder')")
+        || text.includes("setCustomId('simple_embed_delete')")
+    );
+
+// BUILDER_PRESERVE_FINAL_CONTROLS_V1:
+// Never let this old layout migration remove Reappear/Delete again.
+if (hasPermanentControls) {
+    console.log('[EMBED_BUILDER_SEVEN_VISIBLE_ROWS] permanent Reappear/Delete controls detected; preserving final layout');
+} else {
+
 if (!text.includes('const logoMediaRow = new ActionRowBuilder().addComponents(')) {
     const controlsPattern = /function buildControls\(state\) \{[\s\S]*?\n\}\n\nfunction getPreviewUpdateQueue/;
     if (!controlsPattern.test(text)) {
@@ -107,6 +119,8 @@ function getPreviewUpdateQueue`);
 if (!text.includes('return [titleRow, logoMediaRow, styleButtonsRow, modifyResetRow, saveRow];')) {
     console.error('[EMBED_BUILDER_SEVEN_VISIBLE_ROWS] final verification failed');
     process.exit(1);
+}
+
 }
 
 if (text !== before) fs.writeFileSync(path, text, 'utf8');
