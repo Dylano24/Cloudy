@@ -575,18 +575,32 @@ console.log('[BUILDER_COMMERCIAL_COMPONENTS] live buttons, right-to-left removal
 const buttonCustomEmojiMarker = 'BUILDER_BUTTON_CUSTOM_EMOJI_V1';
 
 patchPreviewLifetimeFile('src/services/embedBuilderButtonEditorService.js', source => {
+  let next = source;
+
+  if (!next.includes('export function buildBuilderButtonManagerPayload')) {
+    const modalAnchor = '\nasync function showAddResponseModal(';
+    if (!next.includes(modalAnchor)) {
+      throw new Error('[BUILDER_BUTTON_CUSTOM_EMOJI] manager payload export anchor missing');
+    }
+    next = next.replace(
+      modalAnchor,
+      "\nexport function buildBuilderButtonManagerPayload(state) {\n  return managerPayload(state);\n}\n" + modalAnchor,
+    );
+  }
+
   const required = [
     'export function setBuilderButtonEmoji',
     'export function buildButtonEmojiPagePayload',
+    'export function buildBuilderButtonManagerPayload',
     'async function openButtonEmojiBrowser',
     "setCustomId('embed_button_emoji_target')",
     "componentInteraction.customId === 'embed_button_emoji_target'",
   ];
-  const missing = required.filter(value => !source.includes(value));
+  const missing = required.filter(value => !next.includes(value));
   if (missing.length) {
     throw new Error('[BUILDER_BUTTON_CUSTOM_EMOJI] final runtime invariant missing: ' + missing.join(', '));
   }
-  return source;
+  return next;
 });
 
 console.log('[BUILDER_BUTTON_CUSTOM_EMOJI] ' + buttonCustomEmojiMarker + ': custom emoji browser preserved after all startup migrations.');
