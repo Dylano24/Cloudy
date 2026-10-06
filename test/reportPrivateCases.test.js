@@ -39,7 +39,13 @@ function fixture() {
     const messages = new Collection();
     const ch = { id, name, guild, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => false }),
       overwriteEdits: [], messages: { cache: messages, fetch: async id => messages.get(id) },
-      permissionOverwrites: { edit: async (id, permissions) => { ch.overwriteEdits.push({ id, permissions }); }, set: async overwrites => { ch.resetOverwrites = overwrites; } },
+      permissionOverwrites: {
+        cache: new Collection(),
+        edit: async (subject, permissions) => {
+          ch.overwriteEdits.push({ id: subject?.id || subject, permissions });
+        },
+        set: async overwrites => { ch.resetOverwrites = overwrites; },
+      },
       delete: async () => { removed.push(id); channels.delete(id); },
       send: async payload => {
         const msg = { id: `sent-${payloads.length}`, author: client.user, channelId: id, channel: ch, ...payload, sentPayload: payload,
@@ -173,6 +179,35 @@ test('target Close hides only their own case, notifies Staff once in ticket oran
   const deleted = f.logs.messages.cache.get(record.cases.target.deleteLogId);
   assert.equal(json(deleted.embeds[0]).color, TICKET_EVENT_STYLES.delete.color);
   assert.match(JSON.stringify(json(deleted.embeds[0])), /Deleted by.*staff/);
+});
+
+test('Close survives an old participant overwrite when the member is no longer in the guild', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  let record = await f.submit();
+
+  const entry = record.cases.target;
+  const channel = f.channels.get(entry.channelId);
+  const notice = channel.messages.cache.get(entry.messageId);
+  const originalFetch = f.guild.members.fetch;
+  f.guild.members.fetch = async id => id === 'target' ? null : originalFetch(id);
+
+  let edited = null;
+  channel.permissionOverwrites.cache.set('target', {
+    id: 'target',
+    edit: async permissions => { edited = permissions; },
+  });
+
+  const close = f.interaction(f.staff.user, notice, channel.id);
+  await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
+
+  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  assert.ok(record.cases.target.closedAt);
+  assert.deepEqual(edited, {
+    ViewChannel: false,
+    SendMessages: false,
+    ReadMessageHistory: false,
+  });
 });
 
 test('reporter Close removes only reporter access; Staff can also Close and delete that case', async t => {
@@ -355,6 +390,52 @@ test('No sanction closes the report without moderation and notifies both members
   const handled = f.payloads.find(message => message.channelId === 'reports');
   assert.equal(json(handled.embeds[0]).title, 'Report handled');
   assert.match(json(handled.embeds[0]).description, /no sanction was applied/i);
+});
+
+test('failed Delete + timeout performs no partial delete and still allows No sanction', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  const originalFetch = f.guild.members.fetch;
+  f.guild.members.fetch = async id => id === 'target' ? null : originalFetch(id);
+
+  const timedOut = [];
+  t.mock.method(ModerationService, 'timeoutUser', async data => { timedOut.push(data); });
+
+  await assert.rejects(f.submit('delete_timeout'), /no longer in this server/);
+  assert.deepEqual(f.removed, []);
+  assert.equal(timedOut.length, 0);
+
+  let record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  assert.equal(record.actions?.delete?.status, undefined);
+  assert.equal(record.actions?.timeout?.status, undefined);
+  assert.ok(f.report.components.length > 0);
+
+  record = await f.submit('no_sanction');
+  assert.equal(record.actions.no_sanction.status, 'completed');
+  assert.equal(record.actions.no_sanction.notified, true);
+  assert.deepEqual(f.report.components, []);
+});
+
+test('No sanction can recover an old partial Delete + timeout report', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+
+  let record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  record.actions = {
+    delete: { status: 'completed', actorId: 'staff', reason: 'Old partial action', completedAt: Date.now() - 1000 },
+    timeout: { status: 'failed', actorId: 'staff', reason: 'Old partial action', durationMs: 600_000 },
+  };
+  await f.client.db.set(reportKey(f.guild.id, 'report'), record);
+
+  record = await f.submit('no_sanction');
+  assert.equal(record.actions.delete.notified, true);
+  assert.equal(record.actions.no_sanction.notified, true);
+  assert.deepEqual(record.handledActions, ['delete', 'no_sanction']);
+
+  const handled = f.payloads.find(message => message.channelId === 'reports');
+  const data = json(handled.embeds[0]);
+  assert.match(data.description, /reported message has been deleted/i);
+  assert.match(data.description, /no sanction was applied/i);
 });
 
 test('Delete + timeout performs both actions once and explains both outcomes', async t => {

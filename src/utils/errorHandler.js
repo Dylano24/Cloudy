@@ -441,6 +441,15 @@ export async function handleInteractionError(interaction, error, context = {}) {
     const embed = buildUserErrorEmbed(errorType, description, {
         titleOverride: error?.context?.titleOverride,
     });
+
+    // Keep the generic system error independent from editable feature templates
+    // such as the ticket-limit response. A saved Builder template must never
+    // rename unrelated failures across the bot.
+    if (errorType === ErrorTypes.UNKNOWN && !error?.context?.titleOverride) {
+        embed.setTitle('Something went wrong');
+        embed.setColor(0xED4245);
+    }
+
     await sendErrorResponse(interaction, embed, {
         ...context,
         traceId,
