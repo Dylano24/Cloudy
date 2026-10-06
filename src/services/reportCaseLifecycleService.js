@@ -133,11 +133,11 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
 function logEmbed(record, audience, event, actorId) {
   const entry = record.cases[audience];
   const title = event === 'close' ? 'Report case closed' : event === 'delete' ? 'Report case deleted' : 'Report case created';
-  const fields = [{ name: 'Case', value: `report-${record.number}`, inline: true },
+  const fields = [{ name: 'Report', value: `Report #${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
     { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Deleted by' : 'Handled by', value: actorId === '24-hour expiry' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
     { name: 'Channel', value: event === 'delete' ? `report-${record.number} (${entry.channelId})` : `<#${entry.channelId}>`, inline: true },
-    { name: 'Case type', value: audience === 'reporter' ? 'Reporter notification' : 'Reported member case', inline: true }];
+    { name: 'Audience', value: audience === 'reporter' ? 'Reporter' : 'Reported member', inline: true }];
   const embed = caseEmbed({ title, fields });
   if (event === 'close' || event === 'delete') setPreservedEmbedColor(embed, TICKET_EVENT_STYLES[event].color);
   return embed;
@@ -177,28 +177,49 @@ export async function publishReportOutcome(client, guild, report, record, action
   const config = await getGuildConfig(client, guild.id);
   const source = report.channel || await fetchChannel(guild, record.reportChannelId);
   if (source?.permissionsFor?.(guild.roles.everyone)?.has?.(PermissionFlagsBits.ViewChannel)) throw new Error('Staff report controls require a private reports channel.');
-  const activeAudiences = action === 'ban' ? ['reporter'] : audiences;
+
+  const actions = Array.isArray(action) ? [...new Set(action)] : [action];
+  const activeAudiences = actions.includes('ban') ? ['reporter'] : audiences;
   record = await ensurePrivateCases(client, guild, report, record, config, activeAudiences);
-  const actionText = { delete: 'The reported message has been deleted.', timeout: 'The reported member has been timed out.', ban: 'The reported member has been banned.' }[action];
+
+  const actionText = actions.map(name => ({
+    delete: 'The reported message has been deleted.',
+    timeout: 'The reported member has been timed out.',
+    ban: 'The reported member has been banned.',
+    no_sanction: 'The report was reviewed and no sanction was applied.',
+  })[name]).filter(Boolean).join('\n');
+
   for (const audience of activeAudiences) {
     const entry = record.cases[audience];
     if (entry.deletedAt) continue;
+
     const channel = await fetchChannel(guild, entry.channelId);
     const existing = await fetchMessage(channel, entry.messageId);
-    const staffId = reportStaffRole(guild, config);
     const participant = participantId(record, audience);
-    const fields = [{ name: 'Case', value: `report-${record.number}`, inline: true },
-      ...(audience === 'target' ? [{ name: 'Reason', value: reason || 'No reason recorded' }, { name: 'Handled by', value: `<@${actorId}>`, inline: true }] : []),
-      { name: 'Automatic deletion', value: 'This case is automatically deleted after 24 hours.' }];
-    const payload = { content: `<@${participant}> ${staffId ? `<@&${staffId}>` : `<@${guild.ownerId}>`}`,
-      embeds: [caseEmbed({ title: 'Report case notification', description: audience === 'reporter' ? actionText : undefined, color: 0x00C49D, fields })],
+    const showReason = audience === 'target' && !actions.includes('no_sanction');
+    const fields = [
+      { name: 'Report', value: `Report #${record.number}`, inline: true },
+      ...(showReason ? [{ name: 'Reason', value: reason || 'No reason recorded' }] : []),
+      { name: 'Automatic deletion', value: 'This case is automatically deleted after 24 hours.' },
+    ];
+
+    const payload = {
+      content: `<@${participant}>`,
+      embeds: [caseEmbed({
+        title: 'Report case notification',
+        description: actionText,
+        color: 0x00C49D,
+        fields,
+      })],
       components: reportCaseControls(record, false, Boolean(entry.closedAt), audience),
-      allowedMentions: { parse: [], users: [participant, ...(!staffId ? [guild.ownerId] : [])], roles: staffId ? [staffId] : [] } };
+      allowedMentions: { parse: [], users: [participant], roles: [] },
+    };
+
     const notice = existing?.author?.id === client.user.id ? await existing.edit(payload) : await channel.send(payload);
     entry.messageId = notice.id;
     await save(client, syncAliases(record));
-    if (!entry.createdLogId) await publishStaffLog(client, guild, record, audience, 'created', actorId);
   }
+
   scheduleReportCaseExpiry(client, guild, record);
   return record;
 }
@@ -298,10 +319,21 @@ export async function restoreReportCaseTimers(client) {
       // Keep expiry active even if repairing an older notification fails.
       scheduleReportCaseExpiry(client, guild, record);
       if (!record.cases && record.expiresAt > Date.now()) {
-        const completed = Object.entries(record.actions || {}).filter(([, outcome]) => outcome.status === 'completed').at(-1);
-        if (completed) {
+        const completed = Object.entries(record.actions || {}).filter(([, outcome]) =>
+          outcome.status === 'completed' && !outcome.notified);
+        if (completed.length) {
           const source = await fetchChannel(guild, record.reportChannelId);
-          record = await publishReportOutcome(client, guild, { channel: source }, record, completed[0], completed[1].actorId, completed[1].reason);
+          const actions = completed.map(([name]) => name);
+          const actorId = completed[0][1].actorId;
+          const reason = completed[0][1].reason;
+          record = await publishReportOutcome(client, guild, { channel: source }, record, actions, actorId, reason);
+          for (const [name, outcome] of completed) {
+            record.actions[name] = { ...outcome, notified: true };
+          }
+          record.handledAt = Math.max(...completed.map(([, outcome]) => Number(outcome.completedAt) || Date.now()));
+          record.handledBy = actorId;
+          record.handledActions = actions;
+          await save(client, record);
         }
       }
       if (record.cases) {
