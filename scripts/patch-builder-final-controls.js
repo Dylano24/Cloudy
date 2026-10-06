@@ -391,6 +391,27 @@ patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
 
 patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
   let next = manager;
+
+  // Late human-preview migrations replace the full snapshot loader. Restore the
+  // component hydration call in that final function so an existing message's
+  // buttons are part of the same Builder state immediately.
+  const loaderStart = next.indexOf('loadRecordSnapshotIntoState(');
+  const loaderEnd = next.indexOf('\nfunction loadEmbedIntoState', loaderStart);
+  if (loaderStart < 0 || loaderEnd < 0) {
+    throw new Error('[BUILDER_EXISTING_BUTTONS] snapshot loader missing');
+  }
+  let loaderBlock = next.slice(loaderStart, loaderEnd);
+  if (!loaderBlock.includes('loadBuilderComponentsFromRecord(state, record);')) {
+    const returnIndex = loaderBlock.lastIndexOf('    return true;');
+    if (returnIndex < 0) {
+      throw new Error('[BUILDER_EXISTING_BUTTONS] snapshot loader return missing');
+    }
+    loaderBlock = loaderBlock.slice(0, returnIndex)
+      + '    loadBuilderComponentsFromRecord(state, record);\n'
+      + loaderBlock.slice(returnIndex);
+    next = next.slice(0, loaderStart) + loaderBlock + next.slice(loaderEnd);
+  }
+
   const anchor = 'function loadEmbedIntoState(state, resolved) {';
   if (!next.includes('export function applyInitialSearchSelectionToState(') && next.includes(anchor)) {
     const helper = `export function applyInitialSearchSelectionToState(interaction, state) {
