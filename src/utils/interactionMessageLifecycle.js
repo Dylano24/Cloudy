@@ -1,7 +1,11 @@
 import { Message, MessageFlags } from 'discord.js';
 import { InteractionHelper } from './interactionHelper.js';
 import { isBuilderSessionMessage } from './builderSessionCleanup.js';
-import { isTransientStatusPayload } from './transientResponse.js';
+import {
+  isPersistentBotMessage,
+  isTransientStatusEmbed,
+  isTransientStatusPayload,
+} from './transientResponse.js';
 
 export const DASHBOARD_IDLE_MS = 5 * 60_000;
 export const TRANSIENT_MESSAGE_MS = 10_000;
@@ -185,7 +189,15 @@ export function shouldUseTransientTimer(payload, message) {
   // such as Success, Warning, Information or Could not... are valid preview
   // content and must never make the whole Builder look like a 10-second status
   // reply. Builder lifetime is owned exclusively by builderSessionCleanup.
-  if (isBuilderSessionMessage(message)) return false;
+  if (isBuilderSessionMessage(message) || isPersistentBotMessage(message)) return false;
+
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const embeds = source.embeds || message?.embeds || [];
+
+  // A status embed inside a multi-embed permanent message must never make the
+  // whole Discord message transient (welcome + success, guide + warning, etc).
+  if (embeds.length > 1 && !embeds.every(isTransientStatusEmbed)) return false;
+
   return isTransientStatusPayload(payload, message);
 }
 
