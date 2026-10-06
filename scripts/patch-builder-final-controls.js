@@ -570,3 +570,193 @@ patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
 });
 
 console.log('[BUILDER_COMMERCIAL_COMPONENTS] live buttons, right-to-left removal and final component hydration enforced.');
+
+
+const finalRuntimeInvariantMarker = 'FINAL_RUNTIME_INVARIANTS_V3';
+
+// Exactly one stale-record Delete handler may survive the ordered migrations.
+patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
+  let next = builder;
+  const needle = "case 'simple_embed_delete_from_builder':";
+  const starts = [];
+  let cursor = 0;
+  while ((cursor = next.indexOf(needle, cursor)) >= 0) {
+    starts.push(cursor);
+    cursor += needle.length;
+  }
+
+  if (starts.length > 1) {
+    const blocks = starts.map(start => {
+      const nextCase = next.indexOf("\n                        case '", start + needle.length);
+      return {
+        start,
+        end: nextCase >= 0 ? nextCase : next.length,
+        body: next.slice(start, nextCase >= 0 ? nextCase : next.length),
+      };
+    });
+    const keep = blocks.findIndex(block => block.body.includes('togglePendingBuilderDeletion'));
+    const keepIndex = keep >= 0 ? keep : 0;
+
+    for (let index = blocks.length - 1; index >= 0; index -= 1) {
+      if (index === keepIndex) continue;
+      next = next.slice(0, blocks[index].start) + next.slice(blocks[index].end);
+    }
+  }
+
+  const remaining = next.split(needle).length - 1;
+  if (remaining !== 1) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] expected exactly one Builder delete handler, got ' + remaining);
+  }
+  return next;
+});
+
+// Search must hand its selected record to the Builder before editor callbacks exist.
+patchPreviewLifetimeFile('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', searchPatch => {
+  let next = searchPatch;
+  if (next.includes('interaction.__cloudyInitialBuilderSelection = initialSelection')) return next;
+
+  const executeStart = next.indexOf('embedBuilderCommand.execute = async function executeWithLiveSearch');
+  const setterStart = executeStart >= 0
+    ? next.indexOf('pendingSelections.set(selectionKey(interaction), {', executeStart)
+    : -1;
+  if (setterStart < 0) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] Search selection setter missing');
+  }
+
+  const openBrace = next.indexOf('{', setterStart);
+  const setterEnd = next.indexOf('\n                });', openBrace);
+  if (openBrace < 0 || setterEnd < 0) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] Search selection object boundary missing');
+  }
+
+  const body = next.slice(openBrace + 1, setterEnd).trim();
+  const replacement = `const initialSelection = {
+                    ${body}
+                };
+                pendingSelections.set(selectionKey(interaction), initialSelection);
+                // ${finalRuntimeInvariantMarker}: hydrate Search before editor updates.
+                interaction.__cloudyInitialBuilderSelection = initialSelection;`;
+
+  return next.slice(0, setterStart) + replacement + next.slice(setterEnd + '\n                });'.length);
+});
+
+// Re-assert the Search hydration at the very end because older Builder layout
+// migrations can replace execute() after the earlier Search guard ran.
+patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
+  let next = builder;
+
+  const managerImport = next.match(/import \{([\s\S]*?)\} from '\.\.\/\.\.\/services\/embedManagerService\.js';/);
+  if (!managerImport) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] Embed Manager import missing');
+  }
+  const managerNames = managerImport[1]
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (!managerNames.includes('applyInitialSearchSelectionToState')) {
+    managerNames.push('applyInitialSearchSelectionToState');
+    next = next.replace(
+      managerImport[0],
+      `import {
+    ${managerNames.join(',\n    ')},
+} from '../../services/embedManagerService.js';`,
+    );
+  }
+
+  const editorAt = next.indexOf('createEmbedColorPickerSession({');
+  if (editorAt < 0) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] Builder editor startup anchor missing');
+  }
+
+  const existingHydrate = next.indexOf('applyInitialSearchSelectionToState(interaction, state)');
+  if (existingHydrate < 0 || existingHydrate > editorAt) {
+    const colorSessionLine = next.lastIndexOf('const colorSessionToken = ', editorAt);
+    if (colorSessionLine < 0) {
+      throw new Error('[FINAL_RUNTIME_INVARIANTS] color editor session anchor missing');
+    }
+    const lineStart = next.lastIndexOf('\n', colorSessionLine) + 1;
+    const hydrate = `            // ${finalRuntimeInvariantMarker}: Search selection is loaded before editor callbacks exist.
+            applyInitialSearchSelectionToState(interaction, state);
+
+`;
+    next = next.slice(0, lineStart) + hydrate + next.slice(lineStart);
+  }
+
+  return next;
+});
+
+// Preserve the original transient intent even when a saved template renames the
+// response, but never let mixed/panel/log/catalog messages inherit the 10s timer.
+patchPreviewLifetimeFile('src/utils/transientResponse.js', transient => {
+  let next = transient;
+
+  if (!next.includes('const transientPayloads = new WeakSet();')) {
+    const ttl = 'const TRANSIENT_TTL_MS = 10_000;';
+    if (!next.includes(ttl)) {
+      throw new Error('[FINAL_RUNTIME_INVARIANTS] transient TTL anchor missing');
+    }
+    next = next.replace(
+      ttl,
+      ttl + `
+const transientPayloads = new WeakSet();
+
+export function rememberTransientPayloadIntent(original, outgoing) {
+  if (outgoing && typeof outgoing === 'object' && isTransientStatusPayload(original)) {
+    transientPayloads.add(outgoing);
+  }
+  return outgoing;
+}`,
+    );
+  } else if (!next.includes('export function rememberTransientPayloadIntent(')) {
+    const weakSet = 'const transientPayloads = new WeakSet();';
+    next = next.replace(
+      weakSet,
+      weakSet + `
+
+export function rememberTransientPayloadIntent(original, outgoing) {
+  if (outgoing && typeof outgoing === 'object' && isTransientStatusPayload(original)) {
+    transientPayloads.add(outgoing);
+  }
+  return outgoing;
+}`,
+    );
+  }
+
+  const fnStart = next.indexOf('export function isTransientStatusPayload(');
+  const fnEnd = fnStart >= 0
+    ? next.indexOf('\n}\n\nexport function isPersistentBotMessage', fnStart)
+    : -1;
+  if (fnStart < 0 || fnEnd < 0) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] transient payload function boundary missing');
+  }
+
+  const finalFn = `export function isTransientStatusPayload(payload = null, message = null) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const embeds = source.embeds || message?.embeds || [];
+  const content = source.content ?? message?.content ?? '';
+
+  if (isPersistentBotMessage(message)) return false;
+  if (transientPayloads.has(source)) return true;
+  if (embeds.length && !embeds.every(isTransientStatusEmbed)) return false;
+  return embeds.some(isTransientStatusEmbed) || isTransientStatusContent(content);
+}`;
+
+  next = next.slice(0, fnStart) + finalFn + next.slice(fnEnd + 2);
+  return next;
+});
+
+// Fail the build instead of starting a half-applied Search/Builder runtime.
+{
+  const searchRuntime = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  const builderRuntime = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  if (!searchRuntime.includes('interaction.__cloudyInitialBuilderSelection = initialSelection')) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] Search-to-Builder handoff missing');
+  }
+  const hydrateAt = builderRuntime.indexOf('applyInitialSearchSelectionToState(interaction, state)');
+  const editorAt = builderRuntime.indexOf('createEmbedColorPickerSession({');
+  if (hydrateAt < 0 || editorAt < 0 || hydrateAt > editorAt) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] Search state is not hydrated before editor startup');
+  }
+}
+
+console.log('[FINAL_RUNTIME_INVARIANTS] FINAL_RUNTIME_INVARIANTS_V3: final runtime guards verified.');
