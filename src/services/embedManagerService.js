@@ -536,6 +536,17 @@ function loadEmbedIntoState(state, resolved) {
     loadBuilderComponentsFromMessage(state, message);
 }
 
+async function refreshSelectedBuilderComponents(guild, state, refreshBuilder, expectedMessageId) {
+    const targetId = String(expectedMessageId || state?.modifyTarget?.messageId || '');
+    if (!targetId || String(state?.modifyTarget?.messageId || '') !== targetId) return false;
+
+    const changed = await hydrateBuilderMessageComponents(guild, state).catch(() => false);
+    if (!changed || String(state?.modifyTarget?.messageId || '') !== targetId) return false;
+
+    await Promise.resolve(refreshBuilder()).catch(() => {});
+    return true;
+}
+
 function isEmbedManagerComponent(interaction) {
     const customId = String(interaction?.customId || '');
     return customId === 'simple_embed_modify_back'
