@@ -19,7 +19,7 @@ const MAX_RETRIES = 3;
 const RATE_LIMIT_RETRIES = 10;
 const START_DELAY_MS = Math.max(
   0,
-  Number.parseInt(process.env.COMMAND_SYNC_START_DELAY_MS || '2500', 10) || 0,
+  Number.parseInt(process.env.COMMAND_SYNC_START_DELAY_MS || '0', 10) || 0,
 );
 
 if (!token) {
@@ -174,9 +174,9 @@ function commandSetsMatch(current, desired) {
 }
 
 async function main() {
-  // Railway starts this recovery sync beside the bot. A short delay lets the
-  // gateway login take the initial CPU/network burst while keeping command
-  // updates close to instant after deploy.
+  // The Railway start command runs this sync before bootstrap.js, not beside
+  // the gateway process. Keep the delay opt-in so production does not sit idle
+  // before Discord login.
   if (START_DELAY_MS > 0) {
     await sleep(START_DELAY_MS);
   }
