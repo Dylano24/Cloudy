@@ -9,6 +9,7 @@ const CLOUDY_BASE = process.env.CLOUDY_BASE_URL || 'https://cloudy-production-b2
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const STATE_FILE = path.join(DATA_DIR, 'cloudy-monitor-state.json');
 const MAX_INCIDENTS = 100;
+const MONITOR_STATE_VERSION = 2;
 const FETCH_TIMEOUT_MS = 12_000;
 const CLOUDY_SERVICE_ID = process.env.CLOUDY_SERVICE_ID || 'b853c72c-bee0-4ac9-9824-573ff6a84988';
 const MONITOR_SERVICE_ID = process.env.MONITOR_SERVICE_ID || '5c828394-2b67-4608-b027-1278f4c82184';
@@ -17,9 +18,9 @@ const urls = {
   health: `${CLOUDY_BASE}/health`,
   ready: `${CLOUDY_BASE}/ready`,
   commits: 'https://github.com/Dylano24/Cloudy/commits/main.atom',
-  quality: 'https://github.com/Dylano24/Cloudy/actions/workflows/quality-fast.yml/badge.svg?branch=main',
-  migration: 'https://github.com/Dylano24/Cloudy/actions/workflows/migration-version-check.yml/badge.svg?branch=main',
-  docker: 'https://github.com/Dylano24/Cloudy/actions/workflows/docker-publish.yml/badge.svg?branch=main',
+  quality: 'https://api.github.com/repos/Dylano24/Cloudy/actions/workflows/quality-fast.yml/runs?branch=main&per_page=1',
+  migration: 'https://api.github.com/repos/Dylano24/Cloudy/actions/workflows/migration-version-check.yml/runs?branch=main&per_page=1',
+  docker: 'https://api.github.com/repos/Dylano24/Cloudy/actions/workflows/docker-publish.yml/runs?branch=main&per_page=1',
 };
 
 let state = {
@@ -58,13 +59,15 @@ function isSelfMonitorRailwayEvent(event) {
   );
 }
 
-function cleanPersistedIncidents(incidents) {
+function cleanPersistedIncidents(incidents, { legacyState = false } = {}) {
   const cleaned = [];
   const seenPollerStates = new Set();
 
   for (const item of incidents) {
-    // These were created only by an earlier setup-time head-change rule that is
-    // no longer part of the monitor. They are not production runtime incidents.
+    // Version 1 was used only during monitor setup and could attach monitor-only
+    // repository/deployment events to CI incidents. Rebuild those observations
+    // from live sources after upgrading instead of preserving misleading history.
+    if (legacyState && ['github', 'poller'].includes(item?.source)) continue;
     if (item?.source === 'github') continue;
 
     if (
@@ -79,6 +82,7 @@ function cleanPersistedIncidents(incidents) {
         status: item.status,
         summary: item.summary,
         failedChecks: item.failedChecks || [],
+        githubHead: item.githubHead || null,
       });
       if (seenPollerStates.has(key)) continue;
       seenPollerStates.add(key);
@@ -96,11 +100,13 @@ async function loadState() {
     const loaded = JSON.parse(await fs.readFile(STATE_FILE, 'utf8'));
     if (loaded && typeof loaded === 'object') {
       const incidents = Array.isArray(loaded.incidents) ? loaded.incidents : [];
+      const legacyState = Number(loaded.monitorStateVersion || 1) < MONITOR_STATE_VERSION;
       state = {
         ...state,
         ...loaded,
+        monitorStateVersion: MONITOR_STATE_VERSION,
         startedAt: state.startedAt,
-        incidents: cleanPersistedIncidents(incidents),
+        incidents: cleanPersistedIncidents(incidents, { legacyState }),
       };
 
       if (
@@ -147,12 +153,33 @@ async function fetchJson(url) {
   return { ...result, body };
 }
 
-function workflowStatus(svgText) {
-  const lower = String(svgText || '').toLowerCase();
-  if (/passing|success|successful/.test(lower)) return 'success';
-  if (/failing|failure|failed/.test(lower)) return 'failure';
-  if (/no status|unknown|inaccessible/.test(lower)) return 'unknown';
-  return 'unknown';
+function workflowRunStatus(text) {
+  try {
+    const payload = JSON.parse(String(text || '{}'));
+    const run = Array.isArray(payload.workflow_runs) ? payload.workflow_runs[0] : null;
+    if (!run) return { status: 'unknown', headSha: null, runId: null, updatedAt: null };
+
+    let status = 'unknown';
+    if (run.status && run.status !== 'completed') {
+      status = 'running';
+    } else if (run.conclusion === 'success') {
+      status = 'success';
+    } else if (['failure', 'timed_out', 'cancelled', 'action_required'].includes(run.conclusion)) {
+      status = 'failure';
+    } else if (run.conclusion === 'skipped') {
+      status = 'skipped';
+    }
+
+    return {
+      status,
+      headSha: run.head_sha || null,
+      runId: run.id || null,
+      updatedAt: run.updated_at || null,
+      htmlUrl: run.html_url || null,
+    };
+  } catch {
+    return { status: 'unknown', headSha: null, runId: null, updatedAt: null };
+  }
 }
 
 function parseHeadSha(atomText) {
@@ -271,14 +298,14 @@ async function runPoll() {
       ? { ok: commits.value.ok, headSha: parseHeadSha(commits.value.text), httpStatus: commits.value.status }
       : { ok: false, headSha: null, error: String(commits.reason?.message || commits.reason) },
     quality: quality.status === 'fulfilled'
-      ? { ok: quality.value.ok, status: workflowStatus(quality.value.text), httpStatus: quality.value.status }
-      : { ok: false, status: 'unknown', error: String(quality.reason?.message || quality.reason) },
+      ? { ok: quality.value.ok, ...workflowRunStatus(quality.value.text), httpStatus: quality.value.status }
+      : { ok: false, status: 'unknown', headSha: null, runId: null, error: String(quality.reason?.message || quality.reason) },
     migration: migration.status === 'fulfilled'
-      ? { ok: migration.value.ok, status: workflowStatus(migration.value.text), httpStatus: migration.value.status }
-      : { ok: false, status: 'unknown', error: String(migration.reason?.message || migration.reason) },
+      ? { ok: migration.value.ok, ...workflowRunStatus(migration.value.text), httpStatus: migration.value.status }
+      : { ok: false, status: 'unknown', headSha: null, runId: null, error: String(migration.reason?.message || migration.reason) },
     docker: docker.status === 'fulfilled'
-      ? { ok: docker.value.ok, status: workflowStatus(docker.value.text), httpStatus: docker.value.status }
-      : { ok: false, status: 'unknown', error: String(docker.reason?.message || docker.reason) },
+      ? { ok: docker.value.ok, ...workflowRunStatus(docker.value.text), httpStatus: docker.value.status }
+      : { ok: false, status: 'unknown', headSha: null, runId: null, error: String(docker.reason?.message || docker.reason) },
   };
 
   state.checks = checks;
@@ -298,7 +325,7 @@ async function runPoll() {
       source: 'poller',
       severity: severityFor(checks),
       summary: `Cloudy monitor detected failing checks: ${failedChecks.join(', ')}`,
-      evidence: { failedChecks },
+      evidence: { githubHead: checks.quality.headSha || checks.github.headSha, failedChecks },
       likelyCause: checks.health.ok && checks.ready.ok
         ? 'Runtime is reachable; the failure is currently in one or more release/CI checks rather than basic availability.'
         : 'Cloudy health/readiness is failing or unreachable; inspect Railway runtime/deployment logs first.',
@@ -423,8 +450,12 @@ function handoffPayload() {
       health: state.checks.health || null,
       ready: state.checks.ready || null,
       fastQuality: state.checks.quality?.status || 'unknown',
+      fastQualityRunSha: state.checks.quality?.headSha || null,
+      fastQualityRunId: state.checks.quality?.runId || null,
       migrationVersion: state.checks.migration?.status || 'unknown',
+      migrationRunSha: state.checks.migration?.headSha || null,
       dockerPublish: state.checks.docker?.status || 'unknown',
+      dockerPublishRunSha: state.checks.docker?.headSha || null,
       latestRailwayEvent: state.latestRailwayEvent,
     },
     latestIncident: state.incidents[0] || null,
