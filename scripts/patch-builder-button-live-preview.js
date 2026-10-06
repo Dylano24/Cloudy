@@ -186,16 +186,19 @@ export async function syncBuilderButtonPreview(interaction, state) {
 });
 
 patchFile('src/commands/Tools/embedbuilder.js', text => {
-  const importAnchor = `    openEmbedButtonEditor,
-} from '../../services/embedBuilderButtonEditorService.js';`;
-  const importReplacement = `    openEmbedButtonEditor,
-    syncBuilderButtonPreview,
-} from '../../services/embedBuilderButtonEditorService.js';`;
-  if (!text.includes('syncBuilderButtonPreview')) {
-    if (!text.includes(importAnchor)) {
-      throw new Error('[BUILDER_BUTTON_PREVIEW] Builder button import anchor missing');
-    }
-    text = text.replace(importAnchor, importReplacement);
+  const buttonImportPattern = /import\s*\{([\s\S]*?)\}\s*from '\.\.\/\.\.\/services\/embedBuilderButtonEditorService\.js';/;
+  const buttonImport = text.match(buttonImportPattern);
+  if (!buttonImport) {
+    throw new Error('[BUILDER_BUTTON_PREVIEW] Builder button import missing');
+  }
+
+  if (!buttonImport[1].includes('syncBuilderButtonPreview')) {
+    const nextNames = buttonImport[1].trimEnd() + '\n    syncBuilderButtonPreview,';
+    text = text.replace(
+      buttonImportPattern,
+      `import {${nextNames}
+} from '../../services/embedBuilderButtonEditorService.js';`,
+    );
   }
 
   function ensurePreviewSyncInCase(caseId) {
