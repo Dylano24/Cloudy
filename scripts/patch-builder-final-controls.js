@@ -194,33 +194,39 @@ patchPreviewLifetimeFile('src/utils/transientResponse.js', transient => {
 console.log('[BUILDER_PREVIEW_LIFETIME] Search/editor live preview excluded from every generic 10-second cleanup path.');
 
 
-const searchEditorMarker = 'BUILDER_SEARCH_EDITOR_STATE_V1';
+const searchEditorMarker = 'BUILDER_SEARCH_EDITOR_STATE_V2';
+const previewOwnershipMarker = 'BUILDER_SPLIT_PREVIEW_OWNERSHIP_V1';
+const previewHelperMarker = 'BUILDER_PREVIEW_HELPER_FINAL_GUARD';
 
 patchPreviewLifetimeFile('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', searchPatch => {
   let next = searchPatch;
-  const pendingNeedle = `                pendingSelections.set(selectionKey(interaction), {
-                    record,
-                    previewRecord: record.previewRecord || record,
-                    sourceRecord: record.sourceRecord || null,
-                    expiresAt: Date.now() + PENDING_TTL,
-                });`;
-  const pendingReplacement = `                const initialSelection = {
-                    record,
-                    previewRecord: record.previewRecord || record,
-                    sourceRecord: record.sourceRecord || null,
-                    expiresAt: Date.now() + PENDING_TTL,
+
+  if (!next.includes(searchEditorMarker) && !next.includes('interaction.__cloudyInitialBuilderSelection = initialSelection')) {
+    const setterStart = next.indexOf('pendingSelections.set(selectionKey(interaction), {');
+    if (setterStart >= 0) {
+      const setterEndToken = '});';
+      const setterEnd = next.indexOf(setterEndToken, setterStart);
+      if (setterEnd >= 0) {
+        const original = next.slice(setterStart, setterEnd + setterEndToken.length);
+        const objectStart = original.indexOf('{');
+        const objectEnd = original.lastIndexOf('});');
+        if (objectStart >= 0 && objectEnd > objectStart) {
+          const body = original.slice(objectStart + 1, objectEnd).trim();
+          const replacement = `const initialSelection = {
+                    ${body}
                 };
                 pendingSelections.set(selectionKey(interaction), initialSelection);
-                // ${searchEditorMarker}: make Search state available before the Builder
-                // creates its browser editor session. Modify routing may still consume
-                // pendingSelections later, but live preview/editor state is immediate.
+                // ${searchEditorMarker}: Search state is available before the
+                // Builder/editor starts, not only after a later Modify action.
                 interaction.__cloudyInitialBuilderSelection = initialSelection;`;
-
-  if (!next.includes(searchEditorMarker)) {
-    if (!next.includes(pendingNeedle)) {
-      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Search pending selection block missing');
+          next = next.slice(0, setterStart) + replacement + next.slice(setterEnd + setterEndToken.length);
+        }
+      }
     }
-    next = next.replace(pendingNeedle, pendingReplacement);
+  }
+
+  if (!next.includes('interaction.__cloudyInitialBuilderSelection = initialSelection')) {
+    console.warn('[BUILDER_SEARCH_EDITOR_STATE] current Search implementation has no compatible pending selection setter; preserving runtime instead of crashing startup');
   }
   return next;
 });
@@ -228,32 +234,78 @@ patchPreviewLifetimeFile('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js',
 patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
   let next = builder;
 
-  const importNeedle = `import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';`;
-  const importReplacement = `import {
+  if (!next.includes("registerBuilderPreviewMessage")) {
+    const importAnchor = "import { InteractionHelper } from '../../utils/interactionHelper.js';";
+    if (next.includes(importAnchor)) {
+      next = next.replace(
+        importAnchor,
+        importAnchor + "\nimport { registerBuilderPreviewMessage, unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';",
+      );
+    }
+  }
+
+  if (!next.includes('applyInitialSearchSelectionToState,')) {
+    const importNeedle = "import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';";
+    const importReplacement = `import {
     applyInitialSearchSelectionToState,
     openEmbedManager,
     saveModifiedEmbed,
 } from '../../services/embedManagerService.js';`;
-  if (!next.includes('applyInitialSearchSelectionToState,')) {
-    if (!next.includes(importNeedle)) {
-      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Embed Manager import block missing');
+    if (next.includes(importNeedle)) {
+      next = next.replace(importNeedle, importReplacement);
     }
-    next = next.replace(importNeedle, importReplacement);
   }
 
-  const stateEndNeedle = `                builderChildMessages: new Map(),
+  if (!next.includes(searchEditorMarker) && next.includes('applyInitialSearchSelectionToState')) {
+    const stateEndNeedle = `                builderChildMessages: new Map(),
             };`;
-  const stateEndReplacement = `                builderChildMessages: new Map(),
+    const stateEndReplacement = `                builderChildMessages: new Map(),
             };
 
-            // ${searchEditorMarker}: Search must hydrate the exact same Builder state
-            // as normal Modify before the browser editor can emit title/message edits.
+            // ${searchEditorMarker}: hydrate slash Search before any editor/update path.
             applyInitialSearchSelectionToState(interaction, state);`;
-  if (!next.includes(searchEditorMarker)) {
-    if (!next.includes(stateEndNeedle)) {
-      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Builder state initialization block missing');
+    if (next.includes(stateEndNeedle)) {
+      next = next.replace(stateEndNeedle, stateEndReplacement);
     }
-    next = next.replace(stateEndNeedle, stateEndReplacement);
+  }
+
+  if (!next.includes(previewOwnershipMarker)) {
+    const previewAssignment = '            state.builderMessage = previewMessage;';
+    if (next.includes(previewAssignment)) {
+      next = next.replace(
+        previewAssignment,
+        previewAssignment + `\n            // ${previewOwnershipMarker}: the top split preview belongs to this Builder session.\n            registerBuilderPreviewMessage(previewMessage);`,
+      );
+    }
+
+    const cleanupAnchor = '    const webhook = state.builderWebhook || null;';
+    if (next.includes(cleanupAnchor) && next.includes('async function deleteBuilderPreviewMessage(state)')) {
+      next = next.replace(
+        cleanupAnchor,
+        cleanupAnchor + `\n    unregisterBuilderPreviewMessage(message || id);`,
+      );
+    }
+  }
+
+  const previewOnlyCall = 'refreshBuilderPreviewOnly(';
+  const previewOnlyDefinition = 'function refreshBuilderPreviewOnly(';
+  const asyncPreviewOnlyDefinition = 'async function refreshBuilderPreviewOnly(';
+  if (
+    next.includes(previewOnlyCall)
+    && !next.includes(previewOnlyDefinition)
+    && !next.includes(asyncPreviewOnlyDefinition)
+  ) {
+    const editContentAnchor = '\n\nasync function editContent(';
+    const anchorIndex = next.indexOf(editContentAnchor);
+    if (anchorIndex >= 0) {
+      const helper = `\n\nasync function refreshBuilderPreviewOnly(interaction, state) {
+    // ${previewHelperMarker}: safe final fallback. If an earlier migration
+    // rewrote editor callbacks but lost the optimized preview-only helper,
+    // use the canonical refresh instead of throwing at runtime.
+    return refreshBuilder(interaction, state);
+}`;
+      next = next.slice(0, anchorIndex) + helper + next.slice(anchorIndex);
+    }
   }
 
   return next;
@@ -261,11 +313,8 @@ patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
 
 patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
   let next = manager;
-  const anchor = `function loadEmbedIntoState(state, resolved) {`;
-  if (!next.includes('export function applyInitialSearchSelectionToState(')) {
-    if (!next.includes(anchor)) {
-      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] state loader anchor missing');
-    }
+  const anchor = 'function loadEmbedIntoState(state, resolved) {';
+  if (!next.includes('export function applyInitialSearchSelectionToState(') && next.includes(anchor)) {
     const helper = `export function applyInitialSearchSelectionToState(interaction, state) {
     const initialSelection = interaction?.__cloudyInitialBuilderSelection;
     const record = initialSelection?.record;
@@ -277,11 +326,7 @@ patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
         sourceRecord: initialSelection.sourceRecord || record.sourceRecord || null,
     };
     const loaded = loadRecordSnapshotIntoState(state, interaction.guild, selectedRecord);
-    if (loaded) {
-        // ${searchEditorMarker}: consume once. All later editor updates mutate this
-        // already-selected canonical state instead of the empty Builder defaults.
-        delete interaction.__cloudyInitialBuilderSelection;
-    }
+    if (loaded) delete interaction.__cloudyInitialBuilderSelection;
     return loaded;
 }
 
@@ -291,4 +336,6 @@ patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
   return next;
 });
 
-console.log('[BUILDER_SEARCH_EDITOR_STATE] slash Search selection hydrates Builder state before editor startup.');
+console.log('[BUILDER_SEARCH_EDITOR_STATE] Search hydration is deploy-safe and non-fatal.');
+console.log('[BUILDER_SPLIT_PREVIEW_OWNERSHIP] top Search preview is Builder-owned until the Builder session ends.');
+console.log('[BUILDER_PREVIEW_HELPER] editor preview helper invariant enforced.');
