@@ -376,6 +376,7 @@ ${displayEmojiMarker}`,
         detached: Boolean(record.detached),
         cachedMessage: null,
     };
+    loadBuilderComponentsFromRecord(state, previewRecord || record);
     return true;
 }
 `;
