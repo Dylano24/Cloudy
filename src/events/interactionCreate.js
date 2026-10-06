@@ -123,7 +123,18 @@ export default {
               client.cooldowns.set(cooldownKey, Date.now() + defaultCooldownSec * 1000);
             }
 
-            const abuseProtection = await enforceAbuseProtection(interaction, command, interaction.commandName);
+            // Abuse protection and guild configuration are independent reads.
+            // Run them together so every slash command avoids one serial wait
+            // without changing permission, cooldown or command behavior.
+            const guildConfigPromise = interaction.guild
+              ? getGuildConfig(client, interaction.guild.id, interactionTraceContext)
+              : Promise.resolve(null);
+
+            const [abuseProtection, guildConfig] = await Promise.all([
+              enforceAbuseProtection(interaction, command, interaction.commandName),
+              guildConfigPromise,
+            ]);
+
             if (!abuseProtection.allowed) {
               const formattedCooldown = formatCooldownDuration(abuseProtection.remainingMs);
               throw createError(
@@ -141,9 +152,7 @@ export default {
               );
             }
 
-            let guildConfig = null;
             if (interaction.guild) {
-              guildConfig = await getGuildConfig(client, interaction.guild.id, interactionTraceContext);
               const accessKey = resolveSlashAccessKey(interaction);
               if (!isCommandEnabledInConfig(guildConfig, accessKey, command.category)) {
                 throw createError(
