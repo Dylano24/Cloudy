@@ -400,8 +400,6 @@ function exactAutomatedSearchIdentity(record, document = null) {
     if (source === 'embed-builder') return '';
 
     const context = searchContext(record, document);
-    const stableKey = stableSearchTemplateKey(record);
-    if (stableKey) return ['template', stableKey, context].join(':');
 
     // Prefer the canonical source definition when this title/context resolves
     // unambiguously. That collapses runtime copies whose only differences are
@@ -476,7 +474,6 @@ function choiceDetail(match) {
     const { record, document } = match;
     const data = snapshot(record);
     const channelName = clean(document?.channel?.name, 30);
-    const context = stableSearchTemplateContext(record);
     const description = String(data?.description || '')
         .split('\n')
         .map(line => clean(
@@ -489,7 +486,6 @@ function choiceDetail(match) {
         .find(Boolean);
 
     if (description && normalize(description) !== normalize(document.title)) return description;
-    if (context) return context.replace(/[-_]+/g, ' ').replace(/\//g, ' / ');
     if (channelName) return `#${channelName}`;
     return '';
 }
