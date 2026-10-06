@@ -42,12 +42,30 @@ async function loadState() {
   try {
     const loaded = JSON.parse(await fs.readFile(STATE_FILE, 'utf8'));
     if (loaded && typeof loaded === 'object') {
+      const incidents = Array.isArray(loaded.incidents) ? loaded.incidents : [];
       state = {
         ...state,
         ...loaded,
         startedAt: state.startedAt,
-        incidents: Array.isArray(loaded.incidents) ? loaded.incidents.slice(0, MAX_INCIDENTS) : [],
+        incidents: incidents
+          .filter(item => !(
+            item?.source === 'railway-webhook'
+            && !item?.deploymentId
+            && !item?.railwayEvent?.serviceId
+            && !item?.railwayEvent?.environmentId
+            && !item?.railwayEvent?.projectId
+          ))
+          .slice(0, MAX_INCIDENTS),
       };
+      if (
+        state.latestRailwayEvent
+        && !state.latestRailwayEvent.deploymentId
+        && !state.latestRailwayEvent.serviceId
+        && !state.latestRailwayEvent.environmentId
+        && !state.latestRailwayEvent.projectId
+      ) {
+        state.latestRailwayEvent = null;
+      }
     }
   } catch {
     // First boot or missing volume state is normal.
@@ -268,18 +286,57 @@ function railwayEventType(body) {
   return body?.type || body?.event || body?.eventType || body?.action || 'unknown';
 }
 
+function findNamedObject(value, wantedKey, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 6) return null;
+  if (value[wantedKey] && typeof value[wantedKey] === 'object') return value[wantedKey];
+  for (const nested of Object.values(value)) {
+    const found = findNamedObject(nested, wantedKey, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findScalarByKey(value, wantedKeys, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 6) return null;
+  for (const key of wantedKeys) {
+    if (typeof value[key] === 'string' || typeof value[key] === 'number') return String(value[key]);
+  }
+  for (const nested of Object.values(value)) {
+    const found = findScalarByKey(nested, wantedKeys, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
 async function handleRailwayWebhook(body) {
   const eventType = railwayEventType(body);
-  const deploymentId = body?.deployment?.id || body?.deploymentId || body?.data?.deployment?.id || null;
-  const commitHash = body?.deployment?.meta?.commitHash || body?.meta?.commitHash || body?.data?.deployment?.meta?.commitHash || null;
+  const deployment = findNamedObject(body, 'deployment');
+  const service = findNamedObject(body, 'service');
+  const environment = findNamedObject(body, 'environment');
+  const project = findNamedObject(body, 'project');
+
+  const deploymentId = deployment?.id || findScalarByKey(body, ['deploymentId', 'deployment_id']);
+  const serviceId = service?.id || findScalarByKey(body, ['serviceId', 'service_id']);
+  const environmentId = environment?.id || findScalarByKey(body, ['environmentId', 'environment_id']);
+  const projectId = project?.id || findScalarByKey(body, ['projectId', 'project_id']);
+  const commitHash = deployment?.meta?.commitHash
+    || findScalarByKey(body, ['commitHash', 'commitSha', 'commit_sha'])
+    || null;
+
+  // Railway's webhook tester can send a synthetic event with no resource IDs.
+  // It proves delivery only and must never become a production incident.
+  if (!deploymentId && !serviceId && !environmentId && !projectId) {
+    return;
+  }
 
   state.latestRailwayEvent = {
     receivedAt: nowIso(),
     eventType,
     deploymentId,
     commitHash,
-    serviceId: body?.service?.id || body?.serviceId || body?.data?.service?.id || null,
-    environmentId: body?.environment?.id || body?.environmentId || body?.data?.environment?.id || null,
+    serviceId,
+    environmentId,
+    projectId,
   };
 
   const lower = String(eventType).toLowerCase();
