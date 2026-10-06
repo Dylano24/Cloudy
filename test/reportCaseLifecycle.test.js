@@ -56,9 +56,9 @@ test('Owner role can use all report actions; ordinary staff cannot use Ban', () 
   const config = { ticketStaffRoleId: 'staff-role' };
   assert.equal(reportActionAllowed(f.interaction, 'ban', config), false);
   f.staff.roles.cache = new Collection([['owner-role', { name: 'Owner' }]]);
-  for (const action of ['ban', 'timeout', 'delete']) assert.equal(reportActionAllowed(f.interaction, action, config), true);
+  for (const action of ['ban', 'timeout', 'delete', 'no_sanction', 'delete_timeout', 'delete_ban']) assert.equal(reportActionAllowed(f.interaction, action, config), true);
   f.staff.roles.cache.clear();
-  for (const action of ['ban', 'timeout', 'delete']) assert.equal(reportActionAllowed(f.interaction, action, config), false);
+  for (const action of ['ban', 'timeout', 'delete', 'no_sanction', 'delete_timeout', 'delete_ban']) assert.equal(reportActionAllowed(f.interaction, action, config), false);
 });
 
 
