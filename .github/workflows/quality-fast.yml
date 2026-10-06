@@ -71,6 +71,8 @@ jobs:
           node --check src/commands/Tools/embedbuilder.js
           node --check src/commands/Tools/zz_embedbuilderLiveSearchPatch.js
           node --check src/services/embedManagerService.js
+          grep -Fq "registerBuilderPreviewMessage(previewMessage)" src/commands/Tools/embedbuilder.js
+          grep -Eq "(async )?function refreshBuilderPreviewOnly\\(" src/commands/Tools/embedbuilder.js
 
       # Final release gate: lint and the complete regression suite must both stay green.
       - name: Lint and tests in parallel
