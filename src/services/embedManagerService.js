@@ -490,7 +490,7 @@ function loadRecordSnapshotIntoState(state, guild, record) {
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
         cachedMessage: null,
     };
-    loadBuilderComponentsFromRecord(state, record);
+    loadBuilderComponentsFromRecord(state, record?.previewRecord || record);
     return true;
 }
 
