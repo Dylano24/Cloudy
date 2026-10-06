@@ -58,7 +58,7 @@ function deleteCaseEmbed(record) {
     title: 'Delete case',
     description: 'This report case is closed. Staff can delete the case when it is no longer needed.',
     color: CLOUDY_RED_COLOR,
-    fields: [{ name: 'Case', value: `report-${record.number}`, inline: true }],
+    fields: [{ name: 'Report', value: `report-${record.number}`, inline: true }],
   });
 }
 
@@ -174,7 +174,7 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
 
 function logEmbed(record, audience, event, actorId) {
   const title = event === 'close' ? 'Report case closed' : event === 'delete' ? 'Report case deleted' : 'Report case created';
-  const fields = [{ name: 'Case', value: `report-${record.number}`, inline: true },
+  const fields = [{ name: 'Report', value: `report-${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
     { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Deleted by' : 'Handled by', value: actorId === '24-hour expiry' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
     { name: 'Audience', value: audience === 'reporter' ? 'Reporter' : 'Reported member', inline: true }];
@@ -255,7 +255,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     const participant = participantId(record, audience);
     const showReason = audience === 'target' && !actions.includes('no_sanction');
     const fields = [
-      { name: 'Case', value: `report-${record.number}`, inline: true },
+      { name: 'Report', value: `report-${record.number}`, inline: true },
       ...(showReason ? [{ name: 'Reason', value: reason || 'No reason recorded' }] : []),
       { name: 'Automatic deletion', value: 'This case is automatically deleted after 24 hours.' },
     ];
