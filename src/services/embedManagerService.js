@@ -874,6 +874,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         void Promise.resolve(refreshBuilder()).catch(error => {
                             logger.debug(`Immediate channel preview refresh skipped: ${error?.message || error}`);
                         });
+                        void refreshSelectedBuilderComponents(guild, state, refreshBuilder, firstRecord.messageId);
                     } else if (useCatalogPreview && firstRecord) {
                         const resolved = await resolveEmbedRegistryRecord(guild, firstRecord).catch(() => null);
                         if (selectionVersion !== session.selectionVersion) return;
@@ -969,6 +970,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         logger.debug(`Immediate embed preview refresh skipped: ${error?.message || error}`);
                     });
                     if (selectionVersion !== session.selectionVersion) return;
+                    void refreshSelectedBuilderComponents(guild, state, refreshBuilder, messageId);
                 } else {
                     const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                     if (selectionVersion !== session.selectionVersion) return;
