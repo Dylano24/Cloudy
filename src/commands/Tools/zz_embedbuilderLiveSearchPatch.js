@@ -427,12 +427,7 @@ function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return '';
 
-    const stableKey = stableSearchTemplateKey(record);
     const stableContext = stableSearchTemplateContext(record);
-    if (stableKey) {
-        return ['template', stableKey, stableContext].join(':');
-    }
-
     const definition = getSystemSourceDefinitionPreview(
         recordTitle(record),
         stableContext || searchContext(record, document),
@@ -442,8 +437,8 @@ function exactAutomatedSearchIdentity(record, document = null) {
         : visibleSearchShape(snapshot(record));
 
     try {
-        // Physical channel is deliberately excluded: the same automated Cloudy
-        // response shown in more than one channel is still one Search item.
+        // Technical catalog metadata, physical message ids/channels and visual
+        // decoration are not separate Search items. Meaningful text/fields are.
         return [
             definition ? 'definition' : 'visible',
             normalize(recordTitle(record)),
