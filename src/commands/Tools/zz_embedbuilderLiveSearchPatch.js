@@ -20,6 +20,16 @@ const RUNTIME_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchRuntime');
 const RESPONSE_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchResponses');
 const OLD_SEARCH_BUTTON_ID = '__cloudy_removed_builder_search_button__';
 const PENDING_TTL = 5 * 60_000;
+const INTERNAL_SEARCH_TITLES = new Set([
+    'message builder',
+    'modify embed',
+    'embed loaded',
+    'changes saved',
+    'could not load embeds',
+    'use the buttons below to create your message',
+    '(use the buttons below to create your message)',
+    'untitled embed',
+]);
 const pendingSelections = globalThis.__cloudyEmbedBuilderSearchSelections
     || (globalThis.__cloudyEmbedBuilderSearchSelections = new Map());
 
@@ -304,8 +314,8 @@ function mergeSearchRecords(guildId, registryRecords) {
 }
 
 function builderSearchDisplayRecords(records) {
-    // Search stays complete, but a canonical Cloudy template is shown only once.
-    // Runtime/history mirrors are not separate editable Builder items.
+    // Search stays complete, but repeated copies of the same automated/template response are one searchable item.
+    // Manual Builder embeds are always kept separate, even when title/content happen to match.
     const unique = new Map();
 
     for (const rawRecord of records || []) {
@@ -315,23 +325,24 @@ function builderSearchDisplayRecords(records) {
         const messageId = String(record?.messageId || '');
         if (!channelId || !messageId) continue;
 
+        const historyOrCatalogPeer = ['system-catalog', 'bot-history', 'history'].includes(source);
         if (['bot-history', 'history'].includes(source)) continue;
         if (record?.detached && source !== 'system-catalog') continue;
 
+        const visibleTitle = normalize(recordTitle(record));
+        if (!visibleTitle || INTERNAL_SEARCH_TITLES.has(visibleTitle)) continue;
+
         const stableKey = stableSearchTemplateKey(record);
         const stableContext = stableSearchTemplateContext(record);
-        const title = normalize(recordTitle(record));
+        const manual = source === 'embed-builder';
 
-        const key = stableKey
-            ? ['template', stableKey, stableContext].join(':')
-            : source === 'system-catalog'
-                ? ['catalog', stableContext, title].join(':')
-                : [
-                    'physical',
-                    String(record?.backingChannelId || channelId),
-                    messageId,
-                    Number(record?.embedIndex || 0),
-                ].join(':');
+        const key = manual
+            ? ['manual', String(record?.backingChannelId || channelId), messageId, Number(record?.embedIndex || 0)].join(':')
+            : stableKey
+                ? ['template', stableKey, stableContext].join(':')
+                : historyOrCatalogPeer
+                    ? ['catalog', stableContext, visibleTitle].join(':')
+                    : ['physical', String(record?.backingChannelId || channelId), messageId, Number(record?.embedIndex || 0)].join(':');
 
         const existing = unique.get(key);
         if (!existing || priority(record) > priority(existing)) {
@@ -366,23 +377,129 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
         .at(-1) || null;
 }
 
-function exactAutomatedSearchIdentity(record) {
+function semanticSearchText(value = '') {
+    let text = String(value || '')
+        .replace(/<a?:[^:>]+:\d+>/gi, ' {dynamic} ')
+        .replace(/<@!?\d+>|<@&\d+>|<#\d+>/g, ' {dynamic} ')
+        .replace(/https?:\/\/\S+/gi, ' {dynamic} ')
+        .replace(/\b\d{2,}\b/g, ' {dynamic} ')
+        .replace(/\$[\d,.]+/g, ' {dynamic} ')
+        .replace(/\b\d+(?:\.\d+)?%\b/g, ' {dynamic} ');
+
+    // Task/job identifiers are runtime values, while words such as
+    // "Scheduled task" and "Verification task" describe genuinely different responses.
+    text = text.replace(
+        /\btask\s+([a-z0-9_.-]+)\s+(?=(?:was\s+)?removed\b)/gi,
+        (match, token) => /^(?:scheduled|verification|role|reward)$/i.test(token)
+            ? match
+            : 'Task {dynamic} ',
+    );
+
+    return normalize(text.replace(/\{dynamic\}/g, ' dynamic '));
+}
+
+function exactAutomatedSearchIdentity(record, document) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return '';
 
     const data = snapshot(record);
-    let body = '';
-    try {
-        body = JSON.stringify(data || {});
-    } catch {
-        return '';
+    const title = normalize(document?.title || recordTitle(record));
+    const description = semanticSearchText(data?.description || '');
+    const fields = Array.isArray(data?.fields)
+        ? data.fields.map(field => [
+            semanticSearchText(field?.name || ''),
+            semanticSearchText(field?.value || ''),
+        ].join('=')).join('|')
+        : '';
+
+    // Deliberately ignore channel, footer, author metadata, logo/media and color:
+    // those are presentation/placement details, not separate Search items.
+    return [title, description, fields].join('::');
+}
+
+function readableDescriptionDetail(record) {
+    const data = snapshot(record);
+    const raw = clean(String(data?.description || '').split('\n').find(Boolean) || '', 72);
+    if (!raw) return '';
+
+    let detail = raw
+        .replace(/<a?:[^:>]+:\d+>/gi, '')
+        .replace(/<@!?\d+>|<@&\d+>|<#\d+>/g, '')
+        .replace(/https?:\/\/\S+/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const title = clean(recordTitle(record), 100);
+    if (title && normalize(detail).startsWith(normalize(title))) {
+        detail = detail.slice(title.length).replace(/^[\s:—–-]+/, '').trim();
     }
 
-    return [
-        String(record?.channelId || ''),
-        normalize(recordTitle(record)),
-        body,
-    ].join(':');
+    detail = detail
+        .replace(/\b\d{17,20}\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const sentence = detail.split(/[.!?](?:\s|$)/)[0]?.trim() || detail;
+    return clean(sentence, 46);
+}
+
+function choiceDetail(match) {
+    const detail = readableDescriptionDetail(match?.record);
+    if (detail) return detail;
+
+    const channelName = clean(match?.document?.channel?.name || '', 40);
+    if (channelName) return `#${channelName}`;
+    return '';
+}
+
+function shortRecordId(record) {
+    return String(record?.messageId || '').slice(-6);
+}
+
+function uniqueChoiceName(base, detail, usedNames, record) {
+    const title = clean(base || 'Embed', 100);
+    const primary = clean(detail ? `${title} • ${detail}` : title, 100);
+    const primaryKey = normalize(primary);
+    if (!usedNames.has(primaryKey)) {
+        usedNames.set(primaryKey, 1);
+        return primary;
+    }
+
+    const nextVariant = (usedNames.get(primaryKey) || 1) + 1;
+    usedNames.set(primaryKey, nextVariant);
+
+    const variant = clean(`${title} • Variant ${nextVariant}`, 100);
+    const variantKey = normalize(variant);
+    if (!usedNames.has(variantKey)) {
+        usedNames.set(variantKey, 1);
+        return variant;
+    }
+
+    // Deterministic tie-breaker only; raw IDs are never shown to the user.
+    const stableOffset = Math.max(2, Number.parseInt(shortRecordId(record), 10) % 50 || nextVariant);
+    const fallback = clean(`${title} • Variant ${stableOffset}`, 100);
+    usedNames.set(normalize(fallback), 1);
+    return fallback;
+}
+
+export function buildSearchChoices(matches) {
+    const titleCounts = new Map();
+    for (const match of matches || []) {
+        const title = normalize(match?.document?.title);
+        if (title) titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
+    }
+
+    const usedNames = new Map();
+    return (matches || []).map(match => {
+        const title = clean(match?.document?.title || 'Embed', 100);
+        const duplicateCount = titleCounts.get(normalize(title)) || 0;
+        const detail = duplicateCount > 1 ? choiceDetail(match) : '';
+        const name = uniqueChoiceName(title, detail, usedNames, match?.record);
+        return {
+            name,
+            value: selectionValue(match?.record),
+        };
+    });
 }
 
 export function buildMatches(guild, records, query) {
@@ -397,7 +514,7 @@ export function buildMatches(guild, records, query) {
         if (hasQuery && score == null) continue;
 
         const match = { record, document, score };
-        const exactKey = exactAutomatedSearchIdentity(record);
+        const exactKey = exactAutomatedSearchIdentity(record, document);
         if (!exactKey) {
             matches.push(match);
             continue;
@@ -581,33 +698,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
         const registryRecords = await getEmbedRegistry(interaction.guildId);
         const records = mergeSearchRecords(interaction.guildId, registryRecords);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
-        const titleCounts = new Map();
-        for (const { document } of matches) {
-            const title = normalize(document.title);
-            titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
-        }
-
-        const seenTitleIndexes = new Map();
-        const choices = matches.map(({ record, document }) => {
-            const title = clean(document.title, 100);
-            const normalizedTitle = normalize(title);
-            const duplicateCount = titleCounts.get(normalizedTitle) || 0;
-            if (duplicateCount <= 1) {
-                return { name: title, value: selectionValue(record) };
-            }
-
-            const channelName = document.channel?.name ? `#${document.channel.name}` : '';
-            const index = (seenTitleIndexes.get(normalizedTitle) || 0) + 1;
-            seenTitleIndexes.set(normalizedTitle, index);
-            const suffix = clean(
-                channelName || (duplicateCount > 1 ? `${index}/${duplicateCount}` : ''),
-                45,
-            );
-            return {
-                name: clean(suffix ? `${title} • ${suffix}` : title, 100),
-                value: selectionValue(record),
-            };
-        });
+        const choices = buildSearchChoices(matches);
 
         await interaction.respond(choices).catch(() => {});
     };
