@@ -41,6 +41,16 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
     'registry import',
   );
 
+  if (!text.includes("syncExistingEmbedReappearRule } from '../../services/embedReappearService.js'")) {
+    const registryImport = "} from '../../services/embedRegistryService.js';";
+    const registryEnd = text.indexOf(registryImport);
+    if (registryEnd < 0) throw new Error('[BUILDER_SAFE_DELETE] registry import end missing');
+    const insertAt = registryEnd + registryImport.length;
+    text = text.slice(0, insertAt)
+      + "\nimport { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';"
+      + text.slice(insertAt);
+  }
+
   const helperAnchor = `// Acknowledging the click immediately makes Save feel instant, while the
 // actual message edit still remains the source of truth before we confirm it.`;
   if (!text.includes(helperAnchor)) {
@@ -219,15 +229,30 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         return false;
     }
 
-    // Reappear stores its rule under the original message ID while its current
-    // visible copy can have a newer ID. Remove that current copy before purging
-    // the rule so the deleted embed cannot come back or remain visible.
-    const reappearKey = \`cloudy:embed-reappear:\${guild.id}:\${pending.channelId}:\${pending.messageId}\`;
-    const reappearConfig = await getFromDb(reappearKey, null);
-    const activeReappearMessageId = reappearConfig?.messageId
-        ? String(reappearConfig.messageId)
-        : null;
+    // Disable Reappear through the canonical index. The visible copy can have
+    // a newer Discord message ID than the original rule key, so constructing a
+    // DB key from pending.messageId can miss the rule and resurrect the embed.
+    const reappear = await syncExistingEmbedReappearRule({
+        guildId: guild.id,
+        channelId: pending.channelId,
+        messageId: pending.messageId,
+        embedIndex: pending.embedIndex,
+        every: null,
+    });
 
+    if (!reappear.ok) {
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Delete could not be saved',
+            'Cloudy could not disable the linked Reappear rule safely, so the Builder record was left unchanged.',
+            0xED4245,
+        );
+        return false;
+    }
+
+    const activeReappearMessageId = reappear.activeMessageId
+        ? String(reappear.activeMessageId)
+        : null;
     if (activeReappearMessageId && activeReappearMessageId !== String(pending.messageId)) {
         const reappearChannel = guild.channels.cache.get(String(pending.channelId))
             || await guild.channels.fetch(String(pending.channelId)).catch(() => null);
