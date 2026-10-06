@@ -83,6 +83,22 @@ function normalizeEmbedSnapshot(value) {
     }
 }
 
+function normalizeMessageComponents(value) {
+    if (!Array.isArray(value)) return [];
+    try {
+        return value
+            .slice(0, 5)
+            .map(row => row?.toJSON ? row.toJSON() : JSON.parse(JSON.stringify(row)))
+            .filter(row => row && Number(row.type) === 1 && Array.isArray(row.components))
+            .map(row => ({
+                ...row,
+                components: row.components.slice(0, 5),
+            }));
+    } catch {
+        return [];
+    }
+}
+
 function rememberEmbedSnapshot(record, embed) {
     if (!record?.channelId || !record?.messageId || !embed) return;
     const key = recordKey(record);
@@ -118,7 +134,10 @@ function botHistorySnapshotIdentity(record) {
         return [
             physicalChannelId(record),
             Math.max(0, Number(record?.embedIndex) || 0),
-            JSON.stringify(record.snapshot),
+            JSON.stringify({
+                snapshot: record.snapshot,
+                components: normalizeMessageComponents(record.components),
+            }),
         ].join(':');
     } catch {
         return '';
@@ -531,6 +550,7 @@ async function saveRecords(guildId, additions) {
                     ...record,
                     ...existing,
                     snapshot: record.snapshot || existing.snapshot,
+                    components: record.components,
                     updatedAt: record.updatedAt,
                 });
                 continue;
@@ -582,6 +602,7 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                         name: embedName(embed),
                         channelName: message.channel?.name || '',
                         snapshot: normalizeEmbedSnapshot(embed),
+                        components: normalizeMessageComponents(message.components),
                         detached: false,
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
