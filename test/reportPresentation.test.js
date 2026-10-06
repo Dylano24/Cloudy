@@ -14,7 +14,7 @@ test('every newly filed report gets its number before the original report is sen
     assert.ok(numberAt >= 0 && sendAt > numberAt, `${file} must reserve the number before logEvent`);
     assert.match(source, /title: 'New report'/);
     assert.doesNotMatch(source, /New report • #\$\{reportNumber\}/);
-    assert.match(source, /name: `Report #\$\{reportNumber\}`[\s\S]*value: '\\u200B'/);
+    assert.match(source, /name: 'Report'[\s\S]*value: `#\$\{reportNumber\}`/);
     assert.match(source, /number: reportNumber/);
   }
 });
@@ -77,13 +77,14 @@ test('report logs are informational only and private cases own Delete case', () 
 });
 
 
-test('report case embeds use compact Case + report-number presentation', () => {
+test('report case embeds use compact Report + hash-number presentation', () => {
   const lifecycle = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
-  const matches = lifecycle.match(/name: 'Case', value: `report-\$\{record\.number\}`, inline: true/g) || [];
+  const matches = lifecycle.match(/name: 'Report', value: `#\$\{record\.number\}`, inline: true/g) || [];
   assert.equal(matches.length, 3);
-  assert.doesNotMatch(lifecycle, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
+  assert.doesNotMatch(lifecycle, /name: 'Case'/);
+  assert.doesNotMatch(lifecycle, /value: `report-\$\{record\.number\}`/);
 
-  // New report and Report handled keep their separate report-number presentation.
+  // New report and Report handled keep their existing presentation.
   const actions = fs.readFileSync('src/services/reportActionService.js', 'utf8');
   assert.match(actions, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
 });
