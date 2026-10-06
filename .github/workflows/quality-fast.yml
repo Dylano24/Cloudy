@@ -60,6 +60,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
 
+      - name: Validate Railway startup patches
+        run: |
+          node scripts/apply-startup-patches.js
+          node --check src/commands/Tools/embedbuilder.js
+          node --check src/commands/Tools/zz_embedbuilderLiveSearchPatch.js
+          node --check src/services/embedManagerService.js
+
       # Final release gate: lint and the complete regression suite must both stay green.
       - name: Lint and tests in parallel
         shell: bash
