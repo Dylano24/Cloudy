@@ -52,9 +52,45 @@ patchFile('src/services/embedBuilderButtonEditorService.js', text => {
         : item.component.disabled
           ? 'Disabled'
           : 'Response';
-      return '**' + (index + 1) + '. ' + buttonLabel(item.component, index) + '** — ' + type;
+      const emoji = buttonEmojiText(item.component);
+      return '**' + (index + 1) + '. ' + buttonLabel(item.component, index) + '** — ' + type
+        + (emoji ? ' • ' + emoji : '');
     })
     : ['No buttons are attached yet.'];
+
+  const components = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('embed_button_add_response')
+        .setLabel('Add response button')
+        .setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+
+  const emojiTargets = buttons
+    .filter(item => Number(item.component.style) !== ButtonStyle.Premium)
+    .slice(0, 25);
+  if (emojiTargets.length) {
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('embed_button_emoji_target')
+          .setPlaceholder('Add custom emoji to button')
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(...emojiTargets.map((item, index) =>
+            new StringSelectMenuOptionBuilder()
+              .setLabel(buttonLabel(item.component, index))
+              .setDescription(
+                (buttonEmojiText(item.component)
+                  ? 'Current emoji: ' + buttonEmojiText(item.component)
+                  : 'Choose custom emoji').slice(0, 100)
+              )
+              .setValue(item.key)
+          )),
+      ),
+    );
+  }
 
   return {
     embeds: [
@@ -64,18 +100,11 @@ patchFile('src/services/embedBuilderButtonEditorService.js', text => {
           ...lines,
           '',
           'Add a response or link button from the same form.',
-        ].join('\\n').slice(0, 4096))
+          emojiTargets.length ? 'Choose a button below to add or replace its custom emoji.' : null,
+        ].filter(Boolean).join('\\n').slice(0, 4096))
         .setColor(0xFFFFFF),
     ],
-    components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('embed_button_add_response')
-          .setLabel('Add response button')
-          .setStyle(ButtonStyle.Secondary),
-
-      ),
-    ],
+    components,
   };
 }
 
@@ -264,9 +293,13 @@ async function replyButtonEditorError(interaction, content) {
     : 'new';
   state.componentsDirty = true;
 
+  const emojiTarget = lastButtonKey(next);
   await submitted.deferUpdate().catch(() => {});
   await panelMessage.edit(managerPayload(state)).catch(() => {});
   await refreshBuilder(submitted, state).catch(() => {});
+  if (emojiTarget) {
+    await openButtonEmojiBrowser(submitted, state, emojiTarget, refreshBuilder, panelMessage).catch(() => {});
+  }
   await closeButtonEditorPanel(submitted, state).catch(() => {});
 }`;
     text = text.slice(0, start) + replacement + text.slice(end);
