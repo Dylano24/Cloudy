@@ -173,3 +173,22 @@ test('existing button preview copy keeps real actions inert', () => {
   assert.equal(Boolean(saved[0].components[0].disabled), false);
   assert.equal(Boolean(saved[0].components[1].disabled), false);
 });
+
+
+test('final Railway Builder source preserves commercial button contracts', async () => {
+  const fs = await import('node:fs');
+  const builder = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const manager = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+  const registry = fs.readFileSync('src/services/embedRegistryService.js', 'utf8');
+
+  assert.match(builder, /\.setLabel\('Remove button'\)/);
+  assert.match(builder, /removeRightmostBuilderButton\(state\.componentRows\)/);
+  assert.match(builder, /syncBuilderButtonPreview\(interaction, state\)/);
+  assert.match(builder, /syncBuilderButtonPreview\(buttonInteraction, state\)/);
+
+  assert.match(manager, /loadBuilderComponentsFromRecord\(state, record\)/);
+  assert.match(manager, /loadBuilderComponentsFromMessage\(state, message\)/);
+  assert.match(manager, /hydrateBuilderMessageComponents\(guild, state\)/);
+
+  assert.match(registry, /components:\s*normalizeMessageComponents\(message\.components\)/);
+});
