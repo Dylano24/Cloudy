@@ -366,25 +366,38 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
         .at(-1) || null;
 }
 
+function canonicalSearchDynamicText(value = '') {
+    return normalize(
+        String(value || '')
+            .replace(/\{dynamic\}/gi, ' dynamicvalue ')
+            .replace(/<t:\d+(?::[tTdDfFR])?>/g, ' dynamicvalue ')
+            .replace(/<@!?\d+>|<@&\d+>|<#\d+>/g, ' dynamicvalue ')
+            .replace(/<a?:[^:>]+:\d+>/g, ' dynamicvalue ')
+            .replace(/https?:\/\/\S+/gi, ' dynamicvalue ')
+            .replace(/\$[\d,.]+|\b\d+(?:\.\d+)?%?\b/g, ' dynamicvalue ')
+            .replace(/\b[a-z0-9]+(?:[-_][a-z0-9]+)+\b/gi, ' dynamicvalue '),
+    );
+}
+
 function visibleSearchShape(value = {}) {
     const data = value?.toJSON ? value.toJSON() : (value || {});
     const authorName = String(data?.author?.name || '');
     const technicalAuthor = /^Cloudy template key:/i.test(authorName);
 
     return {
-        title: clean(data?.title, 256),
-        description: String(data?.description || '').trim(),
+        title: canonicalSearchDynamicText(data?.title),
+        description: canonicalSearchDynamicText(data?.description),
         fields: Array.isArray(data?.fields)
             ? data.fields.map(field => ({
-                name: String(field?.name || '').trim(),
-                value: String(field?.value || '').trim(),
+                name: canonicalSearchDynamicText(field?.name),
+                value: canonicalSearchDynamicText(field?.value),
                 inline: Boolean(field?.inline),
             }))
             : [],
-        footer: data?.footer?.text ? { text: String(data.footer.text).trim() } : null,
+        footer: canonicalSearchDynamicText(data?.footer?.text),
         image: data?.image?.url ? { url: String(data.image.url) } : null,
         thumbnail: data?.thumbnail?.url ? { url: String(data.thumbnail.url) } : null,
-        author: !technicalAuthor && authorName ? { name: authorName.trim() } : null,
+        author: !technicalAuthor ? canonicalSearchDynamicText(authorName) : '',
     };
 }
 
@@ -490,11 +503,6 @@ function choiceDetail(match) {
     return '';
 }
 
-function shortRecordId(record) {
-    const id = String(record?.messageId || '');
-    return id.length > 6 ? id.slice(-6) : id;
-}
-
 export function buildSearchChoices(matches) {
     const list = Array.isArray(matches) ? matches : [];
     const titleCounts = new Map();
@@ -530,15 +538,14 @@ export function buildSearchChoices(matches) {
         usedNames.set(baseName, seen + 1);
 
         if (seen > 0) {
-            const idSuffix = shortRecordId(record);
             name = clean(
-                `${baseName} • ${idSuffix || seen + 1}`,
+                `${baseName} • Variant ${seen + 1}`,
                 100,
             );
 
             let collision = usedNames.get(name) || 0;
             while (collision > 0) {
-                name = clean(`${baseName} • ${idSuffix || 'item'}-${collision + 1}`, 100);
+                name = clean(`${baseName} • Variant ${seen + collision + 1}`, 100);
                 collision = usedNames.get(name) || 0;
             }
             usedNames.set(name, 1);
