@@ -183,8 +183,9 @@ test('final Railway Builder source preserves commercial button contracts', async
 
   assert.match(builder, /\.setLabel\('Remove button'\)/);
   assert.match(builder, /removeRightmostBuilderButton\(state\.componentRows\)/);
-  assert.match(builder, /syncBuilderButtonPreview\(interaction, state\)/);
-  assert.match(builder, /syncBuilderButtonPreview\(buttonInteraction, state\)/);
+  assert.match(builder, /components:\s*getBuilderPreviewComponents\(state\)/);
+  assert.match(builder, /BUILDER_EXISTING_BUTTON_PREVIEW_V1/);
+  assert.match(builder, /hydrateBuilderMessageComponents\(interaction\.guild, state\)/);
 
   assert.match(manager, /loadBuilderComponentsFromRecord\(state, record\)/);
   assert.match(manager, /loadBuilderComponentsFromMessage\(state, message\)/);
