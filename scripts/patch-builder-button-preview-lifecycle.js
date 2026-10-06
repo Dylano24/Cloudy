@@ -94,14 +94,21 @@ async function closeButtonEditorPanel(interaction, state) {
 patchFile('src/commands/Tools/embedbuilder.js', text => {
   // Import the full lifecycle cleanup helper without depending on import order.
   if (!text.includes('cleanupBuilderButtonUi')) {
-    const importMatch = text.match(/import \\{([\\s\\S]*?)\\} from '\\.\\.\\/\\.\\.\\/services\\/embedBuilderButtonEditorService\\.js';/);
-    if (!importMatch) {
+    const importEndToken = "} from '../../services/embedBuilderButtonEditorService.js';";
+    const importEnd = text.indexOf(importEndToken);
+    const importStart = importEnd >= 0 ? text.lastIndexOf('import {', importEnd) : -1;
+    if (importStart < 0 || importEnd < 0) {
       throw new Error('[BUILDER_BUTTON_LIFECYCLE] Builder button import missing');
     }
-    const names = importMatch[1].split(',').map(value => value.trim()).filter(Boolean);
+    const importBlock = text.slice(importStart, importEnd + importEndToken.length);
+    const names = importBlock
+      .slice(importBlock.indexOf('{') + 1, importBlock.lastIndexOf('}'))
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
     if (!names.includes('cleanupBuilderButtonUi')) names.unshift('cleanupBuilderButtonUi');
     text = text.replace(
-      importMatch[0],
+      importBlock,
       `import {
     ${names.join(',\\n    ')},
 } from '../../services/embedBuilderButtonEditorService.js';`,
