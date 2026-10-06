@@ -56,6 +56,8 @@ export function scheduleTransientMessageDeletion(message) {
 }
 
 export async function scheduleTransientInteractionReplyDeletion(interaction) {
+  // BUILDER_PREVIEW_LIFETIME_V2: /embedbuilder owns its original preview lifetime.
+  if (String(interaction?.commandName || '').trim().toLowerCase() === 'embedbuilder') return false;
   // The lifecycle owns explicit exceptions, including the 120-second report acknowledgement.
   // Never add a competing 10-second timer after command.execute().
   if (getResponseLifetime(interaction) !== undefined) return false;
