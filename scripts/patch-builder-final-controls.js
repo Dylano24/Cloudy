@@ -167,8 +167,8 @@ patchPreviewLifetimeFile('src/utils/interactionMessageLifecycle.js', lifecycle =
   }
 
   next = next.replaceAll(
-    'if (shouldUseTransientTimer(payload, message)) {',
-    'if (shouldUseTransientTimer(payload, message, interaction)) {',
+    'shouldUseTransientTimer(payload, message)',
+    'shouldUseTransientTimer(payload, message, interaction)',
   );
 
   if (!next.includes('shouldUseTransientTimer(payload, message, interaction)')) {
