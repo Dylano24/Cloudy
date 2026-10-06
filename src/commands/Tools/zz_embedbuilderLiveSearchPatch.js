@@ -313,15 +313,34 @@ function stableSearchJson(value) {
     return sorted;
 }
 
-function exactAutomatedSearchIdentity(record) {
+function canonicalAutomatedSearchIdentity(record) {
     const source = String(record?.source || '').toLowerCase();
     if (['embed-builder', 'system-catalog', 'bot-history', 'history'].includes(source)) return '';
+
+    const title = normalize(recordTitle(record));
+    const stableContext = stableSearchTemplateContext(record);
+
+    // Template-backed records are one editable Cloudy response even when that
+    // response is emitted in several activity channels with different dynamic
+    // runtime text. A stable context wins when available; otherwise the
+    // canonical template title is the source identity.
+    if (source.includes('template')) {
+        return JSON.stringify({
+            kind: 'template-title',
+            context: stableContext,
+            title,
+        });
+    }
 
     const data = snapshot(record);
     if (!data || typeof data !== 'object' || !Object.keys(data).length) return '';
 
     try {
+        // Non-template automated messages are only mirrors when the complete
+        // visible payload and buttons are identical. Same-title/different-body
+        // responses remain separate.
         return JSON.stringify(stableSearchJson({
+            kind: 'exact-runtime',
             snapshot: data,
             components: Array.isArray(record?.components) ? record.components : [],
         }));
@@ -331,7 +350,8 @@ function exactAutomatedSearchIdentity(record) {
 }
 
 function builderSearchDisplayRecords(records) {
-    // Search stays complete, but a canonical Cloudy template is shown only once.
+    // Search stays complete: manual embeds stay physical and unique, while
+    // repeated copies of the same automated/template response are one searchable item.
     // Runtime/history mirrors are not separate editable Builder items.
     const unique = new Map();
 
@@ -348,17 +368,16 @@ function builderSearchDisplayRecords(records) {
         const stableKey = stableSearchTemplateKey(record);
         const stableContext = stableSearchTemplateContext(record);
         const title = normalize(recordTitle(record));
-        const exactAutomatedIdentity = exactAutomatedSearchIdentity(record);
+        const canonicalAutomatedIdentity = canonicalAutomatedSearchIdentity(record);
 
         const key = stableKey
             ? ['template', stableKey, stableContext].join(':')
             : source === 'system-catalog'
                 ? ['catalog', stableContext, title].join(':')
-                : exactAutomatedIdentity
+                : canonicalAutomatedIdentity
                     ? [
-                        'automated-exact',
-                        String(record?.backingChannelId || channelId),
-                        exactAutomatedIdentity,
+                        'automated-canonical',
+                        canonicalAutomatedIdentity,
                     ].join(':')
                     : [
                         'physical',
