@@ -61,7 +61,12 @@ jobs:
         run: npm ci --prefer-offline --no-audit
 
       - name: Validate Railway startup patches
+        shell: bash
         run: |
+          STARTUP_CHECK_DIR="$(mktemp -d)"
+          cp -a . "$STARTUP_CHECK_DIR/repo"
+          cd "$STARTUP_CHECK_DIR/repo"
+          rm -f .startup-patches.json
           node scripts/apply-startup-patches.js
           node --check src/commands/Tools/embedbuilder.js
           node --check src/commands/Tools/zz_embedbuilderLiveSearchPatch.js
