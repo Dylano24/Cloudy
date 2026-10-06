@@ -357,6 +357,30 @@ test('No sanction closes the report without moderation and notifies both members
   assert.match(json(handled.embeds[0]).description, /no sanction was applied/i);
 });
 
+test('failed Delete + timeout performs no partial delete and still allows No sanction', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  const originalFetch = f.guild.members.fetch;
+  f.guild.members.fetch = async id => id === 'target' ? null : originalFetch(id);
+
+  const timedOut = [];
+  t.mock.method(ModerationService, 'timeoutUser', async data => { timedOut.push(data); });
+
+  await assert.rejects(f.submit('delete_timeout'), /no longer in this server/);
+  assert.deepEqual(f.removed, []);
+  assert.equal(timedOut.length, 0);
+
+  let record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  assert.equal(record.actions?.delete?.status, undefined);
+  assert.equal(record.actions?.timeout?.status, undefined);
+  assert.ok(f.report.components.length > 0);
+
+  record = await f.submit('no_sanction');
+  assert.equal(record.actions.no_sanction.status, 'completed');
+  assert.equal(record.actions.no_sanction.notified, true);
+  assert.deepEqual(f.report.components, []);
+});
+
 test('Delete + timeout performs both actions once and explains both outcomes', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
