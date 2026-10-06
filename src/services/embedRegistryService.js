@@ -821,6 +821,7 @@ function recordsFromMessage(message, priorRecords = [], { allowManual = false } 
                 name: embedName(embed),
                 channelName: message.channel?.name || prior?.channelName || '',
                 snapshot: normalizeEmbedSnapshot(embed),
+                components: normalizeMessageComponents(message.components),
                 detached: false,
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
             });
