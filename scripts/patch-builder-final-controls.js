@@ -546,7 +546,7 @@ patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
     let block = next.slice(loaderStart, loaderEnd);
     if (!block.includes('loadBuilderComponentsFromRecord(')) {
       block = block.replace(
-        /\n    return true;\n}\s*$/,
+        /\n {4}return true;\n}\s*$/,
         "\n    loadBuilderComponentsFromRecord(state, previewRecord || record);\n    return true;\n}\n",
       );
       next = next.slice(0, loaderStart) + block + next.slice(loaderEnd);
