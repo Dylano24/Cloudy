@@ -87,3 +87,22 @@ test('Search never collapses manual Builder embeds just because title/content ma
 
   assert.equal(buildMatches(guild, records, 'rules').length, 2);
 });
+
+
+test('same automated response shown in different channels is still one Search result', () => {
+  const guild = {
+    channels: {
+      cache: new Map([
+        ['botlog', { id: 'botlog', name: 'botlog', parent: null }],
+        ['general', { id: 'general', name: 'general', parent: null }],
+      ]),
+    },
+  };
+
+  const matches = buildMatches(guild, [
+    automated({ id: '1', channelId: 'botlog', description: 'Task 123 was removed.' }),
+    automated({ id: '2', channelId: 'general', description: 'Task 456 was removed.' }),
+  ], 'task removed');
+
+  assert.equal(matches.length, 1);
+});
