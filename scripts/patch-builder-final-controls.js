@@ -142,6 +142,7 @@ if (!buttonImport) {
   throw new Error('[BUILDER_FINAL_CONTROLS] button service import missing');
 }
 const requiredButtonImports = [
+  'getBuilderPreviewComponents',
   'hydrateBuilderMessageComponents',
   'removeRightmostBuilderButton',
   'syncBuilderButtonPreview',
@@ -175,30 +176,38 @@ const removeReplacement = `case 'simple_embed_clear_buttons':
                                 : 'new';
                             await buttonInteraction.deferUpdate().catch(() => {});
                             await refreshBuilder(buttonInteraction, state);
-                            await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});
                             break;
                         }`;
 text = text.slice(0, removeStart) + removeReplacement + text.slice(removeEnd);
 
-// Existing buttons must be visible immediately when Search/Modify opens an
-// older stored record. Stored component metadata is instant; legacy records
-// get one non-blocking live fetch and then update the display-only preview.
-if (!text.includes('syncBuilderButtonPreview(interaction, state)')) {
-  const dashboardAnchor = '            const dashboardMessage = await interaction.fetchReply();';
-  if (!text.includes(dashboardAnchor)) {
-    throw new Error('[BUILDER_FINAL_CONTROLS] initial Builder dashboard anchor missing');
-  }
-  const initialButtonPreview = `            await syncBuilderButtonPreview(interaction, state).catch(() => {});
-            void hydrateBuilderMessageComponents(interaction.guild, state)
-                .then(async changed => {
-                    if (changed) {
-                        await syncBuilderButtonPreview(interaction, state).catch(() => {});
-                    }
-                })
-                .catch(() => null);
+// The top live preview owns a display-only copy of the real components.
+// Real Save/Post payloads still use getBuilderMessageComponents(state), so the
+// original clickable buttons are never disabled or rewritten by previewing.
+text = text.replaceAll(
+  'components: getBuilderMessageComponents(state),',
+  'components: getBuilderPreviewComponents(state),',
+);
 
-`;
-  text = text.replace(dashboardAnchor, initialButtonPreview + dashboardAnchor);
+const existingButtonPreviewMarker = 'BUILDER_EXISTING_BUTTON_PREVIEW_V1';
+if (!text.includes(existingButtonPreviewMarker)) {
+  const startupAnchors = [
+    '            state.builderDashboardWebhook = builderBotManaged ? null : interaction.webhook;',
+    '            state.builderDashboardWebhook = interaction.webhook;',
+  ];
+  const startupAnchor = startupAnchors.find(candidate => text.includes(candidate)) || null;
+  if (!startupAnchor) {
+    throw new Error('[BUILDER_FINAL_CONTROLS] final Builder delivery anchor missing');
+  }
+
+  const hydration = `
+            // ${existingButtonPreviewMarker}: older registry records may not yet
+            // contain component metadata. Fetch once without delaying first paint,
+            // then repaint only the live preview if buttons were discovered.
+            void hydrateBuilderMessageComponents(interaction.guild, state)
+                .then(changed => changed ? refreshBuilder(interaction, state) : null)
+                .catch(() => null);`;
+
+  text = text.replace(startupAnchor, startupAnchor + hydration);
 }
 
 fs.writeFileSync(path, text, 'utf8');
