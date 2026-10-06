@@ -1162,15 +1162,10 @@ export default {
                     fields: Array.isArray(state.embedFields) ? state.embedFields : [],
                 }),
                 onEditorUpdate: async (field, value) => {
-                    if (field === '__heartbeat__') {
-                        touchActiveBuilderSession(interaction, BUILDER_EDITOR_IDLE_TIMEOUT);
-                        return;
-                    }
-                    if (field === '__editor_close__') {
-                        touchActiveBuilderSession(interaction, BUILDER_IDLE_TIMEOUT);
-                        return;
-                    }
-                    touchActiveBuilderSession(interaction, BUILDER_EDITOR_IDLE_TIMEOUT);
+                    // Browser editor lifetime is owned by builderSessionCleanup/onEditorHold.
+                    // Do not reset the Discord collector here: doing that re-enables the
+                    // collector's native idle timer and can end Search previews on editor exit.
+                    if (field === '__heartbeat__' || field === '__editor_close__') return;
                     if (field === 'title') state.title = value.trim() || null;
                     if (field === 'message') state.message = value || null;
                     if (field === 'footer') state.bottomLine = value.trim() || null;
@@ -1186,7 +1181,8 @@ export default {
                     }
                 },
                 onColor: async color => {
-                    touchActiveBuilderSession(interaction, BUILDER_EDITOR_IDLE_TIMEOUT);
+                    // The editor hold already protects the Builder. Keep color edits from
+                    // resurrecting a separate native collector idle timer.
                     state.sideColor = color;
                     const refreshed = await refreshBuilder(interaction, state);
                     if (!refreshed) {
