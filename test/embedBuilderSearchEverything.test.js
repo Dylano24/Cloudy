@@ -51,7 +51,7 @@ test('Search still scores every remaining unique result after duplicate cleanup'
   assert.match(buildBody, /const matches = \[\]/);
   assert.match(buildBody, /const match = \{ record, document, score \}/);
   assert.match(buildBody, /matches\.push\(match\)/);
-  assert.match(buildBody, /exactAutomatedSearchIdentity\(record, document\)/);
+  assert.match(buildBody, /exactAutomatedSearchIdentity\(record\)/);
 });
 
 test('channel browsing keeps its existing unique-embed grouping', () => {
@@ -80,16 +80,14 @@ test('Removed from Builder is a searchable catalog response', () => {
 });
 
 
-test('Discord autocomplete produces unique human-readable names without raw template context labels', () => {
+test('Discord autocomplete never exposes internal botlog/template context labels', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-  assert.match(source, /export function buildSearchChoices\(matches\)/);
-  assert.match(source, /const usedNames = new Map\(\)/);
-  assert.match(source, /choiceDetail\(match\)/);
-  assert.match(source, /const choices = buildSearchChoices\(matches\)/);
-
-  const choiceStart = source.indexOf('function choiceDetail');
-  const choiceEnd = source.indexOf('function shortRecordId', choiceStart);
-  const choiceBody = source.slice(choiceStart, choiceEnd);
+  assert.match(source, /const titleCounts = new Map\(\)/);
+  assert.match(source, /const seenTitleIndexes = new Map\(\)/);
+  assert.match(source, /channelName/);
+  const choiceStart = source.indexOf('const choices = matches.map');
+  const respondStart = source.indexOf('await interaction.respond', choiceStart);
+  const choiceBody = source.slice(choiceStart, respondStart);
   assert.doesNotMatch(choiceBody, /stableSearchTemplateContext\(record\)/);
 });
 
