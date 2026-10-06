@@ -4,9 +4,15 @@ import { logger } from '../logger.js';
 import { validateGuildConfigOrThrow } from '../schemas.js';
 import { redisDelete, redisGetJson, redisSetJson } from '../redisCache.js';
 
-function redisCacheTtlForKey(key) {
+export function redisCacheTtlForKey(key) {
     if (typeof key !== 'string') return 0;
+
+    // Durable PostgreSQL remains the source of truth. Redis only accelerates
+    // read-heavy data whose mutation paths already flow through setInDb/deleteFromDb,
+    // giving us write-through updates and immediate invalidation.
     if (key.startsWith('cloudy:builder-button-action:')) return 6 * 60 * 60_000;
+    if (key.startsWith('cloudy:embed-registry:')) return 5 * 60_000;
+    if (key.startsWith('cloudy:system-embed-catalog:')) return 15 * 60_000;
     if (key.startsWith('cloudy:embed-reappear-index:')) return 60_000;
     if (key.startsWith('cloudy:embed-reappear:')) return 30_000;
     return 0;
