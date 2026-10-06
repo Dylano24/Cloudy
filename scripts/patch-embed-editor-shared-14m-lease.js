@@ -14,6 +14,14 @@ function replaceRequired(text, find, replace, label) {
   return text.replace(find, replace);
 }
 
+function replaceOneOfRequired(text, finds, replace, label) {
+  for (const find of finds) {
+    if (text.includes(find)) return text.replace(find, replace);
+  }
+  console.error(`[EMBED_EDITOR_EXACT_LEASE] marker not found (${label})`);
+  process.exit(1);
+}
+
 let page = fs.readFileSync(pagePath, 'utf8');
 if (!page.includes(marker)) {
   page = replaceRequired(
@@ -127,10 +135,51 @@ if (!session.includes(marker)) {
     'session starts editor timer only on open',
   );
 
-  session = replaceRequired(
+  session = replaceOneOfRequired(
     session,
-    `export async function applyEmbedColorPickerSession(token, value) {\n    const session = sessions.get(token);\n    if (!session) {\n        return { ok: false, reason: 'expired' };\n    }\n\n    touchSession(token, session);\n\n    if (value === CLOSE_PREFIX) {\n        // Closing/leaving the browser editor no longer destroys the token.\n        // It simply releases the Discord hold and starts a fresh 14-minute idle window.\n        session.holdActive = false;\n        releaseBuilderSessionHold(token);\n        scheduleSessionIdleExpiry(token, session);\n        return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };\n    }\n\n    if (value === HEARTBEAT_PREFIX) {\n        const touched = await touchEditorSession(token, session);\n        if (!touched.ok) return touched;\n        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };\n    }\n\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;`,
-    `export async function applyEmbedColorPickerSession(token, value, { editorInstanceId = null } = {}) {\n    const session = sessions.get(token);\n    if (!session) {\n        return { ok: false, reason: 'expired' };\n    }\n\n    const explicitInstanceId = normalizeEditorInstanceId(editorInstanceId);\n    const instanceId = explicitInstanceId || '__legacy_editor__';\n\n    if (typeof value === 'string' && value.startsWith(OPEN_PREFIX)) {\n        const requestedId = normalizeEditorInstanceId(value.slice(OPEN_PREFIX.length));\n        if (!explicitInstanceId || requestedId !== explicitInstanceId) {\n            return { ok: false, reason: 'editor_instance_required' };\n        }\n        const opened = await openEditorLease(token, session, instanceId);\n        if (!opened.ok) return opened;\n        return { ok: true, color: JSON.stringify({ type: 'editor_opened' }) };\n    }\n\n    if (value === CLOSE_PREFIX) {\n        // A no-ID close can be a stale cached page, so it may never release a newer page.\n        if (!explicitInstanceId) {\n            return { ok: true, color: JSON.stringify({ type: 'editor_close_ignored' }) };\n        }\n        session.closedEditorInstanceIds.add(instanceId);\n        if (session.activeEditorInstanceId !== instanceId) {\n            return { ok: true, color: JSON.stringify({ type: 'editor_close_ignored' }) };\n        }\n\n        clearSessionIdleTimer(session);\n        session.activeEditorInstanceId = null;\n        session.holdActive = false;\n        // Closing starts a fresh normal 5m Builder inactivity window.\n        releaseBuilderSessionHold(token);\n        return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };\n    }\n\n    // Backwards compatibility for an already-cached pre-instance editor page or\n    // internal caller: its first request opens one fixed legacy 14m lease. It\n    // still cannot reset that lease through typing/heartbeat/activity.\n    if (!explicitInstanceId && !session.activeEditorInstanceId) {\n        const opened = await openEditorLease(token, session, instanceId);\n        if (!opened.ok) return opened;\n    }\n\n    const active = requireActiveEditorInstance(session, instanceId);\n    if (!active.ok) return active;\n\n    if (value === HEARTBEAT_PREFIX) {\n        const touched = await touchEditorSession(token, session);\n        if (!touched.ok) return touched;\n        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };\n    }\n\n    // State, typing, emoji and color requests do NOT restart the fixed 14m.\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;`,
+    [
+      ``export async function applyEmbedColorPickerSession(token, value) {\n    const session = sessions.get(token);\n    if (!session) {\n        return { ok: false, reason: 'expired' };\n    }\n\n    touchSession(token, session);\n\n    if (value === CLOSE_PREFIX) {\n        // Closing/leaving the browser editor no longer destroys the token.\n        // It simply releases the Discord hold and starts a fresh 14-minute idle window.\n        session.holdActive = false;\n        releaseBuilderSessionHold(token);\n        scheduleSessionIdleExpiry(token, session);\n        return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };\n    }\n\n    if (value === HEARTBEAT_PREFIX) {\n        const touched = await touchEditorSession(token, session);\n        if (!touched.ok) return touched;\n        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };\n    }\n\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;`,
+      `export async function applyEmbedColorPickerSession(token, value) {
+    const session = sessions.get(token);
+    if (!session) {
+        return { ok: false, reason: 'expired' };
+    }
+
+    touchSession(token, session);
+
+    if (value === CLOSE_PREFIX) {
+        // Closing/leaving the browser editor no longer destroys the token.
+        // It simply releases the Discord hold and starts a fresh 14-minute idle window.
+        if (typeof session.onEditorUpdate === 'function') {
+            try {
+                await session.onEditorUpdate('__editor_close__', '');
+            } catch (error) {
+                if (error?.code !== 'EMBED_BUILDER_EXPIRED') throw error;
+            }
+        }
+        session.holdActive = false;
+        releaseBuilderSessionHold(token);
+        scheduleSessionIdleExpiry(token, session);
+        return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };
+    }
+
+    if (value === HEARTBEAT_PREFIX) {
+        const touched = await touchEditorSession(token, session);
+        if (!touched.ok) return touched;
+        if (typeof session.onEditorUpdate === 'function') {
+            try {
+                await session.onEditorUpdate('__heartbeat__', '');
+            } catch (error) {
+                if (error?.code !== 'EMBED_BUILDER_EXPIRED') throw error;
+            }
+        }
+        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
+    }
+
+    const held = await ensureEditorHold(token, session);
+    if (!held.ok) return held;`,
+    ],
+    ``export async function applyEmbedColorPickerSession(token, value, { editorInstanceId = null } = {}) {\n    const session = sessions.get(token);\n    if (!session) {\n        return { ok: false, reason: 'expired' };\n    }\n\n    const explicitInstanceId = normalizeEditorInstanceId(editorInstanceId);\n    const instanceId = explicitInstanceId || '__legacy_editor__';\n\n    if (typeof value === 'string' && value.startsWith(OPEN_PREFIX)) {\n        const requestedId = normalizeEditorInstanceId(value.slice(OPEN_PREFIX.length));\n        if (!explicitInstanceId || requestedId !== explicitInstanceId) {\n            return { ok: false, reason: 'editor_instance_required' };\n        }\n        const opened = await openEditorLease(token, session, instanceId);\n        if (!opened.ok) return opened;\n        return { ok: true, color: JSON.stringify({ type: 'editor_opened' }) };\n    }\n\n    if (value === CLOSE_PREFIX) {\n        // A no-ID close can be a stale cached page, so it may never release a newer page.\n        if (!explicitInstanceId) {\n            return { ok: true, color: JSON.stringify({ type: 'editor_close_ignored' }) };\n        }\n        session.closedEditorInstanceIds.add(instanceId);\n        if (session.activeEditorInstanceId !== instanceId) {\n            return { ok: true, color: JSON.stringify({ type: 'editor_close_ignored' }) };\n        }\n\n        clearSessionIdleTimer(session);\n        session.activeEditorInstanceId = null;\n        session.holdActive = false;\n        // Closing starts a fresh normal 5m Builder inactivity window.\n        releaseBuilderSessionHold(token);\n        return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };\n    }\n\n    // Backwards compatibility for an already-cached pre-instance editor page or\n    // internal caller: its first request opens one fixed legacy 14m lease. It\n    // still cannot reset that lease through typing/heartbeat/activity.\n    if (!explicitInstanceId && !session.activeEditorInstanceId) {\n        const opened = await openEditorLease(token, session, instanceId);\n        if (!opened.ok) return opened;\n    }\n\n    const active = requireActiveEditorInstance(session, instanceId);\n    if (!active.ok) return active;\n\n    if (value === HEARTBEAT_PREFIX) {\n        const touched = await touchEditorSession(token, session);\n        if (!touched.ok) return touched;\n        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };\n    }\n\n    // State, typing, emoji and color requests do NOT restart the fixed 14m.\n    const held = await ensureEditorHold(token, session);\n    if (!held.ok) return held;`,
     'exact open close and non-reset activity semantics',
   );
 
