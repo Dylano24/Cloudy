@@ -1,4 +1,4 @@
-import { registerReport } from '../../../services/reportCaseService.js';
+import { nextReportNumber, registerReport } from '../../../services/reportCaseService.js';
 import { createEmbed } from '../../../utils/embeds.js';
 import { logEvent, EVENT_TYPES } from '../../../services/loggingService.js';
 import { formatLogLine, resolveUserAuthor } from '../../../utils/logging/logEmbeds.js';
@@ -82,7 +82,11 @@ export default {
             );
         }
 
-        const blockFields = [{ name: 'Reason', value: reason }];
+        const reportNumber = await nextReportNumber(client, guildId);
+        const blockFields = [
+            { name: 'Report', value: `Report #${reportNumber}`, inline: true },
+            { name: 'Reason', value: reason },
+        ];
         if (reportedMessage?.content) {
             blockFields.push({
                 name: 'Reported Message',
@@ -104,7 +108,7 @@ export default {
             content: ownerMention,
             attachments: reportAttachments,
             data: {
-                title: 'Message / Picture Report',
+                title: `New report • #${reportNumber}`,
                 lines,
                 blockFields,
                 author: await resolveUserAuthor(client, targetUser.id),
@@ -113,12 +117,12 @@ export default {
         });
 
         if (!logged) throw new Error('The report could not be delivered to the reports channel.');
-        await registerReport(client, logged, { guildId, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id });
+        await registerReport(client, logged, { guildId, number: reportNumber, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id });
         setResponseLifetime(interaction, 120_000);
         await InteractionHelper.safeEditReply(interaction, {
             embeds: [createEmbed({
                 title: 'Report Submitted',
-                description: `Your report against **${targetUser.tag}** has been successfully filed and sent to the moderation team. Thank you!`,
+                description: `Report #${reportNumber} against **${targetUser.tag}** has been successfully filed and sent to the moderation team. Thank you!`,
             })],
         });
 
@@ -128,6 +132,7 @@ export default {
             reportedUserId: targetUser.id,
             guildId,
             reasonLength: reason.length,
+            reportNumber,
         });
     },
 };
