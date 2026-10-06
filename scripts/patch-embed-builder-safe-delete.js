@@ -343,16 +343,18 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     text = text.slice(0, insertAt) + pendingBranch + text.slice(insertAt);
   }
 
-  text = replaceRequired(
-    text,
-    `                        case 'simple_embed_close':`,
-    `                        case 'simple_embed_delete_from_builder':
+  if (!text.includes("case 'simple_embed_delete_from_builder':")) {
+    text = replaceRequired(
+      text,
+      `                        case 'simple_embed_close':`,
+      `                        case 'simple_embed_delete_from_builder':
                             await buttonInteraction.deferUpdate().catch(() => {});
                             await togglePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
                             break;
                         case 'simple_embed_close':`,
-    'Delete from Builder handler',
-  );
+      'Delete from Builder handler',
+    );
+  }
 
   {
     const resetCase = text.indexOf("case 'simple_embed_reset':");
