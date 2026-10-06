@@ -121,10 +121,12 @@ patchFile('src/services/embedManagerService.js', text => {
     text = text.replace(marker, helper + marker);
   }
 
-  text = text.replace(
-    'function loadRecordSnapshotIntoState(state, guild, record) {',
-    'export function loadRecordSnapshotIntoState(state, guild, record) {'
-  );
+  if (!text.includes('export function loadRecordSnapshotIntoState(state, guild, record) {')) {
+    text = text.replace(
+      'function loadRecordSnapshotIntoState(state, guild, record) {',
+      'export function loadRecordSnapshotIntoState(state, guild, record) {'
+    );
+  }
 
   text = text.replace(
 `                if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
