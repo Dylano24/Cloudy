@@ -101,7 +101,7 @@ async function refreshBuilder(interaction, state) {
 
     const previewPayload = {
         embeds: [buildPreviewEmbed(state)],
-        components: getBuilderMessageComponents(state),
+        components: getBuilderPreviewComponents(state),
         attachments: [],
     };
 
@@ -159,7 +159,7 @@ if (initialStart < 0 || initialEnd < 0) {
 
 const initialReplacement = `            const initialShown = await InteractionHelper.safeReply(interaction, {
                 embeds: [buildPreviewEmbed(state)],
-                components: getBuilderMessageComponents(state),
+                components: getBuilderPreviewComponents(state),
                 ...(builderBotManaged ? {} : { flags: MessageFlags.Ephemeral }),
             });
             if (!initialShown) return;`;
@@ -227,4 +227,4 @@ if (closeStart >= 0) {
 }
 
 fs.writeFileSync(path, text, 'utf8');
-console.log('[BUILDER_PREVIEW_PLACEMENT] custom buttons now render under the top preview, not under Message builder.');
+console.log('[BUILDER_PREVIEW_PLACEMENT] existing/custom buttons render disabled under the top preview, not under Message builder.');
