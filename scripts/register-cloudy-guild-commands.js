@@ -101,6 +101,7 @@ async function loadPayloads() {
     } catch (error) {
       loadErrors.push({ file, message: error.message });
       console.error(`[COMMAND_SYNC] Failed loading ${file}: ${error.message}`);
+      console.error(error?.stack || error);
     }
   }
 
