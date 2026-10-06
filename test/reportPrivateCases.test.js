@@ -119,7 +119,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.equal(successData.title, 'Report handled');
   assert.equal(successData.description, 'The reported message has been deleted.');
   assert.equal(successData.color, CLOUDY_GREEN_COLOR);
-  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(successData.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
   assert.ok(successData.fields.some(field => field.name === 'Handled by' && field.value === '<@staff>'));
   assert.ok(successData.fields.some(field => field.name === 'Handled at'));
   assert.deepEqual(publicSuccess[0].allowedMentions, { parse: [] });
@@ -170,7 +170,7 @@ test('target Close creates a private red Delete case prompt while report logs st
   assert.equal(promptData.title, 'Delete case');
   assert.equal(promptData.color, CLOUDY_RED_COLOR);
   assert.ok(promptData.thumbnail?.url);
-  assert.deepEqual(prompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
+  assert.deepEqual(prompt.components[0].toJSON().components.map(button => button.label), ['Delete']);
 
   const log = f.logs.messages.cache.get(record.cases.target.closeLogId);
   const logData = json(log.embeds[0]);
@@ -271,8 +271,8 @@ test('reporter Close removes only reporter access; Staff deletes each closed cas
 
   const reporterPrompt = reporterChannel.messages.cache.get(record.cases.reporter.deletePromptId);
   const targetPrompt = targetChannel.messages.cache.get(record.cases.target.deletePromptId);
-  assert.deepEqual(reporterPrompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
-  assert.deepEqual(targetPrompt.components[0].toJSON().components.map(button => button.label), ['Delete case']);
+  assert.deepEqual(reporterPrompt.components[0].toJSON().components.map(button => button.label), ['Delete']);
+  assert.deepEqual(targetPrompt.components[0].toJSON().components.map(button => button.label), ['Delete']);
 
   await handleReportCaseControl(f.interaction(f.staff.user, reporterPrompt, reporterChannel.id), f.client, ['delete', 'report', 'reporter']);
   assert.ok(f.channels.has(targetChannel.id));
@@ -360,7 +360,7 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.equal(data.title, 'Report handled');
   assert.equal(data.description, 'The reported member has been timed out.');
   assert.equal(data.color, CLOUDY_GREEN_COLOR);
-  assert.ok(data.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(data.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
   assert.ok(data.fields.some(field => field.name === 'Handled by' && field.value === '<@staff>'));
   t.mock.timers.tick(10_000); await settle();
   assert.ok(f.reports.messages.cache.has(success.id));
@@ -385,7 +385,7 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   assert.equal(successData.title, 'Report handled');
   assert.equal(successData.description, 'The reported member has been banned.');
   assert.equal(successData.color, CLOUDY_GREEN_COLOR);
-  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(successData.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
   assert.ok(successData.fields.some(field => field.name === 'Handled by' && field.value === '<@role-owner>'));
   t.mock.timers.tick(10_000); await settle();
   assert.ok(f.reports.messages.cache.has(success.id));
