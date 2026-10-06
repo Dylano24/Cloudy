@@ -62,6 +62,21 @@ export async function hydrateBuilderPreviewRecord(guild, record, previewRecord, 
   if (!record) return previewRecord;
   const snapshot = record.snapshot || {};
   const title = snapshot.title || record.title || record.name;
+
+  // A concrete live Discord message is the canonical preview for every panel.
+  // Runtime-preview cache is only a fallback for catalog/template responses
+  // that do not have a real live message to show. This prevents temporary
+  // responses with the same title (FAQ answers, purge results, etc.) from
+  // contaminating a persistent panel's Builder preview.
+  const livePreviewSource = String(previewRecord?.source || '').toLowerCase();
+  const hasLivePreview = Boolean(
+    previewRecord?.messageId
+    && !previewRecord?.detached
+    && livePreviewSource !== 'system-catalog'
+    && previewRecord?.snapshot
+    && typeof previewRecord.snapshot === 'object'
+  );
+  if (hasLivePreview) return previewRecord;
   if (/^economy leaderboard$/i.test(String(title || '').trim())) {
     const embed = await buildEconomyLeaderboardEmbed(guild.client, guild.id, userId);
     return { ...record, source: 'runtime-preview', snapshot: embed.toJSON() };
