@@ -40,21 +40,32 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
     'Embed Builder startup emoji fetch',
   );
 
-  text = replaceRequired(
-    text,
-`            await refreshBuilder(interaction, state);
-
-            const dashboardMessage = await interaction.fetchReply();`,
-`            const initialShown = await InteractionHelper.safeReply(interaction, {
+  const directInitialReply = `            const initialShown = await InteractionHelper.safeReply(interaction, {
                 embeds: [buildPreviewEmbed(state), buildControlEmbed(state)],
                 components: buildControls(state),
                 flags: MessageFlags.Ephemeral,
             });
-            if (!initialShown) return;
+            if (!initialShown) return;`;
 
-            const dashboardMessage = await interaction.fetchReply();`,
-    'Embed Builder direct initial reply',
-  );
+  if (!text.includes(directInitialReply)) {
+    const refreshAnchor = '            await refreshBuilder(interaction, state);';
+    const dashboardAnchor = '            const dashboardMessage = await interaction.fetchReply();';
+    const refreshIndex = text.indexOf(refreshAnchor);
+    const dashboardIndex = text.indexOf(dashboardAnchor, refreshIndex + refreshAnchor.length);
+
+    if (refreshIndex < 0 || dashboardIndex < 0) {
+      throw new Error('[UI_LATENCY] Could not find Embed Builder direct initial reply; refusing to start with an unknown source shape.');
+    }
+
+    // Preserve any current work between the first paint and fetchReply (for
+    // example existing-button hydration) while replacing only the obsolete
+    // defer/edit first paint with one direct ephemeral reply.
+    const between = text.slice(refreshIndex + refreshAnchor.length, dashboardIndex);
+    text = text.slice(0, refreshIndex)
+      + directInitialReply
+      + between
+      + text.slice(dashboardIndex);
+  }
 
   text = replaceRequired(
     text,
