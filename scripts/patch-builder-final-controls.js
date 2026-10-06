@@ -86,9 +86,10 @@ const replacement = `function buildControls(state) {
             .setEmoji('🔘'),
         new ButtonBuilder()
             .setCustomId('simple_embed_remove_buttons')
-            .setLabel('Remove buttons')
+            .setLabel('Remove button')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('⛔'),
+            .setEmoji('⛔')
+            .setDisabled(countBuilderButtons(state) === 0),
         new ButtonBuilder()
             .setCustomId('simple_embed_modify')
             .setLabel('Modify embed')
@@ -132,6 +133,53 @@ const replacement = `function buildControls(state) {
 }`;
 
 text = text.slice(0, start) + replacement + text.slice(end + 2);
+
+// Commercial button invariant: legacy migrations may still restore the old
+// clear-all handler. Final runtime removes exactly one rightmost button.
+const buttonImportPattern = /import\s*\{([\s\S]*?)\}\s*from '\.\.\/\.\.\/services\/embedBuilderButtonEditorService\.js';/;
+const buttonImport = text.match(buttonImportPattern);
+if (!buttonImport) {
+  throw new Error('[BUILDER_FINAL_CONTROLS] button service import missing');
+}
+const requiredButtonImports = [
+  'hydrateBuilderMessageComponents',
+  'removeRightmostBuilderButton',
+  'syncBuilderButtonPreview',
+];
+let buttonNames = buttonImport[1];
+for (const name of requiredButtonImports) {
+  if (!buttonNames.includes(name)) buttonNames = buttonNames.trimEnd() + `\n    ${name},`;
+}
+text = text.replace(
+  buttonImportPattern,
+  `import {${buttonNames}
+} from '../../services/embedBuilderButtonEditorService.js';`,
+);
+
+const clearCase = text.indexOf("case 'simple_embed_clear_buttons':");
+const removeCase = text.indexOf("case 'simple_embed_remove_buttons':");
+const removeStart = clearCase >= 0 && clearCase < removeCase ? clearCase : removeCase;
+const removeEnd = text.indexOf("\n                        case 'simple_embed_modify':", removeStart);
+if (removeStart < 0 || removeEnd < 0) {
+  throw new Error('[BUILDER_FINAL_CONTROLS] remove button handler missing');
+}
+const removeReplacement = `case 'simple_embed_clear_buttons':
+                        case 'simple_embed_remove_buttons': {
+                            await hydrateBuilderMessageComponents(buttonInteraction.guild, state);
+                            const before = countBuilderButtons(state);
+                            state.componentRows = removeRightmostBuilderButton(state.componentRows);
+                            const after = countBuilderButtons(state);
+                            if (after < before) state.componentsDirty = true;
+                            state.componentRowsSourceMessageId = state.modifyTarget?.messageId
+                                ? String(state.modifyTarget.messageId)
+                                : 'new';
+                            await buttonInteraction.deferUpdate().catch(() => {});
+                            await refreshBuilder(buttonInteraction, state);
+                            await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});
+                            break;
+                        }`;
+text = text.slice(0, removeStart) + removeReplacement + text.slice(removeEnd);
+
 fs.writeFileSync(path, text, 'utf8');
 console.log('[BUILDER_FINAL_CONTROLS] Add/Remove buttons, Reappear, Post/Close and Reset/Delete restored in final live layout.');
 
