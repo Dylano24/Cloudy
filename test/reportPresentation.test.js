@@ -70,7 +70,7 @@ test('report logs are informational only and private cases own Delete case', () 
   const publishBody = source.slice(publishStart, publishEnd);
   assert.match(publishBody, /components: \[\]/);
 
-  assert.match(source, /setLabel\('Delete case'\)/);
+  assert.match(source, /setLabel\('Delete'\)/);
   assert.match(source, /title: 'Delete case'/);
   assert.match(source, /Only the staff can delete this case\./);
   assert.match(source, /color: CLOUDY_RED_COLOR/);
