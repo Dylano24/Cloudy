@@ -193,3 +193,77 @@ test('final Railway Builder source preserves commercial button contracts', async
 
   assert.match(registry, /components:\s*normalizeMessageComponents\(message\.components\)/);
 });
+
+
+test('same Builder rules apply across embed families instead of one hard-coded title', () => {
+  const channelIds = ['botlog', 'logs', 'economy', 'tickets'];
+  const guild = {
+    channels: {
+      cache: new Map(channelIds.map(id => [id, { id, name: id, parent: null }])),
+    },
+  };
+
+  const automatedFamilies = [
+    ['Task Removed', 'Task removed from #botlog.'],
+    ['Verification Removed', 'Verification access was removed.'],
+    ['Role Reward Removed', 'Role reward was removed.'],
+  ];
+
+  for (const [title, description] of automatedFamilies) {
+    const records = [
+      {
+        guildId: 'guild',
+        channelId: 'botlog',
+        messageId: `${title}-1`,
+        embedIndex: 0,
+        source: 'modified',
+        title,
+        name: title,
+        snapshot: { title, description, color: 0xFFFFFF },
+      },
+      {
+        guildId: 'guild',
+        channelId: 'logs',
+        messageId: `${title}-2`,
+        embedIndex: 0,
+        source: 'cloudy',
+        title,
+        name: title,
+        snapshot: { title, description, color: 0xFFFFFF },
+      },
+    ];
+
+    assert.equal(buildMatches(guild, records, title).length, 1, title);
+  }
+
+  const templateRecords = ['crime', 'beg', 'work'].map((channelId, index) => ({
+    guildId: 'guild',
+    channelId,
+    messageId: `too-fast-${index}`,
+    embedIndex: 0,
+    source: 'modified-template',
+    title: 'Too fast',
+    name: 'Too fast',
+    snapshot: {
+      title: 'Too fast',
+      description: ['Jail cooldown', 'Beg cooldown', 'Work cooldown'][index],
+    },
+  }));
+  guild.channels.cache.set('crime', { id: 'crime', name: 'crime', parent: null });
+  guild.channels.cache.set('beg', { id: 'beg', name: 'beg', parent: null });
+  guild.channels.cache.set('work', { id: 'work', name: 'work', parent: null });
+
+  assert.equal(buildMatches(guild, templateRecords, 'too fast').length, 1);
+
+  const manualRecords = automatedFamilies.map(([title, description], index) => ({
+    guildId: 'guild',
+    channelId: 'tickets',
+    messageId: `manual-${index}`,
+    embedIndex: 0,
+    source: 'embed-builder',
+    title,
+    name: title,
+    snapshot: { title, description },
+  }));
+  assert.equal(buildMatches(guild, manualRecords, '').length, manualRecords.length);
+});
