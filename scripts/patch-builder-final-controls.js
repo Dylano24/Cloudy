@@ -134,3 +134,61 @@ const replacement = `function buildControls(state) {
 text = text.slice(0, start) + replacement + text.slice(end + 2);
 fs.writeFileSync(path, text, 'utf8');
 console.log('[BUILDER_FINAL_CONTROLS] Add/Remove buttons, Reappear, Post/Close and Reset/Delete restored in final live layout.');
+
+
+const previewLifetimeMarker = 'BUILDER_PREVIEW_LIFETIME_V2_FINAL_GUARD';
+
+function patchPreviewLifetimeFile(filePath, patcher) {
+  const before = fs.readFileSync(filePath, 'utf8').replaceAll('\r\n', '\n');
+  const after = patcher(before);
+  if (after === before) {
+    console.log(`[BUILDER_PREVIEW_LIFETIME] ${filePath}: already current`);
+    return;
+  }
+  fs.writeFileSync(filePath, after, 'utf8');
+  console.log(`[BUILDER_PREVIEW_LIFETIME] ${filePath}: patched`);
+}
+
+patchPreviewLifetimeFile('src/utils/interactionMessageLifecycle.js', lifecycle => {
+  let next = lifecycle;
+  const oldSignature = 'export function shouldUseTransientTimer(payload, message) {';
+  const finalSignature = 'export function shouldUseTransientTimer(payload, message, interaction = null) {';
+
+  if (next.includes(oldSignature)) {
+    next = next.replace(oldSignature, finalSignature);
+  }
+  if (!next.includes(finalSignature)) {
+    throw new Error('[BUILDER_PREVIEW_LIFETIME] transient timer signature missing');
+  }
+
+  const guard = `  // ${previewLifetimeMarker}: split live preview belongs to /embedbuilder.\n  if (String(interaction?.commandName || '').trim().toLowerCase() === 'embedbuilder') return false;\n`;
+  if (!next.includes(previewLifetimeMarker)) {
+    next = next.replace(finalSignature + '\n', finalSignature + '\n' + guard);
+  }
+
+  next = next.replaceAll(
+    'shouldUseTransientTimer(payload, message)',
+    'shouldUseTransientTimer(payload, message, interaction)',
+  );
+
+  if (!next.includes('shouldUseTransientTimer(payload, message, interaction)')) {
+    throw new Error('[BUILDER_PREVIEW_LIFETIME] interaction-aware transient call missing');
+  }
+  return next;
+});
+
+patchPreviewLifetimeFile('src/utils/transientResponse.js', transient => {
+  let next = transient;
+  const signature = 'export async function scheduleTransientInteractionReplyDeletion(interaction) {';
+  if (!next.includes(signature)) {
+    throw new Error('[BUILDER_PREVIEW_LIFETIME] fallback cleanup function missing');
+  }
+
+  const guard = `  // ${previewLifetimeMarker}: /embedbuilder owns its original preview lifetime.\n  if (String(interaction?.commandName || '').trim().toLowerCase() === 'embedbuilder') return false;\n`;
+  if (!next.includes(previewLifetimeMarker)) {
+    next = next.replace(signature + '\n', signature + '\n' + guard);
+  }
+  return next;
+});
+
+console.log('[BUILDER_PREVIEW_LIFETIME] Search/editor live preview excluded from every generic 10-second cleanup path.');
