@@ -11,6 +11,7 @@ const STATE_FILE = path.join(DATA_DIR, 'cloudy-monitor-state.json');
 const MAX_INCIDENTS = 100;
 const FETCH_TIMEOUT_MS = 12_000;
 const CLOUDY_SERVICE_ID = process.env.CLOUDY_SERVICE_ID || 'b853c72c-bee0-4ac9-9824-573ff6a84988';
+const MONITOR_SERVICE_ID = process.env.MONITOR_SERVICE_ID || '5c828394-2b67-4608-b027-1278f4c82184';
 
 const urls = {
   health: `${CLOUDY_BASE}/health`,
@@ -39,6 +40,57 @@ async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true }).catch(() => {});
 }
 
+function isSyntheticRailwayEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  const type = String(event.eventType || '').toLowerCase();
+  const hasSampleId = [event.deploymentId, event.serviceId, event.environmentId]
+    .some(value => String(value || '').toLowerCase().includes('sample'));
+
+  if (hasSampleId) return true;
+  if (type.startsWith('deployment.') && !event.deploymentId && !event.serviceId) return true;
+  return false;
+}
+
+function isSelfMonitorRailwayEvent(event) {
+  return Boolean(
+    event?.serviceId
+    && String(event.serviceId) === String(MONITOR_SERVICE_ID)
+  );
+}
+
+function cleanPersistedIncidents(incidents) {
+  const cleaned = [];
+  const seenPollerStates = new Set();
+
+  for (const item of incidents) {
+    // These were created only by an earlier setup-time head-change rule that is
+    // no longer part of the monitor. They are not production runtime incidents.
+    if (item?.source === 'github') continue;
+
+    if (
+      item?.source === 'railway-webhook'
+      && (isSyntheticRailwayEvent(item.railwayEvent) || isSelfMonitorRailwayEvent(item.railwayEvent))
+    ) {
+      continue;
+    }
+
+    if (item?.source === 'poller') {
+      const key = JSON.stringify({
+        status: item.status,
+        summary: item.summary,
+        failedChecks: item.failedChecks || [],
+      });
+      if (seenPollerStates.has(key)) continue;
+      seenPollerStates.add(key);
+    }
+
+    cleaned.push(item);
+    if (cleaned.length >= MAX_INCIDENTS) break;
+  }
+
+  return cleaned;
+}
+
 async function loadState() {
   try {
     const loaded = JSON.parse(await fs.readFile(STATE_FILE, 'utf8'));
@@ -48,22 +100,12 @@ async function loadState() {
         ...state,
         ...loaded,
         startedAt: state.startedAt,
-        incidents: incidents
-          .filter(item => !(
-            item?.source === 'railway-webhook'
-            && !item?.deploymentId
-            && !item?.railwayEvent?.serviceId
-            && !item?.railwayEvent?.environmentId
-            && !item?.railwayEvent?.projectId
-          ))
-          .slice(0, MAX_INCIDENTS),
+        incidents: cleanPersistedIncidents(incidents),
       };
+
       if (
-        state.latestRailwayEvent
-        && !state.latestRailwayEvent.deploymentId
-        && !state.latestRailwayEvent.serviceId
-        && !state.latestRailwayEvent.environmentId
-        && !state.latestRailwayEvent.projectId
+        isSyntheticRailwayEvent(state.latestRailwayEvent)
+        || isSelfMonitorRailwayEvent(state.latestRailwayEvent)
       ) {
         state.latestRailwayEvent = null;
       }
@@ -171,11 +213,11 @@ async function recordIncident({ source, severity, summary, evidence = {}, likely
       migration: state.checks.migration?.status || 'unknown',
       dockerPublish: state.checks.docker?.status || 'unknown',
     },
-    railwayEvent: evidence.railwayEvent || state.latestRailwayEvent || null,
+    railwayEvent: evidence.railwayEvent || null,
     likelyCause: likelyCause || 'Needs root-cause investigation from current logs/code; monitor does not guess beyond observed evidence.',
     impact: impact || 'Unknown until the affected path is reproduced or traced.',
     nextInvestigation: nextInvestigation || [
-      'Read the exact GitHub commit diff for the reported SHA.',
+      'Read the current GitHub main diff and the exact Railway-deployed Cloudy commit before changing code.',
       'Read Railway deployment/runtime logs around detectedAt.',
       'Reproduce the failing command/event without changing production.',
       'Trace the failure to the first bad boundary before proposing a fix.',
@@ -319,19 +361,28 @@ async function handleRailwayWebhook(body) {
   }
 
   // The project webhook also sees this monitor service's own deploy lifecycle.
-  // Only Cloudy's Discord-bot service is relevant to Cloudy production incidents.
-  if (serviceId && String(serviceId) !== String(CLOUDY_SERVICE_ID)) {
+  // Ignore only the monitor itself. Cloudy, Postgres and Redis events remain
+  // observable because dependency failures can affect the Discord bot.
+  if (serviceId && String(serviceId) === String(MONITOR_SERVICE_ID)) {
     return;
   }
 
-  state.latestRailwayEvent = {
-    receivedAt: nowIso(),
+  const parsedEvent = {
     eventType,
     deploymentId,
     commitHash,
     serviceId,
     environmentId,
     projectId,
+  };
+
+  if (isSyntheticRailwayEvent(parsedEvent)) {
+    return;
+  }
+
+  state.latestRailwayEvent = {
+    receivedAt: nowIso(),
+    ...parsedEvent,
   };
 
   const lower = String(eventType).toLowerCase();
