@@ -185,6 +185,7 @@ test('target Close creates a private red Delete case prompt while report logs st
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.equal(record.cases.target.deletePromptId, promptId);
 
+  const beforeDeniedDeletes = f.replyDeletes.length;
   const denied = f.interaction(f.target.user, prompt, channel.id);
   await handleReportCaseControl(denied, f.client, ['delete', 'report', 'target']);
   assert.deepEqual(f.removed, ['original-message']);
@@ -194,9 +195,9 @@ test('target Close creates a private red Delete case prompt while report logs st
   assert.equal(deniedData.color, CLOUDY_RED_COLOR);
   assert.ok(deniedData.thumbnail?.url);
   t.mock.timers.tick(9_999);
-  assert.equal(f.replyDeletes.filter(id => id === denied.id).length, 0);
+  assert.equal(f.replyDeletes.length, beforeDeniedDeletes);
   t.mock.timers.tick(1);
-  assert.equal(f.replyDeletes.filter(id => id === denied.id).length, 1);
+  assert.equal(f.replyDeletes.length, beforeDeniedDeletes + 1);
 
   await handleReportCaseControl(f.interaction(f.staff.user, prompt, channel.id), f.client, ['delete', 'report', 'target']);
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
