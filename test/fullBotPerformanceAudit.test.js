@@ -25,7 +25,7 @@ function installStorage() {
   return values;
 }
 
-function historyMessage({ id, guildId = 'guild-a', channelId = 'channel-a', title = 'Success', description = 'Done.' }) {
+function historyMessage({ id, guildId = 'guild-a', channelId = 'channel-a', title = 'Success', description = 'Done.', createdAt = new Date() }) {
   return {
     id,
     guildId,
@@ -33,7 +33,7 @@ function historyMessage({ id, guildId = 'guild-a', channelId = 'channel-a', titl
     author: { id: 'cloudy-bot' },
     client: { user: { id: 'cloudy-bot' } },
     channel: { id: channelId, name: channelId },
-    createdAt: new Date(),
+    createdAt,
     embeds: [{ title, description, color: 0xFFFFFF }],
     flags: { has: () => false },
   };
@@ -42,8 +42,8 @@ function historyMessage({ id, guildId = 'guild-a', channelId = 'channel-a', titl
 test('exact bot-history mirrors collapse without touching unique previews', async () => {
   installStorage();
 
-  await registerCloudyEmbedMessage(historyMessage({ id: 'msg-1' }), 'bot-history');
-  await registerCloudyEmbedMessage(historyMessage({ id: 'msg-2' }), 'bot-history');
+  await registerCloudyEmbedMessage(historyMessage({ id: 'msg-1', createdAt: new Date('2026-10-06T08:00:00.000Z') }), 'bot-history');
+  await registerCloudyEmbedMessage(historyMessage({ id: 'msg-2', createdAt: new Date('2026-10-06T08:00:01.000Z') }), 'bot-history');
   await registerCloudyEmbedMessage(historyMessage({
     id: 'msg-3',
     description: 'Different dynamic value.',
