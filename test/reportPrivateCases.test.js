@@ -119,7 +119,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.equal(successData.title, 'Report handled');
   assert.equal(successData.description, 'The reported message has been deleted.');
   assert.equal(successData.color, CLOUDY_GREEN_COLOR);
-  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(successData.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
   assert.ok(successData.fields.some(field => field.name === 'Handled by' && field.value === '<@staff>'));
   assert.ok(successData.fields.some(field => field.name === 'Handled at'));
   assert.deepEqual(publicSuccess[0].allowedMentions, { parse: [] });
@@ -360,7 +360,7 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.equal(data.title, 'Report handled');
   assert.equal(data.description, 'The reported member has been timed out.');
   assert.equal(data.color, CLOUDY_GREEN_COLOR);
-  assert.ok(data.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(data.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
   assert.ok(data.fields.some(field => field.name === 'Handled by' && field.value === '<@staff>'));
   t.mock.timers.tick(10_000); await settle();
   assert.ok(f.reports.messages.cache.has(success.id));
@@ -385,7 +385,7 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   assert.equal(successData.title, 'Report handled');
   assert.equal(successData.description, 'The reported member has been banned.');
   assert.equal(successData.color, CLOUDY_GREEN_COLOR);
-  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(successData.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
   assert.ok(successData.fields.some(field => field.name === 'Handled by' && field.value === '<@role-owner>'));
   t.mock.timers.tick(10_000); await settle();
   assert.ok(f.reports.messages.cache.has(success.id));
