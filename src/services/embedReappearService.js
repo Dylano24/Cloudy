@@ -57,6 +57,7 @@ export async function syncExistingEmbedReappearRule({
   ) || null;
 
   const originMessageId = existing?.originMessageId || activeMessageId;
+  const activeRuleMessageId = existing?.config?.messageId ? String(existing.config.messageId) : null;
   const key = prefix + originMessageId;
   const disableKey = `cloudy:embed-reappear-disabled:${guild}:${channel}:${originMessageId}:${index}`;
 
@@ -76,6 +77,7 @@ export async function syncExistingEmbedReappearRule({
         ok: Boolean(tombstoneSaved),
         disabled: true,
         originMessageId,
+        activeMessageId: activeRuleMessageId,
       };
     }
 
@@ -88,6 +90,7 @@ export async function syncExistingEmbedReappearRule({
       ok: Boolean(tombstoneSaved && ruleDeleted && indexSaved),
       disabled: true,
       originMessageId,
+      activeMessageId: activeRuleMessageId,
     };
   }
 
