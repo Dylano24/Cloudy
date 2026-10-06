@@ -180,6 +180,27 @@ const removeReplacement = `case 'simple_embed_clear_buttons':
                         }`;
 text = text.slice(0, removeStart) + removeReplacement + text.slice(removeEnd);
 
+// Existing buttons must be visible immediately when Search/Modify opens an
+// older stored record. Stored component metadata is instant; legacy records
+// get one non-blocking live fetch and then update the display-only preview.
+if (!text.includes('syncBuilderButtonPreview(interaction, state)')) {
+  const dashboardAnchor = '            const dashboardMessage = await interaction.fetchReply();';
+  if (!text.includes(dashboardAnchor)) {
+    throw new Error('[BUILDER_FINAL_CONTROLS] initial Builder dashboard anchor missing');
+  }
+  const initialButtonPreview = `            await syncBuilderButtonPreview(interaction, state).catch(() => {});
+            void hydrateBuilderMessageComponents(interaction.guild, state)
+                .then(async changed => {
+                    if (changed) {
+                        await syncBuilderButtonPreview(interaction, state).catch(() => {});
+                    }
+                })
+                .catch(() => null);
+
+`;
+  text = text.replace(dashboardAnchor, initialButtonPreview + dashboardAnchor);
+}
+
 fs.writeFileSync(path, text, 'utf8');
 console.log('[BUILDER_FINAL_CONTROLS] Add/Remove buttons, Reappear, Post/Close and Reset/Delete restored in final live layout.');
 
