@@ -12,6 +12,12 @@ function patchFile(path, patcher) {
 }
 
 patchFile('src/services/embedBuilderButtonEditorService.js', text => {
+  // Early exit: if the feature already exists, skip the entire patch.
+  if (text.includes('export async function syncBuilderButtonPreview')) {
+    console.log('[BUILDER_BUTTON_PREVIEW] already applied, skipping');
+    return text;
+  }
+
   const helperAnchor = `export function countBuilderButtons(state) {
   return getBuilderMessageComponents(state).reduce(
     (total, row) => total + row.components.filter(component => Number(component?.type) === BUTTON_COMPONENT_TYPE).length,
@@ -186,6 +192,12 @@ export async function syncBuilderButtonPreview(interaction, state) {
 });
 
 patchFile('src/commands/Tools/embedbuilder.js', text => {
+  // Early exit: if the import already exists, skip the entire patch.
+  if (text.includes('syncBuilderButtonPreview')) {
+    console.log('[BUILDER_BUTTON_PREVIEW] already imported, skipping');
+    return text;
+  }
+
   const importAnchor = `    openEmbedButtonEditor,
 } from '../../services/embedBuilderButtonEditorService.js';`;
   const importReplacement = `    openEmbedButtonEditor,
