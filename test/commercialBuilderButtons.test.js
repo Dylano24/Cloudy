@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   getBuilderMessageComponents,
+  getBuilderPreviewComponents,
   loadBuilderComponentsFromRecord,
   removeRightmostBuilderButton,
 } from '../src/services/embedBuilderButtonEditorService.js';
@@ -154,4 +155,21 @@ test('Search never collapses manual embeds or automated embeds with different co
     },
   ];
   assert.equal(buildMatches(guild, automated, 'task removed').length, 2);
+});
+
+
+test('existing button preview copy keeps real actions inert', () => {
+  const state = {
+    componentRows: [row('Ask a question', 'YouTube')],
+  };
+  const preview = getBuilderPreviewComponents(state);
+
+  assert.equal(preview[0].components[0].label, 'Ask a question');
+  assert.equal(preview[0].components[1].label, 'YouTube');
+  assert.equal(preview[0].components[0].disabled, true);
+  assert.equal(preview[0].components[1].disabled, true);
+
+  const saved = getBuilderMessageComponents(state);
+  assert.equal(Boolean(saved[0].components[0].disabled), false);
+  assert.equal(Boolean(saved[0].components[1].disabled), false);
 });
