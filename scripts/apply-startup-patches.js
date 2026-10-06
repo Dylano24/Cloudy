@@ -71,6 +71,7 @@ if (previous) {
 
     for (const relative of syntaxTargets) {
       const absolute = path.join(root, relative);
+      if (!fs.existsSync(absolute)) continue;
       const checked = spawnSync(process.execPath, ['--check', absolute], {
         encoding: 'utf8',
       });
