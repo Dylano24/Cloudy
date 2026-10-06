@@ -339,3 +339,109 @@ patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
 console.log('[BUILDER_SEARCH_EDITOR_STATE] Search hydration is deploy-safe and non-fatal.');
 console.log('[BUILDER_SPLIT_PREVIEW_OWNERSHIP] top Search preview is Builder-owned until the Builder session ends.');
 console.log('[BUILDER_PREVIEW_HELPER] editor preview helper invariant enforced.');
+
+
+const existingReappearSaveMarker = 'BUILDER_EXISTING_REAPPEAR_SAVE_V1';
+
+patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
+  let next = builder;
+
+  if (!next.includes("import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';")) {
+    const importAnchor = "import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';";
+    if (!next.includes(importAnchor)) {
+      throw new Error('[BUILDER_EXISTING_REAPPEAR] registry import anchor missing');
+    }
+    next = next.replace(
+      importAnchor,
+      importAnchor + "\nimport { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';",
+    );
+  }
+
+  if (!next.includes('reappearTouched: false')) {
+    const stateAnchor = '                reappearAfter: null,';
+    if (!next.includes(stateAnchor)) {
+      throw new Error('[BUILDER_EXISTING_REAPPEAR] Reappear state anchor missing');
+    }
+    next = next.replace(
+      stateAnchor,
+      stateAnchor + '\n                reappearTouched: false,',
+    );
+  }
+
+  if (!next.includes('state.reappearTouched = true;')) {
+    const modalAnchor = '                            state.reappearAfter = count;';
+    if (!next.includes(modalAnchor)) {
+      throw new Error('[BUILDER_EXISTING_REAPPEAR] Reappear modal anchor missing');
+    }
+    next = next.replace(
+      modalAnchor,
+      modalAnchor + '\n                            state.reappearTouched = true;',
+    );
+  }
+
+  const saveStart = next.indexOf('async function finishExistingEmbedSave(') >= 0
+    ? next.indexOf('async function finishExistingEmbedSave(')
+    : next.indexOf('async function saveExistingEmbed(');
+  if (saveStart < 0) {
+    throw new Error('[BUILDER_EXISTING_REAPPEAR] existing embed save function missing');
+  }
+
+  const candidates = [
+    next.indexOf('\nasync function ', saveStart + 20),
+    next.indexOf('\nexport async function ', saveStart + 20),
+    next.indexOf('\nfunction ', saveStart + 20),
+    next.indexOf('\nexport function ', saveStart + 20),
+  ].filter(index => index > saveStart);
+  const saveEnd = candidates.length ? Math.min(...candidates) : next.length;
+  let saveBlock = next.slice(saveStart, saveEnd);
+
+  if (!saveBlock.includes('syncExistingEmbedReappearRule({')) {
+    const refreshAnchor = '    void refreshBuilder(buttonInteraction, state).catch(() => {});';
+    if (!saveBlock.includes(refreshAnchor)) {
+      throw new Error('[BUILDER_EXISTING_REAPPEAR] post-save refresh anchor missing');
+    }
+
+    const persistence = `    // ${existingReappearSaveMarker}: Save Reappear for the existing canonical
+    // embed too. Previously this only happened when posting a brand-new embed.
+    if (state.reappearTouched) {
+        const targetIndex = Math.max(0, Number(state.modifyTarget?.embedIndex) || 0);
+        const activeEmbed = saved.message?.embeds?.[targetIndex]?.toJSON?.() || null;
+        const activeComponents = (saved.message?.components || []).map(row =>
+            row?.toJSON ? row.toJSON() : row
+        );
+
+        const reappear = await syncExistingEmbedReappearRule({
+            guildId: guild.id,
+            channelId: saved.message?.channelId
+                || state.modifyTarget?.backingChannelId
+                || state.modifyTarget?.channelId,
+            messageId: saved.message?.id || state.modifyTarget?.messageId,
+            embedIndex: targetIndex,
+            every: state.reappearAfter,
+            embed: activeEmbed,
+            components: activeComponents,
+        });
+
+        if (!reappear.ok) {
+            const failure = await buttonInteraction.followUp({
+                content: 'The embed was saved, but the Reappear setting could not be saved. Try Save changes again.',
+                flags: MessageFlags.Ephemeral,
+                fetchReply: true,
+            }).catch(() => null);
+            if (failure) removeTransientMessage(buttonInteraction, failure);
+            return { ...saved, ok: false, reason: 'reappear-persistence-failed' };
+        }
+
+        state.reappearTouched = false;
+    }
+
+`;
+
+    saveBlock = saveBlock.replace(refreshAnchor, persistence + refreshAnchor);
+    next = next.slice(0, saveStart) + saveBlock + next.slice(saveEnd);
+  }
+
+  return next;
+});
+
+console.log('[BUILDER_EXISTING_REAPPEAR] existing embed Save now persists Reappear after every startup migration.');
