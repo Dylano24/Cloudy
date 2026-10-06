@@ -51,7 +51,7 @@ test('Search still scores every remaining unique result after duplicate cleanup'
   assert.match(buildBody, /const matches = \[\]/);
   assert.match(buildBody, /const match = \{ record, document, score \}/);
   assert.match(buildBody, /matches\.push\(match\)/);
-  assert.match(buildBody, /exactAutomatedSearchIdentity\(record\)/);
+  assert.match(buildBody, /exactAutomatedSearchIdentity\(record, document\)/);
 });
 
 test('channel browsing keeps its existing unique-embed grouping', () => {
