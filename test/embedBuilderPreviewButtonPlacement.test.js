@@ -19,14 +19,14 @@ test('custom Builder buttons render with the top preview, not under Message buil
   assert.ok(refreshStart >= 0 && refreshEnd > refreshStart);
   const refresh = source.slice(refreshStart, refreshEnd);
   assert.match(refresh, /embeds: \[buildPreviewEmbed\(state\)\]/);
-  assert.match(refresh, /components: getBuilderPreviewComponents\\(state\\)/);
+  assert.match(refresh, /components: getBuilderPreviewComponents\(state\)/);
   assert.match(refresh, /embeds: \[buildControlEmbed\(state\)\]/);
   assert.match(refresh, /components: buildControls\(state\)/);
 
   const execute = source.slice(source.indexOf('async execute(interaction)'));
   assert.match(
     execute,
-    /const previewResponsePromise = interaction\.reply\(\{[\s\S]*?embeds: \[buildPreviewEmbed\(state\)\][\s\S]*?components: getBuilderPreviewComponents\\(state\\)[\s\S]*?withResponse: true/,
+    /const previewResponsePromise = interaction\.reply\(\{[\s\S]*?embeds: \[buildPreviewEmbed\(state\)\][\s\S]*?components: getBuilderPreviewComponents\(state\)[\s\S]*?withResponse: true/,
   );
   assert.match(
     execute,
