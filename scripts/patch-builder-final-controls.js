@@ -192,3 +192,103 @@ patchPreviewLifetimeFile('src/utils/transientResponse.js', transient => {
 });
 
 console.log('[BUILDER_PREVIEW_LIFETIME] Search/editor live preview excluded from every generic 10-second cleanup path.');
+
+
+const searchEditorMarker = 'BUILDER_SEARCH_EDITOR_STATE_V1';
+
+patchPreviewLifetimeFile('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', searchPatch => {
+  let next = searchPatch;
+  const pendingNeedle = `                pendingSelections.set(selectionKey(interaction), {
+                    record,
+                    previewRecord: record.previewRecord || record,
+                    sourceRecord: record.sourceRecord || null,
+                    expiresAt: Date.now() + PENDING_TTL,
+                });`;
+  const pendingReplacement = `                const initialSelection = {
+                    record,
+                    previewRecord: record.previewRecord || record,
+                    sourceRecord: record.sourceRecord || null,
+                    expiresAt: Date.now() + PENDING_TTL,
+                };
+                pendingSelections.set(selectionKey(interaction), initialSelection);
+                // ${searchEditorMarker}: make Search state available before the Builder
+                // creates its browser editor session. Modify routing may still consume
+                // pendingSelections later, but live preview/editor state is immediate.
+                interaction.__cloudyInitialBuilderSelection = initialSelection;`;
+
+  if (!next.includes(searchEditorMarker)) {
+    if (!next.includes(pendingNeedle)) {
+      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Search pending selection block missing');
+    }
+    next = next.replace(pendingNeedle, pendingReplacement);
+  }
+  return next;
+});
+
+patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
+  let next = builder;
+
+  const importNeedle = `import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';`;
+  const importReplacement = `import {
+    applyInitialSearchSelectionToState,
+    openEmbedManager,
+    saveModifiedEmbed,
+} from '../../services/embedManagerService.js';`;
+  if (!next.includes('applyInitialSearchSelectionToState,')) {
+    if (!next.includes(importNeedle)) {
+      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Embed Manager import block missing');
+    }
+    next = next.replace(importNeedle, importReplacement);
+  }
+
+  const stateEndNeedle = `                builderChildMessages: new Map(),
+            };`;
+  const stateEndReplacement = `                builderChildMessages: new Map(),
+            };
+
+            // ${searchEditorMarker}: Search must hydrate the exact same Builder state
+            // as normal Modify before the browser editor can emit title/message edits.
+            applyInitialSearchSelectionToState(interaction, state);`;
+  if (!next.includes(searchEditorMarker)) {
+    if (!next.includes(stateEndNeedle)) {
+      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] Builder state initialization block missing');
+    }
+    next = next.replace(stateEndNeedle, stateEndReplacement);
+  }
+
+  return next;
+});
+
+patchPreviewLifetimeFile('src/services/embedManagerService.js', manager => {
+  let next = manager;
+  const anchor = `function loadEmbedIntoState(state, resolved) {`;
+  if (!next.includes('export function applyInitialSearchSelectionToState(')) {
+    if (!next.includes(anchor)) {
+      throw new Error('[BUILDER_SEARCH_EDITOR_STATE] state loader anchor missing');
+    }
+    const helper = `export function applyInitialSearchSelectionToState(interaction, state) {
+    const initialSelection = interaction?.__cloudyInitialBuilderSelection;
+    const record = initialSelection?.record;
+    if (!record || !state || !interaction?.guild) return false;
+
+    const selectedRecord = {
+        ...record,
+        previewRecord: initialSelection.previewRecord || record.previewRecord || null,
+        sourceRecord: initialSelection.sourceRecord || record.sourceRecord || null,
+    };
+    const loaded = loadRecordSnapshotIntoState(state, interaction.guild, selectedRecord);
+    if (loaded) {
+        // ${searchEditorMarker}: consume once. All later editor updates mutate this
+        // already-selected canonical state instead of the empty Builder defaults.
+        delete interaction.__cloudyInitialBuilderSelection;
+    }
+    return loaded;
+}
+
+`;
+    next = next.replace(anchor, helper + anchor);
+  }
+  return next;
+});
+
+console.log('[BUILDER_SEARCH_EDITOR_STATE] slash Search selection hydrates Builder state before editor startup.');
