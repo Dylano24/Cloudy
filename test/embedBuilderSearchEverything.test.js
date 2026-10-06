@@ -80,15 +80,12 @@ test('Removed from Builder is a searchable catalog response', () => {
 });
 
 
-test('Discord autocomplete never exposes internal botlog/template context labels', () => {
+test('Discord autocomplete uses clear unique human-readable Search labels', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-  assert.match(source, /const titleCounts = new Map\(\)/);
-  assert.match(source, /const seenTitleIndexes = new Map\(\)/);
-  assert.match(source, /channelName/);
-  const choiceStart = source.indexOf('const choices = matches.map');
-  const respondStart = source.indexOf('await interaction.respond', choiceStart);
-  const choiceBody = source.slice(choiceStart, respondStart);
-  assert.doesNotMatch(choiceBody, /stableSearchTemplateContext\(record\)/);
+  assert.match(source, /export function buildSearchChoices\(matches\)/);
+  assert.match(source, /choiceDetail\(match\)/);
+  assert.match(source, /Variant/);
+  assert.match(source, /const choices = buildSearchChoices\(matches\)/);
 });
 
 
