@@ -125,3 +125,48 @@ test('Search keeps useful system/error templates and hides history mirrors', () 
   assert.equal(matches.length, 1);
   assert.equal(matches[0].document.title, 'Invalid Input');
 });
+
+
+test('Search collapses runtime copies that differ only by dynamic IDs or task keys', () => {
+  const guild = guildWith('botlog');
+  const matches = buildMatches(guild, [
+    record({
+      id: '101',
+      description: 'Task daily-reward was removed by <@111111111111111111>.',
+    }),
+    record({
+      id: '102',
+      description: 'Task cleanup-cache was removed by <@222222222222222222>.',
+    }),
+    record({
+      id: '103',
+      description: 'Task backup-logs was removed by <@333333333333333333>.',
+    }),
+  ], 'task removed');
+
+  assert.equal(matches.length, 1);
+});
+
+test('Search uses readable Variant labels instead of raw message IDs when names still collide', () => {
+  const guild = guildWith('general');
+  const matches = buildMatches(guild, [
+    record({
+      id: '123456789012345678',
+      source: 'embed-builder',
+      channelId: 'general',
+      title: 'Custom panel',
+      description: 'Same manual content.',
+    }),
+    record({
+      id: '223456789012345678',
+      source: 'embed-builder',
+      channelId: 'general',
+      title: 'Custom panel',
+      description: 'Same manual content.',
+    }),
+  ], 'custom panel');
+
+  const names = buildSearchChoices(matches).map(choice => choice.name);
+  assert.ok(names.some(name => /Variant 2$/i.test(name)));
+  assert.ok(names.every(name => !/345678/.test(name)));
+});
