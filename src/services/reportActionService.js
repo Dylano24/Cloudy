@@ -178,9 +178,10 @@ export async function handleReportModeration(interaction, client, [action, userI
 
   const completed = await completeReportAction(interaction, client, report, action, userId, reason);
   const handledAt = completed.handledAt || Date.now();
+  const handledActions = completed.handledActions || actions;
 
   await interaction.channel.send({
-    embeds: [reportHandledEmbed(actions, completed, interaction.user.id, handledAt)],
+    embeds: [reportHandledEmbed(handledActions, completed, interaction.user.id, handledAt)],
     allowedMentions: { parse: [] },
   });
 
@@ -196,10 +197,22 @@ async function completeReportAction(interaction, client, report, action, userId,
       throw new Error('This report case has already closed.');
     }
 
+    const completedNames = Object.entries(record.actions || {})
+      .filter(([, outcome]) => outcome?.status === 'completed' || outcome?.notified)
+      .map(([name]) => name);
+    const failedSanctionNames = Object.entries(record.actions || {})
+      .filter(([name, outcome]) => ['timeout', 'ban'].includes(name) && outcome?.status === 'failed')
+      .map(([name]) => name);
+    const recoveringPartialDeleteWithNoSanction = requestedActions.length === 1
+      && requestedActions[0] === 'no_sanction'
+      && completedNames.length > 0
+      && completedNames.every(name => name === 'delete')
+      && failedSanctionNames.length > 0;
+
     const completedOutsideRequest = Object.entries(record.actions || {}).find(([name, outcome]) =>
       !requestedActions.includes(name) && (outcome?.status === 'completed' || outcome?.notified));
 
-    if (completedOutsideRequest) {
+    if (completedOutsideRequest && !recoveringPartialDeleteWithNoSanction) {
       if (report.components?.length) await report.edit({ components: [] });
       throw new Error('This report has already been handled.');
     }
@@ -334,9 +347,12 @@ async function completeReportAction(interaction, client, report, action, userId,
     if (report.components?.length) await report.edit({ components: [] });
 
     const actorId = interaction.user.id;
+    const outcomeActions = recoveringPartialDeleteWithNoSanction
+      ? ['delete', 'no_sanction']
+      : requestedActions;
     const handledAt = Math.max(
       Date.now(),
-      ...requestedActions.map(name => Number(record.actions?.[name]?.completedAt) || 0),
+      ...outcomeActions.map(name => Number(record.actions?.[name]?.completedAt) || 0),
     );
 
     const notified = await publishReportOutcome(
@@ -344,17 +360,17 @@ async function completeReportAction(interaction, client, report, action, userId,
       interaction.guild,
       report,
       record,
-      requestedActions,
+      outcomeActions,
       actorId,
       reason,
     );
 
-    for (const name of requestedActions) {
+    for (const name of outcomeActions) {
       notified.actions[name] = { ...notified.actions[name], notified: true };
     }
     notified.handledAt = handledAt;
     notified.handledBy = actorId;
-    notified.handledActions = requestedActions;
+    notified.handledActions = outcomeActions;
 
     if (await client.db.set(reportKey(record.guildId, record.messageId), notified) === false) {
       throw new Error('The action notification could not be saved.');
