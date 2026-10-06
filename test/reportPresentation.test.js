@@ -77,11 +77,12 @@ test('report logs are informational only and private cases own Delete case', () 
 });
 
 
-test('report case embeds use compact Report + report-number presentation', () => {
+test('report case embeds use compact Report + hash-number presentation', () => {
   const lifecycle = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
-  const matches = lifecycle.match(/name: 'Report', value: `report-\$\{record\.number\}`, inline: true/g) || [];
+  const matches = lifecycle.match(/name: 'Report', value: `#\$\{record\.number\}`, inline: true/g) || [];
   assert.equal(matches.length, 3);
-  assert.doesNotMatch(lifecycle, /name: 'Case', value: `report-\$\{record\.number\}`/);
+  assert.doesNotMatch(lifecycle, /name: 'Case'/);
+  assert.doesNotMatch(lifecycle, /value: `report-\$\{record\.number\}`/);
 
   // New report and Report handled keep their existing presentation.
   const actions = fs.readFileSync('src/services/reportActionService.js', 'utf8');
