@@ -77,20 +77,13 @@ test('report logs are informational only and private cases own Delete case', () 
 });
 
 
-test('report case embeds show the case number only once as the bold field name', () => {
-  for (const file of [
-    'src/services/reportCaseLifecycleService.js',
-    'src/services/reportActionService.js',
-    'src/commands/Utility/reportMessage.js',
-    'src/commands/Utility/modules/report.js',
-  ]) {
-    const source = fs.readFileSync(file, 'utf8');
-    assert.doesNotMatch(source, /name: 'Report',\s*value: `Report #\$\{/);
-  }
-
+test('report case embeds use compact Case + report-number presentation', () => {
   const lifecycle = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
-  assert.match(lifecycle, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
+  const matches = lifecycle.match(/name: 'Case', value: `report-\$\{record\.number\}`, inline: true/g) || [];
+  assert.equal(matches.length, 3);
+  assert.doesNotMatch(lifecycle, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
 
+  // New report and Report handled keep their separate report-number presentation.
   const actions = fs.readFileSync('src/services/reportActionService.js', 'utf8');
   assert.match(actions, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
 });
