@@ -178,9 +178,10 @@ export async function handleReportModeration(interaction, client, [action, userI
 
   const completed = await completeReportAction(interaction, client, report, action, userId, reason);
   const handledAt = completed.handledAt || Date.now();
+  const handledActions = completed.handledActions || actions;
 
   await interaction.channel.send({
-    embeds: [reportHandledEmbed(actions, completed, interaction.user.id, handledAt)],
+    embeds: [reportHandledEmbed(handledActions, completed, interaction.user.id, handledAt)],
     allowedMentions: { parse: [] },
   });
 
@@ -196,10 +197,22 @@ async function completeReportAction(interaction, client, report, action, userId,
       throw new Error('This report case has already closed.');
     }
 
+    const completedNames = Object.entries(record.actions || {})
+      .filter(([, outcome]) => outcome?.status === 'completed' || outcome?.notified)
+      .map(([name]) => name);
+    const failedSanctionNames = Object.entries(record.actions || {})
+      .filter(([name, outcome]) => ['timeout', 'ban'].includes(name) && outcome?.status === 'failed')
+      .map(([name]) => name);
+    const recoveringPartialDeleteWithNoSanction = requestedActions.length === 1
+      && requestedActions[0] === 'no_sanction'
+      && completedNames.length > 0
+      && completedNames.every(name => name === 'delete')
+      && failedSanctionNames.length > 0;
+
     const completedOutsideRequest = Object.entries(record.actions || {}).find(([name, outcome]) =>
       !requestedActions.includes(name) && (outcome?.status === 'completed' || outcome?.notified));
 
-    if (completedOutsideRequest) {
+    if (completedOutsideRequest && !recoveringPartialDeleteWithNoSanction) {
       if (report.components?.length) await report.edit({ components: [] });
       throw new Error('This report has already been handled.');
     }
@@ -233,13 +246,52 @@ async function completeReportAction(interaction, client, report, action, userId,
       ? timeoutDuration(interaction.fields.getTextInputValue('minutes'))
       : null;
 
+    // Resolve every prerequisite before mutating anything. This prevents a
+    // combined action such as Delete + timeout from deleting the message first
+    // and only then discovering that the member cannot be timed out.
+    let targetMember = null;
+    if (requestedActions.includes('timeout') && record.actions?.timeout?.status !== 'completed') {
+      targetMember = interaction.guild.members.cache?.get?.(userId)
+        || await interaction.guild.members.fetch(userId).catch(() => null);
+      if (!targetMember) {
+        const error = new Error('The reported member is no longer in this server.');
+        error.userMessage = 'The reported member is no longer in this server, so Timeout cannot be applied.';
+        error.context = { expected: true };
+        throw error;
+      }
+    }
+
+    let targetUser = null;
+    if (requestedActions.includes('ban') && record.actions?.ban?.status !== 'completed') {
+      targetMember = interaction.guild.members.cache?.get?.(userId)
+        || await interaction.guild.members.fetch(userId).catch(() => null);
+      targetUser = targetMember?.user || await client.users.fetch(userId).catch(() => null);
+      if (!targetUser) {
+        const error = new Error('The reported user could not be resolved for Ban.');
+        error.userMessage = 'Cloudy could not resolve the reported user, so Ban was not applied.';
+        error.context = { expected: true };
+        throw error;
+      }
+    }
+
     let original = null;
     if (requestedActions.includes('delete') && record.actions?.delete?.status !== 'completed') {
       if (!record.sourceChannelId || !record.sourceMessageId) {
-        throw new Error('This report has no original message linked to Delete.');
+        const error = new Error('This report has no original message linked to Delete.');
+        error.userMessage = 'This report has no original message linked to Delete.';
+        error.context = { expected: true };
+        throw error;
       }
-      const source = await interaction.guild.channels.fetch(record.sourceChannelId);
-      original = await source.messages.fetch(record.sourceMessageId);
+      const source = interaction.guild.channels.cache.get(record.sourceChannelId)
+        || await interaction.guild.channels.fetch(record.sourceChannelId).catch(() => null);
+      original = source?.messages?.cache?.get?.(record.sourceMessageId)
+        || await source?.messages?.fetch?.(record.sourceMessageId).catch(() => null);
+      if (!original) {
+        const error = new Error('The reported message no longer exists.');
+        error.userMessage = 'The reported message no longer exists, so Delete was not applied.';
+        error.context = { expected: true };
+        throw error;
+      }
     }
 
     for (const name of requestedActions) {
@@ -263,21 +315,17 @@ async function completeReportAction(interaction, client, report, action, userId,
           rememberMessageDeleter(original, interaction.user);
           await original.delete();
         } else if (name === 'timeout') {
-          const member = await interaction.guild.members.fetch(userId).catch(() => null);
-          if (!member) throw new Error('The reported member is no longer in this server.');
           await ModerationService.timeoutUser({
             guild: interaction.guild,
-            member,
+            member: targetMember,
             moderator: freshMember,
             durationMs,
             reason,
           });
         } else if (name === 'ban') {
-          const member = await interaction.guild.members.fetch(userId).catch(() => null);
-          const user = member?.user || await client.users.fetch(userId);
           await ModerationService.banUser({
             guild: interaction.guild,
-            user,
+            user: targetUser,
             moderator: freshMember,
             reason,
             notifyBeforeBan: true,
@@ -299,9 +347,12 @@ async function completeReportAction(interaction, client, report, action, userId,
     if (report.components?.length) await report.edit({ components: [] });
 
     const actorId = interaction.user.id;
+    const outcomeActions = recoveringPartialDeleteWithNoSanction
+      ? ['delete', 'no_sanction']
+      : requestedActions;
     const handledAt = Math.max(
       Date.now(),
-      ...requestedActions.map(name => Number(record.actions?.[name]?.completedAt) || 0),
+      ...outcomeActions.map(name => Number(record.actions?.[name]?.completedAt) || 0),
     );
 
     const notified = await publishReportOutcome(
@@ -309,17 +360,17 @@ async function completeReportAction(interaction, client, report, action, userId,
       interaction.guild,
       report,
       record,
-      requestedActions,
+      outcomeActions,
       actorId,
       reason,
     );
 
-    for (const name of requestedActions) {
+    for (const name of outcomeActions) {
       notified.actions[name] = { ...notified.actions[name], notified: true };
     }
     notified.handledAt = handledAt;
     notified.handledBy = actorId;
-    notified.handledActions = requestedActions;
+    notified.handledActions = outcomeActions;
 
     if (await client.db.set(reportKey(record.guildId, record.messageId), notified) === false) {
       throw new Error('The action notification could not be saved.');
