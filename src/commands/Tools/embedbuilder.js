@@ -43,7 +43,10 @@ import { getFromDb, setInDb } from '../../utils/database.js';
 import {
     countBuilderButtons,
     getBuilderMessageComponents,
+    getBuilderPreviewComponents,
+    hydrateBuilderMessageComponents,
     openEmbedButtonEditor,
+    removeRightmostBuilderButton,
 } from '../../services/embedBuilderButtonEditorService.js';
 
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -1304,15 +1307,27 @@ export default {
                             );
                             break;
                         case 'simple_embed_clear_buttons':
-                        case 'simple_embed_remove_buttons':
-                            state.componentRows = [];
-                            state.componentRowsSourceMessageId = state.modifyTarget?.messageId
-                                ? String(state.modifyTarget.messageId)
-                                : 'new';
-                            state.componentsDirty = true;
+                        case 'simple_embed_remove_buttons': {
+                            if (state.modifyTarget && !state.componentsDirty) {
+                                await hydrateBuilderMessageComponents(buttonInteraction.guild, state).catch(() => false);
+                            }
+                            const beforeCount = countBuilderButtons(state);
+                            const nextRows = removeRightmostBuilderButton(state.componentRows);
+                            const afterCount = nextRows.reduce(
+                                (total, row) => total + (row.components || []).filter(component => Number(component?.type) === 2).length,
+                                0,
+                            );
+                            if (afterCount < beforeCount) {
+                                state.componentRows = nextRows;
+                                state.componentRowsSourceMessageId = state.modifyTarget?.messageId
+                                    ? String(state.modifyTarget.messageId)
+                                    : 'new';
+                                state.componentsDirty = true;
+                            }
                             await buttonInteraction.deferUpdate().catch(() => {});
                             await refreshBuilder(buttonInteraction, state);
                             break;
+                        }
                         case 'simple_embed_modify':
                             await openEmbedManager(
                                 buttonInteraction,
