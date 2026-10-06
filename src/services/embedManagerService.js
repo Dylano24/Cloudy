@@ -230,7 +230,7 @@ export function templateIdentity(channelId, value) {
     return `${fieldShape}::${descriptionShape}`;
 }
 
-function collapseDisplayRecords(channelRecords, channelId = null) {
+export function collapseDisplayRecords(channelRecords, channelId = null) {
     const strictTemplateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
     const groups = new Map();
 
