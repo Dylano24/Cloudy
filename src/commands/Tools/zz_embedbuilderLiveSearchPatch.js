@@ -8,6 +8,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
     getEmbedRegistry,
     getEmbedRegistrySnapshot,
+    resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
 import { collapseDisplayRecords } from '../../services/embedManagerService.js';
 import {
@@ -444,6 +445,22 @@ function parseSelection(value) {
     };
 }
 
+async function hydrateLiveSearchRecord(guild, record) {
+    if (!guild || !record || record.detached || String(record.source || '').toLowerCase() === 'system-catalog') {
+        return record;
+    }
+
+    const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
+    if (!resolved?.message || !resolved?.embed) return record;
+
+    return {
+        ...record,
+        snapshot: resolved.embed.toJSON?.() || record.snapshot,
+        components: (resolved.message.components || []).map(row => row?.toJSON ? row.toJSON() : row),
+        source: record.source || 'reconciled',
+    };
+}
+
 function selectionKey(interaction) {
     return `${interaction?.guildId || interaction?.guild?.id || 'dm'}:${interaction?.user?.id || 'unknown'}`;
 }
@@ -611,10 +628,16 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                 && Number(item.embedIndex || 0) === selected.embedIndex,
             );
             if (record) {
+                const liveCandidate = record.previewRecord
+                    || latestRealPreviewRecord(interaction.guild, records, record)
+                    || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
+                const previewRecord = liveCandidate
+                    ? await hydrateLiveSearchRecord(interaction.guild, liveCandidate)
+                    : null;
+
                 pendingSelections.set(selectionKey(interaction), {
                     record,
-                    previewRecord: record.previewRecord
-                        || latestRealPreviewRecord(interaction.guild, records, record),
+                    previewRecord,
                     sourceRecord: record.sourceRecord || null,
                     expiresAt: Date.now() + PENDING_TTL,
                 });
