@@ -302,6 +302,34 @@ function mergeSearchRecords(guildId, registryRecords) {
     return [...unique.values()];
 }
 
+function stableSearchJson(value) {
+    if (Array.isArray(value)) return value.map(stableSearchJson);
+    if (!value || typeof value !== 'object') return value;
+
+    const sorted = {};
+    for (const key of Object.keys(value).sort()) {
+        sorted[key] = stableSearchJson(value[key]);
+    }
+    return sorted;
+}
+
+function exactAutomatedSearchIdentity(record) {
+    const source = String(record?.source || '').toLowerCase();
+    if (['embed-builder', 'system-catalog', 'bot-history', 'history'].includes(source)) return '';
+
+    const data = snapshot(record);
+    if (!data || typeof data !== 'object' || !Object.keys(data).length) return '';
+
+    try {
+        return JSON.stringify(stableSearchJson({
+            snapshot: data,
+            components: Array.isArray(record?.components) ? record.components : [],
+        }));
+    } catch {
+        return '';
+    }
+}
+
 function builderSearchDisplayRecords(records) {
     // Search stays complete, but a canonical Cloudy template is shown only once.
     // Runtime/history mirrors are not separate editable Builder items.
@@ -320,17 +348,24 @@ function builderSearchDisplayRecords(records) {
         const stableKey = stableSearchTemplateKey(record);
         const stableContext = stableSearchTemplateContext(record);
         const title = normalize(recordTitle(record));
+        const exactAutomatedIdentity = exactAutomatedSearchIdentity(record);
 
         const key = stableKey
             ? ['template', stableKey, stableContext].join(':')
             : source === 'system-catalog'
                 ? ['catalog', stableContext, title].join(':')
-                : [
-                    'physical',
-                    String(record?.backingChannelId || channelId),
-                    messageId,
-                    Number(record?.embedIndex || 0),
-                ].join(':');
+                : exactAutomatedIdentity
+                    ? [
+                        'automated-exact',
+                        String(record?.backingChannelId || channelId),
+                        exactAutomatedIdentity,
+                    ].join(':')
+                    : [
+                        'physical',
+                        String(record?.backingChannelId || channelId),
+                        messageId,
+                        Number(record?.embedIndex || 0),
+                    ].join(':');
 
         const existing = unique.get(key);
         if (!existing || priority(record) > priority(existing)) {
