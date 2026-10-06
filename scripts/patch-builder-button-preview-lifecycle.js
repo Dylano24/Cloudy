@@ -92,23 +92,20 @@ async function closeButtonEditorPanel(interaction, state) {
 });
 
 patchFile('src/commands/Tools/embedbuilder.js', text => {
-  // Import the full lifecycle cleanup helper.
-  if (!text.includes('cleanupBuilderButtonUi')) {
-    const importNeedle = `    countBuilderButtons,
-    getBuilderMessageComponents,
-    openEmbedButtonEditor,
-    syncBuilderButtonPreview,
-} from '../../services/embedBuilderButtonEditorService.js';`;
-    const importReplacement = `    cleanupBuilderButtonUi,
-    countBuilderButtons,
-    getBuilderMessageComponents,
-    openEmbedButtonEditor,
-    syncBuilderButtonPreview,
-} from '../../services/embedBuilderButtonEditorService.js';`;
-    if (!text.includes(importNeedle)) {
-      throw new Error('[BUILDER_BUTTON_LIFECYCLE] Builder button import shape missing');
-    }
-    text = text.replace(importNeedle, importReplacement);
+  // Import the full lifecycle cleanup helper without depending on one
+  // historical ordering of the other Builder button imports.
+  const buttonImportPattern = /import\s*\{([\s\S]*?)\}\s*from '\.\.\/\.\.\/services\/embedBuilderButtonEditorService\.js';/;
+  const buttonImport = text.match(buttonImportPattern);
+  if (!buttonImport) {
+    throw new Error('[BUILDER_BUTTON_LIFECYCLE] Builder button import missing');
+  }
+  if (!buttonImport[1].includes('cleanupBuilderButtonUi')) {
+    const nextNames = buttonImport[1].trimEnd() + '\n    cleanupBuilderButtonUi,';
+    text = text.replace(
+      buttonImportPattern,
+      `import {${nextNames}
+} from '../../services/embedBuilderButtonEditorService.js';`,
+    );
   }
 
   // Closing the Builder removes its private button editor + preview too.
