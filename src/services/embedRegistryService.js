@@ -477,6 +477,19 @@ function recordLocationForEmbed(message, embed, prior = null) {
     };
 }
 
+function normalizeMessageComponents(components) {
+    if (!Array.isArray(components)) return [];
+    return components.slice(0, 5).map(row => {
+        const data = row?.toJSON ? row.toJSON() : row;
+        if (!data || typeof data !== 'object') return null;
+        try {
+            return JSON.parse(JSON.stringify(data));
+        } catch {
+            return null;
+        }
+    }).filter(Boolean);
+}
+
 function normalizeRecord(record) {
     if (!record?.guildId || !record?.channelId || !record?.messageId) return null;
     const normalized = {
@@ -490,6 +503,7 @@ function normalizeRecord(record) {
         name: canonicalEmbedName(record.name || record.title || '').slice(0, 256),
         channelName: String(record.channelName || '').slice(0, 100),
         snapshot: normalizeEmbedSnapshot(record.snapshot),
+        components: normalizeMessageComponents(record.components),
         detached: Boolean(record.detached),
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -582,6 +596,7 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                         name: embedName(embed),
                         channelName: message.channel?.name || '',
                         snapshot: normalizeEmbedSnapshot(embed),
+                        components: normalizeMessageComponents(message.components),
                         detached: false,
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
@@ -800,6 +815,7 @@ function recordsFromMessage(message, priorRecords = [], { allowManual = false } 
                 name: embedName(embed),
                 channelName: message.channel?.name || prior?.channelName || '',
                 snapshot: normalizeEmbedSnapshot(embed),
+                components: normalizeMessageComponents(message.components),
                 detached: false,
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
             });
@@ -963,6 +979,7 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
                         name: embedName(embed),
                         channelName: message.channel?.name || '',
                         snapshot: normalizeEmbedSnapshot(embed),
+                        components: normalizeMessageComponents(message.components),
                         detached: false,
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
