@@ -133,6 +133,17 @@ export function getBuilderMessageComponents(state) {
   return normalizeRows(state?.componentRows || []);
 }
 
+export function getBuilderPreviewComponents(state) {
+  return getBuilderMessageComponents(state).map(row => ({
+    ...row,
+    components: row.components.map(component =>
+      Number(component?.type) === BUTTON_COMPONENT_TYPE
+        ? { ...component, disabled: true }
+        : component
+    ),
+  }));
+}
+
 export function countBuilderButtons(state) {
   return getBuilderMessageComponents(state).reduce(
     (total, row) => total + row.components.filter(component => Number(component?.type) === BUTTON_COMPONENT_TYPE).length,
@@ -149,7 +160,7 @@ async function deletePrivateBuilderMessage(interaction, messageId, message = nul
 }
 
 export async function syncBuilderButtonPreview(interaction, state) {
-  const rows = getBuilderMessageComponents(state);
+  const rows = getBuilderPreviewComponents(state);
   const existingId = state?.activeButtonPreviewMessageId
     ? String(state.activeButtonPreviewMessageId)
     : null;
