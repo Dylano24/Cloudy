@@ -737,6 +737,51 @@ export function rememberTransientPayloadIntent(original, outgoing) {
   return next;
 });
 
+// Re-assert the Search hydration at the very end because older Builder layout
+// migrations can replace execute() after the earlier Search guard ran.
+patchPreviewLifetimeFile('src/commands/Tools/embedbuilder.js', builder => {
+  let next = builder;
+
+  const managerImport = next.match(/import \{([\s\S]*?)\} from '\.\.\/\.\.\/services\/embedManagerService\.js';/);
+  if (!managerImport) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] Embed Manager import missing');
+  }
+  const managerNames = managerImport[1]
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (!managerNames.includes('applyInitialSearchSelectionToState')) {
+    managerNames.push('applyInitialSearchSelectionToState');
+    next = next.replace(
+      managerImport[0],
+      `import {
+    ${managerNames.join(',\n    ')},
+} from '../../services/embedManagerService.js';`,
+    );
+  }
+
+  const editorAt = next.indexOf('createEmbedColorPickerSession({');
+  if (editorAt < 0) {
+    throw new Error('[FINAL_RUNTIME_INVARIANTS] Builder editor startup anchor missing');
+  }
+
+  const existingHydrate = next.indexOf('applyInitialSearchSelectionToState(interaction, state)');
+  if (existingHydrate < 0 || existingHydrate > editorAt) {
+    const colorSessionLine = next.lastIndexOf('const colorSessionToken = ', editorAt);
+    if (colorSessionLine < 0) {
+      throw new Error('[FINAL_RUNTIME_INVARIANTS] color editor session anchor missing');
+    }
+    const lineStart = next.lastIndexOf('\n', colorSessionLine) + 1;
+    const hydrate = `            // ${finalRuntimeInvariantMarker}: Search selection is loaded before editor callbacks exist.
+            applyInitialSearchSelectionToState(interaction, state);
+
+`;
+    next = next.slice(0, lineStart) + hydrate + next.slice(lineStart);
+  }
+
+  return next;
+});
+
 // Fail a build instead of starting with a half-applied Search/Builder migration.
 {
   const searchRuntime = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
