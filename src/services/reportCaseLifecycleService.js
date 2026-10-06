@@ -268,6 +268,29 @@ export async function deleteReportCase(client, guild, record, executor = '24-hou
   return alreadyLocked ? operation() : withReportLock(reportKey(record.guildId, record.messageId), operation);
 }
 
+async function revokeReportParticipantAccess(channel, guild, userId) {
+  const permissions = {
+    ViewChannel: false,
+    SendMessages: false,
+    ReadMessageHistory: false,
+  };
+
+  const member = guild.members.cache?.get?.(userId)
+    || await guild.members.fetch(userId).catch(() => null);
+
+  if (member) {
+    await channel.permissionOverwrites.edit(member, permissions);
+    return;
+  }
+
+  const existing = channel.permissionOverwrites.cache?.get?.(userId);
+  if (existing?.edit) {
+    await existing.edit(permissions);
+  }
+  // If the member has left and no overwrite remains, they already have no
+  // participant access to revoke. Treat that as successfully closed.
+}
+
 export async function handleReportCaseControl(interaction, client, [action, messageId, audience = 'target']) {
   if (!interaction.inGuild() || !['close', 'read', 'delete'].includes(action) || !audiences.includes(audience)) return;
   await interaction.deferReply({ flags: 64 });
@@ -293,9 +316,11 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       // Close removes the participant's access, not the channel or Staff's access.
       if (!entry.closedAt) {
         const channel = await fetchChannel(interaction.guild, entry.channelId);
-        const participant = await interaction.guild.members.fetch(participantId(record, audience)).catch(() => null);
+        const participantIdValue = participantId(record, audience);
+        const participant = interaction.guild.members.cache?.get?.(participantIdValue)
+          || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
-          await channel.permissionOverwrites.edit(participantId(record, audience), { ViewChannel: false, SendMessages: false, ReadMessageHistory: false }, { type: OverwriteType.Member });
+          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue);
         }
         entry.closedAt = Date.now(); entry.closedBy = interaction.user.id;
         await save(client, record);
