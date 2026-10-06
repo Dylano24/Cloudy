@@ -173,7 +173,6 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
 }
 
 function logEmbed(record, audience, event, actorId) {
-  const entry = record.cases[audience];
   const title = event === 'close' ? 'Report case closed' : event === 'delete' ? 'Report case deleted' : 'Report case created';
   const fields = [{ name: 'Report', value: `Report #${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
