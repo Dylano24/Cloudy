@@ -2,6 +2,7 @@ import { createEmbed } from '../embeds.js';
 import { CLOUDY_RED_COLOR } from '../embedColorPolicy.js';
 
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+export const CLOUDY_TICKET_CLOSED_COLOR = 0xFF7A00;
 export const TICKET_REPLY_DELETE_MS = 10_000;
 
 // Kept for compatibility with existing imports. The current ticket layout is logo-free.
@@ -12,6 +13,7 @@ export function forceCloudyTicketFooter(embed) {
   const payload = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...(embed || {}) };
 
   payload.footer = { text: CLOUDY_TICKET_FOOTER };
+  if (!payload.fields?.length && payload.title === 'Ticket closed') payload.color = CLOUDY_TICKET_CLOSED_COLOR;
   if (!payload.fields?.length && payload.title === 'Ticket claimed') payload.color = 0x00C49D;
   if (!payload.fields?.length && payload.title === 'Ticket unclaimed') payload.color = 0x000000;
   if (!payload.fields?.length && payload.title === 'Ticket deleted') payload.color = CLOUDY_RED_COLOR;
