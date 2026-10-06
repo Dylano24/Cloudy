@@ -85,10 +85,20 @@ export function timeoutDuration(value) {
 }
 
 async function deny(interaction, message) {
-  return InteractionHelper.universalReply(interaction, {
+  const embed = createEmbed({
+    title: 'Permission denied',
+    description: message,
+    color: 'error',
+  }).setTitle('Permission denied');
+
+  const response = await InteractionHelper.universalReply(interaction, {
     flags: MessageFlags.Ephemeral,
-    embeds: [createEmbed({ title: 'Permission denied', description: message })],
+    embeds: [embed],
   });
+
+  const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
+  timer.unref?.();
+  return response;
 }
 
 export function reportBanNotification(reason) {
@@ -120,7 +130,7 @@ export async function handleReportAction(interaction, client, [action, userId]) 
   if (interaction.message?.author?.id !== client.user.id) return;
 
   if (actions.includes('ban') && !reportActionAllowed(interaction, action)) {
-    return deny(interaction, 'Only members with the Owner role can ban members from reports.');
+    return deny(interaction, 'Only owners can ban members from reports.');
   }
 
   const modal = new ModalBuilder()
@@ -158,7 +168,7 @@ export async function handleReportModeration(interaction, client, [action, userI
   const config = await getGuildConfig(client, interaction.guildId);
   if (!reportActionAllowed(interaction, action, config)) {
     return deny(interaction, actions.includes('ban')
-      ? 'Only members with the Owner role can ban members from reports.'
+      ? 'Only owners can ban members from reports.'
       : 'Only the staff team can manage reports.');
   }
 
@@ -238,7 +248,7 @@ async function completeReportAction(interaction, client, report, action, userId,
     const freshMember = await interaction.guild.members.fetch(interaction.user.id);
     if (!reportActionAllowed({ guild: interaction.guild, user: interaction.user, member: freshMember }, action, config)) {
       throw new Error(requestedActions.includes('ban')
-        ? 'Only members with the Owner role can ban members from reports.'
+        ? 'Only owners can ban members from reports.'
         : 'Only authorized staff can perform this action.');
     }
 
