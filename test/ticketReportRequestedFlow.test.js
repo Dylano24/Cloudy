@@ -189,7 +189,7 @@ test('Ban denies staff; modal submit rechecks revoked permission', async () => {
   assert.deepEqual(buildReportActions('target')[0].toJSON().components.map(b => b.label), ['Delete', 'Timeout', 'Ban', 'No sanction']);
   assert.deepEqual(buildReportActions('target')[1].toJSON().components.map(b => b.label), ['Delete + timeout', 'Delete + ban']);
   await handleReportAction(f.interaction, f.client, ['ban', 'target']);
-  assert.ok(f.replies.some(p => JSON.stringify(p).includes('Only members with the Owner role')));
+  assert.ok(f.replies.some(p => JSON.stringify(p).includes('Only owners can ban members from reports.')));
   f.member.roles.cache.clear(); await handleReportModeration(f.interaction, f.client, ['timeout', 'target', 'report']);
   assert.ok(f.replies.some(p => JSON.stringify(p).includes('Only the staff team')));
   assert.equal(timeoutDuration('30'), 1_800_000);
