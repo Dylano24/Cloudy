@@ -20,6 +20,16 @@ const RUNTIME_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchRuntime');
 const RESPONSE_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchResponses');
 const OLD_SEARCH_BUTTON_ID = '__cloudy_removed_builder_search_button__';
 const PENDING_TTL = 5 * 60_000;
+const INTERNAL_SEARCH_TITLES = new Set([
+    'message builder',
+    'modify embed',
+    'embed loaded',
+    'changes saved',
+    'could not load embeds',
+    'untitled embed',
+    'use the buttons below to create your message',
+    '(use the buttons below to create your message)',
+]);
 const pendingSelections = globalThis.__cloudyEmbedBuilderSearchSelections
     || (globalThis.__cloudyEmbedBuilderSearchSelections = new Map());
 
@@ -303,6 +313,13 @@ function mergeSearchRecords(guildId, registryRecords) {
     return [...unique.values()];
 }
 
+function isInternalSearchRecord(record) {
+    const title = normalize(recordTitle(record));
+    const name = normalize(record?.name);
+    return INTERNAL_SEARCH_TITLES.has(title)
+        || INTERNAL_SEARCH_TITLES.has(name);
+}
+
 function builderSearchDisplayRecords(records) {
     // Search stays complete, but a canonical Cloudy template is shown only once.
     // Runtime/history mirrors are not separate editable Builder items.
@@ -317,6 +334,7 @@ function builderSearchDisplayRecords(records) {
 
         if (['bot-history', 'history'].includes(source)) continue;
         if (record?.detached && source !== 'system-catalog') continue;
+        if (isInternalSearchRecord(record)) continue;
 
         const stableKey = stableSearchTemplateKey(record);
         const stableContext = stableSearchTemplateContext(record);
@@ -381,9 +399,10 @@ function canonicalSearchDynamicText(value = '') {
 
 function visibleSearchShape(value = {}) {
     const data = value?.toJSON ? value.toJSON() : (value || {});
-    const authorName = String(data?.author?.name || '');
-    const technicalAuthor = /^Cloudy template key:/i.test(authorName);
 
+    // Search identity is semantic, not decorative. Footer/logo/media/color can
+    // differ between runtime copies of the same response without making a new
+    // searchable response type.
     return {
         title: canonicalSearchDynamicText(data?.title),
         description: canonicalSearchDynamicText(data?.description),
@@ -394,10 +413,6 @@ function visibleSearchShape(value = {}) {
                 inline: Boolean(field?.inline),
             }))
             : [],
-        footer: canonicalSearchDynamicText(data?.footer?.text),
-        image: data?.image?.url ? { url: String(data.image.url) } : null,
-        thumbnail: data?.thumbnail?.url ? { url: String(data.thumbnail.url) } : null,
-        author: !technicalAuthor ? canonicalSearchDynamicText(authorName) : '',
     };
 }
 
@@ -412,23 +427,20 @@ function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return '';
 
-    const context = searchContext(record, document);
-
-    // Prefer the canonical source definition when this title/context resolves
-    // unambiguously. That collapses runtime copies whose only differences are
-    // dynamic values, while ambiguous same-title responses stay separate.
+    const stableContext = stableSearchTemplateContext(record);
     const definition = getSystemSourceDefinitionPreview(
         recordTitle(record),
-        context,
+        stableContext || searchContext(record, document),
     );
     const shape = definition
         ? visibleSearchShape(definition)
         : visibleSearchShape(snapshot(record));
 
     try {
+        // Technical catalog metadata, physical message ids/channels and visual
+        // decoration are not separate Search items. Meaningful text/fields are.
         return [
             definition ? 'definition' : 'visible',
-            context,
             normalize(recordTitle(record)),
             JSON.stringify(shape),
         ].join(':');
@@ -483,22 +495,38 @@ export function buildMatches(guild, records, query) {
     });
 }
 
+function cleanChoiceText(value, max = 48) {
+    return clean(
+        String(value || '')
+            .replace(/<a?:[^:>]+:\d+>/g, '')
+            .replace(/<[@#&!]?\d+>/g, '')
+            .replace(/\{dynamic\}/gi, '…')
+            .replace(/[*_`~>|#]+/g, ' '),
+        max,
+    );
+}
+
 function choiceDetail(match) {
     const { record, document } = match;
     const data = snapshot(record);
-    const channelName = clean(document?.channel?.name, 30);
+
     const description = String(data?.description || '')
         .split('\n')
-        .map(line => clean(
-            line
-                .replace(/<a?:[^:>]+:\d+>/g, '')
-                .replace(/<[@#&!]?\d+>/g, '')
-                .replace(/[*_`~>|#]+/g, ' '),
-            48,
-        ))
+        .map(line => cleanChoiceText(line, 48))
         .find(Boolean);
-
     if (description && normalize(description) !== normalize(document.title)) return description;
+
+    const fieldName = (data?.fields || [])
+        .map(field => cleanChoiceText(field?.name, 36))
+        .find(Boolean);
+    if (fieldName && normalize(fieldName) !== normalize(document.title)) return fieldName;
+
+    const fieldValue = (data?.fields || [])
+        .map(field => cleanChoiceText(field?.value, 42))
+        .find(Boolean);
+    if (fieldValue && normalize(fieldValue) !== normalize(document.title)) return fieldValue;
+
+    const channelName = clean(document?.channel?.name, 30);
     if (channelName) return `#${channelName}`;
     return '';
 }
