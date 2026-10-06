@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { buildBuilderEmbeds } from '../src/commands/Tools/embedbuilder.js';
 import {
@@ -27,7 +28,6 @@ import {
   mergeEmbedManagerRecords,
   loadRecordSnapshotIntoState,
   openEmbedManager,
-  prepareEmbedManager,
   prefersCatalogPreview,
   shouldApplyBackgroundRegistryRefresh,
   templateIdentity,
@@ -154,39 +154,26 @@ test('unchecked channels offer opening embeds immediately without a loading labe
   assert.doesNotMatch(option.description, /No saved embed/i);
 });
 
-test('channel browser preloads once per Builder and consumes the snapshot on open', async () => {
-  installTestStorage();
-  const guildId = '100000000000000779';
-  const channelId = '200000000000000779';
-  const guild = buildGuild({ guildId, channelId, messages: new Map() });
-  guild.channels.cache.get(channelId).type = 0;
-  const state = {};
-  prepareEmbedManager(guild, state);
-  const pending = state.embedManagerPrepared;
-  prepareEmbedManager(guild, state);
-  assert.equal(state.embedManagerPrepared, pending);
-  await pending;
-  const originalGet = db.db.get;
-  const reads = [];
-  db.db.get = async key => { reads.push(key); return originalGet(key); };
-  let firstPaintReads;
-  const collector = new FakeCollector();
-  await openEmbedManager({
-    guild, client: guild.client, user: { id: 'owner-user' },
-    deferUpdate: async () => {},
-    followUp: async payload => {
-      firstPaintReads = [...reads];
-      assert.equal(payload.components[0].toJSON().components[0].options[0].description, 'Open the embeds in this channel');
-      return { id: 'preloaded-manager', createMessageComponentCollector: () => collector };
-    },
-    webhook: { editMessage: async () => {}, deleteMessage: async () => {} },
-  }, state, async () => true);
-  assert.deepEqual(firstPaintReads, [], 'first paint must not wait for another database read');
-  assert.equal(state.embedManagerPrepared, undefined, 'later opens must fetch fresh records');
-  collector.stop('test-complete');
-  Object.assign(db.db, { get: originalGet });
-});
+test('channel browser first paint stays registry-first without legacy preload state', () => {
+  const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+  assert.doesNotMatch(source, /export function prepareEmbedManager/);
 
+  const openStart = source.indexOf('export async function openEmbedManager');
+  assert.ok(openStart >= 0);
+  const openBody = source.slice(openStart);
+  const deliveries = [
+    openBody.indexOf('buttonInteraction.reply({'),
+    openBody.indexOf('buttonInteraction.followUp({'),
+  ].filter(index => index >= 0);
+  assert.ok(deliveries.length > 0);
+  const firstPaint = openBody.slice(0, Math.min(...deliveries));
+
+  assert.match(firstPaint, /const allStoredRecords = await getEmbedRegistry\(guild\.id\)/);
+  assert.match(firstPaint, /includeBotHistory: false/);
+  assert.doesNotMatch(firstPaint, /getCanonicalBuilderRecords\(/);
+  assert.doesNotMatch(firstPaint, /reconcileEmbedRegistry\(/);
+  assert.doesNotMatch(firstPaint, /discoverEmbedManagerOverviewRecords\(/);
+});
 test('renaming a catalog embed keeps its stable game template identity', () => {
   const savedCatalogEmbed = {
     title: 'My custom Blackjack title',
