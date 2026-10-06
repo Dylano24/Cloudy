@@ -509,6 +509,7 @@ function normalizeRecord(record) {
         name: canonicalEmbedName(record.name || record.title || '').slice(0, 256),
         channelName: String(record.channelName || '').slice(0, 100),
         snapshot: normalizeEmbedSnapshot(record.snapshot),
+        components: normalizeMessageComponents(record.components),
         detached: Boolean(record.detached),
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
