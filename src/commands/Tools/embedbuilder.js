@@ -37,7 +37,8 @@ import {
 } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
-import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';\nimport { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
+import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
+import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { getFromDb, setInDb } from '../../utils/database.js';
 import {
     countBuilderButtons,
