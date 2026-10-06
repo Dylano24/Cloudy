@@ -81,6 +81,54 @@ export function componentRowsFromMessage(message) {
   return normalizeRows(message?.components || []);
 }
 
+export function loadBuilderComponentsFromRecord(state, record) {
+  if (!state || !record?.messageId) return false;
+
+  const hasStoredComponents = Array.isArray(record.components);
+  state.componentRows = hasStoredComponents ? normalizeRows(record.components) : [];
+  state.componentRowsSourceMessageId = hasStoredComponents ? String(record.messageId) : null;
+  state.componentsDirty = false;
+  return hasStoredComponents;
+}
+
+export function loadBuilderComponentsFromMessage(state, message) {
+  if (!state || !message?.id) return false;
+  state.componentRows = componentRowsFromMessage(message);
+  state.componentRowsSourceMessageId = String(message.id);
+  state.componentsDirty = false;
+  return true;
+}
+
+export async function hydrateBuilderMessageComponents(guild, state) {
+  const target = state?.modifyTarget;
+  const targetId = target?.messageId ? String(target.messageId) : '';
+  if (!guild || !targetId || state.componentsDirty) return false;
+
+  if (state.componentRowsSourceMessageId === targetId && Array.isArray(state.componentRows)) {
+    return false;
+  }
+
+  let message = target.cachedMessage && String(target.cachedMessage.id) === targetId
+    ? target.cachedMessage
+    : null;
+
+  if (!message) {
+    const backingChannelId = String(target.backingChannelId || target.channelId || '');
+    const channel = guild.channels?.cache?.get?.(backingChannelId)
+      || await guild.channels?.fetch?.(backingChannelId).catch(() => null);
+    message = await channel?.messages?.fetch?.(targetId).catch(() => null);
+  }
+
+  // The user may have selected another embed while this fetch was in flight.
+  if (!message || state.componentsDirty || String(state.modifyTarget?.messageId || '') !== targetId) {
+    return false;
+  }
+
+  loadBuilderComponentsFromMessage(state, message);
+  state.modifyTarget.cachedMessage = message;
+  return true;
+}
+
 export function getBuilderMessageComponents(state) {
   return normalizeRows(state?.componentRows || []);
 }
@@ -202,30 +250,34 @@ function appendButton(rows, component) {
   return next;
 }
 
+export function removeRightmostBuilderButton(rows) {
+  const next = normalizeRows(rows);
+
+  for (let rowIndex = next.length - 1; rowIndex >= 0; rowIndex -= 1) {
+    const row = next[rowIndex];
+    for (let componentIndex = row.components.length - 1; componentIndex >= 0; componentIndex -= 1) {
+      if (Number(row.components[componentIndex]?.type) !== BUTTON_COMPONENT_TYPE) continue;
+      row.components.splice(componentIndex, 1);
+      if (!row.components.length) next.splice(rowIndex, 1);
+      return next;
+    }
+  }
+
+  return next;
+}
+
 async function ensureRowsLoaded(buttonInteraction, state) {
   const targetId = state?.modifyTarget?.messageId ? String(state.modifyTarget.messageId) : 'new';
   if (state.componentRowsSourceMessageId === targetId && Array.isArray(state.componentRows)) return;
 
-  state.componentRows = [];
-  state.componentRowsSourceMessageId = targetId;
-  state.componentsDirty = false;
-
-  if (targetId === 'new') return;
-
-  const target = state.modifyTarget;
-  const cached = target?.cachedMessage && String(target.cachedMessage.id) === targetId
-    ? target.cachedMessage
-    : null;
-  let message = cached;
-
-  if (!message) {
-    const backingChannelId = String(target?.backingChannelId || target?.channelId || '');
-    const channel = buttonInteraction.guild?.channels?.cache?.get(backingChannelId)
-      || await buttonInteraction.guild?.channels?.fetch?.(backingChannelId).catch(() => null);
-    message = await channel?.messages?.fetch?.(targetId).catch(() => null);
+  if (targetId === 'new') {
+    state.componentRows = [];
+    state.componentRowsSourceMessageId = 'new';
+    state.componentsDirty = false;
+    return;
   }
 
-  state.componentRows = componentRowsFromMessage(message);
+  await hydrateBuilderMessageComponents(buttonInteraction.guild, state);
 }
 
 function managerPayload(state) {
