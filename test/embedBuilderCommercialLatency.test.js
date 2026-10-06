@@ -2,17 +2,24 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Embed Builder precomputes canonical Modify data before the button click', () => {
+test('Embed Builder opens Modify from the stored registry without legacy canonical preload', () => {
   const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
-  const prepareStart = source.indexOf('export function prepareEmbedManager');
-  const openStart = source.indexOf('export async function openEmbedManager', prepareStart);
-  assert.ok(prepareStart >= 0 && openStart > prepareStart);
-  const prepare = source.slice(prepareStart, openStart);
-  assert.match(prepare, /getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\)/);
-
+  const openStart = source.indexOf('export async function openEmbedManager');
+  assert.ok(openStart >= 0);
   const openBody = source.slice(openStart);
-  assert.match(openBody, /preparedData\?\.records/);
-  assert.match(openBody, /rememberEmbedManagerRecordCache\(guild\.id, buttonInteraction\.user\.id, records\)/);
+  const firstDelivery = Math.min(
+    ...[
+      openBody.indexOf('buttonInteraction.reply({'),
+      openBody.indexOf('buttonInteraction.followUp({'),
+    ].filter(index => index >= 0),
+  );
+  assert.ok(Number.isFinite(firstDelivery));
+
+  const firstPaint = openBody.slice(0, firstDelivery);
+  assert.match(firstPaint, /const allStoredRecords = await getEmbedRegistry\(guild\.id\)/);
+  assert.doesNotMatch(firstPaint, /getCanonicalBuilderRecords\(/);
+  assert.doesNotMatch(firstPaint, /reconcileEmbedRegistry\(/);
+  assert.doesNotMatch(source, /export function prepareEmbedManager/);
 });
 
 test('local Builder state changes refresh preview and dashboard without a defer round-trip', () => {
@@ -44,12 +51,12 @@ test('Modify Search reuses the open manager records before reading the database 
   assert.match(block, /getCanonicalBuilderRecords\(interaction\.guild\)/);
 });
 
-test('slash autocomplete coalesces canonical Builder reads', () => {
+test('slash autocomplete stays on the registry plus catalog fast path', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-  assert.match(source, /CANONICAL_SEARCH_CACHE_TTL = 1500/);
-  assert.match(source, /async function getFastCanonicalBuilderRecords/);
-  assert.match(source, /cached\?\.promise/);
+  assert.match(source, /getEmbedRegistry\(interaction\.guildId\)/);
+  assert.match(source, /mergeSearchRecords\(interaction\.guildId, registryRecords\)/);
   assert.doesNotMatch(source, /await getCanonicalBuilderRecords\(interaction\.guild\)/);
+  assert.doesNotMatch(source, /async function getFastCanonicalBuilderRecords/);
 });
 
 test('Modify and manager pagination use the one-request fast path on real Discord interactions', () => {
