@@ -99,30 +99,30 @@ test('Delete asks for a required reason before acting; two adjacent private case
   for (const entry of target.creation.permissionOverwrites) assert.equal(PermissionOverwrites.resolve(entry, {}).id, entry.id);
   assert.ok(!target.creation.permissionOverwrites.some(entry => entry.id === 'reporter'));
   const reporterNotice = reporter.messages.cache.get(record.cases.reporter.messageId), targetNotice = target.messages.cache.get(record.cases.target.messageId);
-  assert.equal(reporterNotice.content, '<@reporter> <@&staff-role>');
-  assert.deepEqual(reporterNotice.allowedMentions, { parse: [], users: ['reporter'], roles: ['staff-role'] });
+  assert.equal(reporterNotice.content, '<@reporter>');
+  assert.deepEqual(reporterNotice.allowedMentions, { parse: [], users: ['reporter'], roles: [] });
   assert.doesNotMatch(JSON.stringify(json(reporterNotice.embeds[0])), /Private action reason|Reason|staff/);
-  assert.equal(targetNotice.content, '<@target> <@&staff-role>');
+  assert.equal(targetNotice.content, '<@target>');
   assert.match(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
-  assert.equal(json(targetNotice.embeds[0]).description, undefined);
+  assert.equal(json(targetNotice.embeds[0]).description, 'The reported message has been deleted.');
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
   const publicSuccess = f.payloads.filter(message => message.channelId === 'reports');
   assert.equal(publicSuccess.length, 1);
   const successData = json(publicSuccess[0].embeds[0]);
-  assert.equal(successData.title, 'Success');
+  assert.equal(successData.title, 'Report handled');
   assert.equal(successData.description, 'The reported message has been deleted.');
   assert.equal(successData.color, CLOUDY_GREEN_COLOR);
-  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'report-1'));
+  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(successData.fields.some(field => field.name === 'Handled by' && field.value === '<@staff>'));
+  assert.ok(successData.fields.some(field => field.name === 'Handled at'));
   assert.deepEqual(publicSuccess[0].allowedMentions, { parse: [] });
   assert.equal(publicSuccess[0].flags, undefined);
   t.mock.timers.tick(10_000); await settle();
   assert.ok(f.reports.messages.cache.has(publicSuccess[0].id));
   assert.deepEqual(f.report.embeds, snapshot.embeds);
   assert.deepEqual(f.report.components, []);
-  for (const entry of Object.values(record.cases)) {
-    assert.deepEqual(f.logs.messages.cache.get(entry.createdLogId).components, []);
-  }
+  for (const entry of Object.values(record.cases)) assert.equal(entry.createdLogId, undefined);
   assert.equal(f.dms.length, 0);
 });
 
@@ -168,7 +168,7 @@ test('target Close hides only their own case, notifies Staff once in ticket oran
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.ok(record.cases.target.deletedAt); assert.equal(record.cases.reporter.deletedAt, undefined);
   assert.deepEqual(log.components, []);
-  assert.deepEqual(f.logs.messages.cache.get(record.cases.target.createdLogId).components, []);
+  assert.equal(record.cases.target.createdLogId, undefined);
   assert.ok(f.channels.has(record.cases.reporter.channelId));
   const deleted = f.logs.messages.cache.get(record.cases.target.deleteLogId);
   assert.equal(json(deleted.embeds[0]).color, TICKET_EVENT_STYLES.delete.color);
@@ -272,10 +272,11 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.deepEqual(f.report.components, []);
   const success = f.payloads.find(message => message.channelId === 'reports');
   const data = json(success.embeds[0]);
-  assert.equal(data.title, 'Success');
+  assert.equal(data.title, 'Report handled');
   assert.equal(data.description, 'The reported member has been timed out.');
   assert.equal(data.color, CLOUDY_GREEN_COLOR);
-  assert.ok(data.fields.some(field => field.name === 'Report' && field.value === 'report-1'));
+  assert.ok(data.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(data.fields.some(field => field.name === 'Handled by' && field.value === '<@staff>'));
   t.mock.timers.tick(10_000); await settle();
   assert.ok(f.reports.messages.cache.has(success.id));
 });
@@ -296,10 +297,11 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   assert.deepEqual(f.report.components, []);
   const success = f.payloads.find(message => message.channelId === 'reports');
   const successData = json(success.embeds[0]);
-  assert.equal(successData.title, 'Success');
+  assert.equal(successData.title, 'Report handled');
   assert.equal(successData.description, 'The reported member has been banned.');
   assert.equal(successData.color, CLOUDY_GREEN_COLOR);
-  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'report-1'));
+  assert.ok(successData.fields.some(field => field.name === 'Report' && field.value === 'Report #1'));
+  assert.ok(successData.fields.some(field => field.name === 'Handled by' && field.value === '<@role-owner>'));
   t.mock.timers.tick(10_000); await settle();
   assert.ok(f.reports.messages.cache.has(success.id));
   assert.ok(record.cases.reporter);
@@ -333,6 +335,63 @@ test('legacy shared case upgrades on restart without repeating moderation or cha
   assert.equal(f.dms.length, 0);
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Legacy private reason/);
+});
+
+test('No sanction closes the report without moderation and notifies both members without Staff tags', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  const record = await f.submit('no_sanction');
+  assert.deepEqual(f.removed, []);
+  assert.equal(record.actions.no_sanction.status, 'completed');
+  assert.equal(record.actions.no_sanction.notified, true);
+  for (const [audience, entry] of Object.entries(record.cases)) {
+    const notice = f.channels.get(entry.channelId).messages.cache.get(entry.messageId);
+    const participant = audience === 'reporter' ? 'reporter' : 'target';
+    assert.equal(notice.content, `<@${participant}>`);
+    assert.deepEqual(notice.allowedMentions, { parse: [], users: [participant], roles: [] });
+    assert.match(json(notice.embeds[0]).description, /no sanction was applied/i);
+    assert.doesNotMatch(JSON.stringify(json(notice.embeds[0])), /Handled by|Private action reason/);
+  }
+  const handled = f.payloads.find(message => message.channelId === 'reports');
+  assert.equal(json(handled.embeds[0]).title, 'Report handled');
+  assert.match(json(handled.embeds[0]).description, /no sanction was applied/i);
+});
+
+test('Delete + timeout performs both actions once and explains both outcomes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  const timedOut = [];
+  t.mock.method(ModerationService, 'timeoutUser', async data => { timedOut.push(data); });
+  const record = await f.submit('delete_timeout');
+  assert.equal(timedOut.length, 1);
+  assert.deepEqual(f.removed, ['original-message']);
+  assert.equal(record.actions.delete.notified, true);
+  assert.equal(record.actions.timeout.notified, true);
+  const handled = f.payloads.find(message => message.channelId === 'reports');
+  const data = json(handled.embeds[0]);
+  assert.match(data.description, /reported message has been deleted/i);
+  assert.match(data.description, /reported member has been timed out/i);
+  const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
+  assert.match(json(reporter.embeds[0]).description, /deleted/i);
+  assert.match(json(reporter.embeds[0]).description, /timed out/i);
+});
+
+test('Delete + ban performs both actions and keeps only the reporter case after the ban', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  const banned = [];
+  t.mock.method(ModerationService, 'banUser', async data => { banned.push(data); });
+  const record = await f.submit('delete_ban', f.roleOwner.user);
+  assert.equal(banned.length, 1);
+  assert.deepEqual(f.removed, ['original-message']);
+  assert.equal(record.actions.delete.notified, true);
+  assert.equal(record.actions.ban.notified, true);
+  assert.ok(record.cases.reporter);
+  assert.equal(record.cases.target, undefined);
+  const handled = f.payloads.find(message => message.channelId === 'reports');
+  const data = json(handled.embeds[0]);
+  assert.match(data.description, /reported message has been deleted/i);
+  assert.match(data.description, /reported member has been banned/i);
 });
 
 test('saved shared notification templates cannot leak private reasons or overwrite report case presentation', async () => {
