@@ -186,7 +186,8 @@ test('ticket removal waits ten seconds', async t => {
 test('Ban denies staff; modal submit rechecks revoked permission', async () => {
   const f = fixture('open', 'staff');
   f.interaction.message = { id: 'report', author: f.client.user };
-  assert.deepEqual(buildReportActions('target')[0].toJSON().components.map(b => b.label), ['Delete', 'Timeout', 'Ban']);
+  assert.deepEqual(buildReportActions('target')[0].toJSON().components.map(b => b.label), ['Delete', 'Timeout', 'Ban', 'No sanction']);
+  assert.deepEqual(buildReportActions('target')[1].toJSON().components.map(b => b.label), ['Delete + timeout', 'Delete + ban']);
   await handleReportAction(f.interaction, f.client, ['ban', 'target']);
   assert.ok(f.replies.some(p => JSON.stringify(p).includes('Only members with the Owner role')));
   f.member.roles.cache.clear(); await handleReportModeration(f.interaction, f.client, ['timeout', 'target', 'report']);
@@ -225,7 +226,8 @@ test('report logEvent delivers three buttons and an explicit Staff ping in suppl
   assert.equal(sent.length, 1);
   assert.equal(sent[0].content, '<@&1534506224312389810>');
   assert.deepEqual(sent[0].allowedMentions, { parse: [], roles: ['1534506224312389810'] });
-  assert.equal(sent[0].components[0].toJSON().components.length, 3);
+  assert.equal(sent[0].components[0].toJSON().components.length, 4);
+  assert.equal(sent[0].components[1].toJSON().components.length, 2);
 });
 test('Join to Create resolves username Room template for different members', () => {
   assert.equal(formatChannelName("{username}'s Room", { username: 'Dylano' }), "Dylano's Room");
