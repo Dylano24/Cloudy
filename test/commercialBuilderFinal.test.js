@@ -9,6 +9,8 @@ import {
 import { hydrateBuilderPreviewRecord } from '../src/services/builderRuntimePreviewService.js';
 import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
+// Commercial contract: live messages are authoritative; preview actions stay inert.
+
 function row(...labels) {
   return {
     type: 1,
