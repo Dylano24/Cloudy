@@ -1,4 +1,4 @@
-import { registerReport, reportStaffRole } from '../../services/reportCaseService.js';
+import { nextReportNumber, registerReport, reportStaffRole } from '../../services/reportCaseService.js';
 import {
   ActionRowBuilder,
   ApplicationCommandType,
@@ -86,6 +86,7 @@ export default {
     await InteractionHelper.safeDefer(submitted, { flags: MessageFlags.Ephemeral });
     const reason = submitted.fields.getTextInputValue('reason').trim();
 
+    const reportNumber = await nextReportNumber(client, interaction.guildId);
     const staffRoleId = reportStaffRole(interaction.guild, config);
     const logged = await logEvent({
       client,
@@ -95,8 +96,13 @@ export default {
       allowedMentions: staffRoleId ? { parse: [], roles: [staffRoleId] } : { parse: [] },
       components: buildReportActions(message.author.id),
       data: {
-        title: 'New report',
+        title: `New report • #${reportNumber}`,
         blockFields: [
+          {
+            name: 'Report',
+            value: `Report #${reportNumber}`,
+            inline: true,
+          },
           {
             name: 'Reported member',
             value: `<@${message.author.id}>`,
@@ -127,12 +133,12 @@ export default {
       throw new Error('Cloudy report could not be delivered to the reports channel.');
     }
 
-    await registerReport(client, logged, { guildId: interaction.guildId, reporterId: interaction.user.id, targetId: message.author.id, sourceChannelId: message.channelId, sourceMessageId: message.id });
+    await registerReport(client, logged, { guildId: interaction.guildId, number: reportNumber, reporterId: interaction.user.id, targetId: message.author.id, sourceChannelId: message.channelId, sourceMessageId: message.id });
     setResponseLifetime(submitted, 120_000);
     await InteractionHelper.safeEditReply(submitted, {
       embeds: [createEmbed({
         title: 'Report submitted',
-        description: 'Your report has been sent to the staff team. Staff will review it as soon as possible.',
+        description: `Report #${reportNumber} has been sent to the staff team. Staff will review it as soon as possible.`,
         color: 'success',
       })],
     });
@@ -144,6 +150,7 @@ export default {
       reportedUserId: message.author.id,
       channelId: message.channelId,
       messageId: message.id,
+      reportNumber,
     });
   },
 };
