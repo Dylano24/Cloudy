@@ -65,7 +65,13 @@ function fixture() {
   reports.messages.cache.set(report.id, report);
   function interaction(user = staff.user, message = report, channelId = reports.id) {
     const result = { id: '1556344268099166320', createdTimestamp: Date.now(), guild, guildId: guild.id, channel: channels.get(channelId), channelId, member: members.get(user.id), user, message,
-      inGuild: () => true, deferReply: async () => { result.deferred = true; }, deleteReply: async () => { replyDeletes.push(result.id); }, editReply: async payload => { result.error = payload; },
+      inGuild: () => true,
+      deferReply: async () => { result.deferred = true; },
+      deferUpdate: async () => { result.deferred = true; result.silentDeferred = true; },
+      deleteReply: async () => { replyDeletes.push(result.id); },
+      editReply: async payload => { result.error = payload; },
+      followUp: async payload => { result.error = payload; return { id: `followup-${result.id}` }; },
+      webhook: { deleteMessage: async id => { replyDeletes.push(id); } },
       showModal: async modal => { result.modal = modal.toJSON(); }, fields: { getTextInputValue: field => field === 'minutes' ? '10' : 'Private action reason' } };
     return result;
   }
@@ -98,6 +104,8 @@ test('Read confirms its durable close before waiting for staff log delivery', as
     await settle();
     assert.ok(f.values.get(reportKey(f.guild.id, record.messageId)).cases.target.closedAt, 'Read must be persisted before confirmation');
     assert.ok(channel.overwriteEdits.length, 'Participant access must be revoked before confirmation');
+    assert.equal(read.silentDeferred, true, 'Read must acknowledge without showing a thinking reply');
+    assert.equal(read.error?.flags, 64);
     assert.equal(read.error?.embeds?.[0] && json(read.error.embeds[0]).title, 'Thank you.');
   } finally {
     release();
