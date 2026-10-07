@@ -292,7 +292,7 @@ export async function redisTakeLatencySample() {
 }
 
 export async function redisIncrementLatencyRollup(hour, label, elapsedMs) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}$/.test(hour)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(hour)
       || !/^[a-z0-9_:]{1,110}$/.test(label)
       || !Number.isSafeInteger(elapsedMs) || elapsedMs < 0 || elapsedMs > 60_000) return false;
   const redisKey = key('worker:latency:rollup:v1:' + hour);
