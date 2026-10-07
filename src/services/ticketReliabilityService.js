@@ -699,6 +699,13 @@ export async function reopenTicket(channel, reopener, options = {}) {
     const closeStatusCleanup = options.statusMessage?.edit
       ? options.statusMessage.edit({ components: [] }).catch(() => null)
       : Promise.resolve(null);
+    const ownerAccessTask = channel.permissionOverwrites.edit(ticketData.userId, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      AttachFiles: true,
+    });
+
     // Restore the creator's channel access before sending the mention. A mention
     // sent while the ticket is still hidden can render as a tag without creating
     // a real Discord notification for the ticket creator.
@@ -724,13 +731,6 @@ export async function reopenTicket(channel, reopener, options = {}) {
         await channel.setParent(openCategoryId, { lockPermissions: false });
       }
     };
-
-    const ownerAccessTask = channel.permissionOverwrites.edit(ticketData.userId, {
-      ViewChannel: true,
-      SendMessages: true,
-      ReadMessageHistory: true,
-      AttachFiles: true,
-    });
 
     // All remaining work is independent once the durable state and visible
     // status are updated, so run it concurrently instead of serially.
