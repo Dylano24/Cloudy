@@ -3,7 +3,7 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
 import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
-import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
+import { CLOUDY_GREEN_COLOR, CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { TICKET_EVENT_STYLES } from '../utils/ticket/ticketLogging.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { logger, startupLog } from '../utils/logger.js';
@@ -428,8 +428,11 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       if (action === 'read') {
         keepReply = true;
         await InteractionHelper.safeEditReply(interaction, {
-          content: 'Thank you. We have recorded that you have read this report.',
-          embeds: [],
+          content: null,
+          embeds: [caseEmbed({
+            description: 'Thank you. We have recorded that you have read this report.',
+            color: CLOUDY_GREEN_COLOR,
+          })],
           components: [],
           allowedMentions: { parse: [] },
         });
