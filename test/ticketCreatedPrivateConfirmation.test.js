@@ -285,9 +285,11 @@ test('private follow-up cleanup survives restart and targets the follow-up inste
     assert.match(deleteUrl, new RegExp('/messages/' + followupId + '$'));
     assert.doesNotMatch(deleteUrl, /@original/);
   } finally {
+    /* eslint-disable require-atomic-updates */
     global.fetch = previousFetch;
     if (previousToken === undefined) delete process.env.DISCORD_TOKEN;
     else process.env.DISCORD_TOKEN = previousToken;
+    /* eslint-enable require-atomic-updates */
   }
 });
 
