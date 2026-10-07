@@ -243,7 +243,6 @@ const closeTicketModalHandler = {
       await closeTicket(interaction.channel, interaction.user, reason, {
         ticketData: context.ticketData,
         config: context.config,
-        actorCanManage: context.canManageTicket,
       });
 
       // Button/modal close already has a public Ticket closed status message.
