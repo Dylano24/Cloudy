@@ -265,3 +265,41 @@ export async function redisAcquireLock(name, ttlMs = 30_000) {
 export async function redisPing() {
   return (await command(['PING'])) === 'PONG';
 }
+
+
+// Non-critical, bounded telemetry queue for an optional standalone Worker.
+// Never put Discord messages, report states, permissions or money operations
+// into this queue: Redis may discard a popped item on worker process failure.
+const TELEMETRY_QUEUE_KEY = key('worker:latency:queue:v1');
+const MAX_TELEMETRY_BACKLOG = 1_000;
+
+export async function redisEnqueueLatencySample(sample) {
+  if (!REDIS_URL) return false;
+  const serialized = JSON.stringify(sample);
+  if (Buffer.byteLength(serialized, 'utf8') > 512) return false;
+  const size = await command(['LPUSH', TELEMETRY_QUEUE_KEY, serialized]);
+  if (!Number.isSafeInteger(size)) return false;
+  if (size > MAX_TELEMETRY_BACKLOG) {
+    // Drop the oldest diagnostics rather than growing unbounded under load.
+    await command(['LTRIM', TELEMETRY_QUEUE_KEY, '0', String(MAX_TELEMETRY_BACKLOG - 1)]);
+  }
+  return true;
+}
+
+export async function redisTakeLatencySample() {
+  const raw = await command(['RPOP', TELEMETRY_QUEUE_KEY]);
+  return typeof raw === 'string' ? raw : null;
+}
+
+export async function redisIncrementLatencyRollup(hour, label, elapsedMs) {
+  if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}$/.test(hour)
+      || !/^[a-z0-9_:]{1,110}$/.test(label)
+      || !Number.isSafeInteger(elapsedMs) || elapsedMs < 0 || elapsedMs > 60_000) return false;
+  const redisKey = key('worker:latency:rollup:v1:' + hour);
+  const count = await command(['HINCRBY', redisKey, label + ':count', '1']);
+  if (!Number.isSafeInteger(count)) return false;
+  const sum = await command(['HINCRBY', redisKey, label + ':total_ms', String(elapsedMs)]);
+  if (!Number.isSafeInteger(sum)) return false;
+  await command(['EXPIRE', redisKey, '172800']);
+  return true;
+}
