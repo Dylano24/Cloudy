@@ -179,3 +179,22 @@ test('reopen restores creator access before sending the real creator mention', (
   assert.ok(mentionAt > sendAt);
   assert.match(body, /allowedMentions: \{ parse: \[\], users: \[String\(ticketData\.userId\)\] \}/);
 });
+
+
+test('member closers lose channel access before staff-only controls are published', () => {
+  const source = fs.readFileSync('src/services/ticketReliabilityService.js', 'utf8');
+  const start = source.indexOf('export async function closeTicket');
+  const end = source.indexOf('\nexport async function reopenTicket', start);
+  const body = source.slice(start, end);
+
+  const memberFlagAt = body.indexOf('const memberClosedTicket = options.actorCanManage === false');
+  const hideAt = body.indexOf('await hideClosedTicket(channel)', memberFlagAt);
+  const sendAt = body.indexOf('await sendTicketStatus(channel', hideAt);
+  assert.ok(memberFlagAt >= 0 && hideAt > memberFlagAt && sendAt > hideAt);
+
+  const modalSource = fs.readFileSync('src/interactions/modals/ticket/createTicketUi.js', 'utf8');
+  assert.match(modalSource, /actorCanManage: context\.canManageTicket/);
+
+  const fallbackSource = fs.readFileSync('src/handlers/ticketButtons.js', 'utf8');
+  assert.match(fallbackSource, /actorCanManage: context\.canManageTicket/);
+});
