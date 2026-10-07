@@ -274,6 +274,58 @@ test('reopening restores creator access by ID before tagging, without depending 
 });
 
 
+test('reopen waits for the open category and restores other ticket participants before the creator gets pinged', async () => {
+  const f = fixture('closed', 'staff');
+  await f.initialize();
+  const creatorId = '1534506224312389801';
+  const participantId = '1534506224312389809';
+  const saved = await getTicketData(f.guild.id, f.channel.id);
+  saved.closedAccessSnapshot = [{ id: participantId, view: true, send: true }];
+  await saveTicketData(f.guild.id, f.channel.id, saved);
+
+  let startMoving;
+  const moving = new Promise(resolve => { startMoving = resolve; });
+  let completeMove;
+  const pauseMove = new Promise(resolve => { completeMove = resolve; });
+  f.channel.setParent = async id => {
+    startMoving();
+    await pauseMove;
+    f.channel.parentId = id;
+  };
+
+  const originalSend = f.channel.send;
+  let notificationCount = 0;
+  f.channel.send = async payload => {
+    if (payload.embeds?.some(embed => (embed.toJSON?.() || embed).title === 'Ticket reopened')) {
+      notificationCount += 1;
+      assert.equal(f.channel.parentId, '1534506224312389811',
+        'the channel must be open before the creator is notified');
+      assert.ok(f.permissions.some(entry => entry.id === participantId && entry.value.ViewChannel === true),
+        'other ticket participant access must also be restored before pinging');
+      assert.ok(f.permissions.some(entry => entry.id === creatorId
+        && entry.value.ViewChannel === true && entry.value.ReadMessageHistory === true),
+      'creator must be able to read the ticket before the notification is sent');
+      assert.equal(payload.content, `<@${creatorId}>`);
+      assert.deepEqual(payload.allowedMentions, { parse: [], users: [creatorId] });
+      assert.ok(payload.embeds.length === 1, 'do not create duplicate reopen embeds');
+    }
+    return originalSend(payload);
+  };
+
+  const pending = buttons.find(button => button.name === 'ticket_reopen').execute(f.interaction, f.client);
+  try {
+    await moving;
+    assert.equal(notificationCount, 0,
+      'no premature ping while the ticket remains hidden in the closed category');
+  } finally {
+    completeMove();
+  }
+  await pending;
+  assert.equal(notificationCount, 1);
+  assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'open');
+  assert.equal(f.replies.length, 0, 'do not replace a visible mention with a private duplicate');
+});
+
 test('Builder Save affects the next actual public reopen notice while keeping the creator ping', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture('closed', 'staff'); await f.initialize();
