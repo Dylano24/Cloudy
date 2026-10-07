@@ -22,11 +22,13 @@ export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   if (Number(payload.flags) & 32768) return payload;
   if (Array.isArray(payload.embeds) && payload.embeds.length) {
-    const data = payload.embeds.map(embed => embed?.toJSON?.() || embed || {});
+    const data = payload.embeds.map(embed => ({ ...(embed?.toJSON?.() || embed || {}) }));
+    let permissionPresentationChanged = false;
     for (const embed of data) {
       if (embed.description === 'Only owners can ban members from reports.') {
         embed.title = 'Permission denied';
         embed.thumbnail = { url: CLOUDY_C_LOGO_URL };
+        permissionPresentationChanged = true;
       }
     }
     const messageAlreadyBranded = data.some(embed => {
@@ -40,7 +42,7 @@ export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
       return isGuideException || hasBuilderOptOut || hasCloudyLogo || alreadyHasFooter;
     });
 
-    if (messageAlreadyBranded) return payload;
+    if (messageAlreadyBranded) return permissionPresentationChanged ? { ...payload, embeds: data } : payload;
 
     const firstRichEmbed = data.findIndex(embed => !embed.type || embed.type === 'rich');
     if (firstRichEmbed >= 0) {

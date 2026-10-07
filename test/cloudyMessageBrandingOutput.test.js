@@ -3,6 +3,16 @@ import assert from 'node:assert/strict';
 import { CLOUDY_STANDARD_FOOTER, withCloudyFooter } from '../src/utils/cloudyFooter.js';
 import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
+test('preserves report ban permission presentation without mutating the input', () => {
+  const payload = { embeds: [{ title: 'Error', description: 'Only owners can ban members from reports.', footer: { text: 'Existing footer' } }] };
+  const result = withCloudyFooter(payload);
+  assert.equal(result.embeds[0].title, 'Permission denied');
+  assert.equal(result.embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
+  assert.equal(result.embeds[0].footer.text, 'Existing footer');
+  assert.equal(payload.embeds[0].title, 'Error');
+  assert.equal(payload.embeds[0].thumbnail, undefined);
+});
+
 test('leaves embeds with an existing footer entirely unchanged', () => {
   const payload = {
     content: '<@123456789012345678>',
