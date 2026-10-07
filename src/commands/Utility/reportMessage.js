@@ -96,13 +96,8 @@ export default {
       allowedMentions: staffRoleId ? { parse: [], roles: [staffRoleId] } : { parse: [] },
       components: buildReportActions(message.author.id),
       data: {
-        title: 'New report',
+        title: `New report #${reportNumber}`,
         blockFields: [
-          {
-            name: 'Report',
-            value: `#${reportNumber}`,
-            inline: true,
-          },
           {
             name: 'Reported member',
             value: `<@${message.author.id}>`,
