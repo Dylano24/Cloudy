@@ -1646,13 +1646,8 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
                 if (record) previewRecord = await hydrateBuilderPreviewRecord(guild, record, previewRecord, interaction.user.id).catch(() => previewRecord);
                 let loaded = record ? loadRecordSnapshotIntoState(state, guild, record, previewRecord, sourceRecord) : false;
-                if (loaded) {
-                    await Promise.resolve(refreshBuilder()).catch(error => {
-                        logger.debug(`Immediate embed preview refresh skipped: ${error?.message || error}`);
-                    });
-                    if (selectionVersion !== session.selectionVersion) return;
-                    void refreshSelectedBuilderComponents(guild, state, refreshBuilder, messageId);
-                } else {
+                const loadedFromSnapshot = loaded;
+                if (!loaded) {
                     const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                     if (selectionVersion !== session.selectionVersion) return;
                     if (!resolved) {
@@ -1661,13 +1656,21 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     }
                     loadEmbedIntoState(state, resolved);
                     loaded = true;
-                    await Promise.resolve(refreshBuilder()).catch(error => {
-                        logger.debug(`Resolved embed preview refresh skipped: ${error?.message || error}`);
-                    });
-                    if (selectionVersion !== session.selectionVersion) return;
                 }
 
-                await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
+                // The manager selection and the Builder preview are separate
+                // Discord messages. Update both concurrently so one REST edit
+                // cannot delay the other; the same payloads and state are used.
+                await Promise.all([
+                    Promise.resolve(refreshBuilder()).catch(error => {
+                        logger.debug(`Embed preview refresh skipped: ${error?.message || error}`);
+                    }),
+                    updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session),
+                ]);
+                if (selectionVersion !== session.selectionVersion) return;
+                if (loadedFromSnapshot) {
+                    void refreshSelectedBuilderComponents(guild, state, refreshBuilder, messageId);
+                }
             })().catch(error => {
                 logger.error('Embed manager selection failed:', error);
             });
