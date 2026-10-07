@@ -1,4 +1,5 @@
 // CLOUDY_INTERACTION_LATENCY_V1
+import { performance } from 'node:perf_hooks';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
@@ -84,20 +85,19 @@ async function ensurePrivateDeletePrompt(client, channel, record, audience) {
   return message;
 }
 
-async function showReportPermissionDenied(interaction, description) {
+async function showReportPermissionDenied(interaction, description, respondPrivately, scheduleDeletion) {
   const embed = caseEmbed({
     title: 'Permission denied',
     description,
     color: CLOUDY_RED_COLOR,
   });
-  await InteractionHelper.safeEditReply(interaction, {
+  const message = await respondPrivately({
     content: null,
     embeds: [embed],
     components: [],
     allowedMentions: { parse: [] },
   });
-  const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
-  timer.unref?.();
+  scheduleDeletion(message);
 }
 
 function caseOverwrites(guild, client, config, participant) {
@@ -374,12 +374,47 @@ async function revokeReportParticipantAccess(channel, guild, userId, knownMember
 
 export async function handleReportCaseControl(interaction, client, [action, messageId, audience = 'target']) {
   if (!interaction.inGuild() || !['close', 'read', 'delete'].includes(action) || !audiences.includes(audience)) return;
-  await interaction.deferReply({ flags: 64 });
+  // A component deferUpdate acknowledges instantly without showing the
+  // "Cloudy Manager is thinking..." placeholder while permissions and
+  // durable case state are being updated.
+  const silentAck = typeof interaction.deferUpdate === 'function'
+    && typeof interaction.followUp === 'function';
+  if (silentAck) {
+    await interaction.deferUpdate();
+  } else {
+    // Preserve compatibility with legacy adapters that have no update callback.
+    await interaction.deferReply({ flags: 64 });
+  }
+  const respondPrivately = payload => silentAck
+    ? interaction.followUp({ ...payload, flags: 64 })
+    : InteractionHelper.safeEditReply(interaction, payload);
+  const scheduleDeletion = message => {
+    const timer = setTimeout(() => {
+      if (silentAck) {
+        // deleteReply after deferUpdate would delete the original public report.
+        const id = message?.id || message?.resource?.message?.id;
+        if (id) void interaction.webhook?.deleteMessage?.(id)?.catch(() => {});
+      } else {
+        void interaction.deleteReply?.().catch(() => {});
+      }
+    }, 10_000);
+    timer.unref?.();
+  };
+  const started = performance.now();
+  let lastStage = started;
+  const stages = [];
+  const mark = stage => {
+    if (action !== 'read') return;
+    const now = performance.now();
+    stages.push({ stage, ms: Math.round(now - lastStage) });
+    lastStage = now;
+  };
+  mark('ack');
   let keepReply = false;
   const confirmRead = async () => {
     if (action !== 'read' || keepReply) return;
     keepReply = true;
-    await InteractionHelper.safeEditReply(interaction, {
+    const message = await respondPrivately({
       content: null,
       embeds: [caseEmbed({
         title: 'Thank you.',
@@ -389,13 +424,13 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       components: [],
       allowedMentions: { parse: [] },
     });
-    const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
-    timer.unref?.();
+    scheduleDeletion(message);
   };
   try {
     const key = reportKey(interaction.guildId, messageId);
     await withReportLock(key, async () => {
       const record = await client.db.get(key);
+      mark('case_lookup');
       const entry = record?.cases?.[audience];
       if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
       // Discord already supplied the actor on this interaction. Reuse a real
@@ -407,6 +442,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         getGuildConfig(client, interaction.guildId),
         actor ? Promise.resolve(actor) : interaction.guild.members.fetch(interaction.user.id),
       ]);
+      mark('actor_and_config');
       const staff = caseStaffAllowed(interaction.guild, member, config);
       const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
       const inDeletePrompt = interaction.channelId === entry.channelId && interaction.message.id === entry.deletePromptId;
@@ -415,7 +451,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         if (!inDeletePrompt || !entry.closedAt) throw new Error('Delete report is only available after the report is closed.');
         if (!staff) {
           keepReply = true;
-          await showReportPermissionDenied(interaction, 'Only the staff can delete this report.');
+          await showReportPermissionDenied(interaction, 'Only the staff can delete this report.', respondPrivately, scheduleDeletion);
           return;
         }
         await deleteReportCase(client, interaction.guild, record, interaction.user.id, true, audience);
@@ -431,18 +467,23 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         const channel = interaction.channel?.id === entry.channelId
           ? interaction.channel : await fetchChannel(interaction.guild, entry.channelId);
         const participantIdValue = participantId(record, audience);
-        const participant = interaction.guild.members.cache?.get?.(participantIdValue)
+        const participant = (member?.id === participantIdValue ? member : null)
+          || interaction.guild.members.cache?.get?.(participantIdValue)
           || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
+        mark('participant_lookup');
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
-          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue, member);
+          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue, participant);
         }
+        mark('permissions');
         entry.closedAt = Date.now();
         entry.closedBy = interaction.user.id;
         await save(client, record);
+        mark('persist');
 
         // The action is now durable and participant access is revoked. Staff
         // presentation must not prolong the member's thinking state.
         await confirmRead();
+        mark('confirmation');
         const notice = interaction.message;
         if (notice?.author?.id === client.user.id) {
           await notice.edit({
@@ -457,8 +498,16 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
       await refreshLogControls(client, interaction.guild, record, audience);
     });
-    if (!keepReply) await interaction.deleteReply().catch(() => {});
-  } catch (error) { await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` }); }
+    if (!keepReply && !silentAck) await interaction.deleteReply().catch(() => {});
+  } catch (error) { await respondPrivately({ content: `Error: ${error.message}` }); }
+  finally {
+    if (action === 'read' && performance.now() - started >= 750) {
+      mark('remaining_updates');
+      logger.warn(`[REPORT_READ_STAGES] ${JSON.stringify({
+        elapsedMs: Math.round(performance.now() - started), stages,
+      })}`);
+    }
+  }
 }
 
 export async function restoreReportCaseTimers(client) {
