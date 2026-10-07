@@ -68,6 +68,31 @@ test('fast replies stay quiet and rejected responses retain the exact error', as
   await assert.rejects(interaction.reply({}), error => error === failure);
 });
 
+test('global 0.5–1s target flags 750ms reactions except FAQ AI', async () => {
+  let now = 0;
+  const slow = [];
+  const ordinary = {
+    customId: 'ticket_claim',
+    deferUpdate: async () => true,
+  };
+  observeInteractionLatency(ordinary, { now: () => now, report: data => slow.push(data) });
+  now = 810;
+  await ordinary.deferUpdate();
+  assert.deepEqual(slow.map(x => ({ phase: x.phase, ms: x.elapsedMs })), [{ phase: 'ack', ms: 810 }]);
+
+  const faq = {
+    customId: 'faq_ai_question_modal',
+    deferReply: async () => true,
+    editReply: async () => true,
+  };
+  const faqReports = [];
+  observeInteractionLatency(faq, { now: () => now, report: data => faqReports.push(data) });
+  now = 12000;
+  await faq.deferReply({});
+  await faq.editReply({});
+  assert.deepEqual(faqReports, [], 'FAQ assistant is excluded from the one-second target');
+});
+
 test('slow modal acknowledgement is measured without changing the modal flow', async () => {
   let now = 0;
   const reports = [];
