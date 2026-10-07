@@ -55,15 +55,59 @@ function buildTicketChannelLink(channel) {
   return `[#${safeName}](https://discord.com/channels/${channel.guild.id}/${channel.id})`;
 }
 
+async function acknowledgeTicketCreation(interaction) {
+  const fromMessage = interaction.isFromMessage?.() === true || Boolean(interaction.message);
+  if (fromMessage && typeof interaction.deferUpdate === 'function') {
+    try {
+      await interaction.deferUpdate();
+      return 'silent';
+    } catch (error) {
+      if (interaction.deferred || interaction.replied) return 'silent';
+      logger.debug('Silent ticket creation acknowledgement failed; using private reply fallback', {
+        guildId: interaction.guildId,
+        userId: interaction.user?.id,
+        error: error?.message || String(error),
+      });
+    }
+  }
+
+  const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+  return deferred ? 'reply' : null;
+}
+
+async function sendTicketCreationResponse(interaction, responseMode, payload, { fetchReply = false } = {}) {
+  if (responseMode === 'silent') {
+    return interaction.followUp({
+      ...payload,
+      flags: MessageFlags.Ephemeral,
+      ...(fetchReply ? { fetchReply: true } : {}),
+    });
+  }
+
+  const sent = await InteractionHelper.safeEditReply(interaction, payload);
+  if (!sent || !fetchReply) return null;
+  return interaction.fetchReply?.().catch(() => null);
+}
+
+function scheduleTicketCreationResponseDeletion(interaction, responseMode, message, delayMs = 10_000) {
+  if (responseMode === 'silent' && message?.id && typeof interaction.webhook?.deleteMessage === 'function') {
+    const timer = setTimeout(() => interaction.webhook.deleteMessage(message.id).catch(() => {}), delayMs);
+    timer.unref?.();
+    return;
+  }
+  scheduleTicketReplyDeletion(interaction, delayMs);
+}
+
 const createTicketModal = {
   name: 'create_ticket_modal',
 
   async execute(interaction, client) {
+    let responseMode = null;
     try {
       if (!interaction.inGuild()) return;
 
-      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-      if (!deferred) return;
+      responseMode = await acknowledgeTicketCreation(interaction);
+      if (!responseMode) return;
 
       const reason = interaction.fields.getTextInputValue('reason');
       const config = await getGuildConfig(client, interaction.guildId);
@@ -72,7 +116,7 @@ const createTicketModal = {
       // ticket system. Treat PostgreSQL as the source of truth and block that
       // stale submit instead of allowing a deleted panel to create new tickets.
       if (config.ticketSystemDisabled === true) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await sendTicketCreationResponse(interaction, responseMode, {
           content: 'The ticket system is currently disabled. Please wait until an administrator enables it again.',
           embeds: [],
           components: [],
@@ -100,37 +144,49 @@ const createTicketModal = {
       // Successful ticket creation stays private and persistent. It is cleaned
       // up by the ticket delete lifecycle rather than by a short response timer.
       setResponseLifetime(interaction, null);
-      await InteractionHelper.safeEditReply(interaction, {
-        content: '',
-        embeds: [buildCloudyTicketEmbed({
-          title: 'Ticket created',
-          description: `Your ticket has been created in ${channelLink}!`,
-        })],
-        components: [],
-      });
-      await registerPrivateTicketCreationConfirmation(channel, interaction);
+      const confirmationMessage = await sendTicketCreationResponse(
+        interaction,
+        responseMode,
+        {
+          content: '',
+          embeds: [buildCloudyTicketEmbed({
+            title: 'Ticket created',
+            description: `Your ticket has been created in ${channelLink}!`,
+          })],
+          components: [],
+        },
+        { fetchReply: responseMode === 'silent' },
+      );
+      await registerPrivateTicketCreationConfirmation(channel, interaction, confirmationMessage);
     } catch (error) {
       if (error?.userMessage && (interaction.deferred || interaction.replied)) {
         const ticketLimitReached = error.code === 'TICKET_LIMIT_REACHED';
         if (ticketLimitReached) setResponseLifetime(interaction, 10_000);
 
-        await InteractionHelper.safeEditReply(interaction, ticketLimitReached
-          ? {
-              content: '',
-              embeds: [buildCloudyTicketEmbed({
-                title: 'Ticket limit reached',
-                description: error.userMessage,
-                color: '#ED4245',
-              })],
-              components: [],
-            }
-          : {
-              content: error.userMessage,
-              embeds: [],
-              components: [],
-            }).catch(() => {});
+        const responseMessage = await sendTicketCreationResponse(
+          interaction,
+          responseMode,
+          ticketLimitReached
+            ? {
+                content: '',
+                embeds: [buildCloudyTicketEmbed({
+                  title: 'Ticket limit reached',
+                  description: error.userMessage,
+                  color: '#ED4245',
+                })],
+                components: [],
+              }
+            : {
+                content: error.userMessage,
+                embeds: [],
+                components: [],
+              },
+          { fetchReply: ticketLimitReached && responseMode === 'silent' },
+        ).catch(() => null);
 
-        if (ticketLimitReached) scheduleTicketReplyDeletion(interaction, 10_000);
+        if (ticketLimitReached) {
+          scheduleTicketCreationResponseDeletion(interaction, responseMode, responseMessage, 10_000);
+        }
         return;
       }
 
@@ -138,6 +194,7 @@ const createTicketModal = {
         type: 'modal',
         handler: 'ticket',
         customId: interaction.customId,
+        forceFollowUp: responseMode === 'silent',
       });
     }
   },
