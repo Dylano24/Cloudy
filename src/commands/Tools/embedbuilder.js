@@ -1103,10 +1103,23 @@ async function postMessage(buttonInteraction, state, guild) {
         if (channelInteraction.customId.startsWith('simple_embed_channel_page:')) {
             const page = Number(channelInteraction.customId.split(':')[1]) || 0;
             const picker = buildChannelPicker(guild, page);
-            await channelInteraction.update({
+            const payload = {
                 embeds: picker.embeds,
                 components: picker.components,
-            });
+            };
+
+            if (channelPickerMessage?.id
+                && buttonInteraction.webhook?.editMessage
+                && typeof channelInteraction.deferUpdate === 'function') {
+                const [acknowledgement, rendering] = await Promise.allSettled([
+                    channelInteraction.deferUpdate(),
+                    buttonInteraction.webhook.editMessage(channelPickerMessage.id, payload),
+                ]);
+                if (acknowledgement.status === 'rejected') throw acknowledgement.reason;
+                if (rendering.status === 'rejected') throw rendering.reason;
+            } else {
+                await channelInteraction.update(payload);
+            }
             return;
         }
 
