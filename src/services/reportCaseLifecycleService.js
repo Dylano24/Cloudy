@@ -1,4 +1,5 @@
 // CLOUDY_INTERACTION_LATENCY_V1
+import { performance } from 'node:perf_hooks';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
@@ -399,6 +400,16 @@ export async function handleReportCaseControl(interaction, client, [action, mess
     }, 10_000);
     timer.unref?.();
   };
+  const started = performance.now();
+  let lastStage = started;
+  const stages = [];
+  const mark = stage => {
+    if (action !== 'read') return;
+    const now = performance.now();
+    stages.push({ stage, ms: Math.round(now - lastStage) });
+    lastStage = now;
+  };
+  mark('ack');
   let keepReply = false;
   const confirmRead = async () => {
     if (action !== 'read' || keepReply) return;
@@ -419,6 +430,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
     const key = reportKey(interaction.guildId, messageId);
     await withReportLock(key, async () => {
       const record = await client.db.get(key);
+      mark('case_lookup');
       const entry = record?.cases?.[audience];
       if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
       // Discord already supplied the actor on this interaction. Reuse a real
@@ -430,6 +442,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         getGuildConfig(client, interaction.guildId),
         actor ? Promise.resolve(actor) : interaction.guild.members.fetch(interaction.user.id),
       ]);
+      mark('actor_and_config');
       const staff = caseStaffAllowed(interaction.guild, member, config);
       const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
       const inDeletePrompt = interaction.channelId === entry.channelId && interaction.message.id === entry.deletePromptId;
@@ -457,16 +470,20 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         const participant = (member?.id === participantIdValue ? member : null)
           || interaction.guild.members.cache?.get?.(participantIdValue)
           || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
+        mark('participant_lookup');
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
           await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue, participant);
         }
+        mark('permissions');
         entry.closedAt = Date.now();
         entry.closedBy = interaction.user.id;
         await save(client, record);
+        mark('persist');
 
         // The action is now durable and participant access is revoked. Staff
         // presentation must not prolong the member's thinking state.
         await confirmRead();
+        mark('confirmation');
         const notice = interaction.message;
         if (notice?.author?.id === client.user.id) {
           await notice.edit({
@@ -483,6 +500,14 @@ export async function handleReportCaseControl(interaction, client, [action, mess
     });
     if (!keepReply && !silentAck) await interaction.deleteReply().catch(() => {});
   } catch (error) { await respondPrivately({ content: `Error: ${error.message}` }); }
+  finally {
+    if (action === 'read' && performance.now() - started >= 750) {
+      mark('remaining_updates');
+      logger.warn(`[REPORT_READ_STAGES] ${JSON.stringify({
+        elapsedMs: Math.round(performance.now() - started), stages,
+      })}`);
+    }
+  }
 }
 
 export async function restoreReportCaseTimers(client) {
