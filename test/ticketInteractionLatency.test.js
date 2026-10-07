@@ -229,7 +229,7 @@ test('reopen restores creator access before sending the real creator mention', (
   assert.ok(categoryAt >= 0 && restoreAt > categoryAt);
   assert.ok(accessAt > restoreAt && sendAt > accessAt);
   assert.ok(mentionAt > sendAt);
-  assert.match(body, /allowedMentions: \\{ parse: \\[\\], users: \\[String\\(ticketData\\.userId\\)\\] \\}/);
+  assert.ok(body.includes('allowedMentions: { parse: [], users: [String(ticketData.userId)] }'));
 });
 
 
