@@ -559,9 +559,21 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       // durably marked read and its participant permissions were revoked.
       await confirmRead();
       mark('confirmation');
-      await queueReportReadPresentation(
+      const presentation = queueReportReadPresentation(
         client, interaction.guild, key, audience, interaction.message, interaction.channel,
       );
+      if (silentAck) {
+        // The private success embed is already delivered and access is revoked.
+        // Staff logs and the red Delete prompt are essential, but their Discord
+        // REST calls must never hold the user's handler or next 100 interactions.
+        void presentation.catch(error => {
+          logger.error('[REPORT_READ_PRESENTATION] Failed to finish staff presentation:', error);
+        });
+      } else {
+        // Older adapters without component follow-ups retain their original
+        // completion contract (also used by legacy test fixtures).
+        await presentation;
+      }
     }
     if (!keepReply && !silentAck) await interaction.deleteReply().catch(() => {});
   } catch (error) { await respondPrivately({ content: `Error: ${error.message}` }); }
