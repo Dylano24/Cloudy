@@ -37,6 +37,28 @@ test('latency observation preserves arguments, receiver and results and separate
   assert.equal(reports.length, 1, 'later edits are not initial-response latency');
 });
 
+test('silent component acknowledgement never reports visible thinking time', async () => {
+  let now = 0;
+  const reports = [];
+  const interaction = {
+    customId: 'report_case:read:case:target',
+    deferUpdate: async () => {},
+    followUp: async payload => payload,
+  };
+  observeInteractionLatency(interaction, { now: () => now, report: data => reports.push(data) });
+  now = 100;
+  await interaction.deferUpdate();
+  now = 1500;
+  await interaction.followUp({ flags: 64 });
+  assert.deepEqual(reports, [{
+    event: 'interaction.latency',
+    command: 'report_case',
+    action: 'read',
+    phase: 'visible',
+    elapsedMs: 1500,
+  }]);
+});
+
 test('fast replies stay quiet and rejected responses retain the exact error', async () => {
   const failure = new Error('Discord unavailable');
   let now = 0;

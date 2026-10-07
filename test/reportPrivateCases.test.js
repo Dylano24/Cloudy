@@ -99,6 +99,73 @@ test('Read reuses the guild member supplied by Discord without an extra API fetc
   assert.deepEqual(channel.overwriteEdits[0].id, f.target.id);
 });
 
+test('Read acknowledges silently without Discord thinking or deleting the original message', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  await f.register();
+  const record = await f.submit('no_sanction');
+  const entry = record.cases.target;
+  const channel = f.channels.get(entry.channelId);
+  const notice = channel.messages.cache.get(entry.messageId);
+  const read = f.interaction(f.target.user, notice, channel.id);
+  let silentAcks = 0;
+  const privateMessages = [];
+  const privateDeletes = [];
+
+  read.deferUpdate = async () => { silentAcks += 1; read.deferred = true; };
+  read.deferReply = async () => assert.fail('Read must not show the Discord thinking placeholder');
+  read.editReply = async () => assert.fail('Read must not edit the original report as an interaction reply');
+  read.deleteReply = async () => assert.fail('Read must not delete the original report message');
+  read.followUp = async payload => {
+    privateMessages.push(payload);
+    return { id: 'read-private-confirmation' };
+  };
+  read.webhook = { deleteMessage: async id => { privateDeletes.push(id); } };
+
+  await handleReportCaseControl(read, f.client, ['read', record.messageId, 'target']);
+
+  assert.equal(silentAcks, 1);
+  assert.equal(privateMessages.length, 1);
+  assert.equal(privateMessages[0].flags, 64);
+  assert.equal(json(privateMessages[0].embeds[0]).title, 'Thank you.');
+  assert.ok((await f.client.db.get(reportKey(f.guild.id, record.messageId))).cases.target.closedAt);
+  assert.ok(channel.messages.cache.has(notice.id), 'The original report must remain visible');
+  assert.equal(notice.components[0].toJSON().components[0].disabled, true);
+  t.mock.timers.tick(9_999);
+  await settle();
+  assert.deepEqual(privateDeletes, []);
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepEqual(privateDeletes, ['read-private-confirmation']);
+  assert.ok(channel.messages.cache.has(notice.id), 'Private cleanup must not delete a report');
+});
+
+test('silent Delete permissions remain private and do not edit the public prompt', async () => {
+  const f = fixture();
+  await f.register();
+  const record = await f.submit('no_sanction');
+  const entry = record.cases.target;
+  const channel = f.channels.get(entry.channelId);
+  const notice = channel.messages.cache.get(entry.messageId);
+  await handleReportCaseControl(f.interaction(f.target.user, notice, channel.id), f.client, ['read', record.messageId, 'target']);
+  const updated = await f.client.db.get(reportKey(f.guild.id, record.messageId));
+  const prompt = channel.messages.cache.get(updated.cases.target.deletePromptId);
+  const attempt = f.interaction(f.target.user, prompt, channel.id);
+  const replies = [];
+  attempt.deferUpdate = async () => { attempt.deferred = true; };
+  attempt.deferReply = async () => assert.fail('Delete must not show the Discord thinking placeholder');
+  attempt.editReply = async () => assert.fail('Unauthorized Delete must not edit the public prompt');
+  attempt.followUp = async payload => { replies.push(payload); return { id: 'permission-denied-private' }; };
+  attempt.webhook = { deleteMessage: async () => {} };
+
+  await handleReportCaseControl(attempt, f.client, ['delete', record.messageId, 'target']);
+
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].flags, 64);
+  assert.equal(json(replies[0].embeds[0]).title, 'Permission denied');
+  assert.ok(channel.messages.cache.has(prompt.id), 'The staff-only Delete prompt must remain intact');
+});
+
 test('Read confirms its durable close before waiting for staff log delivery', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.register();

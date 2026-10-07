@@ -15,6 +15,7 @@ export function observeInteractionLatency(interaction, {
   interaction[observed] = true;
   const started = now();
   let acknowledgedAt = null;
+  let acknowledgementMethod = null;
   let visible = false;
   const emit = (phase, elapsedMs, thinkingMs) => {
     if (elapsedMs < 1000) return;
@@ -36,11 +37,15 @@ export function observeInteractionLatency(interaction, {
       const finished = now();
       if (acknowledgedAt === null && ACK.has(method)) {
         acknowledgedAt = finished;
+        acknowledgementMethod = method;
         emit('ack', finished - started);
       }
       if (!visible && VISIBLE.has(method)) {
         visible = true;
-        emit('visible', finished - started, acknowledgedAt === null ? null : finished - acknowledgedAt);
+        // deferUpdate silently acknowledges component buttons and does not
+        // show Discord's ephemeral thinking placeholder. Only deferReply does.
+        emit('visible', finished - started,
+          acknowledgementMethod === 'deferReply' ? finished - acknowledgedAt : null);
       }
       return result;
     };
