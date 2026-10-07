@@ -257,6 +257,9 @@ export async function publishReportOutcome(client, guild, report, record, action
     if (actionSet.size === 1 && actionSet.has('timeout')) {
       return 'A report involving you has been reviewed by our staff and you have been timed out.';
     }
+    if (actionSet.size === 1 && actionSet.has('no_sanction')) {
+      return 'A report about you has been reviewed by our staff, and no sanction was applied.';
+    }
     return actionText;
   })();
 
