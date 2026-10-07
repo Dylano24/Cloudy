@@ -2,6 +2,30 @@ import { performance } from 'node:perf_hooks';
 import { logger } from './logger.js';
 
 const observed = Symbol('cloudy.interactionLatency');
+
+// The FAQ assistant is intentionally outside the one-second responsiveness
+// objective; keep its LLM requests and user-facing responses untouched.
+function isFaqInteraction(interaction) {
+  return String(interaction?.customId || '').startsWith('faq_ai_question')
+    || /^faq(?:_|$)/i.test(String(interaction?.commandName || ''));
+}
+
+function interactionLabel(interaction) {
+  const parts = String(interaction?.customId || '').split(':');
+  const command = interaction?.commandName || parts[0] || String(interaction?.type || 'component');
+  const action = /^[a-z_]+$/i.test(parts[1] || '') ? parts[1] : null;
+  return { command, ...(action ? { action } : {}) };
+}
+
+export function recordSlowInteractionCompletion(interaction, elapsedMs, {
+  report = data => logger.warn(`[INTERACTION_LATENCY] ${JSON.stringify(data)}`),
+} = {}) {
+  if (!interaction || isFaqInteraction(interaction) || elapsedMs < 750) return;
+  try {
+    report({ event: 'interaction.handler.latency', ...interactionLabel(interaction),
+      phase: 'handler_complete', elapsedMs: Math.round(elapsedMs) });
+  } catch { /* Observability must never interfere with a Discord handler. */ }
+}
 const ACK = new Set(['reply', 'update', 'showModal', 'respond', 'deferReply', 'deferUpdate']);
 const VISIBLE = new Set(['reply', 'update', 'showModal', 'respond', 'editReply', 'followUp']);
 
@@ -12,20 +36,20 @@ export function observeInteractionLatency(interaction, {
   report = data => logger.warn(`[INTERACTION_LATENCY] ${JSON.stringify(data)}`),
 } = {}) {
   if (!interaction || interaction[observed] || interaction._isPrefixCommand) return;
+  // The user's latency objective applies to all Cloudy interactions, with
+  // the AI FAQ assistant explicitly exempt. Do not change its response flow.
+  if (isFaqInteraction(interaction)) return;
   interaction[observed] = true;
   const started = now();
   let acknowledgedAt = null;
   let acknowledgementMethod = null;
   let visible = false;
   const emit = (phase, elapsedMs, thinkingMs) => {
-    if (elapsedMs < 1000) return;
+    if (elapsedMs < 750) return;
     // Instrumentation must never change a successful Discord response into an
     // application error, even if a logger transport fails.
     try {
-      const component = String(interaction.customId || '').split(':');
-      const command = interaction.commandName || component[0] || String(interaction.type || 'component');
-      const action = /^[a-z_]+$/i.test(component[1] || '') ? component[1] : null;
-      report({ event: 'interaction.latency', command, ...(action ? { action } : {}),
+      report({ event: 'interaction.latency', ...interactionLabel(interaction),
         phase, elapsedMs: Math.round(elapsedMs), ...(thinkingMs == null ? {} : { thinkingMs: Math.round(thinkingMs) }) });
     } catch { /* Preserve the original response result. */ }
   };
