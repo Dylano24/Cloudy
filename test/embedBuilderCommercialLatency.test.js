@@ -54,7 +54,7 @@ test('slash autocomplete coalesces canonical Builder reads', () => {
   assert.doesNotMatch(source, /await getCanonicalBuilderRecords\(interaction\.guild\)/);
 });
 
-test('Modify and manager pagination use the one-request fast path on real Discord interactions', () => {
+test('Modify opens directly while manager pagination acknowledges and repaints in parallel', () => {
   const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
   const openStart = source.indexOf('export async function openEmbedManager');
   assert.ok(openStart >= 0);
@@ -78,6 +78,13 @@ test('Modify and manager pagination use the one-request fast path on real Discor
   assert.match(updateBody, /interaction\.update\(payload\)/);
   assert.match(updateBody, /interaction\.editReply\(payload\)/);
 
+  const navigationStart = source.indexOf('async function updateEmbedManagerNavigation');
+  const navigationEnd = source.indexOf('\n}\n\nfunction managerRecordKey', navigationStart);
+  const navigationBody = source.slice(navigationStart, navigationEnd);
+  assert.match(navigationBody, /interaction\.deferUpdate\(\)/);
+  assert.match(navigationBody, /buttonInteraction\.webhook\.editMessage\(managerMessage\.id, payload\)/);
+  assert.match(navigationBody, /Promise\.all\(\[acknowledgement, rendering\]\)/);
+
   const collectorBody = openBody.slice(collectorStart);
   const selectionVersion = collectorBody.indexOf('const selectionVersion');
   assert.ok(selectionVersion >= 0);
@@ -89,9 +96,19 @@ test('Modify and manager pagination use the one-request fast path on real Discor
     assert.ok(start >= 0, `missing ${id}`);
     const end = collectorBody.indexOf('return;', start);
     const block = collectorBody.slice(start, end);
-    assert.match(block, /updateEmbedManager\(interaction/);
-    assert.doesNotMatch(block, /deferUpdate\(\)/);
+    assert.match(block, /updateEmbedManagerNavigation\(/);
   }
+});
+
+test('Post channel pagination acknowledges and repaints in parallel', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const start = source.indexOf("if (channelInteraction.customId.startsWith('simple_embed_channel_page:'))");
+  assert.ok(start >= 0);
+  const end = source.indexOf('\n            return;', start);
+  const block = source.slice(start, end);
+  assert.match(block, /Promise\.allSettled\(/);
+  assert.match(block, /channelInteraction\.deferUpdate\(\)/);
+  assert.match(block, /buttonInteraction\.webhook\.editMessage\(channelPickerMessage\.id, payload\)/);
 });
 
 
