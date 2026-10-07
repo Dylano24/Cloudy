@@ -348,14 +348,15 @@ export async function deleteReportCase(client, guild, record, executor = '24-hou
   return alreadyLocked ? operation() : withReportLock(reportKey(record.guildId, record.messageId), operation);
 }
 
-async function revokeReportParticipantAccess(channel, guild, userId) {
+async function revokeReportParticipantAccess(channel, guild, userId, knownMember = null) {
   const permissions = {
     ViewChannel: false,
     SendMessages: false,
     ReadMessageHistory: false,
   };
 
-  const member = guild.members.cache?.get?.(userId)
+  const member = (knownMember?.id === userId ? knownMember : null)
+    || guild.members.cache?.get?.(userId)
     || await guild.members.fetch(userId).catch(() => null);
 
   if (member) {
@@ -397,9 +398,14 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       const record = await client.db.get(key);
       const entry = record?.cases?.[audience];
       if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
+      // Discord already supplied the actor on this interaction. Reuse a real
+      // GuildMember instead of serializing another Discord member lookup.
+      const actor = interaction.guild.members.cache?.get?.(interaction.user.id)
+        || (interaction.member?.id === interaction.user.id && interaction.member?.roles?.cache
+          ? interaction.member : null);
       const [config, member] = await Promise.all([
         getGuildConfig(client, interaction.guildId),
-        interaction.guild.members.fetch(interaction.user.id),
+        actor ? Promise.resolve(actor) : interaction.guild.members.fetch(interaction.user.id),
       ]);
       const staff = caseStaffAllowed(interaction.guild, member, config);
       const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
@@ -428,7 +434,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         const participant = interaction.guild.members.cache?.get?.(participantIdValue)
           || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
-          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue);
+          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue, member);
         }
         entry.closedAt = Date.now();
         entry.closedBy = interaction.user.id;
