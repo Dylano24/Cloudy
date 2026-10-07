@@ -1,3 +1,4 @@
+import { createAppealRateLimit } from './appealRateLimit.js';
 import { logger } from '../utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
@@ -27,6 +28,7 @@ function validEmail(value) {
 }
 
 export function registerAppealsApi(app, client) {
+  const allowAppeal = createAppealRateLimit();
   app.post('/api/appeals', async (req, res) => {
     try {
       if (req.get('x-cloudy-source') !== SOURCE_HEADER) {
@@ -54,6 +56,11 @@ export function registerAppealsApi(app, client) {
       }
       if (scope === 'rust' && !gamertag) {
         return res.status(400).json({ error: 'Gamertag is required.' });
+      }
+
+      if (!allowAppeal(email)) {
+        res.set?.('Retry-After', '3600');
+        return res.status(429).json({ error: 'Too many appeal submissions. Please try again later.' });
       }
 
       if (!client.isReady()) {

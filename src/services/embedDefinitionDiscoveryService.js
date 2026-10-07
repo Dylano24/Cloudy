@@ -129,6 +129,10 @@ function inferContext(relativePath) {
     if (/^(fight|flip|roll|dice|slots?|roulette|blackjack)/.test(file)) return `gambling/${file}`;
     return `botlog/${file}`;
   }
+  if (category === 'jointocreate') return `join-to-create/${file}`;
+  if (category === 'verification') return `verification/${file}`;
+  if (category === 'tools') return `utility/${file}`;
+  if (category === 'welcome') return `welcome/${file}`;
   if (category === 'music') return `music/${file}`;
   if (category === 'ticket') return `tickets/${file}`;
   if (category === 'giveaway') return `giveaway/${file}`;

@@ -14,3 +14,7 @@ logs
 .DS_Store
 coverage
 .agent-tools
+
+test
+.startup-patches.json
+.eslintcache

@@ -1,3 +1,4 @@
+// CLOUDY_INTERACTION_LATENCY_V1
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
@@ -35,8 +36,10 @@ async function fetchMessage(channel, id) {
 }
 
 export async function validateReportDestinations(guild) {
-  const category = await fetchChannel(guild, REPORT_CATEGORY_ID);
-  const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
+  const [category, logs] = await Promise.all([
+    fetchChannel(guild, REPORT_CATEGORY_ID),
+    fetchChannel(guild, REPORT_LOG_CHANNEL_ID),
+  ]);
   if (category?.type !== ChannelType.GuildCategory) throw new Error('The Reports category is unavailable.');
   if (!logs?.send || logs.permissionsFor?.(guild.roles.everyone)?.has?.(PermissionFlagsBits.ViewChannel)) {
     throw new Error('The private report-logs channel is unavailable.');

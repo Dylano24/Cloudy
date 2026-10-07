@@ -1,3 +1,4 @@
+import ticketModals from '../interactions/modals/ticket/createTicketUi.js';
 import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
 import {
@@ -17,6 +18,7 @@ import { InteractionHelper } from '../utils/interactionHelper.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { replyUserError, ErrorTypes, handleInteractionError, createError } from '../utils/errorHandler.js';
 import { getTicketPermissionContext } from '../utils/ticket/ticketPermissions.js';
+import { requireTicketCloseReason } from '../services/ticketActionPolicy.js';
 
 function escapeHtml(text) {
   if (!text) return '';
@@ -76,8 +78,8 @@ async function assertTicketPermission(interaction, client, actionLabel, options 
   const allowed = allowTicketCreator ? context.canCloseTicket : context.canManageTicket;
   if (!allowed) {
     const permissionMessage = allowTicketCreator
-      ? 'You must have **Manage Channels**, the configured **Ticket Staff Role**, or be the **ticket creator**.'
-      : 'You must have **Manage Channels** or the configured **Ticket Staff Role**.';
+      ? 'Only the ticket creator or the staff team can perform this action.'
+      : `Only the staff team can ${actionLabel}.`;
     throw createError(
       'Ticket permission denied',
       ErrorTypes.PERMISSION,
@@ -101,8 +103,8 @@ async function ensureTicketPermission(interaction, client, actionLabel, options 
   const allowed = allowTicketCreator ? context.canCloseTicket : context.canManageTicket;
   if (!allowed) {
     const permissionMessage = allowTicketCreator
-      ? 'You must have **Manage Channels**, the configured **Ticket Staff Role**, or be the **ticket creator**.'
-      : 'You must have **Manage Channels** or the configured **Ticket Staff Role**.';
+      ? 'Only the ticket creator or the staff team can perform this action.'
+      : `Only the staff team can ${actionLabel}.`;
 
     await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: `${permissionMessage}\n\nYou cannot ${actionLabel}.` });
     return null;
@@ -151,36 +153,7 @@ const createTicketHandler = {
   }
 };
 
-const createTicketModalHandler = {
-  name: 'create_ticket_modal',
-  async execute(interaction, client) {
-    try {
-      if (!(await ensureGuildContext(interaction))) return;
-
-      const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-      if (!deferSuccess) return;
-      
-      const reason = interaction.fields.getTextInputValue('reason');
-      const config = await getGuildConfig(client, interaction.guildId);
-      const categoryId = config.ticketCategoryId || null;
-      
-      const { channel } = await createTicket(
-        interaction.guild,
-        interaction.member,
-        categoryId,
-        reason
-      );
-      await interaction.editReply({
-        embeds: [successEmbed(
-          'Ticket created',
-          `Your ticket has been created in ${channel}!`
-        )]
-      });
-    } catch (error) {
-      await handleInteractionError(interaction, error, { type: 'button', handler: 'ticket', customId: interaction.customId });
-    }
-  }
-};
+const createTicketModalHandler = ticketModals.find(handler => handler.name === 'create_ticket_modal');
 
 const closeTicketHandler = {
   name: 'ticket_close',
@@ -196,10 +169,10 @@ const closeTicketHandler = {
 
       const reasonInput = new TextInputBuilder()
         .setCustomId('reason')
-        .setLabel('Reason for closing (optional)')
+        .setLabel('Reason for closing')
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Add an optional reason for closing this ticket...')
-        .setRequired(false)
+        .setPlaceholder('Explain why you are closing this ticket...')
+        .setRequired(true)
         .setMaxLength(1000);
 
       const actionRow = new ActionRowBuilder().addComponents(reasonInput);
@@ -237,8 +210,7 @@ const closeTicketModalHandler = {
 
       const context = await assertTicketPermission(interaction, client, 'close this ticket', { allowTicketCreator: true }, 2000);
 
-      const providedReason = interaction.fields.getTextInputValue('reason')?.trim();
-      const reason = providedReason || 'Closed via ticket button without a specific reason.';
+      const reason = requireTicketCloseReason(interaction.fields.getTextInputValue('reason'));
 
       await closeTicket(interaction.channel, interaction.user, reason, {
         ticketData: context.ticketData,
@@ -424,9 +396,13 @@ const reopenTicketHandler = {
       if (openCategoryMoveFailed) {
         reopenMessage += ' Note: Could not move the channel back to the open tickets category.';
       }
-      await interaction.editReply({ embeds: [successEmbed('Ticket reopened', reopenMessage)] });
+      await interaction.deleteReply().catch(() => {});
     } catch (error) {
       logger.error('Error reopening ticket:', error);
+      if (error?.type === ErrorTypes.PERMISSION) {
+        await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: 'Only the staff team can reopen tickets.' });
+        return;
+      }
       if (!interaction.replied && !interaction.deferred) {
         await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred while reopening the ticket.' });
       } else if (interaction.deferred) {

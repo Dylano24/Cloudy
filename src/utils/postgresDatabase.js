@@ -59,7 +59,10 @@ class PostgreSQLDatabase {
             return this.connectionPromise;
         }
 
-        this.connectionPromise = this._establishConnection();
+        if (this.isAvailable()) return true;
+        this.connectionPromise = this._establishConnection().finally(() => {
+            this.connectionPromise = null;
+        });
         return this.connectionPromise;
     }
 
@@ -80,8 +83,11 @@ class PostgreSQLDatabase {
                 });
 
                 const client = await this.pool.connect();
-                await client.query('SELECT NOW()');
-                client.release();
+                try {
+                    await client.query('SELECT NOW()');
+                } finally {
+                    client.release();
+                }
 
                 this.lastFailureReason = null;
                 this.lastFailureMessage = null;
@@ -394,8 +400,11 @@ class PostgreSQLDatabase {
     }
 
     async get(key, defaultValue = null) {
+        let strictRead = false;
         try {
+            strictRead = parseKey(canonicalizeKey(key)).type === 'economy';
             if (!this.isAvailable()) {
+                if (strictRead) throw new Error('Persistent economy storage is unavailable');
                 logger.warn('PostgreSQL not available, returning default value');
                 return defaultValue;
             }
@@ -430,6 +439,7 @@ class PostgreSQLDatabase {
             return structuredValue;
         } catch (error) {
             logger.error(`Error getting value for key ${key}:`, error);
+            if (strictRead) throw error;
             return defaultValue;
         }
     }
@@ -742,6 +752,7 @@ class PostgreSQLDatabase {
             }
         } catch (error) {
             logger.error(`Error getting structured data for ${parsedKey.fullKey}:`, error);
+            if (parsedKey.type === 'economy') throw error;
             return defaultValue;
         }
     }

@@ -22,9 +22,7 @@ test('split Search preview is explicitly owned by the Builder lifecycle', () => 
   builderCleanup.unregisterBuilderPreviewMessage?.(preview);
 });
 
-test('final Builder startup guard guarantees refreshBuilderPreviewOnly when editor callbacks reference it', () => {
-  const source = fs.readFileSync('scripts/patch-builder-final-controls.js', 'utf8');
-
-  assert.match(source, /refreshBuilderPreviewOnly/);
-  assert.match(source, /BUILDER_PREVIEW_HELPER_FINAL_GUARD/);
+test('Builder editor callbacks have a committed preview refresh implementation', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  assert.match(source, /async function refreshBuilderPreviewOnly\(/);
 });

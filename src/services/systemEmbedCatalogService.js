@@ -1,4 +1,5 @@
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
+import { BALANCE_RESPONSE_KEY, balanceResponseIdentity } from './balanceResponseIdentity.js';
 import { EmbedBuilder } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { getTraceContext, logger } from '../utils/logger.js';
@@ -28,7 +29,14 @@ const sourceDefinitionKeyCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
 const searchableCatalogRecords = new Map();
+const plainSourceAliases = new Map();
+const embedSourceAliases = new Map();
+const embedLegacyKeyAliases = new Map();
+// RESPONSE_EMBED_SOURCE_ALIAS_V1: source-discovered embed titles retain one runtime identity.
+const SOURCE_BASELINE_PREFIX = 'cloudy:system-embed-source-baseline:';
+// SOURCE_RESPONSE_SYNC_V1: source-discovered plain responses have durable identities.
 let flushTimer = null;
+let catalogEnsurePromise = null;
 let discoveryPromise = null;
 
 const INTERNAL_TEMPLATE_TITLES = new Set([
@@ -65,10 +73,33 @@ const DEFAULT_TEMPLATES = [
   { key: 'builder:removed', context: 'embed-builder/delete', kind: 'embed', title: 'Removed from Builder', description: 'The stale record and its Reappear rule were removed from the Embed Builder.', color: CLOUDY_GREEN_COLOR },
 ];
 
+const TICKET_MAIN_CATALOG_TEMPLATE = {
+  key: 'ticket-main',
+  context: 'tickets/main',
+  kind: 'embed',
+  title: 'Ticket #{dynamic}',
+  description: [
+    '{dynamic}, we’ve received your request!',
+    '',
+    'To help us process your ticket as quickly as possible, please provide any additional details you believe may be useful, along with any screenshots or files that could help us better understand your situation.',
+    '',
+    '**Please do not tag or spam our staff members for updates.** We can see your messages and have received all the information you’ve provided. If you don’t receive an immediate response, it simply means that we may be busy elsewhere or handling other requests.',
+    '',
+    'Please be patient and allow us some time to review your ticket and get back to you.',
+    '',
+    'We appreciate your understanding!',
+    '',
+    '**Reason:** {dynamic}',
+  ].join('\n'),
+  color: 0xFFFFFF,
+  footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+};
+
 // Deliberate Builder masters, never captured runtime ticket messages. Their
 // backing messages live in the private catalog, so purging a public ticket log
 // channel cannot remove these lifecycle templates from the Builder.
 export const TICKET_LOG_CATALOG_TEMPLATES = [
+  { key: 'ticket-log:reopen', context: 'ticket-logs/reopen', title: 'Ticket reopened', description: '{dynamic} has reopened this ticket!', color: CLOUDY_GREEN_COLOR, footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' } },
   { key: 'ticket-log:open', context: 'ticket-logs/open', title: 'Ticket created', color: CLOUDY_NEUTRAL_COLOR, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Creator', value: '<@123456789012345678>', inline: true }] },
   { key: 'ticket-log:close', context: 'ticket-logs/close', title: 'Ticket closed', color: 0xFF7A00, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Closed by', value: '<@123456789012345678>', inline: true }] },
   { key: 'ticket-log:delete', context: 'ticket-logs/delete', title: 'Ticket deleted', color: CLOUDY_RED_COLOR, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Deleted by', value: '<@123456789012345678>', inline: true }] },
@@ -98,6 +129,10 @@ function isTicketContext(context) {
   return /^tickets(?:\/|$)/.test(normalize(context));
 }
 
+function isTicketMainTemplate(key, context) {
+  return normalize(key) === 'ticket-main' && normalize(context) === 'tickets/main';
+}
+
 function isValidBlackjackResultSlug(value) {
   const parts = normalize(value).split('-').filter(Boolean);
   return parts.length >= 1
@@ -108,14 +143,22 @@ function isValidBlackjackResultSlug(value) {
 export function isEditableSystemCatalogTemplate(key, context = null) {
   const normalizedKey = normalize(key);
   const normalizedContext = normalize(context);
-  if (!normalizedKey || isTicketContext(normalizedContext)) return false;
+  if (!normalizedKey || (isTicketContext(normalizedContext) && !isTicketMainTemplate(normalizedKey, normalizedContext) && !normalizedKey.startsWith('source:'))) return false;
+  if (isTicketMainTemplate(normalizedKey, normalizedContext)) return true;
   if (!normalizedKey.startsWith('game:')) return true;
 
   if (normalizedContext === 'gambling/roulette') {
     return normalizedKey === 'game:roulette:won' || normalizedKey === 'game:roulette:lost';
   }
   if (normalizedContext === 'gambling/baccarat') {
-    return normalizedKey === 'game:baccarat:bet' || normalizedKey === 'game:baccarat:result';
+    return new Set([
+      'game:baccarat:bet',
+      'game:baccarat:result',
+      'game:baccarat:win',
+      'game:baccarat:loss',
+      'game:baccarat:push',
+      'game:baccarat:expired',
+    ]).has(normalizedKey);
   }
   if (normalizedContext === 'gambling/blackjack') {
     if (normalizedKey === 'game:blackjack:bet') return true;
@@ -153,6 +196,109 @@ function shortHash(value) {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+function sourceBaselineStorageKey(guildId) {
+  return `${SOURCE_BASELINE_PREFIX}${guildId}`;
+}
+
+function sourceDefinitionKey(definition = {}) {
+  const variantId = String(definition.variantId || '').trim();
+  if (normalize(definition.kind) !== 'content' || !variantId) return null;
+  return `source:${shortHash(variantId)}`;
+}
+
+function normalizeDiscoveredDefinition(definition = {}) {
+  const key = sourceDefinitionKey(definition);
+  return key ? { ...definition, key } : definition;
+}
+
+function plainSourceAliasIdentity(context, content) {
+  return cacheIdentity(responseSignature('content', '', content), context);
+}
+
+function registerPlainSourceAlias(definition, entry = null) {
+  if (normalize(definition?.kind) !== 'content') return false;
+  const normalized = entry || definitionToCatalog(normalizeDiscoveredDefinition(definition));
+  if (!normalized?.key || !normalized?.context) return false;
+  const content = definition.description || definition.content || '';
+  if (!String(content).trim()) return false;
+  plainSourceAliases.set(plainSourceAliasIdentity(normalized.context, content), normalized.key);
+  return true;
+}
+
+
+function embedSourceAliasIdentity(context, title) {
+  return cacheIdentity(`source-title:${normalize(title)}`, context);
+}
+
+function embedLegacyKeyAliasIdentity(context, key) {
+  return cacheIdentity('legacy-key:' + normalize(key), context);
+}
+
+function registerEmbedSourceAlias(definition, entry = null) {
+  if (normalize(definition?.kind) !== 'embed') return false;
+  const title = String(definition.title || '').trim();
+  const normalized = entry || definitionToCatalog(normalizeDiscoveredDefinition(definition));
+  if (!title || !normalized?.key || !normalized?.context) return false;
+
+  const identity = embedSourceAliasIdentity(normalized.context, title);
+  const current = embedSourceAliases.get(identity);
+  if (current && current !== normalized.key) {
+    embedSourceAliases.set(identity, '');
+  } else if (!current) {
+    embedSourceAliases.set(identity, normalized.key);
+  }
+
+  // Before canonical response-type keys existed, generic catalog rows were
+  // keyed by title + description. Keep a durable alias from that old metadata
+  // key to the one source response type. This still works after an admin edits
+  // the visible title/body because the catalog author metadata keeps the old key.
+  const legacyKey = responseSignature(
+    'embed',
+    definition.title || '',
+    definition.description || definition.content || '',
+  );
+  const legacyIdentity = embedLegacyKeyAliasIdentity(normalized.context, legacyKey);
+  const legacyCurrent = embedLegacyKeyAliases.get(legacyIdentity);
+  if (legacyCurrent && legacyCurrent !== normalized.key) {
+    embedLegacyKeyAliases.set(legacyIdentity, '');
+  } else if (!legacyCurrent) {
+    embedLegacyKeyAliases.set(legacyIdentity, normalized.key);
+  }
+  return true;
+}
+
+function resolveEmbedSourceAlias(context, title) {
+  const key = embedSourceAliases.get(embedSourceAliasIdentity(context, title));
+  return typeof key === 'string' && key ? key : null;
+}
+
+function resolveEmbedLegacyKeyAlias(context, key) {
+  const alias = embedLegacyKeyAliases.get(embedLegacyKeyAliasIdentity(context, key));
+  return typeof alias === 'string' && alias ? alias : null;
+}
+
+function plainManagementHint(content = '') {
+  const value = String(content || '').replace(/<a?:[^:>]+:\d+>/g, '').replace(/\{dynamic\}/gi, '').replace(/\s+/g, ' ').trim();
+  const rules = [
+    [/choose one of the (?:staff members|owners) first.*select your rating/i, 'Select staff first'],
+    [/that member is no longer available for staff reviews/i, 'Member unavailable'],
+    [/review selectors could not be updated/i, 'Selector update failed'],
+    [/review session expired/i, 'Session expired'],
+    [/community reviews channel .*unavailable/i, 'Reviews channel unavailable'],
+    [/staff review could not be published/i, 'Publish failed'],
+    [/staff review has been published/i, 'Review published'],
+    [/wrong channel/i, 'Wrong channel'],
+    [/permission denied|access denied/i, 'Permission denied'],
+    [/could not|failed|failure|error/i, 'Error'],
+    [/expired/i, 'Expired'],
+    [/saved|updated/i, 'Saved'],
+    [/success|completed|done/i, 'Success'],
+  ];
+  const explicit = rules.find(([pattern]) => pattern.test(value));
+  if (explicit) return explicit[1];
+  return (value.split(/[.!?]/)[0].split(/\s+/).filter(Boolean).slice(0, 5).join(' ') || 'Message').slice(0, 48);
+}
+
 function dynamicParts(value = '') {
   const values = [];
   const sentinel = '\u0000CLOUDY_DYNAMIC\u0000';
@@ -186,6 +332,8 @@ function renderDynamic(template, runtime, { fallbackToRuntimeOnMismatch = false 
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
 
   if (!placeholders.length) return templateSource;
+  const runtimeSlots = source.match(/\{dynamic\}/gi) || [];
+  if (!runtimeParts.values.length && runtimeSlots.length === placeholders.length) return templateParts.tokenized;
   if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) return source;
 
   let runtimeIndex = 0;
@@ -216,7 +364,9 @@ function responseSignature(kind, title = '', description = '') {
 }
 
 function canonicalBlackjackResult(value) {
-  const result = normalize(value).replace(/^result\s*:\s*/, '');
+  const result = normalize(value)
+    .replace(/^blackjack\s+/, '')
+    .replace(/^result\s*:\s*/, '');
   const outcomes = result.split(/\s*\/\s*/).map(item => normalize(item)).filter(Boolean);
   if (!outcomes.length || outcomes.length > 2 || outcomes.some(item => !BLACKJACK_RESULT_STATES.has(item))) {
     return '';
@@ -232,24 +382,24 @@ export function getSystemEmbedTemplateKey(kind, title = '', description = '', co
   const normalizedKind = normalize(kind) || 'embed';
   const normalizedContext = normalize(context);
   const normalizedTitle = dynamicParts(title).pattern;
+  if (normalizedKind === 'embed' && balanceResponseIdentity({ title }, normalizedContext)) return BALANCE_RESPONSE_KEY;
 
   if (normalizedKind === 'embed' && normalizedContext === 'gambling/roulette') {
-    if (/^roulette\s*[—-]\s*you\s+won!?$/.test(normalizedTitle)) return 'game:roulette:won';
-    if (/^roulette\s*[—-]\s*you\s+lost$/.test(normalizedTitle)) return 'game:roulette:lost';
+    if (/^roulette\s+win$/.test(normalizedTitle) || /^roulette\s*[—-]\s*you\s+won!?$/.test(normalizedTitle)) return 'game:roulette:won';
+    if (/^roulette\s+loss$/.test(normalizedTitle) || /^roulette\s*[—-]\s*you\s+lost$/.test(normalizedTitle)) return 'game:roulette:lost';
     return '';
   }
 
   if (normalizedKind === 'embed' && normalizedContext === 'gambling/blackjack') {
     if (/^blackjack\s*[—-]\s*bet\b/.test(normalizedTitle)) return 'game:blackjack:bet';
-    if (/^result\s*:/.test(normalizedTitle)) {
-      const result = canonicalBlackjackResult(normalizedTitle);
-      return result ? `game:blackjack:result:${result}` : '';
-    }
-    return '';
+    const result = canonicalBlackjackResult(normalizedTitle);
+    return result ? `game:blackjack:result:${result}` : '';
   }
 
   if (normalizedKind === 'embed' && normalizedContext === 'gambling/baccarat') {
     if (/^baccarat\s*[—-]\s*bet\b/.test(normalizedTitle)) return 'game:baccarat:bet';
+    const result = normalizedTitle.match(/^baccarat\s+(win|loss|push|expired)$/);
+    if (result) return `game:baccarat:${result[1]}`;
     if (/^baccarat\s*[—-]\s*result\b/.test(normalizedTitle)) return 'game:baccarat:result';
     return '';
   }
@@ -309,7 +459,7 @@ function inferContextHint(source = null) {
   );
 
   if (/embed.?builder|simple_embed|message.?builder/.test(raw)) return contextualize('embed-builder', raw);
-  if (/gambl|coin.?flip|slots?|blackjack|roulette|baccarat|fight|dice|roll|balance|daily|beg|crime|rob|fish|mine|pay|deposit|withdraw|inventory|economy|wallet|cash/.test(raw)) return contextualize('gambling', raw);
+  if (/gambl|coin.?flip|slots?|blackjack|roulette|baccarat|fight|dice|roll|balance|daily|beg|work|slut|crime|rob|fish|mine|pay|deposit|withdraw|inventory|leaderboard|economy|wallet|cash/.test(raw)) return contextualize('gambling', raw);
   if (/ticket|transcript|claim|reopen/.test(raw)) return contextualize('tickets', raw);
   if (/music|play|skip|pause|resume|queue|now.?playing|volume/.test(raw)) return contextualize('music', raw);
   if (/giveaway|gcreate|gend|gdelete|greroll/.test(raw)) return contextualize('giveaway', raw);
@@ -557,13 +707,51 @@ export function getSearchableSystemCatalogRecords(guildId) {
 }
 
 async function loadCatalogMessages(context) {
-  const ids = await getFromDb(storageKey(context.guild.id), []);
-  const messages = [];
-  for (const id of Array.isArray(ids) ? ids : []) {
-    const message = await context.channel.messages.fetch(id).catch(() => null);
-    if (message) messages.push(message);
+  const storedIds = await getFromDb(storageKey(context.guild.id), []);
+  const ids = Array.isArray(storedIds) ? storedIds.map(String).filter(Boolean) : [];
+  if (!ids.length) return [];
+
+  const wanted = new Set(ids);
+  const found = new Map();
+  let before;
+  let oldestWanted = null;
+  try {
+    oldestWanted = ids.reduce((oldest, id) => {
+      const value = BigInt(id);
+      return oldest === null || value < oldest ? value : oldest;
+    }, null);
+  } catch {
+    oldestWanted = null;
   }
-  return messages;
+
+  while (wanted.size) {
+    const batch = await context.channel.messages.fetch({
+      limit: 100,
+      ...(before ? { before } : {}),
+    }).catch(() => null);
+    if (!batch?.size) break;
+
+    for (const message of batch.values()) {
+      const id = String(message.id);
+      if (!wanted.has(id)) continue;
+      wanted.delete(id);
+      found.set(id, message);
+    }
+
+    const oldestMessage = batch.last();
+    if (!oldestMessage || batch.size < 100) break;
+    before = oldestMessage.id;
+
+    if (oldestWanted !== null) {
+      try {
+        if (BigInt(oldestMessage.id) < oldestWanted) break;
+      } catch {
+        // Keep paging if a non-snowflake id ever reaches this internal channel.
+      }
+    }
+  }
+
+  return ids.map(id => found.get(id)).filter(Boolean);
 }
 
 async function saveCatalogIds(guildId, messages) {
@@ -578,14 +766,10 @@ async function registerCatalogMessages(messages) {
 
 function friendlyPlainTitle(context, content) {
   const command = normalize(context).split('/')[1] || normalize(context).split('/')[0] || 'bot';
-  const prefix = command ? command.charAt(0).toUpperCase() + command.slice(1) : 'Bot';
-  const preview = String(content || '')
-    .replace(/<a?:[^:>]+:\d+>/g, '')
-    .replace(/\{dynamic\}/gi, '…')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 65);
-  return `${prefix} • ${preview || 'Message'}`.slice(0, 256);
+  const prefix = command
+    ? command.split(/[-_]+/).filter(Boolean).map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+    : 'Bot';
+  return `${prefix} • ${plainManagementHint(content)}`.slice(0, 256);
 }
 
 function definitionToCatalog(definition) {
@@ -653,13 +837,19 @@ function catalogDataChanged(left, right) {
 }
 
 function semanticCatalogKey(metadata, embed) {
+  const balanceIdentity = balanceResponseIdentity(cloneData(embed));
+  if (balanceIdentity) return balanceIdentity;
   if (String(metadata.key || '').startsWith('game:')
     && isEditableSystemCatalogTemplate(metadata.key, metadata.context)) return metadata.key;
+
+  const legacyAlias = resolveEmbedLegacyKeyAlias(metadata.context, metadata.key);
+  if (legacyAlias) return legacyAlias;
+
   const data = cloneData(embed);
 
-  // A legacy generic key that no longer matches its visible payload is an
-  // administrator-edited template. Keep that stable identity instead of
-  // treating the custom title as a brand-new response type.
+  // If an old generic row is not a known source definition and its visible
+  // payload was manually edited, preserve that independent administrator
+  // identity rather than guessing.
   if (String(metadata.key || '').startsWith('embed:') && isLegacyCatalogEdit(metadata, data)) {
     return metadata.key;
   }
@@ -702,6 +892,154 @@ function findCatalogEntry(messages, entry) {
     }
   }
   return null;
+}
+
+function jsonEqual(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function copySourceField(next, current, previous, incoming, field) {
+  if (!jsonEqual(current?.[field], previous?.[field])) return;
+  if (Object.prototype.hasOwnProperty.call(incoming || {}, field)) next[field] = structuredClone(incoming[field]);
+  else delete next[field];
+}
+
+function mergeSourceDefinitionData(currentData, previousSourceData, incomingSourceData, entry) {
+  const current = cloneData(currentData || {});
+  const previous = cloneData(previousSourceData || {});
+  const incoming = cloneData(incomingSourceData || {});
+  const next = { ...current };
+
+  for (const field of ['title', 'description', 'color', 'fields', 'footer', 'thumbnail', 'image']) {
+    copySourceField(next, current, previous, incoming, field);
+  }
+
+  // Stable metadata is internal identity, not administrator-authored presentation.
+  return withStableKey(next, entry.key, entry.context, entry.kind);
+}
+
+function normalizedWords(value = '') {
+  return new Set(normalize(value).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(word => word.length > 1));
+}
+
+function textSimilarity(left, right) {
+  const a = normalizedWords(left);
+  const b = normalizedWords(right);
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  for (const word of a) if (b.has(word)) intersection += 1;
+  return intersection / new Set([...a, ...b]).size;
+}
+
+function isGeneratedLegacyPlainTitle(data = {}) {
+  const title = normalize(data.title);
+  const description = normalize(data.description);
+  if (!title || !description || !title.includes(' • ')) return false;
+  const suffix = title.split(' • ').slice(1).join(' • ');
+  return description.startsWith(suffix) || suffix.startsWith(description.slice(0, Math.min(40, description.length)));
+}
+
+function findLegacyPlainSourceCandidate(messages, entry, claimed = new Set()) {
+  const base = normalize(entry.data?.title).split(' • ')[0];
+  let winner = null;
+  let bestScore = 0;
+
+  for (const message of messages) {
+    for (let index = 0; index < (message?.embeds?.length || 0); index += 1) {
+      const claimKey = `${message.id}:${index}`;
+      if (claimed.has(claimKey)) continue;
+      const embed = message.embeds[index];
+      const metadata = parseTemplateMetadata(embed);
+      if (metadata.kind !== 'content' || normalize(metadata.context) !== normalize(entry.context)) continue;
+      if (String(metadata.key || '').startsWith('source:')) continue;
+
+      const data = cloneData(embed);
+      if (!isGeneratedLegacyPlainTitle(data)) continue;
+      const candidateBase = normalize(data.title).split(' • ')[0];
+      const score = textSimilarity(data.description, entry.data?.description)
+        + (base && candidateBase === base ? 0.35 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        winner = { message, index, embed, metadata, claimKey };
+      }
+    }
+  }
+
+  return bestScore >= 0.62 ? winner : null;
+}
+
+async function editCatalogLocation(location, data) {
+  const embeds = location.message.embeds.map(embed => new EmbedBuilder(embed.toJSON()));
+  embeds[location.index] = new EmbedBuilder(data);
+  return location.message.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
+}
+
+async function syncSourceDefinitionEntries(context, messages, sourceDefinitions = []) {
+  if (!sourceDefinitions.length) return 0;
+  const baselineKey = sourceBaselineStorageKey(context.guild.id);
+  const previousBaseline = await getFromDb(baselineKey, {});
+  const nextBaseline = {};
+  const claimedLegacy = new Set();
+  let changedCount = 0;
+
+  for (const definition of sourceDefinitions) {
+    const normalizedDefinition = normalizeDiscoveredDefinition(definition);
+    const entry = definitionToCatalog(normalizedDefinition);
+    if (!entry.key || !String(entry.key).startsWith('source:')) continue;
+    registerPlainSourceAlias(normalizedDefinition, entry);
+
+    let location = findCatalogEntry(messages, entry);
+    let migratedLegacy = false;
+    if (!location) {
+      location = findLegacyPlainSourceCandidate(messages, entry, claimedLegacy);
+      migratedLegacy = Boolean(location);
+      if (location?.claimKey) claimedLegacy.add(location.claimKey);
+    }
+
+    if (!location) {
+      if (await appendCatalogEntry(context, entry, messages)) changedCount += 1;
+      nextBaseline[entry.key] = { variantId: normalizedDefinition.variantId, data: cloneData(entry.data) };
+      continue;
+    }
+
+    const current = cloneData(location.embed);
+    const previousSource = previousBaseline?.[entry.key]?.data || null;
+    let next = current;
+
+    if (previousSource) {
+      next = mergeSourceDefinitionData(current, previousSource, entry.data, entry);
+    } else if (migratedLegacy && isGeneratedLegacyPlainTitle(current)) {
+      // Bootstrap old response-signature catalogs into stable source identities.
+      // Only auto-generated title/body values are replaced; Builder styling survives.
+      next = withStableKey({
+        ...current,
+        title: entry.data.title,
+        description: entry.data.description,
+      }, entry.key, entry.context, entry.kind);
+    } else {
+      next = withStableKey(current, entry.key, entry.context, entry.kind);
+    }
+
+    if (!catalogDataChanged(current, next)) {
+      catalogEntries.add(cacheIdentity(entry.key, entry.context));
+      rememberTemplate(entry.key, current, entry.context);
+    } else {
+      const edited = await editCatalogLocation(location, next);
+      if (edited) {
+        changedCount += 1;
+        location.message = edited;
+        location.embed = edited.embeds?.[location.index] || new EmbedBuilder(next);
+        catalogEntries.add(cacheIdentity(entry.key, entry.context));
+        rememberTemplate(entry.key, next, entry.context);
+        await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register migrated source response: ${error.message}`));
+      }
+    }
+
+    nextBaseline[entry.key] = { variantId: normalizedDefinition.variantId, data: cloneData(entry.data) };
+  }
+
+  await setInDb(baselineKey, nextBaseline);
+  return changedCount;
 }
 
 async function appendCatalogEntry(context, entry, messages) {
@@ -808,7 +1146,7 @@ export async function cleanupSystemCatalogEntries(messages) {
       const embed = message.embeds[index];
       const metadata = parseTemplateMetadata(embed);
 
-      if (isTicketContext(metadata.context)) {
+      if (isTicketContext(metadata.context) && !isEditableSystemCatalogTemplate(metadata.key, metadata.context)) {
         markRemoval(message, index);
         continue;
       }
@@ -942,7 +1280,10 @@ function queueRuntimeEntry(entry) {
 }
 
 export function registerDiscoveredEmbedDefinition(definition = {}) {
-  const entry = definitionToCatalog(definition);
+  const normalizedDefinition = normalizeDiscoveredDefinition(definition);
+  const entry = definitionToCatalog(normalizedDefinition);
+  registerPlainSourceAlias(normalizedDefinition, entry);
+  registerEmbedSourceAlias(normalizedDefinition, entry);
   if (!entry.key || isInternalTemplate(entry.data) || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
   return queueRuntimeEntry(entry);
 }
@@ -955,7 +1296,8 @@ export function captureSystemEmbedData(embedData, contextSource = null) {
     ? stripBlackjackCardsRemaining(sourceData)
     : sourceData;
   if (isInternalTemplate(data)) return false;
-  const key = getSystemEmbedTemplateKey('embed', data.title, data.description, context);
+  const key = resolveEmbedSourceAlias(context, data.title)
+    || getSystemEmbedTemplateKey('embed', data.title, data.description, context);
   if (!key || !isEditableSystemCatalogTemplate(key, context)) return false;
 
   const reusableData = cloneData(data);
@@ -977,7 +1319,8 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   if (isInternalTemplate(data)) return data;
   const context = inferContextHint(contextSource);
   if (isTicketContext(context)) return data;
-  const specificKey = getSystemEmbedTemplateKey('embed', data.title, data.description, context);
+  const specificKey = balanceResponseIdentity(data, context) || resolveEmbedSourceAlias(context, data.title)
+    || getSystemEmbedTemplateKey('embed', data.title, data.description, context);
   const titleKey = normalize(data.title);
   const template = (specificKey ? findTemplate(specificKey, context) : null) || findTemplate(titleKey, context);
 
@@ -1000,7 +1343,13 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   };
 
   const next = { ...data };
-  if (template.title) next.title = renderDynamic(template.title, data.title, { fallbackToRuntimeOnMismatch: true });
+  if (template.title) {
+    const memberPrefix = context === 'gambling/balance'
+      ? String(data.title || '').match(/^(.+'s\s+)/i)?.[1] : null;
+    const savedTitle = memberPrefix && !/^(?:.+?'s\s+|\{dynamic\})/i.test(template.title)
+      ? memberPrefix + template.title : template.title;
+    next.title = renderDynamic(savedTitle, data.title, { fallbackToRuntimeOnMismatch: true });
+  }
   if (template.description && textShapeMatches(template.description, data.description)) {
     const description = renderDynamic(template.description, data.description, { fallbackToRuntimeOnMismatch: true });
     if (description) next.description = description;
@@ -1043,7 +1392,62 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   else delete next.thumbnail;
   if (template.image?.url) next.image = { ...template.image };
   else delete next.image;
+
+  // Casino result semantics are runtime-owned. Embed Builder may style the rest,
+  // but it must never turn a real win/push/bust into another outcome or color.
+  const runtimeTitle = normalize(data.title);
+  const casinoMatch = runtimeTitle.match(/^(blackjack|baccarat|roulette)\s+(win|loss|bust|push)$/);
+  if (casinoMatch) {
+    const [, game, outcome] = casinoMatch;
+    const allowed = (game === 'blackjack' && ['win', 'loss', 'bust', 'push'].includes(outcome))
+      || (game === 'baccarat' && ['win', 'loss', 'push'].includes(outcome))
+      || (game === 'roulette' && ['win', 'loss'].includes(outcome));
+    if (allowed) {
+      next.title = game.charAt(0).toUpperCase() + game.slice(1) + ' ' + outcome;
+      next.color = outcome === 'win' ? 0x00C49D : outcome === 'push' ? 0xFFFFFF : 0x7A1712;
+      if (data.thumbnail?.url) next.thumbnail = { ...data.thumbnail };
+    }
+  }
+
   return isBlackjackContext(context) ? stripBlackjackCardsRemaining(next) : next;
+}
+
+function renderTicketMainDynamic(templateValue, values = []) {
+  let index = 0;
+  return String(templateValue || '').replace(/\{dynamic\}/gi, () => String(values[index++] ?? ''));
+}
+
+export function applyTicketMainTemplateData(embedData, { ticketNumber = 'Unknown', userId = null, reason = 'No reason provided' } = {}) {
+  const data = cloneData(embedData);
+  const template = findTemplate('ticket-main', 'tickets/main');
+  if (!template) return data;
+
+  const next = { ...data };
+
+  if (template.title) {
+    next.title = renderTicketMainDynamic(template.title, [ticketNumber]).slice(0, 256);
+  } else {
+    delete next.title;
+  }
+
+  if (template.description) {
+    next.description = renderTicketMainDynamic(
+      template.description,
+      [userId ? `<@${userId}>` : 'A member', reason],
+    ).slice(0, 4096);
+  } else {
+    delete next.description;
+  }
+
+  if (Number.isInteger(template.color)) next.color = template.color;
+  if (template.footer?.text) next.footer = { ...template.footer };
+  else delete next.footer;
+  if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
+  else delete next.thumbnail;
+  if (template.image?.url) next.image = { ...template.image };
+  else delete next.image;
+
+  return next;
 }
 
 export function applySystemEmbedTemplate(embed) {
@@ -1062,8 +1466,10 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
 
   const context = inferContextHint(contextSource);
   if (!context || isTicketContext(context)) return payload;
-  const key = responseSignature('content', '', content);
-  const template = findTemplate(key, context);
+  const signature = responseSignature('content', '', content);
+  const stableKey = plainSourceAliases.get(plainSourceAliasIdentity(context, content)) || null;
+  const key = stableKey || signature;
+  const template = findTemplate(key, context) || (stableKey ? findTemplate(signature, context) : null);
 
   if (!template) {
     const entry = definitionToCatalog({ kind: 'content', context, content, key });
@@ -1076,14 +1482,29 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
   return { ...payload, content: replacement };
 }
 
-export async function ensureSystemEmbedCatalogs(client) {
-  const discoveredDefinitions = await discoverStaticTemplates();
+async function buildSystemEmbedCatalogs(client) {
+  const discoveredDefinitions = (await discoverStaticTemplates()).map(normalizeDiscoveredDefinition);
+  plainSourceAliases.clear();
+  embedSourceAliases.clear();
+  embedLegacyKeyAliases.clear();
+  for (const definition of discoveredDefinitions) {
+    if (normalize(definition.kind) !== 'embed') continue;
+    const entry = definitionToCatalog(definition);
+    registerEmbedSourceAlias(definition, entry);
+  }
   // Blackjack, baccarat and roulette are explicitly learned from their real
   // runtime shapes. Ticket runtime output is intentionally not an Embed
   // Builder template. This prevents parser/runtime noise from polluting the
   // reusable template list while keeping all other real system templates.
+  for (const definition of discoveredDefinitions) {
+    if (definition.kind === 'embed') {
+      const previous = definition.footer?.text;
+      if (previous && /\b(close|closes|closed|expire|expires|available in|page\s+\d+|dashboard closes|ticket id)\b/i.test(previous)) definition.fields = [...(definition.fields || []), { name: 'Information', value: previous, inline: false }];
+      definition.footer = { text: '© Cloudy Inc. • Quality. Innovation. Performance.' };
+    }
+  }
   const definitions = discoveredDefinitions.filter(definition =>
-    !isCuratedCasinoContext(definition.context) && !isTicketContext(definition.context));
+    !isCuratedCasinoContext(definition.context));
 
   sourceDefinitionCache.clear();
   sourceDefinitionKeyCache.clear();
@@ -1107,10 +1528,15 @@ export async function ensureSystemEmbedCatalogs(client) {
     await cleanupSystemCatalogEntries(messages);
     for (const message of messages) rememberCatalogMessage(message);
 
+    const sourceDefinitions = definitions.filter(definition => normalize(definition.kind) === 'content');
+    totalAdded += await syncSourceDefinitionEntries(context, messages, sourceDefinitions);
+
     const entries = [
       ...DEFAULT_TEMPLATES.map(definitionToCatalog),
+      definitionToCatalog(TICKET_MAIN_CATALOG_TEMPLATE),
       ...TICKET_LOG_CATALOG_TEMPLATES.map(definitionToCatalog),
-      ...definitions.map(definitionToCatalog),
+      ...definitions.filter(definition => normalize(definition.kind) !== 'content').map(definition =>
+        definitionToCatalog(isTicketContext(definition.context) ? { ...definition, key: `source:ticket:${shortHash(`${definition.context}|${canonicalSystemEmbedResponseTitle(definition.title)}`)}` } : definition)),
     ];
 
     for (const entry of entries) {
@@ -1124,6 +1550,20 @@ export async function ensureSystemEmbedCatalogs(client) {
   await flushPendingTemplates();
   logger.warn(`[EMBED_BUILDER] Response catalog ready: ${definitions.length} source definitions, ${totalAdded} newly indexed or enriched.`);
   return { definitions: definitions.length, added: totalAdded };
+}
+
+export function ensureSystemEmbedCatalogs(client) {
+  // Catalog discovery is startup initialization. Runtime captures are handled by
+  // flushPendingTemplates(), so re-running the full static scan only duplicates
+  // Discord/DB work. Reuse the successful initialization for this process while
+  // still allowing a clean retry if initialization itself fails.
+  if (catalogEnsurePromise) return catalogEnsurePromise;
+
+  catalogEnsurePromise = buildSystemEmbedCatalogs(client).catch(error => {
+    catalogEnsurePromise = null;
+    throw error;
+  });
+  return catalogEnsurePromise;
 }
 
 export function primeSystemEmbedCatalogMessage(message) {

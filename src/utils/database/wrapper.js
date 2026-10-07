@@ -32,9 +32,10 @@ function assertStorageOperationSucceeded(result, key, operation) {
     throw error;
 }
 
-class DatabaseWrapper {
+export class DatabaseWrapper {
     constructor() {
         this.initialized = false;
+        this.initializationPromise = null;
         this.db = null;
         this.useFallback = false;
         this.connectionType = 'none';
@@ -47,6 +48,15 @@ class DatabaseWrapper {
             return;
         }
 
+        if (!this.initializationPromise) {
+            this.initializationPromise = this.initializeStorage().finally(() => {
+                this.initializationPromise = null;
+            });
+        }
+        return this.initializationPromise;
+    }
+
+    async initializeStorage() {
         try {
             logger.info('Attempting to connect to PostgreSQL...');
             const pgConnected = await pgDb.connect();
@@ -73,6 +83,11 @@ class DatabaseWrapper {
             if (error.code === 'SCHEMA_VERSION_MISMATCH') {
                 throw error;
             }
+        }
+
+        if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) {
+            this.degradedReason = 'POSTGRES_UNAVAILABLE';
+            throw persistentStorageError('production database', 'initialize');
         }
 
         this.db = new MemoryStorage();
@@ -203,11 +218,7 @@ export async function initializeDatabase() {
     } catch (error) {
         logger.error('❌ Database Initialization Error:', error);
 
-        if (error.code === 'SCHEMA_VERSION_MISMATCH') {
-            throw error;
-        }
-
-        return { db };
+        throw error;
     }
 }
 

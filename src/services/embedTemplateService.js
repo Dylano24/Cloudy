@@ -1,4 +1,7 @@
+import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
+import { BALANCE_RESPONSE_KEY, balanceResponseIdentity, readLegacyBalanceTemplate } from './balanceResponseIdentity.js';
+import { removeRetiredGamblingGuideCommand } from '../config/gamblingCommands.js';
 import { EmbedBuilder } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
@@ -14,6 +17,7 @@ const templateMutationQueues = new Map();
 // is still queued. These overlays are folded into persistent cache reads and
 // disappear once the matching write succeeds.
 const templateOverlays = new Map();
+let overlayRevision = 0;
 
 function normalizeKey(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -32,7 +36,7 @@ function cleanTemplates(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).map(([key, template]) => [
     key,
-    migrateCloudyLogoEmbedData(template).data || template,
+    readLegacyBalanceTemplate(key, removeRetiredGamblingGuideCommand(migrateCloudyLogoEmbedData(template).data || template)),
   ]));
 }
 
@@ -132,6 +136,8 @@ function renderDynamic(template, runtime, {
     return templateSource;
   }
 
+  const runtimeSlots = source.match(/\{dynamic\}/gi) || [];
+  if (!runtimeParts.values.length && runtimeSlots.length === placeholders.length) return templateParts.tokenized;
   if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) return source;
 
   let runtimeIndex = 0;
@@ -145,9 +151,18 @@ function renderDynamic(template, runtime, {
   return fallbackToRuntimeOnMismatch && /\{dynamic\}/i.test(rendered) ? source : rendered;
 }
 
+function metadataAlias(data = {}) {
+  return String(data.author?.name || '').match(/^Cloudy template key:\s*([^|]+)/i)?.[1]?.trim().toLowerCase() || '';
+}
+
 function aliasKeys(value) {
   const raw = normalizeKey(value);
   const pattern = dynamicParts(value).pattern;
+  // Legacy Builder masters used the plain Balance title. Resolve those Saves
+  // for every member, including after the catalog has applied the saved title.
+  if (raw === 'balance' || pattern === "{dynamic}'s balance") {
+    return [...new Set(["{dynamic}'s balance", raw, 'balance'].filter(Boolean))];
+  }
 
   // Dynamic response families must resolve through their reusable pattern
   // before any stale member/value-specific alias left by older versions.
@@ -172,11 +187,13 @@ function pickTemplate(data = {}, options = {}) {
     : [];
 
   return {
-    schemaVersion: 3,
+    schemaVersion: options.canonicalIdentity === BALANCE_RESPONSE_KEY ? 4 : 3,
+    canonicalIdentity: options.canonicalIdentity || null,
+    preserveRuntimeFieldValues: options.preserveRuntimeFieldValues === true,
     applyDescription: options.baseEmbedData
       ? (edited.description ?? null) !== (options.baseEmbedData.description ?? null)
       : options.applyDescription !== false,
-    applyFields: applyFields && Array.isArray(data.fields) && (options.baseEmbedData
+    applyFields: applyFields && (Array.isArray(data.fields) || Array.isArray(options.editedEmbedData?.fields)) && (options.baseEmbedData
       ? JSON.stringify(edited.fields || []) !== JSON.stringify(options.baseEmbedData.fields || [])
       : true),
     applyFooter: options.baseEmbedData
@@ -185,7 +202,8 @@ function pickTemplate(data = {}, options = {}) {
     title: data.title ?? null,
     // Omitted means "leave the live description alone". An explicit empty
     // string/null is a deliberate removal from Embed Builder.
-    description: hasDescription ? data.description : undefined,
+    description: hasDescription ? data.description
+      : (options.baseEmbedData && (edited.description ?? null) !== (options.baseEmbedData.description ?? null) ? null : undefined),
     ...(applyFields ? { fields } : {}),
     color: Number.isInteger(data.color) ? data.color : null,
     footer: data.footer?.text ? { ...data.footer } : null,
@@ -200,7 +218,6 @@ function templateAliases(matchNames = [], embedData = {}) {
   return [
     ...matchNames,
     embedData.title,
-    String(embedData.description || '').split('\n').find(Boolean),
   ]
     .flatMap(aliasKeys)
     .filter(Boolean);
@@ -210,6 +227,7 @@ function prepareTemplateUpdate(matchNames = [], embedData = {}, options = {}) {
   const updatedAt = new Date().toISOString();
   return {
     aliases: [...new Set(templateAliases(matchNames, embedData))],
+    revision: ++overlayRevision,
     template: pickTemplate(embedData, options),
     updatedAt,
   };
@@ -219,7 +237,18 @@ function primeTemplateOverlay(key, prepared) {
   if (!prepared.aliases.length) return;
   const current = { ...(templateOverlays.get(key) || {}) };
   for (const alias of prepared.aliases) {
-    current[alias] = { ...prepared.template, updatedAt: prepared.updatedAt };
+    const previous = current[alias] || templateCache.get(key)?.[alias];
+    const template = { ...prepared.template, updatedAt: prepared.updatedAt, overlayRevision: prepared.revision };
+    for (const flag of ['applyDescription', 'applyFields', 'applyFooter']) {
+      template[flag] ||= previous?.[flag] === true;
+    }
+    for (const [flag, property] of [['applyThumbnail', 'thumbnail'], ['applyImage', 'image']]) {
+      if (!template[flag] && previous?.[flag]) {
+        template[flag] = true;
+        template[property] = previous[property];
+      }
+    }
+    current[alias] = template;
   }
   templateOverlays.set(key, current);
 }
@@ -230,7 +259,7 @@ function clearSavedTemplateOverlay(key, prepared) {
 
   const next = { ...current };
   for (const alias of prepared.aliases) {
-    if (next[alias]?.updatedAt === prepared.updatedAt) delete next[alias];
+    if (next[alias]?.overlayRevision === prepared.revision) delete next[alias];
   }
   if (Object.keys(next).length) templateOverlays.set(key, next);
   else templateOverlays.delete(key);
@@ -246,12 +275,26 @@ async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, opt
       const stored = await loadTemplates(guildId, scope);
       const templates = { ...stored };
 
-      for (const alias of prepared.aliases) {
-        templates[alias] = {
-          ...prepared.template,
-          updatedAt: prepared.updatedAt,
-        };
+      const previous = prepared.aliases.map(alias => stored[alias]).find(Boolean);
+      const template = { ...prepared.template, updatedAt: prepared.updatedAt };
+      // A second Save must retain earlier edits when only another property changed.
+      for (const flag of ['applyDescription', 'applyFields', 'applyFooter']) {
+        template[flag] ||= previous?.[flag] === true;
       }
+      for (const [flag, property] of [['applyThumbnail', 'thumbnail'], ['applyImage', 'image']]) {
+        if (!template[flag] && previous?.[flag]) {
+          template[flag] = true;
+          template[property] = previous[property];
+        }
+      }
+      const identity = template.canonicalIdentity;
+      const aliases = new Set(prepared.aliases);
+      if (identity) {
+        for (const [alias, value] of Object.entries(stored)) {
+          if (value?.canonicalIdentity === identity) aliases.add(alias);
+        }
+      }
+      for (const alias of aliases) templates[alias] = template;
 
       const saved = await setInDb(key, templates);
       if (!saved) {
@@ -280,26 +323,38 @@ export async function saveGlobalEmbedTemplate(guildId, matchNames = [], embedDat
   return saveTemplate(guildId, GLOBAL_SCOPE, matchNames, embedData, options);
 }
 
-function findStoredTemplate(data, stored, { strictTitle = false } = {}) {
+function selectStoredTemplate(stored, candidates) {
+  const matches = candidates.map(candidate => stored?.[candidate]).filter(Boolean);
+  const canonical = matches.filter(template => template.canonicalIdentity)
+    .sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')));
+  return canonical[0] || matches[0] || null;
+}
+
+function findStoredTemplate(data, stored, { strictTitle = false, responseIdentity = null } = {}) {
   const candidates = [
+    responseIdentity || balanceResponseIdentity(data),
+    metadataAlias(data),
     data.title,
     ...(strictTitle ? [] : [String(data.description || '').split('\n').find(Boolean)]),
   ]
     .flatMap(aliasKeys)
     .filter(Boolean);
 
-  return candidates.map(candidate => stored[candidate]).find(Boolean) || null;
+  return selectStoredTemplate(stored, candidates);
 }
 
 function decorateEmbedData(embed, stored, options = {}) {
   const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
-  const data = { ...original };
+  const data = removeRetiredGamblingGuideCommand({ ...original });
 
   const template = findStoredTemplate(data, stored, options);
   if (!template) return { matched: false, changed: false, data };
 
   if (template.title) {
-    data.title = renderDynamic(template.title, original.title || '', {
+    const possessive = String(original.title || '').match(/^(.+'s\s+)(.+)$/i);
+    const title = possessive && !/^.+?'s\s+/i.test(template.title) && !/\{dynamic\}/i.test(template.title)
+      ? possessive[1] + template.title : template.title;
+    data.title = renderDynamic(title, original.title || '', {
       fallbackToRuntimeOnMismatch: true,
     });
   } else {
@@ -335,7 +390,9 @@ function decorateEmbedData(embed, stored, options = {}) {
           name: renderDynamic(templateField.name, runtimeField.name || templateField.name, {
             fallbackToRuntimeOnMismatch: true,
           }).slice(0, 256),
-          value: renderDynamic(templateField.value, runtimeField.value || templateField.value, {
+          value: template.preserveRuntimeFieldValues && runtimeField.value != null
+            ? String(runtimeField.value).slice(0, 1024)
+            : renderDynamic(templateField.value, runtimeField.value || templateField.value, {
             fallbackToRuntimeOnMismatch: true,
             preserveRuntimeWhenNoDynamic: !(template.schemaVersion >= 2),
           }).slice(0, 1024),
@@ -387,7 +444,7 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed, 
   try {
     const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
     const stored = await loadMergedTemplates(guildId, channelId, {
-      preferGlobal: isSharedRuntimeBodyTitle(original.title),
+      preferGlobal: true,
     });
     const result = decorateEmbedData(embed, stored, {
       ...options,
@@ -409,24 +466,24 @@ export async function warmSavedEmbedTemplateScopes(guildId, channelIds = []) {
     .map(channelId => loadTemplates(guildId, channelId)));
 }
 
-export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
+export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData, options = {}) {
   const globalKey = templateKey(guildId, GLOBAL_SCOPE);
   const channelKey = templateKey(guildId, channelId);
   // Look up only the title aliases. Copying every saved template for each
   // registry row made a Builder list unnecessarily quadratic.
-  const sharedRuntimeBody = isSharedRuntimeBodyTitle(embedData.title);
+  const sharedRuntimeBody = true;
   const scopes = sharedRuntimeBody
     ? [templateOverlays.get(globalKey), templateCache.get(globalKey),
       templateOverlays.get(channelKey), templateCache.get(channelKey)]
     : [templateOverlays.get(channelKey), templateCache.get(channelKey),
       templateOverlays.get(globalKey), templateCache.get(globalKey)];
-  const aliasesToFind = aliasKeys(embedData.title);
+  const aliasesToFind = [options.responseIdentity || balanceResponseIdentity(embedData), metadataAlias(embedData), ...aliasKeys(embedData.title)].filter(Boolean);
   let template = null;
   for (const scope of scopes) {
-    template = aliasesToFind.map(alias => scope?.[alias]).find(Boolean);
+    template = selectStoredTemplate(scope, aliasesToFind);
     if (template) break;
   }
-  if (!template) return { matched: false, data: embedData };
+  if (!template) return { matched: false, data: removeRetiredGamblingGuideCommand(embedData) };
   const helperArtifact = /^(?:success|failed|error|warning|information)$/i.test(String(template.title || ''))
     && normalizeKey(template.description) === normalizeKey(embedData.title)
     && normalizeKey(template.title) !== normalizeKey(embedData.title);
@@ -436,18 +493,19 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData) {
   const sparse = template.description === undefined;
   const genericStatus = isSharedRuntimeBodyTitle(embedData.title);
   const decoration = { ...template };
-  if ((sparse && !(template.schemaVersion >= 3)) || genericStatus) {
+  if ((sparse && !(template.schemaVersion >= 3)) || (genericStatus && !(template.schemaVersion >= 3))) {
     delete decoration.description;
     delete decoration.fields;
     if (!decoration.footer) decoration.footer = embedData.footer || null;
   }
   if (!(template.schemaVersion >= 3) && Array.isArray(decoration.fields) && !decoration.fields.length) delete decoration.fields;
-  const aliases = aliasKeys(embedData.title);
-  const result = decorateEmbedData(embedData, Object.fromEntries(aliases.map(alias => [alias, decoration])), { strictTitle: true });
-  return { ...result, updatedAt: template.updatedAt };
+  const aliases = [options.responseIdentity || balanceResponseIdentity(embedData), metadataAlias(embedData), ...aliasKeys(embedData.title)].filter(Boolean);
+  const result = decorateEmbedData(embedData, Object.fromEntries(aliases.map(alias => [alias, decoration])), { strictTitle: true, preserveRuntimeBody: genericStatus });
+  return { ...result, updatedAt: template.updatedAt, canonicalIdentity: template.canonicalIdentity };
 }
 
 export async function applySavedEmbedTemplates(message, { initialCreation = false } = {}) {
+  if (isPrivateReportCasePayload(message)) return false;
   if (!message?.guildId || !message?.channelId || !message?.editable || !message?.embeds?.length) return false;
 
   // ZORP Guide is owner-authored content. Never rewrite it from background
@@ -459,7 +517,7 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
 
   try {
     const [stored, sharedStored] = await Promise.all([
-      loadMergedTemplates(message.guildId, message.channelId),
+      loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true }),
       loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true }),
     ]);
     if (!Object.keys(stored).length && !Object.keys(sharedStored).length) return false;

@@ -22,6 +22,7 @@ import {
   buildEmbedPayload,
   buildChannelPayload,
   canonicalBuilderResponseTitle,
+  collapseDisplayRecords,
   discoverEmbedManagerOverviewRecords,
   embedManagerCheckingChannelIds,
   mergeEmbedManagerRecords,
@@ -104,6 +105,7 @@ function buildGuild({ guildId, channelId, messages }) {
   const channel = {
     id: channelId,
     name: 'command-channel',
+    type: 0,
     rawPosition: 1,
     position: 1,
     parent: null,
@@ -141,7 +143,7 @@ test('generic Builder response identity ignores cosmetic emoji/case/punctuation 
   assert.equal(templateIdentity(channelId, catalog), templateIdentity(channelId, runtime));
 });
 
-test('unchecked channels offer opening embeds immediately without a loading label', () => {
+test('unchecked channels remain selectable while saved embeds are checked', () => {
   const guildId = '100000000000000778';
   const channelId = '200000000000000778';
   const guild = buildGuild({ guildId, channelId, messages: new Map() });
@@ -150,7 +152,8 @@ test('unchecked channels offer opening embeds immediately without a loading labe
   const payload = buildChannelPayload(guild, [], 0, checking);
   const option = payload.components[0].toJSON().components[0].options[0];
 
-  assert.equal(option.description, 'Open the embeds in this channel');
+  assert.equal(option.description, 'Checking saved embeds…');
+  assert.equal(option.value, channelId);
   assert.doesNotMatch(option.description, /No saved embed/i);
 });
 
@@ -176,7 +179,7 @@ test('channel browser preloads once per Builder and consumes the snapshot on ope
     deferUpdate: async () => {},
     followUp: async payload => {
       firstPaintReads = [...reads];
-      assert.equal(payload.components[0].toJSON().components[0].options[0].description, 'Open the embeds in this channel');
+      assert.equal(payload.components[0].toJSON().components[0].options[0].description, 'Checking saved embeds…');
       return { id: 'preloaded-manager', createMessageComponentCollector: () => collector };
     },
     webhook: { editMessage: async () => {}, deleteMessage: async () => {} },
@@ -392,7 +395,7 @@ test('Builder preview hides internal template metadata while showing live dynami
   assert.equal(data.author, undefined);
 });
 
-test('Builder Search uses human names, groups duplicate technical keys and keeps a live preview peer', () => {
+test('Builder Search uses human names and preserves semantically different live text', () => {
   const channel = {
     id: '200000000000000099',
     name: 'faq',
@@ -435,15 +438,15 @@ test('Builder Search uses human names, groups duplicate technical keys and keeps
   const records = [catalog('e8ffec87'), catalog('ab12cd34'), real];
   const matches = buildLiveSearchMatches(guild, records, 'faq assistant');
 
-  assert.equal(matches.length, 1);
+  assert.equal(matches.length, 3);
   assert.equal(matches[0].document.title, 'This FAQ assistant can only be used in the FAQ channel.');
-  assert.equal(matches[0].record.messageId, 'real-faq');
+  assert.deepEqual(new Set(matches.map(match => match.record.messageId)), new Set(records.map(record => record.messageId)));
   assert.equal(/source:|bot code|cloudy template key/i.test(matches[0].document.title), false);
   assert.equal(liveSearchRecordTitle(records[0]), 'This FAQ assistant can only be used in the FAQ channel.');
   assert.equal(latestRealPreviewRecord(guild, records, matches[0].record)?.messageId, 'real-faq');
 });
 
-test('Builder Search keeps canonical casino masters as the Save target', () => {
+test('Builder Search keeps the canonical casino master ahead of distinct runtime text', () => {
   const channel = {
     id: '200000000000000090',
     name: 'gambling',
@@ -485,8 +488,9 @@ test('Builder Search keeps canonical casino masters as the Save target', () => {
   ];
 
   const matches = buildLiveSearchMatches(guild, records, 'blackjack loss');
-  assert.equal(matches.length, 1);
+  assert.equal(matches.length, 2);
   assert.equal(matches[0].record.messageId, 'catalog-blackjack-loss');
+  assert.equal(matches[1].record.messageId, 'real-blackjack-loss');
 });
 
 test('Builder Search resolves legacy Success alias to Robbery successful', () => {
@@ -544,7 +548,7 @@ test('Builder Search resolves legacy Success alias to Robbery successful', () =>
   assert.equal(matches[0].record.snapshot.footer.text, 'Next robbery available in {dynamic} hours.');
 });
 
-test('Builder Search loads the same full dynamic source data as the normal Modify browser', () => {
+test('Modify browser loads full dynamic source data with sparse live previews', () => {
   const channel = {
     id: '200000000000000089',
     name: 'gambling',
@@ -570,7 +574,7 @@ test('Builder Search loads the same full dynamic source data as the normal Modif
       description,
       fields,
       author: {
-        name: 'Cloudy template key: embed:rob-template || Cloudy context: gambling/rob || Cloudy kind: embed',
+        name: `Cloudy template key: embed:${messageId} || Cloudy context: gambling/rob || Cloudy kind: embed`,
       },
       color: 0xFFFFFF,
     },
@@ -617,7 +621,7 @@ test('Builder Search loads the same full dynamic source data as the normal Modif
     ['robbery successful', 'catalog-rob-success', 'real-rob-success', 'You successfully stole **{dynamic}** from {dynamic}!'],
     ['robbery failed', 'catalog-rob-failed', 'real-rob-failed', 'You failed the robbery and were caught! You were fined **{dynamic}** of your own cash.'],
   ]) {
-    const matches = buildLiveSearchMatches(guild, records, query);
+    const matches = buildLiveSearchMatches(guild, collapseDisplayRecords(records, channel.id), query);
     assert.equal(matches.length, 1, query);
 
     const record = matches[0].record;
@@ -864,7 +868,7 @@ test('deleted manual Builder embeds stay as detached saved templates with their 
   assert.equal(stored.snapshot.description, description);
 });
 
-test('detached saved templates remain visible and load their complete text without a live Discord channel', () => {
+test('detached snapshots remain loadable but stay out of the live channel browser', () => {
   const guildId = '100000000000000092';
   const record = {
     guildId,
@@ -890,13 +894,9 @@ test('detached saved templates remain visible and load their complete text witho
   };
 
   const channelPayload = buildChannelPayload(guild, [record]);
-  const channelOption = channelPayload.components[0].toJSON().components[0].options[0];
-  assert.equal(channelOption.label, '# Saved templates');
-  assert.equal(channelOption.description, 'Open the saved embed');
-
-  const embedPayload = buildEmbedPayload(guild, [record], '__cloudy_saved_templates__');
-  const embedOption = embedPayload.components[0].toJSON().components[0].options[0];
-  assert.equal(embedOption.label, 'Rules');
+  assert.equal(channelPayload.components.length, 0);
+  assert.match(channelPayload.embeds[0].toJSON().description, /\*\*Channels:\*\* 0/);
+  assert.deepEqual(buildLiveSearchMatches(guild, [record], 'rules'), []);
 
   const state = {};
   assert.equal(loadRecordSnapshotIntoState(state, guild, record), true);

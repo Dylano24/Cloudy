@@ -93,15 +93,8 @@ test('heartbeat keeps the same Builder preview warm without restarting fourteen 
   assert.match(session, /Closing starts a fresh normal 5m Builder inactivity window/i);
 });
 
-test('close-to-five-minute patch runs after the exact-open lease patch', () => {
+test('editor lifetime is committed and cannot be overwritten by a startup patch', () => {
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-  for (const scriptName of ['start', 'test']) {
-    assert.match(pkg.scripts[scriptName], /node scripts\/apply-startup-patches\.js/);
-    const script = pkg.startupPatches.join(' ');
-    assert.ok(
-      script.indexOf('patch-embed-editor-visible-presence.js')
-        > script.indexOf('patch-embed-editor-shared-14m-lease.js'),
-      `${scriptName} must apply close-to-five-minute behavior after exact-open lease`,
-    );
-  }
+  assert.equal(pkg.startupPatches, undefined);
+  assert.doesNotMatch(pkg.scripts.start, /patch/);
 });
