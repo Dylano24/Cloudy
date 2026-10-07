@@ -253,7 +253,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     const channel = await fetchChannel(guild, entry.channelId);
     const existing = await fetchMessage(channel, entry.messageId);
     const participant = participantId(record, audience);
-    const showReason = audience === 'target' && !actions.includes('no_sanction');
+    const showReason = audience === 'reporter' && !actions.includes('no_sanction');
     const fields = [
       { name: 'Report', value: `#${record.number}`, inline: true },
       ...(showReason ? [{ name: 'Reason', value: reason || 'No reason recorded' }] : []),
