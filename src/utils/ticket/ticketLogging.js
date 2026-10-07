@@ -57,6 +57,9 @@ export async function logTicketEvent({ client, guildId, event }) {
     // Apply the saved Builder template before Discord receives the log. This
     // avoids a visible default embed followed by a delayed restyle.
     const decorated = await decorateEmbedWithSavedTemplate(guild.id, channel.id, embed);
+    if (event.type === 'close' || event.type === 'delete') {
+      setPreservedEmbedColor(decorated.embed, TICKET_EVENT_STYLES[event.type].color);
+    }
     const messageOptions = {
       embeds: [decorated.embed],
       ...(event.type === 'transcript' ? { allowedMentions: { parse: [] } } : {}),
