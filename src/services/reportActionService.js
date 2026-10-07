@@ -104,7 +104,7 @@ async function deny(interaction, message) {
 export function reportBanNotification(reason) {
   return withCloudyFooter({
     embeds: [createEmbed({
-      title: 'You have been banned from the Cloudy server',
+      title: 'You have been banned',
       description: `**Reason**\n${reason}\n\nIf you believe this sanction was incorrect or you would like us to review it, you can always submit an appeal using our appeal form.\n\n**Appeal:** [Cloudy appeal form](${CLOUDY_APPEAL_URL})`,
     })],
     allowedMentions: { parse: [] },
