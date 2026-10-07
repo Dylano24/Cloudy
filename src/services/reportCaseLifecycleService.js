@@ -14,6 +14,7 @@ import { reportKey, withReportLock, reportStaffRole, caseStaffAllowed, nextRepor
 export const REPORT_LOG_CHANNEL_ID = '1556344268099166319';
 const expiryTimers = new Map();
 const audiences = ['reporter', 'target'];
+const reportReadPresentationJobs = new Map();
 
 function caseEmbed(data) {
   const embed = buildStandardLogEmbed({ ...data, color: null, footer: { text: CLOUDY_STANDARD_FOOTER }, thumbnail: CLOUDY_LOGO_URL });
@@ -24,6 +25,17 @@ function caseEmbed(data) {
 async function save(client, record) {
   if (await client.db.set(reportKey(record.guildId, record.messageId), record) === false) throw new Error('The report could not be saved.');
   return record;
+}
+
+// Persist one presentation field against the latest case. Long Discord REST
+// calls must never hold the report lock or overwrite a second Read.
+async function saveReadPresentationField(client, key, audience, field, value) {
+  return withReportLock(key, async () => {
+    const latest = await client.db.get(key);
+    if (!latest?.cases?.[audience] || latest.cases[audience].deletedAt) return latest;
+    latest.cases[audience][field] = value;
+    return save(client, latest);
+  });
 }
 
 async function fetchChannel(guild, id) {
@@ -81,7 +93,9 @@ async function ensurePrivateDeletePrompt(client, channel, record, audience) {
     ? await existing.edit(payload)
     : await channel.send(payload);
   entry.deletePromptId = message.id;
-  await save(client, record);
+  await saveReadPresentationField(
+    client, reportKey(record.guildId, record.messageId), audience, 'deletePromptId', message.id,
+  );
   return message;
 }
 
@@ -188,7 +202,7 @@ function logEmbed(record, audience, event, actorId) {
   return embed;
 }
 
-async function publishStaffLog(client, guild, record, audience, event, actorId) {
+async function publishStaffLog(client, guild, record, audience, event, actorId, persistRead = false) {
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   if (!logs?.send) throw new Error('The report-logs channel is unavailable.');
   const entry = record.cases[audience];
@@ -200,6 +214,9 @@ async function publishStaffLog(client, guild, record, audience, event, actorId) 
     allowedMentions: { parse: [] } };
   const message = existing?.author?.id === client.user.id ? await existing.edit(payload) : await logs.send(payload);
   entry[key] = message.id;
+  if (persistRead) {
+    return saveReadPresentationField(client, reportKey(record.guildId, record.messageId), audience, key, message.id);
+  }
   await save(client, record);
   return record;
 }
