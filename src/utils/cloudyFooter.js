@@ -1,6 +1,7 @@
 import { REST } from '@discordjs/rest';
 
 export const CLOUDY_STANDARD_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const MARKER = Symbol.for('cloudy.standard-footer-output');
 
 export function isMentionOnlyContent(content) {
@@ -12,6 +13,10 @@ export function withCloudyFooter(payload, { plainText = true } = {}) {
   if (Array.isArray(payload.embeds) && payload.embeds.length) {
     return { ...payload, embeds: payload.embeds.map(embed => {
       const data = { ...(embed.toJSON?.() || embed) };
+      if (data.description === 'Only owners can ban members from reports.') {
+        data.title = 'Permission denied';
+        data.thumbnail = { url: CLOUDY_C_LOGO_URL };
+      }
       const previous = data.footer?.text;
       if (previous && /\b(close|closes|closed|expire|expires|available in|page\s+\d+|dashboard closes|ticket id)\b/i.test(previous)) {
         const fields = data.fields || [];
