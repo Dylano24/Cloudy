@@ -185,7 +185,6 @@ const closeTicketModal = {
       await closeTicket(interaction.channel, interaction.user, reason, {
         ticketData: context.ticketData,
         config: context.config,
-        actorCanManage: context.canManageTicket,
         onVisible: () => interaction.deleteReply(),
       });
     } catch (error) {
