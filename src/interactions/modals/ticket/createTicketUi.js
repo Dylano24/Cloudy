@@ -14,7 +14,7 @@ import { setResponseLifetime } from '../../../utils/responseLifetime.js';
 import { scheduleTicketReplyDeletion } from '../../../utils/ticket/ticketBranding.js';
 import { registerPrivateTicketCreationConfirmation } from '../../../services/ticketCreationConfirmationService.js';
 
-async function ensureTicketCreatorAccess(channel, userId) {
+export async function ensureTicketCreatorAccess(channel, userId, knownMember = null) {
   const requiredPermissions = [
     PermissionFlagsBits.ViewChannel,
     PermissionFlagsBits.SendMessages,
@@ -22,7 +22,11 @@ async function ensureTicketCreatorAccess(channel, userId) {
     PermissionFlagsBits.AttachFiles,
   ];
 
-  const member = await channel.guild.members.fetch(userId).catch(() => null);
+  // The modal interaction already contains the creator's GuildMember.
+  // Reuse it rather than spending a second Discord REST request fetching them.
+  const member = (knownMember?.id === userId ? knownMember : null)
+    || channel.guild.members.cache?.get?.(userId)
+    || await channel.guild.members.fetch(userId).catch(() => null);
   const permissions = member ? channel.permissionsFor(member) : null;
 
   if (permissions?.has(requiredPermissions)) {
@@ -89,7 +93,7 @@ const createTicketModal = {
         reason,
       );
 
-      const hasAccess = await ensureTicketCreatorAccess(channel, interaction.user.id);
+      const hasAccess = await ensureTicketCreatorAccess(channel, interaction.user.id, interaction.member);
       if (!hasAccess) {
         throw Object.assign(new Error('Ticket creator access could not be verified'), {
           userMessage: 'Your ticket was created, but Cloudy could not verify your access to it. Please contact an admin.',
