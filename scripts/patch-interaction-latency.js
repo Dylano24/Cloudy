@@ -243,6 +243,101 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             await interaction.editReply(payload);
         }`);
   text = text.slice(0, start) + update + text.slice(end);
+
+  text = replaceRequired(text,
+    '\nfunction managerRecordKey(record) {',
+    `
+async function updateEmbedManagerNavigation(buttonInteraction, managerMessage, interaction, payload, state, session) {
+    if (session.closed || state.activeEmbedManager !== session) return false;
+
+    if (typeof interaction.deferUpdate !== 'function'
+        || !buttonInteraction.webhook?.editMessage
+        || !managerMessage?.id) {
+        return updateEmbedManager(interaction, payload, state, session);
+    }
+
+    // Clear Discord's component loading state while repainting the already-open
+    // private manager at the same time. Neither request waits for the other.
+    const acknowledgement = interaction.deferUpdate()
+        .then(() => true)
+        .catch(error => {
+            logger.debug(\`Embed manager navigation acknowledgement failed: \${error?.message || error}\`);
+            return false;
+        });
+    const rendering = buttonInteraction.webhook.editMessage(managerMessage.id, payload)
+        .then(() => true)
+        .catch(error => {
+            if (CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+                closeEmbedManagerSession(state, session, 'message-unavailable');
+                logger.debug(\`Embed manager message \${session.messageId} is no longer available.\`);
+                return false;
+            }
+            throw error;
+        });
+
+    const [acknowledged, rendered] = await Promise.all([acknowledgement, rendering]);
+    return acknowledged && rendered;
+}
+
+function managerRecordKey(record) {`);
+
+  text = replaceRequired(text,
+    `                if (interaction.customId === 'simple_embed_modify_back') {
+                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, 0), state, session);
+                    return;
+                }`,
+    `                if (interaction.customId === 'simple_embed_modify_back') {
+                    await updateEmbedManagerNavigation(
+                        buttonInteraction,
+                        managerMessage,
+                        interaction,
+                        buildChannelPayload(guild, records, 0),
+                        state,
+                        session,
+                    );
+                    return;
+                }`);
+  text = replaceRequired(text,
+    `                if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
+                    const page = Number(interaction.customId.split(':').at(-1)) || 0;
+                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, page), state, session);
+                    return;
+                }`,
+    `                if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
+                    const page = Number(interaction.customId.split(':').at(-1)) || 0;
+                    await updateEmbedManagerNavigation(
+                        buttonInteraction,
+                        managerMessage,
+                        interaction,
+                        buildChannelPayload(guild, records, page),
+                        state,
+                        session,
+                    );
+                    return;
+                }`);
+  text = replaceRequired(text,
+    `                if (interaction.customId.startsWith('simple_embed_modify_embed_page:')) {
+                    const parts = interaction.customId.split(':');
+                    const channelId = parts[1];
+                    const page = Number(parts[2]) || 0;
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
+                    return;
+                }`,
+    `                if (interaction.customId.startsWith('simple_embed_modify_embed_page:')) {
+                    const parts = interaction.customId.split(':');
+                    const channelId = parts[1];
+                    const page = Number(parts[2]) || 0;
+                    await updateEmbedManagerNavigation(
+                        buttonInteraction,
+                        managerMessage,
+                        interaction,
+                        buildEmbedPayload(guild, records, channelId, page),
+                        state,
+                        session,
+                    );
+                    return;
+                }`);
+
   text = replaceRequired(text,
     "        logger.error('Embed manager failed:', error);\n        await buttonInteraction.followUp({",
     `        clearTimeout(acknowledgementTimer);
@@ -270,6 +365,40 @@ patchFile('src/commands/Tools/embedbuilder.js', text => {
     if (nextCase < 0) throw new Error('Duplicate button case end missing');
     text = text.slice(0, duplicate) + text.slice(nextCase);
   }
+
+  text = replaceRequired(text,
+    `        if (channelInteraction.customId.startsWith('simple_embed_channel_page:')) {
+            const page = Number(channelInteraction.customId.split(':')[1]) || 0;
+            const picker = buildChannelPicker(guild, page);
+            await channelInteraction.update({
+                embeds: picker.embeds,
+                components: picker.components,
+            });
+            return;
+        }`,
+    `        if (channelInteraction.customId.startsWith('simple_embed_channel_page:')) {
+            const page = Number(channelInteraction.customId.split(':')[1]) || 0;
+            const picker = buildChannelPicker(guild, page);
+            const payload = {
+                embeds: picker.embeds,
+                components: picker.components,
+            };
+
+            if (channelPickerMessage?.id
+                && buttonInteraction.webhook?.editMessage
+                && typeof channelInteraction.deferUpdate === 'function') {
+                const [acknowledgement, rendering] = await Promise.allSettled([
+                    channelInteraction.deferUpdate(),
+                    buttonInteraction.webhook.editMessage(channelPickerMessage.id, payload),
+                ]);
+                if (acknowledgement.status === 'rejected') throw acknowledgement.reason;
+                if (rendering.status === 'rejected') throw rendering.reason;
+            } else {
+                await channelInteraction.update(payload);
+            }
+            return;
+        }`);
+
   return text;
 });
 
@@ -292,4 +421,4 @@ patchFile('src/utils/interactionHelper.js', text => {
 patchFile('src/services/reportCaseLifecycleService.js', text => replaceRequired(text,
   '  const category = await fetchChannel(guild, REPORT_CATEGORY_ID);\n  const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);',
   '  const [category, logs] = await Promise.all([\n    fetchChannel(guild, REPORT_CATEGORY_ID),\n    fetchChannel(guild, REPORT_LOG_CHANNEL_ID),\n  ]);'));
-console.log('[INTERACTION_LATENCY] Durable registry batching, single-request Modify and latency observation enabled.');
+console.log('[INTERACTION_LATENCY] Durable registry batching, silent parallel pagination and latency observation enabled.');
