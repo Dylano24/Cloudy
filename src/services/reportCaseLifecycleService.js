@@ -173,7 +173,7 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
 }
 
 function logEmbed(record, audience, event, actorId) {
-  const title = event === 'close' ? 'Report case closed' : event === 'delete' ? 'Report case deleted' : 'Report case created';
+  const title = event === 'close' ? 'Report closed' : event === 'delete' ? 'Report deleted' : 'Report created';
   const fields = [{ name: 'Report', value: `#${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
     { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Deleted by' : 'Handled by', value: actorId === '24-hour expiry' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
@@ -205,7 +205,12 @@ async function refreshLogControls(client, guild, record, audience) {
 
   const created = await fetchMessage(logs, entry.createdLogId);
   if (created?.author?.id === client.user.id) {
-    await created.edit({ content: null, components: [], allowedMentions: { parse: [] } });
+    await created.edit({
+      content: null,
+      embeds: [logEmbed(record, audience, 'create', entry.createdBy || 'Unknown')],
+      components: [],
+      allowedMentions: { parse: [] },
+    });
   }
 
   const closed = await fetchMessage(logs, entry.closeLogId);
@@ -263,7 +268,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     const payload = {
       content: `<@${participant}>`,
       embeds: [caseEmbed({
-        title: 'Report case notification',
+        title: 'Report notification',
         description: actionText,
         color: 0x00C49D,
         fields,
@@ -275,6 +280,11 @@ export async function publishReportOutcome(client, guild, report, record, action
     const notice = existing?.author?.id === client.user.id ? await existing.edit(payload) : await channel.send(payload);
     entry.messageId = notice.id;
     await save(client, syncAliases(record));
+
+    if (!entry.createdLogId) {
+      entry.createdBy = actorId;
+      await publishStaffLog(client, guild, record, audience, 'create', actorId);
+    }
   }
 
   scheduleReportCaseExpiry(client, guild, record);

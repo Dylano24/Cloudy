@@ -128,7 +128,11 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.ok(f.reports.messages.cache.has(publicSuccess[0].id));
   assert.deepEqual(f.report.embeds, snapshot.embeds);
   assert.deepEqual(f.report.components, []);
-  for (const entry of Object.values(record.cases)) assert.equal(entry.createdLogId, undefined);
+  for (const entry of Object.values(record.cases)) {
+    assert.ok(entry.createdLogId);
+    const created = f.logs.messages.cache.get(entry.createdLogId);
+    assert.equal(json(created.embeds[0]).title, 'Report created');
+  }
   assert.equal(f.dms.length, 0);
 });
 
@@ -175,7 +179,7 @@ test('target Close creates a private red Delete case prompt while report logs st
   const log = f.logs.messages.cache.get(record.cases.target.closeLogId);
   const logData = json(log.embeds[0]);
   assert.equal(logData.color, TICKET_EVENT_STYLES.close.color);
-  assert.equal(logData.title, 'Report case closed');
+  assert.equal(logData.title, 'Report closed');
   assert.equal(log.content, null);
   assert.deepEqual(log.components, []);
   assert.ok(!logData.fields.some(field => field.name === 'Channel'));
@@ -203,7 +207,9 @@ test('target Close creates a private red Delete case prompt while report logs st
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.ok(record.cases.target.deletedAt);
   assert.equal(record.cases.reporter.deletedAt, undefined);
-  assert.equal(record.cases.target.createdLogId, undefined);
+  assert.ok(record.cases.target.createdLogId);
+  const createdLog = f.logs.messages.cache.get(record.cases.target.createdLogId);
+  assert.equal(json(createdLog.embeds[0]).title, 'Report created');
   assert.ok(f.channels.has(record.cases.reporter.channelId));
 
   const deleted = f.logs.messages.cache.get(record.cases.target.deleteLogId);
@@ -407,7 +413,7 @@ test('legacy shared case upgrades on restart without repeating moderation or cha
   const f = fixture(); await f.register();
   const original = structuredClone(f.report.embeds);
   const shared = await f.guild.channels.create({ name: 'report-5', parent: REPORT_CATEGORY_ID });
-  const oldNotice = await shared.send({ content: '<@reporter> <@target>', embeds: [{ title: 'Report case notification', description: 'Private reason' }] });
+  const oldNotice = await shared.send({ content: '<@reporter> <@target>', embeds: [{ title: 'Report notification', description: 'Private reason' }] });
   const oldLog = await f.reports.send({ embeds: [{ title: 'Report action log' }] });
   const legacy = { ...await f.client.db.get(reportKey(f.guild.id, 'report')), number: 5, caseChannelId: shared.id, memberMessageIds: [oldNotice.id], staffMessageIds: [oldLog.id], expiresAt: Date.now() + REPORT_CASE_MS, actions: { ban: { status: 'completed', notified: true, actorId: 'owner', reason: 'Legacy private reason' } } };
   await f.client.db.set(reportKey(f.guild.id, 'report'), legacy);
@@ -527,7 +533,7 @@ test('Delete + ban performs both actions and keeps only the reporter case after 
 
 test('saved shared notification templates cannot leak private reasons or overwrite report case presentation', async () => {
   const f = fixture();
-  await saveEmbedTemplateDecoration(f.guild.id, 'shared', ['Report case notification'], { title: 'Report case notification', description: 'Leaked reason', fields: [{ name: 'Reason', value: 'Private secret' }], color: 0xFFFFFF }, { sharedScope: true, applyFields: true });
-  const payload = { embeds: [{ title: 'Report case notification', description: 'The reported member has been banned.', fields: [{ name: 'Time remaining', value: '23:59:30' }] }] };
+  await saveEmbedTemplateDecoration(f.guild.id, 'shared', ['Report notification'], { title: 'Report notification', description: 'Leaked reason', fields: [{ name: 'Reason', value: 'Private secret' }], color: 0xFFFFFF }, { sharedScope: true, applyFields: true });
+  const payload = { embeds: [{ title: 'Report notification', description: 'The reported member has been banned.', fields: [{ name: 'Time remaining', value: '23:59:30' }] }] };
   assert.deepEqual(await applySavedResponsePayloadTemplates(payload, { guildId: f.guild.id, channelId: 'reporter' }), payload);
 });

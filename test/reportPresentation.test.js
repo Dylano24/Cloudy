@@ -88,3 +88,21 @@ test('report case embeds use compact Report + hash-number presentation', () => {
   const actions = fs.readFileSync('src/services/reportActionService.js', 'utf8');
   assert.match(actions, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
 });
+
+
+test('report case titles omit the word case and created logs are published', () => {
+  const source = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
+
+  assert.match(source, /title: 'Report notification'/);
+  assert.match(source, /'Report closed'/);
+  assert.match(source, /'Report deleted'/);
+  assert.match(source, /'Report created'/);
+
+  assert.doesNotMatch(source, /Report case notification/);
+  assert.doesNotMatch(source, /Report case closed/);
+  assert.doesNotMatch(source, /Report case deleted/);
+  assert.doesNotMatch(source, /Report case created/);
+
+  assert.match(source, /if \(!entry\.createdLogId\)/);
+  assert.match(source, /publishStaffLog\(client, guild, record, audience, 'create', actorId\)/);
+});
