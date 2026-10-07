@@ -49,6 +49,56 @@ function fixture({ staff = false, record = true } = {}) {
   return { interaction, client, guild, channel, storage, ticketKey, values, trace, replies, publicPayloads };
 }
 
+test('ticket Pin has no thinking placeholder and never deletes the public ticket', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture({ staff: true });
+  const deleted = [];
+  const privateReplies = [];
+  f.channel.setPosition = async () => f.channel;
+  f.channel.setName = async name => { f.channel.name = name; return f.channel; };
+  f.interaction.webhook = { deleteMessage: async id => deleted.push(id) };
+  f.interaction.deferReply = async () => assert.fail('Pin must not display a thinking reply');
+  f.interaction.editReply = async () => assert.fail('Pin must not edit the original public ticket');
+  f.interaction.deleteReply = async () => assert.fail('Pin must not delete the original public ticket');
+  f.interaction.followUp = async payload => {
+    privateReplies.push(payload);
+    return { id: 'pin-private-message' };
+  };
+
+  await buttons.find(button => button.name === 'ticket_pin').execute(f.interaction, f.client);
+  assert.equal(f.trace[0], 'ack');
+  assert.equal(privateReplies.length, 1);
+  assert.equal(privateReplies[0].flags, MessageFlags.Ephemeral);
+  assert.equal(privateReplies[0].embeds[0].title, 'Ticket pinned');
+  assert.equal(f.interaction.message.embeds[0].data.title, 'Ticket #1');
+  assert.equal((await getTicketData(f.guild.id, f.channel.id)).pinned, true);
+
+  t.mock.timers.tick(9_999);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.deepEqual(deleted, []);
+  t.mock.timers.tick(1);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.deepEqual(deleted, ['pin-private-message']);
+});
+
+test('ticket Pin staff denial is private after silent acknowledgement', async () => {
+  const f = fixture({ staff: false });
+  const replies = [];
+  f.interaction.webhook = { deleteMessage: async () => {} };
+  f.interaction.deferReply = async () => assert.fail('Pin must not show Discord thinking');
+  f.interaction.editReply = async () => assert.fail('Denied Pin must not edit the public ticket');
+  f.interaction.followUp = async payload => {
+    replies.push(payload);
+    return { id: 'denied-private' };
+  };
+  await buttons.find(button => button.name === 'ticket_pin').execute(f.interaction, f.client);
+  assert.equal(f.trace[0], 'ack');
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].flags, MessageFlags.Ephemeral);
+  assert.equal(replies[0].embeds[0].data.title, 'Permission denied');
+  assert.equal(f.interaction.message.embeds[0].data.title, 'Ticket #1');
+});
+
 test('ticket mutation buttons acknowledge before a slow permission database lookup', async () => {
   for (const name of ['ticket_claim', 'ticket_unclaim', 'ticket_reopen', 'ticket_delete']) {
     const f = fixture({ record: false });
