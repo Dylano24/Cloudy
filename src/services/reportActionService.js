@@ -86,6 +86,7 @@ export function timeoutDuration(value) {
   return minutes * 60_000;
 }
 
+// Ban and Delete + ban must use this exact same permission-denied presentation.
 async function deny(interaction, message) {
   const embed = createEmbed({
     title: 'Permission denied',
