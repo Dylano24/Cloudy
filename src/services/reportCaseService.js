@@ -55,7 +55,7 @@ export function caseStaffAllowed(guild, member, config) {
 }
 
 export function reportCaseControls(record, staff = false, disabled = false, audience = 'target', closed = false) {
-  const buttons = [new ButtonBuilder().setCustomId(`report_case:close:${record.messageId}:${audience}`).setLabel('Close').setStyle(ButtonStyle.Secondary).setDisabled(disabled || closed)];
+  const buttons = [new ButtonBuilder().setCustomId(`report_case:read:${record.messageId}:${audience}`).setLabel('Read').setStyle(ButtonStyle.Secondary).setDisabled(disabled || closed)];
   if (staff) buttons.push(new ButtonBuilder().setCustomId(`report_case:delete:${record.messageId}:${audience}`).setLabel('Delete').setStyle(ButtonStyle.Danger).setDisabled(disabled));
   return [new ActionRowBuilder().addComponents(buttons)];
 }
