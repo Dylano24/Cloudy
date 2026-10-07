@@ -107,13 +107,14 @@ export function formatRatingStars(rating) {
   return `${'⭐'.repeat(clamped)} (${clamped}/5)`;
 }
 
-export async function resolveUserAuthor(client, userId) {
+export async function resolveUserAuthor(client, userId, knownUser = null) {
   if (!userId) {
     return null;
   }
 
   try {
-    const user = await client.users.fetch(userId);
+    const user = knownUser?.id === userId && knownUser.tag && typeof knownUser.displayAvatarURL === 'function'
+      ? knownUser : await client.users.fetch(userId);
     return {
       name: user.tag,
       iconURL: user.displayAvatarURL({ dynamic: true }),
