@@ -81,6 +81,30 @@ function fixture() {
   return { values, client, guild, staff, reporter, target, owner, roleOwner, reports, logs, channels, report, interaction, payloads, removed, dms, positions, replyDeletes, submit, register };
 }
 
+test('Read confirms its durable close before waiting for staff log delivery', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); await f.register();
+  const record = await f.submit('no_sanction');
+  const entry = record.cases.target;
+  const channel = f.channels.get(entry.channelId);
+  const notice = channel.messages.cache.get(entry.messageId);
+  const read = f.interaction(f.target.user, notice, channel.id);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const send = f.logs.send;
+  f.logs.send = async payload => { await gate; return send(payload); };
+  const pending = handleReportCaseControl(read, f.client, ['read', record.messageId, 'target']);
+  try {
+    await settle();
+    assert.ok(f.values.get(reportKey(f.guild.id, record.messageId)).cases.target.closedAt, 'Read must be persisted before confirmation');
+    assert.ok(channel.overwriteEdits.length, 'Participant access must be revoked before confirmation');
+    assert.equal(read.error?.embeds?.[0] && json(read.error.embeds[0]).title, 'Thank you.');
+  } finally {
+    release();
+    await pending;
+  }
+});
+
 test('Delete asks for a required reason before acting; two adjacent private cases keep the New report intact', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
