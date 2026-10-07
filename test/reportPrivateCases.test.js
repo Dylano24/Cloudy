@@ -157,6 +157,79 @@ test('second report Read never waits behind slow log updates from the first Read
   }
 });
 
+test('100 independent Report Read buttons confirm without waiting on blocked staff logs', async () => {
+  const f = fixture();
+  await f.register();
+  const base = await f.submit('no_sanction');
+  const channel = f.channels.get(base.cases.target.channelId);
+  const originalSend = f.logs.send;
+  let releaseLog;
+  const gate = new Promise(resolve => { releaseLog = resolve; });
+  f.logs.send = async payload => {
+    if (json(payload.embeds[0]).title === 'Report closed') await gate;
+    return originalSend(payload);
+  };
+
+  const clicks = [];
+  const keys = [];
+  for (let i = 0; i < 100; i += 1) {
+    const notice = await channel.send({ embeds: [], components: [], content: 'Burst test' });
+    const record = structuredClone(base);
+    record.messageId = `burst-read-${i}`;
+    record.cases.target.messageId = notice.id;
+    delete record.cases.target.closedAt;
+    delete record.cases.target.closedBy;
+    delete record.cases.target.closeLogId;
+    delete record.cases.target.deletePromptId;
+    const key = reportKey(f.guild.id, record.messageId);
+    await f.client.db.set(key, record);
+    keys.push(key);
+    const click = f.interaction(f.target.user, notice, channel.id);
+    click.deferUpdate = async () => { click.deferred = true; };
+    click.followUp = async payload => {
+      click.privateConfirmation = payload;
+      return { id: `burst-confirm-${i}` };
+    };
+    click.webhook = { deleteMessage: async () => {} };
+    clicks.push([click, record.messageId]);
+  }
+
+  let timer;
+  try {
+    await Promise.race([
+      Promise.all(clicks.map(([click, id]) => handleReportCaseControl(
+        click, f.client, ['read', id, 'target'],
+      ))),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          '100 Read confirmations waited for unrelated staff log HTTP calls',
+        )), 3_000);
+      }),
+    ]);
+    assert.equal(clicks.filter(([click]) => json(click.privateConfirmation?.embeds?.[0] || {}).title === 'Thank you.').length, 100);
+    const closed = await Promise.all(keys.map(key => f.client.db.get(key)));
+    assert.equal(closed.filter(record => record.cases.target.closedAt).length, 100);
+    assert.equal(channel.overwriteEdits.length >= 100, true);
+    // The staff log was intentionally blocked. Each click must still finish
+    // without awaiting the potentially rate-limited Discord REST operation.
+  } finally {
+    if (timer) clearTimeout(timer);
+    releaseLog();
+  }
+
+  // Let the pending presentation work complete before asserting its durable
+  // IDs. No private report, staff log or red Delete control is dropped.
+  let complete = false;
+  for (let round = 0; round < 100; round += 1) {
+    const stored = await Promise.all(keys.map(key => f.client.db.get(key)));
+    complete = stored.every(record => record.cases.target.closeLogId
+      && record.cases.target.deletePromptId);
+    if (complete) break;
+    await settle();
+  }
+  assert.equal(complete, true, 'every report must retain its staff log and Delete prompt');
+});
+
 test('Read acknowledges silently without Discord thinking or deleting the original message', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture();
