@@ -1,6 +1,8 @@
 import { REST } from '@discordjs/rest';
 import { isCloudyLogoUrl } from '../services/cloudyLogoService.js';
-import { MESSAGE_BUILDER_FOOTER_MARKER } from '../services/cloudyBrandingService.js';
+import { MESSAGE_BUILDER_FOOTER_MARKER, isMentionOnlyContent } from '../services/cloudyBrandingService.js';
+
+export { isMentionOnlyContent } from '../services/cloudyBrandingService.js';
 
 export const CLOUDY_STANDARD_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
@@ -14,13 +16,11 @@ function addFooterEmbed(payload) {
   return { ...payload, embeds: [...embeds, { footer: { text: CLOUDY_STANDARD_FOOTER } }] };
 }
 
-export function isMentionOnlyContent(content) {
-  return typeof content === 'string' && /^(?:\s*(?:<@!?\d+>|<@&\d+>|<#\d+>|@everyone|@here)\s*)+$/.test(content);
-}
-
 export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   if (Number(payload.flags) & 32768) return payload;
+  // Recipient tags are companion text, not a separate branded message.
+  if (isMentionOnlyContent(payload.content)) return payload;
   if (Array.isArray(payload.embeds) && payload.embeds.length) {
     const data = payload.embeds.map(embed => ({ ...(embed?.toJSON?.() || embed || {}) }));
     let permissionPresentationChanged = false;
