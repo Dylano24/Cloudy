@@ -84,20 +84,19 @@ async function ensurePrivateDeletePrompt(client, channel, record, audience) {
   return message;
 }
 
-async function showReportPermissionDenied(interaction, description) {
+async function showReportPermissionDenied(interaction, description, respondPrivately, scheduleDeletion) {
   const embed = caseEmbed({
     title: 'Permission denied',
     description,
     color: CLOUDY_RED_COLOR,
   });
-  await InteractionHelper.safeEditReply(interaction, {
+  const message = await respondPrivately({
     content: null,
     embeds: [embed],
     components: [],
     allowedMentions: { parse: [] },
   });
-  const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
-  timer.unref?.();
+  scheduleDeletion(message);
 }
 
 function caseOverwrites(guild, client, config, participant) {
@@ -374,12 +373,37 @@ async function revokeReportParticipantAccess(channel, guild, userId, knownMember
 
 export async function handleReportCaseControl(interaction, client, [action, messageId, audience = 'target']) {
   if (!interaction.inGuild() || !['close', 'read', 'delete'].includes(action) || !audiences.includes(audience)) return;
-  await interaction.deferReply({ flags: 64 });
+  // A component deferUpdate acknowledges instantly without showing the
+  // "Cloudy Manager is thinking..." placeholder while permissions and
+  // durable case state are being updated.
+  const silentAck = typeof interaction.deferUpdate === 'function'
+    && typeof interaction.followUp === 'function';
+  if (silentAck) {
+    await interaction.deferUpdate();
+  } else {
+    // Preserve compatibility with legacy adapters that have no update callback.
+    await interaction.deferReply({ flags: 64 });
+  }
+  const respondPrivately = payload => silentAck
+    ? interaction.followUp({ ...payload, flags: 64 })
+    : InteractionHelper.safeEditReply(interaction, payload);
+  const scheduleDeletion = message => {
+    const timer = setTimeout(() => {
+      if (silentAck) {
+        // deleteReply after deferUpdate would delete the original public report.
+        const id = message?.id || message?.resource?.message?.id;
+        if (id) void interaction.webhook?.deleteMessage?.(id)?.catch(() => {});
+      } else {
+        void interaction.deleteReply?.().catch(() => {});
+      }
+    }, 10_000);
+    timer.unref?.();
+  };
   let keepReply = false;
   const confirmRead = async () => {
     if (action !== 'read' || keepReply) return;
     keepReply = true;
-    await InteractionHelper.safeEditReply(interaction, {
+    const message = await respondPrivately({
       content: null,
       embeds: [caseEmbed({
         title: 'Thank you.',
@@ -389,8 +413,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       components: [],
       allowedMentions: { parse: [] },
     });
-    const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
-    timer.unref?.();
+    scheduleDeletion(message);
   };
   try {
     const key = reportKey(interaction.guildId, messageId);
@@ -415,7 +438,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         if (!inDeletePrompt || !entry.closedAt) throw new Error('Delete report is only available after the report is closed.');
         if (!staff) {
           keepReply = true;
-          await showReportPermissionDenied(interaction, 'Only the staff can delete this report.');
+          await showReportPermissionDenied(interaction, 'Only the staff can delete this report.', respondPrivately, scheduleDeletion);
           return;
         }
         await deleteReportCase(client, interaction.guild, record, interaction.user.id, true, audience);
@@ -457,8 +480,8 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
       await refreshLogControls(client, interaction.guild, record, audience);
     });
-    if (!keepReply) await interaction.deleteReply().catch(() => {});
-  } catch (error) { await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` }); }
+    if (!keepReply && !silentAck) await interaction.deleteReply().catch(() => {});
+  } catch (error) { await respondPrivately({ content: `Error: ${error.message}` }); }
 }
 
 export async function restoreReportCaseTimers(client) {
