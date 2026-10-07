@@ -372,14 +372,32 @@ export async function handleReportCaseControl(interaction, client, [action, mess
   if (!interaction.inGuild() || !['close', 'read', 'delete'].includes(action) || !audiences.includes(audience)) return;
   await interaction.deferReply({ flags: 64 });
   let keepReply = false;
+  const confirmRead = async () => {
+    if (action !== 'read' || keepReply) return;
+    keepReply = true;
+    await InteractionHelper.safeEditReply(interaction, {
+      content: null,
+      embeds: [caseEmbed({
+        title: 'Thank you.',
+        description: 'We have been informed that you have read this report.',
+        color: CLOUDY_GREEN_COLOR,
+      })],
+      components: [],
+      allowedMentions: { parse: [] },
+    });
+    const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
+    timer.unref?.();
+  };
   try {
     const key = reportKey(interaction.guildId, messageId);
     await withReportLock(key, async () => {
       const record = await client.db.get(key);
       const entry = record?.cases?.[audience];
       if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
-      const config = await getGuildConfig(client, interaction.guildId);
-      const member = await interaction.guild.members.fetch(interaction.user.id);
+      const [config, member] = await Promise.all([
+        getGuildConfig(client, interaction.guildId),
+        interaction.guild.members.fetch(interaction.user.id),
+      ]);
       const staff = caseStaffAllowed(interaction.guild, member, config);
       const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
       const inDeletePrompt = interaction.channelId === entry.channelId && interaction.message.id === entry.deletePromptId;
@@ -401,7 +419,8 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       // Read keeps Staff access, removes the participant's access and exposes
       // Delete report only inside the private report channel.
       if (!entry.closedAt) {
-        const channel = await fetchChannel(interaction.guild, entry.channelId);
+        const channel = interaction.channel?.id === entry.channelId
+          ? interaction.channel : await fetchChannel(interaction.guild, entry.channelId);
         const participantIdValue = participantId(record, audience);
         const participant = interaction.guild.members.cache?.get?.(participantIdValue)
           || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
@@ -412,7 +431,10 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         entry.closedBy = interaction.user.id;
         await save(client, record);
 
-        const notice = await fetchMessage(channel, entry.messageId);
+        // The action is now durable and participant access is revoked. Staff
+        // presentation must not prolong the member's thinking state.
+        await confirmRead();
+        const notice = interaction.message;
         if (notice?.author?.id === client.user.id) {
           await notice.edit({
             components: reportCaseControls(record, false, true, audience, true),
@@ -422,24 +444,9 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         await ensurePrivateDeletePrompt(client, channel, record, audience);
       }
 
+      await confirmRead();
       if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
       await refreshLogControls(client, interaction.guild, record, audience);
-
-      if (action === 'read') {
-        keepReply = true;
-        await InteractionHelper.safeEditReply(interaction, {
-          content: null,
-          embeds: [caseEmbed({
-            title: 'Thank you.',
-            description: 'We have been informed that you have read this report.',
-            color: CLOUDY_GREEN_COLOR,
-          })],
-          components: [],
-          allowedMentions: { parse: [] },
-        });
-        const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
-        timer.unref?.();
-      }
     });
     if (!keepReply) await interaction.deleteReply().catch(() => {});
   } catch (error) { await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` }); }
