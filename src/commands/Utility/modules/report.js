@@ -1,5 +1,6 @@
 import { nextReportNumber, registerReport } from '../../../services/reportCaseService.js';
 import { createEmbed } from '../../../utils/embeds.js';
+import { ensureReportSubmittedFooter } from '../../../utils/cloudyFooter.js';
 import { logEvent, EVENT_TYPES } from '../../../services/loggingService.js';
 import { formatLogLine, resolveUserAuthor } from '../../../utils/logging/logEmbeds.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
@@ -119,10 +120,10 @@ export default {
         await registerReport(client, logged, { guildId, number: reportNumber, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id });
         setResponseLifetime(interaction, 120_000);
         await InteractionHelper.safeEditReply(interaction, {
-            embeds: [createEmbed({
+            embeds: [ensureReportSubmittedFooter(createEmbed({
                 title: 'Report Submitted',
                 description: `Report #${reportNumber} against **${targetUser.tag}** has been successfully filed and sent to the moderation team. Thank you!`,
-            })],
+            }))],
         });
 
         scheduleTicketReplyDeletion(interaction, 120_000);
