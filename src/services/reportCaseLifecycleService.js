@@ -370,12 +370,17 @@ async function revokeReportParticipantAccess(channel, guild, userId) {
 
 export async function handleReportCaseControl(interaction, client, [action, messageId, audience = 'target']) {
   if (!interaction.inGuild() || !['close', 'read', 'delete'].includes(action) || !audiences.includes(audience)) return;
-  await interaction.deferReply({ flags: 64 });
+  const isReadAction = action === 'read';
+  // Read uses a silent component acknowledgement. deferReply creates Discord's
+  // visible "thinking..." state and kept it on-screen while permission/storage
+  // work completed. The report workflow itself remains unchanged.
+  if (isReadAction) await interaction.deferUpdate();
+  else await interaction.deferReply({ flags: 64 });
+
   let keepReply = false;
   const confirmRead = async () => {
-    if (action !== 'read' || keepReply) return;
-    keepReply = true;
-    await InteractionHelper.safeEditReply(interaction, {
+    if (!isReadAction || keepReply) return;
+    const payload = {
       content: null,
       embeds: [caseEmbed({
         title: 'Thank you.',
@@ -384,20 +389,36 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       })],
       components: [],
       allowedMentions: { parse: [] },
-    });
-    const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
+      flags: 64,
+      fetchReply: true,
+    };
+    const confirmation = await interaction.followUp(payload);
+    keepReply = true;
+    const timer = setTimeout(() => {
+      if (confirmation?.id && interaction.webhook?.deleteMessage) {
+        void interaction.webhook.deleteMessage(confirmation.id).catch(() => confirmation?.delete?.().catch(() => {}));
+      } else {
+        void confirmation?.delete?.().catch(() => {});
+      }
+    }, 10_000);
     timer.unref?.();
   };
   try {
     const key = reportKey(interaction.guildId, messageId);
+    const cachedMember = interaction.guild.members.cache?.get?.(interaction.user.id) || null;
+    const configPromise = getGuildConfig(client, interaction.guildId);
+    const memberPromise = cachedMember
+      ? Promise.resolve(cachedMember)
+      : interaction.guild.members.fetch(interaction.user.id);
+
     await withReportLock(key, async () => {
-      const record = await client.db.get(key);
+      const [record, config, member] = await Promise.all([
+        client.db.get(key),
+        configPromise,
+        memberPromise,
+      ]);
       const entry = record?.cases?.[audience];
       if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
-      const [config, member] = await Promise.all([
-        getGuildConfig(client, interaction.guildId),
-        interaction.guild.members.fetch(interaction.user.id),
-      ]);
       const staff = caseStaffAllowed(interaction.guild, member, config);
       const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
       const inDeletePrompt = interaction.channelId === entry.channelId && interaction.message.id === entry.deletePromptId;
@@ -422,8 +443,10 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         const channel = interaction.channel?.id === entry.channelId
           ? interaction.channel : await fetchChannel(interaction.guild, entry.channelId);
         const participantIdValue = participantId(record, audience);
-        const participant = interaction.guild.members.cache?.get?.(participantIdValue)
-          || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
+        const participant = participantIdValue === interaction.user.id
+          ? member
+          : (interaction.guild.members.cache?.get?.(participantIdValue)
+            || await interaction.guild.members.fetch(participantIdValue).catch(() => null));
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
           await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue);
         }
@@ -448,8 +471,15 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
       await refreshLogControls(client, interaction.guild, record, audience);
     });
-    if (!keepReply) await interaction.deleteReply().catch(() => {});
-  } catch (error) { await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` }); }
+    if (!keepReply && !isReadAction) await interaction.deleteReply().catch(() => {});
+  } catch (error) {
+    const payload = { content: `Error: ${error.message}` };
+    if (isReadAction) {
+      await interaction.followUp({ ...payload, flags: 64 }).catch(() => {});
+    } else {
+      await InteractionHelper.safeEditReply(interaction, payload);
+    }
+  }
 }
 
 export async function restoreReportCaseTimers(client) {
