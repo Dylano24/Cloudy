@@ -30,7 +30,7 @@ function fixture() {
       ['staff-role', { id: 'staff-role', name: 'Staff' }],
       ['owner-role', { id: 'owner-role', name: 'Owner' }],
     ]) },
-    members: { cache: members, fetch: async id => members.get(id) }, channels: { cache: channels, fetch: async id => channels.get(id),
+    members: { fetch: async id => members.get(id) }, channels: { cache: channels, fetch: async id => channels.get(id),
       setPositions: async data => { positions.push(data); },
       create: async data => { const ch = channel(`case-${channels.size}`, data.name); ch.creation = data; ch.rawPosition = data.position ?? channels.size; channels.set(ch.id, ch); return ch; } } };
   client.guilds = { cache: new Collection([[guild.id, guild]]) };
