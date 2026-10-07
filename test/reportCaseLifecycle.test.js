@@ -36,7 +36,9 @@ function fixture() {
 
 
 test('standard footer preserves body, handles plain text and long content without truncation',()=>{
-  assert.equal(withCloudyFooter({embeds:[{title:'Saved title',description:'Saved text',footer:{text:'old'}}]}).embeds[0].footer.text,CLOUDY_STANDARD_FOOTER);
+  const preservedFooter = withCloudyFooter({embeds:[{title:'Saved title',description:'Saved text',footer:{text:'old'}}]}).embeds[0].footer;
+  assert.equal(preservedFooter.text, 'old');
+  assert.equal(preservedFooter.icon_url, undefined);
   const plain=withCloudyFooter({content:'Hello'});assert.equal(plain.content,`Hello\n\n${CLOUDY_STANDARD_FOOTER}`);assert.deepEqual(withCloudyFooter(plain),plain);
   const long=withCloudyFooter({content:'x'.repeat(2000)});assert.equal(long.content.length,2000);assert.equal(long.embeds[0].footer.text,CLOUDY_STANDARD_FOOTER);
 });

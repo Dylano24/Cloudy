@@ -1,30 +1,71 @@
 import { REST } from '@discordjs/rest';
+import { isCloudyLogoUrl } from '../services/cloudyLogoService.js';
+import { MESSAGE_BUILDER_FOOTER_MARKER } from '../services/cloudyBrandingService.js';
 
 export const CLOUDY_STANDARD_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const MARKER = Symbol.for('cloudy.standard-footer-output');
+const DEFERRED_REPLY_TTL_MS = 15 * 60_000;
+const deferredReplyTokens = new Map();
+
+function addFooterEmbed(payload) {
+  const embeds = Array.isArray(payload.embeds) ? payload.embeds : [];
+  if (embeds.length >= 10) return payload;
+  return { ...payload, embeds: [...embeds, { footer: { text: CLOUDY_STANDARD_FOOTER } }] };
+}
 
 export function isMentionOnlyContent(content) {
   return typeof content === 'string' && /^(?:\s*(?:<@!?\d+>|<@&\d+>|<#\d+>|@everyone|@here)\s*)+$/.test(content);
 }
 
-export function withCloudyFooter(payload, { plainText = true } = {}) {
+export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
+  if (Number(payload.flags) & 32768) return payload;
   if (Array.isArray(payload.embeds) && payload.embeds.length) {
-    return { ...payload, embeds: payload.embeds.map(embed => {
-      const data = { ...(embed.toJSON?.() || embed) };
-      const previous = data.footer?.text;
-      if (previous && /\b(close|closes|closed|expire|expires|available in|page\s+\d+|dashboard closes|ticket id)\b/i.test(previous)) {
-        const fields = data.fields || [];
-        if (fields.length < 25) data.fields = [...fields, { name: 'Information', value: previous.slice(0, 1024), inline: false }];
-        else if ((data.description || '').length + previous.length + 2 <= 4096) data.description = `${data.description || ''}\n\n${previous}`;
-      }
-      return { ...data, footer: { text: CLOUDY_STANDARD_FOOTER } };
-    }) };
+    const data = payload.embeds.map(embed => embed?.toJSON?.() || embed || {});
+    const messageAlreadyBranded = data.some(embed => {
+      const title = String(embed.title || '').trim();
+      const isGuideException = /\bZORP Guide\s*$/i.test(title);
+      const hasBuilderOptOut = embed.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER);
+      const hasCloudyLogo = isCloudyLogoUrl(embed.thumbnail?.url)
+        || isCloudyLogoUrl(embed.author?.icon_url || embed.author?.iconURL)
+        || isCloudyLogoUrl(embed.footer?.icon_url || embed.footer?.iconURL);
+      const alreadyHasFooter = Boolean(embed.footer?.text || embed.footer?.icon_url || embed.footer?.iconURL);
+      return isGuideException || hasBuilderOptOut || hasCloudyLogo || alreadyHasFooter;
+    });
+
+    if (messageAlreadyBranded) return payload;
+
+    const firstRichEmbed = data.findIndex(embed => !embed.type || embed.type === 'rich');
+    if (firstRichEmbed >= 0) {
+      const embeds = [...payload.embeds];
+      embeds[firstRichEmbed] = { ...data[firstRichEmbed], footer: { text: CLOUDY_STANDARD_FOOTER } };
+      return { ...payload, embeds };
+    }
   }
-  if (isMentionOnlyContent(payload.content)) return payload;
-  if (!plainText || !payload.content?.trim?.() || payload.content.includes(CLOUDY_STANDARD_FOOTER) || (Number(payload.flags) & 32768)) return payload;
-  const content = `${payload.content}\n\n${CLOUDY_STANDARD_FOOTER}`;
-  return content.length <= 2000 ? { ...payload, content } : { ...payload, embeds: [{ description: '\u200b', footer: { text: CLOUDY_STANDARD_FOOTER } }] };
+
+  // A partial edit does not include the existing message's embeds/footer, so
+  // leave it alone unless this is the first edit after deferReply().
+  if (!isNewMessage && !Array.isArray(payload.embeds)) return payload;
+
+  const content = typeof payload.content === 'string' ? payload.content : '';
+  if (/(?:©\s*)?Cloudy\s+Inc\.?\s*•\s*Quality\.?\s*Innovation\.?\s*Performance\.?/i.test(content)) return payload;
+
+  if (content.trim()) {
+    const brandedContent = `${content}\n\n${CLOUDY_STANDARD_FOOTER}`;
+    return brandedContent.length <= 2000
+      ? { ...payload, content: brandedContent }
+      : addFooterEmbed(payload);
+  }
+
+  // An explicitly empty content field is commonly used to clear a message.
+  // Keep that operation intact; brand component/attachment-only new messages.
+  if (content === '' && payload.content === '' && !isNewMessage) return payload;
+  if (content === '' && payload.content === '' && isNewMessage
+    && !payload.components?.length && !payload.attachments?.length && !payload.files?.length) return payload;
+  if (payload.components?.length || payload.attachments?.length || payload.files?.length) {
+    return addFooterEmbed(payload);
+  }
+  return payload;
 }
 
 export function installCloudyFooterOutput() {
@@ -35,8 +76,45 @@ export function installCloudyFooterOutput() {
     const route = String(options.fullRoute || '');
     const isMessage = /^\/(?:channels\/\d+\/messages(?:\/\d+)?|webhooks\/\d+\/[^/]+(?:\/messages\/[^/]+)?)$/.test(route);
     const isCallback = /^\/interactions\/\d+\/[^/]+\/callback$/.test(route);
-    if (isMessage && ['POST', 'PATCH'].includes(options.method)) options = { ...options, body: withCloudyFooter(options.body, { plainText: options.method === 'POST' }) };
-    else if (isCallback && [4, 7].includes(options.body?.type)) options = { ...options, body: { ...options.body, data: withCloudyFooter(options.body.data) } };
+    if (isCallback && options.body?.type === 5) {
+      const token = route.match(/^\/interactions\/\d+\/([^/]+)\/callback$/)?.[1];
+      const result = original.call(this, options);
+      if (!token) return result;
+      return Promise.resolve(result).then(response => {
+        const now = Date.now();
+        for (const [key, expiresAt] of deferredReplyTokens) {
+          if (expiresAt <= now) deferredReplyTokens.delete(key);
+        }
+        if (deferredReplyTokens.size >= 1_000) {
+          deferredReplyTokens.delete(deferredReplyTokens.keys().next().value);
+        }
+        deferredReplyTokens.set(token, now + DEFERRED_REPLY_TTL_MS);
+        return response;
+      });
+    }
+
+    if (isMessage && ['POST', 'PATCH'].includes(options.method)) {
+      const deferredOriginalToken = options.method === 'PATCH'
+        ? route.match(/^\/webhooks\/\d+\/([^/]+)\/messages\/@original$/)?.[1]
+        : null;
+      const expiresAt = deferredOriginalToken ? deferredReplyTokens.get(deferredOriginalToken) : null;
+      const isDeferredInitialReply = Number.isFinite(expiresAt) && expiresAt > Date.now();
+      if (expiresAt && !isDeferredInitialReply) deferredReplyTokens.delete(deferredOriginalToken);
+      options = {
+        ...options,
+        body: withCloudyFooter(options.body, {
+          isNewMessage: options.method === 'POST' || isDeferredInitialReply,
+        }),
+      };
+    } else if (isCallback && [4, 7].includes(options.body?.type)) {
+      options = {
+        ...options,
+        body: {
+          ...options.body,
+          data: withCloudyFooter(options.body.data, { isNewMessage: options.body.type === 4 }),
+        },
+      };
+    }
     return original.call(this, options);
   };
   Object.defineProperty(prototype, MARKER, { value: true });
