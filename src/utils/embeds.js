@@ -1,5 +1,6 @@
 // embeds.js
 
+import { withCloudyFooter } from './cloudyFooter.js';
 import { EmbedBuilder } from 'discord.js';
 import { getColor, botConfig } from '../config/bot.js';
 import { applySystemEmbedTemplate } from '../services/systemEmbedCatalogService.js';
@@ -248,6 +249,7 @@ export function createEmbed({
     templated.setThumbnail(CLOUDY_C_LOGO_URL);
   }
 
+  templated.data = withCloudyFooter({ embeds: [templated.data] }).embeds[0];
   return templated;
 }
 

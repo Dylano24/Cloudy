@@ -1,7 +1,8 @@
 import { Message, MessageFlags } from 'discord.js';
+import { getResponseLifetime } from './responseLifetime.js';
 import { InteractionHelper } from './interactionHelper.js';
 import { isBuilderSessionMessage } from './builderSessionCleanup.js';
-import { isTransientStatusPayload } from './transientResponse.js';
+import { isPersistentBotMessage, isTransientStatusPayload } from './transientResponse.js';
 
 export const DASHBOARD_IDLE_MS = 5 * 60_000;
 export const TRANSIENT_MESSAGE_MS = 10_000;
@@ -105,7 +106,7 @@ function markDashboardLifecycleEnded(message, interaction) {
 }
 
 export async function deleteLifecycleMessage(message, interaction) {
-  if (!message?.id) return false;
+  if (!message?.id || isPersistentBotMessage(message)) return false;
 
   // Builder messages have their own hold-aware deletion path. This is the final
   // generic lifecycle boundary: even a stale timer created before the message
@@ -180,13 +181,42 @@ export function shouldUseGenericDashboardTimer(payload, message) {
   return isDashboardSessionPayload(payload, message);
 }
 
-export function shouldUseTransientTimer(payload, message) {
+export function shouldUseTransientTimer(payload, message, interaction = null) {
+  // BUILDER_PREVIEW_LIFETIME_V2_FINAL_GUARD: split live preview belongs to /embedbuilder.
+  if (String(interaction?.commandName || '').trim().toLowerCase() === 'embedbuilder') return false;
   // The Message Builder renders the selected embed as its first embed. Titles
   // such as Success, Warning, Information or Could not... are valid preview
   // content and must never make the whole Builder look like a 10-second status
   // reply. Builder lifetime is owned exclusively by builderSessionCleanup.
-  if (isBuilderSessionMessage(message)) return false;
+  if (isBuilderSessionMessage(message) || isPersistentBotMessage(message)) return false;
   return isTransientStatusPayload(payload, message);
+}
+
+
+function isTicketInteraction(interaction) {
+  const customId = String(interaction?.customId || '').toLowerCase();
+  const commandName = String(interaction?.commandName || '').toLowerCase();
+  return customId.includes('ticket') || commandName === 'ticket';
+}
+
+function ticketReplyComponents(payload, message) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  return source.components || message?.components || [];
+}
+
+export function shouldUseTicketPrivateTransientTimer(interaction, payload, message) {
+  if (!isTicketInteraction(interaction)) return false;
+  if (!isEphemeralLifecycleMessage(payload, message)) return false;
+  if (isBuilderSessionMessage(message)) return false;
+  if (isDashboardSessionPayload(payload, message)) return false;
+  if (ticketReplyComponents(payload, message).length) return false;
+
+  // Ticket created is the one deliberate persistent private confirmation.
+  // createTicketUi marks successful creation with an explicit null lifetime;
+  // its cleanup belongs exclusively to the ticket-delete lifecycle.
+  if (getResponseLifetime(interaction) === null) return false;
+
+  return true;
 }
 
 function scheduleDashboardIfNeeded(payload, message, interaction) {
@@ -202,9 +232,11 @@ export function touchDashboardSessionMessage(message, interaction) {
   return scheduleDashboardIfNeeded(null, message, interaction);
 }
 
-async function resolveResponseMessage(interaction, result) {
+export async function resolveResponseMessage(interaction, result, method) {
+  if (result?.resource?.message?.id) return result.resource.message;
   if (result?.id) return result;
-  if (interaction?.message?.id) return interaction.message;
+  if (method === 'update' && interaction?.message?.id) return interaction.message;
+  if (method === 'followUp') return null;
   return interaction.fetchReply?.().catch(() => null) || null;
 }
 
@@ -228,15 +260,24 @@ export function installInteractionMessageLifecycle() {
       if (!original) continue;
 
       interaction[method] = async (payload, ...args) => {
-        const result = await original(payload, ...args);
-        const message = await resolveResponseMessage(interaction, result);
+        const outgoing = method === 'followUp' && payload && typeof payload === 'object'
+          ? { ...payload, fetchReply: true } : payload;
+        const result = await original(outgoing, ...args);
+        const message = await resolveResponseMessage(interaction, result, method);
         if (!message) return result;
 
         // Rendering/re-rendering a Builder cancels any generic lifecycle timer
         // left on this same ephemeral message ID.
         clearBuilderLifecycleTimers(message);
         scheduleDashboardIfNeeded(payload, message, interaction);
-        if (shouldUseTransientTimer(payload, message)) {
+        const lifetime = getResponseLifetime(interaction);
+        if (lifetime !== undefined) {
+          clearTimer(transientTimers, message.id);
+          if (lifetime !== null) schedule(transientTimers, message, interaction, lifetime);
+        } else if (
+          shouldUseTransientTimer(payload, message, interaction)
+          || shouldUseTicketPrivateTransientTimer(interaction, payload, message)
+        ) {
           schedule(transientTimers, message, interaction, TRANSIENT_MESSAGE_MS);
         }
         return result;

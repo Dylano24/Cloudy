@@ -20,6 +20,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
 import { applyEmbedColorPickerSession } from './services/embedColorPickerSessionService.js';
 import { embedColorPickerPage } from './web/embedColorPickerPage.js';
+import { registerAppealsApi } from './web/appealsApi.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 
 class TitanBot extends Client {
@@ -139,7 +140,10 @@ class TitanBot extends Client {
       next();
     });
 
+    app.use('/api/appeals', express.json({ limit: '32kb' }));
     app.use(express.json({ limit: '8kb' }));
+
+    registerAppealsApi(app, this);
 
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
@@ -244,7 +248,12 @@ class TitanBot extends Client {
 
     app.post('/api/embed-color/:token', async (req, res) => {
       try {
-        const result = await applyEmbedColorPickerSession(req.params.token, req.body?.color);
+        // EMBED_EDITOR_EXACT_OPEN_LEASE_V2: forward the page identity for exact open/close ownership.
+        const result = await applyEmbedColorPickerSession(
+          req.params.token,
+          req.body?.color,
+          { editorInstanceId: req.body?.editorInstanceId },
+        );
         if (!result.ok) {
           const status = result.reason === 'invalid_color' ? 400 : 410;
           return res.status(status).json({

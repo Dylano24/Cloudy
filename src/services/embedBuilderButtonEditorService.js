@@ -155,44 +155,66 @@ async function deletePrivateBuilderMessage(interaction, messageId, message = nul
   if (!deleted) await message?.delete?.().catch(() => {});
 }
 
+export async function cleanupBuilderButtonUi(interaction, state) {
+  if (!state) return;
+
+  const editorMessage = state.activeButtonEditorMessage || null;
+  const editorId = state.activeButtonEditorMessageId
+    ? String(state.activeButtonEditorMessageId)
+    : editorMessage?.id
+      ? String(editorMessage.id)
+      : null;
+  const previewMessage = state.activeButtonPreviewMessage || null;
+  const previewId = state.activeButtonPreviewMessageId
+    ? String(state.activeButtonPreviewMessageId)
+    : previewMessage?.id
+      ? String(previewMessage.id)
+      : null;
+
+  const editorCollector = state.activeButtonEditorCollector || null;
+  state.activeButtonEditorCollector = null;
+  state.activeButtonEditorMessage = null;
+  state.activeButtonEditorMessageId = null;
+  state.activeButtonPreviewMessage = null;
+  state.activeButtonPreviewMessageId = null;
+
+  editorCollector?.stop?.('builder-cleanup');
+
+  await Promise.all([
+    editorId ? deletePrivateBuilderMessage(interaction, editorId, editorMessage) : null,
+    previewId ? deletePrivateBuilderMessage(interaction, previewId, previewMessage) : null,
+  ].filter(Boolean));
+}
+
+async function closeButtonEditorPanel(interaction, state) {
+  const editorMessage = state.activeButtonEditorMessage || null;
+  const editorId = state.activeButtonEditorMessageId
+    ? String(state.activeButtonEditorMessageId)
+    : editorMessage?.id
+      ? String(editorMessage.id)
+      : null;
+  const editorCollector = state.activeButtonEditorCollector || null;
+
+  state.activeButtonEditorCollector = null;
+  state.activeButtonEditorMessage = null;
+  state.activeButtonEditorMessageId = null;
+  editorCollector?.stop?.('preview-ready');
+
+  if (editorId) {
+    await deletePrivateBuilderMessage(interaction, editorId, editorMessage);
+  }
+}
+
 export async function syncBuilderButtonPreview(interaction, state) {
-  const rows = getBuilderPreviewComponents(state);
-  const existingId = state?.activeButtonPreviewMessageId
+  const oldId = state?.activeButtonPreviewMessageId
     ? String(state.activeButtonPreviewMessageId)
     : null;
-
-  if (!rows.length) {
-    if (existingId) {
-      await deletePrivateBuilderMessage(interaction, existingId, state.activeButtonPreviewMessage);
-    }
-    state.activeButtonPreviewMessageId = null;
-    state.activeButtonPreviewMessage = null;
-    return null;
+  if (oldId) {
+    await deletePrivateBuilderMessage(interaction, oldId, state.activeButtonPreviewMessage);
   }
-
-  if (existingId && interaction?.webhook?.editMessage) {
-    const edited = await interaction.webhook.editMessage(existingId, {
-      content: '',
-      embeds: [],
-      components: rows,
-    }).catch(() => null);
-    if (edited) {
-      state.activeButtonPreviewMessage = edited;
-      return edited;
-    }
-  }
-
-  const preview = await interaction.followUp({
-    components: rows,
-    flags: MessageFlags.Ephemeral,
-    fetchReply: true,
-  }).catch(() => null);
-
-  if (preview) {
-    state.activeButtonPreviewMessageId = String(preview.id);
-    state.activeButtonPreviewMessage = preview;
-  }
-  return preview;
+  state.activeButtonPreviewMessageId = null;
+  state.activeButtonPreviewMessage = null;
+  return null;
 }
 
 export function parseButtonStyle(value, fallback = ButtonStyle.Secondary) {
@@ -207,10 +229,23 @@ export function isBuilderActionCustomId(customId) {
   return String(customId || '').startsWith(`${ACTION_CUSTOM_ID}:`);
 }
 
-export async function saveBuilderButtonAction(guildId, actionId, responseText) {
+export async function saveBuilderButtonAction(guildId, actionId, action) {
   if (!guildId || !actionId) return false;
+  const source = typeof action === 'string'
+    ? { responseText: action }
+    : (action && typeof action === 'object' ? action : {});
+
+  const url = String(source.url || '').trim();
   return setInDb(actionKey(guildId, actionId), {
-    responseText: String(responseText || '').slice(0, 2000),
+    responseText: String(source.responseText || '').slice(0, 4000),
+    visibility: source.visibility === 'public' ? 'public' : 'private',
+    deleteAfterMs: Number.isFinite(Number(source.deleteAfterMs))
+      && Number(source.deleteAfterMs) >= 1_000
+      && Number(source.deleteAfterMs) <= 15 * 60_000
+        ? Number(source.deleteAfterMs)
+        : null,
+    url: /^https?:\/\//i.test(url) ? url.slice(0, 512) : null,
+    linkLabel: String(source.linkLabel || '').trim().slice(0, 80) || null,
     updatedAt: new Date().toISOString(),
   });
 }
@@ -287,47 +322,55 @@ async function ensureRowsLoaded(buttonInteraction, state) {
   await hydrateBuilderMessageComponents(buttonInteraction.guild, state);
 }
 
+function buttonDraftStyleName(state) {
+  const raw = String(state?.builderButtonDraftStyle || 'gray').trim().toLowerCase();
+  return ['gray', 'blue', 'green', 'red'].includes(raw) ? raw : 'gray';
+}
+
+function buttonDraftVisibility(state) {
+  return String(state?.builderButtonDraftVisibility || 'private').trim().toLowerCase() === 'public'
+    ? 'public'
+    : 'private';
+}
+
+// BUILDER_NATIVE_COLOR_INSTANT_V1
 function managerPayload(state) {
   const rows = getBuilderMessageComponents(state);
   const buttons = listButtons(rows);
+  const styleName = buttonDraftStyleName(state);
+  const visibility = buttonDraftVisibility(state);
   const lines = buttons.length
     ? buttons.map((item, index) => {
-      const action = item.component.custom_id
-        ? `Action: \`${String(item.component.custom_id).slice(0, 45)}${String(item.component.custom_id).length > 45 ? '…' : ''}\``
-        : item.component.url
-          ? 'Action: Link'
-          : 'Action: Discord-managed';
-      return `**${index + 1}. ${buttonLabel(item.component, index)}** — ${buttonStyleName(item.component.style)}\n${action}`;
+      const type = Number(item.component.style) === ButtonStyle.Link
+        ? 'Link'
+        : item.component.disabled
+          ? 'Disabled'
+          : 'Response';
+      return '**' + (index + 1) + '. ' + buttonLabel(item.component, index) + '** — ' + type;
     })
-    : ['No buttons are attached to this message yet.'];
+    : ['No buttons are attached yet.'];
 
-  const components = [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('embed_button_add_response')
-        .setLabel('Add response button')
-        .setStyle(ButtonStyle.Secondary),
-    ),
-  ];
+  const colorOptions = [
+    ['Gray', 'gray'],
+    ['Blue', 'blue'],
+    ['Green', 'green'],
+    ['Red', 'red'],
+  ].map(([label, value]) =>
+    new StringSelectMenuOptionBuilder()
+      .setLabel(label)
+      .setValue(value)
+      .setDefault(styleName === value)
+  );
 
-  const editable = buttons.filter(item => Number(item.component.style) !== ButtonStyle.Premium).slice(0, 25);
-  if (editable.length) {
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('embed_button_edit_select')
-          .setPlaceholder('Edit button name / color')
-          .setMinValues(1)
-          .setMaxValues(1)
-          .addOptions(...editable.map((item, index) =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel(buttonLabel(item.component, index))
-              .setDescription(`${buttonStyleName(item.component.style)} • action stays unchanged`.slice(0, 100))
-              .setValue(item.key)
-          )),
-      ),
-    );
-  }
+  const visibilityOptions = [
+    ['Private', 'private'],
+    ['Public', 'public'],
+  ].map(([label, value]) =>
+    new StringSelectMenuOptionBuilder()
+      .setLabel(label)
+      .setValue(value)
+      .setDefault(visibility === value)
+  );
 
   return {
     embeds: [
@@ -336,54 +379,113 @@ function managerPayload(state) {
         .setDescription([
           ...lines,
           '',
-          'Changing a button name/color never changes its existing action or custom ID.',
-          'New colored response buttons send an ephemeral response. New link buttons open a URL.',
+          'Choose the button color and visibility below, then press Add button.',
         ].join('\n').slice(0, 4096))
         .setColor(0xFFFFFF),
     ],
-    components,
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('embed_button_color_select')
+          .setPlaceholder('Color • ' + styleName.charAt(0).toUpperCase() + styleName.slice(1))
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(...colorOptions),
+      ),
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('embed_button_visibility_select')
+          .setPlaceholder('Visibility (optional) • ' + (visibility === 'public' ? 'Public' : 'Private'))
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(...visibilityOptions),
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('embed_button_add_response')
+          .setLabel('Add button')
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ],
   };
 }
 
+function normalizeButtonVisibility(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw || raw === 'private' || raw === 'ephemeral' || raw === 'privé') return 'private';
+  if (raw === 'public' || raw === 'publiek') return 'public';
+  return null;
+}
+
+function parseButtonDuration(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!raw || ['none', 'off', 'keep', 'stay', 'stays', 'permanent'].includes(raw)) {
+    return { valid: true, ms: null };
+  }
+
+  const match = raw.match(/^(\d{1,3})(s|sec|secs|second|seconds|m|min|mins|minute|minutes)$/);
+  if (!match) return { valid: false, ms: null };
+
+  const amount = Number(match[1]);
+  const unit = match[2].startsWith('m') ? 60_000 : 1_000;
+  const ms = amount * unit;
+  if (!Number.isFinite(ms) || ms < 1_000 || ms > 15 * 60_000) {
+    return { valid: false, ms: null };
+  }
+  return { valid: true, ms };
+}
+
+async function replyButtonEditorError(interaction, content) {
+  await interaction.reply({
+    content,
+    flags: MessageFlags.Ephemeral,
+  }).catch(() => {});
+  const timer = setTimeout(() => {
+    void interaction.deleteReply().catch(() => {});
+  }, 10_000);
+  timer.unref?.();
+}
+
+// BUILDER_LIVE_POLISH_V1
 async function showAddResponseModal(componentInteraction, state, refreshBuilder, panelMessage) {
-  // Only one Add-response modal may own a submit for this builder session.
-  // Re-opening the editor invalidates every older waiter immediately.
   const modalGeneration = (state.buttonModalGeneration || 0) + 1;
   state.buttonModalGeneration = modalGeneration;
-  const modalId = `embed_button_add_response_modal:${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  const modalId = 'embed_button_add_response_modal:' + randomUUID().replaceAll('-', '').slice(0, 12);
   const modal = new ModalBuilder()
     .setCustomId(modalId)
-    .setTitle('Add response button')
+    .setTitle('Add button')
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('button_label')
           .setLabel('Button name')
           .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Name shown on the button')
           .setMaxLength(80)
           .setRequired(true),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId('button_style')
-          .setLabel('Color: blue, gray, green or red')
+          .setCustomId('button_duration')
+          .setLabel('Duration (optional)')
           .setStyle(TextInputStyle.Short)
-          .setValue('gray')
-          .setMaxLength(12)
-          .setRequired(true),
+          .setPlaceholder('10s, 30s, 1m, 5m • blank stays')
+          .setMaxLength(16)
+          .setRequired(false),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('button_response')
-          .setLabel('Ephemeral response when clicked')
+          .setLabel('Response message (optional)')
           .setStyle(TextInputStyle.Paragraph)
-          .setMaxLength(2000)
-          .setRequired(true),
+          .setPlaceholder('Message sent when the button is clicked')
+          .setMaxLength(4000)
+          .setRequired(false),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('button_url')
-          .setLabel('Link (optional)')
+          .setLabel('Add link (optional)')
           .setStyle(TextInputStyle.Short)
           .setPlaceholder('https://example.com')
           .setMaxLength(512)
@@ -399,68 +501,94 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
   }).catch(() => null);
   if (!submitted) return;
   if (state.buttonModalGeneration !== modalGeneration) {
-    if (!submitted.replied && !submitted.deferred) await submitted.deferUpdate().catch(() => {});
+    if (!submitted.replied && !submitted.deferred) {
+      await submitted.deferUpdate().catch(() => {});
+    }
     return;
   }
 
-  // Redis-backed idempotency: even if Discord or an old collector delivers the
-  // same modal submit twice, only one handler is allowed to create a button.
-  const ownsSubmit = await redisAcquireLock(`embed-button-submit:${submitted.id}`, 5 * 60_000);
+  const ownsSubmit = await redisAcquireLock('embed-button-submit:' + submitted.id, 5 * 60_000);
   if (!ownsSubmit) {
-    if (!submitted.replied && !submitted.deferred) await submitted.deferUpdate().catch(() => {});
+    if (!submitted.replied && !submitted.deferred) {
+      await submitted.deferUpdate().catch(() => {});
+    }
     return;
   }
 
   const label = submitted.fields.getTextInputValue('button_label').trim().slice(0, 80);
-  const style = parseButtonStyle(submitted.fields.getTextInputValue('button_style'), ButtonStyle.Secondary);
-  const responseText = submitted.fields.getTextInputValue('button_response').trim().slice(0, 2000);
-  const url = submitted.fields.getTextInputValue('button_url').trim();
-  if (modalSubmissions.has(submitted.id)) return;
-  modalSubmissions.add(submitted.id);
-  setTimeout(() => modalSubmissions.delete(submitted.id), 5 * 60_000).unref?.();
-  if (url && !/^https?:\/\//i.test(url)) {
-    await submitted.reply({ content: 'The optional link must start with http:// or https://.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  const style = parseButtonStyle(buttonDraftStyleName(state), ButtonStyle.Secondary);
+  const visibility = buttonDraftVisibility(state);
+  const duration = parseButtonDuration(
+    submitted.fields.getTextInputValue('button_duration'),
+  );
+  const responseText = submitted.fields.getTextInputValue('button_response').trim().slice(0, 4000);
+  const url = submitted.fields.getTextInputValue('button_url').trim().slice(0, 512);
+
+  if (!duration.valid) {
+    await replyButtonEditorError(
+      submitted,
+      'Duration must be blank or a time such as 10s, 30s, 1m, 5m or 15m.',
+    );
     return;
   }
-  if (style === ButtonStyle.Link) {
-    await submitted.reply({ content: 'Use Add link button for link buttons.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  if (!responseText && !url) {
+    await replyButtonEditorError(submitted, 'Add a response message, a link, or both.');
+    return;
+  }
+  if (url && !/^https?:\/\//i.test(url)) {
+    await replyButtonEditorError(submitted, 'The link must start with http:// or https://.');
     return;
   }
 
-  const actionId = randomUUID().replaceAll('-', '').slice(0, 24);
-  if (!url) {
-    const saved = await setInDb(actionKey(submitted.guildId, actionId), { responseText, deleteAfterMs: DEFAULT_RESPONSE_DELETE_MS, updatedAt: new Date().toISOString() });
+  let next;
+  if (!responseText && url) {
+    next = appendButton(state.componentRows, {
+      type: BUTTON_COMPONENT_TYPE,
+      style: ButtonStyle.Link,
+      label,
+      url,
+    });
+  } else {
+    const actionId = randomUUID().replaceAll('-', '').slice(0, 24);
+    const saved = await saveBuilderButtonAction(submitted.guildId, actionId, {
+      responseText,
+      visibility,
+      deleteAfterMs: duration.ms,
+      url: url || null,
+      linkLabel: label,
+    });
     if (!saved) {
-      await submitted.reply({ content: 'Could not save the button action. Nothing was added.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      await replyButtonEditorError(submitted, 'Could not save the button action. Nothing was added.');
       return;
     }
+
+    next = appendButton(state.componentRows, {
+      type: BUTTON_COMPONENT_TYPE,
+      style: style === ButtonStyle.Link ? ButtonStyle.Secondary : style,
+      label,
+      custom_id: ACTION_CUSTOM_ID + ':' + actionId,
+    });
   }
 
-  const next = appendButton(state.componentRows, url ? {
-    type: BUTTON_COMPONENT_TYPE,
-    style: ButtonStyle.Link,
-    label,
-    url: url.slice(0, 512),
-  } : {
-    type: BUTTON_COMPONENT_TYPE,
-    style,
-    label,
-    custom_id: `${ACTION_CUSTOM_ID}:${actionId}`,
-  });
-  // One unique modal submit commits exactly one button. Opening, closing or
-  // switching editor options never mutates componentRows.
   if (!next) {
-    await submitted.reply({ content: 'Discord allows at most 5 component rows. Remove/reuse a row before adding another button.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    await replyButtonEditorError(
+      submitted,
+      'Discord allows at most 5 component rows. Remove a button before adding another one.',
+    );
     return;
   }
 
   state.componentRows = next;
+  state.componentRowsSourceMessageId = state.modifyTarget?.messageId
+    ? String(state.modifyTarget.messageId)
+    : 'new';
   state.componentsDirty = true;
+
   await submitted.deferUpdate().catch(() => {});
   await panelMessage.edit(managerPayload(state)).catch(() => {});
   await refreshBuilder(submitted, state).catch(() => {});
+  await closeButtonEditorPanel(submitted, state).catch(() => {});
 }
-
 async function showAddLinkModal(componentInteraction, state, refreshBuilder, panelMessage) {
   const modal = new ModalBuilder()
     .setCustomId('embed_button_add_link_modal')
@@ -512,10 +640,15 @@ async function showAddLinkModal(componentInteraction, state, refreshBuilder, pan
   }
 
   state.componentRows = next;
+  state.componentRowsSourceMessageId = state.modifyTarget?.messageId
+    ? String(state.modifyTarget.messageId)
+    : 'new';
   state.componentsDirty = true;
   await submitted.deferUpdate().catch(() => {});
   await panelMessage.edit(managerPayload(state)).catch(() => {});
   await refreshBuilder(submitted, state).catch(() => {});
+  await syncBuilderButtonPreview(submitted, state).catch(() => {});
+  await closeButtonEditorPanel(submitted, state).catch(() => {});
 }
 
 async function showEditButtonModal(componentInteraction, state, key, refreshBuilder, panelMessage) {
@@ -573,6 +706,8 @@ async function showEditButtonModal(componentInteraction, state, key, refreshBuil
   await submitted.deferUpdate().catch(() => {});
   await panelMessage.edit(managerPayload(state)).catch(() => {});
   await refreshBuilder(submitted, state).catch(() => {});
+  await syncBuilderButtonPreview(submitted, state).catch(() => {});
+  await closeButtonEditorPanel(submitted, state).catch(() => {});
 }
 
 export async function openEmbedButtonEditor(buttonInteraction, state, refreshBuilder) {
@@ -646,22 +781,20 @@ export async function openEmbedButtonEditor(buttonInteraction, state, refreshBui
   collector.on('collect', componentInteraction => {
     void (async () => {
       try {
+        if (componentInteraction.customId === 'embed_button_color_select') {
+          state.builderButtonDraftStyle = String(componentInteraction.values?.[0] || 'gray');
+          await componentInteraction.deferUpdate().catch(() => {});
+          await panelMessage.edit(managerPayload(state)).catch(() => {});
+          return;
+        }
+        if (componentInteraction.customId === 'embed_button_visibility_select') {
+          state.builderButtonDraftVisibility = String(componentInteraction.values?.[0] || 'private');
+          await componentInteraction.deferUpdate().catch(() => {});
+          await panelMessage.edit(managerPayload(state)).catch(() => {});
+          return;
+        }
         if (componentInteraction.customId === 'embed_button_add_response') {
           await showAddResponseModal(componentInteraction, state, refreshBuilder, panelMessage);
-          return;
-        }
-        if (componentInteraction.customId === 'embed_button_add_link') {
-          await showAddLinkModal(componentInteraction, state, refreshBuilder, panelMessage);
-          return;
-        }
-        if (componentInteraction.customId === 'embed_button_edit_select') {
-          await showEditButtonModal(
-            componentInteraction,
-            state,
-            componentInteraction.values?.[0],
-            refreshBuilder,
-            panelMessage,
-          );
           return;
         }
         await componentInteraction.deferUpdate().catch(() => {});

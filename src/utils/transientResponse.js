@@ -3,6 +3,13 @@ import { isAdditionalStatusTitle, isAdditionalStatusContent } from './statusRepl
 import { isBuilderSessionMessage } from './builderSessionCleanup.js';
 
 const TRANSIENT_TTL_MS = 10_000;
+const transientPayloads = new WeakSet();
+export function rememberTransientPayloadIntent(original, outgoing) {
+  if (outgoing && typeof outgoing === 'object' && isTransientStatusPayload(original)) {
+    transientPayloads.add(outgoing);
+  }
+  return outgoing;
+}
 const STATUS_EMOJI_PREFIX = /^(?:(?:✅|❌|⚠️?|ℹ️?|☑️?|🟢|🔴|🟡)\s*)+/u;
 const TRANSIENT_TITLE = /^(?:success|warning|error|system error|information|info|notice|done|saved\b.*|updated\b.*|removed\b.*|enabled\b.*|disabled\b.*|cancelled\b.*|canceled\b.*|invalid\b.*|failed\b.*|failure\b.*|wrong\b.*|not found\b.*|not enough\b.*|already\b.*|missing\b.*|access denied\b.*|permission denied\b.*|unavailable\b.*|expired\b.*|could not\b.*|cannot\b.*|can't\b.*|shop unavailable\b.*|staff only\b.*|maintenance mode\b.*|feature disabled\b.*|slash command only\b.*|command disabled\b.*|command cooldown\b.*)/i;
 const TRANSIENT_CONTENT = /^(?:(?:✅|❌|⚠️?|ℹ️?|☑️?|🟢|🔴|🟡)\s*)?(?:success(?:fully)?\b|warning\b|information\b|info\b|notice\b|error\b|invalid\b|wrong channel\b|failed\b|failure\b|could not\b|cannot\b|can't\b|permission denied\b|access denied\b|not found\b|not enough\b|already\b|missing\b|unavailable\b|expired\b|saved\b|updated\b|removed\b|enabled\b|disabled\b|cancelled\b|canceled\b|done\b|you need\b|you do not have\b|you don't have\b|no active\b|choose one of the (?:staff members|owners) first\b|the review selectors could not be updated\b|that member is no longer available for staff reviews\b|this review session expired\b|the community reviews channel is currently unavailable\b|the staff review could not be published\b|your staff review has been published\b)/iu;
@@ -36,10 +43,15 @@ export function isTransientStatusPayload(payload = null, message = null) {
   const source = payload && typeof payload === 'object' ? payload : {};
   const embeds = source.embeds || message?.embeds || [];
   const content = source.content ?? message?.content ?? '';
-  return embeds.some(isTransientStatusEmbed) || isTransientStatusContent(content);
+  // A catalog or a normal embed with an attached status is permanent content.
+  if (String(content).includes('System & error embed templates')) return false;
+  if (embeds.length && !embeds.every(isTransientStatusEmbed)) return transientPayloads.has(source);
+  return transientPayloads.has(source) || embeds.some(isTransientStatusEmbed) || isTransientStatusContent(content);
 }
 
 export function isPersistentBotMessage(message) {
+  if (/^report-\d+$/.test(String(message?.channel?.name || ''))) return true;
+  if ((message?.components || []).some(row => (row.components || []).some(button => /^report_case:/.test(button.customId || button.custom_id || '')))) return true;
   const channelName = String(message?.channel?.name || '').trim();
   return Boolean(channelName && PERSISTENT_CHANNEL.test(channelName));
 }
@@ -62,6 +74,8 @@ export function scheduleTransientMessageDeletion(message) {
 }
 
 export async function scheduleTransientInteractionReplyDeletion(interaction) {
+  // BUILDER_PREVIEW_LIFETIME_V2_FINAL_GUARD: /embedbuilder owns its original preview lifetime.
+  if (String(interaction?.commandName || '').trim().toLowerCase() === 'embedbuilder') return false;
   // The lifecycle owns explicit exceptions, including the 120-second report acknowledgement.
   // Never add a competing 10-second timer after command.execute().
   if (getResponseLifetime(interaction) !== undefined) return false;

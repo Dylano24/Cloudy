@@ -1,3 +1,4 @@
+import { requireTicketCloseReason } from './ticketActionPolicy.js';
 import { hideClosedTicket } from './ticketClosedAccessService.js';
 import {
   ActionRowBuilder,
@@ -18,6 +19,7 @@ import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 import { logger } from '../utils/logger.js';
+import { getPinnedMessages } from '../utils/messagePins.js';
 import { renderTicketV2 } from './ticketV2LayoutService.js';
 
 export const TICKET_RECEIVED_MESSAGE =
@@ -364,7 +366,7 @@ async function findMainTicketMessage(channel, ticketData) {
       DISCORD_TIMEOUT_MS,
       'Pinned ticket message fetch',
     ).catch(() => null);
-    const pinnedTicket = pinnedResponse?.items?.find(message => isMainTicketMessage(message, channel));
+    const pinnedTicket = getPinnedMessages(pinnedResponse).find(message => isMainTicketMessage(message, channel));
     if (pinnedTicket) return pinnedTicket;
   } else if (typeof channel.messages?.fetchPinned === 'function') {
     const pinned = await withTimeout(
@@ -446,7 +448,7 @@ async function sendPublicClaimStatus(channel, claimer) {
       embeds: [forceCloudyTicketFooter(createEmbed({
         title: 'Ticket claimed',
         description: `${claimerMention} has claimed this ticket.`,
-        color: '#2ecc71',
+        color: '#00C49D',
       }))],
       allowedMentions: claimerId
         ? { parse: [], users: [claimerId] }
@@ -471,7 +473,7 @@ async function sendPublicUnclaimStatus(channel, unclaimer) {
       embeds: [forceCloudyTicketFooter(createEmbed({
         title: 'Ticket unclaimed',
         description: `${unclaimerMention} has unclaimed this ticket.`,
-        color: '#2ecc71',
+        color: '#000000',
       }))],
       allowedMentions: unclaimerId
         ? { parse: [], users: [unclaimerId] }
@@ -591,7 +593,8 @@ async function finishCloseSideEffects(channel, ticketData) {
   }
 }
 
-export async function closeTicket(channel, closer, reason = 'No reason provided') {
+export async function closeTicket(channel, closer, reason) {
+  reason = requireTicketCloseReason(reason);
   const ticketData = await getTicketDataFast(channel);
   if (!ticketData) {
     throw ticketError('Ticket data not found', 'This is not a valid ticket channel.');

@@ -9,6 +9,7 @@ import { TICKET_EVENT_STYLES } from '../src/utils/ticket/ticketLogging.js';
 import { applySavedResponsePayloadTemplates } from '../src/events/fullResponseCatalogReady.js';
 import { saveEmbedTemplateDecoration } from '../src/services/embedTemplateService.js';
 import { CLOUDY_GREEN_COLOR, CLOUDY_RED_COLOR } from '../src/utils/embedColorPolicy.js';
+import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
 const settle = async () => { await new Promise(resolve => { setImmediate(resolve); }); };
 const json = embed => embed.toJSON?.() || embed;
@@ -196,7 +197,7 @@ test('target Read creates a private red Delete report prompt while report logs s
   assert.equal(readConfirmation.description, 'We have been informed that you have read this report.');
   assert.equal(readConfirmation.color, CLOUDY_GREEN_COLOR);
   assert.ok(readConfirmation.thumbnail?.url);
-  assert.equal(readConfirmation.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+  assert.equal(readConfirmation.thumbnail.url, CLOUDY_LOGO_URL);
   const confirmationDeletesBefore = f.replyDeletes.length;
   t.mock.timers.tick(9_999);
   assert.equal(f.replyDeletes.length, confirmationDeletesBefore);
@@ -232,8 +233,9 @@ test('target Read creates a private red Delete report prompt while report logs s
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.equal(record.cases.target.deletePromptId, promptId);
 
-  const beforeDeniedDeletes = f.replyDeletes.length;
   const denied = f.interaction(f.target.user, prompt, channel.id);
+  denied.id = '1556344268099166321';
+  const deniedDeletes = () => f.replyDeletes.filter(id => id === denied.id).length;
   await handleReportCaseControl(denied, f.client, ['delete', 'report', 'target']);
   assert.deepEqual(f.removed, ['original-message']);
   const deniedData = json(denied.error.embeds[0]);
@@ -242,9 +244,9 @@ test('target Read creates a private red Delete report prompt while report logs s
   assert.equal(deniedData.color, CLOUDY_RED_COLOR);
   assert.ok(deniedData.thumbnail?.url);
   t.mock.timers.tick(9_999);
-  assert.equal(f.replyDeletes.length, beforeDeniedDeletes);
+  assert.equal(deniedDeletes(), 0);
   t.mock.timers.tick(1);
-  assert.equal(f.replyDeletes.length, beforeDeniedDeletes + 1);
+  assert.equal(deniedDeletes(), 1);
 
   await handleReportCaseControl(f.interaction(f.staff.user, prompt, channel.id), f.client, ['delete', 'report', 'target']);
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));

@@ -8,7 +8,7 @@ import modals from '../src/interactions/modals/ticket/createTicketUi.js';
 import { getTicketPermissionContext } from '../src/utils/ticket/ticketPermissions.js';
 import { ticketActorPermissions } from '../src/services/ticketActionPolicy.js';
 import { sendTicketCreationConfirmation, deleteTicketCreationConfirmation } from '../src/services/ticketCreationConfirmationService.js';
-import { reconcileTicketChannelState } from '../src/services/ticketReliabilityService.js';
+import { closeTicket, reconcileTicketChannelState } from '../src/services/ticketReliabilityService.js';
 import { buildReportActions, handleReportAction, handleReportModeration, timeoutDuration } from '../src/services/reportActionService.js';
 import { messageLogDestination, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, CLOUDY_GUILD_ID } from '../src/services/messageLogDestination.js';
 import { logEvent, EVENT_TYPES } from '../src/services/loggingService.js';
@@ -159,6 +159,31 @@ test('closing hides all non-staff access and keeps the creation confirmation unt
   assert.equal(f.permissions.filter(p => p.id === 'guest').at(-1).value.ViewChannel, true);
   assert.equal(f.permissions.filter(p => p.id === 'member-role').at(-1).value.SendMessages, true);
 });
+test('retrying a partially closed ticket repairs permissions before clearing its private acknowledgement', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); await f.initialize();
+  const edit = f.channel.permissionOverwrites.edit;
+  let failOnce = true;
+  f.channel.permissionOverwrites.edit = async (...args) => {
+    if (failOnce) { failOnce = false; throw new Error('Temporary permission outage'); }
+    return edit(...args);
+  };
+  await assert.rejects(closeTicket(f.channel, f.interaction.user, 'Resolved'), /Temporary permission outage/);
+  const closed = await getTicketData(f.guild.id, f.channel.id);
+  assert.equal(closed.status, 'closed');
+  assert.equal(f.permissions.length, 0);
+  let acknowledged = false;
+  await closeTicket(f.channel, f.interaction.user, 'Retry', { onVisible: async () => {
+    assert.equal(f.permissions.filter(p => p.id === closed.userId).at(-1)?.value.ViewChannel, false);
+    acknowledged = true;
+  } });
+  assert.equal(f.permissions.filter(p => p.id === closed.userId).at(-1)?.value.ViewChannel, false);
+  assert.equal(acknowledged, true);
+  const repaired = await getTicketData(f.guild.id, f.channel.id);
+  assert.equal(repaired.closeReason, 'Resolved');
+  assert.equal(repaired.closedAt, closed.closedAt);
+});
+
 test('a staff ticket creator keeps access after closing', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.initialize();

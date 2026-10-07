@@ -1,21 +1,21 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 test('Builder Search keeps user embeds separate but collapses duplicate automated/template peers', () => {
-  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-
-  const displayStart = source.indexOf('function builderSearchDisplayRecords');
-  const previewStart = source.indexOf('export function latestRealPreviewRecord', displayStart);
-  assert.ok(displayStart >= 0 && previewStart > displayStart);
-  const displayBody = source.slice(displayStart, previewStart);
-
-  assert.match(displayBody, /repeated copies of the same automated\/template response are one searchable item/);
-  assert.match(displayBody, /source !== 'embed-builder'/);
-  assert.match(displayBody, /stableSearchTemplateKey\(record\)/);
-  assert.match(displayBody, /stableSearchTemplateContext\(record\)/);
-  assert.match(displayBody, /\['system-catalog', 'bot-history', 'history'\]\.includes\(source\)/);
-  assert.doesNotMatch(displayBody, /collapseDisplayRecords\(channelRecords, channelId\)/);
+  const guild = { channels: { cache: new Map() } };
+  const record = (messageId, source) => ({
+    guildId: 'search-identity-guild', channelId: 'channel', messageId,
+    embedIndex: 0, source,
+    snapshot: { title: 'Identity example', description: 'The same response content.' },
+  });
+  const automated = buildMatches(guild, [record('a', 'cloudy'), record('b', 'modified-template')], 'identity example');
+  assert.equal(automated.length, 1);
+  assert.equal(automated[0].record.messageId, 'b');
+  const manual = buildMatches(guild, [record('a', 'embed-builder'), record('b', 'embed-builder')], 'identity example');
+  assert.equal(manual.length, 2);
+  assert.deepEqual(new Set(manual.map(match => match.record.messageId)), new Set(['a', 'b']));
 });
 
 test('Builder Search excludes runtime notification history and deleted detached messages', () => {

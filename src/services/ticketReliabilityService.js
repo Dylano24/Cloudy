@@ -602,7 +602,12 @@ export async function closeTicket(channel, closer, reason, options = {}) {
     }
 
     if (String(ticketData.status || 'open').toLowerCase() === 'closed') {
+      // The durable close may have succeeded before Discord permission cleanup
+      // failed. Retrying must finish that cleanup even though status is closed.
+      await hideClosedTicket(channel);
       await syncCloudyTicketMessage(channel);
+      if (typeof options.onVisible === 'function') await options.onVisible().catch(() => {});
+      scheduleTicketReconcile(channel, [1000, 5000, 20000]);
       return ticketData;
     }
 

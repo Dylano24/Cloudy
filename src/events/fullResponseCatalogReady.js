@@ -1,3 +1,7 @@
+import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
+// BUILDER_SAVED_PARITY_V1
+import { rememberTransientPayloadIntent } from '../utils/transientResponse.js';
+import { balanceResponseIdentity } from '../services/balanceResponseIdentity.js';
 import { PRESERVE_EXISTING_EMBEDS } from '../services/existingEmbedPolicy.js';
 import { Events, Message } from 'discord.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
@@ -9,9 +13,12 @@ import {
 import {
   applySavedEmbedTemplates,
   decorateEmbedWithSavedTemplate,
+  warmSavedEmbedTemplateScopes,
+  getCachedSavedEmbedTemplateData,
 } from '../services/embedTemplateService.js';
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
 import { logger } from '../utils/logger.js';
+import { rememberBuilderRuntimePreview } from '../services/builderRuntimePreviewService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
@@ -19,7 +26,10 @@ import { getGuildConfig } from '../services/config/guildConfig.js';
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
 const HISTORY_LIMIT = 100;
-const STARTUP_SCAN_DELAY_MS = 7000;
+// Historical reconciliation is background maintenance. Keep it away from the
+// first minute after startup so dashboards and Builder interactions get all
+// available Discord/API bandwidth first.
+const STARTUP_SCAN_DELAY_MS = 90_000;
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
 const autoApplyingMessageIds = new Set();
 const FIXED_NON_TICKET_LOG_CHANNEL_IDS = new Set([
@@ -127,6 +137,7 @@ function messageContext(message) {
 }
 
 function applyPayloadTemplates(payload, source) {
+  if (isPrivateReportCasePayload(payload)) return payload;
   if (payload == null) return payload;
 
   if (typeof payload === 'string') {
@@ -268,10 +279,14 @@ function patchMessageEdits() {
     writable: false,
   });
 
-  prototype.edit = function cloudyPreStyledMessageEdit(payload, ...args) {
+  prototype.edit = async function cloudyPreStyledMessageEdit(payload, ...args) {
     let outgoing = payload;
     try {
       outgoing = prepareMessageEditPayload(this, payload);
+      if (shouldPrepareMessageEdit(this)) {
+        outgoing = await applySavedResponsePayloadTemplates(outgoing, messageContext(this));
+        void rememberBuilderRuntimePreview(outgoing, messageContext(this)).catch(error => logger.debug(`Builder runtime preview capture skipped: ${error.message}`));
+      }
     } catch (error) {
       logger.debug(`[EMBED_BUILDER] Direct message template processing skipped: ${error?.message || error}`);
     }
@@ -280,6 +295,7 @@ function patchMessageEdits() {
 }
 
 function capturePayload(payload, source) {
+  if (isPrivateReportCasePayload(payload)) return false;
   if (payload == null) return false;
 
   let captured = false;
@@ -320,10 +336,12 @@ function embedJson(embed) {
 }
 
 async function applyTemplatesToExistingMessage(message, { initialCreation = false } = {}) {
+  if (isPrivateReportCasePayload(message)) return false;
   if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return false;
   if (!message?.client?.user?.id || !message.guildId || !message.editable) return false;
   if (message.author?.id !== message.client.user.id) return false;
   if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return false;
+  if (await isTicketLifecycleLogChannel(message)) return false;
   if (isEmbedManagerSaveInProgress(message.id)) return false;
   if (autoApplyingMessageIds.has(message.id)) return false;
   // Fixed moderation/system logs are styled in their own send path too.
@@ -447,6 +465,21 @@ function seedKnownGameResponses() {
   }
 }
 
+export async function applySavedResponsePayloadTemplates(payload, source) {
+  if (isPrivateReportCasePayload(payload)) return payload;
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.embeds)) return payload;
+  const guildId = source?.guildId || source?.channel?.guild?.id;
+  const channelId = source?.channelId || source?.channel?.id;
+  if (!guildId || !channelId) return payload;
+  if (payload.embeds.some(embed => /^(?:message builder|modify embed)$/i.test(String(embed?.title || embed?.data?.title || '')))) return payload;
+  await warmSavedEmbedTemplateScopes(guildId, [channelId]);
+  return { ...payload, embeds: payload.embeds.map(embed => {
+    const data = embed?.toJSON ? embed.toJSON() : embed;
+    if (/^cloudy template key:/i.test(String(data?.author?.name || ''))) return embed;
+    return getCachedSavedEmbedTemplateData(guildId, channelId, data, { responseIdentity: balanceResponseIdentity(data, source) }).data;
+  }) };
+}
+
 function patchInteractionCapture() {
   if (InteractionHelper[PATCH_MARKER]) return;
 
@@ -465,12 +498,13 @@ function patchInteractionCapture() {
         try {
           capturePayload(payload, source);
           outgoing = applyPayloadTemplates(payload, source);
-          outgoing = await applySavedBlackjackPayloadTemplates(outgoing, source);
+          outgoing = await applySavedResponsePayloadTemplates(outgoing, source);
+          void rememberBuilderRuntimePreview(outgoing, source).catch(error => logger.debug(`Builder runtime preview capture skipped: ${error.message}`));
           outgoing = enforceCasinoOutcomePresentation(payload, outgoing, source, method);
         } catch (error) {
           logger.debug(`[EMBED_BUILDER] Response template processing skipped for ${method}: ${error?.message || error}`);
         }
-        return original(outgoing, ...args);
+        return original(rememberTransientPayloadIntent(payload, outgoing), ...args);
       };
     }
 
@@ -565,12 +599,16 @@ export default {
       }
     });
 
-    const timer = setTimeout(() => {
-      void scanRecentBotResponses(client).catch(error => {
-        logger.warn(`[EMBED_BUILDER] Full response history sync failed: ${error.message}`);
-      });
-    }, STARTUP_SCAN_DELAY_MS);
-    timer.unref?.();
+    // Live responses are captured as they are created/updated. A full guild
+    // history sweep is expensive and is not needed on every deploy.
+    if (process.env.CLOUDY_HISTORY_BOOTSTRAP === '1') {
+      const timer = setTimeout(() => {
+        void scanRecentBotResponses(client).catch(error => {
+          logger.warn(`[EMBED_BUILDER] Full response history sync failed: ${error.message}`);
+        });
+      }, STARTUP_SCAN_DELAY_MS);
+      timer.unref?.();
+    }
 
     logger.warn('[EMBED_BUILDER] Automatic response templates enabled: saved titles, text, fields, colors, footer and media are reused while live values stay dynamic.');
   },

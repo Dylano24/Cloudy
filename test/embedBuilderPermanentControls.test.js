@@ -14,10 +14,6 @@ test('Embed Builder permanently keeps Reappear and Delete controls', () => {
   assert.match(controls, /\.setLabel\(state\.pendingBuilderDelete \? 'Cancel' : 'Delete'\)/);
 });
 
-test('legacy seven-row startup migration cannot remove Reappear/Delete', () => {
-  const patch = fs.readFileSync('scripts/patch-embed-builder-seven-visible-rows.js', 'utf8');
-  assert.match(patch, /BUILDER_PRESERVE_FINAL_CONTROLS_V1/);
-  assert.match(patch, /hasPermanentControls/);
-  assert.match(patch, /simple_embed_reappear/);
-  assert.match(patch, /simple_embed_delete_from_builder/);
+test('no seven-row startup migration can remove permanent controls', () => {
+  assert.equal(fs.existsSync('scripts/patch-embed-builder-seven-visible-rows.js'), false);
 });

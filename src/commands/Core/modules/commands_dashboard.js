@@ -267,8 +267,8 @@ export function buildCategoryComponents(guildId, category) {
   return rows;
 }
 
-export async function buildDashboardView(client, guildId, guild, view = 'overview', categoryKey = null) {
-  const config = await getGuildConfig(client, guildId);
+export async function buildDashboardView(client, guildId, guild, view = 'overview', categoryKey = null, providedConfig = null) {
+  const config = providedConfig || await getGuildConfig(client, guildId);
   const snapshot = getCommandAccessSnapshot(client, config);
 
   if (view === 'category' && categoryKey) {

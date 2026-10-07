@@ -5,10 +5,10 @@
   "main": "src/app.js",
   "type": "module",
   "scripts": {
-    "start": "node scripts/apply-startup-patches.js && node scripts/register-cloudy-guild-commands.js && exec node src/bootstrap.js",
+    "start": "node scripts/register-cloudy-guild-commands.js && exec node src/bootstrap.js",
     "lint": "eslint .",
     "lint:fast": "eslint . --cache --cache-strategy content",
-    "test": "node scripts/apply-startup-patches.js && node --test",
+    "test": "node --test",
     "check": "npm run lint && npm test",
     "check:fast": "npm run lint:fast && npm test",
     "migrate": "node scripts/migrate.js apply",
@@ -18,7 +18,7 @@
     "migrate:keys:dry": "node scripts/migrate-keys.js --dry-run",
     "backup:db": "node scripts/backup.js",
     "backup:drill": "node scripts/restore-drill.js",
-    "restore:db": "node scripts/restore-drill.js"
+    "restore:db": "node scripts/restore.js"
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.1",
@@ -39,69 +39,11 @@
     "globals": "^16.5.0"
   },
   "engines": {
-    "node": ">=20.10.0"
+    "node": ">=24.0.0 <25"
   },
   "overrides": {
     "form-data": "^4.0.6",
     "qs": "6.16.0",
     "undici": "^6.27.0"
-  },
-  "startupPatches": [
-    "scripts/patch-embed-builder-instant.js",
-    "scripts/patch-embed-builder-missing-channel.js",
-    "scripts/patch-embed-builder-routing-loading.js",
-    "scripts/patch-embed-builder-integrity.js",
-    "scripts/patch-casino-builder-canonical.js",
-    "scripts/patch-embed-builder-editor-lifecycle.js",
-    "scripts/patch-editor-update-coalescing.js",
-    "scripts/patch-embed-builder-cross-platform-indent.js",
-    "scripts/patch-embed-builder-durable-save.js",
-    "scripts/patch-embed-builder-buttons.js",
-    "scripts/patch-embed-builder-seven-visible-rows.js",
-    "scripts/patch-ticket-main-builder.js",
-    "scripts/patch-ticket-status-no-flicker.js",
-    "scripts/patch-zorp-manual-save-only.js",
-    "scripts/patch-casino-final-outcome-guard.js",
-    "scripts/patch-response-template-source-sync.js",
-    "scripts/patch-response-embed-source-alias.js",
-    "scripts/patch-content-template-editor.js",
-    "scripts/patch-ui-latency.js",
-    "scripts/patch-embed-builder-single-preview-target.js",
-    "scripts/patch-builder-safe-delete-reply.js",
-    "scripts/patch-embed-editor-shared-14m-lease.js",
-    "scripts/patch-embed-editor-visible-presence.js",
-    "scripts/patch-embed-builder-bot-managed-private.js",
-    "scripts/patch-appeals-api.js",
-    "scripts/patch-embed-builder-human-preview.js",
-    "scripts/patch-builder-saved-parity.js",
-    "scripts/patch-canonical-builder-flow.js",
-    "scripts/patch-balance-retired-command.js",
-    "scripts/patch-balance-source-identity.js",
-    "scripts/patch-ticket-report-lifecycle.js",
-    "scripts/patch-zorp-builder-registration.js",
-    "scripts/patch-requested-ticket-catalog.js",
-    "scripts/patch-runtime-performance.js",
-    "scripts/patch-builder-audit.js",
-    "scripts/patch-builder-save-session.js",
-    "scripts/patch-report-case-privacy.js",
-    "scripts/patch-ticket-pinned-lookup.js",
-    "scripts/patch-embed-builder-commercial-latency.js",
-    "scripts/patch-embed-builder-safe-delete.js",
-    "scripts/patch-ticket-log-color-stability.js",
-    "scripts/patch-embed-builder-reset-close-layout.js",
-    "scripts/patch-embed-builder-search-everything.js",
-    "scripts/patch-ticket-private-status-10s.js",
-    "scripts/patch-embed-builder-add-delete-buttons.js",
-    "scripts/patch-builder-button-modal-delete-flow.js",
-    "scripts/patch-builder-button-live-preview.js",
-    "scripts/patch-builder-button-preview-lifecycle.js",
-    "scripts/patch-builder-simple-buttons.js",
-    "scripts/patch-builder-professional-buttons.js",
-    "scripts/patch-builder-preview-button-placement.js",
-    "scripts/patch-builder-preview-session-cleanup.js",
-    "scripts/patch-builder-live-polish.js",
-    "scripts/patch-builder-native-color-instant.js",
-    "scripts/patch-builder-final-controls.js",
-    "scripts/patch-interaction-latency.js"
-  ]
+  }
 }

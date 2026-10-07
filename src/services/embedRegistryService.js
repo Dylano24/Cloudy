@@ -1,3 +1,4 @@
+// CLOUDY_INTERACTION_LATENCY_V1
 import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { isTransientStatusEmbed } from '../utils/transientResponse.js';
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
@@ -16,6 +17,11 @@ const SYSTEM_TEMPLATE_CONTEXT_SEPARATOR = ' || Cloudy context:';
 const SYSTEM_TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
 const joinToCreateCatalogChannels = new Map();
 const registryMutationQueues = new Map();
+const registryWriteBatches = new Map();
+const registryGenerations = new Map();
+export function getEmbedRegistryGeneration(guildId) {
+    return registryGenerations.get(String(guildId)) || 0;
+}
 const embedSnapshotCache = new Map();
 const EMBED_SNAPSHOT_CACHE_LIMIT = 2000;
 const INTERNAL_EMBED_NAMES = new Set([
@@ -35,8 +41,8 @@ const SYSTEM_TEMPLATE_PLACEMENTS = [
         channelSlugs: ['gambling'],
     },
     {
-        match: /\b(ticket|transcript|claim ticket|close ticket|reopen ticket)\b/i,
-        channelSlugs: ['ticket-logs', 'ticket-panel', 'tickets'],
+        match: /\b(?:ticket\s+(?:created|claimed|unclaimed|closed|deleted|pinned|unpinned)|priority updated|transcript generated|feedback received)\b/i,
+        channelSlugs: ['ticket-logs'],
     },
     {
         match: /\b(appeal|ban appeal)\b/i,
@@ -149,6 +155,9 @@ function cleanStoredRecords(records) {
 
 async function mutateRegistry(guildId, operation) {
     const queueKey = String(guildId);
+    // Other mutations are ordering barriers for pending registration batches.
+    registryWriteBatches.delete(queueKey);
+    registryGenerations.set(queueKey, getEmbedRegistryGeneration(queueKey) + 1);
     const previous = registryMutationQueues.get(queueKey) || Promise.resolve();
     const current = previous
         .catch(() => {})
@@ -158,6 +167,7 @@ async function mutateRegistry(guildId, operation) {
     try {
         return await current;
     } finally {
+        registryGenerations.set(queueKey, getEmbedRegistryGeneration(queueKey) + 1);
         if (registryMutationQueues.get(queueKey) === current) {
             registryMutationQueues.delete(queueKey);
         }
@@ -259,9 +269,15 @@ function isFeatureEmbed(embed) {
     return !isTransientStatusEmbed(data) && Boolean(data.description || data.fields?.length || data.image);
 }
 
+function isZorpGuideTitle(value) {
+    const title = String(value || '').replace(/<a?:[^:>]+:\d+>/g, '').replace(/^(?:\s|☑️|🛡️)+/u, '').trim();
+    return /^ZORP Guide$/i.test(title);
+}
+
 function isFixedCloudyEmbed(embed) {
     if (
-        isCloudyWelcomeEmbed(embed)
+        isZorpGuideTitle(embed?.title)
+        || isCloudyWelcomeEmbed(embed)
         || isInviteCreatedEmbed(embed)
         || isInviteJoinEmbed(embed)
         || getTicketLogTemplate(embed)
@@ -272,9 +288,11 @@ function isFixedCloudyEmbed(embed) {
 }
 
 function isFixedCloudyRecord(record) {
+    if (record.manualSaved) return true;
     if (['system-catalog', 'embed-builder', 'bot-history'].includes(String(record?.source || ''))) return true;
     if (record.snapshot && isFeatureEmbed(record.snapshot)) return true;
     const names = [record?.title, record?.name].map(cleanName).filter(Boolean);
+    if ([record?.title, record?.name].some(isZorpGuideTitle)) return true;
     return names.some(title =>
         /^(?:welcome to cloudy(?: inc\.?)?|kick|ban|unban|timeout|untimeout|report)\b/.test(title)
         || /^(?:invite created|member joined using invite)$/.test(title)
@@ -357,7 +375,10 @@ function placementSlugsForTemplateContext(context) {
     const root = cleanName(context).split('/')[0];
     const placements = {
         gambling: ['gambling'],
-        tickets: ['ticket-logs', 'ticket-panel', 'tickets'],
+        tickets: ['tickets', 'ticket-panel', 'contact-us'],
+        'contact-us': ['contact-us'],
+        contact: ['contact-us'],
+        support: ['contact-us'],
         'ticket-logs': ['ticket-logs'],
         'ticket-transcripts': ['ticket-transcripts', 'ticket-transcript', 'transcripts'],
         'ban-appeal': ['ban-appeal', 'appeal'],
@@ -365,6 +386,13 @@ function placementSlugsForTemplateContext(context) {
         shop: ['shop', 'purchases'],
         music: ['music'],
         welcome: ['welcome'],
+        economy: ['gambling'],
+        utility: ['commands', 'bot-commands', 'general'],
+        verification: ['verification', 'verify'],
+        automod: ['automod', 'botlog'],
+        moderation: ['botlog'],
+        jointocreate: ['join-create', 'join-to-create'],
+        'join-to-create': ['join-create', 'join-to-create'],
         faq: ['faq'],
         rules: ['rules'],
         'staff-reviews': ['staff-reviews'],
@@ -446,6 +474,14 @@ function catalogDisplayChannelId(message, embed) {
         return String(configuredTicketChannelId);
     }
 
+    const ticketLog = getTicketLogTemplate(embed);
+    if (ticketLog && contextRoot === 'tickets') {
+        const destination = config?.ticketLogsChannelId;
+        if (destination && message.guild?.channels?.cache?.has?.(String(destination))) return String(destination);
+        const logChannel = findFeatureChannel(message.guild, ['ticket-logs']);
+        if (logChannel?.id) return String(logChannel.id);
+    }
+
     // A saved custom title can remove every keyword from the visible embed.
     // Its stable catalog context still identifies the real destination scope.
     const contextualChannel = findFeatureChannel(
@@ -499,6 +535,7 @@ function normalizeRecord(record) {
         messageId: String(record.messageId),
         embedIndex: Math.max(0, Number(record.embedIndex) || 0),
         source: String(record.source || 'cloudy'),
+        manualSaved: Boolean(record.manualSaved),
         title: String(record.title || '').slice(0, 256),
         name: canonicalEmbedName(record.name || record.title || '').slice(0, 256),
         channelName: String(record.channelName || '').slice(0, 100),
@@ -511,27 +548,47 @@ function normalizeRecord(record) {
     return isInternalEmbedRecord(normalized) ? null : normalized;
 }
 
+const registryReadLoads = new Map();
 export async function getEmbedRegistry(guildId) {
-    const stored = await readStoredRecords(guildId);
-    const cleaned = cleanStoredRecords(stored);
-    if (cleaned.length !== stored.length) {
-        await mutateRegistry(guildId, async () => {
-            const latest = await readStoredRecords(guildId);
-            const latestCleaned = cleanStoredRecords(latest);
-            if (latestCleaned.length !== latest.length) {
-                await setInDb(registryKey(guildId), latestCleaned);
-            }
-        });
+    const key = String(guildId);
+    const generation = getEmbedRegistryGeneration(guildId);
+    let pending = registryReadLoads.get(key);
+    if (!pending || pending.generation !== generation) {
+        pending = { generation, promise: readStoredRecords(guildId).then(cleanStoredRecords) };
+        registryReadLoads.set(key, pending);
     }
-    return cleaned;
+    try {
+        // Share only in-flight storage work, never mutable records or a stale
+        // cross-request cache. A concurrent mutation starts a fresh read.
+        return structuredClone(await pending.promise);
+    } finally {
+        if (registryReadLoads.get(key) === pending) registryReadLoads.delete(key);
+    }
+}
+
+function registryContent(records) {
+    return JSON.stringify(records.map(record => {
+        if (!record || typeof record !== 'object') return record;
+        const { updatedAt, ...content } = record;
+        return content;
+    }));
 }
 
 async function saveRecords(guildId, additions) {
-    return mutateRegistry(guildId, async () => {
-        const records = cleanStoredRecords(await readStoredRecords(guildId));
+    const key = String(guildId);
+    const pending = registryWriteBatches.get(key);
+    if (pending) {
+        pending.additions.push(...additions);
+        return pending.promise;
+    }
+    const batch = { additions: [...additions], promise: null };
+    batch.promise = mutateRegistry(guildId, async () => {
+        if (registryWriteBatches.get(key) === batch) registryWriteBatches.delete(key);
+        const stored = await readStoredRecords(guildId);
+        const records = cleanStoredRecords(stored);
         const next = new Map(records.map(record => [recordKey(record), record]));
 
-        for (const addition of additions) {
+        for (const addition of batch.additions) {
             const record = normalizeRecord(addition);
             if (!record) continue;
             const key = recordKey(record);
@@ -553,11 +610,17 @@ async function saveRecords(guildId, additions) {
             next.set(key, { ...(existing || {}), ...record });
         }
 
-        return setInDb(registryKey(guildId), sortRecords([...next.values()]));
+        const result = sortRecords([...next.values()]);
+        // Gateway updates can arrive from several listeners with the same payload.
+        // Avoid rewriting a large JSON document for an updatedAt-only difference.
+        if (registryContent(stored) === registryContent(result)) return true;
+        return setInDb(registryKey(guildId), result);
     });
+    registryWriteBatches.set(key, batch);
+    return batch.promise;
 }
 
-export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
+export async function registerCloudyEmbedMessages(messages, source = 'cloudy', { manualSave = false, manualSaveIndex = 0 } = {}) {
     const grouped = new Map();
     // A message deliberately sent from the Embed Builder is a user-created
     // template and must remain editable even when its title is custom. Normal
@@ -570,7 +633,7 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
         for (const message of Array.isArray(messages) ? messages : []) {
             if (isBotHistoryMessage) {
                 if (!isSearchableCloudyBotEmbedMessage(message)) continue;
-            } else if (!isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;
+            } else if (!manualSave && !isManualBuilderMessage && !isRegistrableCloudyEmbedMessage(message)) continue;
 
             if (isSystemCatalogMessage(message)
                 && message.embeds.some(isJoinToCreateCatalogEmbed)
@@ -583,15 +646,18 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                 else joinToCreateCatalogChannels.delete(String(message.guildId));
             }
 
+            const priorRecords = manualSave ? await getEmbedRegistry(message.guildId) : [];
             const additions = message.embeds
                 .map((embed, embedIndex) => {
-                    const location = recordLocationForEmbed(message, embed);
+                    const prior = priorRecords.find(record => String(record.messageId) === String(message.id) && Number(record.embedIndex || 0) === embedIndex);
+                    const location = prior ? { channelId: prior.channelId, backingChannelId: prior.backingChannelId } : recordLocationForEmbed(message, embed);
                     const addition = {
                         guildId: message.guildId,
                         ...location,
                         messageId: message.id,
                         embedIndex,
-                        source: isSystemCatalogMessage(message) ? 'system-catalog' : source,
+                        source: prior?.source || (isSystemCatalogMessage(message) ? 'system-catalog' : source),
+                        manualSaved: Boolean(prior?.manualSaved || (manualSave && embedIndex === manualSaveIndex)),
                         title: embed?.title || '',
                         name: embedName(embed),
                         channelName: message.channel?.name || '',
@@ -606,6 +672,7 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
                 .filter(addition => isSystemCatalogMessage(message)
                     || isManualBuilderMessage
                     || isBotHistoryMessage
+                    || (manualSave && addition.embedIndex === manualSaveIndex)
                     || (!isInternalEmbedRecord(addition) && isFixedCloudyEmbed(message.embeds[addition.embedIndex])));
 
             if (!additions.length) continue;
@@ -614,16 +681,16 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy') {
         }
 
         if (!grouped.size) return false;
-        await Promise.all([...grouped.entries()].map(([guildId, additions]) => saveRecords(guildId, additions)));
-        return true;
+        const results = await Promise.all([...grouped.entries()].map(([guildId, additions]) => saveRecords(guildId, additions)));
+        return results.every(Boolean);
     } catch (error) {
         logger.error('Failed to register Cloudy embed messages:', error);
         return false;
     }
 }
 
-export async function registerCloudyEmbedMessage(message, source = 'cloudy') {
-    return registerCloudyEmbedMessages([message], source);
+export async function registerCloudyEmbedMessage(message, source = 'cloudy', options = {}) {
+    return registerCloudyEmbedMessages([message], source, options);
 }
 
 function detachedBuilderRecord(record) {
