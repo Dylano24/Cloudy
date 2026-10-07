@@ -454,10 +454,11 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         const channel = interaction.channel?.id === entry.channelId
           ? interaction.channel : await fetchChannel(interaction.guild, entry.channelId);
         const participantIdValue = participantId(record, audience);
-        const participant = interaction.guild.members.cache?.get?.(participantIdValue)
+        const participant = (member?.id === participantIdValue ? member : null)
+          || interaction.guild.members.cache?.get?.(participantIdValue)
           || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
-          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue, member);
+          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue, participant);
         }
         entry.closedAt = Date.now();
         entry.closedBy = interaction.user.id;
