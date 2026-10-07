@@ -110,7 +110,11 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.doesNotMatch(JSON.stringify(json(reporterNotice.embeds[0])), /Private action reason|Reason|staff/);
   assert.equal(targetNotice.content, '<@target>');
   assert.match(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
-  assert.equal(json(targetNotice.embeds[0]).description, 'The reported message has been deleted.');
+  assert.equal(json(targetNotice.embeds[0]).title, 'Report notification');
+  assert.equal(json(targetNotice.embeds[0]).description, 'A message you sent was reported and has been removed by our staff.');
+  assert.ok(json(targetNotice.embeds[0]).fields.some(field => field.name === 'Automatic deletion'
+    && field.value === 'This report notification will be automatically deleted after 24 hours.'));
+  assert.equal(json(reporterNotice.embeds[0]).title, 'Report case notification');
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
   const publicSuccess = f.payloads.filter(message => message.channelId === 'reports');
@@ -351,9 +355,16 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   t.mock.method(ModerationService, 'timeoutUser', async data => { timedOut.push(data); });
   const timeoutClick = f.interaction(); await handleReportAction(timeoutClick, f.client, ['timeout', 'target']);
   assert.deepEqual(timeoutClick.modal.components.map(row => [row.components[0].custom_id, row.components[0].required]), [['minutes', true], ['reason', true]]);
-  await f.submit('timeout');
+  const record = await f.submit('timeout');
   assert.equal(timedOut[0].reason, 'Private action reason'); assert.equal(timedOut[0].durationMs, 600_000);
   assert.equal(f.dms.length, 0);
+  const targetNotice = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
+  const reporterNotice = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
+  assert.equal(json(targetNotice.embeds[0]).title, 'Report notification');
+  assert.equal(json(targetNotice.embeds[0]).description, 'A report involving you has been reviewed by our staff and you have been timed out.');
+  assert.match(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
+  assert.equal(json(reporterNotice.embeds[0]).title, 'Report case notification');
+  assert.equal(json(reporterNotice.embeds[0]).description, 'The reported member has been timed out.');
   assert.deepEqual(f.report.components, []);
   const success = f.payloads.find(message => message.channelId === 'reports');
   const data = json(success.embeds[0]);
@@ -503,6 +514,11 @@ test('Delete + timeout performs both actions once and explains both outcomes', a
   assert.match(data.description, /reported message has been deleted/i);
   assert.match(data.description, /reported member has been timed out/i);
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
+  const target = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
+  assert.equal(json(target.embeds[0]).title, 'Report notification');
+  assert.equal(json(target.embeds[0]).description, 'A message you sent was reported and has been removed by our staff. You have also been timed out.');
+  assert.match(JSON.stringify(json(target.embeds[0])), /Private action reason/);
+  assert.equal(json(reporter.embeds[0]).title, 'Report case notification');
   assert.match(json(reporter.embeds[0]).description, /deleted/i);
   assert.match(json(reporter.embeds[0]).description, /timed out/i);
 });

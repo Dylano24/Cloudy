@@ -246,6 +246,20 @@ export async function publishReportOutcome(client, guild, report, record, action
     no_sanction: 'The report was reviewed and no sanction was applied.',
   })[name]).filter(Boolean).join('\n');
 
+  const targetActionText = (() => {
+    const actionSet = new Set(actions);
+    if (actionSet.has('delete') && actionSet.has('timeout')) {
+      return 'A message you sent was reported and has been removed by our staff. You have also been timed out.';
+    }
+    if (actionSet.size === 1 && actionSet.has('delete')) {
+      return 'A message you sent was reported and has been removed by our staff.';
+    }
+    if (actionSet.size === 1 && actionSet.has('timeout')) {
+      return 'A report involving you has been reviewed by our staff and you have been timed out.';
+    }
+    return actionText;
+  })();
+
   for (const audience of activeAudiences) {
     const entry = record.cases[audience];
     if (entry.deletedAt) continue;
@@ -257,14 +271,16 @@ export async function publishReportOutcome(client, guild, report, record, action
     const fields = [
       { name: 'Report', value: `#${record.number}`, inline: true },
       ...(showReason ? [{ name: 'Reason', value: reason || 'No reason recorded' }] : []),
-      { name: 'Automatic deletion', value: 'This case is automatically deleted after 24 hours.' },
+      { name: 'Automatic deletion', value: audience === 'target'
+        ? 'This report notification will be automatically deleted after 24 hours.'
+        : 'This case is automatically deleted after 24 hours.' },
     ];
 
     const payload = {
       content: `<@${participant}>`,
       embeds: [caseEmbed({
-        title: 'Report case notification',
-        description: actionText,
+        title: audience === 'target' ? 'Report notification' : 'Report case notification',
+        description: audience === 'target' ? targetActionText : actionText,
         color: 0x00C49D,
         fields,
       })],
