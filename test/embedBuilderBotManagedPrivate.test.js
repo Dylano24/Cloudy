@@ -23,13 +23,8 @@ test('guild Builder no longer depends on the ephemeral webhook path', () => {
   assert.match(source, /state\.builderWebhook\.editMessage\(state\.builderMessageId, payload\)/);
 });
 
-test('bot-managed durability patch runs after the final editor hold patch', () => {
-  const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-  for (const scriptName of ['start', 'test']) {
-    assert.match(packageJson.scripts[scriptName], /node scripts\/apply-startup-patches\.js/);
-    const command = packageJson.startupPatches.join(' ');
-    const editorHold = command.indexOf('patch-embed-editor-visible-presence.js');
-    const botManaged = command.indexOf('patch-embed-builder-bot-managed-private.js');
-    assert.ok(editorHold >= 0 && botManaged > editorHold, `${scriptName} must apply bot-managed delivery after editor lifecycle patches`);
-  }
+test('bot-managed Builder durability is committed rather than rewritten at startup', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  assert.equal(pkg.startupPatches, undefined);
+  assert.doesNotMatch(pkg.scripts.start, /patch/);
 });

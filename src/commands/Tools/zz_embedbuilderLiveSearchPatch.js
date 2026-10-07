@@ -1,3 +1,5 @@
+// CLOUDY_INTERACTION_LATENCY_V1
+// BUILDER_SAVED_PARITY_V1
 import {
     ActionRowBuilder,
     StringSelectMenuBuilder,
@@ -10,10 +12,13 @@ import {
     getEmbedRegistrySnapshot,
     resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
-import { collapseDisplayRecords } from '../../services/embedManagerService.js';
+import { collapseDisplayRecords, canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
+import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
+import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
 import {
     getSearchableSystemCatalogRecords,
     getSystemSourceDefinitionPreview,
+    getSystemSourceDefinitionPreviewForEmbed,
 } from '../../services/systemEmbedCatalogService.js';
 
 const RUNTIME_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchRuntime');
@@ -32,6 +37,33 @@ const INTERNAL_SEARCH_TITLES = new Set([
 ]);
 const pendingSelections = globalThis.__cloudyEmbedBuilderSearchSelections
     || (globalThis.__cloudyEmbedBuilderSearchSelections = new Map());
+const CANONICAL_SEARCH_CACHE_TTL = 1500;
+const canonicalSearchCache = globalThis.__cloudyEmbedCanonicalSearchCache
+    || (globalThis.__cloudyEmbedCanonicalSearchCache = new Map());
+
+async function getFastCanonicalBuilderRecords(guild) {
+    const key = String(guild?.id || '');
+    if (!key) return [];
+    const now = Date.now();
+    const cached = canonicalSearchCache.get(key);
+    if (cached?.records && cached.expiresAt > now) return cached.records;
+    if (cached?.promise) return cached.promise;
+
+    const promise = getCanonicalBuilderRecords(guild)
+        .then(records => {
+            canonicalSearchCache.set(key, {
+                records,
+                expiresAt: Date.now() + CANONICAL_SEARCH_CACHE_TTL,
+            });
+            return records;
+        })
+        .catch(error => {
+            canonicalSearchCache.delete(key);
+            throw error;
+        });
+    canonicalSearchCache.set(key, { promise, expiresAt: now + CANONICAL_SEARCH_CACHE_TTL });
+    return promise;
+}
 
 function normalize(value) {
     return String(value || '')
@@ -52,7 +84,10 @@ function clean(value, max = 100) {
 }
 
 function snapshot(record) {
-    return getEmbedRegistrySnapshot(record) || record?.snapshot || {};
+    const raw = record?.snapshot || getEmbedRegistrySnapshot(record) || {};
+    const source = getSystemSourceDefinitionPreviewForEmbed(raw) || {};
+    const complete = { ...source, ...raw };
+    return getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, complete).data;
 }
 
 function stableSearchTemplateKey(record) {
@@ -68,6 +103,7 @@ function stableSearchTemplateContext(record) {
 }
 
 function sourceResolvedSearchRecord(record) {
+    if (record?.canonicalIdentity) return record;
     if (String(record?.source || '').toLowerCase() !== 'system-catalog') return record;
 
     const data = snapshot(record);
@@ -124,7 +160,7 @@ function isTechnicalVisibleName(value) {
 
 export function recordTitle(record) {
     const data = snapshot(record);
-    const candidates = [data?.title, record?.name, record?.title]
+    const candidates = [record?.previewRecord ? record?.name : null, data?.title, record?.name, record?.title]
         .map(value => clean(value, 100))
         .filter(Boolean);
 
@@ -249,6 +285,8 @@ function searchScore(document, rawQuery) {
 
 function logicalKey(record, document) {
     const titleKey = normalize(document.title) || `${record?.messageId}:${record?.embedIndex || 0}`;
+    const statusTitle = canonicalBuilderResponseTitle(document.title);
+    if (/^(?:failed|success|warning|error|information|invalid|expired|too fast|cooldown|on cooldown|please wait|slow down)$/.test(statusTitle)) return `status:${statusTitle}`;
     return `${record?.channelId}:${titleKey}`;
 }
 
@@ -734,6 +772,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
         }
 
         const registryRecords = await getEmbedRegistry(interaction.guildId);
+        await warmSavedEmbedTemplateScopes(interaction.guildId, registryRecords.map(record => record.channelId));
         const records = mergeSearchRecords(interaction.guildId, registryRecords);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
         const choices = buildSearchChoices(matches);
@@ -763,12 +802,16 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                     ? await hydrateLiveSearchRecord(interaction.guild, liveCandidate)
                     : null;
 
-                pendingSelections.set(selectionKey(interaction), {
+                const initialSelection = {
                     record,
                     previewRecord,
                     sourceRecord: record.sourceRecord || null,
                     expiresAt: Date.now() + PENDING_TTL,
-                });
+                };
+                pendingSelections.set(selectionKey(interaction), initialSelection);
+                // BUILDER_SEARCH_EDITOR_STATE_V2: Search state is available before the
+                // Builder/editor starts, not only after a later Modify action.
+                interaction.__cloudyInitialBuilderSelection = initialSelection;
             }
         }
 

@@ -25,7 +25,9 @@ export function getCategoryStatus(enabledEvents, category, auditEnabled) {
 
 async function formatChannelMention(guild, id) {
   if (!id) return '`Not configured`';
-  const channel = guild.channels.cache.get(id) ?? await guild.channels.fetch(id).catch(() => null);
+  // Guild channel state is populated by READY. A dashboard render should never
+  // wait on a REST fetch merely to format a mention.
+  const channel = guild.channels.cache.get(id) || null;
   return channel ? channel.toString() : `⚠️ Missing (${id})`;
 }
 
@@ -36,18 +38,22 @@ function countEnabledCategories(enabledEvents, auditEnabled) {
   return { enabled, total: DASHBOARD_CATEGORIES.length };
 }
 
-export async function buildLoggingDashboardView(interaction, client) {
-  const guildConfig = await getGuildConfig(client, interaction.guildId);
-  const loggingStatus = await getLoggingStatus(client, interaction.guildId);
+export async function buildLoggingDashboardView(interaction, client, providedGuildConfig = null) {
+  const [guildConfig, loggingStatus] = await Promise.all([
+    providedGuildConfig ? Promise.resolve(providedGuildConfig) : getGuildConfig(client, interaction.guildId),
+    getLoggingStatus(client, interaction.guildId),
+  ]);
 
   const auditEnabled = Boolean(loggingStatus.enabled);
   const channels = loggingStatus.channels || {};
 
-  const auditChannel = await formatChannelMention(interaction.guild, channels.audit);
-  const applicationsChannel = await formatChannelMention(interaction.guild, channels.applications);
-  const reportsChannel = await formatChannelMention(interaction.guild, channels.reports);
-  const lifecycleChannel = await formatChannelMention(interaction.guild, guildConfig.ticketLogsChannelId);
-  const transcriptChannel = await formatChannelMention(interaction.guild, guildConfig.ticketTranscriptChannelId);
+  const [auditChannel, applicationsChannel, reportsChannel, lifecycleChannel, transcriptChannel] = await Promise.all([
+    formatChannelMention(interaction.guild, channels.audit),
+    formatChannelMention(interaction.guild, channels.applications),
+    formatChannelMention(interaction.guild, channels.reports),
+    formatChannelMention(interaction.guild, guildConfig.ticketLogsChannelId),
+    formatChannelMention(interaction.guild, guildConfig.ticketTranscriptChannelId),
+  ]);
 
   const ignore = loggingStatus.ignore || { users: [], channels: [] };
   const { enabled: enabledCount, total } = countEnabledCategories(loggingStatus.enabledEvents, auditEnabled);
@@ -183,9 +189,12 @@ export default {
         return await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: 'You need **Manage Server** permissions to view the logging dashboard.' });
       }
 
-      await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-      const { embed, components } = await buildLoggingDashboardView(interaction, client);
-      await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components });
+      const { embed, components } = await buildLoggingDashboardView(interaction, client, config);
+      await InteractionHelper.safeReply(interaction, {
+        embeds: [embed],
+        components,
+        flags: MessageFlags.Ephemeral,
+      });
     } catch (error) {
       logger.error('logging_dashboard error:', error);
       await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Failed to load the logging dashboard.' });

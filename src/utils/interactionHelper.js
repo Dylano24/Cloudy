@@ -1,9 +1,11 @@
+// CLOUDY_INTERACTION_LATENCY_V1
 // interactionHelper.js
 
 import { logger } from './logger.js';
 import { MessageFlags } from 'discord.js';
 import { handleInteractionError, createError, ErrorTypes } from './errorHandler.js';
 import { ResponseCoordinator } from './responseCoordinator.js';
+import { observeInteractionLatency } from './interactionLatency.js';
 
 const INTERACTION_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_DEFER_OPTIONS = { flags: MessageFlags.Ephemeral };
@@ -60,6 +62,7 @@ export class InteractionHelper {
     }
 
     static patchInteractionResponses(interaction) {
+        observeInteractionLatency(interaction);
         if (!interaction || interaction.__titanResponsePatched) {
             return;
         }

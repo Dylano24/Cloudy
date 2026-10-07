@@ -1,3 +1,4 @@
+// CLOUDY_INTERACTION_LATENCY_V1
 import {
     SlashCommandBuilder,
     PermissionFlagsBits,
@@ -14,39 +15,54 @@ import {
     MessageFlags,
     ChannelType,
     EmbedBuilder,
-} from 'discord.js';
+    } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { registerBuilderPreviewMessage,
+    unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
-import { TitanBotError, replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
+import { TitanBotError,
+    replyUserError,
+    ErrorTypes } from '../../utils/errorHandler.js';
 import { getColor } from '../../config/bot.js';
 import {
     createEmbedColorPickerSession,
     deleteEmbedColorPickerSession,
-} from '../../services/embedColorPickerSessionService.js';
+    } from '../../services/embedColorPickerSessionService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from '../../services/cloudyBrandingService.js';
-import { CLOUDY_LOGO_URL, isCloudyLogoUrl } from '../../services/cloudyLogoService.js';
+import { CLOUDY_LOGO_URL,
+    isCloudyLogoUrl } from '../../services/cloudyLogoService.js';
 import {
     DISCORD_EMBED_TOTAL_TEXT_LIMIT,
     fitEmbedToTextBudget,
     getEmbedTextLength,
-} from '../../utils/discordEmbedLimits.js';
+    } from '../../utils/discordEmbedLimits.js';
 import {
     getEveryGuildChannel,
     refreshAllTicketChannels,
-} from '../../services/ticketChannelBrowserService.js';
+    } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
-import { openEmbedManager, saveModifiedEmbed } from '../../services/embedManagerService.js';
-import { registerCloudyEmbedMessage } from '../../services/embedRegistryService.js';
-import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
-import { getFromDb, setInDb } from '../../utils/database.js';
+import { applyInitialSearchSelectionToState,
+    openEmbedManager,
+    prepareEmbedManager,
+    saveModifiedEmbed } from '../../services/embedManagerService.js';
 import {
+    purgeEmbedRegistryRecord,
+    registerCloudyEmbedMessage,
+    } from '../../services/embedRegistryService.js';
+import { touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
+import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
+import { getFromDb,
+    setInDb } from '../../utils/database.js';
+import {
+    cleanupBuilderButtonUi,
     countBuilderButtons,
     getBuilderMessageComponents,
     getBuilderPreviewComponents,
     hydrateBuilderMessageComponents,
     openEmbedButtonEditor,
     removeRightmostBuilderButton,
+    syncBuilderButtonPreview,
 } from '../../services/embedBuilderButtonEditorService.js';
 
 const COLOR_PICKER_URL = process.env.PUBLIC_APP_URL || 'https://cloudy-production-b24f.up.railway.app';
@@ -225,47 +241,278 @@ async function replaceSaveFeedback(interaction, message, payload) {
     return message?.edit?.(payload).catch(() => null) || null;
 }
 
-// Acknowledging the click immediately makes Save feel instant, while the
-// actual message edit still remains the source of truth before we confirm it.
-async function saveExistingEmbed(buttonInteraction, guild, state) {
-    const feedbackPromise = buttonInteraction.followUp({
-        content: 'Saving changes…',
+
+const BUILDER_DELETE_MISSING_CODES = new Set([10003, 10008]);
+
+function builderDeleteTargetKey(target) {
+    return [
+        String(target?.backingChannelId || target?.channelId || ''),
+        String(target?.messageId || ''),
+        Math.max(0, Number(target?.embedIndex) || 0),
+    ].join(':');
+}
+
+function canDeleteBuilderRecord(target) {
+    return Boolean(
+        target?.messageId
+        && target?.channelId
+        && target?.source !== 'system-catalog'
+    );
+}
+
+async function inspectBuilderDeleteTarget(guild, target) {
+    if (!canDeleteBuilderRecord(target)) return { status: 'protected' };
+
+    const channelId = String(target.backingChannelId || target.channelId || '');
+    let channel = guild.channels.cache.get(channelId) || null;
+
+    if (!channel) {
+        try {
+            channel = await guild.channels.fetch(channelId);
+        } catch (error) {
+            return BUILDER_DELETE_MISSING_CODES.has(error?.code)
+                ? { status: 'missing' }
+                : { status: 'unknown' };
+        }
+    }
+
+    if (!channel?.messages?.fetch) return { status: 'unknown' };
+
+    try {
+        const message = await channel.messages.fetch(String(target.messageId));
+        return message ? { status: 'exists', message } : { status: 'unknown' };
+    } catch (error) {
+        return BUILDER_DELETE_MISSING_CODES.has(error?.code)
+            ? { status: 'missing' }
+            : { status: 'unknown' };
+    }
+}
+
+function clearBuilderRecordCaches(guildId) {
+    const prefix = String(guildId) + ':';
+    const managerCache = globalThis.__cloudyEmbedManagerRecordCache;
+    if (managerCache?.keys) {
+        for (const key of managerCache.keys()) {
+            if (String(key).startsWith(prefix)) managerCache.delete(key);
+        }
+    }
+    globalThis.__cloudyEmbedCanonicalSearchCache?.delete?.(String(guildId));
+}
+
+async function sendBuilderDeleteNotice(interaction, title, description, color = 0xFFFFFF) {
+    const message = await interaction.followUp({
+        embeds: [new EmbedBuilder().setTitle(title).setDescription(description).setColor(color)],
         flags: MessageFlags.Ephemeral,
         fetchReply: true,
     }).catch(() => null);
+    if (message) removeTransientMessage(interaction, message);
+}
 
+async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
+    const target = state.modifyTarget;
+    const key = builderDeleteTargetKey(target);
+
+    if (state.pendingBuilderDelete?.key === key) {
+        state.pendingBuilderDelete = null;
+        await refreshBuilder(buttonInteraction, state);
+        return;
+    }
+
+    if (!canDeleteBuilderRecord(target)) {
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Delete unavailable',
+            'This is a protected Cloudy template or no editable Builder record is selected.',
+            0xED4245,
+        );
+        return;
+    }
+
+    const presence = await inspectBuilderDeleteTarget(guild, target);
+    if (presence.status === 'exists') {
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Delete blocked',
+            'The real Discord message still exists. Delete that message first; Cloudy will never remove a live embed through **Delete from Builder**.',
+            0xED4245,
+        );
+        return;
+    }
+    if (presence.status !== 'missing') {
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Could not verify safely',
+            'Cloudy could not confirm that the original Discord message is gone, so nothing was marked for deletion.',
+            0xED4245,
+        );
+        return;
+    }
+
+    state.pendingBuilderDelete = {
+        key,
+        channelId: String(target.channelId),
+        backingChannelId: String(target.backingChannelId || target.channelId),
+        messageId: String(target.messageId),
+        embedIndex: Math.max(0, Number(target.embedIndex) || 0),
+    };
+    await refreshBuilder(buttonInteraction, state);
+}
+
+function resetBuilderAfterRecordDeletion(state) {
+    state.title = null;
+    state.message = null;
+    state.embedFields = [];
+    state.sideColor = 0xFFFFFF;
+    state.showLogo = true;
+    state.removeExistingLogo = false;
+    state.bottomLine = DEFAULT_FOOTER_TEXT;
+    state.mediaUrl = null;
+    state.mediaBuffer = null;
+    state.mediaName = null;
+    state.mediaConvertedFromVideo = false;
+    state.modifyTarget = null;
+    state.pendingBuilderDelete = null;
+}
+
+async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
+    const target = state.modifyTarget;
+    const pending = state.pendingBuilderDelete;
+    if (!target || !pending || pending.key !== builderDeleteTargetKey(target)) {
+        state.pendingBuilderDelete = null;
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Delete cancelled',
+            'The selected Builder record changed, so the pending deletion was cancelled.',
+            0xED4245,
+        );
+        return false;
+    }
+
+    // Re-check on Save. The first Delete click only arms the operation.
+    const presence = await inspectBuilderDeleteTarget(guild, target);
+    if (presence.status === 'exists') {
+        state.pendingBuilderDelete = null;
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Delete blocked',
+            'The real Discord message exists again, so the Builder record was not removed.',
+            0xED4245,
+        );
+        await refreshBuilder(buttonInteraction, state);
+        return false;
+    }
+    if (presence.status !== 'missing') {
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Could not verify safely',
+            'Cloudy still cannot prove that the Discord message is gone. The Builder record was not removed.',
+            0xED4245,
+        );
+        return false;
+    }
+
+    // Disable Reappear through the canonical index. The visible copy can have
+    // a newer Discord message ID than the original rule key, so constructing a
+    // DB key from pending.messageId can miss the rule and resurrect the embed.
+    const reappear = await syncExistingEmbedReappearRule({
+        guildId: guild.id,
+        channelId: pending.channelId,
+        messageId: pending.messageId,
+        embedIndex: pending.embedIndex,
+        every: null,
+    });
+
+    if (!reappear.ok) {
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Delete could not be saved',
+            'Cloudy could not disable the linked Reappear rule safely, so the Builder record was left unchanged.',
+            0xED4245,
+        );
+        return false;
+    }
+
+    const activeReappearMessageId = reappear.activeMessageId
+        ? String(reappear.activeMessageId)
+        : null;
+    if (activeReappearMessageId && activeReappearMessageId !== String(pending.messageId)) {
+        const reappearChannel = guild.channels.cache.get(String(pending.channelId))
+            || await guild.channels.fetch(String(pending.channelId)).catch(() => null);
+        const activeMessage = reappearChannel?.messages?.fetch
+            ? await reappearChannel.messages.fetch(activeReappearMessageId).catch(() => null)
+            : null;
+        await activeMessage?.delete?.().catch(() => {});
+    }
+
+    await purgeEmbedRegistryRecord(
+        guild.id,
+        pending.channelId,
+        pending.messageId,
+        pending.embedIndex,
+    );
+
+    clearBuilderRecordCaches(guild.id);
+    await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
+    resetBuilderAfterRecordDeletion(state);
+    await refreshBuilder(buttonInteraction, state);
+    await sendBuilderDeleteNotice(
+        buttonInteraction,
+        'Removed from Builder',
+        'The stale record and its Reappear rule were removed from the Embed Builder.',
+        0x57F287,
+    );
+    return true;
+}
+
+// Acknowledging the click immediately makes Save feel instant, while the
+// actual message edit still remains the source of truth before we confirm it.
+export async function saveExistingEmbed(buttonInteraction, guild, state) {
+    // Claim before awaiting acknowledgement: collectors can deliver a second click.
+    const alreadySaving = Boolean(state.saveInFlight);
+    if (!alreadySaving) state.saveInFlight = true;
+    try {
+        if (!buttonInteraction.deferred && !buttonInteraction.replied) {
+            await buttonInteraction.deferUpdate();
+        }
+        if (alreadySaving) return { ok: false, reason: 'save-in-progress' };
+        return await finishExistingEmbedSave(buttonInteraction, guild, state);
+    } finally {
+        if (!alreadySaving) state.saveInFlight = false;
+    }
+}
+
+async function finishExistingEmbedSave(buttonInteraction, guild, state) {
     const saved = await saveModifiedEmbed(guild, state);
-    const feedbackMessage = await feedbackPromise;
 
     if (!saved.ok) {
-        const failureMessage = saved.reason === 'embed-too-large'
-            ? 'This embed is over Discord’s 6,000-character limit. Shorten the title, message, fields, or footer and try again.'
-            : saved.reason === 'persistence-failed'
-                ? 'The embed was edited, but its reusable Builder template could not be saved. Try again before closing the Builder.'
-                : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
-        const failure = await replaceSaveFeedback(buttonInteraction, feedbackMessage, {
+        const failure = await buttonInteraction.followUp({
             content: null,
             embeds: [new EmbedBuilder()
                 .setTitle('Could not save changes')
-                .setDescription(failureMessage)
+                .setDescription('The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.')
                 .setColor(getColor('error'))],
-        });
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        }).catch(() => null);
         if (failure) removeTransientMessage(buttonInteraction, failure);
         else {
             await replyUserError(buttonInteraction, {
-                type: saved.reason === 'embed-too-large' ? ErrorTypes.VALIDATION : ErrorTypes.UNKNOWN,
-                message: failureMessage,
+                type: ErrorTypes.UNKNOWN,
+                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
             });
         }
         return saved;
     }
 
+    // BUILDER_EXISTING_REAPPEAR_SAVE_V1: Save Reappear for the existing canonical
+    // embed too. Previously this only happened when posting a brand-new embed.
     if (state.reappearTouched) {
         const targetIndex = Math.max(0, Number(state.modifyTarget?.embedIndex) || 0);
         const activeEmbed = saved.message?.embeds?.[targetIndex]?.toJSON?.() || null;
         const activeComponents = (saved.message?.components || []).map(row =>
             row?.toJSON ? row.toJSON() : row
         );
+
         const reappear = await syncExistingEmbedReappearRule({
             guildId: guild.id,
             channelId: saved.message?.channelId
@@ -279,21 +526,11 @@ async function saveExistingEmbed(buttonInteraction, guild, state) {
         });
 
         if (!reappear.ok) {
-            const failurePayload = {
-                content: null,
-                embeds: [new EmbedBuilder()
-                    .setTitle('Reappear could not be saved')
-                    .setDescription('The embed itself was saved, but the Reappear setting was not. Try Save changes again.')
-                    .setColor(getColor('error'))],
-            };
-            let failure = await replaceSaveFeedback(buttonInteraction, feedbackMessage, failurePayload);
-            if (!failure) {
-                failure = await buttonInteraction.followUp({
-                    ...failurePayload,
-                    flags: MessageFlags.Ephemeral,
-                    fetchReply: true,
-                }).catch(() => null);
-            }
+            const failure = await buttonInteraction.followUp({
+                content: 'The embed was saved, but the Reappear setting could not be saved. Try Save changes again.',
+                flags: MessageFlags.Ephemeral,
+                fetchReply: true,
+            }).catch(() => null);
             if (failure) removeTransientMessage(buttonInteraction, failure);
             return { ...saved, ok: false, reason: 'reappear-persistence-failed' };
         }
@@ -302,20 +539,13 @@ async function saveExistingEmbed(buttonInteraction, guild, state) {
     }
 
     void refreshBuilder(buttonInteraction, state).catch(() => {});
-    const confirmationPayload = {
+    const confirmation = await buttonInteraction.followUp({
         content: null,
         embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
-    };
-    let confirmation = await replaceSaveFeedback(buttonInteraction, feedbackMessage, confirmationPayload);
-    if (!confirmation) {
-        confirmation = await buttonInteraction.followUp({
-            ...confirmationPayload,
-            flags: MessageFlags.Ephemeral,
-            fetchReply: true,
-        }).catch(() => null);
-    }
+        flags: MessageFlags.Ephemeral,
+        fetchReply: true,
+    }).catch(() => null);
     if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
-    state.finishBuilder?.('saved');
     return saved;
 }
 
@@ -347,6 +577,11 @@ function buildSingleEmbed(state, description = null, options = {}) {
     return new EmbedBuilder(data);
 }
 
+function isInternalTemplateAuthor(value) {
+    return /^cloudy template key:/i.test(String(value || '').trim());
+}
+
+// BUILDER_HUMAN_PREVIEW_V1
 function buildPreviewEmbed(state) {
     const chunks = splitLongText(state.message);
     const firstChunk = chunks[0] || null;
@@ -354,6 +589,7 @@ function buildPreviewEmbed(state) {
     if (state.modifyTarget?.sourceEmbedData) {
         const source = state.modifyTarget.sourceEmbedData;
         const data = { ...source, color: state.sideColor };
+        if (isInternalTemplateAuthor(data.author?.name)) delete data.author;
 
         if (state.title) data.title = state.title.slice(0, 256);
         else delete data.title;
@@ -524,6 +760,7 @@ export function buildBuilderEmbeds(state) {
 }
 
 function buildControls(state) {
+    // BUILDER_FINAL_CONTROLS_V1: final user-requested five-row layout.
     const sourceHasLogo = Boolean(state.modifyTarget?.sourceEmbedData?.thumbnail?.url);
     const hasLogo = !state.removeExistingLogo && (state.showLogo || sourceHasLogo);
 
@@ -574,8 +811,12 @@ function buildControls(state) {
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('📝'),
         (() => {
-            const button = new ButtonBuilder().setLabel('Set side color').setEmoji('🎨');
-            if (state.colorPickerUrl) return button.setURL(state.colorPickerUrl).setStyle(ButtonStyle.Link);
+            const button = new ButtonBuilder()
+                .setLabel('Set side color')
+                .setEmoji('🎨');
+            if (state.colorPickerUrl) {
+                return button.setURL(state.colorPickerUrl).setStyle(ButtonStyle.Link);
+            }
             return button
                 .setCustomId('simple_embed_color_unavailable')
                 .setStyle(ButtonStyle.Secondary)
@@ -591,7 +832,7 @@ function buildControls(state) {
             .setEmoji('🔘'),
         new ButtonBuilder()
             .setCustomId('simple_embed_remove_buttons')
-            .setLabel('Remove buttons')
+            .setLabel('Remove button')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('⛔'),
         new ButtonBuilder()
@@ -626,6 +867,7 @@ function buildControls(state) {
             .setEmoji('♻️'),
         new ButtonBuilder()
             .setCustomId('simple_embed_delete_from_builder')
+            // Delete from builder action; keep the visible label compact beside Reset.
             .setLabel(state.pendingBuilderDelete ? 'Cancel' : 'Delete')
             .setStyle(state.pendingBuilderDelete ? ButtonStyle.Secondary : ButtonStyle.Danger)
             .setEmoji(state.pendingBuilderDelete ? '↩️' : '🗑️')
@@ -669,30 +911,217 @@ async function flushPreviewUpdateQueue(state) {
     }
 }
 
-function refreshBuilder(interaction, state) {
+const BUILDER_PREVIEW_UNAVAILABLE_CODES = new Set([10008, 10062, 50027]);
+
+function markBuilderPreviewUnavailable(state) {
+    state.builderPreviewUnavailable = true;
     if (state.colorSessionToken) {
-        state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${state.colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
+        deleteEmbedColorPickerSession(state.colorSessionToken);
+    }
+    return false;
+}
+
+// BUILDER_SINGLE_PREVIEW_TARGET_V1
+// Every live preview update edits the one original /embedbuilder reply. Never
+// recover a missing preview by creating a follow-up message: doing so creates a
+// second builder and drops Discord's normal ephemeral Dismiss control.
+export async function editBuilderPreviewMessage(state, interaction, payload) {
+    if (state.builderPreviewUnavailable) return false;
+
+    // EMBED_BUILDER_BOT_MANAGED_ALL_GUILD_V2: guild Builders are edited through the bot-managed Message object,
+    // not the short-lived interaction webhook. Touching the message here also
+    // lets the existing AsyncLocalStorage editor hold own the same Builder.
+    if (state.builderBotManaged && state.builderMessage?.edit) {
+        try {
+            touchBuilderSessionMessage(state.builderMessage);
+            await state.builderMessage.edit(payload);
+            return true;
+        } catch (error) {
+            if (BUILDER_PREVIEW_UNAVAILABLE_CODES.has(error?.code)) {
+                return markBuilderPreviewUnavailable(state);
+            }
+            throw error;
+        }
     }
 
-    const payload = {
-        embeds: buildBuilderEmbeds(state),
-        components: buildControls(state),
+    // Non-guild contexts keep the interaction-response fallback.
+    if (state.builderMessageId && state.builderWebhook?.editMessage) {
+        try {
+            await state.builderWebhook.editMessage(state.builderMessageId, payload);
+            return true;
+        } catch (error) {
+            if (BUILDER_PREVIEW_UNAVAILABLE_CODES.has(error?.code)) {
+                return markBuilderPreviewUnavailable(state);
+            }
+            throw error;
+        }
+    }
+
+    if (typeof interaction?.editReply !== 'function') return false;
+    try {
+        await interaction.editReply(payload);
+        return true;
+    } catch (error) {
+        if (BUILDER_PREVIEW_UNAVAILABLE_CODES.has(error?.code)) {
+            return markBuilderPreviewUnavailable(state);
+        }
+        throw error;
+    }
+}
+
+async function deliverBuilderPreviewUpdate(state, interaction, payload) {
+    if (!interaction?.deferred && !interaction?.replied && typeof interaction?.update === 'function') {
+        try {
+            await interaction.update(payload);
+            return true;
+        } catch (error) {
+            if (BUILDER_PREVIEW_UNAVAILABLE_CODES.has(error?.code)) {
+                return markBuilderPreviewUnavailable(state);
+            }
+            logger.debug(`Direct Builder update fell back to fixed preview edit: ${error?.message || error}`);
+        }
+    }
+    return editBuilderPreviewMessage(state, interaction, payload);
+}
+
+async function editBuilderDashboardMessage(state, payload) {
+    if (!state.builderDashboardMessageId) return true;
+
+    if (state.builderDashboardMessage?.edit) {
+        try {
+            touchBuilderSessionMessage(state.builderDashboardMessage);
+            const edited = await state.builderDashboardMessage.edit(payload);
+            if (edited) state.builderDashboardMessage = edited;
+            return true;
+        } catch {}
+    }
+
+    if (state.builderDashboardWebhook?.editMessage) {
+        try {
+            const edited = await state.builderDashboardWebhook.editMessage(
+                String(state.builderDashboardMessageId),
+                payload,
+            );
+            if (edited) state.builderDashboardMessage = edited;
+            return true;
+        } catch {}
+    }
+
+    return false;
+}
+
+async function deleteBuilderDashboardMessage(state) {
+    const id = state.builderDashboardMessageId
+        ? String(state.builderDashboardMessageId)
+        : null;
+    const message = state.builderDashboardMessage || null;
+    const webhook = state.builderDashboardWebhook || null;
+
+    state.builderDashboardMessage = null;
+    state.builderDashboardMessageId = null;
+    state.builderDashboardWebhook = null;
+
+    if (message?.delete) {
+        const deleted = await message.delete().then(() => true).catch(() => false);
+        if (deleted) return true;
+    }
+    if (id && webhook?.deleteMessage) {
+        return webhook.deleteMessage(id).then(() => true).catch(() => false);
+    }
+    return false;
+}
+
+async function deleteBuilderPreviewMessage(state) {
+    const id = state.builderMessageId ? String(state.builderMessageId) : null;
+    const message = state.builderMessage || null;
+    const webhook = state.builderWebhook || null;
+    unregisterBuilderPreviewMessage(message || id);
+
+    // BUILDER_PREVIEW_SESSION_CLEANUP_V1: the top Builder preview is temporary UI, never a posted
+    // message. Once the Message builder session ends it must disappear too.
+    state.builderMessage = null;
+    state.builderMessageId = null;
+    state.builderWebhook = null;
+    state.builderPreviewUnavailable = true;
+    state.previewEditPending = null;
+
+    if (message?.delete) {
+        const deleted = await message.delete().then(() => true).catch(() => false);
+        if (deleted) return true;
+    }
+    if (id && webhook?.deleteMessage) {
+        return webhook.deleteMessage(id).then(() => true).catch(() => false);
+    }
+    return false;
+}
+
+// BUILDER_PREVIEW_BUTTON_PLACEMENT_V1
+function queueBuilderRefresh(interaction, state, includeDashboard = true) {
+    if (state.colorSessionToken) {
+        state.colorPickerUrl = COLOR_PICKER_URL + '/embed-color?session=' + state.colorSessionToken + '&color=' + encodeURIComponent(colorToHex(state.sideColor));
+    }
+
+    const previewPayload = {
+        embeds: [buildPreviewEmbed(state)],
+        components: getBuilderPreviewComponents(state),
         attachments: [],
     };
 
     if (state.mediaBuffer && state.mediaName) {
-        payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
+        previewPayload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
     }
 
-    const queue = getPreviewUpdateQueue(state);
-    return new Promise(resolve => {
-        // Keep only the newest complete preview while one Discord edit is in
-        // flight. This preserves all state, but prevents an older selected
-        // embed from rendering after the user has already switched again.
-        if (queue.pending) queue.pending.resolve(true);
-        queue.pending = { interaction, payload, resolve };
-        void flushPreviewUpdateQueue(state);
-    });
+    const dashboardPayload = includeDashboard
+        ? {
+            embeds: [buildControlEmbed(state)],
+            components: buildControls(state),
+        }
+        : null;
+
+    state.previewEditPending = { previewPayload, dashboardPayload };
+    if (state.previewEditRunning) return Promise.resolve(true);
+
+    return (async () => {
+        state.previewEditRunning = true;
+        let result = true;
+        try {
+            while (state.previewEditPending) {
+                const next = state.previewEditPending;
+                state.previewEditPending = null;
+
+                const previewPromise = editBuilderPreviewMessage(
+                    state,
+                    interaction,
+                    next.previewPayload,
+                );
+                const dashboardPromise = next.dashboardPayload && state.builderDashboardMessageId
+                    ? editBuilderDashboardMessage(state, next.dashboardPayload)
+                    : Promise.resolve(true);
+
+                const [previewUpdated, dashboardUpdated] = await Promise.all([
+                    previewPromise,
+                    dashboardPromise,
+                ]);
+
+                result = previewUpdated && dashboardUpdated;
+                if (!previewUpdated && state.builderPreviewUnavailable) {
+                    state.previewEditPending = null;
+                    break;
+                }
+            }
+        } finally {
+            state.previewEditRunning = false;
+        }
+        return result;
+    })();
+}
+
+async function refreshBuilder(interaction, state) {
+    return queueBuilderRefresh(interaction, state, true);
+}
+
+async function refreshBuilderPreviewOnly(interaction, state) {
+    return queueBuilderRefresh(interaction, state, false);
 }
 
 async function editContent(buttonInteraction, state) {
@@ -736,8 +1165,7 @@ async function editContent(buttonInteraction, state) {
     state.title = submitted.fields.getTextInputValue('simple_embed_title').trim() || null;
     state.message = submitted.fields.getTextInputValue('simple_embed_message').trim() || null;
 
-    await submitted.deferUpdate().catch(() => {});
-    await refreshBuilder(submitted, state);
+    await refreshBuilderPreviewOnly(submitted, state);
     await browseOwnerServers(submitted, submitted, state);
 }
 
@@ -772,8 +1200,7 @@ async function editBottomLine(buttonInteraction, state) {
 
     state.bottomLine = submitted.fields.getTextInputValue('simple_embed_footer_text').trim() || null;
 
-    await submitted.deferUpdate().catch(() => {});
-    await refreshBuilder(submitted, state);
+    await refreshBuilderPreviewOnly(submitted, state);
 }
 
 async function editMedia(buttonInteraction, state) {
@@ -865,7 +1292,6 @@ async function editMedia(buttonInteraction, state) {
     state.mediaName = uploadedMedia.name || null;
     state.mediaConvertedFromVideo = false;
 
-    await submitted.deferUpdate().catch(() => {});
     await refreshBuilder(submitted, state);
 }
 
@@ -1072,7 +1498,9 @@ async function postMessage(buttonInteraction, state, guild) {
     }
 
     await buttonInteraction.deferUpdate();
-    await refreshAllTicketChannels(guild, true);
+    // Channel cache is already authoritative for the picker. Refreshing ticket
+    // channel metadata is maintenance work and must not block this click.
+    void refreshAllTicketChannels(guild, true).catch(() => {});
 
     const initialPicker = buildChannelPicker(guild, 0);
     const channelPickerMessage = await buttonInteraction.followUp({
@@ -1162,12 +1590,19 @@ export default {
 
     async execute(interaction) {
         try {
-            const deferred = await InteractionHelper.safeDefer(interaction, {
-                flags: MessageFlags.Ephemeral,
-            });
-            if (!deferred) return;
+            // Do not spend a Discord round-trip on a defer before rendering a
+            // panel that can be built locally. The first panel is sent directly.
+
+            // EMBED_BUILDER_BOT_MANAGED_ALL_GUILD_V2: every guild Builder is a normal bot-managed temporary
+            // message. Discord explicitly allows ephemeral responses to disappear
+            // client-side after a while, so public-channel Builders must not depend
+            // on an ephemeral interaction response for their lifetime. The existing
+            // collector still restricts controls to the invoking user and the same
+            // five-minute inactivity cleanup still owns deletion.
+            const builderBotManaged = Boolean(interaction.guild && interaction.channel);
 
             const state = {
+                builderBotManaged,
                 title: null,
                 message: null,
                 embedFields: [],
@@ -1189,15 +1624,28 @@ export default {
                 builderChildMessages: new Map(),
             };
 
-            const guildEmojis = interaction.guild
-                ? await interaction.guild.emojis.fetch().catch(() => interaction.guild.emojis.cache)
-                : new Map();
+            // Search selection uses the exact same state loader as Modify so the
+            // first live preview, editor fields and Save target all point to the selected embed.
+            const pendingSearchKey = String(interaction.guildId || interaction.guild?.id || 'dm')
+                + ':' + String(interaction.user?.id || 'unknown');
+            const pendingSearch = globalThis.__cloudyEmbedBuilderSearchSelections?.get?.(pendingSearchKey) || null;
+            if (!interaction.__cloudyInitialBuilderSelection && pendingSearch) {
+                interaction.__cloudyInitialBuilderSelection = pendingSearch;
+            }
+            if (applyInitialSearchSelectionToState(interaction, state)) {
+                globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
+            }
+
+            // Guild emojis are already populated by Discord READY. Avoid a REST
+            // fetch before the first Builder paint; the cache is the fast path.
+            const guildEmojis = interaction.guild?.emojis?.cache || new Map();
             const editorEmojis = [...guildEmojis.values()].map(emoji => ({
                 id: emoji.id,
                 name: emoji.name || 'emoji',
                 animated: Boolean(emoji.animated),
             }));
 
+            prepareEmbedManager(interaction.guild, state);
             const colorSessionToken = createEmbedColorPickerSession({
                 userId: interaction.user.id,
                 emojis: editorEmojis,
@@ -1206,7 +1654,18 @@ export default {
                     message: state.message || '',
                     footer: state.bottomLine || '',
                     fields: Array.isArray(state.embedFields) ? state.embedFields : [],
+                    templateKind: state.modifyTarget?.templateKind || 'embed', // CONTENT_TEMPLATE_EDITOR_V1
                 }),
+                onEditorHold: async () => {
+                    // BUILDER_NATIVE_COLOR_INSTANT_V1: heartbeat only extends the existing Builder lifetime.
+                    // Do not spend a Discord edit every 20 seconds just to prove it is alive.
+                    if (state.builderPreviewUnavailable || !state.builderDashboardMessage) {
+                        const error = new Error('The message builder session has expired.');
+                        error.code = 'EMBED_BUILDER_EXPIRED';
+                        throw error;
+                    }
+                    touchBuilderSessionMessage(state.builderDashboardMessage);
+                },
                 onEditorUpdate: async (field, value) => {
                     // Browser editor lifetime is owned by builderSessionCleanup/onEditorHold.
                     // Do not reset the Discord collector here: doing that re-enables the
@@ -1219,12 +1678,9 @@ export default {
                     if (fieldMatch && Number(fieldMatch[2]) < (state.embedFields?.length || 0)) {
                         state.embedFields[Number(fieldMatch[2])][fieldMatch[1]] = value;
                     }
-                    const refreshed = await refreshBuilder(interaction, state);
-                    if (!refreshed) {
-                        const error = new Error('The message builder session has expired.');
-                        error.code = 'EMBED_BUILDER_EXPIRED';
-                        throw error;
-                    }
+                    void refreshBuilderPreviewOnly(interaction, state).catch(error => {
+                        logger.error('Failed to refresh editor preview:', error);
+                    });
                 },
                 onColor: async color => {
                     // The editor hold already protects the Builder. Keep color edits from
@@ -1242,9 +1698,72 @@ export default {
             state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
             state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
 
-            await refreshBuilder(interaction, state);
+            // BUILDER_NATIVE_COLOR_INSTANT_V1: for guild Builders, launch the preview interaction reply and
+            // the normal bot-managed dashboard send in the same turn. They are independent
+            // Discord requests, so neither waits on a second follow-up round-trip.
+            let previewMessage = null;
+            let dashboardMessage = null;
 
-            const dashboardMessage = await interaction.fetchReply();
+            if (builderBotManaged
+                && interaction.channel?.send
+                && !interaction.replied
+                && !interaction.deferred) {
+                const previewResponsePromise = interaction.reply({
+                    embeds: [buildPreviewEmbed(state)],
+                    components: getBuilderPreviewComponents(state),
+                    withResponse: true,
+                }).catch(() => null);
+                const dashboardPromise = interaction.channel.send({
+                    embeds: [buildControlEmbed(state)],
+                    components: buildControls(state),
+                }).catch(() => null);
+
+                const [previewResponse, sentDashboard] = await Promise.all([
+                    previewResponsePromise,
+                    dashboardPromise,
+                ]);
+                previewMessage = previewResponse?.resource?.message || null;
+                dashboardMessage = sentDashboard || null;
+
+                if (!previewMessage && interaction.replied) {
+                    previewMessage = await interaction.fetchReply().catch(() => null);
+                }
+            } else {
+                const initialShown = await InteractionHelper.safeReply(interaction, {
+                    embeds: [buildPreviewEmbed(state)],
+                    components: getBuilderPreviewComponents(state),
+                    flags: MessageFlags.Ephemeral,
+                });
+                if (initialShown) {
+                    const dashboardPromise = interaction.followUp({
+                        embeds: [buildControlEmbed(state)],
+                        components: buildControls(state),
+                        flags: MessageFlags.Ephemeral,
+                        fetchReply: true,
+                    }).catch(() => null);
+                    [previewMessage, dashboardMessage] = await Promise.all([
+                        interaction.fetchReply().catch(() => null),
+                        dashboardPromise,
+                    ]);
+                }
+            }
+
+            if (!previewMessage || !dashboardMessage) {
+                await interaction.deleteReply().catch(() => {});
+                await dashboardMessage?.delete?.().catch(() => {});
+                return;
+            }
+
+            state.builderMessage = previewMessage;
+            // BUILDER_SPLIT_PREVIEW_OWNERSHIP_V1: the top split preview belongs to this Builder session.
+            registerBuilderPreviewMessage(previewMessage);
+            state.builderMessageId = previewMessage.id;
+            state.builderWebhook = interaction.webhook;
+            state.builderPreviewUnavailable = false;
+
+            state.builderDashboardMessage = dashboardMessage;
+            state.builderDashboardMessageId = dashboardMessage.id;
+            state.builderDashboardWebhook = builderBotManaged ? null : interaction.webhook;
             const collector = dashboardMessage.createMessageComponentCollector({
                 filter: buttonInteraction =>
                     buttonInteraction.isButton() &&
@@ -1269,6 +1788,10 @@ export default {
 
             collector.on('collect', async buttonInteraction => {
                 try {
+                    if (state.saveInFlight && buttonInteraction.customId !== 'simple_embed_post') {
+                        await buttonInteraction.deferUpdate();
+                        return;
+                    }
                     switch (buttonInteraction.customId) {
                         case 'simple_embed_content':
                             await editContent(buttonInteraction, state);
@@ -1276,13 +1799,11 @@ export default {
                         case 'simple_embed_logo':
                             state.showLogo = true;
                             state.removeExistingLogo = false;
-                            await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
                             break;
                         case 'simple_embed_remove_logo':
                             state.showLogo = false;
                             state.removeExistingLogo = true;
-                            await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
                             break;
                         case 'simple_embed_footer':
@@ -1296,7 +1817,6 @@ export default {
                             state.mediaBuffer = null;
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
-                            await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
                             break;
                         case 'simple_embed_buttons':
@@ -1307,27 +1827,6 @@ export default {
                             );
                             break;
                         case 'simple_embed_clear_buttons':
-                        case 'simple_embed_remove_buttons': {
-                            if (state.modifyTarget && !state.componentsDirty) {
-                                await hydrateBuilderMessageComponents(buttonInteraction.guild, state).catch(() => false);
-                            }
-                            const beforeCount = countBuilderButtons(state);
-                            const nextRows = removeRightmostBuilderButton(state.componentRows);
-                            const afterCount = nextRows.reduce(
-                                (total, row) => total + (row.components || []).filter(component => Number(component?.type) === 2).length,
-                                0,
-                            );
-                            if (afterCount < beforeCount) {
-                                state.componentRows = nextRows;
-                                state.componentRowsSourceMessageId = state.modifyTarget?.messageId
-                                    ? String(state.modifyTarget.messageId)
-                                    : 'new';
-                                state.componentsDirty = true;
-                            }
-                            await buttonInteraction.deferUpdate().catch(() => {});
-                            await refreshBuilder(buttonInteraction, state);
-                            break;
-                        }
                         case 'simple_embed_modify':
                             await openEmbedManager(
                                 buttonInteraction,
@@ -1340,6 +1839,11 @@ export default {
                             break;
                         case 'simple_embed_post':
                             if (state.modifyTarget) {
+                                if (state.pendingBuilderDelete) {
+                                    await buttonInteraction.deferUpdate().catch(() => {});
+                                    await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
+                                    break;
+                                }
                                 await buttonInteraction.deferUpdate().catch(() => {});
                                 await saveExistingEmbed(buttonInteraction, interaction.guild, state);
                                 break;
@@ -1365,12 +1869,19 @@ export default {
                             await refreshBuilder(submitted, state);
                             break;
                         }
+                        case 'simple_embed_delete_from_builder':
+                            await buttonInteraction.deferUpdate().catch(() => {});
+                            await togglePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
+                            break;
                         case 'simple_embed_close':
                             await buttonInteraction.deferUpdate().catch(() => {});
+                            await deleteBuilderDashboardMessage(state).catch(() => {});
+                            await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
                             collector.stop('manual-close');
                             await interaction.deleteReply().catch(() => {});
                             break;
                         case 'simple_embed_reset':
+                            await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
                             state.title = null;
                             state.message = null;
                             state.embedFields = [];
@@ -1383,11 +1894,12 @@ export default {
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
                             state.modifyTarget = null;
+                            state.pendingBuilderDelete = null;
                             state.componentRows = [];
                             state.componentRowsSourceMessageId = 'new';
                             state.componentsDirty = false;
-                            await buttonInteraction.deferUpdate();
                             await refreshBuilder(buttonInteraction, state);
+                            await syncBuilderButtonPreview(buttonInteraction, state).catch(() => {});
                             break;
                         default:
                             await buttonInteraction.deferUpdate();
@@ -1420,6 +1932,12 @@ export default {
             });
 
             collector.on('end', async () => {
+                // BUILDER_PREVIEW_SESSION_CLEANUP_V1: dashboard cleanup and preview cleanup are one
+                // lifecycle. This also covers the five-minute inactivity path,
+                // where the dashboard is removed by builderSessionCleanup first.
+                await deleteBuilderPreviewMessage(state).catch(() => {});
+                await deleteBuilderDashboardMessage(state).catch(() => {});
+                await cleanupBuilderButtonUi(interaction, state).catch(() => {});
                 const currentSession = ACTIVE_BUILDER_SESSIONS.get(builderSessionKey(interaction));
                 if (currentSession?.collector === collector) {
                     ACTIVE_BUILDER_SESSIONS.delete(builderSessionKey(interaction));

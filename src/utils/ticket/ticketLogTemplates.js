@@ -38,6 +38,7 @@ export function getTicketLogTemplate(embed) {
     .map(field => cleanFieldName(field?.name))
     .filter(Boolean));
 
+  if (cleanTitle(data.title) === 'ticket reopened') return { key: 'reopen', label: 'Ticket reopened' };
   if (!fields.has('ticket')) return null;
 
   for (const template of TICKET_LOG_TEMPLATES) {

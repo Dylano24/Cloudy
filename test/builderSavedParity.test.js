@@ -510,7 +510,7 @@ test('one Too fast Save styles every activity channel but never freezes its live
   }
 });
 
-test('Builder Search collapses Too fast from different activity channels into one result', () => {
+test('Builder Search keeps distinct activity cooldown text available', () => {
   const channels = ['crime-search-channel', 'beg-search-channel', 'work-search-channel'];
   const guild = {
     channels: {
@@ -537,8 +537,9 @@ test('Builder Search collapses Too fast from different activity channels into on
   }));
 
   const matches = buildMatches(guild, records, 'too fast');
-  assert.equal(matches.length, 1);
-  assert.equal(matches[0].document.title, 'Too fast');
+  assert.equal(matches.length, 3);
+  assert.ok(matches.every(match => match.document.title === 'Too fast'));
+  assert.deepEqual(new Set(matches.map(match => match.record.messageId)), new Set(records.map(record => record.messageId)));
 });
 
 

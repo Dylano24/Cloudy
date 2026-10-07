@@ -70,8 +70,18 @@ function registerSessionDeleter(message, deleteMessage) {
   sessionDeleters.set(String(message.id), deleteMessage);
 }
 
+function disableNativeBuilderCollectorIdle(collector) {
+  // EMBED_EDITOR_EXACT_OPEN_LEASE_V2: do not rely on resetTimer({ idle: null }) to disable native idle.
+  if (collector?._idletimeout) clearTimeout(collector._idletimeout);
+  if (collector && '_idletimeout' in collector) collector._idletimeout = null;
+  if (collector?.options && typeof collector.options === 'object') {
+    delete collector.options.idle;
+  }
+}
+
 export function registerBuilderSessionCollector(message, collector) {
   if (!isBuilderSessionMessage(message) || !collector) return false;
+  disableNativeBuilderCollectorIdle(collector);
   sessionCollectors.set(String(message.id), collector);
   return true;
 }
@@ -209,6 +219,8 @@ export async function deleteBuilderSessionMessage(message) {
   if (!message?.id) return false;
 
   const key = String(message.id);
+  // EMBED_EDITOR_EXACT_OPEN_LEASE_V2: editor/color-picker hold blocks every Builder deletion path.
+  if (isBuilderSessionHeld(key)) return false;
   clearBuilderSessionTimer(key);
   const collector = sessionCollectors.get(key);
   sessionCollectors.delete(key);
@@ -245,10 +257,10 @@ export function touchBuilderSessionMessage(message, deleteMessage = null, visite
 
   const activeHoldId = editorHoldContext.getStore()?.holdId || null;
   if (activeHoldId) {
-    collector?.resetTimer?.({ idle: null });
+    disableNativeBuilderCollectorIdle(collector);
     holdBuilderSessionMessage(message, activeHoldId, deleteMessage);
   } else if (isBuilderSessionHeld(key)) {
-    collector?.resetTimer?.({ idle: null });
+    disableNativeBuilderCollectorIdle(collector);
     clearBuilderSessionTimer(key);
   } else {
     collector?.resetTimer?.({ idle: BUILDER_SESSION_IDLE_MS });

@@ -93,7 +93,7 @@ test('website appeals deliver Discord and Rust forms to the current channel and 
   assert.equal((await submit({ ...body, email: '' })).code, 400);
   assert.equal((await submit({ ...body, scope: 'rust', action: 'Mute' })).code, 400);
   for (const [scope, action] of [['discord', 'Ban'], ['rust', 'Ban'], ['discord', 'Mute'], ['discord', 'Other'], ['rust', 'Other']]) {
-    assert.equal((await submit({ ...body, scope, action })).code, 200);
+    assert.equal((await submit({ ...body, scope, action, email: `${scope}-${action}@example.com` })).code, 200);
   }
   assert.equal(sent.length, 5);
   assert.equal(reviews.size, 5);
