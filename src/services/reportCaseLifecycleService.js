@@ -421,6 +421,18 @@ export async function handleReportCaseControl(interaction, client, [action, mess
 
       if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
       await refreshLogControls(client, interaction.guild, record, audience);
+
+      if (action === 'read') {
+        keepReply = true;
+        await InteractionHelper.safeEditReply(interaction, {
+          content: 'Thank you. We have recorded that you have read this report.',
+          embeds: [],
+          components: [],
+          allowedMentions: { parse: [] },
+        });
+        const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
+        timer.unref?.();
+      }
     });
     if (!keepReply) await interaction.deleteReply().catch(() => {});
   } catch (error) { await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` }); }
