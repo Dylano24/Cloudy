@@ -1646,6 +1646,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
                 if (record) previewRecord = await hydrateBuilderPreviewRecord(guild, record, previewRecord, interaction.user.id).catch(() => previewRecord);
                 let loaded = record ? loadRecordSnapshotIntoState(state, guild, record, previewRecord, sourceRecord) : false;
+                const loadedFromSnapshot = loaded;
                 if (!loaded) {
                     const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                     if (selectionVersion !== session.selectionVersion) return;
@@ -1667,7 +1668,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session),
                 ]);
                 if (selectionVersion !== session.selectionVersion) return;
-                if (record?.snapshot && loaded) {
+                if (loadedFromSnapshot) {
                     void refreshSelectedBuilderComponents(guild, state, refreshBuilder, messageId);
                 }
             })().catch(error => {
