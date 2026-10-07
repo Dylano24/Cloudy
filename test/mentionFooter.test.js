@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { REST } from '@discordjs/rest';
 import { withCloudyFooter, installCloudyFooterOutput, CLOUDY_STANDARD_FOOTER } from '../src/utils/cloudyFooter.js';
 
-test('all message mentions retain their mention and allowed-mentions rules while receiving branding', () => {
+test('pure mention notifications stay footer-free while real messages and embeds keep branding', () => {
   for (const content of ['<@123456789012345678>', '<@!123456789012345678>', '<@&223456789012345678> <@123456789012345678>', '@everyone', '@here\n<@123456789012345678>']) {
     const payload = { content, allowed_mentions: { parse: [] } };
     const result = withCloudyFooter(payload);
-    assert.equal(result.content, `${content}\n\n${CLOUDY_STANDARD_FOOTER}`);
+    assert.equal(result.content, content);
     assert.deepEqual(result.allowed_mentions, payload.allowed_mentions);
   }
   assert.equal(withCloudyFooter({ content: '<@123456789012345678> Please read this.' }).content, `<@123456789012345678> Please read this.\n\n${CLOUDY_STANDARD_FOOTER}`);
@@ -34,9 +34,9 @@ test('actual Discord REST message and interaction paths keep recipient tags and 
     await rest.request({ fullRoute: '/interactions/123456789012345678/deferred-token/callback', method: 'POST', body: { type: 5, data: { flags: 64 } } });
     await rest.request({ fullRoute: '/webhooks/123456789012345678/deferred-token/messages/@original', method: 'PATCH', body: { content: 'Deferred interaction result' } });
     await rest.request({ fullRoute: '/webhooks/123456789012345678/token', method: 'POST', body: { content: mention, embeds: [{ title: 'Report action log' }] } });
-    assert.equal(captured[0].body.content, `${mention}\n\n${CLOUDY_STANDARD_FOOTER}`);
+    assert.equal(captured[0].body.content, mention);
     assert.equal(captured[1].body.content, 'Updated report status');
-    assert.equal(captured[2].body.data.content, `${mention}\n\n${CLOUDY_STANDARD_FOOTER}`);
+    assert.equal(captured[2].body.data.content, mention);
     assert.equal(captured[3].body.data.flags, 64);
     assert.equal(captured[4].body.content, `Deferred interaction result\n\n${CLOUDY_STANDARD_FOOTER}`);
     assert.equal(captured[5].body.content, mention);
