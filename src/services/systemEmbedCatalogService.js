@@ -46,7 +46,7 @@ const DEFAULT_TEMPLATES = [
   { key: 'not enough money', context: 'gambling', kind: 'embed', title: 'Not enough money', description: 'You only have {dynamic} cash, but you are trying to bet {dynamic}.', color: CLOUDY_RED_COLOR },
   { key: 'invalid input', context: 'gambling', kind: 'embed', title: 'Invalid Input', description: 'Please check your input and try again.', color: CLOUDY_RED_COLOR },
   { key: 'invalid code', context: 'botlog', kind: 'embed', title: 'Invalid code', description: 'That code is invalid or no longer available.', color: CLOUDY_RED_COLOR },
-  { key: 'permission denied', context: 'botlog', kind: 'embed', title: 'Permission Denied', description: "You don't have permission to do that.", color: CLOUDY_RED_COLOR },
+  { key: 'permission denied', context: 'botlog', kind: 'embed', title: 'Permission denied', description: "You don't have permission to do that.", color: CLOUDY_RED_COLOR },
   { key: 'configuration error', context: 'botlog', kind: 'embed', title: 'Configuration Error', description: 'This feature is not set up yet. Ask a server administrator to configure it.', color: CLOUDY_RED_COLOR },
   { key: 'database error', context: 'botlog', kind: 'embed', title: 'Database Error', description: 'Something went wrong while saving data. Please try again in a moment.', color: CLOUDY_RED_COLOR },
   { key: 'network error', context: 'botlog', kind: 'embed', title: 'Network Error', description: 'I could not reach an external service. Please try again in a moment.', color: CLOUDY_RED_COLOR },
