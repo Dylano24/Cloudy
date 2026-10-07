@@ -2,17 +2,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('Embed Builder precomputes canonical Modify data before the button click', () => {
+test('Embed Builder preloads only registry data and invalidates it after mutations', () => {
   const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
   const prepareStart = source.indexOf('export function prepareEmbedManager');
   const openStart = source.indexOf('export async function openEmbedManager', prepareStart);
   assert.ok(prepareStart >= 0 && openStart > prepareStart);
   const prepare = source.slice(prepareStart, openStart);
-  assert.match(prepare, /getCanonicalBuilderRecords\(guild, storedRecords, \{ perChannel: true \}\)/);
+  assert.match(prepare, /getEmbedRegistry\(guild\.id\)/);
+  assert.doesNotMatch(prepare, /getCanonicalBuilderRecords\(/);
+  assert.match(prepare, /getEmbedRegistryGeneration\(guild\.id\)/);
 
   const openBody = source.slice(openStart);
-  assert.match(openBody, /preparedData\?\.records/);
-  assert.match(openBody, /rememberEmbedManagerRecordCache\(guild\.id, buttonInteraction\.user\.id, records\)/);
+  assert.match(openBody, /preparedGeneration === getEmbedRegistryGeneration\(guild\.id\)/);
+  assert.match(openBody, /includeBotHistory: false/);
 });
 
 test('local Builder state changes refresh preview and dashboard without a defer round-trip', () => {
@@ -66,7 +68,7 @@ test('Modify and manager pagination use the one-request fast path on real Discor
   const fallbackFollowUp = startup.indexOf('buttonInteraction.followUp({', directReply);
   assert.ok(directReplyCheck >= 0 && directReply > directReplyCheck);
   assert.match(startup, /withResponse:\s*true/);
-  assert.match(startup, /managerResponse\?\.resource\?\.message/);
+  assert.match(startup, /response\?\.resource\?\.message/);
   assert.ok(fallbackDefer > directReply, 'defer must only exist after the direct reply fast path');
   assert.ok(fallbackFollowUp > directReply, 'followUp must only exist after the direct reply fast path');
 

@@ -4,6 +4,8 @@ import { logger } from './logger.js';
 
 const REDIS_URL = String(process.env.REDIS_URL || '').trim();
 const COMMAND_TIMEOUT_MS = 800;
+const CONNECT_TIMEOUT_MS = 250;
+const RECONNECT_BACKOFF_MS = 5_000;
 const CACHE_PREFIX = 'cloudy:cache:';
 
 let socket = null;
@@ -12,6 +14,7 @@ let connectingPromise = null;
 let inputBuffer = Buffer.alloc(0);
 const pending = [];
 let lastWarningAt = 0;
+let retryAfter = 0;
 
 function warnOnce(message) {
   const now = Date.now();
@@ -86,6 +89,7 @@ function rejectPending(error) {
 }
 
 function resetConnection(error = new Error('Redis connection reset')) {
+  retryAfter = Date.now() + RECONNECT_BACKOFF_MS;
   connected = false;
   inputBuffer = Buffer.alloc(0);
   const current = socket;
@@ -127,8 +131,9 @@ function issue(parts) {
 
 async function ensureConnected() {
   if (!REDIS_URL) return false;
-  if (connected && socket && !socket.destroyed) return true;
   if (connectingPromise) return connectingPromise;
+  if (connected && socket && !socket.destroyed) return true;
+  if (Date.now() < retryAfter) return false;
 
   connectingPromise = (async () => {
     let parsed;
@@ -147,24 +152,32 @@ async function ensureConnected() {
     await new Promise((resolve, reject) => {
       const options = { host, port };
       const nextSocket = parsed.protocol === 'rediss:'
-        ? tls.connect(options, resolve)
-        : net.createConnection(options, resolve);
+        ? tls.connect(options)
+        : net.createConnection(options);
+
+      const event = parsed.protocol === 'rediss:' ? 'secureConnect' : 'connect';
+      const timeout = setTimeout(() => {
+        onInitialError(new Error('Redis connection timeout'));
+      }, CONNECT_TIMEOUT_MS);
+      timeout.unref?.();
 
       const onInitialError = error => {
-        nextSocket.off('connect', resolve);
-        nextSocket.off('secureConnect', resolve);
+        clearTimeout(timeout);
+        nextSocket.off(event, onConnect);
+        nextSocket.destroy();
         reject(error);
       };
       nextSocket.once('error', onInitialError);
 
-      const event = parsed.protocol === 'rediss:' ? 'secureConnect' : 'connect';
-      nextSocket.once(event, () => {
+      const onConnect = () => {
+        clearTimeout(timeout);
         nextSocket.off('error', onInitialError);
         socket = nextSocket;
         connected = true;
         inputBuffer = Buffer.alloc(0);
         nextSocket.on('data', handleData);
         nextSocket.on('error', error => {
+          if (socket !== nextSocket) return;
           warnOnce(`connection error: ${error.message}`);
           resetConnection(error);
         });
@@ -172,7 +185,8 @@ async function ensureConnected() {
           if (socket === nextSocket) resetConnection(new Error('Redis connection closed'));
         });
         resolve();
-      });
+      };
+      nextSocket.once(event, onConnect);
     });
 
     if (password) {
@@ -182,6 +196,7 @@ async function ensureConnected() {
       await issue(auth);
     }
     await issue(['PING']);
+    retryAfter = 0;
     return true;
   })()
     .catch(error => {

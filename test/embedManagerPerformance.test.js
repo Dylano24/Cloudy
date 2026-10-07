@@ -14,19 +14,21 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
   assert.match(loader, /const records = await getEmbedRegistry\(guild\.id\)/);
   assert.match(loader, /if \(records\.length\) return records/);
 
-  const followUp = source.indexOf('const managerMessage = await buttonInteraction.followUp', openStart);
+  const followUp = source.indexOf('let managerMessage;', openStart);
   assert.ok(followUp > openStart);
   const firstPaint = source.slice(openStart, followUp);
 
   // First paint is DB/local only and excludes Search-only archive records.
-  assert.match(firstPaint, /const allStoredRecords = await getEmbedRegistry\(guild\.id\)/);
+  assert.match(firstPaint, /await getEmbedRegistry\(guild\.id\)/);
   assert.match(firstPaint, /filterEmbedManagerRecords\([\s\S]*includeBotHistory: false/);
   assert.doesNotMatch(firstPaint, /discoverEmbedManagerOverviewRecords\(/);
   assert.doesNotMatch(firstPaint, /reconcileEmbedRegistry\(/);
 
-  // Slow Discord discovery may happen only after the manager is already visible.
+  // Preserve current live-only behavior: history discovery is user-selected,
+  // never an automatic background sweep of every channel.
   const afterPaint = source.slice(followUp);
-  assert.match(afterPaint, /discoverEmbedManagerOverviewRecords\(/);
+  assert.doesNotMatch(afterPaint, /discoverEmbedManagerOverviewRecords\(/);
+  assert.match(afterPaint, /discoverRecentChannelEmbeds\(guild, channelId/);
   assert.match(afterPaint, /loadCurrentRegistry\(guild, buttonInteraction\.client\.user\.id\)/);
 });
 
