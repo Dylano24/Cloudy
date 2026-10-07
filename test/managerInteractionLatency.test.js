@@ -137,4 +137,3 @@ test('a slow registry silently acknowledges before the Discord deadline and reta
   assert.equal(follows, 1);
   collector.stop();
 });
-
