@@ -4,6 +4,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  PermissionFlagsBits,
 } from 'discord.js';
 import {
   createTicket as createTicketBase,
@@ -255,8 +256,12 @@ async function stabilizeCreatedTicket(channel, fallbackTicketData = null, prefer
     await saveTicketData(channel.guild.id, channel.id, ticketData);
   }
 
-  await syncCloudyTicketMessage(channel, mainMessage);
-  await syncCloudyTicketChannelName(channel);
+  // The main message and scheduled channel-name sync read the same durable
+  // ticket record but touch different resources, so neither must block the other.
+  await Promise.all([
+    syncCloudyTicketMessage(channel, mainMessage),
+    syncCloudyTicketChannelName(channel),
+  ]);
   return { channel, ticketData };
 }
 
@@ -277,6 +282,16 @@ async function cleanupIncompleteTicket(channel) {
     channelId: channel?.id,
   });
   return false;
+}
+
+export function categoryAlreadyGrantsTicketStaffAccess(category, staffRoleId) {
+  const overwrite = category?.permissionOverwrites?.cache?.get?.(staffRoleId);
+  return Boolean(
+    overwrite?.allow?.has?.(PermissionFlagsBits.ViewChannel)
+    && overwrite?.allow?.has?.(PermissionFlagsBits.ReadMessageHistory)
+    && !overwrite?.deny?.has?.(PermissionFlagsBits.ViewChannel)
+    && !overwrite?.deny?.has?.(PermissionFlagsBits.ReadMessageHistory)
+  );
 }
 
 export async function checkTicketCreationLimit(guild, userId, config) {
@@ -337,7 +352,10 @@ export async function createTicket(guild, member, categoryId, reason, priority =
       }
       for (const id of new Set([categoryId, config.ticketClosedCategoryId].filter(Boolean))) {
         const category = guild.channels.cache.get(id) || await guild.channels.fetch(id).catch(() => null);
-        if (category?.type === ChannelType.GuildCategory) {
+        if (category?.type === ChannelType.GuildCategory
+          && !categoryAlreadyGrantsTicketStaffAccess(category, staffRole.id)) {
+          // An identical overwrite is already durable on Discord. Avoid
+          // redundant REST writes on every new ticket while preserving access.
           await category.permissionOverwrites.edit(staffRole.id, {
             ViewChannel: true, ReadMessageHistory: true,
           });
