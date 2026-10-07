@@ -99,6 +99,64 @@ test('Read reuses the guild member supplied by Discord without an extra API fetc
   assert.deepEqual(channel.overwriteEdits[0].id, f.target.id);
 });
 
+test('second report Read never waits behind slow log updates from the first Read', async () => {
+  const f = fixture();
+  await f.register();
+  const initial = await f.submit('no_sanction');
+  const reporterEntry = initial.cases.reporter;
+  const targetEntry = initial.cases.target;
+  const reporterChannel = f.channels.get(reporterEntry.channelId);
+  const targetChannel = f.channels.get(targetEntry.channelId);
+  const reporterNotice = reporterChannel.messages.cache.get(reporterEntry.messageId);
+  const targetNotice = targetChannel.messages.cache.get(targetEntry.messageId);
+  const first = f.interaction(f.reporter.user, reporterNotice, reporterChannel.id);
+  const second = f.interaction(f.target.user, targetNotice, targetChannel.id);
+
+  let unblock;
+  const gate = new Promise(resolve => { unblock = resolve; });
+  let slowLogStarted;
+  const slowLog = new Promise(resolve => { slowLogStarted = resolve; });
+  const originalFetch = f.logs.messages.fetch;
+  f.logs.messages.fetch = async id => {
+    if (id === reporterEntry.createdLogId) {
+      slowLogStarted();
+      await gate;
+    }
+    return originalFetch(id);
+  };
+
+  const firstRead = handleReportCaseControl(first, f.client, ['read', initial.messageId, 'reporter']);
+  let secondRead;
+  try {
+    // The first report is already persisted and acknowledged but staff-log
+    // refresh is deliberately stuck. The next audience must still progress.
+    await slowLog;
+    assert.equal(json(first.error.embeds[0]).title, 'Thank you.');
+
+    secondRead = handleReportCaseControl(second, f.client, ['read', initial.messageId, 'target']);
+    await Promise.race([
+      secondRead,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(
+        'The second Read blocked behind unrelated staff-log presentation',
+      )), 1000)),
+    ]);
+
+    const stored = await f.client.db.get(reportKey(f.guild.id, initial.messageId));
+    assert.ok(stored.cases.reporter.closedAt);
+    assert.ok(stored.cases.target.closedAt);
+    assert.ok(stored.cases.reporter.deletePromptId);
+    assert.ok(stored.cases.target.deletePromptId);
+    assert.ok(stored.cases.reporter.closeLogId);
+    assert.ok(stored.cases.target.closeLogId);
+    assert.equal(json(second.error.embeds[0]).title, 'Thank you.');
+    assert.equal(targetChannel.messages.cache.get(targetEntry.messageId).components[0]
+      .toJSON().components[0].disabled, true);
+  } finally {
+    unblock();
+    await Promise.allSettled([firstRead, secondRead].filter(Boolean));
+  }
+});
+
 test('Read acknowledges silently without Discord thinking or deleting the original message', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture();
