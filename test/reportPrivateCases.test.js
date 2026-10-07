@@ -452,7 +452,11 @@ test('No sanction closes the report without moderation and notifies both members
     const participant = audience === 'reporter' ? 'reporter' : 'target';
     assert.equal(notice.content, `<@${participant}>`);
     assert.deepEqual(notice.allowedMentions, { parse: [], users: [participant], roles: [] });
-    assert.match(json(notice.embeds[0]).description, /no sanction was applied/i);
+    if (audience === 'target') {
+      assert.equal(json(notice.embeds[0]).description, 'A report about you has been reviewed by our staff, and no sanction was applied.');
+    } else {
+      assert.match(json(notice.embeds[0]).description, /no sanction was applied/i);
+    }
     assert.doesNotMatch(JSON.stringify(json(notice.embeds[0])), /Handled by|Private action reason/);
   }
   const handled = f.payloads.find(message => message.channelId === 'reports');
