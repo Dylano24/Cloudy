@@ -21,10 +21,11 @@ test('concurrent initialization shares a connection and production failure remai
 });
 
 test('explicit TLS verification survives pg connection string parsing and legacy require remains compatible', t => {
-  const names = ['POSTGRES_SSL', 'PGSSLMODE', 'POSTGRES_URL', 'POSTGRES_SSL_CA'];
+  const names = ['POSTGRES_SSL', 'PGSSLMODE', 'POSTGRES_URL', 'POSTGRES_SSL_CA', 'NODE_ENV'];
   const saved = Object.fromEntries(names.map(key => [key, process.env[key]]));
   t.after(() => { for (const key of names) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; } });
   delete process.env.POSTGRES_SSL; delete process.env.PGSSLMODE;
+  process.env.NODE_ENV = 'production';
   process.env.POSTGRES_URL = 'postgresql://localhost/cloudy?sslmode=verify-full';
   assert.equal(resolveSslConfig().rejectUnauthorized, true);
   assert.equal(resolveSslConfig().checkServerIdentity, undefined);
@@ -34,6 +35,10 @@ test('explicit TLS verification survives pg connection string parsing and legacy
   assert.equal(typeof resolveSslConfig().checkServerIdentity, 'function');
   process.env.POSTGRES_SSL = 'require'; assert.equal(resolveSslConfig().rejectUnauthorized, false);
   process.env.POSTGRES_SSL = 'disable'; assert.equal(resolveSslConfig(), false);
+  delete process.env.POSTGRES_SSL;
+  process.env.POSTGRES_URL = 'postgresql://localhost/cloudy?ssl=false';
+  assert.equal(resolveSslConfig(), false);
+  assert.equal(resolvePostgresPoolConfig().ssl, false);
 });
 
 test('appeal limits bound repeated emails, total deliveries and key growth with expiration', () => {
