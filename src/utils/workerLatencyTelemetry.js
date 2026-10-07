@@ -30,7 +30,7 @@ export function parseAnonymousLatencySample(raw) {
     const data = JSON.parse(raw);
     if (data?.version !== 1
         || typeof data.hour !== 'string'
-        || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}$/.test(data.hour)) return null;
+        || !/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(data.hour)) return null;
     const rebuilt = createAnonymousLatencySample(data, new Date(data.hour + ':00:00.000Z'));
     if (!rebuilt || rebuilt.hour !== data.hour) return null;
     // Reject malformed or user-supplied fields instead of silently converting
