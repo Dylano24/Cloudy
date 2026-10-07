@@ -370,12 +370,14 @@ async function revokeReportParticipantAccess(channel, guild, userId) {
 
 export async function handleReportCaseControl(interaction, client, [action, messageId, audience = 'target']) {
   if (!interaction.inGuild() || !['close', 'read', 'delete'].includes(action) || !audiences.includes(audience)) return;
-  await interaction.deferReply({ flags: 64 });
+  const silentRead = action === 'read';
+  if (silentRead) await interaction.deferUpdate();
+  else await interaction.deferReply({ flags: 64 });
   let keepReply = false;
   const confirmRead = async () => {
-    if (action !== 'read' || keepReply) return;
+    if (!silentRead || keepReply) return;
     keepReply = true;
-    await InteractionHelper.safeEditReply(interaction, {
+    const confirmation = await interaction.followUp({
       content: null,
       embeds: [caseEmbed({
         title: 'Thank you.',
@@ -383,9 +385,15 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         color: CLOUDY_GREEN_COLOR,
       })],
       components: [],
+      flags: 64,
+      fetchReply: true,
       allowedMentions: { parse: [] },
     });
-    const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
+    const timer = setTimeout(() => {
+      if (confirmation?.id && interaction.webhook?.deleteMessage) {
+        interaction.webhook.deleteMessage(confirmation.id).catch(() => {});
+      }
+    }, 10_000);
     timer.unref?.();
   };
   try {
@@ -448,8 +456,14 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
       await refreshLogControls(client, interaction.guild, record, audience);
     });
-    if (!keepReply) await interaction.deleteReply().catch(() => {});
-  } catch (error) { await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` }); }
+    if (!silentRead && !keepReply) await interaction.deleteReply().catch(() => {});
+  } catch (error) {
+    if (silentRead) {
+      await interaction.followUp({ content: `Error: ${error.message}`, flags: 64, allowedMentions: { parse: [] } }).catch(() => {});
+    } else {
+      await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` });
+    }
+  }
 }
 
 export async function restoreReportCaseTimers(client) {
