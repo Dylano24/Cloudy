@@ -4,6 +4,8 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { ModerationService } from './moderation/moderationService.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { createEmbed } from '../utils/embeds.js';
+
+const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 import { loadReport, publishReportOutcome, reportKey, withReportLock, validateReportDestinations } from './reportCaseService.js';
 import { rememberMessageDeleter } from './deletionAttributionService.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
@@ -89,7 +91,7 @@ async function deny(interaction, message) {
     title: 'Permission denied',
     description: message,
     color: 'error',
-  }).setTitle('Permission denied');
+  }).setTitle('Permission denied').setThumbnail(CLOUDY_C_LOGO_URL);
 
   const response = await InteractionHelper.universalReply(interaction, {
     flags: MessageFlags.Ephemeral,
