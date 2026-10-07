@@ -81,7 +81,8 @@ function getPgPassword() {
 
 export function resolveSslConfig() {
     const url = getPostgresUrl();
-    const urlMode = url ? new URL(url).searchParams.get('sslmode') : '';
+    const params = url ? new URL(url).searchParams : null;
+    const urlMode = params?.get('sslmode') || params?.get('ssl') || '';
     const sslEnv = (process.env.POSTGRES_SSL || process.env.PGSSLMODE || urlMode || '').toLowerCase();
     if (['false', '0', 'disable'].includes(sslEnv)) return false;
     if (['verify-ca', 'verify-full'].includes(sslEnv)) {
