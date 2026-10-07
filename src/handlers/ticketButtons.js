@@ -235,12 +235,16 @@ const closeTicketModalHandler = {
         if (!deferSuccess) return;
       }
 
-      await assertTicketPermission(interaction, client, 'close this ticket', { allowTicketCreator: true }, 2000);
+      const context = await assertTicketPermission(interaction, client, 'close this ticket', { allowTicketCreator: true }, 2000);
 
       const providedReason = interaction.fields.getTextInputValue('reason')?.trim();
       const reason = providedReason || 'Closed via ticket button without a specific reason.';
 
-      await closeTicket(interaction.channel, interaction.user, reason);
+      await closeTicket(interaction.channel, interaction.user, reason, {
+        ticketData: context.ticketData,
+        config: context.config,
+        actorCanManage: context.canManageTicket,
+      });
 
       // Button/modal close already has a public Ticket closed status message.
       // Only the non-message fallback needs a private confirmation.
