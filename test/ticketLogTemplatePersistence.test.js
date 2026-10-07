@@ -263,6 +263,17 @@ test('saving a ticket-log template recolors the next delete log and preserves dy
 });
 
 
+
+
+test('closed and deleted ticket logs reapply their canonical colors after saved decoration', async () => {
+  const source = await fs.readFile('src/utils/ticket/ticketLogging.js', 'utf8');
+  const decorateAt = source.indexOf('const decorated = await decorateEmbedWithSavedTemplate');
+  const lockAt = source.indexOf("if (event.type === 'close' || event.type === 'delete')", decorateAt);
+  const sendAt = source.indexOf('await channel.send(messageOptions)', lockAt);
+  assert.ok(decorateAt >= 0 && lockAt > decorateAt && sendAt > lockAt);
+  assert.match(source.slice(lockAt, sendAt), /setPreservedEmbedColor\(decorated\.embed, TICKET_EVENT_STYLES\[event\.type\]\.color\)/);
+});
+
 test('generic response templating never restyles configured ticket lifecycle log channels', async () => {
   const source = await fs.readFile('src/events/fullResponseCatalogReady.js', 'utf8');
 

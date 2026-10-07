@@ -1,5 +1,5 @@
 import { createEmbed } from '../embeds.js';
-import { CLOUDY_RED_COLOR } from '../embedColorPolicy.js';
+import { CLOUDY_GREEN_COLOR, CLOUDY_RED_COLOR } from '../embedColorPolicy.js';
 
 export const CLOUDY_TICKET_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const CLOUDY_TICKET_CLOSED_COLOR = 0xFF7A00;
@@ -14,7 +14,8 @@ export function forceCloudyTicketFooter(embed) {
 
   payload.footer = { text: CLOUDY_TICKET_FOOTER };
   if (!payload.fields?.length && payload.title === 'Ticket closed') payload.color = CLOUDY_TICKET_CLOSED_COLOR;
-  if (!payload.fields?.length && payload.title === 'Ticket claimed') payload.color = 0x00C49D;
+  if (!payload.fields?.length && payload.title === 'Ticket reopened') payload.color = CLOUDY_GREEN_COLOR;
+  if (!payload.fields?.length && payload.title === 'Ticket claimed') payload.color = CLOUDY_GREEN_COLOR;
   if (!payload.fields?.length && payload.title === 'Ticket unclaimed') payload.color = 0x000000;
   if (!payload.fields?.length && payload.title === 'Ticket deleted') payload.color = CLOUDY_RED_COLOR;
 
