@@ -116,7 +116,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
     && field.value === 'This report notification will be automatically deleted after 24 hours.'));
   assert.equal(json(reporterNotice.embeds[0]).title, 'Report notification');
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
-  assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
+  assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Read']);
   const publicSuccess = f.payloads.filter(message => message.channelId === 'reports');
   assert.equal(publicSuccess.length, 1);
   const successData = json(publicSuccess[0].embeds[0]);
@@ -153,7 +153,7 @@ test('empty reason, invalid duration and unauthorized submissions cannot perform
   await assert.rejects(handleReportModeration(timeout, f.client, ['timeout', 'target', 'report']), /Timeout must/);
 });
 
-test('target Close creates a private red Delete report prompt while report logs stay informational', async t => {
+test('target Read creates a private red Delete report prompt while report logs stay informational', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
   let record = await f.submit();
@@ -161,21 +161,31 @@ test('target Close creates a private red Delete report prompt while report logs 
   const notice = channel.messages.cache.get(record.cases.target.messageId);
 
   const forged = f.interaction(f.reporter.user, notice, channel.id);
-  await handleReportCaseControl(forged, f.client, ['close', 'report', 'target']);
+  await handleReportCaseControl(forged, f.client, ['read', 'report', 'target']);
   assert.equal(channel.overwriteEdits.length, 0);
 
   const close = f.interaction(f.target.user, notice, channel.id);
-  await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
+  await handleReportCaseControl(close, f.client, ['read', 'report', 'target']);
+  assert.equal(close.error.content, 'Thank you. We have recorded that you have read this report.');
+  assert.deepEqual(close.error.embeds, []);
+  const confirmationDeletesBefore = f.replyDeletes.length;
+  t.mock.timers.tick(9_999);
+  assert.equal(f.replyDeletes.length, confirmationDeletesBefore);
+  t.mock.timers.tick(1);
+  assert.equal(f.replyDeletes.length, confirmationDeletesBefore + 1);
 
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.ok(record.cases.target.closedAt);
   assert.equal(record.closedAt, undefined);
   assert.deepEqual(channel.overwriteEdits, [{ id: 'target', permissions: { ViewChannel: false, SendMessages: false, ReadMessageHistory: false } }]);
-  assert.deepEqual(notice.components, []);
+  const noticeButtons = notice.components[0].toJSON().components;
+  assert.deepEqual(noticeButtons.map(button => button.label), ['Read']);
+  assert.equal(noticeButtons[0].disabled, true);
 
   const prompt = channel.messages.cache.get(record.cases.target.deletePromptId);
   const promptData = json(prompt.embeds[0]);
   assert.equal(promptData.title, 'Delete report');
+  assert.equal(promptData.description, 'This report has been read by <@target>.');
   assert.equal(promptData.color, CLOUDY_RED_COLOR);
   assert.ok(promptData.thumbnail?.url);
   assert.deepEqual(prompt.components[0].toJSON().components.map(button => button.label), ['Delete']);
@@ -189,7 +199,7 @@ test('target Close creates a private red Delete report prompt while report logs 
   assert.ok(!logData.fields.some(field => field.name === 'Channel'));
 
   const promptId = record.cases.target.deletePromptId;
-  await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
+  await handleReportCaseControl(close, f.client, ['read', 'report', 'target']);
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.equal(record.cases.target.deletePromptId, promptId);
 
@@ -242,7 +252,7 @@ test('Close survives an old participant overwrite when the member is no longer i
   });
 
   const close = f.interaction(f.staff.user, notice, channel.id);
-  await handleReportCaseControl(close, f.client, ['close', 'report', 'target']);
+  await handleReportCaseControl(close, f.client, ['read', 'report', 'target']);
 
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.ok(record.cases.target.closedAt);
@@ -253,7 +263,7 @@ test('Close survives an old participant overwrite when the member is no longer i
   });
 });
 
-test('reporter Close removes only reporter access; Staff deletes each closed case from its private prompt', async t => {
+test('reporter Read removes only reporter access; Staff deletes each acknowledged report from its private prompt', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
   let record = await f.submit();
@@ -261,7 +271,7 @@ test('reporter Close removes only reporter access; Staff deletes each closed cas
   const reporterEntry = record.cases.reporter;
   const reporterChannel = f.channels.get(reporterEntry.channelId);
   const reporterNotice = reporterChannel.messages.cache.get(reporterEntry.messageId);
-  await handleReportCaseControl(f.interaction(f.reporter.user, reporterNotice, reporterChannel.id), f.client, ['close', 'report', 'reporter']);
+  await handleReportCaseControl(f.interaction(f.reporter.user, reporterNotice, reporterChannel.id), f.client, ['read', 'report', 'reporter']);
   assert.equal(reporterChannel.overwriteEdits[0].id, 'reporter');
 
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
@@ -274,7 +284,7 @@ test('reporter Close removes only reporter access; Staff deletes each closed cas
   const targetEntry = record.cases.target;
   const targetChannel = f.channels.get(targetEntry.channelId);
   const targetNotice = targetChannel.messages.cache.get(targetEntry.messageId);
-  await handleReportCaseControl(f.interaction(f.staff.user, targetNotice, targetChannel.id), f.client, ['close', 'report', 'target']);
+  await handleReportCaseControl(f.interaction(f.staff.user, targetNotice, targetChannel.id), f.client, ['read', 'report', 'target']);
 
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.equal(record.cases.target.closedBy, 'staff');
@@ -412,7 +422,7 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   assert.match(JSON.stringify(json(reporter.embeds[0])), /banned/);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Private action reason/);
-  assert.deepEqual(reporter.components[0].toJSON().components.map(button => button.label), ['Close']);
+  assert.deepEqual(reporter.components[0].toJSON().components.map(button => button.label), ['Read']);
   assert.equal(
     f.payloads.filter(message => message.channelId === REPORT_LOG_CHANNEL_ID
       && JSON.stringify(message.embeds).includes('Reported member case')).length,
