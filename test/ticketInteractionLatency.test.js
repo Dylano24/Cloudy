@@ -221,13 +221,15 @@ test('reopen restores creator access before sending the real creator mention', (
   const end = source.indexOf('\nexport async function deleteTicket', start);
   const body = source.slice(start, end);
 
-  const accessAt = body.indexOf('const ownerAccessTask = channel.permissionOverwrites.edit(ticketData.userId');
-  const awaitAt = body.indexOf('ownerAccessTask,');
+  const categoryAt = body.indexOf('categoryTask(),');
+  const restoreAt = body.indexOf('restoreReopenedTicketAccess(channel, ticketData)');
+  const accessAt = body.indexOf('await channel.permissionOverwrites.edit(ticketData.userId');
   const sendAt = body.indexOf('await channel.send({');
   const mentionAt = body.indexOf('content: `<@${ticketData.userId}>`');
-  assert.ok(accessAt >= 0 && awaitAt > accessAt && sendAt > awaitAt);
+  assert.ok(categoryAt >= 0 && restoreAt > categoryAt);
+  assert.ok(accessAt > restoreAt && sendAt > accessAt);
   assert.ok(mentionAt > sendAt);
-  assert.match(body, /allowedMentions: \{ parse: \[\], users: \[String\(ticketData\.userId\)\] \}/);
+  assert.match(body, /allowedMentions: \\{ parse: \\[\\], users: \\[String\\(ticketData\\.userId\\)\\] \\}/);
 });
 
 
