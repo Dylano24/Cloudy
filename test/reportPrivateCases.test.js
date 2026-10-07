@@ -166,8 +166,12 @@ test('target Read creates a private red Delete report prompt while report logs s
 
   const close = f.interaction(f.target.user, notice, channel.id);
   await handleReportCaseControl(close, f.client, ['read', 'report', 'target']);
-  assert.equal(close.error.content, 'Thank you. We have recorded that you have read this report.');
-  assert.deepEqual(close.error.embeds, []);
+  assert.equal(close.error.content, null);
+  const readConfirmation = json(close.error.embeds[0]);
+  assert.equal(readConfirmation.description, 'Thank you. We have recorded that you have read this report.');
+  assert.equal(readConfirmation.color, CLOUDY_GREEN_COLOR);
+  assert.ok(readConfirmation.thumbnail?.url);
+  assert.equal(readConfirmation.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   const confirmationDeletesBefore = f.replyDeletes.length;
   t.mock.timers.tick(9_999);
   assert.equal(f.replyDeletes.length, confirmationDeletesBefore);
