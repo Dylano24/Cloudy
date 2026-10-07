@@ -1,5 +1,4 @@
 import { REST } from '@discordjs/rest';
-import { isCloudyLogoUrl } from '../services/cloudyLogoService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER, isMentionOnlyContent } from '../services/cloudyBrandingService.js';
 
 export { isMentionOnlyContent } from '../services/cloudyBrandingService.js';
@@ -19,37 +18,38 @@ function addFooterEmbed(payload) {
 export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   if (Number(payload.flags) & 32768) return payload;
-  // Recipient tags are companion text, not a separate branded message.
-  if (isMentionOnlyContent(payload.content)) return payload;
+  // Bare tags are companion messages, never separate branded notices.
+  // A tagged message WITH an embed must still get the normal Cloudy branding.
+  if (isMentionOnlyContent(payload.content) && !payload.embeds?.length) return payload;
   if (Array.isArray(payload.embeds) && payload.embeds.length) {
-    const data = payload.embeds.map(embed => ({ ...(embed?.toJSON?.() || embed || {}) }));
-    let permissionPresentationChanged = false;
-    for (const embed of data) {
+    let changed = false;
+    const embeds = payload.embeds.map(source => {
+      const original = source?.toJSON?.() || source || {};
+      if (original.type && original.type !== 'rich') return source;
+      const title = String(original.title || '').trim();
+      // Protect the ZORP Guide and explicitly saved Embed Builder content.
+      if (/\bZORP Guide\s*$/i.test(title)
+          || original.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)) return source;
+      const embed = { ...original };
+      let embedChanged = false;
       if (embed.description === 'Only owners can ban members from reports.') {
         embed.title = 'Permission denied';
         embed.thumbnail = { url: CLOUDY_C_LOGO_URL };
-        permissionPresentationChanged = true;
+        embedChanged = true;
       }
-    }
-    const messageAlreadyBranded = data.some(embed => {
-      const title = String(embed.title || '').trim();
-      const isGuideException = /\bZORP Guide\s*$/i.test(title);
-      const hasBuilderOptOut = embed.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER);
-      const hasCloudyLogo = isCloudyLogoUrl(embed.thumbnail?.url)
-        || isCloudyLogoUrl(embed.author?.icon_url || embed.author?.iconURL)
-        || isCloudyLogoUrl(embed.footer?.icon_url || embed.footer?.iconURL);
-      const alreadyHasFooter = Boolean(embed.footer?.text || embed.footer?.icon_url || embed.footer?.iconURL);
-      return isGuideException || hasBuilderOptOut || hasCloudyLogo || alreadyHasFooter;
+      // A logo isn't a footer. Keep a custom footer untouched.
+      if (!embed.footer?.text && !embed.footer?.icon_url && !embed.footer?.iconURL) {
+        embed.footer = { text: CLOUDY_STANDARD_FOOTER };
+        embedChanged = true;
+      }
+      if (!embed.thumbnail?.url) {
+        embed.thumbnail = { url: CLOUDY_C_LOGO_URL };
+        embedChanged = true;
+      }
+      changed ||= embedChanged;
+      return embedChanged ? embed : source;
     });
-
-    if (messageAlreadyBranded) return permissionPresentationChanged ? { ...payload, embeds: data } : payload;
-
-    const firstRichEmbed = data.findIndex(embed => !embed.type || embed.type === 'rich');
-    if (firstRichEmbed >= 0) {
-      const embeds = [...payload.embeds];
-      embeds[firstRichEmbed] = { ...data[firstRichEmbed], footer: { text: CLOUDY_STANDARD_FOOTER } };
-      return { ...payload, embeds };
-    }
+    return changed ? { ...payload, embeds } : payload;
   }
 
   // A partial edit does not include the existing message's embeds/footer, so
@@ -77,10 +77,8 @@ export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
   return payload;
 }
 
-// The standard EmbedBuilder#setFooter policy filters non-essential footer text,
-// while logo-branded messages skip the global auto-footer. Report submission
-// confirmations explicitly require this footer, without changing other embeds
-// or overwriting a custom footer saved in the Embed Builder.
+// Keep report confirmations branded even before Discord REST sends them.
+// Existing saved custom footers remain untouched.
 export function ensureReportSubmittedFooter(embed) {
   if (embed?.data && !embed.data.footer?.text) {
     embed.data.footer = { text: CLOUDY_STANDARD_FOOTER };
