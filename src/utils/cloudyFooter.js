@@ -77,6 +77,17 @@ export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
   return payload;
 }
 
+// The standard EmbedBuilder#setFooter policy filters non-essential footer text,
+// while logo-branded messages skip the global auto-footer. Report submission
+// confirmations explicitly require this footer, without changing other embeds
+// or overwriting a custom footer saved in the Embed Builder.
+export function ensureReportSubmittedFooter(embed) {
+  if (embed?.data && !embed.data.footer?.text) {
+    embed.data.footer = { text: CLOUDY_STANDARD_FOOTER };
+  }
+  return embed;
+}
+
 export function installCloudyFooterOutput() {
   const prototype = REST.prototype;
   if (prototype[MARKER]) return;
