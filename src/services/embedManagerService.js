@@ -596,40 +596,6 @@ async function updateEmbedManager(interaction, payload, state, session) {
     }
 }
 
-async function updateEmbedManagerNavigation(buttonInteraction, managerMessage, interaction, payload, state, session) {
-    if (session.closed || state.activeEmbedManager !== session) return false;
-
-    if (typeof interaction.deferUpdate !== 'function'
-        || !buttonInteraction.webhook?.editMessage
-        || !managerMessage?.id) {
-        return updateEmbedManager(interaction, payload, state, session);
-    }
-
-    // Acknowledge the component and repaint the already-open private manager in
-    // parallel. The acknowledgement clears Discord's loading state immediately,
-    // while the webhook edit avoids waiting for that acknowledgement before the
-    // next/previous page is rendered.
-    const acknowledgement = interaction.deferUpdate()
-        .then(() => true)
-        .catch(error => {
-            logger.debug(`Embed manager navigation acknowledgement failed: ${error?.message || error}`);
-            return false;
-        });
-    const rendering = buttonInteraction.webhook.editMessage(managerMessage.id, payload)
-        .then(() => true)
-        .catch(error => {
-            if (CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
-                closeEmbedManagerSession(state, session, 'message-unavailable');
-                logger.debug(`Embed manager message ${session.messageId} is no longer available.`);
-                return false;
-            }
-            throw error;
-        });
-
-    const [acknowledged, rendered] = await Promise.all([acknowledgement, rendering]);
-    return acknowledged && rendered;
-}
-
 function managerRecordKey(record) {
     return [
         String(record?.backingChannelId || record?.channelId || ''),
@@ -874,27 +840,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 if (selectionVersion !== session.selectionVersion) return;
 
                 if (interaction.customId === 'simple_embed_modify_back') {
-                    await updateEmbedManagerNavigation(
-                        buttonInteraction,
-                        managerMessage,
-                        interaction,
-                        buildChannelPayload(guild, records, 0),
-                        state,
-                        session,
-                    );
+                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, 0), state, session);
                     return;
                 }
 
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
-                    await updateEmbedManagerNavigation(
-                        buttonInteraction,
-                        managerMessage,
-                        interaction,
-                        buildChannelPayload(guild, records, page),
-                        state,
-                        session,
-                    );
+                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, page), state, session);
                     return;
                 }
 
@@ -983,14 +935,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     const parts = interaction.customId.split(':');
                     const channelId = parts[1];
                     const page = Number(parts[2]) || 0;
-                    await updateEmbedManagerNavigation(
-                        buttonInteraction,
-                        managerMessage,
-                        interaction,
-                        buildEmbedPayload(guild, records, channelId, page),
-                        state,
-                        session,
-                    );
+                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
                     return;
                 }
 
