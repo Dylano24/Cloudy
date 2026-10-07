@@ -727,30 +727,8 @@ export async function reopenTicket(channel, reopener, options = {}) {
     const closeStatusCleanup = options.statusMessage?.edit
       ? options.statusMessage.edit({ components: [] }).catch(() => null)
       : Promise.resolve(null);
-    const ownerAccessTask = channel.permissionOverwrites.edit(ticketData.userId, {
-      ViewChannel: true,
-      SendMessages: true,
-      ReadMessageHistory: true,
-      AttachFiles: true,
-    });
-
-    // Restore the creator's channel access before sending the mention. A mention
-    // sent while the ticket is still hidden can render as a tag without creating
-    // a real Discord notification for the ticket creator.
-    const [decoratedReopen] = await Promise.all([
-      decorationPromise,
-      closeStatusCleanup,
-      ownerAccessTask,
-    ]);
-
-    await channel.send({
-      content: `<@${ticketData.userId}>`,
-      embeds: [forceCloudyTicketFooter(decoratedReopen.embed)],
-      allowedMentions: { parse: [], users: [String(ticketData.userId)] },
-    });
 
     const openCategoryId = config?.ticketCategoryId || null;
-
     const categoryTask = async () => {
       if (!openCategoryId || channel.parentId === openCategoryId) return;
       const category = channel.guild.channels.cache.get(openCategoryId)
@@ -760,11 +738,45 @@ export async function reopenTicket(channel, reopener, options = {}) {
       }
     };
 
-    // All remaining work is independent once the durable state and visible
-    // status are updated, so run it concurrently instead of serially.
+    // A real notification requires the recipient to be able to VIEW the
+    // reopened channel when Discord accepts the mention, not just afterward.
+    // Move out of the closed category and restore all saved access first.
+    // Keep decoration and cleanup running concurrently with those API calls.
+    const [decoratedReopen] = await Promise.all([
+      decorationPromise,
+      closeStatusCleanup,
+      Promise.allSettled([
+        categoryTask(),
+        restoreReopenedTicketAccess(channel, ticketData),
+      ]).then(results => {
+        for (const result of results) {
+          if (result.status === 'rejected') {
+            logger.warn('Ticket reopen access restoration step failed', {
+              channelId: channel.id,
+              error: result.reason?.message || String(result.reason),
+            });
+          }
+        }
+      }),
+    ]);
+
+    // The category move may change permission calculations. Apply the creator's
+    // explicit channel access LAST, before emitting the single visible ping.
+    await channel.permissionOverwrites.edit(ticketData.userId, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      AttachFiles: true,
+    });
+
+    await channel.send({
+      content: `<@${ticketData.userId}>`,
+      embeds: [forceCloudyTicketFooter(decoratedReopen.embed)],
+      allowedMentions: { parse: [], users: [String(ticketData.userId)] },
+    });
+
+    // These independent presentation synchronizations can finish afterward.
     await Promise.allSettled([
-      categoryTask(),
-      restoreReopenedTicketAccess(channel, ticketData),
       syncCloudyTicketMessage(channel),
       syncCloudyTicketChannelName(channel),
     ]);
