@@ -3,6 +3,7 @@ import { isCloudyLogoUrl } from '../services/cloudyLogoService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from '../services/cloudyBrandingService.js';
 
 export const CLOUDY_STANDARD_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const MARKER = Symbol.for('cloudy.standard-footer-output');
 const DEFERRED_REPLY_TTL_MS = 15 * 60_000;
 const deferredReplyTokens = new Map();
@@ -22,6 +23,12 @@ export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
   if (Number(payload.flags) & 32768) return payload;
   if (Array.isArray(payload.embeds) && payload.embeds.length) {
     const data = payload.embeds.map(embed => embed?.toJSON?.() || embed || {});
+    for (const embed of data) {
+      if (embed.description === 'Only owners can ban members from reports.') {
+        embed.title = 'Permission denied';
+        embed.thumbnail = { url: CLOUDY_C_LOGO_URL };
+      }
+    }
     const messageAlreadyBranded = data.some(embed => {
       const title = String(embed.title || '').trim();
       const isGuideException = /\bZORP Guide\s*$/i.test(title);
