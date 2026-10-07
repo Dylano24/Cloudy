@@ -55,8 +55,8 @@ function privateDeleteControls(record, audience, disabled = false) {
 
 function deleteCaseEmbed(record) {
   return caseEmbed({
-    title: 'Delete case',
-    description: 'This report case is closed. Staff can delete the case when it is no longer needed.',
+    title: 'Delete report',
+    description: 'This report is closed. Staff can delete the report when it is no longer needed.',
     color: CLOUDY_RED_COLOR,
     fields: [{ name: 'Report', value: `#${record.number}`, inline: true }],
   });
@@ -173,7 +173,7 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
 }
 
 function logEmbed(record, audience, event, actorId) {
-  const title = event === 'close' ? 'Report case closed' : event === 'delete' ? 'Report case deleted' : 'Report case created';
+  const title = event === 'close' ? 'Report closed' : event === 'delete' ? 'Report deleted' : 'Report created';
   const fields = [{ name: 'Report', value: `#${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
     { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Deleted by' : 'Handled by', value: actorId === '24-hour expiry' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
@@ -230,7 +230,7 @@ async function refreshLogControls(client, guild, record, audience) {
 }
 
 export async function publishReportOutcome(client, guild, report, record, action, actorId, reason) {
-  if (record.closedAt || (record.expiresAt && record.expiresAt <= Date.now())) throw new Error('This report case has expired or was deleted.');
+  if (record.closedAt || (record.expiresAt && record.expiresAt <= Date.now())) throw new Error('This report has expired or was deleted.');
   const config = await getGuildConfig(client, guild.id);
   const source = report.channel || await fetchChannel(guild, record.reportChannelId);
   if (source?.permissionsFor?.(guild.roles.everyone)?.has?.(PermissionFlagsBits.ViewChannel)) throw new Error('Staff report controls require a private reports channel.');
@@ -271,15 +271,13 @@ export async function publishReportOutcome(client, guild, report, record, action
     const fields = [
       { name: 'Report', value: `#${record.number}`, inline: true },
       ...(showReason ? [{ name: 'Reason', value: reason || 'No reason recorded' }] : []),
-      { name: 'Automatic deletion', value: audience === 'target'
-        ? 'This report notification will be automatically deleted after 24 hours.'
-        : 'This case is automatically deleted after 24 hours.' },
+      { name: 'Automatic deletion', value: 'This report notification will be automatically deleted after 24 hours.' },
     ];
 
     const payload = {
       content: `<@${participant}>`,
       embeds: [caseEmbed({
-        title: audience === 'target' ? 'Report notification' : 'Report case notification',
+        title: 'Report notification',
         description: audience === 'target' ? targetActionText : actionText,
         color: 0x00C49D,
         fields,
@@ -291,6 +289,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     const notice = existing?.author?.id === client.user.id ? await existing.edit(payload) : await channel.send(payload);
     entry.messageId = notice.id;
     await save(client, syncAliases(record));
+    if (!entry.createdLogId) await publishStaffLog(client, guild, record, audience, 'created', actorId);
   }
 
   scheduleReportCaseExpiry(client, guild, record);
@@ -373,7 +372,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
     await withReportLock(key, async () => {
       const record = await client.db.get(key);
       const entry = record?.cases?.[audience];
-      if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report case is no longer available.');
+      if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
       const config = await getGuildConfig(client, interaction.guildId);
       const member = await interaction.guild.members.fetch(interaction.user.id);
       const staff = caseStaffAllowed(interaction.guild, member, config);
@@ -381,10 +380,10 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       const inDeletePrompt = interaction.channelId === entry.channelId && interaction.message.id === entry.deletePromptId;
 
       if (action === 'delete') {
-        if (!inDeletePrompt || !entry.closedAt) throw new Error('Delete case is only available after the report case is closed.');
+        if (!inDeletePrompt || !entry.closedAt) throw new Error('Delete report is only available after the report is closed.');
         if (!staff) {
           keepReply = true;
-          await showReportPermissionDenied(interaction, 'Only the staff can delete this case.');
+          await showReportPermissionDenied(interaction, 'Only the staff can delete this report.');
           return;
         }
         await deleteReportCase(client, interaction.guild, record, interaction.user.id, true, audience);
@@ -392,7 +391,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       }
 
       if (!inCase) throw new Error('You cannot use these report controls.');
-      if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can close this case.');
+      if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can close this report.');
 
       // Close keeps Staff access, removes the participant's access and exposes
       // Delete case only inside the private report case.
