@@ -612,14 +612,11 @@ export async function closeTicket(channel, closer, reason, options = {}) {
     ticketData.closeReason = reason;
     await saveTicketData(channel.guild.id, channel.id, ticketData);
 
-    const memberClosedTicket = options.actorCanManage === false;
-    if (memberClosedTicket) {
-      // The ticket creator may close their own ticket, but Reopen/Delete are
-      // staff-only controls. Remove the creator's channel access before the
-      // staff control message is published so those buttons are never shown to
-      // a non-staff member.
-      await hideClosedTicket(channel);
-    }
+    // Closed tickets are staff-only from the moment the close result is posted.
+    // This applies whether staff or the ticket creator closes the ticket.
+    // Staff retain access through the staff role; non-staff creators must not
+    // see the closed status or the Reopen/Delete controls.
+    await hideClosedTicket(channel);
 
     const controlRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -653,7 +650,6 @@ export async function closeTicket(channel, closer, reason, options = {}) {
     }
 
     await Promise.allSettled([
-      memberClosedTicket ? Promise.resolve() : hideClosedTicket(channel),
       syncCloudyTicketMessage(channel),
     ]);
 
