@@ -30,7 +30,7 @@ function fixture() {
       ['staff-role', { id: 'staff-role', name: 'Staff' }],
       ['owner-role', { id: 'owner-role', name: 'Owner' }],
     ]) },
-    members: { fetch: async id => members.get(id) }, channels: { cache: channels, fetch: async id => channels.get(id),
+    members: { cache: members, fetch: async id => members.get(id) }, channels: { cache: channels, fetch: async id => channels.get(id),
       setPositions: async data => { positions.push(data); },
       create: async data => { const ch = channel(`case-${channels.size}`, data.name); ch.creation = data; ch.rawPosition = data.position ?? channels.size; channels.set(ch.id, ch); return ch; } } };
   client.guilds = { cache: new Collection([[guild.id, guild]]) };
@@ -65,7 +65,18 @@ function fixture() {
   reports.messages.cache.set(report.id, report);
   function interaction(user = staff.user, message = report, channelId = reports.id) {
     const result = { id: '1556344268099166320', createdTimestamp: Date.now(), guild, guildId: guild.id, channel: channels.get(channelId), channelId, member: members.get(user.id), user, message,
-      inGuild: () => true, deferReply: async () => { result.deferred = true; }, deleteReply: async () => { replyDeletes.push(result.id); }, editReply: async payload => { result.error = payload; },
+      deferred: false, replied: false, deferReplyCalls: 0, deferUpdateCalls: 0, followUps: [],
+      inGuild: () => true,
+      deferReply: async () => { result.deferred = true; result.deferReplyCalls += 1; },
+      deferUpdate: async () => { result.deferred = true; result.deferUpdateCalls += 1; },
+      deleteReply: async () => { replyDeletes.push(result.id); },
+      editReply: async payload => { result.error = payload; },
+      followUp: async payload => {
+        result.error = payload;
+        result.followUps.push(payload);
+        return { id: `followup-${result.followUps.length}`, ...payload, delete: async () => { replyDeletes.push(`followup-${result.followUps.length}`); } };
+      },
+      webhook: { deleteMessage: async id => { replyDeletes.push(id); } },
       showModal: async modal => { result.modal = modal.toJSON(); }, fields: { getTextInputValue: field => field === 'minutes' ? '10' : 'Private action reason' } };
     return result;
   }
@@ -98,6 +109,9 @@ test('Read confirms its durable close before waiting for staff log delivery', as
     await settle();
     assert.ok(f.values.get(reportKey(f.guild.id, record.messageId)).cases.target.closedAt, 'Read must be persisted before confirmation');
     assert.ok(channel.overwriteEdits.length, 'Participant access must be revoked before confirmation');
+    assert.equal(read.deferReplyCalls, 0, 'Read must never create a visible thinking reply');
+    assert.equal(read.deferUpdateCalls, 1, 'Read must acknowledge the button silently');
+    assert.equal(read.followUps.length, 1, 'Read keeps the same private Thank you confirmation');
     assert.equal(read.error?.embeds?.[0] && json(read.error.embeds[0]).title, 'Thank you.');
   } finally {
     release();
@@ -190,6 +204,9 @@ test('target Read creates a private red Delete report prompt while report logs s
 
   const close = f.interaction(f.target.user, notice, channel.id);
   await handleReportCaseControl(close, f.client, ['read', 'report', 'target']);
+  assert.equal(close.deferReplyCalls, 0);
+  assert.equal(close.deferUpdateCalls, 1);
+  assert.equal(close.followUps.length, 1);
   assert.equal(close.error.content, null);
   const readConfirmation = json(close.error.embeds[0]);
   assert.equal(readConfirmation.title, 'Thank you.');
