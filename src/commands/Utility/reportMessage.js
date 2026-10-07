@@ -119,7 +119,7 @@ export default {
             value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
           },
         ],
-        author: await resolveUserAuthor(client, message.author.id),
+        author: await resolveUserAuthor(client, message.author.id, message.author),
         thumbnail: message.author.displayAvatarURL?.({ size: 256 }) || null,
       },
     });
