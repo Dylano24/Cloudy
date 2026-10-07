@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { REST } from '@discordjs/rest';
 import { withCloudyFooter, installCloudyFooterOutput, CLOUDY_STANDARD_FOOTER } from '../src/utils/cloudyFooter.js';
 
-test('standalone ticket/member/staff mentions stay bare, while actual messages keep their footer', () => {
+test('all message mentions retain their mention and allowed-mentions rules while receiving branding', () => {
   for (const content of ['<@123456789012345678>', '<@!123456789012345678>', '<@&223456789012345678> <@123456789012345678>', '@everyone', '@here\n<@123456789012345678>']) {
     const payload = { content, allowed_mentions: { parse: [] } };
-    assert.deepEqual(withCloudyFooter(payload), payload);
+    const result = withCloudyFooter(payload);
+    assert.equal(result.content, `${content}\n\n${CLOUDY_STANDARD_FOOTER}`);
+    assert.deepEqual(result.allowed_mentions, payload.allowed_mentions);
   }
   assert.equal(withCloudyFooter({ content: '<@123456789012345678> Please read this.' }).content, `<@123456789012345678> Please read this.\n\n${CLOUDY_STANDARD_FOOTER}`);
   const embed = withCloudyFooter({ content: '<@123456789012345678>', embeds: [{ title: 'Ticket reopened' }] });
@@ -14,20 +16,32 @@ test('standalone ticket/member/staff mentions stay bare, while actual messages k
   assert.equal(embed.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
 });
 
-test('actual Discord REST message and interaction paths preserve bare tags and embed footers', async () => {
-  const original = REST.prototype.request;
+test('actual Discord REST message and interaction paths keep recipient tags and add branding', async () => {
+  const prototype = REST.prototype;
+  const original = Object.getOwnPropertyDescriptor(prototype, 'request');
   const captured = [];
-  REST.prototype.request = async options => { captured.push(options); return options; };
+  Object.defineProperty(prototype, 'request', {
+    ...original,
+    value: async options => { captured.push(options); return options; },
+  });
   try {
     installCloudyFooterOutput();
     const rest = new REST();
     const mention = '<@&223456789012345678> <@123456789012345678>';
     await rest.request({ fullRoute: '/channels/123456789012345678/messages', method: 'POST', body: { content: mention } });
+    await rest.request({ fullRoute: '/channels/123456789012345678/messages/323456789012345678', method: 'PATCH', body: { content: 'Updated report status' } });
     await rest.request({ fullRoute: '/interactions/123456789012345678/token/callback', method: 'POST', body: { type: 4, data: { content: mention } } });
+    await rest.request({ fullRoute: '/interactions/123456789012345678/deferred-token/callback', method: 'POST', body: { type: 5, data: { flags: 64 } } });
+    await rest.request({ fullRoute: '/webhooks/123456789012345678/deferred-token/messages/@original', method: 'PATCH', body: { content: 'Deferred interaction result' } });
     await rest.request({ fullRoute: '/webhooks/123456789012345678/token', method: 'POST', body: { content: mention, embeds: [{ title: 'Report action log' }] } });
-    assert.equal(captured[0].body.content, mention);
-    assert.equal(captured[1].body.data.content, mention);
-    assert.equal(captured[2].body.content, mention);
-    assert.equal(captured[2].body.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
-  } finally { REST.prototype.request = original; }
+    assert.equal(captured[0].body.content, `${mention}\n\n${CLOUDY_STANDARD_FOOTER}`);
+    assert.equal(captured[1].body.content, 'Updated report status');
+    assert.equal(captured[2].body.data.content, `${mention}\n\n${CLOUDY_STANDARD_FOOTER}`);
+    assert.equal(captured[3].body.data.flags, 64);
+    assert.equal(captured[4].body.content, `Deferred interaction result\n\n${CLOUDY_STANDARD_FOOTER}`);
+    assert.equal(captured[5].body.content, mention);
+    assert.equal(captured[5].body.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+  } finally {
+    Object.defineProperty(prototype, 'request', original);
+  }
 });

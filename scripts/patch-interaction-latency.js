@@ -73,6 +73,22 @@ async function saveRecords(guildId, additions) {
   return text;
 });
 patchFile('src/services/embedManagerService.js', text => {
+  const logoHydration = [
+    {
+      expression: 'state.showLogo = isCloudyLogoUrl(displayThumbnail?.url);',
+      replacement: 'state.showLogo = isCloudyLogoUrl(displayThumbnail?.url) || (!displayThumbnail && !data.footer?.text);',
+    },
+    {
+      expression: 'state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);',
+      replacement: 'state.showLogo = isCloudyLogoUrl(data.thumbnail?.url) || (!data.thumbnail && !data.footer?.text);',
+    },
+  ];
+  for (const { expression, replacement } of logoHydration) {
+    if (text.split(expression).length - 1 !== 1) {
+      throw new Error(`Settings logo default expected exactly one Embed Manager hydration path: ${expression}`);
+    }
+    text = text.replace(expression, replacement);
+  }
   text = replaceRequired(text,
     "import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';",
     "import { isBuilderSessionMessage, linkBuilderSessionMessages, registerBuilderSessionCollector, touchBuilderSessionMessage } from '../utils/builderSessionCleanup.js';");
