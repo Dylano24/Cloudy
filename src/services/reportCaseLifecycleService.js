@@ -430,7 +430,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         await InteractionHelper.safeEditReply(interaction, {
           content: null,
           embeds: [caseEmbed({
-            description: 'Thank you. We have been informed that you have read this report.',
+            description: '**Thank you.**\nWe have been informed that you have read this report.',
             color: CLOUDY_GREEN_COLOR,
           })],
           components: [],
