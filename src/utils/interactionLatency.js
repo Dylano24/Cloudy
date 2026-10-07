@@ -9,7 +9,7 @@ const VISIBLE = new Set(['reply', 'update', 'showModal', 'respond', 'editReply',
 // an acknowledgement but never counts as having cleared the thinking state.
 export function observeInteractionLatency(interaction, {
   now = () => performance.now(),
-  report = data => logger.warn('[INTERACTION_LATENCY] Slow initial response', data),
+  report = data => logger.warn(`[INTERACTION_LATENCY] ${JSON.stringify(data)}`),
 } = {}) {
   if (!interaction || interaction[observed] || interaction._isPrefixCommand) return;
   interaction[observed] = true;
@@ -21,7 +21,10 @@ export function observeInteractionLatency(interaction, {
     // Instrumentation must never change a successful Discord response into an
     // application error, even if a logger transport fails.
     try {
-      report({ event: 'interaction.latency', command: interaction.commandName || String(interaction.type || 'component'),
+      const component = String(interaction.customId || '').split(':');
+      const command = interaction.commandName || component[0] || String(interaction.type || 'component');
+      const action = /^[a-z_]+$/i.test(component[1] || '') ? component[1] : null;
+      report({ event: 'interaction.latency', command, ...(action ? { action } : {}),
         phase, elapsedMs: Math.round(elapsedMs), ...(thinkingMs == null ? {} : { thinkingMs: Math.round(thinkingMs) }) });
     } catch { /* Preserve the original response result. */ }
   };

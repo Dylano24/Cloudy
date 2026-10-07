@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { observeInteractionLatency } from '../src/utils/interactionLatency.js';
+import { logger } from '../src/utils/logger.js';
+
+test('slow component console logs include timings and action without report IDs', async t => {
+  const messages = [];
+  t.mock.method(logger, 'warn', message => { messages.push(message); });
+  let now = 0;
+  const interaction = { customId: 'report_case:read:123456789012345678:target', reply: async () => true };
+  observeInteractionLatency(interaction, { now: () => now });
+  now = 1500;
+  await interaction.reply({});
+  assert.ok(messages.some(message => message.includes('"elapsedMs":1500') && message.includes('"action":"read"')));
+  assert.ok(messages.every(message => !message.includes('123456789012345678')));
+});
 
 test('latency observation preserves arguments, receiver and results and separates defer from visible content', async () => {
   let now = 0;

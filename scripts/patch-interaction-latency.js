@@ -16,6 +16,25 @@ function replaceRequired(text, before, after) {
 
 patchFile('src/services/embedRegistryService.js', text => {
   text = replaceRequired(text,
+    'export async function getEmbedRegistry(guildId) {\n    return cleanStoredRecords(await readStoredRecords(guildId));\n}',
+    `const registryReadLoads = new Map();
+export async function getEmbedRegistry(guildId) {
+    const key = String(guildId);
+    const generation = getEmbedRegistryGeneration(guildId);
+    let pending = registryReadLoads.get(key);
+    if (!pending || pending.generation !== generation) {
+        pending = { generation, promise: readStoredRecords(guildId).then(cleanStoredRecords) };
+        registryReadLoads.set(key, pending);
+    }
+    try {
+        // Share only in-flight storage work, never mutable records or a stale
+        // cross-request cache. A concurrent mutation starts a fresh read.
+        return structuredClone(await pending.promise);
+    } finally {
+        if (registryReadLoads.get(key) === pending) registryReadLoads.delete(key);
+    }
+}`);
+  text = replaceRequired(text,
     'const registryMutationQueues = new Map();',
     'const registryMutationQueues = new Map();\nconst registryWriteBatches = new Map();');
   text = replaceRequired(text,
