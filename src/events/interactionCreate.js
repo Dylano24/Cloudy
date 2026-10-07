@@ -415,6 +415,7 @@ export default {
             || interaction.customId.startsWith('config_wizard_modal:')
             || interaction.customId.startsWith('log_dash_channel_modal:')
             || interaction.customId.startsWith('log_dash_filter_modal:')
+            || interaction.customId.startsWith('embed_button_edit_modal:')
             || interaction.customId.startsWith('embed_button_add_response_modal')
             || interaction.customId.startsWith('embed_button_add_link_modal')
             || interaction.customId.startsWith('embed_button_edit_modal:')

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { assertAllowlistedIdentifier } from '../../utils/sqlIdentifiers.js';
 import { EXPECTED_SCHEMA_LABEL, EXPECTED_SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -79,23 +80,20 @@ function getPgPassword() {
 }
 
 export function resolveSslConfig() {
-    const sslEnv = (process.env.POSTGRES_SSL || process.env.PGSSLMODE || '').toLowerCase();
-    if (sslEnv === 'false' || sslEnv === '0' || sslEnv === 'disable') {
-        return false;
-    }
-    if (
-        sslEnv === 'true' ||
-        sslEnv === '1' ||
-        sslEnv === 'require' ||
-        sslEnv === 'verify-ca' ||
-        sslEnv === 'verify-full' ||
-        sslEnv === 'prefer'
-    ) {
-        return { rejectUnauthorized: false };
-    }
-
     const url = getPostgresUrl();
-    if (/sslmode=(require|verify-ca|verify-full|prefer)/i.test(url)) {
+    const params = url ? new URL(url).searchParams : null;
+    const urlMode = params?.get('sslmode') || params?.get('ssl') || '';
+    const sslEnv = (process.env.POSTGRES_SSL || process.env.PGSSLMODE || urlMode || '').toLowerCase();
+    if (['false', '0', 'disable'].includes(sslEnv)) return false;
+    if (['verify-ca', 'verify-full'].includes(sslEnv)) {
+        const ca = process.env.POSTGRES_SSL_CA;
+        return {
+            rejectUnauthorized: true,
+            ...(ca ? { ca: ca.replace(/\\n/g, '\n') } : {}),
+            ...(sslEnv === 'verify-ca' ? { checkServerIdentity: () => undefined } : {}),
+        };
+    }
+    if (['true', '1', 'require', 'prefer'].includes(sslEnv)) {
         return { rejectUnauthorized: false };
     }
 
@@ -126,7 +124,15 @@ export function resolvePostgresPoolConfig() {
     };
 
     if (url && url !== DEFAULT_POSTGRES_URL) {
-        return { connectionString: url, ...sharedOptions };
+        // pg reparses URL SSL parameters and would overwrite the explicit TLS policy.
+        const connectionUrl = new URL(url);
+        for (const [parameter, option] of [['sslrootcert', 'ca'], ['sslcert', 'cert'], ['sslkey', 'key']]) {
+            const file = connectionUrl.searchParams.get(parameter);
+            if (file && ssl) ssl[option] = readFileSync(file, 'utf8');
+            connectionUrl.searchParams.delete(parameter);
+        }
+        for (const key of ['sslmode', 'ssl']) connectionUrl.searchParams.delete(key);
+        return { connectionString: connectionUrl.toString(), ...sharedOptions };
     }
 
     return {

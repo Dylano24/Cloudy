@@ -18,10 +18,8 @@ test('browser editor updates never re-enable the main Builder collector idle tim
 });
 
 test('Search editor exit keeps the dedicated hold lifecycle as the only timeout owner', () => {
-  const coalescing = fs.readFileSync('scripts/patch-editor-update-coalescing.js', 'utf8');
-  const lease = fs.readFileSync('scripts/patch-embed-editor-shared-14m-lease.js', 'utf8');
-
-  assert.match(coalescing, /onEditorHold/);
-  assert.match(lease, /releaseBuilderSessionHold\(token\)/);
-  assert.match(lease, /close returns to fresh 5m/);
+  const source = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
+  assert.match(source, /onEditorHold/);
+  assert.match(source, /releaseBuilderSessionHold\(token\)/);
+  assert.match(source, /value === CLOSE_PREFIX/);
 });

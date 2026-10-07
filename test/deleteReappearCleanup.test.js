@@ -56,7 +56,11 @@ test('disabling Reappear by current visible copy resolves the original rule and 
 });
 
 test('Builder Save deletion uses canonical Reappear cleanup instead of visible-message rule keys', () => {
-  const source = fs.readFileSync('scripts/patch-embed-builder-safe-delete.js', 'utf8');
+  const builder = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const start = builder.indexOf('async function savePendingBuilderDeletion(');
+  const end = builder.indexOf('\nasync function ', start + 1);
+  assert.ok(start >= 0 && end > start);
+  const source = builder.slice(start, end);
 
   assert.match(source, /syncExistingEmbedReappearRule\(\{/);
   assert.match(source, /every:\s*null/);

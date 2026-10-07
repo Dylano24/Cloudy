@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { buildReportActions, reportActionText } from '../src/services/reportActionService.js';
+import { reportCaseControls } from '../src/services/reportCaseService.js';
 
 test('every newly filed report gets its number before the original report is sent', () => {
   for (const file of [
@@ -71,8 +72,10 @@ test('report logs are informational only and private reports own Delete report',
   assert.match(publishBody, /components: \[\]/);
 
   assert.match(source, /setLabel\('Delete'\)/);
-  assert.match(source, /setLabel\('Read'\)/);
-  assert.match(source, /ButtonStyle\.Secondary/);
+  const read = reportCaseControls({ messageId: 'report' })[0].toJSON().components[0];
+  assert.equal(read.label, 'Read');
+  assert.equal(read.style, 2);
+  assert.equal(read.custom_id, 'report_case:read:report:target');
   assert.match(source, /This report has been read by/);
   assert.match(source, /title: 'Thank you\.'/);
   assert.match(source, /description: 'We have been informed that you have read this report\.'/);

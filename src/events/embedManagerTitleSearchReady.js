@@ -12,10 +12,9 @@ import {
 } from 'discord.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import {
-  getEmbedRegistry,
   getEmbedRegistrySnapshot,
-  reconcileEmbedRegistry,
 } from '../services/embedRegistryService.js';
+import { getCanonicalBuilderRecords } from '../services/embedManagerService.js';
 import { logger } from '../utils/logger.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.embedManagerTitleSearch');
@@ -102,7 +101,7 @@ function searchKey(value) {
 
 function shortText(value, max = 100) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
-  return (text || 'Untitled embed').slice(0, max);
+  return (text || 'Embed').slice(0, max);
 }
 
 function templateSearchShape(value) {
@@ -115,7 +114,7 @@ function templateSearchShape(value) {
 function isTechnicalVisibleName(value) {
   const text = shortText(value, 100);
   return /^cloudy template key:/i.test(text)
-    || /^(?:source|embed):[a-z0-9_-]{6,}$/i.test(text)
+    || /^(?:source|embed|embed-type):[a-z0-9_-]{6,}$/i.test(text)
     || /^(?:game|ticket-log):[a-z0-9:_-]+$/i.test(text);
 }
 
@@ -479,13 +478,14 @@ function cleanupSearchSessions() {
 }
 
 async function refreshRecords(interaction) {
-  let records = await getEmbedRegistry(interaction.guildId);
-  try {
-    const reconciled = await reconcileEmbedRegistry(interaction.guild);
-    if (Array.isArray(reconciled?.records)) records = reconciled.records;
-  } catch (error) {
-    logger.debug(`[EMBED_BUILDER] Search registry refresh skipped: ${error?.message || error}`);
-  }
+  const key = `${interaction.guildId}:${interaction.user.id}`;
+  const cache = globalThis.__cloudyEmbedManagerRecordCache;
+  const cached = cache?.get?.(key);
+  if (cached?.expiresAt > Date.now() && Array.isArray(cached.records)) return cached.records;
+  if (cached) cache.delete(key);
+
+  const records = await getCanonicalBuilderRecords(interaction.guild);
+  cache?.set?.(key, { records, expiresAt: Date.now() + SEARCH_SESSION_TTL });
   return records;
 }
 

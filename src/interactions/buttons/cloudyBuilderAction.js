@@ -1,4 +1,10 @@
-import { EmbedBuilder, MessageFlags } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  MessageFlags,
+} from 'discord.js';
 import { getBuilderButtonAction } from '../../services/embedBuilderButtonEditorService.js';
 import { CLOUDY_BRANDING } from '../../services/cloudyBrandingService.js';
 import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
@@ -39,6 +45,18 @@ export default {
     const payload = {
       embeds: [buildButtonResponseEmbed(action.responseText)],
     };
+
+    const actionUrl = String(action.url || '').trim();
+    if (/^https?:\/\//i.test(actionUrl)) {
+      payload.components = [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setLabel(String(action.linkLabel || 'Open link').slice(0, 80))
+            .setStyle(ButtonStyle.Link)
+            .setURL(actionUrl.slice(0, 512)),
+        ),
+      ];
+    }
     if (action.visibility !== 'public') {
       payload.flags = MessageFlags.Ephemeral;
     }

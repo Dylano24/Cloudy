@@ -1,3 +1,4 @@
+import { requireTicketCloseReason } from './ticketActionPolicy.js';
 import { hideClosedTicket } from './ticketClosedAccessService.js';
 // ticket.js
 
@@ -14,13 +15,14 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { getTicketData, saveTicketData, deleteTicketData, getOpenTicketCountForUser, incrementTicketCounter } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { createEmbed, errorEmbed } from '../utils/embeds.js';
+import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { ensureTypedServiceError, wrapServiceBoundary } from '../utils/serviceErrorBoundary.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
 import { deleteTicketCreationConfirmation } from './ticketCreationConfirmationService.js';
-const TICKET_DELETE_DELAY_MS = 3000;
+const TICKET_DELETE_DELAY_MS = 10_000;
 const TICKET_DELETE_DELAY_SECONDS = Math.floor(TICKET_DELETE_DELAY_MS / 1000);
 const TICKET_SERVICE = 'ticketService';
 
@@ -259,7 +261,8 @@ export async function createTicket(
   }
 }
 
-export async function closeTicket(channel, closer, reason = 'No reason provided') {
+export async function closeTicket(channel, closer, reason) {
+  reason = requireTicketCloseReason(reason);
   try {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
     
@@ -551,19 +554,11 @@ export async function reopenTicket(channel, reopener) {
       }
     }
     
-    try {
-      const user = await channel.guild.members.fetch(ticketData.userId).catch(() => null);
-      if (user) {
-        await channel.permissionOverwrites.create(user, {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true,
-          AttachFiles: true
-        });
-      }
-    } catch (error) {
-      logger.warn(`Could not restore access for user ${ticketData.userId}:`, error.message);
-    }
+    // Restore the creator by ID and await Discord before sending the real ping.
+    // A failed member fetch must not silently leave the reopened ticket hidden.
+    await channel.permissionOverwrites.edit(ticketData.userId, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true,
+    }, { type: 1, reason: 'Restore ticket creator access before reopen notification' });
     
     const messages = await channel.messages.fetch({ limit: 50 });
     const ticketMessage = messages.find(m => 
@@ -593,6 +588,8 @@ export async function reopenTicket(channel, reopener) {
       color: '#2ecc71'
     });
 
+    const reopenConfig = await getGuildConfig(channel.client, channel.guild.id);
+    const decoratedReopen = await decorateEmbedWithSavedTemplate(channel.guild.id, reopenConfig.ticketLogsChannelId || channel.id, reopenEmbed);
     const closeStatusMessage = messages.find(m =>
       m.embeds.length > 0 &&
       m.embeds[0].title === 'Ticket closed' &&
@@ -600,11 +597,9 @@ export async function reopenTicket(channel, reopener) {
       m.components[0].components.some(c => c.customId === 'ticket_reopen')
     );
 
-    if (closeStatusMessage) {
-      await closeStatusMessage.edit({ embeds: [reopenEmbed], components: [] });
-    } else {
-      await channel.send({ embeds: [reopenEmbed] });
-    }
+    if (closeStatusMessage) await closeStatusMessage.edit({ components: [] });
+    await channel.send({ content: `<@${ticketData.userId}>`, embeds: [forceCloudyTicketFooter(decoratedReopen.embed)],
+      allowedMentions: { parse: [], users: [ticketData.userId] } });
     
     return { ticketData, movedToOpenCategory, openCategoryMoveFailed };
     
