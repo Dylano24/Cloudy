@@ -44,6 +44,7 @@ function decryptInteractionToken(value) {
 async function deletePersistedPrivateConfirmation(reference) {
   const applicationId = String(reference?.applicationId || '').trim();
   const token = decryptInteractionToken(reference?.encryptedInteractionToken);
+  const messageId = String(reference?.messageId || '').trim();
   if (!applicationId || !token) return false;
 
   const controller = new AbortController();
@@ -51,8 +52,9 @@ async function deletePersistedPrivateConfirmation(reference) {
   timeout.unref?.();
 
   try {
+    const targetMessage = messageId ? encodeURIComponent(messageId) : '@original';
     const response = await fetch(
-      `https://discord.com/api/v10/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(token)}/messages/@original`,
+      `https://discord.com/api/v10/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(token)}/messages/${targetMessage}`,
       { method: 'DELETE', signal: controller.signal },
     );
     return response.ok || response.status === 404;
@@ -74,9 +76,18 @@ function privateConfirmationKey(ticketChannel) {
   return `${ticketChannel?.guild?.id || ''}:${ticketChannel?.id || ''}`;
 }
 
-export async function registerPrivateTicketCreationConfirmation(ticketChannel, interaction) {
-  if (!ticketChannel?.guild?.id || !ticketChannel?.id || typeof interaction?.deleteReply !== 'function') return false;
-  privateTicketCreationConfirmations.set(privateConfirmationKey(ticketChannel), interaction);
+export async function registerPrivateTicketCreationConfirmation(ticketChannel, interaction, confirmationMessage = null) {
+  if (!ticketChannel?.guild?.id || !ticketChannel?.id || !interaction) return false;
+  const messageId = String(confirmationMessage?.id || '').trim() || null;
+  const canDeleteLive = messageId
+    ? typeof interaction.webhook?.deleteMessage === 'function'
+    : typeof interaction.deleteReply === 'function';
+  if (!canDeleteLive) return false;
+
+  privateTicketCreationConfirmations.set(privateConfirmationKey(ticketChannel), {
+    interaction,
+    messageId,
+  });
 
   const encryptedInteractionToken = encryptInteractionToken(interaction.token);
   const applicationId = String(interaction.applicationId || interaction.client?.application?.id || '').trim();
@@ -88,6 +99,7 @@ export async function registerPrivateTicketCreationConfirmation(ticketChannel, i
     const reference = {
       applicationId,
       encryptedInteractionToken,
+      ...(messageId ? { messageId } : {}),
       createdAt: new Date().toISOString(),
     };
     await setInDb(
@@ -129,7 +141,7 @@ export async function prepareTicketCreationConfirmationCleanup(ticketChannel, pr
   if (!ticketChannel?.guild?.id || !ticketChannel?.id) return async () => false;
 
   const privateKey = privateConfirmationKey(ticketChannel);
-  const privateInteraction = privateTicketCreationConfirmations.get(privateKey) || null;
+  const privateConfirmation = privateTicketCreationConfirmations.get(privateKey) || null;
   const data = providedData
     ? structuredClone(providedData)
     : await getTicketData(ticketChannel.guild.id, ticketChannel.id);
@@ -140,7 +152,7 @@ export async function prepareTicketCreationConfirmationCleanup(ticketChannel, pr
 
   const prepared = {
     privateKey,
-    privateInteraction,
+    privateConfirmation,
     dedicatedReference: dedicatedReference ? structuredClone(dedicatedReference) : null,
     data: data ? structuredClone(data) : null,
   };
@@ -156,13 +168,23 @@ export async function deleteTicketCreationConfirmation(ticketChannel, prepared =
     ? structuredClone(prepared.data)
     : await getTicketData(ticketChannel.guild.id, ticketChannel.id);
   const privateKey = prepared?.privateKey || privateConfirmationKey(ticketChannel);
-  const privateInteraction = prepared?.privateInteraction
+  const privateConfirmation = prepared?.privateConfirmation
+    || prepared?.privateInteraction
     || privateTicketCreationConfirmations.get(privateKey);
+  const privateInteraction = privateConfirmation?.interaction || privateConfirmation || null;
+  const privateMessageId = String(privateConfirmation?.messageId || '').trim() || null;
   if (privateInteraction) {
     privateTicketCreationConfirmations.delete(privateKey);
     try {
-      await privateInteraction.deleteReply();
-      deleted = true;
+      if (privateMessageId) {
+        if (typeof privateInteraction.webhook?.deleteMessage === 'function') {
+          await privateInteraction.webhook.deleteMessage(privateMessageId);
+          deleted = true;
+        }
+      } else if (typeof privateInteraction.deleteReply === 'function') {
+        await privateInteraction.deleteReply();
+        deleted = true;
+      }
     } catch (error) {
       // Discord interaction webhooks expire. The confirmation remains private;
       // do not turn a cleanup limitation into a failed ticket deletion.
