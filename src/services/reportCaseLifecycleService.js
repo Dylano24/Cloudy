@@ -414,7 +414,10 @@ export async function handleReportCaseControl(interaction, client, [action, mess
 
         const notice = await fetchMessage(channel, entry.messageId);
         if (notice?.author?.id === client.user.id) {
-          await notice.edit({ components: [], allowedMentions: { parse: [] } });
+          await notice.edit({
+            components: reportCaseControls(record, false, true, audience, true),
+            allowedMentions: { parse: [] },
+          });
         }
         await ensurePrivateDeletePrompt(client, channel, record, audience);
       }
