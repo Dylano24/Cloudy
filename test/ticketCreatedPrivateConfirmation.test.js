@@ -503,6 +503,218 @@ test('private Ticket created cleanup survives a bot restart while the Discord in
 });
 
 
+test('private follow-up cleanup survives restart and targets the follow-up instead of @original', async () => {
+  installTestStorage();
+  const previousToken = process.env.DISCORD_TOKEN;
+  const previousFetch = global.fetch;
+  process.env.DISCORD_TOKEN = 'test-discord-token-for-followup-confirmation';
+
+  try {
+    const guildId = 'guild-followup-restart';
+    const ticketId = 'ticket-followup-restart';
+    const followupId = 'private-followup-restart-message';
+    await saveTicketData(guildId, ticketId, {
+      id: ticketId,
+      status: 'open',
+      userId: 'user-followup-restart',
+    });
+
+    const ticketChannel = {
+      id: ticketId,
+      guild: {
+        id: guildId,
+        channels: { fetch: async () => null },
+      },
+      client: { user: { id: 'cloudy-bot' } },
+    };
+    const interaction = {
+      applicationId: 'application-followup-restart',
+      token: 'interaction-followup-restart-token',
+      webhook: { deleteMessage: async () => true },
+      deleteReply: async () => {
+        assert.fail('follow-up cleanup must not delete @original');
+      },
+    };
+
+    assert.equal(
+      await registerPrivateTicketCreationConfirmation(
+        ticketChannel,
+        interaction,
+        { id: followupId },
+      ),
+      true,
+    );
+
+    const dedicated = await getFromDb(
+      'cloudy:ticket-private-creation-confirmation:' + guildId + ':' + ticketId,
+      null,
+    );
+    assert.equal(dedicated.messageId, followupId);
+
+    let deleteUrl = '';
+    global.fetch = async (url, options) => {
+      deleteUrl = String(url);
+      assert.equal(options?.method, 'DELETE');
+      return { ok: true, status: 204 };
+    };
+
+    const restarted = await import(
+      '../src/services/ticketCreationConfirmationService.js?followupRestart=' + Date.now()
+    );
+
+    assert.equal(
+      await restarted.deleteTicketCreationConfirmation(ticketChannel),
+      true,
+    );
+    assert.match(deleteUrl, new RegExp('/messages/' + followupId + '
+  installTestStorage();
+  await saveTicketData('guild-prepared-confirmation', 'ticket-prepared-confirmation', {
+    id: 'ticket-prepared-confirmation',
+    status: 'open',
+    userId: 'user-prepared-confirmation',
+  });
+
+  let deletes = 0;
+  const ticketChannel = {
+    id: 'ticket-prepared-confirmation',
+    guild: { id: 'guild-prepared-confirmation' },
+    client: { user: { id: 'cloudy-bot' } },
+  };
+  const interaction = {
+    deleteReply: async () => {
+      deletes += 1;
+    },
+  };
+
+  await registerPrivateTicketCreationConfirmation(ticketChannel, interaction);
+  const data = await getTicketData(ticketChannel.guild.id, ticketChannel.id);
+  const cleanup = await prepareTicketCreationConfirmationCleanup(ticketChannel, data);
+
+  // Simulate the ticket/channel lifecycle moving on after the cleanup snapshot.
+  db.db.get = async () => {
+    throw new Error('post-delete lookup should not be required');
+  };
+
+  assert.equal(await cleanup(), true);
+  assert.equal(deletes, 1);
+});
+
+
+test('private Ticket created cleanup reference survives stale ticket record overwrites', async () => {
+  installTestStorage();
+  const previousToken = process.env.DISCORD_TOKEN;
+  process.env.DISCORD_TOKEN = 'test-discord-token-for-independent-confirmation-key';
+
+  try {
+    const guildId = 'guild-independent-confirmation';
+    const ticketId = 'ticket-independent-confirmation';
+    await saveTicketData(guildId, ticketId, {
+      id: ticketId,
+      status: 'open',
+      userId: 'user-independent-confirmation',
+    });
+
+    const ticketChannel = {
+      id: ticketId,
+      guild: { id: guildId },
+      client: { user: { id: 'cloudy-bot' } },
+    };
+    const interaction = {
+      applicationId: 'application-independent-confirmation',
+      token: 'interaction-independent-token',
+      deleteReply: async () => true,
+    };
+
+    await registerPrivateTicketCreationConfirmation(ticketChannel, interaction);
+
+    const dedicatedKey = `cloudy:ticket-private-creation-confirmation:${guildId}:${ticketId}`;
+    const dedicated = await getFromDb(dedicatedKey, null);
+    assert.equal(dedicated.applicationId, interaction.applicationId);
+
+    // Simulate Close/Reopen saving an older snapshot that does not contain
+    // privateCreationConfirmation. The dedicated cleanup reference must remain.
+    await saveTicketData(guildId, ticketId, {
+      id: ticketId,
+      status: 'closed',
+      userId: 'user-independent-confirmation',
+    });
+
+    const afterOverwrite = await getFromDb(dedicatedKey, null);
+    assert.equal(afterOverwrite.applicationId, interaction.applicationId);
+  } finally {
+    if (previousToken === undefined) delete process.env.DISCORD_TOKEN;
+    else process.env.DISCORD_TOKEN = previousToken;
+  }
+});
+
+test('prepared delete cleanup uses the dedicated private confirmation reference even with stale ticket data', async () => {
+  installTestStorage();
+  const previousToken = process.env.DISCORD_TOKEN;
+  const previousFetch = global.fetch;
+  process.env.DISCORD_TOKEN = 'test-discord-token-for-stale-cleanup';
+
+  try {
+    const guildId = 'guild-stale-cleanup';
+    const ticketId = 'ticket-stale-cleanup';
+    await saveTicketData(guildId, ticketId, {
+      id: ticketId,
+      status: 'open',
+      userId: 'user-stale-cleanup',
+    });
+
+    const ticketChannel = {
+      id: ticketId,
+      guild: {
+        id: guildId,
+        channels: { fetch: async () => null },
+      },
+      client: { user: { id: 'cloudy-bot' } },
+    };
+    const interaction = {
+      applicationId: 'application-stale-cleanup',
+      token: 'interaction-stale-cleanup-token',
+      deleteReply: async () => true,
+    };
+
+    await registerPrivateTicketCreationConfirmation(ticketChannel, interaction);
+
+    // Simulate a restart: use a fresh module instance so the in-memory map is empty.
+    const restarted = await import(
+      `../src/services/ticketCreationConfirmationService.js?stale=${Date.now()}`
+    );
+
+    let deleteUrl = '';
+    global.fetch = async url => {
+      deleteUrl = String(url);
+      return { ok: true, status: 204 };
+    };
+
+    const staleTicketData = {
+      id: ticketId,
+      status: 'closed',
+      userId: 'user-stale-cleanup',
+    };
+    const cleanup = await restarted.prepareTicketCreationConfirmationCleanup(
+      ticketChannel,
+      staleTicketData,
+    );
+
+    assert.equal(await cleanup(), true);
+    assert.match(deleteUrl, /application-stale-cleanup/);
+    assert.match(deleteUrl, /interaction-stale-cleanup-token/);
+    assert.equal(
+      await getFromDb(
+        `cloudy:ticket-private-creation-confirmation:${guildId}:${ticketId}`,
+        null,
+      ),
+      null,
+    );
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.DISCORD_TOKEN;
+    else process.env.DISCORD_TOKEN = previousToken;
+  }
+});
 ));
     assert.doesNotMatch(deleteUrl, /@original/);
   } finally {
