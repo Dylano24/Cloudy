@@ -4,6 +4,10 @@ import { EmbedBuilder } from 'discord.js';
 export const CLOUDY_BRANDING = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const MESSAGE_BUILDER_FOOTER_MARKER = '\u200B';
 
+export function isMentionOnlyContent(content) {
+  return typeof content === 'string' && /^(?:\s*(?:<@!?\d+>|<@&\d+>|<#\d+>|@everyone|@here)\s*)+$/.test(content);
+}
+
 const CLOUDY_BRANDING_LINE_PATTERN = /(?:^|\n)[ \t]*(?:-#[ \t]*)?(?:\*\*|__|\*|_)?[ \t]*(?:©[ \t]*)?Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?[ \t]*(?=\n|$)/gi;
 const CLOUDY_BRANDING_INLINE_PATTERN = /(?:\*\*|__|\*|_)?[ \t]*(?:©[ \t]*)?Cloudy[ \t]+Inc\.?[ \t]*•[ \t]*Quality\.?[ \t]*Innovation\.?[ \t]*Performance\.?(?:\*\*|__|\*|_)?/gi;
 
@@ -101,6 +105,7 @@ export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
 }
 
 export async function normalizeCloudyMessage(message, options = {}) {
+  if (isMentionOnlyContent(message?.content)) return false;
   if (PRESERVE_EXISTING_EMBEDS && !options.initialCreation) return false;
   if (!message?.editable || !message.embeds?.length) return false;
 
