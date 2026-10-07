@@ -88,3 +88,21 @@ test('report case embeds use compact Report + hash-number presentation', () => {
   const actions = fs.readFileSync('src/services/reportActionService.js', 'utf8');
   assert.match(actions, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
 });
+
+
+test('New report keeps runtime fields even when an older saved Builder template exists', () => {
+  const source = fs.readFileSync('src/services/loggingService.js', 'utf8');
+  assert.match(
+    source,
+    /decorateEmbedWithSavedTemplate\(guildId, channel\.id, embed, \{[\s\S]*strictTitle: true,[\s\S]*preserveRuntimeBody: eventType === EVENT_TYPES\.REPORT_FILE/
+  );
+
+  for (const file of [
+    'src/commands/Utility/reportMessage.js',
+    'src/commands/Utility/modules/report.js',
+  ]) {
+    const reportSource = fs.readFileSync(file, 'utf8');
+    assert.match(reportSource, /name: 'Report'[\s\S]*value: `#\$\{reportNumber\}`/);
+    assert.doesNotMatch(reportSource, /name: `Report #\$\{reportNumber\}`[\s\S]*value: '\\u200B'/);
+  }
+});
