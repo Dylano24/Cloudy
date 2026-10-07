@@ -39,18 +39,29 @@ test('adds the Cloudy footer only when an embed has neither logo nor footer', ()
   assert.deepEqual(result.embeds[0].thumbnail, payload.embeds[0].thumbnail);
 });
 
-test('treats branding as message-level and does not touch sibling embeds once one is branded', () => {
+test('brands each rich Cloudy embed while preserving saved custom footer text', () => {
   const alreadyBranded = { embeds: [
     { title: 'Unbranded sibling' },
     { title: 'Existing footer', footer: { text: 'Custom footer' } },
   ] };
-  assert.deepEqual(withCloudyFooter(alreadyBranded), alreadyBranded);
+  const fixed = withCloudyFooter(alreadyBranded);
+  assert.equal(fixed.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+  assert.match(fixed.embeds[0].thumbnail.url, /cloudy-c-logo/);
+  assert.deepEqual(fixed.embeds[1], alreadyBranded.embeds[1]);
 
   const unbranded = { embeds: [{ title: 'First' }, { title: 'Second' }] };
   const result = withCloudyFooter(unbranded);
-  assert.equal(result.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
-  assert.deepEqual(result.embeds[1], unbranded.embeds[1]);
+  for (const embed of result.embeds) {
+    assert.equal(embed.footer.text, CLOUDY_STANDARD_FOOTER);
+    assert.match(embed.thumbnail.url, /cloudy-c-logo/);
+  }
 });
+
+test('saved custom footer without a thumbnail preserves intentionally removed Builder logo', () => {
+  const saved = { embeds: [{ title: 'Manual Builder', footer: { text: 'My custom footer' } }] };
+  assert.equal(withCloudyFooter(saved), saved);
+});
+
 
 test('brands meaningful messages while leaving bare recipient mentions unchanged', () => {
   const embed = withCloudyFooter({ embeds: [{ title: 'Ticket update' }] });
