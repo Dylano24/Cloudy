@@ -53,10 +53,12 @@ function privateDeleteControls(record, audience, disabled = false) {
   )];
 }
 
-function deleteCaseEmbed(record) {
+function deleteCaseEmbed(record, audience) {
+  const entry = record.cases?.[audience];
+  const readBy = entry?.closedBy ? `<@${entry.closedBy}>` : 'Unknown';
   return caseEmbed({
     title: 'Delete report',
-    description: 'This report is closed. Staff can delete the report when it is no longer needed.',
+    description: `This report has been read by ${readBy}.`,
     color: CLOUDY_RED_COLOR,
     fields: [{ name: 'Report', value: `#${record.number}`, inline: true }],
   });
@@ -67,7 +69,7 @@ async function ensurePrivateDeletePrompt(client, channel, record, audience) {
   const existing = await fetchMessage(channel, entry.deletePromptId);
   const payload = {
     content: null,
-    embeds: [deleteCaseEmbed(record)],
+    embeds: [deleteCaseEmbed(record, audience)],
     components: privateDeleteControls(record, audience),
     allowedMentions: { parse: [] },
   };
@@ -394,10 +396,10 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       }
 
       if (!inCase) throw new Error('You cannot use these report controls.');
-      if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can close this report.');
+      if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can mark this report as read.');
 
-      // Close keeps Staff access, removes the participant's access and exposes
-      // Delete case only inside the private report case.
+      // Read keeps Staff access, removes the participant's access and exposes
+      // Delete report only inside the private report channel.
       if (!entry.closedAt) {
         const channel = await fetchChannel(interaction.guild, entry.channelId);
         const participantIdValue = participantId(record, audience);
