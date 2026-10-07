@@ -12,13 +12,18 @@ export function observeInteractionLatency(interaction, {
   report = data => logger.warn(`[INTERACTION_LATENCY] ${JSON.stringify(data)}`),
 } = {}) {
   if (!interaction || interaction[observed] || interaction._isPrefixCommand) return;
+  // The user's latency objective applies to all Cloudy interactions, with
+  // the AI FAQ assistant explicitly exempt. Do not change its response flow.
+  const faq = String(interaction.customId || '').startsWith('faq_ai_question')
+    || /^faq(?:_|$)/i.test(String(interaction.commandName || ''));
+  if (faq) return;
   interaction[observed] = true;
   const started = now();
   let acknowledgedAt = null;
   let acknowledgementMethod = null;
   let visible = false;
   const emit = (phase, elapsedMs, thinkingMs) => {
-    if (elapsedMs < 1000) return;
+    if (elapsedMs < 750) return;
     // Instrumentation must never change a successful Discord response into an
     // application error, even if a logger transport fails.
     try {
