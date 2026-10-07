@@ -345,14 +345,15 @@ export async function deleteReportCase(client, guild, record, executor = '24-hou
   return alreadyLocked ? operation() : withReportLock(reportKey(record.guildId, record.messageId), operation);
 }
 
-async function revokeReportParticipantAccess(channel, guild, userId) {
+async function revokeReportParticipantAccess(channel, guild, userId, resolvedMember = undefined) {
   const permissions = {
     ViewChannel: false,
     SendMessages: false,
     ReadMessageHistory: false,
   };
 
-  const member = guild.members.cache?.get?.(userId)
+  const member = resolvedMember
+    || guild.members.cache?.get?.(userId)
     || await guild.members.fetch(userId).catch(() => null);
 
   if (member) {
@@ -437,10 +438,17 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         const channel = interaction.channel?.id === entry.channelId
           ? interaction.channel : await fetchChannel(interaction.guild, entry.channelId);
         const participantIdValue = participantId(record, audience);
-        const participant = interaction.guild.members.cache?.get?.(participantIdValue)
-          || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
+        const participant = participantIdValue === interaction.user.id
+          ? member
+          : (interaction.guild.members.cache?.get?.(participantIdValue)
+            || await interaction.guild.members.fetch(participantIdValue).catch(() => null));
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
-          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue);
+          await revokeReportParticipantAccess(
+            channel,
+            interaction.guild,
+            participantIdValue,
+            participant || undefined,
+          );
         }
         entry.closedAt = Date.now();
         entry.closedBy = interaction.user.id;
