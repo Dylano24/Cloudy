@@ -2,6 +2,7 @@ import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getTermsTitleIcon } from './termsIconService.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
+import { WEBSITE_TERMS_FOOTER, syncExistingTermsFooter } from './termsWebsiteFooterService.js';
 
 const TERMS_CHANNEL_ID = '1533191366190829768';
 
@@ -40,20 +41,8 @@ const TERMS_SECTIONS = [
   }
 ];
 
-function formatLastUpdated(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Amsterdam',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  }).formatToParts(date);
-
-  const get = type => parts.find(part => part.type === type)?.value || '';
-  return `${get('day')} ${get('month')} ${get('year')}`;
-}
-
 function buildTermsEmbed(titleIcon = '') {
-  const footerText = `© Cloudy Inc. • Last updated: ${formatLastUpdated()}`;
+  const footerText = WEBSITE_TERMS_FOOTER;
   const title = titleIcon ? `${titleIcon} Terms of service` : 'Terms of service';
 
   const embed = new EmbedBuilder()
@@ -113,7 +102,9 @@ export async function reconcileTermsMessage(client) {
       : null;
 
     if (existing) {
-      return { ok: true, action: 'preserved', messageId: existing.id };
+      const updated = await syncExistingTermsFooter(existing, 'Terms of service');
+      if (updated) logger.info('[TERMS] Updated existing terms footer to match the website.');
+      return { ok: true, action: updated ? 'updated_footer' : 'preserved', messageId: existing.id };
     }
 
     const sent = await channel.send({ embeds: [embed] });
