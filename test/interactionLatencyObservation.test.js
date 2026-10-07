@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { observeInteractionLatency } from '../src/utils/interactionLatency.js';
+import { observeInteractionLatency, recordSlowInteractionCompletion } from '../src/utils/interactionLatency.js';
 import { logger } from '../src/utils/logger.js';
 
 test('slow component console logs include timings and action without report IDs', async t => {
@@ -66,6 +66,48 @@ test('fast replies stay quiet and rejected responses retain the exact error', as
   observeInteractionLatency(interaction, { now: () => now, report: () => assert.fail('failure is not a successful paint') });
   now = 100;
   await assert.rejects(interaction.reply({}), error => error === failure);
+});
+
+test('slow interaction handler completion is measured separately, without personal identifiers', () => {
+  const records = [];
+  const request = { customId: 'report_case:read:123456789012345678:target' };
+  recordSlowInteractionCompletion(request, 1234.2, { report: x => records.push(x) });
+  recordSlowInteractionCompletion(request, 200, { report: x => records.push(x) });
+  recordSlowInteractionCompletion({ customId: 'faq_ai_question_modal' }, 20000,
+    { report: x => records.push(x) });
+  assert.deepEqual(records, [{
+    event: 'interaction.handler.latency',
+    command: 'report_case',
+    action: 'read',
+    phase: 'handler_complete',
+    elapsedMs: 1234,
+  }]);
+  assert.equal(JSON.stringify(records).includes('123456789012345678'), false);
+});
+
+test('global 0.5–1s target flags 750ms reactions except FAQ AI', async () => {
+  let now = 0;
+  const slow = [];
+  const ordinary = {
+    customId: 'ticket_claim',
+    deferUpdate: async () => true,
+  };
+  observeInteractionLatency(ordinary, { now: () => now, report: data => slow.push(data) });
+  now = 810;
+  await ordinary.deferUpdate();
+  assert.deepEqual(slow.map(x => ({ phase: x.phase, ms: x.elapsedMs })), [{ phase: 'ack', ms: 810 }]);
+
+  const faq = {
+    customId: 'faq_ai_question_modal',
+    deferReply: async () => true,
+    editReply: async () => true,
+  };
+  const faqReports = [];
+  observeInteractionLatency(faq, { now: () => now, report: data => faqReports.push(data) });
+  now = 12000;
+  await faq.deferReply({});
+  await faq.editReply({});
+  assert.deepEqual(faqReports, [], 'FAQ assistant is excluded from the one-second target');
 });
 
 test('slow modal acknowledgement is measured without changing the modal flow', async () => {

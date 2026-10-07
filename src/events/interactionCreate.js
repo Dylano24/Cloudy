@@ -1,4 +1,6 @@
 import { Events, MessageFlags } from 'discord.js';
+import { performance } from 'node:perf_hooks';
+import { recordSlowInteractionCompletion } from '../utils/interactionLatency.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import {
@@ -54,6 +56,7 @@ export default {
     interaction.traceContext = interactionTraceContext;
     interaction.traceId = interactionTraceContext.traceId;
 
+    const handlerStartedAt = performance.now();
     return runWithTraceContext(interactionTraceContext, async () => {
       try {
         InteractionHelper.patchInteractionResponses(interaction);
@@ -481,6 +484,10 @@ export default {
             traceId: interactionTraceContext.traceId
           });
         }
+      } finally {
+        // Monitor the actual handler runtime as well as the first Discord
+        // response. Do not delay, modify, or expose any response or user ID.
+        recordSlowInteractionCompletion(interaction, performance.now() - handlerStartedAt);
       }
     });
   }
