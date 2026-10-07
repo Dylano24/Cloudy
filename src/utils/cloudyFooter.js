@@ -42,7 +42,9 @@ export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
         embed.footer = { text: CLOUDY_STANDARD_FOOTER };
         embedChanged = true;
       }
-      if (!embed.thumbnail?.url) {
+      // An explicitly saved non-standard footer can belong to a Builder
+      // message where the owner intentionally removed the logo.
+      if (!embed.thumbnail?.url && embed.footer?.text === CLOUDY_STANDARD_FOOTER) {
         embed.thumbnail = { url: CLOUDY_C_LOGO_URL };
         embedChanged = true;
       }
