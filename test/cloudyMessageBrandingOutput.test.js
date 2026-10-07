@@ -52,20 +52,18 @@ test('treats branding as message-level and does not touch sibling embeds once on
   assert.deepEqual(result.embeds[1], unbranded.embeds[1]);
 });
 
-test('adds Cloudy footer to embed and plain messages while retaining bare recipient mentions', () => {
+test('brands meaningful messages while leaving bare recipient mentions unchanged', () => {
   const embed = withCloudyFooter({ embeds: [{ title: 'Ticket update' }] });
   assert.equal(embed.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
 
   for (const payload of [
     { content: '<@123456789012345678>' },
     { content: '<@&223456789012345678>' },
-    { content: 'A plain Cloudy message' },
   ]) {
-    assert.equal(
-      withCloudyFooter(payload).content,
-      `${payload.content}\n\n${CLOUDY_STANDARD_FOOTER}`,
-    );
+    assert.equal(withCloudyFooter(payload), payload);
   }
+  assert.equal(withCloudyFooter({ content: 'A plain Cloudy message' }).content,
+    `A plain Cloudy message\n\n${CLOUDY_STANDARD_FOOTER}`);
 });
 
 test('keeps existing Cloudy-logo embeds and explicitly exempt Guide and builder messages unchanged', () => {
