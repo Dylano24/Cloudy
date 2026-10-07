@@ -212,11 +212,25 @@ const claimTicketHandler = {
 const pinTicketHandler = {
   name: 'ticket_pin',
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
+    // Component updates do not display Discord's long-lived "thinking"
+    // placeholder. Keep legacy support for adapters missing a response webhook.
+    const silentAck = typeof interaction.deferUpdate === 'function'
+      && typeof interaction.followUp === 'function'
+      && typeof interaction.webhook?.deleteMessage === 'function';
+    if (silentAck) {
+      try {
+        if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+      } catch (error) {
+        logger.warn('Ticket pin acknowledgement failed', { error: error.message });
+        return;
+      }
+    } else {
+      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+      if (!deferred) return;
+    }
 
     try {
-      const context = await requireStaff(interaction, client, 'pin tickets');
+      const context = await requireStaff(interaction, client, 'pin tickets', silentAck);
       if (!context) return;
 
       const willBePinned = await toggleTicketPinned(interaction.channel, context.ticketData);
@@ -228,13 +242,29 @@ const pinTicketHandler = {
         });
       });
 
-      await editBasicTicketReply(
-        interaction,
-        willBePinned ? 'Ticket pinned' : 'Ticket unpinned',
-        willBePinned
-          ? 'This ticket has been pinned to the top of the category.'
-          : 'This ticket has been moved back to its normal position.',
-      );
+      const title = willBePinned ? 'Ticket pinned' : 'Ticket unpinned';
+      const description = willBePinned
+        ? 'This ticket has been pinned to the top of the category.'
+        : 'This ticket has been moved back to its normal position.';
+      if (silentAck) {
+        const confirmation = await interaction.followUp({
+          content: '',
+          embeds: [buildCloudyTicketEmbed({ title, description })],
+          components: [],
+          flags: MessageFlags.Ephemeral,
+        });
+        // An ephemeral follow-up must be deleted by its own ID. Calling
+        // deleteReply after deferUpdate risks deleting the public ticket.
+        const privateId = confirmation?.id || confirmation?.resource?.message?.id;
+        if (privateId) {
+          const timer = setTimeout(() => {
+            void interaction.webhook.deleteMessage(privateId).catch(() => {});
+          }, 10_000);
+          timer.unref?.();
+        }
+      } else {
+        await editBasicTicketReply(interaction, title, description);
+      }
 
       void logTicketEvent({
         client: interaction.client,
@@ -250,10 +280,16 @@ const pinTicketHandler = {
       }).catch(() => {});
     } catch (error) {
       logger.error('Ticket pin button failed', { error: error.message, channelId: interaction.channelId });
-      await replyUserError(interaction, {
-        type: ErrorTypes.UNKNOWN,
-        message: error?.userMessage || 'Failed to pin or unpin the ticket.',
-      });
+      const message = error?.userMessage || 'Failed to pin or unpin the ticket.';
+      if (silentAck) {
+        await interaction.followUp({
+          embeds: [buildUserErrorEmbed(ErrorTypes.UNKNOWN, message)],
+          components: [],
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+      } else {
+        await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message });
+      }
     }
   },
 };
