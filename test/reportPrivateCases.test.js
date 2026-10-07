@@ -82,6 +82,23 @@ function fixture() {
   return { values, client, guild, staff, reporter, target, owner, roleOwner, reports, logs, channels, report, interaction, payloads, removed, dms, positions, replyDeletes, submit, register };
 }
 
+test('Read reuses the guild member supplied by Discord without an extra API fetch', async () => {
+  const f = fixture();
+  await f.register();
+  const record = await f.submit('no_sanction');
+  const entry = record.cases.target;
+  const channel = f.channels.get(entry.channelId);
+  const notice = channel.messages.cache.get(entry.messageId);
+  f.guild.members.fetch = async () => { throw new Error('Read must not refetch its known actor'); };
+
+  const read = f.interaction(f.target.user, notice, channel.id);
+  await handleReportCaseControl(read, f.client, ['read', record.messageId, 'target']);
+
+  assert.equal(json(read.error.embeds[0]).title, 'Thank you.');
+  assert.ok((await f.client.db.get(reportKey(f.guild.id, record.messageId))).cases.target.closedAt);
+  assert.deepEqual(channel.overwriteEdits[0].id, f.target.id);
+});
+
 test('Read confirms its durable close before waiting for staff log delivery', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.register();
