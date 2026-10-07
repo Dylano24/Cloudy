@@ -59,6 +59,11 @@ export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
   const content = typeof payload.content === 'string' ? payload.content : '';
   if (/(?:©\s*)?Cloudy\s+Inc\.?\s*•\s*Quality\.?\s*Innovation\.?\s*Performance\.?/i.test(content)) return payload;
 
+  // Pure mention/ping messages are transport notifications, not branded
+  // mini-messages. Keep them clean so ticket staff/member pings do not gain a
+  // standalone Cloudy footer line.
+  if (isMentionOnlyContent(content)) return payload;
+
   if (content.trim()) {
     const brandedContent = `${content}\n\n${CLOUDY_STANDARD_FOOTER}`;
     return brandedContent.length <= 2000
