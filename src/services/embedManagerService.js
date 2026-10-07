@@ -867,8 +867,26 @@ function navigationRow(prefix, page, pageCount) {
     );
 }
 
-export function buildChannelPayload(guild, records, page = 0, checkingChannelIds = null) {
-    const groups = buildChannelGroups(guild, records);
+export function createEmbedManagerChannelPager(guild) {
+    let previousRecords = null;
+    let groups = null;
+    return (records, page = 0, checkingChannelIds = null) => {
+        if (records !== previousRecords) {
+            previousRecords = records;
+            groups = buildChannelGroups(guild, records).map(group => ({
+                ...group,
+                embedCount: collapseDisplayRecords(builderRecordsForChannel(guild, group.channelId, group.records), group.channelId).length,
+            }));
+        }
+        return buildChannelPayload(guild, records, page, checkingChannelIds, groups);
+    };
+}
+
+export function buildChannelPayload(guild, records, page = 0, checkingChannelIds = null, preparedGroups = null) {
+    const groups = preparedGroups || buildChannelGroups(guild, records).map(group => ({
+        ...group,
+        embedCount: collapseDisplayRecords(builderRecordsForChannel(guild, group.channelId, group.records), group.channelId).length,
+    }));
     const result = pageItems(groups, page);
     const components = [];
 
@@ -880,7 +898,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
             .setMaxValues(1)
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
-                const count = collapseDisplayRecords(builderRecordsForChannel(guild, group.channelId, group.records), group.channelId).length;
+                const count = group.embedCount;
                 const checking = !count && checkingChannelIds?.has?.(String(group.channelId));
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(name))
@@ -901,7 +919,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
             .setDescription([
                 'Choose a channel first, then choose the embed you want to edit.',
                 '',
-                `**Embeds found:** ${groups.reduce((sum, group) => sum + collapseDisplayRecords(builderRecordsForChannel(guild, group.channelId, group.records), group.channelId).length, 0)}`,
+                `**Embeds found:** ${groups.reduce((sum, group) => sum + group.embedCount, 0)}`,
                 `**Channels:** ${groups.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
             ].join('\n'))
@@ -1388,6 +1406,7 @@ export function prepareEmbedManager(guild, state) {
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
+    const channelPage = createEmbedManagerChannelPager(guild);
     // Fast opens reply directly. Slow storage must not expire the component:
     // deferUpdate is silent and keeps the exact existing private follow-up flow.
     let pendingAcknowledgement = null;
@@ -1428,7 +1447,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         let records = [...storedRecords];
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
         const initialPayload = guild.channels.cache.size
-            ? buildChannelPayload(guild, records, 0, checkingChannelIds)
+            ? channelPage(records, 0, checkingChannelIds)
             : buildEmptyManagerPayload();
         clearTimeout(acknowledgementTimer);
         if (pendingAcknowledgement) await pendingAcknowledgement;
@@ -1499,7 +1518,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
             await buttonInteraction.webhook.editMessage(
                 managerMessage.id,
-                buildChannelPayload(guild, records, 0),
+                channelPage(records, 0),
             ).catch(error => {
                 if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
                     logger.error('Failed to refresh the embed manager registry:', error);
@@ -1519,13 +1538,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 if (selectionVersion !== session.selectionVersion) return;
 
                 if (interaction.customId === 'simple_embed_modify_back') {
-                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, 0), state, session);
+                    await updateEmbedManager(interaction, channelPage(records, 0), state, session);
                     return;
                 }
 
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
-                    await updateEmbedManager(interaction, buildChannelPayload(guild, records, page), state, session);
+                    await updateEmbedManager(interaction, channelPage(records, page), state, session);
                     return;
                 }
 
