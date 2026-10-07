@@ -3,7 +3,7 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
 import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
-import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
+import { CLOUDY_GREEN_COLOR, CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { TICKET_EVENT_STYLES } from '../utils/ticket/ticketLogging.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { logger, startupLog } from '../utils/logger.js';
@@ -53,10 +53,12 @@ function privateDeleteControls(record, audience, disabled = false) {
   )];
 }
 
-function deleteCaseEmbed(record) {
+function deleteCaseEmbed(record, audience) {
+  const entry = record.cases?.[audience];
+  const readBy = entry?.closedBy ? `<@${entry.closedBy}>` : 'Unknown';
   return caseEmbed({
     title: 'Delete report',
-    description: 'This report is closed. Staff can delete the report when it is no longer needed.',
+    description: `This report has been read by ${readBy}.`,
     color: CLOUDY_RED_COLOR,
     fields: [{ name: 'Report', value: `#${record.number}`, inline: true }],
   });
@@ -67,7 +69,7 @@ async function ensurePrivateDeletePrompt(client, channel, record, audience) {
   const existing = await fetchMessage(channel, entry.deletePromptId);
   const payload = {
     content: null,
-    embeds: [deleteCaseEmbed(record)],
+    embeds: [deleteCaseEmbed(record, audience)],
     components: privateDeleteControls(record, audience),
     allowedMentions: { parse: [] },
   };
@@ -394,10 +396,10 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       }
 
       if (!inCase) throw new Error('You cannot use these report controls.');
-      if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can close this report.');
+      if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can mark this report as read.');
 
-      // Close keeps Staff access, removes the participant's access and exposes
-      // Delete case only inside the private report case.
+      // Read keeps Staff access, removes the participant's access and exposes
+      // Delete report only inside the private report channel.
       if (!entry.closedAt) {
         const channel = await fetchChannel(interaction.guild, entry.channelId);
         const participantIdValue = participantId(record, audience);
@@ -412,13 +414,31 @@ export async function handleReportCaseControl(interaction, client, [action, mess
 
         const notice = await fetchMessage(channel, entry.messageId);
         if (notice?.author?.id === client.user.id) {
-          await notice.edit({ components: [], allowedMentions: { parse: [] } });
+          await notice.edit({
+            components: reportCaseControls(record, false, true, audience, true),
+            allowedMentions: { parse: [] },
+          });
         }
         await ensurePrivateDeletePrompt(client, channel, record, audience);
       }
 
       if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
       await refreshLogControls(client, interaction.guild, record, audience);
+
+      if (action === 'read') {
+        keepReply = true;
+        await InteractionHelper.safeEditReply(interaction, {
+          content: null,
+          embeds: [caseEmbed({
+            description: 'Thank you. We have been informed that you have read this report.',
+            color: CLOUDY_GREEN_COLOR,
+          })],
+          components: [],
+          allowedMentions: { parse: [] },
+        });
+        const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
+        timer.unref?.();
+      }
     });
     if (!keepReply) await interaction.deleteReply().catch(() => {});
   } catch (error) { await InteractionHelper.safeEditReply(interaction, { content: `Error: ${error.message}` }); }
