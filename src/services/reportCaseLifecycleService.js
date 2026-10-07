@@ -389,6 +389,55 @@ async function revokeReportParticipantAccess(channel, guild, userId, knownMember
   // participant access to revoke. Treat that as successfully closed.
 }
 
+// Expensive Discord presentation is separate from the tiny durable Read
+// transaction. A second audience must never queue behind log fetches/edits
+// from the first audience of the same report.
+async function finishReportReadPresentation(client, guild, key, audience, notice, currentChannel) {
+  const record = await client.db.get(key);
+  const entry = record?.cases?.[audience];
+  if (!entry?.closedAt || entry.deletedAt || record.closedAt) return;
+
+  const channel = currentChannel?.id === entry.channelId
+    ? currentChannel : await fetchChannel(guild, entry.channelId);
+  if (!channel) return;
+
+  const jobs = [
+    ensurePrivateDeletePrompt(client, channel, record, audience),
+  ];
+  if (notice?.author?.id === client.user.id) {
+    jobs.push(notice.edit({
+      components: reportCaseControls(record, false, true, audience, true),
+      allowedMentions: { parse: [] },
+    }));
+  }
+  if (!entry.closeLogId) {
+    jobs.push(publishStaffLog(
+      client, guild, record, audience, 'close', entry.closedBy, true,
+    ));
+  }
+  // These Discord messages are independent. Store each resulting ID with a
+  // short locked, field-specific write; never persist a stale entire record.
+  await Promise.all(jobs);
+  const latest = await client.db.get(key);
+  if (latest?.cases?.[audience]) {
+    await refreshLogControls(client, guild, latest, audience);
+  }
+}
+
+function queueReportReadPresentation(client, guild, key, audience, notice, channel) {
+  const jobKey = `${key}:${audience}`;
+  const ongoing = reportReadPresentationJobs.get(jobKey);
+  if (ongoing) return ongoing;
+  const job = finishReportReadPresentation(client, guild, key, audience, notice, channel);
+  reportReadPresentationJobs.set(jobKey, job);
+  void job.finally(() => {
+    if (reportReadPresentationJobs.get(jobKey) === job) {
+      reportReadPresentationJobs.delete(jobKey);
+    }
+  }).catch(() => {});
+  return job;
+}
+
 export async function handleReportCaseControl(interaction, client, [action, messageId, audience = 'target']) {
   if (!interaction.inGuild() || !['close', 'read', 'delete'].includes(action) || !audiences.includes(audience)) return;
   // A component deferUpdate acknowledges instantly without showing the
@@ -445,6 +494,7 @@ export async function handleReportCaseControl(interaction, client, [action, mess
   };
   try {
     const key = reportKey(interaction.guildId, messageId);
+    let shouldPresentRead = false;
     await withReportLock(key, async () => {
       const record = await client.db.get(key);
       mark('case_lookup');
@@ -497,24 +547,22 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         await save(client, record);
         mark('persist');
 
-        // The action is now durable and participant access is revoked. Staff
-        // presentation must not prolong the member's thinking state.
-        await confirmRead();
-        mark('confirmation');
-        const notice = interaction.message;
-        if (notice?.author?.id === client.user.id) {
-          await notice.edit({
-            components: reportCaseControls(record, false, true, audience, true),
-            allowedMentions: { parse: [] },
-          });
-        }
-        await ensurePrivateDeletePrompt(client, channel, record, audience);
       }
 
-      await confirmRead();
-      if (!entry.closeLogId) await publishStaffLog(client, interaction.guild, record, audience, 'close', entry.closedBy);
-      await refreshLogControls(client, interaction.guild, record, audience);
+      // Only authorization, access revocation and the durable close belong
+      // under the per-report lock. Slow message/log presentation must not.
+      shouldPresentRead = action === 'read';
     });
+    mark('lock_released');
+    if (shouldPresentRead) {
+      // The same private success response is sent only after the report was
+      // durably marked read and its participant permissions were revoked.
+      await confirmRead();
+      mark('confirmation');
+      await queueReportReadPresentation(
+        client, interaction.guild, key, audience, interaction.message, interaction.channel,
+      );
+    }
     if (!keepReply && !silentAck) await interaction.deleteReply().catch(() => {});
   } catch (error) { await respondPrivately({ content: `Error: ${error.message}` }); }
   finally {
