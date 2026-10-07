@@ -78,4 +78,3 @@ test('deletion queued between registrations retains its ordering', async () => {
   await Promise.all([beforeDelete, deletion, afterDelete]);
   assert.deepEqual((await getEmbedRegistry('registry-latency')).map(r => r.messageId).sort(), ['b', 'c']);
 });
-

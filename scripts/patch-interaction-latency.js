@@ -258,4 +258,3 @@ patchFile('src/services/reportCaseLifecycleService.js', text => replaceRequired(
   '  const category = await fetchChannel(guild, REPORT_CATEGORY_ID);\n  const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);',
   '  const [category, logs] = await Promise.all([\n    fetchChannel(guild, REPORT_CATEGORY_ID),\n    fetchChannel(guild, REPORT_LOG_CHANNEL_ID),\n  ]);'));
 console.log('[INTERACTION_LATENCY] Durable registry batching, single-request Modify and latency observation enabled.');
-
