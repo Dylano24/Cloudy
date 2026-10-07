@@ -405,20 +405,14 @@ export async function handleReportCaseControl(interaction, client, [action, mess
   };
   try {
     const key = reportKey(interaction.guildId, messageId);
-    const cachedMember = interaction.guild.members.cache?.get?.(interaction.user.id) || null;
-    const configPromise = getGuildConfig(client, interaction.guildId);
-    const memberPromise = cachedMember
-      ? Promise.resolve(cachedMember)
-      : interaction.guild.members.fetch(interaction.user.id);
-
     await withReportLock(key, async () => {
-      const [record, config, member] = await Promise.all([
-        client.db.get(key),
-        configPromise,
-        memberPromise,
-      ]);
+      const record = await client.db.get(key);
       const entry = record?.cases?.[audience];
       if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
+      const [config, member] = await Promise.all([
+        getGuildConfig(client, interaction.guildId),
+        interaction.guild.members.fetch(interaction.user.id),
+      ]);
       const staff = caseStaffAllowed(interaction.guild, member, config);
       const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
       const inDeletePrompt = interaction.channelId === entry.channelId && interaction.message.id === entry.deletePromptId;
@@ -443,10 +437,8 @@ export async function handleReportCaseControl(interaction, client, [action, mess
         const channel = interaction.channel?.id === entry.channelId
           ? interaction.channel : await fetchChannel(interaction.guild, entry.channelId);
         const participantIdValue = participantId(record, audience);
-        const participant = participantIdValue === interaction.user.id
-          ? member
-          : (interaction.guild.members.cache?.get?.(participantIdValue)
-            || await interaction.guild.members.fetch(participantIdValue).catch(() => null));
+        const participant = interaction.guild.members.cache?.get?.(participantIdValue)
+          || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
         if (!caseStaffAllowed(interaction.guild, participant, config)) {
           await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue);
         }
