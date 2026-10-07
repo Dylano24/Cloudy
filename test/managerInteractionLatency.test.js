@@ -7,7 +7,7 @@ import { openEmbedManager, buildChannelPayload, prepareEmbedManager } from '../s
 import { registerCloudyEmbedMessage } from '../src/services/embedRegistryService.js';
 import { registerBuilderSessionCollector, deleteBuilderSessionMessage } from '../src/utils/builderSessionCleanup.js';
 
-test('Modify renders its unchanged controls in one reply and pagination in one update', async () => {
+test('Modify renders unchanged controls directly and paginates with silent parallel acknowledgement', async () => {
   db.initialized = true; db.useFallback = false; db.connectionType = 'test';
   const record = { guildId: 'latency-manager', channelId: 'channel-a', messageId: 'message-a',
     embedIndex: 0, source: 'embed-builder', title: 'Owner guide', name: 'Owner guide',
@@ -19,8 +19,9 @@ test('Modify renders its unchanged controls in one reply and pagination in one u
   const channel = { id: 'channel-a', name: 'guide', type: 0, parentId: null, isTextBased: () => true };
   const guild = { id: 'latency-manager', channels: { cache: new Collection([[channel.id, channel]]) },
     client: { user: { id: 'cloudy' } } };
-  let replies = 0, defers = 0, follows = 0;
+  let replies = 0, defers = 0, follows = 0, paginationEdits = 0;
   let paint;
+  let trackPagination = false;
   const state = {};
   await openEmbedManager({
     guild, client: guild.client, user: { id: 'owner' },
@@ -31,7 +32,15 @@ test('Modify renders its unchanged controls in one reply and pagination in one u
     followUp: async payload => { follows += 1; paint = payload; return {
       id: 'manager', createMessageComponentCollector: () => collector,
     }; },
-    webhook: { editMessage: async () => {}, deleteMessage: async () => {} },
+    webhook: {
+      editMessage: async (messageId, payload) => {
+        if (!trackPagination) return;
+        assert.equal(messageId, 'manager');
+        paginationEdits += 1;
+        assert.deepEqual(serialize(payload.components), expected.components);
+      },
+      deleteMessage: async () => {},
+    },
   }, state, async () => true);
   assert.equal(replies, 1);
   assert.equal(defers, 0);
@@ -40,17 +49,19 @@ test('Modify renders its unchanged controls in one reply and pagination in one u
   const expected = serialize(buildChannelPayload(guild, [record], 0, new Set()));
   assert.deepEqual(serialize(paint.components), expected.components);
   assert.deepEqual(serialize(paint.embeds), expected.embeds);
+  trackPagination = true;
   let updates = 0;
   const component = {
     customId: 'simple_embed_modify_channel_page:0', user: { id: 'owner' },
-    update: async payload => { updates += 1; assert.deepEqual(serialize(payload.components), expected.components); },
+    update: async () => { updates += 1; },
     deferUpdate: async () => { defers += 1; },
-    editReply: async () => assert.fail('pagination must use the component acknowledgement'),
+    editReply: async () => assert.fail('pagination uses the manager webhook in parallel with deferUpdate'),
   };
   collector.emit('collect', component);
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
-  assert.equal(updates, 1);
-  assert.equal(defers, 0);
+  assert.equal(paginationEdits, 1);
+  assert.equal(updates, 0);
+  assert.equal(defers, 1);
   collector.stop();
 });
 
