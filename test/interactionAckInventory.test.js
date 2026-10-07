@@ -17,8 +17,11 @@ function scan(directory, stats) {
     const lines = source.split('\n');
     stats.files += 1;
     stats.lines += lines.length;
-    for (const line of lines) {
-      if (/\.deferReply\s*\(/.test(line)) stats.deferReply += 1;
+    for (const [index, line] of lines.entries()) {
+      if (/\.deferReply\s*\(/.test(line)) {
+        stats.deferReply += 1;
+        stats.deferReplySites.push(`${fullPath.replaceAll('\\\\', '/')}:${index + 1}`);
+      }
       if (/\.deferUpdate\s*\(/.test(line)) stats.deferUpdate += 1;
       if (/\.followUp\s*\(/.test(line)) stats.followUp += 1;
       if (/(?:readFileSync|writeFileSync|readdirSync|spawnSync)\s*\(/.test(line)) stats.syncIo += 1;
@@ -27,7 +30,7 @@ function scan(directory, stats) {
 }
 
 test('full repository interaction acknowledgement inventory and silent report Read contract', () => {
-  const stats = { files: 0, lines: 0, deferReply: 0, deferUpdate: 0, followUp: 0, syncIo: 0 };
+  const stats = { files: 0, lines: 0, deferReply: 0, deferReplySites: [], deferUpdate: 0, followUp: 0, syncIo: 0 };
   for (const root of ['src', 'scripts', 'test', 'monitor']) {
     if (fs.existsSync(root)) scan(root, stats);
   }
