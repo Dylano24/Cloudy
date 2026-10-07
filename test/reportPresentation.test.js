@@ -75,6 +75,7 @@ test('report logs are informational only and private reports own Delete report',
   assert.match(source, /ButtonStyle\.Secondary/);
   assert.match(source, /This report has been read by/);
   assert.match(source, /Thank you\. We have recorded that you have read this report\./);
+  assert.match(source, /color: CLOUDY_GREEN_COLOR/);
   assert.match(source, /10_000/);
   assert.match(source, /title: 'Delete report'/);
   assert.match(source, /Only the staff can delete this report\./);
