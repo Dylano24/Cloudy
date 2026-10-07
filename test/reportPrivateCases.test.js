@@ -114,7 +114,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.equal(json(targetNotice.embeds[0]).description, 'A message you sent was reported and has been removed by our staff.');
   assert.ok(json(targetNotice.embeds[0]).fields.some(field => field.name === 'Automatic deletion'
     && field.value === 'This report notification will be automatically deleted after 24 hours.'));
-  assert.equal(json(reporterNotice.embeds[0]).title, 'Report case notification');
+  assert.equal(json(reporterNotice.embeds[0]).title, 'Report notification');
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
   const publicSuccess = f.payloads.filter(message => message.channelId === 'reports');
@@ -132,7 +132,11 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.ok(f.reports.messages.cache.has(publicSuccess[0].id));
   assert.deepEqual(f.report.embeds, snapshot.embeds);
   assert.deepEqual(f.report.components, []);
-  for (const entry of Object.values(record.cases)) assert.equal(entry.createdLogId, undefined);
+  for (const entry of Object.values(record.cases)) {
+    assert.ok(entry.createdLogId);
+    const created = f.logs.messages.cache.get(entry.createdLogId);
+    assert.equal(json(created.embeds[0]).title, 'Report created');
+  }
   assert.equal(f.dms.length, 0);
 });
 
@@ -149,7 +153,7 @@ test('empty reason, invalid duration and unauthorized submissions cannot perform
   await assert.rejects(handleReportModeration(timeout, f.client, ['timeout', 'target', 'report']), /Timeout must/);
 });
 
-test('target Close creates a private red Delete case prompt while report logs stay informational', async t => {
+test('target Close creates a private red Delete report prompt while report logs stay informational', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
   let record = await f.submit();
@@ -171,7 +175,7 @@ test('target Close creates a private red Delete case prompt while report logs st
 
   const prompt = channel.messages.cache.get(record.cases.target.deletePromptId);
   const promptData = json(prompt.embeds[0]);
-  assert.equal(promptData.title, 'Delete case');
+  assert.equal(promptData.title, 'Delete report');
   assert.equal(promptData.color, CLOUDY_RED_COLOR);
   assert.ok(promptData.thumbnail?.url);
   assert.deepEqual(prompt.components[0].toJSON().components.map(button => button.label), ['Delete']);
@@ -179,7 +183,7 @@ test('target Close creates a private red Delete case prompt while report logs st
   const log = f.logs.messages.cache.get(record.cases.target.closeLogId);
   const logData = json(log.embeds[0]);
   assert.equal(logData.color, TICKET_EVENT_STYLES.close.color);
-  assert.equal(logData.title, 'Report case closed');
+  assert.equal(logData.title, 'Report closed');
   assert.equal(log.content, null);
   assert.deepEqual(log.components, []);
   assert.ok(!logData.fields.some(field => field.name === 'Channel'));
@@ -195,7 +199,7 @@ test('target Close creates a private red Delete case prompt while report logs st
   assert.deepEqual(f.removed, ['original-message']);
   const deniedData = json(denied.error.embeds[0]);
   assert.equal(deniedData.title, 'Permission denied');
-  assert.equal(deniedData.description, 'Only the staff can delete this case.');
+  assert.equal(deniedData.description, 'Only the staff can delete this report.');
   assert.equal(deniedData.color, CLOUDY_RED_COLOR);
   assert.ok(deniedData.thumbnail?.url);
   t.mock.timers.tick(9_999);
@@ -207,12 +211,14 @@ test('target Close creates a private red Delete case prompt while report logs st
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.ok(record.cases.target.deletedAt);
   assert.equal(record.cases.reporter.deletedAt, undefined);
-  assert.equal(record.cases.target.createdLogId, undefined);
+  assert.ok(record.cases.target.createdLogId);
+  assert.equal(json(f.logs.messages.cache.get(record.cases.target.createdLogId).embeds[0]).title, 'Report created');
   assert.ok(f.channels.has(record.cases.reporter.channelId));
 
   const deleted = f.logs.messages.cache.get(record.cases.target.deleteLogId);
   const deletedData = json(deleted.embeds[0]);
   assert.equal(deletedData.color, TICKET_EVENT_STYLES.delete.color);
+  assert.equal(deletedData.title, 'Report deleted');
   assert.match(JSON.stringify(deletedData), /Deleted by.*staff/);
   assert.ok(!deletedData.fields.some(field => field.name === 'Channel'));
   assert.deepEqual(deleted.components, []);
@@ -261,6 +267,7 @@ test('reporter Close removes only reporter access; Staff deletes each closed cas
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.equal(record.cases.target.closedAt, undefined);
   const reporterLog = f.logs.messages.cache.get(record.cases.reporter.closeLogId);
+  assert.equal(json(reporterLog.embeds[0]).title, 'Report closed');
   assert.deepEqual(reporterLog.components, []);
   assert.ok(!json(reporterLog.embeds[0]).fields.some(field => field.name === 'Channel'));
 
@@ -363,7 +370,7 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.equal(json(targetNotice.embeds[0]).title, 'Report notification');
   assert.equal(json(targetNotice.embeds[0]).description, 'A report involving you has been reviewed by our staff and you have been timed out.');
   assert.match(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
-  assert.equal(json(reporterNotice.embeds[0]).title, 'Report case notification');
+  assert.equal(json(reporterNotice.embeds[0]).title, 'Report notification');
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported member has been timed out.');
   assert.deepEqual(f.report.components, []);
   const success = f.payloads.find(message => message.channelId === 'reports');
@@ -518,7 +525,7 @@ test('Delete + timeout performs both actions once and explains both outcomes', a
   assert.equal(json(target.embeds[0]).title, 'Report notification');
   assert.equal(json(target.embeds[0]).description, 'A message you sent was reported and has been removed by our staff. You have also been timed out.');
   assert.match(JSON.stringify(json(target.embeds[0])), /Private action reason/);
-  assert.equal(json(reporter.embeds[0]).title, 'Report case notification');
+  assert.equal(json(reporter.embeds[0]).title, 'Report notification');
   assert.match(json(reporter.embeds[0]).description, /deleted/i);
   assert.match(json(reporter.embeds[0]).description, /timed out/i);
 });
@@ -541,9 +548,9 @@ test('Delete + ban performs both actions and keeps only the reporter case after 
   assert.match(data.description, /reported member has been banned/i);
 });
 
-test('saved shared notification templates cannot leak private reasons or overwrite report case presentation', async () => {
+test('saved shared notification templates cannot leak private reasons or overwrite report notification presentation', async () => {
   const f = fixture();
-  await saveEmbedTemplateDecoration(f.guild.id, 'shared', ['Report case notification'], { title: 'Report case notification', description: 'Leaked reason', fields: [{ name: 'Reason', value: 'Private secret' }], color: 0xFFFFFF }, { sharedScope: true, applyFields: true });
-  const payload = { embeds: [{ title: 'Report case notification', description: 'The reported member has been banned.', fields: [{ name: 'Time remaining', value: '23:59:30' }] }] };
+  await saveEmbedTemplateDecoration(f.guild.id, 'shared', ['Report notification'], { title: 'Report notification', description: 'Leaked reason', fields: [{ name: 'Reason', value: 'Private secret' }], color: 0xFFFFFF }, { sharedScope: true, applyFields: true });
+  const payload = { embeds: [{ title: 'Report notification', description: 'The reported member has been banned.', fields: [{ name: 'Automatic deletion', value: 'This report notification will be automatically deleted after 24 hours.' }] }] };
   assert.deepEqual(await applySavedResponsePayloadTemplates(payload, { guildId: f.guild.id, channelId: 'reporter' }), payload);
 });
