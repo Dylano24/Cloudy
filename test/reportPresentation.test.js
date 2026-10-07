@@ -12,9 +12,9 @@ test('every newly filed report gets its number before the original report is sen
     const numberAt = source.indexOf('nextReportNumber(');
     const sendAt = source.indexOf('logEvent({');
     assert.ok(numberAt >= 0 && sendAt > numberAt, `${file} must reserve the number before logEvent`);
-    assert.match(source, /title: 'New report'/);
-    assert.doesNotMatch(source, /New report • #\$\{reportNumber\}/);
-    assert.match(source, /name: 'Report'[\s\S]*value: `#\$\{reportNumber\}`/);
+    assert.match(source, /title: `New report #\$\{reportNumber\}`/);
+    assert.doesNotMatch(source, /title: 'New report'/);
+    assert.doesNotMatch(source, /name: 'Report'[\s\S]{0,120}value: `#\$\{reportNumber\}`/);
     assert.match(source, /number: reportNumber/);
   }
 });
@@ -58,7 +58,7 @@ test('report permission denial uses the requested owner wording, Cloudy embed an
   assert.match(source, /10_000/);
 });
 
-test('report logs are informational only and private cases own Delete case', () => {
+test('report logs are informational only and private reports own Delete report', () => {
   const source = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
   const logStart = source.indexOf('function logEmbed(');
   const logEnd = source.indexOf('\nasync function publishStaffLog', logStart);
@@ -71,20 +71,27 @@ test('report logs are informational only and private cases own Delete case', () 
   assert.match(publishBody, /components: \[\]/);
 
   assert.match(source, /setLabel\('Delete'\)/);
-  assert.match(source, /title: 'Delete case'/);
-  assert.match(source, /Only the staff can delete this case\./);
+  assert.match(source, /title: 'Delete report'/);
+  assert.match(source, /Only the staff can delete this report\./);
+  assert.match(source, /title: 'Report notification'/);
+  assert.match(source, /'Report closed'/);
+  assert.match(source, /'Report deleted'/);
+  assert.match(source, /'Report created'/);
+  assert.match(source, /publishStaffLog\(client, guild, record, audience, 'created', actorId\)/);
+  assert.doesNotMatch(source, /title: 'Report case notification'/);
+  assert.doesNotMatch(source, /title: 'Delete case'/);
   assert.match(source, /color: CLOUDY_RED_COLOR/);
 });
 
 
-test('report case embeds use compact Report + hash-number presentation', () => {
+test('report lifecycle embeds use compact Report + hash-number presentation', () => {
   const lifecycle = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
   const matches = lifecycle.match(/name: 'Report', value: `#\$\{record\.number\}`, inline: true/g) || [];
   assert.equal(matches.length, 3);
   assert.doesNotMatch(lifecycle, /name: 'Case'/);
   assert.doesNotMatch(lifecycle, /value: `report-\$\{record\.number\}`/);
 
-  // New report and Report handled keep their existing presentation.
+  // Report handled keeps its existing presentation; New report carries the number in its title.
   const actions = fs.readFileSync('src/services/reportActionService.js', 'utf8');
   assert.match(actions, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
 });
