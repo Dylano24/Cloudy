@@ -338,9 +338,16 @@ async function sendErrorResponse(interaction, embed, context = {}) {
         let responseMessage = null;
         let followUp = false;
 
-        if (interaction.replied || (interaction.deferred && context.forceFollowUp === true)) {
-            // Keep the existing reply. A silently acknowledged component/modal
-            // must also use a follow-up so its source message is never edited.
+        if (interaction.replied) {
+            // Keep the existing reply; gambling errors in its channel remain public.
+            responseMessage = await interaction.followUp({
+                ...errorMessage,
+                ...(gamblingPolicy?.ephemeral === false ? {} : { flags: MessageFlags.Ephemeral }),
+            });
+            followUp = true;
+        } else if (interaction.deferred && context.forceFollowUp === true) {
+            // A silently acknowledged component/modal must use a follow-up so
+            // its source message is never edited.
             responseMessage = await interaction.followUp({
                 ...errorMessage,
                 ...(useEphemeral ? { flags: MessageFlags.Ephemeral } : {}),
