@@ -393,6 +393,7 @@ export async function logEvent({
     const embed = createLogEmbed(guild, eventType, data);
     const decorated = await decorateEmbedWithSavedTemplate(guildId, channel.id, embed, {
       strictTitle: true,
+      preserveRuntimeBody: eventType === EVENT_TYPES.REPORT_FILE,
     });
 
     const presentedEmbed = enforceFixedLogPresentation(decorated.embed, { eventType });
