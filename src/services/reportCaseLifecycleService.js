@@ -394,6 +394,9 @@ export async function handleReportCaseControl(interaction, client, [action, mess
       fetchReply: true,
     };
     const confirmation = await interaction.followUp(payload);
+    // The report lock serializes this handler; this flag only tracks whether
+    // this interaction already received its private confirmation.
+    // eslint-disable-next-line require-atomic-updates
     keepReply = true;
     const timer = setTimeout(() => {
       if (confirmation?.id && interaction.webhook?.deleteMessage) {
