@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { Collection, EmbedBuilder, MessageFlags, PermissionsBitField } from 'discord.js';
 import { db, getTicketData, getTicketKey } from '../src/utils/database.js';
 import buttons from '../src/interactions/buttons/ticket/ticketUiOverrides.js';
@@ -161,4 +162,20 @@ test('ticket permission recovery still falls back to recent history when no pinn
   const context = await getTicketPermissionContext({ client: f.client, interaction: f.interaction });
   assert.equal(context.ticketData.ticketMessageId, main.id);
   assert.equal(recentReads, 1);
+});
+
+
+test('reopen restores creator access before sending the real creator mention', () => {
+  const source = fs.readFileSync('src/services/ticketReliabilityService.js', 'utf8');
+  const start = source.indexOf('export async function reopenTicket');
+  const end = source.indexOf('\nexport async function deleteTicket', start);
+  const body = source.slice(start, end);
+
+  const accessAt = body.indexOf('const ownerAccessTask = channel.permissionOverwrites.edit(ticketData.userId');
+  const awaitAt = body.indexOf('ownerAccessTask,');
+  const sendAt = body.indexOf('await channel.send({');
+  const mentionAt = body.indexOf('content: `<@${ticketData.userId}>`');
+  assert.ok(accessAt >= 0 && awaitAt > accessAt && sendAt > awaitAt);
+  assert.ok(mentionAt > sendAt);
+  assert.match(body, /allowedMentions: \{ parse: \[\], users: \[String\(ticketData\.userId\)\] \}/);
 });

@@ -1,12 +1,14 @@
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import {
+  CLOUDY_TICKET_CLOSED_COLOR,
   CLOUDY_TICKET_FOOTER,
 } from '../utils/ticket/ticketBranding.js';
 import { getGuildConfig } from './config/guildConfig.js';
-import { CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
+import { CLOUDY_GREEN_COLOR, CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 
 const TICKET_STATUS_TITLES = new Set([
   'Ticket reopened',
+  'Ticket closed',
   'Ticket deleted',
   'Ticket claimed',
   'Ticket unclaimed',
@@ -36,13 +38,15 @@ export async function brandTicketStatusMessage(message, client, { initialCreatio
   if (!TICKET_STATUS_TITLES.has(title)) return false;
 
   const raw = embed.toJSON();
-  const color = title === 'Ticket claimed'
-    ? 0x00C49D
+  const color = title === 'Ticket claimed' || title === 'Ticket reopened'
+    ? CLOUDY_GREEN_COLOR
     : title === 'Ticket unclaimed'
       ? 0x000000
-      : title === 'Ticket deleted'
-        ? CLOUDY_RED_COLOR
-        : 0xFFFFFF;
+      : title === 'Ticket closed'
+        ? CLOUDY_TICKET_CLOSED_COLOR
+        : title === 'Ticket deleted'
+          ? CLOUDY_RED_COLOR
+          : 0xFFFFFF;
   const alreadyBranded = raw.color === color
     && raw.footer?.text === CLOUDY_TICKET_FOOTER;
 
