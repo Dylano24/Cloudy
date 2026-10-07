@@ -84,7 +84,6 @@ export default {
 
         const reportNumber = await nextReportNumber(client, guildId);
         const blockFields = [
-            { name: 'Report', value: `#${reportNumber}`, inline: true },
             { name: 'Reason', value: reason },
         ];
         if (reportedMessage?.content) {
@@ -108,7 +107,7 @@ export default {
             content: ownerMention,
             attachments: reportAttachments,
             data: {
-                title: 'New report',
+                title: `New report #${reportNumber}`,
                 lines,
                 blockFields,
                 author: await resolveUserAuthor(client, targetUser.id),
