@@ -9,7 +9,7 @@ import { logger } from '../utils/logger.js';
 
 const PREFIX = 'cloudyfeed:';
 const MAX_FEEDS = 5;
-const MIN_MINUTES = 5;
+const MIN_MINUTES = 1;
 const MAX_MINUTES = 10080;
 const DASHBOARD_MS = 5 * 60_000;
 const running = new Set();
@@ -137,7 +137,7 @@ async function ownerOfGuild(interaction, client, guildId) {
 function parseMinutes(value) {
   const minutes = Number(value);
   if (!Number.isSafeInteger(minutes) || minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
-    throw new Error('Auto message must be between 5 and 10080 minutes.');
+    throw new Error('Auto message must be between 1 and 10080 minutes.');
   }
   return minutes;
 }
