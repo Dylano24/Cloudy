@@ -1127,7 +1127,7 @@ async function refreshBuilder(interaction, state) {
     return queueBuilderRefresh(interaction, state, true);
 }
 
-async function refreshBuilderLogo(interaction, state) {
+export async function refreshBuilderLogo(interaction, state) {
     // The footer already reliably edits this exact top preview. Logo clicks
     // must use the same proven preview-only route before updating controls.
     const previewUpdated = await refreshBuilderPreviewOnly(interaction, state);
@@ -1978,6 +1978,7 @@ export default {
                             state.sideColor = 0xFFFFFF;
                             state.showLogo = true;
                             state.removeExistingLogo = false;
+                            state.logoTouched = false;
                             state.bottomLine = DEFAULT_FOOTER_TEXT;
                             state.mediaUrl = null;
                             state.mediaBuffer = null;
