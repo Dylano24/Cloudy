@@ -9,8 +9,8 @@ test('saved Builder logo setting does not add a C logo without explicit user cho
     'function loadEmbedIntoState',
   ];
   const expressions = [
-    /state\.showLogo = isCloudyLogoUrl\(displayThumbnail\?\.url\);/,
-    /state\.showLogo = isCloudyLogoUrl\(data\.thumbnail\?\.url\);/,
+    /state\.showLogo = Boolean\(displayThumbnail\?\.url\);/,
+    /state\.showLogo = Boolean\(data\.thumbnail\?\.url\);/,
   ];
 
   for (let index = 0; index < hydrationFunctions.length; index += 1) {
