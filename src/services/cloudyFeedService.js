@@ -6,6 +6,7 @@ import {
 import { hasCloudyOwnerMember, hasCloudyOwnerRole } from './ownerRoleAccess.js';
 import { readWebsiteItems, validateSourceUrl } from './cloudyFeedParser.js';
 import { makeVideoAttachmentMessage, makeImageAttachmentMessage } from './cloudyFeedMediaUpload.js';
+import { makeExtractedVideoAttachmentMessage } from './cloudyFeedVideoExtractor.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
@@ -219,7 +220,7 @@ export function mediaSourceProblem(items, source, mediaType) {
 }
 
 export function mediaItemKey(item) {
-  return item.video || item.image || item.url;
+  return item.dedupKey || item.video || item.image || item.url;
 }
 
 export async function applyAction(interaction, guild, action, input = {}) {
@@ -239,7 +240,7 @@ export async function applyAction(interaction, guild, action, input = {}) {
       // callers without this field retain their existing behavior.
       const mediaType = Object.hasOwn(input, 'mediaType') ? parseMediaType(get('mediaType')) : undefined;
       const channel = await validateChannel(guild, get('channel'), adult);
-      const items = await readWebsiteItems(source);
+      const items = await readWebsiteItems(source, mediaType);
       const problem = mediaSourceProblem(items, source, mediaType);
       if (problem) throw new Error(problem);
       const id = randomUUID().slice(0, 8);
@@ -267,7 +268,7 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const sourceChanged = source !== feed.source;
         const typeChanged = mediaType !== feed.mediaType;
         if (sourceChanged || typeChanged) {
-          const items = await readWebsiteItems(source);
+          const items = await readWebsiteItems(source, mediaType);
           const problem = mediaSourceProblem(items, source, mediaType);
           if (problem) throw new Error(problem);
           if (sourceChanged) feed.recentUrls = [];
@@ -329,7 +330,7 @@ async function processGuild(client, guild) {
       const next = Date.now() + Math.max(MIN_MINUTES, feed.minutes) * 60_000;
       try {
         const channel = await validateChannel(guild, feed.channelId, feed.adult);
-        const discovered = await readWebsiteItems(feed.source);
+        const discovered = await readWebsiteItems(feed.source, feed.mediaType);
         const candidates = eligibleMediaForSource(discovered, feed.source, feed.mediaType);
         const seen = new Set(feed.recentUrls || []);
         const available = candidates.filter(item => !seen.has(mediaItemKey(item)));
@@ -346,8 +347,11 @@ async function processGuild(client, guild) {
           let post;
           if (item.video) {
             // Download and verify before reserving or publishing the media.
+            // Site-specific formats and public streams use yt-dlp/ffmpeg.
             // Never fall back to a site link when the video cannot be uploaded.
-            post = await makeVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
+            post = item.mediaExtractor === 'yt-dlp'
+              ? await makeExtractedVideoAttachmentMessage(item.video, guild.maximumUploadLimit)
+              : await makeVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
           } else {
             // Post the real photo as a native Discord attachment, not a
             // remote URL inside an embed. Reject blocked, oversized or invalid files.
