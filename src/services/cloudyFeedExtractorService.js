@@ -192,12 +192,13 @@ function stableGalleryKey(url) {
 export function parseGalleryDlUrls(stdout, source) {
   const seen = new Set();
   const items = [];
-  for (const raw of String(stdout || '').split(/\r?\n/).slice(0, MAX_ENTRIES * 3)) {
+  for (const [position, raw] of String(stdout || '').split(/\r?\n/).slice(0, MAX_ENTRIES * 3).entries()) {
     const image = safeHttps(raw.trim());
     if (!image || /\.(?:mp4|webm|m3u8|mov)(?:[?#]|$)/i.test(image) || seen.has(image)) continue;
     seen.add(image);
     items.push({
       title: 'Photo', url: source, image, video: null, description: '', country: null,
+      mediaExtractor: 'gallery-dl', galleryIndex: position + 1,
       dedupKey: stableGalleryKey(image),
     });
     if (items.length >= MAX_ENTRIES) break;
