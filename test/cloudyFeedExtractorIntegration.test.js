@@ -52,6 +52,16 @@ test('gallery-dl results keep only HTTPS pictures and avoid repeated URLs', () =
   assert.equal(result[0].dedupKey, 'gallery-dl:https://cdn.example.org/pic1.jpg');
 });
 
+test('gallery photo IDs in query strings remain distinct after signature removal', () => {
+  const images = parseGalleryDlUrls(
+    'https://cdn.example.org/image?id=10&expires=123\n'
+    + 'https://cdn.example.org/image?id=11&expires=124\n',
+    'https://example.org/gallery',
+  );
+  assert.equal(images.length, 2);
+  assert.notEqual(images[0].dedupKey, images[1].dedupKey);
+});
+
 test('media type chooses the specialist without introducing UI fields', async () => {
   const calls = [];
   const runner = async (binary, args) => {
