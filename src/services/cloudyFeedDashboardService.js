@@ -87,20 +87,24 @@ function choiceEmbed(description) {
   return [new EmbedBuilder().setTitle('Cloudy feed').setDescription(description).setColor(0xFFFFFF)];
 }
 
-function channelChooser(session, edit = false) {
+export function channelChooser(session, edit = false) {
   const picker = new ChannelSelectMenuBuilder()
     .setCustomId(PREFIX + 'channel:' + session.id)
     .setPlaceholder('Select a channel')
     .setMinValues(1)
     .setMaxValues(1)
     .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
-  const components = [new ActionRowBuilder().addComponents(picker)];
+  const buttons = [];
   if (edit) {
-    components.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(PREFIX + 'keep:' + session.id)
-        .setLabel('Keep current channel').setStyle(ButtonStyle.Secondary),
-    ));
+    buttons.push(new ButtonBuilder().setCustomId(PREFIX + 'keep:' + session.id)
+      .setLabel('Keep current channel').setStyle(ButtonStyle.Secondary));
   }
+  buttons.push(new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id)
+    .setLabel('Back').setStyle(ButtonStyle.Secondary));
+  const components = [
+    new ActionRowBuilder().addComponents(picker),
+    new ActionRowBuilder().addComponents(buttons),
+  ];
   return {
     embeds: choiceEmbed('Select the channel where Cloudy should post.'),
     components,
@@ -108,7 +112,7 @@ function channelChooser(session, edit = false) {
   };
 }
 
-function feedChooser(session, feeds) {
+export function feedChooser(session, feeds) {
   const options = feeds.slice(0, 5).map(feed => ({
     label: 'Feed ' + feed.id,
     description: String(feed.source).slice(0, 95),
@@ -120,7 +124,13 @@ function feedChooser(session, feeds) {
     .addOptions(options);
   return {
     embeds: choiceEmbed('Select the feed you want to manage.'),
-    components: [new ActionRowBuilder().addComponents(menu)],
+    components: [
+      new ActionRowBuilder().addComponents(menu),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id)
+          .setLabel('Back').setStyle(ButtonStyle.Secondary),
+      ),
+    ],
     allowedMentions: { parse: [] },
   };
 }
@@ -241,6 +251,23 @@ export async function handleCloudyFeedControls(interaction, client) {
   keepSessionAlive(session);
 
   try {
+    if (type === 'back' && interaction.isButton()) {
+      const feeds = await readFeeds(client, session.guildId);
+      if (session.action === 'edit' && session.feed) {
+        // From channel selection, go back to the feed selector.
+        session.feed = null;
+        session.channelId = null;
+        await interaction.update(feedChooser(session, feeds));
+      } else {
+        // From a feed selector or the Add feed channel selector, go home.
+        session.action = null;
+        session.feed = null;
+        session.channelId = null;
+        await interaction.update(dashboardForSession(session, feeds));
+      }
+      return true;
+    }
+
     if (type === 'button' && interaction.isButton()) {
       if (!['add', 'edit', 'pause', 'delete'].includes(value)) {
         await silentAck(interaction);
