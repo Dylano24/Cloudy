@@ -130,17 +130,11 @@ async function recoverTicketDataFromChannel(interaction) {
     recoveredFromDiscord: true,
   };
 
-  void withTimeout(
+  await withTimeout(
     saveTicketData(guild.id, channel.id, recovered),
     TICKET_IO_TIMEOUT_MS,
     'Recovered ticket save',
-  ).catch(error => {
-    logger.warn('Could not persist recovered ticket data quickly', {
-      guildId: guild.id,
-      channelId: channel.id,
-      error: error.message,
-    });
-  });
+  );
 
   return recovered;
 }
@@ -185,7 +179,16 @@ export async function getTicketPermissionContext({ client, interaction }) {
   // never be treated as "not found", otherwise stale Discord state could be
   // written back over PostgreSQL after a temporary outage.
   if (!ticketData && !ticketDataLookupFailed) {
-    ticketData = await recoverTicketDataFromChannel(interaction);
+    try {
+      ticketData = await recoverTicketDataFromChannel(interaction);
+    } catch (error) {
+      ticketDataLookupFailed = true;
+      logger.warn('Ticket database recovery timed out/failed', {
+        guildId,
+        channelId,
+        error: error.message,
+      });
+    }
   }
 
   const config = await configPromise;

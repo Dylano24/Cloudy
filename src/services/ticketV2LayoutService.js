@@ -35,11 +35,26 @@ function isLiveChannel(channel) {
 
 function enqueueRender(channel, operation) {
   const key = `${channel.guild.id}:${channel.id}`;
-  const previous = renderQueues.get(key) || Promise.resolve();
-  const current = previous.catch(() => {}).then(operation);
-  renderQueues.set(key, current);
+  const pending = renderQueues.get(key);
+  if (pending) {
+    pending.operation = operation;
+    pending.again = true;
+    return pending.promise;
+  }
+
+  const state = { again: false, promise: null, operation };
+  const current = Promise.resolve().then(async () => {
+    let result;
+    do {
+      state.again = false;
+      result = await state.operation(() => { state.again = false; });
+    } while (state.again && isLiveChannel(channel));
+    return result;
+  });
+  state.promise = current;
+  renderQueues.set(key, state);
   current.finally(() => {
-    if (renderQueues.get(key) === current) renderQueues.delete(key);
+    if (renderQueues.get(key) === state) renderQueues.delete(key);
   }).catch(() => {});
   return current;
 }
@@ -101,7 +116,8 @@ function buildTicketEmbed(ticketData, number, guildId) {
 async function findMainTicketMessage(channel, ticketData, preferredMessage = null) {
   if (!isLiveChannel(channel)) return null;
 
-  if (preferredMessage?.author?.id === channel.client.user?.id && preferredMessage.editable) {
+  if (preferredMessage?.author?.id === channel.client.user?.id && preferredMessage.editable
+    && (!ticketData?.ticketMessageId || String(ticketData.ticketMessageId) === String(preferredMessage.id))) {
     return preferredMessage;
   }
 
@@ -149,15 +165,22 @@ async function replaceComponentsV2TicketMessage(channel, message, ticketData, em
 export async function renderTicketV2(channel, preferredMessage = null) {
   if (!isLiveChannel(channel)) return false;
 
-  return enqueueRender(channel, async () => {
+  return enqueueRender(channel, async consumePendingRequests => {
     try {
       if (!isLiveChannel(channel)) return false;
 
-      const ticketData = await getTicketData(channel.guild.id, channel.id).catch(() => null);
+      let ticketData = await getTicketData(channel.guild.id, channel.id).catch(() => null);
       if (!ticketData || String(ticketData.status || '').toLowerCase() === 'deleted') return false;
 
       const message = await findMainTicketMessage(channel, ticketData, preferredMessage);
       if (!message || !isLiveChannel(channel)) return false;
+
+      // A history fetch can outlive several durable actions. All requests up
+      // to this point are covered by a fresh state read; later requests get one
+      // ordered follow-up paint after any current Discord edit completes.
+      consumePendingRequests();
+      ticketData = await getTicketData(channel.guild.id, channel.id).catch(() => null);
+      if (!ticketData || String(ticketData.status || '').toLowerCase() === 'deleted' || ticketData.deletionScheduledAt) return false;
 
       const number = ticketNumber(ticketData, message.embeds?.[0]?.title || '');
       if (number !== 'Unknown') ticketData.ticketNumber = number;

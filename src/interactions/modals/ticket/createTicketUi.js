@@ -151,14 +151,28 @@ const closeTicketModal = {
   name: 'ticket_close_modal',
 
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
+    const fromMessage = interaction.isFromMessage?.() === true;
+    if (fromMessage) {
+      try {
+        if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+      } catch (error) {
+        logger.warn('Could not acknowledge ticket close modal', { error: error.message, channelId: interaction.channelId });
+        return;
+      }
+    } else {
+      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+      if (!deferred) return;
+    }
+
+    const replyPrivately = payload => fromMessage
+      ? interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral })
+      : InteractionHelper.safeEditReply(interaction, payload);
 
     try {
       const context = await getTicketPermissionContext({ client, interaction });
 
       if (context.ticketDataLookupFailed) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await replyPrivately({
           content: 'The ticket database is temporarily unavailable. Please try again.',
           embeds: [],
           components: [],
@@ -167,7 +181,7 @@ const closeTicketModal = {
       }
 
       if (!context.ticketData) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await replyPrivately({
           content: 'This action can only be used in a valid ticket channel.',
           embeds: [],
           components: [],
@@ -176,7 +190,7 @@ const closeTicketModal = {
       }
 
       if (!context.canCloseTicket) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await replyPrivately({
           content: 'Only the ticket creator, admins, or the configured Ticket Staff Role can close this ticket.',
           embeds: [],
           components: [],
@@ -189,7 +203,7 @@ const closeTicketModal = {
       await closeTicket(interaction.channel, interaction.user, reason, {
         ticketData: context.ticketData,
         config: context.config,
-        onVisible: () => interaction.deleteReply(),
+        ...(fromMessage ? {} : { onVisible: () => interaction.deleteReply() }),
       });
     } catch (error) {
       logger.error('Ticket close modal failed', {
@@ -198,7 +212,7 @@ const closeTicketModal = {
         channelId: interaction.channelId,
       });
 
-      await InteractionHelper.safeEditReply(interaction, {
+      await replyPrivately({
         content: error?.userMessage || 'An error occurred while closing the ticket. Please try again.',
         embeds: [],
         components: [],
