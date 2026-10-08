@@ -20,6 +20,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { registerBuilderPreviewMessage,
     unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
+import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError,
     replyUserError,
@@ -45,7 +46,8 @@ import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { applyInitialSearchSelectionToState,
     openEmbedManager,
     prepareEmbedManager,
-    saveModifiedEmbed } from '../../services/embedManagerService.js';
+    saveModifiedEmbed,
+    syncBuilderLogoFromLiveMessage } from '../../services/embedManagerService.js';
 import {
     purgeEmbedRegistryRecord,
     registerCloudyEmbedMessage,
@@ -709,7 +711,10 @@ async function postBuiltMessage(channel, state, guild, member) {
             payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
         }
 
-        const sent = await channel.send(payload);
+        // Publish this exact Builder choice. The general Cloudy footer policy
+        // may add missing footer text, but must not re-add an intentionally
+        // absent C on this new owner-authored embed.
+        const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload));
         await registerCloudyEmbedMessage(sent, 'embed-builder');
         if (state.reappearAfter) {
             const reappearKey = `cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`;
@@ -1701,7 +1706,8 @@ export default {
                 delete interaction.__cloudyInitialBuilderSelection;
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
-            if (applyInitialSearchSelectionToState(interaction, state)) {
+            const initialSavedRecordLoaded = applyInitialSearchSelectionToState(interaction, state);
+            if (initialSavedRecordLoaded) {
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
 
@@ -1777,6 +1783,9 @@ export default {
                 && interaction.channel?.send
                 && !interaction.replied
                 && !interaction.deferred) {
+                // The global REST footer policy must not secretly add a C
+                // thumbnail that the preview and buttons say is absent.
+                registerBuilderPreviewReplyToken(interaction.token);
                 const previewResponsePromise = interaction.reply({
                     embeds: [buildPreviewEmbed(state)],
                     components: getBuilderPreviewComponents(state),
@@ -1798,6 +1807,7 @@ export default {
                     previewMessage = await interaction.fetchReply().catch(() => null);
                 }
             } else {
+                registerBuilderPreviewReplyToken(interaction.token);
                 const initialShown = await InteractionHelper.safeReply(interaction, {
                     embeds: [buildPreviewEmbed(state)],
                     components: getBuilderPreviewComponents(state),
@@ -1854,6 +1864,17 @@ export default {
             state.finishBuilder = reason => {
                 if (!collector.ended) collector.stop(reason || 'completed');
             };
+
+            // Search paints instantly from the saved snapshot; reconcile only
+            // its logo with the selected live Discord message in the background.
+            if (initialSavedRecordLoaded) {
+                void syncBuilderLogoFromLiveMessage(interaction.guild, state)
+                    .then(changed => changed && !collector.ended
+                        ? refreshBuilder(interaction, state) : null)
+                    .catch(error => logger.warn(
+                        `[EMBED_BUILDER] Live logo read failed: ${error?.message || error}`,
+                    ));
+            }
 
             collector.on('collect', async buttonInteraction => {
                 try {
