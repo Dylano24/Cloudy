@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ButtonStyle, ApplicationCommandOptionType } from 'discord.js';
+import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
+import { CLOUDY_BRANDING } from '../src/services/cloudyBrandingService.js';
 import auto from '../src/commands/Tools/auto.js';
-import { buildCloudyFeedDashboard, channelChooser, feedChooser, feedDetail, readableFeedName, parseAutoMessageTime, formatAutoMessage } from '../src/services/cloudyFeedDashboardService.js';
+import { buildCloudyFeedDashboard, channelChooser, feedChooser, feedDetail, feedModal, readableFeedName, parseAutoMessageTime, formatAutoMessage } from '../src/services/cloudyFeedDashboardService.js';
 
 test('Cloudy feed slash command uses /auto feed and default disabled visibility', () => {
   const data = auto.data.toJSON();
@@ -25,6 +27,8 @@ test('Cloudy feed main embed only shows its original title and description', () 
     assert.equal(embed.description,
       'Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.');
     assert.equal(embed.fields, undefined, 'No source/channel/timer/status in main dashboard');
+    assert.equal(embed.thumbnail.url, CLOUDY_LOGO_URL);
+    assert.equal(embed.footer.text, CLOUDY_BRANDING);
     const buttons = result.components[0].components;
     assert.deepEqual(buttons.map(button => button.data.label), ['Add feed', 'Manage feed']);
     assert.equal(buttons[1].data.disabled, feeds.length === 0);
@@ -91,12 +95,12 @@ test('selected feed detail displays full source, channel, interval and dynamic p
   assert.match(card, /5m/);
   assert.match(card, /No supported photos or videos found/);
   assert.deepEqual(active.components[0].components.map(button => button.data.label),
-    ['Edit feed', 'Change channel', 'Pause feed', 'Delete feed', 'Back']);
-  assert.equal(active.components[0].components[2].data.style, ButtonStyle.Primary);
+    ['Edit feed', 'Pause feed', 'Delete feed', 'Back']);
+  assert.equal(active.components[0].components[1].data.style, ButtonStyle.Primary);
 
   const paused = feedDetail(session, { ...feed, active: false });
-  assert.equal(paused.components[0].components[2].data.label, 'Resume feed');
-  assert.equal(paused.components[0].components[2].data.style, ButtonStyle.Success);
+  assert.equal(paused.components[0].components[1].data.label, 'Resume feed');
+  assert.equal(paused.components[0].components[1].data.style, ButtonStyle.Success);
 });
 
 test('feed chooser shows a readable name and destination channel', () => {
@@ -111,4 +115,43 @@ test('feed chooser shows a readable name and destination channel', () => {
   const item = result.components[0].components[0].toJSON().options[0];
   assert.equal(item.label, 'Media updates • #nsfw');
   assert.match(item.description, /5m • Paused/);
+});
+
+test('all feed embeds keep C logo, standard footer and white rule after source', () => {
+  const feed = {
+    id: 'aaa', name: 'Media', source: 'https://example.org/videos',
+    channelId: '1532882647838228724', minutes: 1, active: true,
+  };
+  const main = buildCloudyFeedDashboard('1532882647838228723', [feed]);
+  const chooser = feedChooser({ id: 'session1' }, [feed]);
+  const detail = feedDetail({ id: 'session1' }, feed);
+  for (const panel of [main, chooser, detail]) {
+    const embed = panel.embeds[0].toJSON();
+    assert.equal(embed.thumbnail.url, CLOUDY_LOGO_URL);
+    assert.equal(embed.footer.text, CLOUDY_BRANDING);
+    assert.equal(embed.color, 0xFFFFFF);
+  }
+  const value = detail.embeds[0].toJSON().fields[0].value;
+  assert.match(value, /Source:\*\* https:\/\/example.org\/videos\n━+\n\*\*Channel:/);
+  assert.doesNotMatch(JSON.stringify(main.embeds[0].toJSON()), /https:\/\/example.org/);
+});
+
+test('Edit feed opens a modal with optional native channel chooser and no Channel ID', () => {
+  const session = {
+    id: 'session1', action: 'edit',
+    feed: {
+      id: 'abc', source: 'https://example.org/videos', name: 'Media',
+      channelId: '1532882647838228724', minutes: 5, adult: true,
+    },
+  };
+  const modal = feedModal(session).toJSON();
+  assert.equal(modal.title, 'Edit feed');
+  assert.equal(modal.components.length, 5);
+  assert.deepEqual(modal.components.map(x => x.label),
+    ['Feed name', 'Website URL', 'Auto message', '18+ content', 'Channel (optional)']);
+  const picker = modal.components[4].component;
+  assert.equal(picker.type, 8); // Channel select menu
+  assert.equal(picker.custom_id, 'feedChannel');
+  assert.equal(picker.required, false);
+  assert.equal(picker.max_values, 1);
 });
