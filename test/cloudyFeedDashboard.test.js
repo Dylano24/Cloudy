@@ -24,7 +24,7 @@ test('Cloudy feed dashboard keeps exact copy and shows named feeds with manage b
   assert.doesNotMatch(embed.fields[0].value, /Duplicates|Random posts|Channel ID/);
   const buttons = result.components[0].components;
   assert.deepEqual(buttons.map(button => button.data.label), ['Add feed', 'Manage feed']);
-  assert.match(embed.fields[0].name, /Erome/);
+  assert.match(embed.fields[0].name, /Example/);
   assert.match(embed.fields[0].value, /Source check/);
 });
 
@@ -69,7 +69,7 @@ test('feed selection also has a Back button without changing the choices', () =>
     id: 'aabbccdd', source: 'https://example.org/feed',
   }]);
   assert.equal(result.components[0].components[0].toJSON().options[0].value, 'aabbccdd');
-  assert.match(result.components[0].components[0].toJSON().options[0].label, /Erome/);
+  assert.match(result.components[0].components[0].toJSON().options[0].label, /Example/);
   assert.equal(result.components[1].components[0].data.custom_id, 'cloudyfeed:back:abc123');
 });
 
