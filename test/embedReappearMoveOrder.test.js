@@ -16,7 +16,7 @@ function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails
   const get = async (key, fallback) => structuredClone(values.get(key) ?? fallback);
   const set = async (key, value) => { values.set(key, structuredClone(value)); return true; };
   const remove = async key => values.delete(key);
-  const handle = new Function('getFromDb', 'setInDb', 'deleteFromDb', 'logger', `const reappearQueues = new Map(); ${source.slice(start)}; return handleEmbedReappear;`)(get, set, remove, { error() {} });
+  const handle = new Function('getFromDb', 'setInDb', 'deleteFromDb', 'logger', 'setTimeout', `const reappearQueues = new Map(); ${source.slice(start)}; return handleEmbedReappear;`)(get, set, remove, { error() {} }, (callback, delay) => { actions.push('delay:' + delay); callback(); });
   let serial = 0;
   const channel = {
     id: 'c',
@@ -45,7 +45,7 @@ function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails
 test('Reappear deletes the previous copy before sending the next', async () => {
   const f = fixture();
   await f.run();
-  assert.deepEqual(f.actions, ['delete:old', 'send']);
+  assert.deepEqual(f.actions, ['delete:old', 'delay:2000', 'send']);
   assert.equal(f.overlap(), false);
   assert.equal(f.visible.size, 1);
 });
@@ -73,7 +73,7 @@ test('Reappear retains the configured message count', async () => {
   await f.run();
   assert.deepEqual(f.actions, []);
   await f.run();
-  assert.deepEqual(f.actions, ['delete:old', 'send']);
+  assert.deepEqual(f.actions, ['delete:old', 'delay:2000', 'send']);
 });
 
 test('a lookup failure never creates a second visible copy', async () => {
@@ -86,7 +86,7 @@ test('a lookup failure never creates a second visible copy', async () => {
 test('turning Reappear off during deletion prevents reposting', async () => {
   const f = fixture({ disableDuringDelete: true });
   await f.run();
-  assert.deepEqual(f.actions, ['delete:old']);
+  assert.deepEqual(f.actions, ['delete:old', 'delay:2000']);
   assert.equal(f.values.has(f.ruleKey), false);
 });
 
