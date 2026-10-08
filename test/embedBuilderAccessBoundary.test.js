@@ -90,7 +90,7 @@ async function open(t, options) {
   return { ...f, dashboard };
 }
 
-test('public Builder keeps its layout with a direct content link and private color launch', async t => {
+test('public Builder keeps its layout with direct content and color links', async t => {
   const f = await open(t);
   assert.equal(f.publicPayloads.length, 2);
   assert.ok(f.publicPayloads.every(payload => !(Number(payload.flags || 0) & MessageFlags.Ephemeral)));
@@ -98,10 +98,10 @@ test('public Builder keeps its layout with a direct content link and private col
   const launchButtons = buttons(f.dashboard).filter(button => ['Edit title & message', 'Set side color'].includes(button.label));
   assert.equal(launchButtons.length, 2);
   assert.ok(launchButtons.find(button => button.label === 'Edit title & message').url);
-  assert.ok(launchButtons.find(button => button.label === 'Set side color').custom_id);
+  assert.ok(launchButtons.find(button => button.label === 'Set side color').url);
 });
 
-test('direct content editor and private color editor still update the preview', async t => {
+test('direct content and color editors still update the preview without private launch replies', async t => {
   const f = fixture(t);
   let rootCollector;
   const originalSend = f.channel.send;
@@ -114,11 +114,9 @@ test('direct content editor and private color editor still update the preview', 
   await builder.execute(f.interaction);
   t.after(() => rootCollector.stop('test-ended'));
   assert.equal(rootCollector.options.filter(f.component('simple_embed_open_content', { id: 'another-viewer' })), false);
-  await rootCollector.listeners('collect')[0](f.component('simple_embed_open_color'));
-  assert.equal(f.childPayloads.length, 1, 'only color launch returns a private link');
-  assert.ok(f.childPayloads.every(payload => Number(payload.flags) & MessageFlags.Ephemeral));
+  assert.equal(f.childPayloads.length, 0);
   const contentUrl = new URL(buttons(f.channel.lastMessage).find(button => button.label === 'Edit title & message').url);
-  const colorUrl = new URL(buttons(f.childPayloads[0])[0].url);
+  const colorUrl = new URL(buttons(f.channel.lastMessage).find(button => button.label === 'Set side color').url);
   assert.equal(contentUrl.searchParams.get('mode'), 'content');
   assert.equal(contentUrl.searchParams.get('session'), colorUrl.searchParams.get('session'));
   const token = contentUrl.searchParams.get('session');
