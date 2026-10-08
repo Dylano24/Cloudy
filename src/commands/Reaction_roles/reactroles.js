@@ -505,8 +505,15 @@ function buildReactionRoleDashboardPayload(panelData, discordMsg, guildId, guild
 async function migrateReactionRoleMessageId(client, guildId, panelData, newMessageId) {
     if (!newMessageId || panelData.messageId === newMessageId) return;
     const oldKey = getReactionRoleKey(guildId, panelData.messageId);
+    const migrated = { ...panelData, messageId: newMessageId };
+    if ((await client.db.set(getReactionRoleKey(guildId, newMessageId), migrated)) === false) {
+        throw createError(
+            'Reaction role panel migration failed',
+            ErrorTypes.DATABASE,
+            'Failed to save reaction role data. Please try again.',
+        );
+    }
     panelData.messageId = newMessageId;
-    await client.db.set(getReactionRoleKey(guildId, newMessageId), panelData);
     await client.db.delete(oldKey).catch(() => {});
 }
 

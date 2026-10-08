@@ -34,10 +34,15 @@ export async function deleteTicketSafely(channel, deleter, providedTicketData = 
 
   requirePersistentTicketDatabase(channel.client);
   const key = `${channel.guild.id}:${channel.id}`;
+  // A caller snapshot is reusable only when there is no earlier deletion in
+  // this channel's queue. Queued clicks must observe the preceding saved state.
+  const reusable = !deleteQueues.has(key) && providedTicketData
+    ? structuredClone(providedTicketData)
+    : null;
 
   return enqueue(key, async () => {
-    const ticketData = providedTicketData
-      ? structuredClone(providedTicketData)
+    const ticketData = reusable
+      ? reusable
       : await getTicketData(channel.guild.id, channel.id);
     if (!ticketData) {
       throw ticketDeleteError('Ticket data not found', 'This is not a valid ticket channel.', 'TICKET_NOT_FOUND');

@@ -123,18 +123,18 @@ async function updateConfigFile(currencySymbol, currencyName) {
         let configContent = await fs.readFile(configPath, 'utf-8');
 
         configContent = configContent.replace(
-            /symbol:\s*"[^"]*"/,
-            `symbol: "${currencySymbol}"`
+            /symbol:\s*"(?:\\.|[^"\\])*"/,
+            () => `symbol: ${JSON.stringify(currencySymbol)}`
         );
 
         configContent = configContent.replace(
-            /name:\s*"[^"]*",\s*\/\/\s*Currency display name/,
-            `name: "${currencyName}", // Currency display name`
+            /name:\s*"(?:\\.|[^"\\])*",\s*\/\/\s*Currency display name/,
+            () => `name: ${JSON.stringify(currencyName)}, // Currency display name`
         );
 
         configContent = configContent.replace(
-            /namePlural:\s*"[^"]*",\s*\/\/\s*Plural display name/,
-            `namePlural: "${currencyName}s", // Plural display name`
+            /namePlural:\s*"(?:\\.|[^"\\])*",\s*\/\/\s*Plural display name/,
+            () => `namePlural: ${JSON.stringify(`${currencyName}s`)}, // Plural display name`
         );
         
         await fs.writeFile(configPath, configContent, 'utf-8');

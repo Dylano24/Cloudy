@@ -2,7 +2,7 @@
 import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { isTransientStatusEmbed } from '../utils/transientResponse.js';
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { deleteFromDb, getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
+import { db, deleteFromDb, getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
 import { peekGuildConfigCache } from './config/guildConfig.js';
@@ -175,7 +175,7 @@ async function mutateRegistry(guildId, operation) {
 }
 
 async function readStoredRecords(guildId) {
-    const stored = await getFromDb(registryKey(guildId), []);
+    const stored = await db.get(registryKey(guildId), [], { strict: true });
     return Array.isArray(stored) ? stored : [];
 }
 
@@ -887,7 +887,6 @@ function recordsFromMessage(message, priorRecords = [], { allowManual = false } 
                 createdAt: prior?.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
             });
             if (!record || (!allowManual && !isSystemCatalogMessage(message) && !isFixedCloudyEmbed(embed))) return null;
-            rememberEmbedSnapshot(record, embed);
             return record;
         })
         .filter(Boolean);
@@ -967,11 +966,22 @@ export async function reconcileEmbedRegistry(guild) {
         const next = [];
         const replacedMessages = new Set(results.keys());
 
+        // Discord fetches happen outside the mutation queue. Retain any newer
+        // Save or removal rather than applying the older fetched snapshot.
+        for (const key of replacedMessages) {
+            const before = snapshot.filter(record => messageKey(record) === key);
+            const current = latest.filter(record => messageKey(record) === key);
+            if (registryContent(before) !== registryContent(current)) {
+                replacedMessages.delete(key);
+            }
+        }
+
         for (const record of latest) {
             if (!replacedMessages.has(messageKey(record))) next.push(record);
         }
 
         for (const [key, result] of results) {
+            if (!replacedMessages.has(key)) continue;
             if (result.status === 'resolved') next.push(...result.records);
             if (result.status === 'missing') {
                 next.push(...latest
@@ -985,7 +995,10 @@ export async function reconcileEmbedRegistry(guild) {
         }
 
         const cleaned = cleanStoredRecords(next);
-        await setInDb(registryKey(guild.id), cleaned);
+        if (!await setInDb(registryKey(guild.id), cleaned)) {
+            throw new Error('Failed to persist reconciled embed registry');
+        }
+        for (const record of cleaned) rememberEmbedSnapshot(record, record.snapshot);
         return cleaned;
     });
 

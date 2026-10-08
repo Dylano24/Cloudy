@@ -4,6 +4,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { logger } from './logger.js';
 import { TitanBotError, ErrorTypes } from './errorHandler.js';
 import { unwrapReplitData } from './database.js';
+import { Mutex } from './mutex.js';
 import { 
     createGiveawayEmbed as createGiveawayEmbedService,
     createGiveawayButtons as createGiveawayButtonsService,
@@ -26,15 +27,16 @@ function arrayToGiveawayMap(giveaways) {
     return map;
 }
 
-export async function getGuildGiveaways(client, guildId) {
+export async function getGuildGiveaways(client, guildId, { strict = false } = {}) {
     try {
         if (!client.db) {
+            if (strict) throw new Error('Giveaway storage is unavailable');
             logger.warn('Database not available for getGuildGiveaways');
             return [];
         }
 
         const key = giveawayKey(guildId);
-        const giveaways = await client.db.get(key, {});
+        const giveaways = await client.db.get(key, {}, { strict });
         const unwrappedGiveaways = unwrapReplitData(giveaways);
 
         if (typeof unwrappedGiveaways === 'object' && !Array.isArray(unwrappedGiveaways)) {
@@ -43,6 +45,7 @@ export async function getGuildGiveaways(client, guildId) {
         return Array.isArray(unwrappedGiveaways) ? unwrappedGiveaways : [];
     } catch (error) {
         logger.error(`Error getting giveaways for guild ${guildId}:`, error);
+        if (strict) throw error;
         return [];
     }
 }
@@ -64,15 +67,16 @@ export async function saveGiveaway(client, guildId, giveawayData) {
         }
 
         const key = giveawayKey(guildId);
-        const giveaways = await getGuildGiveaways(client, guildId);
+        return await Mutex.runExclusive(key, async () => {
+            const giveaways = await getGuildGiveaways(client, guildId, { strict: true });
+            const giveawayMap = arrayToGiveawayMap(giveaways);
+            giveawayMap[giveawayData.messageId] = giveawayData;
 
-        const giveawayMap = arrayToGiveawayMap(giveaways);
-        giveawayMap[giveawayData.messageId] = giveawayData;
-        
-        await client.db.set(key, giveawayMap);
-        
-        logger.debug(`Saved giveaway ${giveawayData.messageId} in guild ${guildId}`);
-        return true;
+            if ((await client.db.set(key, giveawayMap)) === false) return false;
+
+            logger.debug(`Saved giveaway ${giveawayData.messageId} in guild ${guildId}`);
+            return true;
+        });
     } catch (error) {
         logger.error(`Error saving giveaway in guild ${guildId}:`, error);
         if (error instanceof TitanBotError) {
@@ -99,20 +103,21 @@ export async function deleteGiveaway(client, guildId, messageId) {
         }
 
         const key = giveawayKey(guildId);
-        const giveaways = await getGuildGiveaways(client, guildId);
+        return await Mutex.runExclusive(key, async () => {
+            const giveaways = await getGuildGiveaways(client, guildId, { strict: true });
+            const giveawayMap = arrayToGiveawayMap(giveaways);
 
-        const giveawayMap = arrayToGiveawayMap(giveaways);
-        
-        if (!giveawayMap[messageId]) {
-            logger.debug(`Giveaway not found for deletion: ${messageId} in guild ${guildId}`);
-            return false;
-        }
-        
-        delete giveawayMap[messageId];
-        await client.db.set(key, giveawayMap);
-        
-        logger.debug(`Deleted giveaway ${messageId} from guild ${guildId}`);
-        return true;
+            if (!giveawayMap[messageId]) {
+                logger.debug(`Giveaway not found for deletion: ${messageId} in guild ${guildId}`);
+                return false;
+            }
+
+            delete giveawayMap[messageId];
+            if ((await client.db.set(key, giveawayMap)) === false) return false;
+
+            logger.debug(`Deleted giveaway ${messageId} from guild ${guildId}`);
+            return true;
+        });
     } catch (error) {
         logger.error(`Error deleting giveaway ${messageId} in guild ${guildId}:`, error);
         if (error instanceof TitanBotError) {

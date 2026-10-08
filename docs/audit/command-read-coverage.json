@@ -1,0 +1,1554 @@
+[
+  {
+    "file": "src/commands/00Overrides/jointocreate.js",
+    "sha": "d6d718cbec70e3bc489c2adba6015f634522630d",
+    "lines": 113,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Birthday/birthday.js",
+    "sha": "c1f8672d0005f85c79dd165af2d11c70d9345d4d",
+    "lines": 97,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Birthday/modules/birthday_info.js",
+    "sha": "07b8c20020cb0120e921e2ad50ebbec273acb596",
+    "lines": 44,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Birthday/modules/birthday_list.js",
+    "sha": "ce7ee064da05c3cfdb858fa412f0ee9a3ae71086",
+    "lines": 76,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Birthday/modules/birthday_remove.js",
+    "sha": "2494c427681e03e6b78bc5a4285d95d823cab979",
+    "lines": 33,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Birthday/modules/birthday_set.js",
+    "sha": "bf968b065da22d60f18e61af933ac33866c20e71",
+    "lines": 25,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Birthday/modules/birthday_setchannel.js",
+    "sha": "09083bfa9fabf355c4e01ca8b28435078f93ab9d",
+    "lines": 59,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Birthday/modules/next_birthdays.js",
+    "sha": "10a29cf531181336e8c1d4b8b19522697f30155b",
+    "lines": 89,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Community/app-admin.js",
+    "sha": "6ffc02b3f8669b48feb692c8da193fe534fb92ae",
+    "lines": 584,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Community/apply.js",
+    "sha": "0e2c2c924967220b342abbd6716d140cae811fe9",
+    "lines": 399,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Community/modules/app_dashboard.js",
+    "sha": "856a28b91892148e95d9fc69e48f5b2bf47da55f",
+    "lines": 1154,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/botprofile.js",
+    "sha": "24c5adcdf283bff92c2ce178d0b918e41908b7cc",
+    "lines": 250,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/commands.js",
+    "sha": "d86bf383871eebfa45c895f48b47ae322c643053",
+    "lines": 264,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/configWizard.js",
+    "sha": "22ac013ec06eff68a43b2466c9b9d83827b5dc75",
+    "lines": 688,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/help.js",
+    "sha": "e7a59a12a4debf3188eed63bf4f9005a611f52b8",
+    "lines": 170,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/modules/commands_dashboard.js",
+    "sha": "97aec8b71a435a7ffe67fbd83322e8ef3ea090fa",
+    "lines": 388,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/ping.js",
+    "sha": "179d7d0bea45a8f6a353c32833e14c4e1c3839ff",
+    "lines": 73,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/stats.js",
+    "sha": "fc6dc3d392032352d7df2928c55917978fbec43f",
+    "lines": 43,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/support.js",
+    "sha": "032f3c894d03766271ee8ae134f37913f283c4d8",
+    "lines": 41,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Core/uptime.js",
+    "sha": "a3fb52487c806aec72d67ab4ba64cd4abc364b9e",
+    "lines": 44,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/baccarat.js",
+    "sha": "63182eab24f8ffb40857dd08c8b0a22f62173e1f",
+    "lines": 113,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/balance.js",
+    "sha": "67e3ddd77f8db72aecd9664ad2c2404adbf6ce0c",
+    "lines": 93,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/beg.js",
+    "sha": "9b2fc717f9095f2435f16e58f8412324d323ce3d",
+    "lines": 99,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/blackjack.js",
+    "sha": "2472aa96d2ec697540ff54df593974b80c06dfe9",
+    "lines": 213,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/buy.js",
+    "sha": "d5364ec0a92b1da182cb2d9a7c3ce85df5728916",
+    "lines": 38,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/crime.js",
+    "sha": "101dc5a5755380c25860d5f9510973d4b7f0fdc5",
+    "lines": 119,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/daily.js",
+    "sha": "4045d23ed01d4e1e748caa9c37bcc3d96d6ade14",
+    "lines": 104,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/deposit.js",
+    "sha": "56015b5fb4d7efc70c7c7c3e8a2c8d131c72a0da",
+    "lines": 138,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/economy.js",
+    "sha": "4fb4c668b5d3cf02655e993a3021814294209e86",
+    "lines": 64,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/eleaderboard.js",
+    "sha": "1f71c5dcfc4172feab893816b012b13cca2bd452",
+    "lines": 94,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/fish.js",
+    "sha": "5288f048bb2f7c109ffcf15d02f05cfd3e74eedd",
+    "lines": 132,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/gamble.js",
+    "sha": "81542c2562e250a81d2c85ecd252a5841f933068",
+    "lines": 157,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/gambling.js",
+    "sha": "3814c98e8bed49f26dc2e0ce6208bdca93ad8f64",
+    "lines": 14,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/games.js",
+    "sha": "bca987d44d303a8d4bb0836e0a8071e170155130",
+    "lines": 14,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/inventory.js",
+    "sha": "b7efcfec80e53e6589a3d273b83dd9a3e3d33958",
+    "lines": 70,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/mine.js",
+    "sha": "fda8ba1ddaf3cb6914e546c215aaf173c24e6106",
+    "lines": 93,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/modules/casinoCardEmojis.js",
+    "sha": "10ea5a5223002814f490a4f06d5d11347f07f82e",
+    "lines": 272,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/modules/casinoCardRenderer.js",
+    "sha": "509f6e5f5b3a649256ddc4a505966e12690146ca",
+    "lines": 152,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/modules/casinoGameUtils.js",
+    "sha": "dabcc0d2eda51ee6aa775de9c95202c2c57f1d32",
+    "lines": 51,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/modules/economy_dashboard.js",
+    "sha": "61ae6fc5b7003e5b53428661e0cf309b25dc8ce7",
+    "lines": 567,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/modules/rouletteNumberEmoji.js",
+    "sha": "ef262a73c47948e95d099dc639dc9b8f0d654d59",
+    "lines": 185,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/modules/shop_browse.js",
+    "sha": "b7adcf40dd4d7830cdb8ee24c1ec0f61878c2c11",
+    "lines": 94,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/modules/shop_config_setrole.js",
+    "sha": "e917e9e69ab36f965e8855ba465cdd03f7860434",
+    "lines": 31,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/pay.js",
+    "sha": "49bea583e6d77afbf838fa7a37a8c07088e3c8dc",
+    "lines": 127,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/rob.js",
+    "sha": "8f6deabdebe55deb3a627a7a0a6d6d37d54361d8",
+    "lines": 154,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/roulette.js",
+    "sha": "257fbcaa14028ace1f01044d6f3b5759aa632dd2",
+    "lines": 67,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/shop-config.js",
+    "sha": "fb3be41dc39d3db334a25005426c11327454a530",
+    "lines": 29,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/shop.js",
+    "sha": "8b7fea6549dce0b0be21916eec99db557e42289e",
+    "lines": 25,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/slots.js",
+    "sha": "2ed29e65faaa543b8d5e169d4adbd9e35a5cf683",
+    "lines": 28,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/withdraw.js",
+    "sha": "bf45af02ad6bf7e76de265936de7b28bcd397fa7",
+    "lines": 85,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Economy/work.js",
+    "sha": "775be897ada191c96f955a432c0c0d96242c4b66",
+    "lines": 123,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Fun/count.js",
+    "sha": "1dbd6014b1862d57df0124fd66df68d9b35040b7",
+    "lines": 177,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Fun/fight.js",
+    "sha": "e0a3dc8c9a91adb653414af7c6fb659f4a4c7326",
+    "lines": 88,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Fun/flip.js",
+    "sha": "b898507b40af5665281f25c20d4054cc5c1a3b64",
+    "lines": 32,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Fun/roll.js",
+    "sha": "2744f62145fe3b248bbb81f65df482808de6d9ad",
+    "lines": 88,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Giveaway/gcreate.js",
+    "sha": "e5f19c048ccc869df06ca06f3a9c5d63966827c7",
+    "lines": 184,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Giveaway/gdelete.js",
+    "sha": "838209c0c00db5f4d22fd0915114709ad61c8414",
+    "lines": 189,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Giveaway/gend.js",
+    "sha": "700ca5eaebcfea4769a3ea90bde70063c3b74201",
+    "lines": 191,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Giveaway/greroll.js",
+    "sha": "64be4b3e03da520f70c251ce9fb376c97a8f1d5e",
+    "lines": 289,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/JoinToCreate/jointocreate.js",
+    "sha": "bf9fba9325819588cf02aaf1d14099e7fc8975e9",
+    "lines": 702,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/JoinToCreate/modules/config_setup.js",
+    "sha": "460d337f2f1a5e954f0116d624cddfc10f82d5ad",
+    "lines": 549,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/JoinToCreate/modules/setup.js",
+    "sha": "00ebd31053237ebe5d468cd531bdb6845256eb9c",
+    "lines": 78,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Leveling/level.js",
+    "sha": "ecfb5620e334c1d6124216181f5e798d362303a5",
+    "lines": 150,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Leveling/leveladd.js",
+    "sha": "9d439696b71c9fd90d0b6198381522838b2d7871",
+    "lines": 81,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Leveling/levelremove.js",
+    "sha": "f781d33df8fd2a1102161d9f3b7c840710299f72",
+    "lines": 90,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Leveling/levelset.js",
+    "sha": "4ce8589ac0ea9f6f4c182099982b992870a88e5e",
+    "lines": 81,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Leveling/modules/level_dashboard.js",
+    "sha": "3d8ee34b61288f786748e11fa0fdf4545b27554b",
+    "lines": 721,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Leveling/rank.js",
+    "sha": "fea894105cab1ad016f46a39073a2728fbfc07f4",
+    "lines": 99,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Logging/logging.js",
+    "sha": "0d94386314730c55945934ad8cbcf856ea5df84f",
+    "lines": 69,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Logging/modules/logging_channel.js",
+    "sha": "f92e6a6d3bcec199deea0655f488b532442cc9f6",
+    "lines": 61,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Logging/modules/logging_dashboard.js",
+    "sha": "d8151fe22d14f9028a539c31eb39ebbf7dd62c1e",
+    "lines": 204,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/ban.js",
+    "sha": "86dd778858e3e06c5f1cf56545b182d6427e68d3",
+    "lines": 68,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/cases.js",
+    "sha": "5999cd834dd6bc737b5cc2ad09c7757784b08862",
+    "lines": 177,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/dm.js",
+    "sha": "da9714f18a50a3f088b5a20a349332a9e80c55a0",
+    "lines": 110,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/kick.js",
+    "sha": "03fa9f677c83836845bf8624d79ba47902765968",
+    "lines": 79,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/lock.js",
+    "sha": "75b251973ff4b51ee1a770702db1d597a65a6614",
+    "lines": 72,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/massban.js",
+    "sha": "9f6f8637a4fb546079fd55ffff9e8c7489e1df47",
+    "lines": 189,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/masskick.js",
+    "sha": "26e7e21a4809e2b85586939d21e4355cbd6452d9",
+    "lines": 181,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/purge.js",
+    "sha": "927854107bc15de769d3b8ec10a8a1bad7f3e737",
+    "lines": 89,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/say.js",
+    "sha": "51d8dffbfa8860551ec1668ca64b2b986a4824db",
+    "lines": 135,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/timeout.js",
+    "sha": "936464ced64efaee41c906adad23bf8d12d4719c",
+    "lines": 112,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/unban.js",
+    "sha": "5b54ebea927c8f7754ca8007039503f4b2f696f2",
+    "lines": 119,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/unlock.js",
+    "sha": "408c2b3b0741b18d342822113582318842da1b2f",
+    "lines": 79,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/untimeout.js",
+    "sha": "7494728ea86c178bad4ad05365997bc465bd7356",
+    "lines": 74,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/usernotes.js",
+    "sha": "4fc581fec738f05143b19d55dbac5f8ef69ce92e",
+    "lines": 271,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/warn.js",
+    "sha": "1d1b2ef1eb87748422f4a879eff3e2e928de6a6f",
+    "lines": 108,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Moderation/warnings.js",
+    "sha": "59fbce081c1d122a1b887e0c5f8fd79ea13e65ec",
+    "lines": 99,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Music/join.js",
+    "sha": "7606a2a4921525a2ede67d873fedd131613c2d38",
+    "lines": 18,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Music/music.js",
+    "sha": "fa8d7cfef6d5989b2b385980bd71ac29d48ab0ec",
+    "lines": 189,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Music/nowplaying.js",
+    "sha": "e50c685122c3e37015e9ffedd653408aa785f107",
+    "lines": 18,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Music/play.js",
+    "sha": "193b2d4d69b454fd956f728bea1b7be29a8bc992",
+    "lines": 21,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Music/queue.js",
+    "sha": "66faa4eb9dc8fba3e3a64e272c7ce87c697b7195",
+    "lines": 25,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Reaction_roles/reactroles.js",
+    "sha": "692443c5e9aa31e3a88630f4ae26d10795fb5bd4",
+    "lines": 1096,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Search/modules/search_define.js",
+    "sha": "149ec0f3aa5d02e6d6ed4afe7471b3ee72ac19dd",
+    "lines": 95,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Search/modules/search_google.js",
+    "sha": "c277046d49cba7730c00391121727e23d94053a9",
+    "lines": 27,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Search/modules/search_urban.js",
+    "sha": "b382fe30c079c62e7221e4e3fca582a78a2d0b67",
+    "lines": 122,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Search/search.js",
+    "sha": "52c1871902099aefd0949dcad1a8bfab9f00fb61",
+    "lines": 55,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/ServerStats/modules/serverstats_create.js",
+    "sha": "e5e750a93345d14fd629808ad70e877ce299f4a3",
+    "lines": 90,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/ServerStats/modules/serverstats_delete.js",
+    "sha": "54e3e9ccfc6e5f301e90e9a253a190d228e7a1a3",
+    "lines": 122,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/ServerStats/modules/serverstats_list.js",
+    "sha": "ad6d789227fd8a3f884dd857fc180614f9c628e0",
+    "lines": 146,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/ServerStats/modules/serverstats_update.js",
+    "sha": "b2ebb454346e3754f15764f77da96f8830ac6447",
+    "lines": 84,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/ServerStats/serverstats.js",
+    "sha": "9fe3dda3b87b60dc5124b08b62edd88a28dc92c6",
+    "lines": 110,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Ticket/claim.js",
+    "sha": "65ea4fb60cee3d5c06eaa4e77f86b85ecd16d94c",
+    "lines": 59,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Ticket/close.js",
+    "sha": "e3035ab4c1c8afc95ddd6c78083b54d76c0bb7ab",
+    "lines": 67,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Ticket/modules/ticket_dashboard.js",
+    "sha": "b16af681fa29401377e318056955a0c5f1ee8917",
+    "lines": 59,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Ticket/priority.js",
+    "sha": "ccab203db36053b379cb977af0aa1197b9dfa13d",
+    "lines": 76,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Ticket/ticket.js",
+    "sha": "28a4ae4da468aadf27e11250d2da6e43f9a33cff",
+    "lines": 305,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/00_embedbuilderSearchSchemaPatch.js",
+    "sha": "a06d186b407b34f1cf2d0483127580e5b1d2380b",
+    "lines": 35,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/baseconvert.js",
+    "sha": "1ef560dc7e65436f00000b558e574d1bf58d2bb0",
+    "lines": 230,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/calculate.js",
+    "sha": "233b88ab8f6ac02f21fcaa0315e5f3aaacfd7a58",
+    "lines": 335,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/countdown.js",
+    "sha": "d7561ddbf302096e97c96ca1482f9ffbc847c3de",
+    "lines": 96,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/embedbuilder.js",
+    "sha": "b4f197cbb9b63203b5c9d475c3af43507a86d88c",
+    "lines": 1990,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "security_events_audit (full read-only)"
+  },
+  {
+    "file": "src/commands/Tools/generatepassword.js",
+    "sha": "51628bfed0733d597e25484deccb373de0a53b4b",
+    "lines": 146,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/hexcolor.js",
+    "sha": "dbe48522c02d3fd6403bc233150fcfa092e3e810",
+    "lines": 142,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/poll.js",
+    "sha": "a936f4800920fb805e53fc3888448ad57d64e735",
+    "lines": 115,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/randomuser.js",
+    "sha": "4dc15a6fd180ad5a3ab71616bcda291f283e0cb3",
+    "lines": 193,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/shorten.js",
+    "sha": "4b5b9af5f53514c2b3d6a79eb50893f414774f05",
+    "lines": 122,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/time.js",
+    "sha": "d26db76f231991676545586392d66fe771bcdb01",
+    "lines": 62,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/unixtime.js",
+    "sha": "7e8e7e7b911f2164cb7e0da05252131dfa1ea975",
+    "lines": 38,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Tools/zz_embedbuilderLiveSearchPatch.js",
+    "sha": "3bc48262d79e2f3684e0822ea37ed36b7606138f",
+    "lines": 830,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "security_events_audit (full read-only)"
+  },
+  {
+    "file": "src/commands/Utility/avatar.js",
+    "sha": "b9caf87daf0c7a4c0f2e5bb4237b83501958107b",
+    "lines": 35,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/firstmsg.js",
+    "sha": "1624921387a9d9eb3177c9b368e863145eb2d7f4",
+    "lines": 61,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/modules/report.js",
+    "sha": "7b232c00ad0d51e60d615efb214b78e0a5ea936c",
+    "lines": 139,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/modules/report_setchannel.js",
+    "sha": "0da04de754feaf62f9e2ab67b4ec9336f56dfa65",
+    "lines": 33,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/report.js",
+    "sha": "2d3c6438f2d97e94608cb3b4322f08e8012191cd",
+    "lines": 70,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/reportMessage.js",
+    "sha": "df4b4277d08e5ac697b6a305b0146f7549301722",
+    "lines": 153,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/serverinfo.js",
+    "sha": "fd417d6845e983153336ba125d935b4d0592b04c",
+    "lines": 58,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/todo.js",
+    "sha": "af8230634078b9e3532a9d16e78f4c6f6f6a4796",
+    "lines": 501,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/userinfo.js",
+    "sha": "2455b0f4a92331237bc7d045514abc7c813d81d2",
+    "lines": 72,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Utility/weather.js",
+    "sha": "a76c3eeb099e044bd3b32b95ed1dd19a2009862f",
+    "lines": 123,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Verification/autoverify.js",
+    "sha": "562f81758fe37369a5a93a8ed2c7b74b8a8589af",
+    "lines": 1,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Verification/modules/autoVerify.js",
+    "sha": "31ca0e881dcc6fc00f836fad980899d165bddf6a",
+    "lines": 190,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Verification/modules/autoVerifyDashboard.js",
+    "sha": "7209da79fd345ddf75efce970f3f5949304be5e2",
+    "lines": 504,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Verification/modules/verification_dashboard.js",
+    "sha": "6dc716da5c8a2eede8ed17b712cf7da3a9d1d19d",
+    "lines": 657,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Verification/verification.js",
+    "sha": "8906809fe72ea98ff5cc92e5a3210464cedc012d",
+    "lines": 250,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Verification/verify.js",
+    "sha": "7c203ac8d64ac1c212ff28547e13fc80cd366bed",
+    "lines": 36,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Welcome/autorole.js",
+    "sha": "81764e4c467a1c252f07a0fd03264f91c2e5dac7",
+    "lines": 207,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Welcome/goodbye.js",
+    "sha": "3d45b93309c68f927d31609774e74f33bbe7bed1",
+    "lines": 125,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Welcome/greet.js",
+    "sha": "aa823e14bbdd268cf0011b5c1f098a88ac406742",
+    "lines": 40,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Welcome/modules/greet_dashboard.js",
+    "sha": "97581e7cd5c6a79e1c8eb8e1aa36e3f7f1a9b887",
+    "lines": 771,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/commands/Welcome/welcome.js",
+    "sha": "840ba7bdd34a57d6196cb5ec41ffb740e3643c9c",
+    "lines": 124,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/calculateModals.js",
+    "sha": "d83d01326138b77a3e804b6ca64f9a5a82779d4f",
+    "lines": 103,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/countdownButtons.js",
+    "sha": "44009272d2f912323ea73b94859e0d247fbe401a",
+    "lines": 235,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/counterButtons.js",
+    "sha": "fedd0b9370fc0ee7a4a5362011ec12275fd60290",
+    "lines": 69,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/giveawayButtons.js",
+    "sha": "ab0f46603eaf9c49fcfeb3f824091c9fbadeba11",
+    "lines": 385,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/help/helpButtons.js",
+    "sha": "b69dd5ca8bb0f8a4be169a633d8806d4380d5713",
+    "lines": 139,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/help/helpSelectMenus.js",
+    "sha": "69d034f514cc96b7f55e6447dff87a2dc8309e9b",
+    "lines": 434,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/interactionHandlers/reactionRolesSelectMenu.js",
+    "sha": "dcac75d6d3dff7333638a78bc206e6105447b679",
+    "lines": 205,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/loaders/commandLoader.js",
+    "sha": "c37ad86df5fe91b643d427968e4a0f38dabb9f81",
+    "lines": 230,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/loaders/events.js",
+    "sha": "2d8ce26383e21ebf21fd4e6d0c11b7a08dd2dd4b",
+    "lines": 68,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/loaders/interactions.js",
+    "sha": "8d3844ee249ed0ca32b2a0cab3725ffbf59b89a7",
+    "lines": 104,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/loggingButtons.js",
+    "sha": "0f5144c2055b82effb01adb058443e87771ece8b",
+    "lines": 414,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/musicButtons.js",
+    "sha": "13b8acd9c6edc3e96ff7671686cc5be7047cdcc4",
+    "lines": 162,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/ticketButtons.js",
+    "sha": "d5a3946e068abc7581c0286d3f032416fc6b3258",
+    "lines": 450,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/todoButtons.js",
+    "sha": "3b86997a11cb1c9195df1190c34ca33c8ae37296",
+    "lines": 388,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/verificationButtons.js",
+    "sha": "663621ec8fde94425d4da6ac856e88ff86f8648d",
+    "lines": 65,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/warningHandlers.js",
+    "sha": "26b5970bb2b26b246f5f5b99a22f5327d1098bd9",
+    "lines": 172,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/handlers/wipedataButtons.js",
+    "sha": "57c2d7ce170689678306c9e8a75fd1dcc18eccf5",
+    "lines": 166,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/appealActions.js",
+    "sha": "c3f0a8c08aab1d032882faa5ef26b9e52d6c77a5",
+    "lines": 3,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/cloudyBuilderAction.js",
+    "sha": "cc664b13d3a7a5c8761d6f12b2c07831ec47b43d",
+    "lines": 68,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/common/dismissResponse.js",
+    "sha": "8b105847ff275274fa54e658021c19f7f00133fd",
+    "lines": 25,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/countdown/countdown.js",
+    "sha": "78da057e533b906eb09e6d8e58c9ed0f1f618143",
+    "lines": 12,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/counter/counterDelete.js",
+    "sha": "5f08ca1a04f37ac676869f2761e90e470ada83a7",
+    "lines": 3,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/giveaway/giveaway.js",
+    "sha": "a614a5cd85690dd01cabfb3d2b33610401b38f6e",
+    "lines": 20,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/help/help.js",
+    "sha": "61ab55ee212d4559313582051ff3a79219aaed06",
+    "lines": 19,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/logging/logging.js",
+    "sha": "d18d028c5a0f6911b2d4a88d458934a820eb108a",
+    "lines": 25,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/music/music.js",
+    "sha": "3a69f9f3fb7ece5f4387b8b0b409888585da5e6d",
+    "lines": 24,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/reportActions.js",
+    "sha": "1df12bf43cfe5453b8c717bb3b0e18bd1ac3d8da",
+    "lines": 4,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/reportCase.js",
+    "sha": "8690ddce9f6e489ab37aba2abd58943f813bfeb5",
+    "lines": 3,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/ticket/ticketDashboard.js",
+    "sha": "97701e725c03b2ea72ab940b2bad2a2f58238a29",
+    "lines": 357,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/ticket/ticketDashboardBrowse.js",
+    "sha": "a9ce82107b616ee25d54e6368d809c763b7dae1b",
+    "lines": 137,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/ticket/ticketFeedback.js",
+    "sha": "38579f2817a8e6d00cddd8351ea939237c34661c",
+    "lines": 189,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/ticket/ticketUiOverrides.js",
+    "sha": "280143cd29c5df48eb9d3da4ad2e163d776eca41",
+    "lines": 530,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/todo/todoShared.js",
+    "sha": "b683f6bf4bd1fecd00f69fe37b9c3bfaf7b422a8",
+    "lines": 10,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/verification/verification.js",
+    "sha": "f6b115c91ebbcb05ab6aaa9107cd52fa8d7fc078",
+    "lines": 6,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/warnings/warnings.js",
+    "sha": "a7b40f49a0f51ce859a44f83de70f5aafe3aaeb9",
+    "lines": 9,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/buttons/wipedata/wipedata.js",
+    "sha": "d54701c7dea867d96553e311b2854cff4e00c626",
+    "lines": 6,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/appealDecide.js",
+    "sha": "1507201b71a03701dcc2116171c093f97fad1011",
+    "lines": 3,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/calculate/calculate.js",
+    "sha": "66193613b39121169a92e3389ded0844c9a2af9d",
+    "lines": 10,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/config/config_modal.js",
+    "sha": "04043dbf59cd226832b56e317302c1426cf6e434",
+    "lines": 111,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/reportModeration.js",
+    "sha": "0102d5f288c7baaa7acf0112a174bd762cf3a6db",
+    "lines": 4,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/staffReviews.js",
+    "sha": "1c312846396da8962eb31bc428c3227c30e58a91",
+    "lines": 9,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/ticket/createTicketUi.js",
+    "sha": "5d88cbd6591d612f834ba4bf97c7baae40ca1c01",
+    "lines": 211,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/ticket/ticketDashboard.js",
+    "sha": "b1aa57cfedc0eff5badd8bb8ffccefc3670d16bd",
+    "lines": 104,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/ticket/ticketDashboardManual.js",
+    "sha": "c33775d6897f7418778ef0b5545d5da21b48f280",
+    "lines": 143,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/ticket/ticketFeedbackComment.js",
+    "sha": "85821630d2a449bbaf2520f05bcef7007d4707e8",
+    "lines": 130,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/todo/todoShared.js",
+    "sha": "9624f3bad2a3fd1c1664bdb30b3c4a50343b482f",
+    "lines": 11,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/modals/warnings/warningDelete.js",
+    "sha": "24b2c6b0cc52139021de92c85c79686c575c2ad8",
+    "lines": 20,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/selectMenus/help/helpCategory.js",
+    "sha": "f70697a08099f3cb059cbc2b88dffd6d89c4f1e7",
+    "lines": 3,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/selectMenus/logging/logging.js",
+    "sha": "8b151db65bf0296b6fa71cd851feaa03e5d41ae1",
+    "lines": 7,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/selectMenus/reactionRoles/reaction_roles.js",
+    "sha": "25e9e1a80306778db40277668fae02780958f7f8",
+    "lines": 10,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/selectMenus/ticket/ticketDashboard.js",
+    "sha": "3c95ebc2bb43c69394272b0eb13525cafc1c5e5c",
+    "lines": 300,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/selectMenus/ticket/ticketFeedback.js",
+    "sha": "fac08135113cc65afb65acfa0e827b35eabd78f4",
+    "lines": 173,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  },
+  {
+    "file": "src/interactions/selectMenus/ticket/ticketPriority.js",
+    "sha": "5c89ebdc7e33ae7656a5aace6ad70ac5b641cc9e",
+    "lines": 99,
+    "manuallyRead": true,
+    "automatedFullFileScopeAnalysis": true,
+    "reviewer": "command_audit (full source read)"
+  }
+]

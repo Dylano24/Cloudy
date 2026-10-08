@@ -104,7 +104,7 @@ export default {
             await createTemporaryChannel(client, state, config);
         }
 
-        async function handleVoiceLeave(client, state, config) {
+        async function handleVoiceLeave(client, state, _config) {
             const { channel, member } = state;
 
             const tempChannelInfo = await getTemporaryChannelInfo(client, state.guild.id, channel.id);
@@ -144,7 +144,7 @@ export default {
             }
         }
 
-        async function createTemporaryChannel(client, state, config) {
+        async function createTemporaryChannel(client, state, _config) {
             const { channel: triggerChannel, member, guild } = state;
             let tempChannel;
 

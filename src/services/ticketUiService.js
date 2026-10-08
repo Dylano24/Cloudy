@@ -19,7 +19,6 @@ import { PRIORITY_MAP } from '../utils/helpers.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
 import { logger } from '../utils/logger.js';
-import { getPinnedMessages } from '../utils/messagePins.js';
 import { renderTicketV2 } from './ticketV2LayoutService.js';
 
 export const TICKET_RECEIVED_MESSAGE =
@@ -62,12 +61,6 @@ function normalizeTicketNumber(value) {
 
 function ticketNumberOf(ticketData) {
   return normalizeTicketNumber(ticketData?.ticketNumber || ticketData?.id);
-}
-
-function ticketNumberFromTitle(title = '') {
-  const match = String(title).match(/^Ticket\s*#\s*0*(\d+)$/i);
-  if (!match) return null;
-  return normalizeTicketNumber(match[1]);
 }
 
 function normalizePriorityKey(value) {
@@ -310,83 +303,6 @@ export function buildCloudyTicketControls({ claimedBy = null } = {}) {
   );
 }
 
-function toDiscordTimestamp(value) {
-  const ms = value ? new Date(value).getTime() : NaN;
-  if (!Number.isFinite(ms)) return 'Unknown';
-  return `<t:${Math.floor(ms / 1000)}:R>`;
-}
-
-function buildTicketFields(ticketData) {
-  const status = String(ticketData.status || 'open').toLowerCase();
-  return [
-    {
-      name: 'Status',
-      value: status === 'closed' ? '🔴 Closed' : '🟢 Open',
-      inline: true,
-    },
-    {
-      name: 'Claimed By',
-      value: ticketData.claimedBy ? `<@${ticketData.claimedBy}>` : 'Not claimed',
-      inline: true,
-    },
-    {
-      name: 'Created',
-      value: toDiscordTimestamp(ticketData.createdAt),
-      inline: true,
-    },
-  ];
-}
-
-function isMainTicketMessage(message, channel) {
-  if (message?.author?.id !== channel.client.user?.id) return false;
-  if (message.embeds?.[0]?.title?.startsWith('Ticket #')) return true;
-  try {
-    const serialized = JSON.stringify(
-      message.components?.map(component => component.toJSON?.() ?? component) || [],
-    );
-    return serialized.includes('Ticket #');
-  } catch {
-    return false;
-  }
-}
-
-async function findMainTicketMessage(channel, ticketData) {
-  if (ticketData?.ticketMessageId) {
-    const direct = await withTimeout(
-      channel.messages.fetch(ticketData.ticketMessageId),
-      DISCORD_TIMEOUT_MS,
-      'Ticket message direct fetch',
-    ).catch(() => null);
-    if (isMainTicketMessage(direct, channel)) return direct;
-  }
-
-  if (typeof channel.messages?.fetchPins === 'function') {
-    const pinnedResponse = await withTimeout(
-      channel.messages.fetchPins(),
-      DISCORD_TIMEOUT_MS,
-      'Pinned ticket message fetch',
-    ).catch(() => null);
-    const pinnedTicket = getPinnedMessages(pinnedResponse).find(message => isMainTicketMessage(message, channel));
-    if (pinnedTicket) return pinnedTicket;
-  } else if (typeof channel.messages?.fetchPinned === 'function') {
-    const pinned = await withTimeout(
-      channel.messages.fetchPinned(),
-      DISCORD_TIMEOUT_MS,
-      'Pinned ticket message fetch',
-    ).catch(() => null);
-    const pinnedTicket = pinned?.find(message => isMainTicketMessage(message, channel));
-    if (pinnedTicket) return pinnedTicket;
-  }
-
-  const recent = await withTimeout(
-    channel.messages.fetch({ limit: 100 }),
-    DISCORD_TIMEOUT_MS,
-    'Recent ticket message fetch',
-  ).catch(() => null);
-
-  return recent?.find(message => isMainTicketMessage(message, channel)) || null;
-}
-
 export async function syncCloudyTicketMessage(channel, preferredMessage = null) {
   try {
     return await renderTicketV2(channel, preferredMessage);
@@ -566,7 +482,7 @@ export async function unclaimTicket(channel, unclaimer) {
   return ticketData;
 }
 
-async function finishCloseSideEffects(channel, ticketData) {
+async function finishCloseSideEffects(channel) {
   try {
     const config = await withTimeout(
       getGuildConfig(channel.client, channel.guild.id),
@@ -661,7 +577,7 @@ export async function closeTicket(channel, closer, reason) {
   }).catch(() => {});
 
   const timer = setTimeout(() => {
-    finishCloseSideEffects(channel, ticketData).catch(() => {});
+    finishCloseSideEffects(channel).catch(() => {});
   }, 1000);
   timer.unref?.();
 

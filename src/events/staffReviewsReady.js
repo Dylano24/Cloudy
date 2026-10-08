@@ -1,7 +1,6 @@
 import { Events } from 'discord.js';
 import {
   COMMUNITY_REVIEWS_CHANNEL_ID,
-  STAFF_REVIEWS_CHANNEL_ID,
   STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_RATING_ID,
   buildStaffReviewsPanel,

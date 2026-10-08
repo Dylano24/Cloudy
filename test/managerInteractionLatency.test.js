@@ -87,6 +87,7 @@ test('registry mutations invalidate the preloaded Modify snapshot without any hi
   db.db = { get: async key => { reads += 1; return structuredClone(values.get(key) || null); },
     set: async (key, value) => { values.set(key, structuredClone(value)); return true; } };
   const channel = { id: 'fresh-channel', name: 'fresh', type: 0, isTextBased: () => true,
+    permissionsFor: () => ({ has: () => true }),
     messages: { fetch: () => assert.fail('preloading must not scan Discord history') } };
   const guild = { id: 'fresh-manager', channels: { cache: new Collection([[channel.id, channel]]) }, client: { user: { id: 'cloudy' } } };
   const state = {};
@@ -101,7 +102,7 @@ test('registry mutations invalidate the preloaded Modify snapshot without any hi
   const readsBeforeOpen = reads;
   const collector = new EventEmitter(); collector.stop = () => { collector.ended = true; };
   let paint;
-  await openEmbedManager({ guild, client: guild.client, user: { id: 'owner' },
+  await openEmbedManager({ guild, client: guild.client, user: { id: 'owner' }, member: { id: 'owner' },
     reply: async payload => { paint = payload; return { resource: { message: { id: 'fresh-message', createMessageComponentCollector: () => collector } } }; },
     webhook: { editMessage: async () => {} },
   }, state, async () => true);

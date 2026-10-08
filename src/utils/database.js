@@ -3,6 +3,7 @@
 import { pgDb } from './postgresDatabase.js';
 import { logger } from './logger.js';
 import { BotConfig, getDefaultApplicationQuestions } from '../config/bot.js';
+import { Mutex } from './mutex.js';
 
 export {
     db,
@@ -62,7 +63,6 @@ export {
 
 import { db, getFromDb, setInDb } from './database/wrapper.js';
 import {
-    getGuildConfigKey,
     getGuildBirthdaysKey,
     getLevelingKey,
     getUserLevelKey,
@@ -71,10 +71,7 @@ import {
     getUserApplicationsKey,
     getApplicationKey,
     getJoinToCreateConfigKey,
-    getJoinToCreateChannelsKey,
     getWelcomeConfigKey,
-    getEconomyKey,
-    getAFKKey,
     getUserLevelPrefix,
 } from './database/keys.js';
 
@@ -150,18 +147,20 @@ export const getColor = (path, fallback = "#000000") => {
     return typeof current === "string" ? current : fallback;
 };
 
-export async function getGuildBirthdays(client, guildId) {
+export async function getGuildBirthdays(client, guildId, { strict = false } = {}) {
     const key = getGuildBirthdaysKey(guildId);
     try {
         if (!client.db || typeof client.db.get !== "function") {
+            if (strict) throw new Error('Birthday storage is unavailable');
             logger.error("Database client is not available for getGuildBirthdays.");
             return {};
         }
 
-        const rawData = await client.db.get(key, {});
+        const rawData = await client.db.get(key, {}, { strict });
         return unwrapReplitData(rawData) || {};
     } catch (error) {
         logger.error(`Error retrieving birthdays for guild ${guildId}:`, error);
+        if (strict) throw error;
         return {};
     }
 }
@@ -174,10 +173,11 @@ export async function setBirthday(client, guildId, userId, month, day) {
         }
 
         const key = getGuildBirthdaysKey(guildId);
-        const birthdays = await getGuildBirthdays(client, guildId);
-        birthdays[userId] = { month, day };
-        await client.db.set(key, birthdays);
-        return true;
+        return await Mutex.runExclusive(key, async () => {
+            const birthdays = await getGuildBirthdays(client, guildId, { strict: true });
+            birthdays[userId] = { month, day };
+            return (await client.db.set(key, birthdays)) !== false;
+        });
     } catch (error) {
         logger.error(`Error setting birthday for user ${userId} in guild ${guildId}:`, error);
         return false;
@@ -192,12 +192,14 @@ export async function deleteBirthday(client, guildId, userId) {
         }
 
         const key = getGuildBirthdaysKey(guildId);
-        const birthdays = await getGuildBirthdays(client, guildId);
-        if (birthdays[userId]) {
-            delete birthdays[userId];
-            await client.db.set(key, birthdays);
-        }
-        return true;
+        return await Mutex.runExclusive(key, async () => {
+            const birthdays = await getGuildBirthdays(client, guildId, { strict: true });
+            if (birthdays[userId]) {
+                delete birthdays[userId];
+                return (await client.db.set(key, birthdays)) !== false;
+            }
+            return true;
+        });
     } catch (error) {
         logger.error(`Error deleting birthday for user ${userId} in guild ${guildId}:`, error);
         return false;
@@ -385,35 +387,43 @@ function normalizeWelcomeConfig(raw = {}) {
     };
 }
 
-export async function getWelcomeConfig(client, guildId) {
+export async function getWelcomeConfig(client, guildId, { strict = false } = {}) {
     if (!client.db) {
+        if (strict) throw new Error('Database not available for getWelcomeConfig');
         logger.warn('Database not available for getWelcomeConfig');
         return normalizeWelcomeConfig();
     }
     
     const key = getWelcomeConfigKey(guildId);
     try {
-        const config = await client.db.get(key, {});
+        const config = await client.db.get(key, {}, { strict });
         const unwrapped = unwrapReplitData(config);
         return normalizeWelcomeConfig(unwrapped);
     } catch (error) {
+        if (strict) throw error;
         logger.error(`Error getting welcome config for guild ${guildId}:`, error);
         return normalizeWelcomeConfig();
     }
 }
 
-export async function saveWelcomeConfig(client, guildId, config) {
+async function mutateWelcomeConfig(client, guildId, config) {
     const key = getWelcomeConfigKey(guildId);
-    try {
+    return Mutex.runExclusive(key, async () => {
         if (!client.db || typeof client.db.set !== 'function') {
-            logger.error('Database client is not available for saveWelcomeConfig.');
-            return false;
+            throw new Error('Database client is not available for saveWelcomeConfig.');
         }
-
-        const existingConfig = await getWelcomeConfig(client, guildId);
+        const existingConfig = await getWelcomeConfig(client, guildId, { strict: true });
         const mergedConfig = { ...existingConfig, ...config };
-        
-        await client.db.set(key, mergedConfig);
+        if ((await client.db.set(key, mergedConfig)) === false) {
+            throw new Error('Failed to save welcome configuration');
+        }
+        return mergedConfig;
+    });
+}
+
+export async function saveWelcomeConfig(client, guildId, config) {
+    try {
+        await mutateWelcomeConfig(client, guildId, config);
         return true;
     } catch (error) {
         logger.error(`Error saving welcome config for guild ${guildId}:`, error);
@@ -423,11 +433,7 @@ export async function saveWelcomeConfig(client, guildId, config) {
 
 export async function updateWelcomeConfig(client, guildId, updates) {
     try {
-        const currentConfig = await getWelcomeConfig(client, guildId);
-        const updatedConfig = { ...currentConfig, ...updates };
-        
-        await saveWelcomeConfig(client, guildId, updatedConfig);
-        return updatedConfig;
+        return await mutateWelcomeConfig(client, guildId, updates);
     } catch (error) {
         logger.error(`Error updating welcome config for guild ${guildId}:`, error);
         throw error;
@@ -656,15 +662,16 @@ function buildApplicationSettingsDefaults() {
     };
 }
 
-export async function getApplicationSettings(client, guildId) {
+export async function getApplicationSettings(client, guildId, { strict = false } = {}) {
     if (!client.db) {
+        if (strict) throw new Error('Application settings storage is unavailable');
         logger.warn('Database not available for getApplicationSettings');
         return buildApplicationSettingsDefaults();
     }
     
     const key = getApplicationSettingsKey(guildId);
     try {
-        const settings = await client.db.get(key, {});
+        const settings = await client.db.get(key, {}, { strict });
         const unwrapped = unwrapReplitData(settings);
         
         const defaultSettings = buildApplicationSettingsDefaults();
@@ -672,6 +679,7 @@ export async function getApplicationSettings(client, guildId) {
         return { ...defaultSettings, ...unwrapped };
     } catch (error) {
         logger.error(`Error getting application settings for guild ${guildId}:`, error);
+        if (strict) throw error;
         return buildApplicationSettingsDefaults();
     }
 }
@@ -743,7 +751,7 @@ export async function cleanupExpiredApplications(client, guildId) {
             return { removed: 0, scanned: 0 };
         }
 
-        const settings = await getApplicationSettings(client, guildId);
+        const settings = await getApplicationSettings(client, guildId, { strict: true });
         const retentionDays = getApplicationRetentionDays(settings);
         const prefix = `guild:${guildId}:applications:`;
         let keys = await client.db.list(prefix);
@@ -786,11 +794,11 @@ export async function cleanupExpiredApplications(client, guildId) {
 export async function saveApplicationSettings(client, guildId, settings) {
     const key = getApplicationSettingsKey(guildId);
     try {
-        const existingSettings = await getApplicationSettings(client, guildId);
-        const mergedSettings = { ...existingSettings, ...settings };
-        
-        await client.db.set(key, mergedSettings);
-        return true;
+        return await Mutex.runExclusive(key, async () => {
+            const existingSettings = await getApplicationSettings(client, guildId, { strict: true });
+            const mergedSettings = { ...existingSettings, ...settings };
+            return (await client.db.set(key, mergedSettings)) !== false;
+        });
     } catch (error) {
         logger.error(`Error saving application settings for guild ${guildId}:`, error);
         return false;
@@ -1005,8 +1013,9 @@ export async function getApplications(client, guildId, filters = {}) {
     }
 }
 
-export async function getJoinToCreateConfig(client, guildId) {
+export async function getJoinToCreateConfig(client, guildId, { strict = false } = {}) {
     if (!client.db) {
+        if (strict) throw new Error('Join to Create settings storage is unavailable');
         logger.warn('Database not available for getJoinToCreateConfig');
         return {
             enabled: false,
@@ -1021,7 +1030,7 @@ export async function getJoinToCreateConfig(client, guildId) {
     
     const key = getJoinToCreateConfigKey(guildId);
     try {
-        const config = await client.db.get(key, {});
+        const config = await client.db.get(key, {}, { strict });
         const unwrapped = unwrapReplitData(config);
         
         return {
@@ -1036,6 +1045,7 @@ export async function getJoinToCreateConfig(client, guildId) {
         };
     } catch (error) {
         logger.error(`Error getting Join to Create config for guild ${guildId}:`, error);
+        if (strict) throw error;
         return {
             enabled: false,
             triggerChannels: [],
@@ -1051,11 +1061,10 @@ export async function getJoinToCreateConfig(client, guildId) {
 export async function saveJoinToCreateConfig(client, guildId, config) {
     const key = getJoinToCreateConfigKey(guildId);
     try {
-        const existingConfig = await getJoinToCreateConfig(client, guildId);
+        const existingConfig = await getJoinToCreateConfig(client, guildId, { strict: true });
         const mergedConfig = { ...existingConfig, ...config };
         
-        await client.db.set(key, mergedConfig);
-        return true;
+        return (await client.db.set(key, mergedConfig)) !== false;
     } catch (error) {
         logger.error(`Error saving Join to Create config for guild ${guildId}:`, error);
         return false;
@@ -1064,10 +1073,12 @@ export async function saveJoinToCreateConfig(client, guildId, config) {
 
 export async function updateJoinToCreateConfig(client, guildId, updates) {
     try {
-        const currentConfig = await getJoinToCreateConfig(client, guildId);
+        const currentConfig = await getJoinToCreateConfig(client, guildId, { strict: true });
         const updatedConfig = { ...currentConfig, ...updates };
         
-        await saveJoinToCreateConfig(client, guildId, updatedConfig);
+        if (!await saveJoinToCreateConfig(client, guildId, updatedConfig)) {
+            throw new Error('Join to Create settings could not be saved');
+        }
         return updatedConfig;
     } catch (error) {
         logger.error(`Error updating Join to Create config for guild ${guildId}:`, error);
@@ -1077,7 +1088,7 @@ export async function updateJoinToCreateConfig(client, guildId, updates) {
 
 export async function addJoinToCreateTrigger(client, guildId, channelId, options = {}) {
     try {
-        const config = await getJoinToCreateConfig(client, guildId);
+        const config = await getJoinToCreateConfig(client, guildId, { strict: true });
         
         if (config.triggerChannels.includes(channelId)) {
             return false;
@@ -1106,7 +1117,7 @@ export async function addJoinToCreateTrigger(client, guildId, channelId, options
 
 export async function removeJoinToCreateTrigger(client, guildId, channelId) {
     try {
-        const config = await getJoinToCreateConfig(client, guildId);
+        const config = await getJoinToCreateConfig(client, guildId, { strict: true });
         
         const index = config.triggerChannels.indexOf(channelId);
         if (index === -1) {
@@ -1129,7 +1140,7 @@ export async function removeJoinToCreateTrigger(client, guildId, channelId) {
 
 export async function registerTemporaryChannel(client, guildId, channelId, ownerId, triggerChannelId) {
     try {
-        const config = await getJoinToCreateConfig(client, guildId);
+        const config = await getJoinToCreateConfig(client, guildId, { strict: true });
         
         config.temporaryChannels[channelId] = {
             ownerId,
@@ -1146,7 +1157,7 @@ export async function registerTemporaryChannel(client, guildId, channelId, owner
 
 export async function unregisterTemporaryChannel(client, guildId, channelId) {
     try {
-        const config = await getJoinToCreateConfig(client, guildId);
+        const config = await getJoinToCreateConfig(client, guildId, { strict: true });
         
         if (config.temporaryChannels[channelId]) {
             delete config.temporaryChannels[channelId];
@@ -1189,8 +1200,4 @@ export function formatChannelName(template, variables) {
 formatted = formatted.substring(0, 100);
     
     return formatted || 'Voice Channel';
-}
-
-function generateCaseId() {
-    return `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 4)}`;
 }

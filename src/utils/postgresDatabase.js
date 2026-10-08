@@ -399,12 +399,12 @@ class PostgreSQLDatabase {
         return defaultValue;
     }
 
-    async get(key, defaultValue = null) {
-        let strictRead = false;
+    async get(key, defaultValue = null, options = {}) {
+        let strictRead = options.strict === true;
         try {
-            strictRead = parseKey(canonicalizeKey(key)).type === 'economy';
+            strictRead ||= parseKey(canonicalizeKey(key)).type === 'economy';
             if (!this.isAvailable()) {
-                if (strictRead) throw new Error('Persistent economy storage is unavailable');
+                if (strictRead) throw new Error('Persistent storage is unavailable');
                 logger.warn('PostgreSQL not available, returning default value');
                 return defaultValue;
             }
@@ -424,7 +424,7 @@ class PostgreSQLDatabase {
                 return result.rows.length > 0 ? result.rows[0].value : defaultValue;
             }
 
-            const structuredValue = await this.getStructuredData(parsedKey, defaultValue);
+            const structuredValue = await this.getStructuredData(parsedKey, defaultValue, strictRead);
             if (structuredValue !== defaultValue) {
                 return structuredValue;
             }
@@ -432,7 +432,7 @@ class PostgreSQLDatabase {
             if (canonicalKey !== key) {
                 const legacyParsed = parseKey(key);
                 if (legacyParsed.fullKey !== parsedKey.fullKey) {
-                    return await this.getStructuredData(legacyParsed, defaultValue);
+                    return await this.getStructuredData(legacyParsed, defaultValue, strictRead);
                 }
             }
 
@@ -646,7 +646,7 @@ class PostgreSQLDatabase {
         }
     }
 
-    async getStructuredData(parsedKey, defaultValue) {
+    async getStructuredData(parsedKey, defaultValue, strictRead = false) {
         try {
             switch (parsedKey.type) {
                 case 'guild_config':
@@ -752,8 +752,27 @@ class PostgreSQLDatabase {
             }
         } catch (error) {
             logger.error(`Error getting structured data for ${parsedKey.fullKey}:`, error);
-            if (parsedKey.type === 'economy') throw error;
+            if (strictRead || parsedKey.type === 'economy') throw error;
             return defaultValue;
+        }
+    }
+
+    async runTransaction(operation) {
+        const client = await this.pool.connect();
+        try {
+            await client.query('BEGIN');
+            const result = await operation(client);
+            await client.query('COMMIT');
+            return result;
+        } catch (error) {
+            try {
+                await client.query('ROLLBACK');
+            } catch (rollbackError) {
+                logger.warn('PostgreSQL rollback failed:', rollbackError.message);
+            }
+            throw error;
+        } finally {
+            client.release();
         }
     }
 
@@ -770,56 +789,60 @@ class PostgreSQLDatabase {
                     return true;
                 
                 case 'guild_birthdays':
-                    await this.pool.query(
-                        `INSERT INTO ${pgConfig.tables.guilds} (id, created_at) 
-                         VALUES ($1, CURRENT_TIMESTAMP) 
-                         ON CONFLICT (id) DO NOTHING`,
-                        [parsedKey.guildId]
-                    );
-                    
-                    await this.pool.query(`DELETE FROM ${pgConfig.tables.birthdays} WHERE guild_id = $1`, [parsedKey.guildId]);
-                    
-                    for (const [userId, birthday] of Object.entries(value)) {
-                        await this.pool.query(
-                            `INSERT INTO ${pgConfig.tables.users} (id, created_at) 
-                             VALUES ($1, CURRENT_TIMESTAMP) 
+                    return await this.runTransaction(async client => {
+                        await client.query(
+                            `INSERT INTO ${pgConfig.tables.guilds} (id, created_at)
+                             VALUES ($1, CURRENT_TIMESTAMP)
                              ON CONFLICT (id) DO NOTHING`,
-                            [userId]
+                            [parsedKey.guildId]
                         );
-                        
-                        await this.pool.query(
-                            `INSERT INTO ${pgConfig.tables.birthdays} (guild_id, user_id, month, day) 
-                             VALUES ($1, $2, $3, $4)`,
-                            [parsedKey.guildId, userId, birthday.month, birthday.day]
-                        );
-                    }
-                    return true;
+
+                        await client.query(`DELETE FROM ${pgConfig.tables.birthdays} WHERE guild_id = $1`, [parsedKey.guildId]);
+
+                        for (const [userId, birthday] of Object.entries(value)) {
+                            await client.query(
+                                `INSERT INTO ${pgConfig.tables.users} (id, created_at)
+                                 VALUES ($1, CURRENT_TIMESTAMP)
+                                 ON CONFLICT (id) DO NOTHING`,
+                                [userId]
+                            );
+
+                            await client.query(
+                                `INSERT INTO ${pgConfig.tables.birthdays} (guild_id, user_id, month, day)
+                                 VALUES ($1, $2, $3, $4)`,
+                                [parsedKey.guildId, userId, birthday.month, birthday.day]
+                            );
+                        }
+                        return true;
+                    });
                 
                 case 'guild_giveaways':
-                    await this.pool.query(
-                        `INSERT INTO ${pgConfig.tables.guilds} (id, created_at) 
-                         VALUES ($1, CURRENT_TIMESTAMP) 
-                         ON CONFLICT (id) DO NOTHING`,
-                        [parsedKey.guildId]
-                    );
-                    
-                    await this.pool.query(`DELETE FROM ${pgConfig.tables.giveaways} WHERE guild_id = $1`, [parsedKey.guildId]);
-
-                    const giveaways = Array.isArray(value)
-                        ? value
-                        : (value && typeof value === 'object' ? Object.values(value) : []);
-
-                    for (const giveaway of giveaways) {
-                        if (!giveaway?.messageId) {
-                            continue;
-                        }
-                        await this.pool.query(
-                            `INSERT INTO ${pgConfig.tables.giveaways} (guild_id, message_id, data, ends_at) 
-                             VALUES ($1, $2, $3, $4)`,
-                            [parsedKey.guildId, giveaway.messageId, giveaway, giveaway.endsAt ? new Date(giveaway.endsAt) : null]
+                    return await this.runTransaction(async client => {
+                        await client.query(
+                            `INSERT INTO ${pgConfig.tables.guilds} (id, created_at)
+                             VALUES ($1, CURRENT_TIMESTAMP)
+                             ON CONFLICT (id) DO NOTHING`,
+                            [parsedKey.guildId]
                         );
-                    }
-                    return true;
+
+                        await client.query(`DELETE FROM ${pgConfig.tables.giveaways} WHERE guild_id = $1`, [parsedKey.guildId]);
+
+                        const giveaways = Array.isArray(value)
+                            ? value
+                            : (value && typeof value === 'object' ? Object.values(value) : []);
+
+                        for (const giveaway of giveaways) {
+                            if (!giveaway?.messageId) {
+                                continue;
+                            }
+                            await client.query(
+                                `INSERT INTO ${pgConfig.tables.giveaways} (guild_id, message_id, data, ends_at)
+                                 VALUES ($1, $2, $3, $4)`,
+                                [parsedKey.guildId, giveaway.messageId, giveaway, giveaway.endsAt ? new Date(giveaway.endsAt) : null]
+                            );
+                        }
+                        return true;
+                    });
                 
                 case 'welcome_config':
                     await this.pool.query(

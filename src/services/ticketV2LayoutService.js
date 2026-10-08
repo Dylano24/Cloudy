@@ -74,7 +74,7 @@ function makeTicketActionRow(ticketData) {
   );
 }
 
-function buildTicketEmbed(ticketData, number) {
+function buildTicketEmbed(ticketData, number, guildId) {
   const reason = String(ticketData.reason || 'No reason provided').slice(0, 1024);
 
   const baseEmbed = new EmbedBuilder()
@@ -91,6 +91,7 @@ function buildTicketEmbed(ticketData, number) {
     .setFooter({ text: CLOUDY_TICKET_FOOTER });
 
   return new EmbedBuilder(applyTicketMainTemplateData(baseEmbed.toJSON(), {
+    guildId,
     ticketNumber: number,
     userId: ticketData.userId,
     reason,
@@ -162,7 +163,7 @@ export async function renderTicketV2(channel, preferredMessage = null) {
       if (number !== 'Unknown') ticketData.ticketNumber = number;
 
       const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
-      const embed = buildTicketEmbed(ticketData, number);
+      const embed = buildTicketEmbed(ticketData, number, channel.guild.id);
       const components = isClosed ? [] : [makeTicketActionRow(ticketData)];
 
       if (message.flags?.has?.(MessageFlags.IsComponentsV2)) {

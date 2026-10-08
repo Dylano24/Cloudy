@@ -11,8 +11,8 @@ const STATE_FILE = path.join(DATA_DIR, 'cloudy-monitor-state.json');
 const MAX_INCIDENTS = 100;
 const MONITOR_STATE_VERSION = 2;
 const FETCH_TIMEOUT_MS = 12_000;
-const CLOUDY_SERVICE_ID = process.env.CLOUDY_SERVICE_ID || 'b853c72c-bee0-4ac9-9824-573ff6a84988';
 const MONITOR_SERVICE_ID = process.env.MONITOR_SERVICE_ID || '5c828394-2b67-4608-b027-1278f4c82184';
+const MONITOR_WEBHOOK_TOKEN = process.env.MONITOR_WEBHOOK_TOKEN || '';
 
 const urls = {
   health: `${CLOUDY_BASE}/health`,
@@ -277,7 +277,6 @@ function closeRecoveredIncidents(source) {
 
 async function runPoll() {
   const previousOverall = state.overall;
-  const previousChecks = state.checks;
 
   const [health, ready, commits, quality, migration, docker] = await Promise.allSettled([
     fetchJson(urls.health),
@@ -487,7 +486,14 @@ async function readBody(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  // Routing needs only the request target; an untrusted Host header must never
+  // become the URL base or cause the async HTTP handler to reject.
+  let url;
+  try {
+    url = new URL(req.url || '/', 'http://localhost');
+  } catch {
+    return sendJson(res, 400, { error: 'invalid_request_url' });
+  }
 
   if (req.method === 'GET' && url.pathname === '/health') {
     return sendJson(res, 200, { status: 'healthy', monitor: 'cloudy-monitor', lastCheckAt: state.lastCheckAt });
@@ -506,6 +512,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && url.pathname === '/railway-webhook') {
+    // Configure the same secret in the monitor and Railway webhook URL before
+    // deployment. A Bearer header is supported for senders with custom headers.
+    if (!MONITOR_WEBHOOK_TOKEN) {
+      return sendJson(res, 503, { ok: false, error: 'webhook_not_configured' });
+    }
+    const supplied = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7)
+      : url.searchParams.get('token') || '';
+    const actual = Buffer.from(supplied);
+    const expected = Buffer.from(MONITOR_WEBHOOK_TOKEN);
+    if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+      return sendJson(res, 403, { ok: false, error: 'forbidden' });
+    }
     try {
       const body = await readBody(req);
       await handleRailwayWebhook(body);
