@@ -191,17 +191,28 @@ export function isVideoOnlySource(source) {
   } catch { return false; }
 }
 
-export function eligibleMediaForSource(items, source) {
-  const eligible = mediaCandidates(items);
-  return isVideoOnlySource(source) ? eligible.filter(item => Boolean(item.video)) : eligible;
+export function parseMediaType(value) {
+  if (value === 'video' || value === 'picture') return value;
+  throw new Error('Choose Videos only or Pictures only.');
 }
 
-export function mediaSourceProblem(items, source) {
+export function eligibleMediaForSource(items, source, mediaType) {
+  const eligible = mediaCandidates(items);
+  const safe = isVideoOnlySource(source) ? eligible.filter(item => Boolean(item.video)) : eligible;
+  if (mediaType === 'video') return safe.filter(item => Boolean(item.video));
+  if (mediaType === 'picture') return safe.filter(item => Boolean(item.image) && !item.video);
+  // Existing feeds created before the media selector keep their previous behavior.
+  return safe;
+}
+
+export function mediaSourceProblem(items, source, mediaType) {
   if (!items.length) return 'Website contains no accessible media posts.';
   if (isVideoOnlySource(source) && !items.some(item => item.video)) {
     return 'Website does not provide directly playable video files.';
   }
-  if (!eligibleMediaForSource(items, source).length) {
+  if (!eligibleMediaForSource(items, source, mediaType).length) {
+    if (mediaType === 'video') return 'No matching playable videos available from this website.';
+    if (mediaType === 'picture') return 'No matching pictures available from this website.';
     return 'No matching playable media available from this website.';
   }
   return null;
@@ -224,13 +235,17 @@ export async function applyAction(interaction, guild, action, input = {}) {
       const source = validateSourceUrl(get('source')).href;
       const minutes = parseMinutes(get('minutes'));
       const adult = parseAdult(get('adult'));
+      // The /auto feed modal supplies and requires this choice; older internal
+      // callers without this field retain their existing behavior.
+      const mediaType = Object.hasOwn(input, 'mediaType') ? parseMediaType(get('mediaType')) : undefined;
       const channel = await validateChannel(guild, get('channel'), adult);
       const items = await readWebsiteItems(source);
-      const problem = mediaSourceProblem(items, source);
+      const problem = mediaSourceProblem(items, source, mediaType);
       if (problem) throw new Error(problem);
       const id = randomUUID().slice(0, 8);
       const name = (get('name') || (host => host.charAt(0).toUpperCase() + host.slice(1))(new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0])).slice(0, 64);
-      feeds.push({ id, name, source, channelId: channel.id, channelName: channel.name, minutes, adult, active: true,
+      feeds.push({ id, name, source, channelId: channel.id, channelName: channel.name,
+        minutes, adult, mediaType, active: true,
         nextAt: now + minutes * 60_000, recentUrls: [], lastError: null, lastCheck: now, lastUsCheck: now });
     } else {
       const id = get('feedId');
@@ -246,18 +261,21 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const source = newUrl ? validateSourceUrl(newUrl).href : feed.source;
         const minutes = get('minutes') ? parseMinutes(get('minutes')) : feed.minutes;
         const adult = parseAdult(get('adult'), feed.adult);
+        const mediaType = Object.hasOwn(input, 'mediaType')
+          ? parseMediaType(get('mediaType')) : feed.mediaType;
         const channel = await validateChannel(guild, get('channel') || feed.channelId, adult);
         const sourceChanged = source !== feed.source;
-        if (sourceChanged) {
+        const typeChanged = mediaType !== feed.mediaType;
+        if (sourceChanged || typeChanged) {
           const items = await readWebsiteItems(source);
-          const problem = mediaSourceProblem(items, source);
+          const problem = mediaSourceProblem(items, source, mediaType);
           if (problem) throw new Error(problem);
-          feed.recentUrls = [];
+          if (sourceChanged) feed.recentUrls = [];
         }
         const name = (get('name') || feed.name || new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0]).slice(0, 64);
-        Object.assign(feed, { name, source, channelId: channel.id, channelName: channel.name, adult, minutes,
-          nextAt: now + minutes * 60_000,
-          ...(sourceChanged ? { lastError: null, lastCheck: now, lastUsCheck: now } : {}) });
+        Object.assign(feed, { name, source, channelId: channel.id, channelName: channel.name,
+          adult, minutes, mediaType, nextAt: now + minutes * 60_000,
+          ...(sourceChanged || typeChanged ? { lastError: null, lastCheck: now, lastUsCheck: now } : {}) });
       }
     }
     await saveFeeds(interaction.client, guild.id, feeds);
@@ -312,11 +330,11 @@ async function processGuild(client, guild) {
       try {
         const channel = await validateChannel(guild, feed.channelId, feed.adult);
         const discovered = await readWebsiteItems(feed.source);
-        const candidates = eligibleMediaForSource(discovered, feed.source);
+        const candidates = eligibleMediaForSource(discovered, feed.source, feed.mediaType);
         const seen = new Set(feed.recentUrls || []);
         const available = candidates.filter(item => !seen.has(mediaItemKey(item)));
         if (!candidates.length) {
-          feed.lastError = mediaSourceProblem(discovered, feed.source);
+          feed.lastError = mediaSourceProblem(discovered, feed.source, feed.mediaType);
         } else if (!available.length) {
           feed.lastError = 'No new media available';
         } else {
