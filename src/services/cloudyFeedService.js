@@ -5,6 +5,7 @@ import {
 } from 'discord.js';
 import { hasCloudyOwnerMember, hasCloudyOwnerRole } from './ownerRoleAccess.js';
 import { readWebsiteItems, validateSourceUrl } from './cloudyFeedParser.js';
+import { makeVideoAttachmentMessage } from './cloudyFeedMediaUpload.js';
 import { logger } from '../utils/logger.js';
 
 const PREFIX = 'cloudyfeed:';
@@ -281,21 +282,27 @@ async function processGuild(client, guild) {
         } else if (!available.length) {
           feed.lastError = 'No new media available';
         } else {
-          const item = available[Math.floor(Math.random() * available.length)];
-          // Reserve the item before posting to avoid double sends on retry/restart.
+          // Choose playable videos first. Images remain supported when a
+          // feed has no new videos.
+          const videoOptions = available.filter(item => item.video);
+          const selection = videoOptions.length ? videoOptions : available;
+          const item = selection[Math.floor(Math.random() * selection.length)];
+          let post;
+          if (item.video) {
+            // Download and verify before reserving or publishing the media.
+            // Never fall back to a site link when the video cannot be uploaded.
+            post = await makeVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
+          } else {
+            const embed = new EmbedBuilder().setColor(0xFFFFFF).setTitle(item.title);
+            if (item.description) embed.setDescription(item.description);
+            if (item.image) embed.setImage(item.image);
+            post = { embeds: [embed], allowedMentions: { parse: [] } };
+          }
+          // Reserve before sending to avoid double posts on process restart.
           feed.recentUrls = [...seen, mediaItemKey(item)].slice(-200);
           feed.nextAt = next;
           await saveFeeds(client, guild.id, feeds);
-          const embed = new EmbedBuilder().setColor(0xFFFFFF).setTitle(item.title).setURL(item.url);
-          if (item.description) embed.setDescription(item.description);
-          if (item.image) embed.setImage(item.image);
-          // Discord supports direct video URLs as linked content, not EmbedBuilder.setVideo.
-          // This never copies or redistributes files that a website forbids downloading.
-          await channel.send({
-            content: item.video || undefined,
-            embeds: [embed],
-            allowedMentions: { parse: [] },
-          });
+          await channel.send(post);
           feed.lastError = null;
           feed.lastPostedAt = Date.now();
         }
