@@ -25,7 +25,7 @@ test('Cloudy feed main embed only shows its original title and description', () 
     const embed = result.embeds[0].toJSON();
     assert.equal(embed.title, 'Cloudy feed');
     assert.equal(embed.description,
-      'Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.');
+      'Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.\n\u200B');
     assert.equal(embed.fields, undefined, 'No source/channel/timer/status in main dashboard');
     assert.equal(embed.thumbnail.url, CLOUDY_LOGO_URL);
     assert.equal(embed.footer.text, CLOUDY_BRANDING);
@@ -117,7 +117,7 @@ test('feed chooser shows a readable name and destination channel', () => {
   assert.match(item.description, /5m • Paused/);
 });
 
-test('all feed embeds keep C logo, standard footer and white rule after source', () => {
+test('all feed embeds keep C logo and footer without a white separator', () => {
   const feed = {
     id: 'aaa', name: 'Media', source: 'https://example.org/videos',
     channelId: '1532882647838228724', minutes: 1, active: true,
@@ -132,11 +132,12 @@ test('all feed embeds keep C logo, standard footer and white rule after source',
     assert.equal(embed.color, 0xFFFFFF);
   }
   const value = detail.embeds[0].toJSON().fields[0].value;
-  assert.match(value, /Source:\*\* https:\/\/example.org\/videos\n━+\n\*\*Channel:/);
+  assert.match(value, /Source:\*\* https:\/\/example.org\/videos\n\*\*Channel:/);
+  assert.doesNotMatch(value, /━/);
   assert.doesNotMatch(JSON.stringify(main.embeds[0].toJSON()), /https:\/\/example.org/);
 });
 
-test('Edit feed opens a modal with optional native channel chooser and no Channel ID', () => {
+test('Edit feed contains only the original four fields and preserves the current channel', () => {
   const session = {
     id: 'session1', action: 'edit',
     feed: {
@@ -146,12 +147,8 @@ test('Edit feed opens a modal with optional native channel chooser and no Channe
   };
   const modal = feedModal(session).toJSON();
   assert.equal(modal.title, 'Edit feed');
-  assert.equal(modal.components.length, 5);
+  assert.equal(modal.components.length, 4);
   assert.deepEqual(modal.components.map(x => x.label),
-    ['Feed name', 'Website URL', 'Auto message', '18+ content', 'Channel (optional)']);
-  const picker = modal.components[4].component;
-  assert.equal(picker.type, 8); // Channel select menu
-  assert.equal(picker.custom_id, 'feedChannel');
-  assert.equal(picker.required, false);
-  assert.equal(picker.max_values, 1);
+    ['Feed name', 'Website URL', 'Auto message', '18+ content']);
+  assert.doesNotMatch(JSON.stringify(modal), /feedChannel|Channel \(optional\)|channel.*select/i);
 });
