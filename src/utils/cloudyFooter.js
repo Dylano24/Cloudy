@@ -1,4 +1,5 @@
 import { REST } from '@discordjs/rest';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { MESSAGE_BUILDER_FOOTER_MARKER, isMentionOnlyContent } from '../services/cloudyBrandingService.js';
 import { isRegisteredBuilderPreviewMessageId } from './builderSessionCleanup.js';
 
@@ -11,6 +12,7 @@ const DEFERRED_REPLY_TTL_MS = 15 * 60_000;
 const deferredReplyTokens = new Map();
 const pendingBuilderPreviewReplyTokens = new Set();
 const manualBuilderSaveMessageIds = new Set();
+const manualBuilderPostScope = new AsyncLocalStorage();
 
 // Scoped exceptions to the global automatic C-logo insertion. Footer branding
 // still applies, and ordinary Cloudy messages keep their original logo policy.
@@ -18,6 +20,12 @@ export function registerBuilderPreviewReplyToken(token) {
   if (!token) return false;
   pendingBuilderPreviewReplyTokens.add(String(token));
   return true;
+}
+
+// A newly posted Builder message has no ID yet. Preserve its no-logo choice
+// only for this async send call, never for unrelated sends in the same channel.
+export function withManualBuilderPostLogoChoice(callback) {
+  return manualBuilderPostScope.run(true, callback);
 }
 
 export async function withManualBuilderSaveLogoChoice(messageId, callback) {
@@ -122,10 +130,13 @@ export function installCloudyFooterOutput() {
       const editedMessageId = options.method === 'PATCH'
         ? route.match(/^\/(?:channels\/\d+\/messages|webhooks\/\d+\/[^/]+\/messages)\/([^/]+)$/)?.[1]
         : null;
-      const preserveExplicitLogo = Boolean(editedMessageId && (
-        isRegisteredBuilderPreviewMessageId(editedMessageId)
-        || manualBuilderSaveMessageIds.has(editedMessageId)
-      ));
+      const preserveExplicitLogo = Boolean(
+        (options.method === 'POST' && manualBuilderPostScope.getStore() === true)
+        || (editedMessageId && (
+          isRegisteredBuilderPreviewMessageId(editedMessageId)
+          || manualBuilderSaveMessageIds.has(editedMessageId)
+        ))
+      );
       const deferredOriginalToken = options.method === 'PATCH'
         ? route.match(/^\/webhooks\/\d+\/([^/]+)\/messages\/@original$/)?.[1]
         : null;
