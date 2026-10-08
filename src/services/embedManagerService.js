@@ -1109,7 +1109,10 @@ export function loadRecordSnapshotIntoState(
         if (displayThumbnail) displaySourceData.thumbnail = displayThumbnail;
         else delete displaySourceData.thumbnail;
     }
-    state.showLogo = isCloudyLogoUrl(displayThumbnail?.url);
+    // An embed has a removable top-right logo whenever its thumbnail exists.
+    // The thumbnail can have a Discord CDN URL or a saved custom URL; a match
+    // against only the bundled Cloudy asset incorrectly reports "Disabled".
+    state.showLogo = Boolean(displayThumbnail?.url);
     state.removeExistingLogo = false;
     state.logoTouched = false;
     state.bottomLine = footerText || null;
@@ -1180,7 +1183,7 @@ function loadEmbedIntoState(state, resolved) {
         }))
         : [];
     state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
-    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);
+    state.showLogo = Boolean(data.thumbnail?.url);
     state.removeExistingLogo = false;
     state.logoTouched = false;
     state.bottomLine = footerText || null;
@@ -1837,9 +1840,19 @@ function applyStateToExistingEmbed(state) {
     }
     data.color = state.sideColor;
 
-    if (state.removeExistingLogo) delete data.thumbnail;
-    else if (state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
-    else if (isCloudyLogoUrl(data.thumbnail?.url)) delete data.thumbnail;
+    if (state.removeExistingLogo || !state.showLogo) {
+        delete data.thumbnail;
+    } else if (state.logoTouched) {
+        data.thumbnail = { url: CLOUDY_LOGO_URL };
+    } else if (target?.previewSourceData) {
+        // Keep the thumbnail actually displayed when Search/Modify was opened,
+        // including custom/Discord-hosted URLs. Do not replace it on Save.
+        if (target.previewSourceData.thumbnail?.url) {
+            data.thumbnail = { url: target.previewSourceData.thumbnail.url };
+        } else {
+            delete data.thumbnail;
+        }
+    }
 
     if (state.bottomLine) {
         const marker = target?.hadBuilderMarker ? MESSAGE_BUILDER_FOOTER_MARKER : '';
@@ -2332,6 +2345,10 @@ export async function saveModifiedEmbed(guild, state) {
         nextPreview.fields = Array.isArray(state.embedFields)
             ? state.embedFields.map(field => ({ ...field }))
             : [];
+        // Saving a logo choice must immediately update the same preview source
+        // used after reopening and after another Save in this Builder session.
+        if (current.thumbnail?.url) nextPreview.thumbnail = { url: current.thumbnail.url };
+        else delete nextPreview.thumbnail;
         state.modifyTarget.previewSourceData = nextPreview;
     }
     state.modifyTarget.cachedMessage = edited;
