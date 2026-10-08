@@ -29,6 +29,7 @@ import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 
 const creationQueues = new Map();
 const mutationQueues = new Map();
+const mutationIdentities = new WeakMap();
 const reconcileTimers = new Map();
 
 function ticketError(message, userMessage, code = 'TICKET_RELIABILITY_ERROR') {
@@ -411,9 +412,16 @@ export async function createTicket(guild, member, categoryId, reason, priority =
   });
 }
 
-function mutate(channel, operation) {
+function mutate(channel, operation, identity = null) {
   requirePersistentTicketDatabase(channel.client);
-  return enqueue(mutationQueues, `${channel.guild.id}:${channel.id}`, operation);
+  const key = `${channel.guild.id}:${channel.id}`;
+  const pending = mutationQueues.get(key);
+  // Merge only identical adjacent requests. An intervening action must keep
+  // its place, so Close/Reopen/Close still performs all three transitions.
+  if (identity && pending && mutationIdentities.get(pending) === identity) return pending;
+  const current = enqueue(mutationQueues, key, operation);
+  if (identity) mutationIdentities.set(current, identity);
+  return current;
 }
 
 export async function claimTicket(channel, claimer) {
@@ -675,7 +683,7 @@ export async function closeTicket(channel, closer, reason, options = {}) {
 
     scheduleTicketReconcile(channel, [1000, 5000, 20000]);
     return ticketData;
-  });
+  }, typeof options.onVisible === 'function' ? null : JSON.stringify(['close', closer.id, reason]));
 }
 
 export async function reopenTicket(channel, reopener, options = {}) {
@@ -768,14 +776,14 @@ export async function reopenTicket(channel, reopener, options = {}) {
 
     scheduleTicketReconcile(channel, [5000, 20000]);
     return { ticketData, movedToOpenCategory: channel.parentId === openCategoryId };
-  });
+  }, JSON.stringify(['reopen', reopener.id]));
 }
 
 export async function deleteTicket(channel, deleter) {
   return mutate(channel, async () => {
     clearTicketReconcileTimers(channel);
     return deleteTicketSafely(channel, deleter);
-  });
+  }, JSON.stringify(['delete', deleter.id]));
 }
 
 export async function reconcileTicketChannelState(channel) {
