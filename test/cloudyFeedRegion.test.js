@@ -13,18 +13,18 @@ test('USA only accepts explicitly verified US photos or videos', () => {
   assert.deepEqual(mediaCandidates(items).map(item => item.url), ['https://example.org/us']);
 });
 
-test('USA only is visible in main dashboard and selected feed detail', () => {
+test('USA filtering is not shown in main dashboard or selected feed detail', () => {
   const feed = {
     id: '04db1b8f', name: 'Media', channelId: '1532882647838228724',
     source: 'https://example.org/media', minutes: 5, active: true,
-    lastError: 'No USA-tagged media found',
+    lastError: 'No matching media found',
   };
   const main = buildCloudyFeedDashboard('1532882647838228723', [feed]);
   const detail = feedDetail({ id: 'abc123' }, feed);
   for (const panel of [main, detail]) {
     const value = panel.embeds[0].toJSON().fields[0].value;
-    assert.match(value, /Region:\*\* USA only/);
-    assert.match(value, /No USA-tagged media found/);
+    assert.doesNotMatch(value, /Region|USA only|USA-tagged/);
+    assert.match(value, /No matching media found/);
   }
 });
 
@@ -34,5 +34,5 @@ test('existing feeds with no USA check are not falsely marked USA-tagged media a
     minutes: 10, active: true, lastCheck: Date.now(), lastUsCheck: undefined,
   };
   const dashboard = buildCloudyFeedDashboard('1532882647838228723', [feed]);
-  assert.match(dashboard.embeds[0].toJSON().fields[0].value, /USA origin not checked yet/);
+  assert.match(dashboard.embeds[0].toJSON().fields[0].value, /Source check:\*\* Not checked/);
 });
