@@ -349,9 +349,23 @@ async function processGuild(client, guild) {
             // Download and verify before reserving or publishing the media.
             // Site-specific formats and public streams use yt-dlp/ffmpeg.
             // Never fall back to a site link when the video cannot be uploaded.
-            post = item.mediaExtractor === 'yt-dlp'
-              ? await makeExtractedVideoAttachmentMessage(item.video, guild.maximumUploadLimit)
-              : await makeVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
+            if (item.mediaExtractor === 'yt-dlp') {
+              post = await makeExtractedVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
+            } else {
+              try {
+                post = await makeVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
+              } catch (directError) {
+                // Some ordinary HTML/RSS feeds point at HLS, oversized clips
+                // or formats that Discord cannot play. Try the extractor's
+                // bounded download/conversion before reporting failure.
+                const mediaPage = item.url || feed.source;
+                try {
+                  post = await makeExtractedVideoAttachmentMessage(mediaPage, guild.maximumUploadLimit);
+                } catch {
+                  throw directError;
+                }
+              }
+            }
           } else {
             // Post the real photo as a native Discord attachment, not a
             // remote URL inside an embed. Reject blocked, oversized or invalid files.
