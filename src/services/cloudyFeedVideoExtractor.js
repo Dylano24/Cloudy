@@ -58,7 +58,7 @@ async function optimizeVideo(input, destination, limitBytes) {
   await runLocalCommand('ffmpeg', [
     '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
     '-protocol_whitelist', 'file,pipe',
-    '-i', input, '-vf', 'scale=min(1280\,iw):-2',
+    '-i', input, '-vf', 'scale=min(1280\\,iw):-2',
     '-c:v', 'libx264', '-preset', 'veryfast',
     '-b:v', bitrate + 'k', '-maxrate', bitrate + 'k',
     '-bufsize', bitrate * 2 + 'k', '-pix_fmt', 'yuv420p',
