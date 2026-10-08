@@ -17,18 +17,18 @@ test('USA only is visible in main dashboard and selected feed detail', () => {
   const feed = {
     id: '04db1b8f', name: 'Media', channelId: '1532882647838228724',
     source: 'https://example.org/media', minutes: 5, active: true,
-    lastError: 'No verified USA media found',
+    lastError: 'No USA-tagged media found',
   };
   const main = buildCloudyFeedDashboard('1532882647838228723', [feed]);
   const detail = feedDetail({ id: 'abc123' }, feed);
   for (const panel of [main, detail]) {
     const value = panel.embeds[0].toJSON().fields[0].value;
     assert.match(value, /Region:\*\* USA only/);
-    assert.match(value, /No verified USA media found/);
+    assert.match(value, /No USA-tagged media found/);
   }
 });
 
-test('existing feeds with no USA check are not falsely marked USA media available', () => {
+test('existing feeds with no USA check are not falsely marked USA-tagged media available', () => {
   const feed = {
     id: '04db1b8f', source: 'https://example.org/gallery', channelId: '1532882647838228724',
     minutes: 10, active: true, lastCheck: Date.now(), lastUsCheck: undefined,
