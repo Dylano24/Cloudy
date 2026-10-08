@@ -210,14 +210,16 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const minutes = get('minutes') ? parseMinutes(get('minutes')) : feed.minutes;
         const adult = parseAdult(get('adult'), feed.adult);
         const channel = await validateChannel(guild, get('channel') || feed.channelId, adult);
-        if (source !== feed.source) {
+        const sourceChanged = source !== feed.source;
+        if (sourceChanged) {
           const items = mediaCandidates(await readWebsiteItems(source));
           if (!items.length) throw new Error('No supported photos or videos found at the new website.');
           feed.recentUrls = [];
         }
         const name = (get('name') || feed.name || new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0]).slice(0, 64);
         Object.assign(feed, { name, source, channelId: channel.id, channelName: channel.name, adult, minutes,
-          nextAt: now + minutes * 60_000, lastError: null });
+          nextAt: now + minutes * 60_000,
+          ...(sourceChanged ? { lastError: null, lastCheck: now } : {}) });
       }
     }
     await saveFeeds(interaction.client, guild.id, feeds);
