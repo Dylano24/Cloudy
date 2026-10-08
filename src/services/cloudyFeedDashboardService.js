@@ -148,7 +148,7 @@ function feedModal(session) {
   );
 }
 
-function hoursToMinutes(value, fallback) {
+export function hoursToMinutes(value, fallback) {
   const trimmed = String(value || '').trim();
   if (!trimmed) {
     if (fallback !== undefined) return fallback;
@@ -225,7 +225,7 @@ export async function handleCloudyFeedControls(interaction, client) {
   const [type, id, value] = parts;
   const session = sessions.get(id);
 
-  if (!session || session.userId !== interaction.user.id || !interaction.isFromMessage && type !== 'submit') {
+  if (!session || session.userId !== interaction.user.id) {
     await silentAck(interaction);
     return true;
   }
