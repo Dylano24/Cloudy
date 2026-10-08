@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 import { loadRecordSnapshotIntoState } from '../src/services/embedManagerService.js';
-import { buildBuilderEmbeds, buildControls } from '../src/commands/Tools/embedbuilder.js';
+import { buildBuilderEmbeds, buildControls, queueBuilderRefresh } from '../src/commands/Tools/embedbuilder.js';
 import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
 function reopen(snapshot, id) {
@@ -127,4 +127,74 @@ test('Existing embed with a visible thumbnail always permits Remove logo', () =>
   state.removeExistingLogo = false;
   assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
   assertLogoButtons(state, { canAdd: false, canRemove: true });
+});
+
+test('Logo button refresh edits the original live preview and updates controls', async () => {
+  const previews = [];
+  const controls = [];
+  let botPreviewEdits = 0;
+  const state = {
+    title: 'Logo live preview',
+    message: 'Test',
+    sideColor: 0xffffff,
+    showLogo: true,
+    removeExistingLogo: false,
+    bottomLine: null,
+    componentRows: [],
+    builderBotManaged: true,
+    builderPreviewUnavailable: false,
+    builderMessage: { edit: async () => { botPreviewEdits += 1; } },
+    builderDashboardMessageId: 'test-dashboard',
+    builderDashboardMessage: {
+      edit: async payload => {
+        controls.push(payload.components[1].toJSON());
+      },
+    },
+  };
+  const originalSlashInteraction = {
+    editReply: async payload => {
+      previews.push(payload.embeds[0].toJSON().thumbnail?.url || null);
+    },
+  };
+
+  await queueBuilderRefresh(originalSlashInteraction, state, true, true);
+  assert.equal(previews.at(-1), CLOUDY_LOGO_URL);
+  assert.equal(controls.at(-1).components[0].disabled, true);
+  assert.equal(controls.at(-1).components[1].disabled, false);
+
+  state.showLogo = false;
+  state.removeExistingLogo = true;
+  await queueBuilderRefresh(originalSlashInteraction, state, true, true);
+  assert.equal(previews.at(-1), null);
+  assert.equal(controls.at(-1).components[0].disabled, false);
+  assert.equal(controls.at(-1).components[1].disabled, true);
+  assert.equal(botPreviewEdits, 0, 'Logo actions target the original reply directly');
+});
+
+test('Logo preview falls back to bot message edit if original reply edit fails', async () => {
+  let fallbackLogo;
+  const state = {
+    title: 'Fallback preview',
+    message: 'Test',
+    sideColor: 0xffffff,
+    showLogo: false,
+    removeExistingLogo: true,
+    bottomLine: null,
+    componentRows: [],
+    builderBotManaged: true,
+    builderPreviewUnavailable: false,
+    builderMessage: {
+      edit: async payload => { fallbackLogo = payload.embeds[0].toJSON().thumbnail?.url || null; },
+    },
+  };
+  const originalSlashInteraction = {
+    editReply: async () => { throw new Error('Expired interaction token'); },
+  };
+
+  assert.equal(await queueBuilderRefresh(originalSlashInteraction, state, true, true), true);
+  assert.equal(fallbackLogo, null);
+  state.showLogo = true;
+  state.removeExistingLogo = false;
+  assert.equal(await queueBuilderRefresh(originalSlashInteraction, state, true, true), true);
+  assert.equal(fallbackLogo, CLOUDY_LOGO_URL);
 });
