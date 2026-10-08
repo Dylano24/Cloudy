@@ -45,7 +45,7 @@ test('RedGIFs temporary auth and public MP4 extraction use no credentials from u
   assert.equal(result[0].url, 'https://www.redgifs.com/watch/abc');
 });
 
-test('RedGIFs media without USA origin metadata stays unverified', () => {
+test('RedGIFs media without USA origin metadata remains eligible', () => {
   const items = normalizeRedgifsItems({ gifs: [
     { id: 'one', urls: { sd: 'https://media.example.org/a.mp4' }, country: 'NL' },
     { id: 'two', urls: { sd: 'https://media.example.org/b.mp4' } },
@@ -55,7 +55,8 @@ test('RedGIFs media without USA origin metadata stays unverified', () => {
   assert.equal(items.length, 3);
   assert.deepEqual(items.map(x => x.country), [null, null, 'US']);
   assert.deepEqual(eligibleMediaForSource(items, 'https://www.redgifs.com/').map(x => x.video),
-    ['https://media.example.org/c.mp4']);
+    ['https://media.example.org/a.mp4', 'https://media.example.org/b.mp4',
+      'https://media.example.org/c.mp4']);
 });
 
 test('Erome public albums expose separate HTTPS video files without site links as post', () => {
