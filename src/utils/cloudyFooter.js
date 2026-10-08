@@ -1,5 +1,6 @@
 import { REST } from '@discordjs/rest';
 import { MESSAGE_BUILDER_FOOTER_MARKER, isMentionOnlyContent } from '../services/cloudyBrandingService.js';
+import { isRegisteredBuilderPreviewMessageId } from './builderSessionCleanup.js';
 
 export { isMentionOnlyContent } from '../services/cloudyBrandingService.js';
 
@@ -8,6 +9,27 @@ const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba38
 const MARKER = Symbol.for('cloudy.standard-footer-output');
 const DEFERRED_REPLY_TTL_MS = 15 * 60_000;
 const deferredReplyTokens = new Map();
+const pendingBuilderPreviewReplyTokens = new Set();
+const manualBuilderSaveMessageIds = new Set();
+
+// Scoped exceptions to the global automatic C-logo insertion. Footer branding
+// still applies, and ordinary Cloudy messages keep their original logo policy.
+export function registerBuilderPreviewReplyToken(token) {
+  if (!token) return false;
+  pendingBuilderPreviewReplyTokens.add(String(token));
+  return true;
+}
+
+export async function withManualBuilderSaveLogoChoice(messageId, callback) {
+  const key = String(messageId || '');
+  if (!key) return callback();
+  manualBuilderSaveMessageIds.add(key);
+  try {
+    return await callback();
+  } finally {
+    manualBuilderSaveMessageIds.delete(key);
+  }
+}
 
 function addFooterEmbed(payload) {
   const embeds = Array.isArray(payload.embeds) ? payload.embeds : [];
@@ -15,7 +37,7 @@ function addFooterEmbed(payload) {
   return { ...payload, embeds: [...embeds, { footer: { text: CLOUDY_STANDARD_FOOTER } }] };
 }
 
-export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
+export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomaticLogo = false } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   if (Number(payload.flags) & 32768) return payload;
   // Bare tags are companion messages, never separate branded notices.
@@ -44,7 +66,9 @@ export function withCloudyFooter(payload, { isNewMessage = true } = {}) {
       }
       // An explicitly saved non-standard footer can belong to a Builder
       // message where the owner intentionally removed the logo.
-      if (!embed.thumbnail?.url && embed.footer?.text === CLOUDY_STANDARD_FOOTER) {
+      if (!suppressAutomaticLogo
+          && title.toLowerCase() !== 'message builder'
+          && !embed.thumbnail?.url && embed.footer?.text === CLOUDY_STANDARD_FOOTER) {
         embed.thumbnail = { url: CLOUDY_C_LOGO_URL };
         embedChanged = true;
       }
@@ -114,6 +138,13 @@ export function installCloudyFooterOutput() {
     }
 
     if (isMessage && ['POST', 'PATCH'].includes(options.method)) {
+      const editedMessageId = options.method === 'PATCH'
+        ? route.match(/^\/(?:channels\/\d+\/messages|webhooks\/\d+\/[^/]+\/messages)\/([^/]+)$/)?.[1]
+        : null;
+      const preserveExplicitLogo = Boolean(editedMessageId && (
+        isRegisteredBuilderPreviewMessageId(editedMessageId)
+        || manualBuilderSaveMessageIds.has(editedMessageId)
+      ));
       const deferredOriginalToken = options.method === 'PATCH'
         ? route.match(/^\/webhooks\/\d+\/([^/]+)\/messages\/@original$/)?.[1]
         : null;
@@ -124,14 +155,21 @@ export function installCloudyFooterOutput() {
         ...options,
         body: withCloudyFooter(options.body, {
           isNewMessage: options.method === 'POST' || isDeferredInitialReply,
+          suppressAutomaticLogo: preserveExplicitLogo,
         }),
       };
     } else if (isCallback && [4, 7].includes(options.body?.type)) {
+      const replyToken = route.match(/^\/interactions\/\d+\/([^/]+)\/callback$/)?.[1];
+      const isBuilderPreviewReply = options.body.type === 4
+        && replyToken && pendingBuilderPreviewReplyTokens.delete(replyToken);
       options = {
         ...options,
         body: {
           ...options.body,
-          data: withCloudyFooter(options.body.data, { isNewMessage: options.body.type === 4 }),
+          data: withCloudyFooter(options.body.data, {
+            isNewMessage: options.body.type === 4,
+            suppressAutomaticLogo: Boolean(isBuilderPreviewReply),
+          }),
         },
       };
     }
