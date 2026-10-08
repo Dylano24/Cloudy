@@ -63,7 +63,7 @@ test('saved custom footer without a thumbnail preserves intentionally removed Bu
 });
 
 
-test('brands meaningful messages while leaving bare recipient mentions unchanged', () => {
+test('keeps all text-only messages unchanged while branding real embeds', () => {
   const embed = withCloudyFooter({ embeds: [{ title: 'Ticket update' }] });
   assert.equal(embed.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
 
@@ -73,8 +73,8 @@ test('brands meaningful messages while leaving bare recipient mentions unchanged
   ]) {
     assert.equal(withCloudyFooter(payload), payload);
   }
-  assert.equal(withCloudyFooter({ content: 'A plain Cloudy message' }).content,
-    `A plain Cloudy message\n\n${CLOUDY_STANDARD_FOOTER}`);
+  assert.deepEqual(withCloudyFooter({ content: 'A plain Cloudy message' }),
+    { content: 'A plain Cloudy message' });
 });
 
 test('keeps existing Cloudy-logo embeds and explicitly exempt Guide and builder messages unchanged', () => {
@@ -90,12 +90,12 @@ test('keeps existing Cloudy-logo embeds and explicitly exempt Guide and builder 
   assert.deepEqual(withCloudyFooter(builder), builder);
 });
 
-test('brands component-only messages but leaves Components V2 payloads untouched', () => {
+test('never invents a branded embed for components, attachments or Components V2', () => {
   const componentOnly = { components: [{ type: 1, components: [] }] };
-  assert.equal(withCloudyFooter(componentOnly).embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+  assert.deepEqual(withCloudyFooter(componentOnly), componentOnly);
 
   const attachmentOnly = { content: '', files: [{ name: 'report.txt' }] };
-  assert.equal(withCloudyFooter(attachmentOnly).embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+  assert.deepEqual(withCloudyFooter(attachmentOnly), attachmentOnly);
 
   const clearingEdit = { content: '', attachments: [] };
   assert.deepEqual(withCloudyFooter(clearingEdit, { isNewMessage: false }), clearingEdit);
@@ -113,8 +113,9 @@ test('Embed Builder live preview preserves explicit no-logo while keeping the st
     embeds: [{ color: 0xffffff, footer: { text: CLOUDY_STANDARD_FOOTER } }],
     components: [],
   };
-  // A raw Cloudy message should still get the C automatically.
-  assert.equal(withCloudyFooter(payload).embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
+  // Even the standard footer is not a request to override an intentionally
+  // absent logo on an already-authored embed.
+  assert.equal(withCloudyFooter(payload).embeds[0].thumbnail, undefined);
   // The Builder preview is deliberately logo-free: the REST pipeline must
   // honor the editor state instead of silently reinserting the C.
   const saved = withCloudyFooter(payload, { suppressAutomaticLogo: true });
@@ -147,7 +148,12 @@ test('manual no-logo Save keeps its logo choice but ordinary Cloudy messages ret
   });
   assert.deepEqual(result, manuallySaved);
   assert.equal(withCloudyFooter(manuallySaved, { isNewMessage: false })
-    .embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
+    .embeds[0].thumbnail, undefined);
+
+  // A genuinely new, unbranded rich embed still receives both C and footer.
+  const fresh = withCloudyFooter({ embeds: [{ title: 'Brand-new notice' }] });
+  assert.equal(fresh.embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
+  assert.equal(fresh.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
 });
 
 test('Builder operations register scoped logo exceptions instead of disabling global branding', async () => {
@@ -160,4 +166,32 @@ test('Builder operations register scoped logo exceptions instead of disabling gl
   assert.match(footer, /isRegisteredBuilderPreviewMessageId\(editedMessageId\)/);
   assert.match(footer, /manualBuilderSaveMessageIds\.has\(editedMessageId\)/);
   assert.match(footer, /pendingBuilderPreviewReplyTokens\.delete\(replyToken\)/);
+});
+
+test('existing embeds keep their no-logo choice on edits and when reposted with a footer', () => {
+  const existing = {
+    embeds: [{ title: 'Intentionally logo-free', footer: { text: CLOUDY_STANDARD_FOOTER } }],
+  };
+  assert.deepEqual(withCloudyFooter(existing, { isNewMessage: false }), existing);
+  assert.deepEqual(withCloudyFooter(existing, { isNewMessage: true }), existing);
+  const oldWithoutFooter = { embeds: [{ title: 'Old message with no logo' }] };
+  const patched = withCloudyFooter(oldWithoutFooter, { isNewMessage: false });
+  assert.equal(patched.embeds[0].thumbnail, undefined);
+  assert.equal(patched.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+});
+
+test('plain notifications, multiline texts, tagged component controls and attachments stay unbranded', () => {
+  const cases = [
+    { content: 'Permission denied' },
+    { content: 'Report submitted\nPlease check your inbox.' },
+    { content: '<@123456789012345678> Please confirm', allowed_mentions: { parse: [] } },
+    { content: 'Report notification', components: [{ type: 1, components: [] }] },
+    { components: [{ type: 1, components: [] }] },
+    { content: '', attachments: [] },
+    { files: [{ attachment: 'report.txt', name: 'report.txt' }] },
+  ];
+  for (const input of cases) {
+    assert.deepEqual(withCloudyFooter(input), input);
+    assert.deepEqual(withCloudyFooter(input, { isNewMessage: false }), input);
+  }
 });
