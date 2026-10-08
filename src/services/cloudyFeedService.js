@@ -192,7 +192,7 @@ export async function applyAction(interaction, guild, action, input = {}) {
       const items = mediaCandidates(await readWebsiteItems(source));
       if (!items.length) throw new Error('No supported photos or videos found. Choose a public gallery, media page or supported feed.');
       const id = randomUUID().slice(0, 8);
-      const name = (get('name') || new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0]).slice(0, 64);
+      const name = (get('name') || (host => host.charAt(0).toUpperCase() + host.slice(1))(new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0])).slice(0, 64);
       feeds.push({ id, name, source, channelId: channel.id, channelName: channel.name, minutes, adult, active: true,
         nextAt: now + minutes * 60_000, recentUrls: [], lastError: null, lastCheck: now });
     } else {
