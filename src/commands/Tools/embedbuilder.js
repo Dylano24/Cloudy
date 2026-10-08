@@ -367,6 +367,7 @@ function resetBuilderAfterRecordDeletion(state) {
     state.sideColor = 0xFFFFFF;
     state.showLogo = true;
     state.removeExistingLogo = false;
+    state.logoTouched = false;
     state.bottomLine = DEFAULT_FOOTER_TEXT;
     state.mediaUrl = null;
     state.mediaBuffer = null;
@@ -1127,7 +1128,15 @@ async function refreshBuilder(interaction, state) {
 }
 
 async function refreshBuilderLogo(interaction, state) {
-    return queueBuilderRefresh(interaction, state, true, true);
+    // The footer already reliably edits this exact top preview. Logo clicks
+    // must use the same proven preview-only route before updating controls.
+    const previewUpdated = await refreshBuilderPreviewOnly(interaction, state);
+    if (!previewUpdated) return false;
+
+    return editBuilderDashboardMessage(state, {
+        embeds: [buildControlEmbed(state)],
+        components: buildControls(state),
+    });
 }
 
 async function refreshBuilderPreviewOnly(interaction, state) {
@@ -1658,6 +1667,7 @@ export default {
                 sideColor: 0xFFFFFF,
                 showLogo: true,
                 removeExistingLogo: false,
+                logoTouched: false,
                 bottomLine: DEFAULT_FOOTER_TEXT,
                 mediaUrl: null,
                 mediaBuffer: null,
@@ -1870,13 +1880,19 @@ export default {
                             await buttonInteraction.deferUpdate();
                             state.showLogo = true;
                             state.removeExistingLogo = false;
-                            await refreshBuilderLogo(interaction, state);
+                            state.logoTouched = true;
+                            if (!await refreshBuilderLogo(buttonInteraction, state)) {
+                                logger.warn('[EMBED_BUILDER] Add logo preview or dashboard update did not complete.');
+                            }
                             break;
                         case 'simple_embed_remove_logo':
                             await buttonInteraction.deferUpdate();
                             state.showLogo = false;
                             state.removeExistingLogo = true;
-                            await refreshBuilderLogo(interaction, state);
+                            state.logoTouched = true;
+                            if (!await refreshBuilderLogo(buttonInteraction, state)) {
+                                logger.warn('[EMBED_BUILDER] Remove logo preview or dashboard update did not complete.');
+                            }
                             break;
                         case 'simple_embed_footer':
                             await editBottomLine(buttonInteraction, state);
