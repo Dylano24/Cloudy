@@ -208,14 +208,14 @@ export function feedModal(session) {
     .setTitle(editing ? 'Edit feed' : 'Add feed');
   if (!editing) {
     return modal.addComponents(
-      input('name', 'Feed name', false, 'Erome', ''),
+      input('name', 'Feed name', false, 'Enter feed name', ''),
       input('source', 'Website URL', true, 'https://example.com', ''),
       input('duration', 'Auto message', true, '1m or 1h', ''),
       input('adult', '18+ content', false, 'yes / no', ''),
     );
   }
   return modal.addLabelComponents(
-    textLabel('name', 'Feed name', false, 'Erome', readableFeedName(session.feed)),
+    textLabel('name', 'Feed name', false, 'Enter feed name', readableFeedName(session.feed)),
     textLabel('source', 'Website URL', false, 'https://example.com', session.feed?.source),
     textLabel('duration', 'Auto message', false, '1m or 1h', formatAutoMessage(session.feed.minutes)),
     textLabel('adult', '18+ content', false, 'yes / no', session.feed.adult ? 'yes' : 'no'),
