@@ -1001,6 +1001,7 @@ test('embed manager navigation edits through the fresh component interaction', a
     },
   ]]);
   const guild = buildGuild({ guildId, channelId, messages });
+  guild.channels.cache.get(channelId).permissionsFor = () => ({ has: () => true });
   const collector = new FakeCollector();
   const managerMessage = {
     id: 'manager-message',
@@ -1011,6 +1012,7 @@ test('embed manager navigation edits through the fresh component interaction', a
     guild,
     client: guild.client,
     user: { id: 'owner-user' },
+    member: { id: 'owner-user' },
     deferUpdate: async () => {},
     followUp: async payload => {
       initialPayload = payload;
@@ -1034,6 +1036,7 @@ test('embed manager navigation edits through the fresh component interaction', a
   });
   collector.emit('collect', {
     user: { id: 'owner-user' },
+    member: { id: 'owner-user' },
     customId: 'simple_embed_modify_channel:0',
     values: [channelId],
     deferred: false,

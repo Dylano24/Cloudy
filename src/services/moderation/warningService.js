@@ -3,6 +3,18 @@
 import { db, getFromDb, setInDb, getWarningsKey, getWarningsPrefix } from '../../utils/database.js';
 import { logger } from '../../utils/logger.js';
 import { createError, ErrorTypes, wrapServiceClassMethods } from '../../utils/errorHandler.js';
+import { Mutex } from '../../utils/mutex.js';
+
+async function saveWarnings(key, warnings, guildId, userId, operation) {
+  if (await setInDb(key, warnings) === false) {
+    throw createError(
+      'Warning data could not be saved',
+      ErrorTypes.DATABASE,
+      'The warning change could not be saved. Please try again.',
+      { guildId, userId, service: 'warningService', operation }
+    );
+  }
+}
 
 class WarningService {
 
@@ -14,38 +26,42 @@ class WarningService {
     timestamp = Date.now()
   }) {
     const key = getWarningsKey(guildId, userId);
-    const warnings = await getFromDb(key, []);
+    return Mutex.runExclusive(key, async () => {
+      const warnings = await db.get(key, [], { strict: true });
 
-    if (!Array.isArray(warnings)) {
-      logger.warn(`Warnings for ${userId} in ${guildId} corrupted, resetting`);
-      await setInDb(key, []);
-      throw createError(
-        'Corrupted warning data',
-        ErrorTypes.DATABASE,
-        'Warning data was corrupted and has been reset. Please try again.',
-        { guildId, userId, service: 'warningService', operation: 'addWarning' }
-      );
-    }
+      if (!Array.isArray(warnings)) {
+        logger.warn(`Warnings for ${userId} in ${guildId} corrupted, resetting`);
+        await saveWarnings(key, [], guildId, userId, 'addWarning');
+        throw createError(
+          'Corrupted warning data',
+          ErrorTypes.DATABASE,
+          'Warning data was corrupted and has been reset. Please try again.',
+          { guildId, userId, service: 'warningService', operation: 'addWarning' }
+        );
+      }
 
-    const warning = {
-      id: Date.now(),
-      guildId,
-      userId,
-      moderatorId,
-      reason,
-      timestamp,
-      status: 'active'
-    };
+      const highestId = warnings.reduce((highest, item) =>
+        Number.isSafeInteger(item?.id) ? Math.max(highest, item.id) : highest, 0);
+      const warning = {
+        id: Math.max(Date.now(), highestId + 1),
+        guildId,
+        userId,
+        moderatorId,
+        reason,
+        timestamp,
+        status: 'active'
+      };
 
-    warnings.push(warning);
-    await setInDb(key, warnings);
+      warnings.push(warning);
+      await saveWarnings(key, warnings, guildId, userId, 'addWarning');
 
-    logger.info(`Warning added: ${userId} in ${guildId} by ${moderatorId}`);
+      logger.info(`Warning added: ${userId} in ${guildId} by ${moderatorId}`);
 
-    return {
-      id: warning.id,
-      totalCount: warnings.length
-    };
+      return {
+        id: warning.id,
+        totalCount: warnings.length
+      };
+    });
   }
 
   static async getWarnings(guildId, userId) {
@@ -64,34 +80,38 @@ class WarningService {
 
   static async removeWarning(guildId, userId, warningId) {
     const key = getWarningsKey(guildId, userId);
-    const warnings = await getFromDb(key, []);
+    return Mutex.runExclusive(key, async () => {
+      const warnings = await db.get(key, [], { strict: true });
 
-    const index = warnings.findIndex(w => w.id === warningId);
-    if (index === -1) {
-      throw createError(
-        'Warning not found',
-        ErrorTypes.USER_INPUT,
-        'That warning could not be found. It may have already been removed.',
-        { guildId, userId, warningId, service: 'warningService', operation: 'removeWarning' }
-      );
-    }
+      const index = warnings.findIndex(w => w.id === warningId);
+      if (index === -1) {
+        throw createError(
+          'Warning not found',
+          ErrorTypes.USER_INPUT,
+          'That warning could not be found. It may have already been removed.',
+          { guildId, userId, warningId, service: 'warningService', operation: 'removeWarning' }
+        );
+      }
 
-    warnings[index].status = 'deleted';
-    await setInDb(key, warnings);
+      warnings[index].status = 'deleted';
+      await saveWarnings(key, warnings, guildId, userId, 'removeWarning');
 
-    logger.info(`Warning removed: ${warningId} for ${userId} in ${guildId}`);
-    return { removed: true };
+      logger.info(`Warning removed: ${warningId} for ${userId} in ${guildId}`);
+      return { removed: true };
+    });
   }
 
   static async clearWarnings(guildId, userId) {
     const key = getWarningsKey(guildId, userId);
-    const warnings = await getFromDb(key, []);
-    const count = warnings.length;
+    return Mutex.runExclusive(key, async () => {
+      const warnings = await db.get(key, [], { strict: true });
+      const count = warnings.length;
 
-    await setInDb(key, []);
+      await saveWarnings(key, [], guildId, userId, 'clearWarnings');
 
-    logger.info(`Warnings cleared for ${userId} in ${guildId} (${count} removed)`);
-    return { count };
+      logger.info(`Warnings cleared for ${userId} in ${guildId} (${count} removed)`);
+      return { count };
+    });
   }
 
   static async getGuildWarnings(guildId, filters = {}) {

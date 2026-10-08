@@ -86,7 +86,6 @@ export default {
             }
 
             if (depositAmount > availableSpace) {
-                const originalDepositAmount = depositAmount;
                 depositAmount = availableSpace;
 
                 if (amountInput.toLowerCase() !== "all") {

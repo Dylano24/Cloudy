@@ -6,8 +6,6 @@ import { getColor, botConfig } from '../config/bot.js';
 import { applySystemEmbedTemplate } from '../services/systemEmbedCatalogService.js';
 import {
   CLOUDY_RED_COLOR,
-  CLOUDY_GREEN_COLOR,
-  CLOUDY_YELLOW_COLOR,
   CLOUDY_NEUTRAL_COLOR,
   canonicalizeKnownCloudySystemColor,
   setPreservedEmbedColor,
@@ -102,7 +100,6 @@ function isImportantFooter(footerText) {
 
 const originalSetDescription = EmbedBuilder.prototype.setDescription;
 const originalSetFooter = EmbedBuilder.prototype.setFooter;
-const originalSetTimestamp = EmbedBuilder.prototype.setTimestamp;
 
 EmbedBuilder.prototype.setDescription = function(description = '') {
   const descString = sanitizeEmbedText(description || '');

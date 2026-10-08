@@ -1,5 +1,5 @@
 import { EmbedBuilder, ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
-import { getTicketData, saveTicketData } from '../../../utils/database.js';
+import { mutateTicketFeedback } from '../../../services/ticketFeedbackService.js';
 import { logger } from '../../../utils/logger.js';
 import { getColor } from '../../../config/bot.js';
 import { logTicketFeedback } from '../../../utils/ticket/ticketLogging.js';
@@ -40,19 +40,30 @@ const feedbackHandler = {
             return;
         }
 
-        let ticketData;
+        const rating = parseInt(ratingStr, 10);
+        const ratingLabel = STAR_LABELS[String(rating)] ?? `${rating} stars`;
+        let result;
         try {
-            ticketData = await getTicketData(guildId, channelId);
-        } catch (err) {
-            logger.warn('ticketFeedback: failed to load ticket data', { guildId, channelId, error: err.message });
-        }
-
-        if (!ticketData) {
+            result = await mutateTicketFeedback({
+                guildId,
+                channelId,
+                userId: interaction.user.id,
+                changes: { rating, submittedAt: new Date().toISOString() },
+                onceFields: ['rating'],
+            });
+        } catch (error) {
+            logger.warn('ticketFeedback: mutation failed', { guildId, channelId, error: error.message, code: error.code });
+            const notFound = error.code === 'TICKET_FEEDBACK_NOT_FOUND';
+            const notOwner = error.code === 'TICKET_FEEDBACK_NOT_OWNER';
             await InteractionHelper.safeEditReply(interaction, {
                 embeds: [
                     new EmbedBuilder()
-                        .setTitle('⚠️ Ticket Not Found')
-                        .setDescription('Could not find the ticket associated with this survey.')
+                        .setTitle(notFound ? '⚠️ Ticket Not Found' : notOwner ? '❌ Not Allowed' : '⚠️ Feedback Not Saved')
+                        .setDescription(notFound
+                            ? 'Could not find the ticket associated with this survey.'
+                            : notOwner
+                                ? 'Only the ticket creator can submit feedback for this ticket.'
+                                : error.userMessage || 'Cloudy could not save your feedback. Please try again.')
                         .setColor(getColor('error')),
                 ],
                 components: [],
@@ -60,20 +71,8 @@ const feedbackHandler = {
             return;
         }
 
-        if (interaction.user.id !== ticketData.userId) {
-            await InteractionHelper.safeEditReply(interaction, {
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('❌ Not Allowed')
-                        .setDescription('Only the ticket creator can submit feedback for this ticket.')
-                        .setColor(getColor('error')),
-                ],
-                components: [],
-            });
-            return;
-        }
-
-        if (ticketData.feedback?.rating) {
+        const ticketData = result.ticketData;
+        if (result.status === 'already_submitted') {
             await InteractionHelper.safeEditReply(interaction, {
                 embeds: [
                     new EmbedBuilder()
@@ -84,19 +83,6 @@ const feedbackHandler = {
                 components: [],
             });
             return;
-        }
-
-        const rating = parseInt(ratingStr, 10);
-        const ratingLabel = STAR_LABELS[String(rating)] ?? `${rating} stars`;
-
-        try {
-            ticketData.feedback = {
-                rating,
-                submittedAt: new Date().toISOString(),
-            };
-            await saveTicketData(guildId, channelId, ticketData);
-        } catch (err) {
-            logger.error('ticketFeedback: failed to save feedback', { guildId, channelId, rating, error: err.message });
         }
 
         try {

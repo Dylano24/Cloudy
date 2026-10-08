@@ -2,8 +2,8 @@ import { createEmbed } from '../../utils/embeds.js';
 import { createButton, getPaginationRow } from '../../utils/components.js';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { Collection, ActionRowBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { fileURLToPath, pathToFileURL } from 'url';
+import { Collection, ActionRowBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { handleInteractionError } from '../../utils/errorHandler.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
@@ -170,7 +170,7 @@ async function createCategoryCommandsMenu(category, client, interaction = null) 
 
         for (const file of commandFiles) {
             const filePath = path.join(categoryPath, file);
-            const commandModule = await import(`file://${filePath}`);
+            const commandModule = await import(pathToFileURL(filePath).href);
             const command = commandModule.default;
             const commandData = normalizeCommandData(command);
 
@@ -289,7 +289,7 @@ export async function createAllCommandsMenu(page = 1, client, interaction = null
 
             for (const file of commandFiles) {
                 const filePath = path.join(categoryPath, file);
-                const commandModule = await import(`file://${filePath}`);
+                const commandModule = await import(pathToFileURL(filePath).href);
                 const command = commandModule.default;
                 const commandData = normalizeCommandData(command);
 

@@ -1,6 +1,6 @@
 import { readdir } from 'fs/promises';
 import { join } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import { logger } from '../../utils/logger.js';
 
@@ -30,7 +30,7 @@ export default async function loadEvents(client) {
     for (const file of eventFiles) {
         const filePath = join(eventsPath, file);
         try {
-            const { default: event } = await import(`file://${filePath}`);
+            const { default: event } = await import(pathToFileURL(filePath).href);
 
             if (!event?.name || typeof event.execute !== 'function') {
                 const message = `Event ${file} is missing required "name" or "execute" properties.`;

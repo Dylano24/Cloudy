@@ -89,6 +89,13 @@ export async function startDashboardSession({
 
     const stopAll = () => collectors.forEach((collector) => collector.stop());
 
+    for (const collector of collectors) {
+        collector.on('collect', () => {
+            // Selects and buttons belong to the same inactivity window.
+            for (const sibling of collectors) sibling.resetTimer({ idle: timeoutMs });
+        });
+    }
+
     if (collectors.length > 0) {
         collectors[0].on('end', async (_collected, reason) => {
             stopAll();

@@ -1,6 +1,13 @@
 name: Restore Drill
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/backup.js'
+      - 'scripts/restore.js'
+      - 'scripts/restore-drill.js'
+      - '.github/workflows/restore-drill.yml'
   schedule:
     - cron: '0 4 * * 1'
   workflow_dispatch:

@@ -40,7 +40,7 @@ function ensureCommand(command) {
   const result = spawnSync(command, ['--version'], {
     encoding: 'utf8',
     stdio: 'pipe',
-    shell: process.platform === 'win32'
+    shell: false
   });
 
   if (result.status !== 0) {
@@ -66,7 +66,7 @@ function runCommand(command, args) {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     stdio: 'pipe',
-    shell: process.platform === 'win32'
+    shell: false
   });
 
   if (result.status !== 0) {
@@ -96,7 +96,6 @@ async function run() {
   logger.warn('Starting database restore', {
     event: 'restore.start',
     inputPath,
-    targetUrl,
     dropSchema
   });
 
@@ -124,7 +123,6 @@ async function run() {
   logger.info('Database restore completed', {
     event: 'restore.completed',
     inputPath,
-    targetUrl
   });
 }
 

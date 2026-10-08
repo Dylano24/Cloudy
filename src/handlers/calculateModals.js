@@ -7,10 +7,9 @@ function evaluate(expression) {
     return evaluateMathExpression(expression);
 }
 
-async function calculateModalHandler(interaction, client, args) {
+async function calculateModalHandler(interaction, client) {
     try {
-        const operation = args[0];
-        const operandInput = interaction.fields.first();
+        const operandInput = interaction.fields.fields.first();
         const contextKey = operandInput?.customId?.split(':')[1];
         
         if (!contextKey) {
@@ -32,7 +31,7 @@ async function calculateModalHandler(interaction, client, args) {
             return await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please provide a valid number.' });
         }
 
-        const { expression, formattedResult, operator } = context;
+        const { expression, operator } = context;
         const newExpression = `(${expression}) ${operator} (${operand})`;
 
         let newResult;
@@ -87,11 +86,7 @@ async function calculateModalHandler(interaction, client, args) {
     } catch (error) {
         logger.error('Calculate modal handler error:', error);
         try {
-            if (!interaction.replied && !interaction.deferred) {
-                await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred processing your calculation.' });
-            } else {
-                await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred processing your calculation.' });
-            }
+            await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred processing your calculation.' });
         } catch (err) {
             logger.error('Failed to send error message:', err);
         }

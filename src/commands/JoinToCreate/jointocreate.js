@@ -215,7 +215,10 @@ async function handleSetupSubcommand(interaction, client) {
             const staleTriggerChannelIds = [];
 
             for (const existingChannelId of existingConfig.triggerChannels) {
-                const existingChannel = await interaction.guild.channels.fetch(existingChannelId).catch(() => null);
+                const existingChannel = await interaction.guild.channels.fetch(existingChannelId).catch(error => {
+                    if (Number(error?.code) === 10003) return null;
+                    throw error;
+                });
                 if (existingChannel) activeTriggerChannels.push(existingChannel);
                 else staleTriggerChannelIds.push(existingChannelId);
             }

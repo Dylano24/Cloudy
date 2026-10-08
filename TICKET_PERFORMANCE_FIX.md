@@ -1,99 +1,11 @@
-# 🚀 TICKET LOADING TIME FIX
+# Ticket reliability and performance evidence
 
-## Problem
-Tickets hebben lange laadtijden omdat `channel.messages.fetch()` **ALLE berichten** haalt, niet gepagineerd.
+Updated 8 October 2026. The previous document's 10× speedup and latency estimates were not backed by measurements and have been removed.
 
-### Affected Lines
-- **Line 349** (`closeTicket`): `const messages = await channel.messages.fetch();`
-- **Line 442** (`claimTicket`): `const messages = await channel.messages.fetch();`
-- **Line 568** (`reopenTicket`): `const messages = await channel.messages.fetch();`
-- **Line 1001** (unknown): Same issue
+Ticket discovery uses stored message IDs and bounded recent/pinned-message lookups where available. Transcript generation intentionally reads the full history to preserve complete transcripts; it can consume substantial memory for large tickets.
 
-### Why This Kills Performance
-```
-Ticket met 500 berichten:
-- fetch() = wacht op Discord API = 500+ items laden
-- Parsing = 500+ embeds verwerken
-- Total = 2-5 seconden lag ❌
+The current audit fixes overlapping delete actions so one ticket deletion is scheduled once, and legacy feedback uses the shared serialized mutation path. A failed feedback write no longer reports that a rating was saved. Ticket layouts, logs, manually saved content and the 10-second deletion delay remain unchanged.
 
-Ticket met 10 berichten (limit):
-- fetch({ limit: 10 }) = 10 items laden
-- Parsing = 10 embeds verwerken
-- Total = 100-200ms ✅
-```
+Behavioral regressions are in `test/ticketDeleteConcurrency.test.js` and `test/commercialLegacyFeedback.test.js`. Existing ticket latency, lifecycle, status, transcript and template tests are retained in the full suite. These tests do not establish live Discord response times or a numeric speedup.
 
-## Solution
-**Pagination + limit beweren**: Fetch alleen de **laatste X berichten** waar je naar zoekt.
-
-### Code Changes
-
-#### FIX 1: `closeTicket()` — Line 349
-```javascript
-// BEFORE (langzaam):
-const messages = await channel.messages.fetch();
-const ticketMessage = messages.find(m => 
-  m.embeds.length > 0 && 
-  m.embeds[0].title?.startsWith('Ticket #')
-);
-
-// AFTER (snel):
-const messages = await channel.messages.fetch({ limit: 50 });  // Zoek in laatste 50
-const ticketMessage = messages.find(m => 
-  m.embeds.length > 0 && 
-  m.embeds[0].title?.startsWith('Ticket #')
-);
-```
-
-#### FIX 2: `claimTicket()` — Line 442
-```javascript
-// BEFORE:
-const messages = await channel.messages.fetch();
-
-// AFTER:
-const messages = await channel.messages.fetch({ limit: 50 });
-```
-
-#### FIX 3: `reopenTicket()` — Line 568
-```javascript
-// BEFORE:
-const messages = await channel.messages.fetch();
-
-// AFTER:
-const messages = await channel.messages.fetch({ limit: 50 });
-```
-
-#### FIX 4: Unknown Line 1001
-```javascript
-// Find and apply same pattern
-const messages = await channel.messages.fetch({ limit: 50 });
-```
-
-## Expected Impact
-- **Ticket open**: 2-5s → 200-500ms (10x faster) ✅
-- **Ticket close**: 2-5s → 200-500ms (10x faster) ✅
-- **Ticket claim**: 1-3s → 100-300ms (10x faster) ✅
-- **Ticket reopen**: 1-3s → 100-300ms (10x faster) ✅
-
-## Why Limit 50?
-- Ticket messages zijn ALTIJD recent (newest = latest status)
-- Ticket embed staat altijd bovenaan (eerste paar berichten)
-- 50 berichten = voldoende buffer voor edge cases
-- Discord API = sub-100ms response voor 50 items
-
-## Additional Optimization
-Add caching voor `ticketMessage`:
-```javascript
-// Store in ticketData so we don't refetch every time
-ticketData.ticketMessageId = ticketMessage.id;  // Already done!
-await saveTicketData(channel.guild.id, channel.id, ticketData);
-
-// Next time: fetch by ID instead of searching
-const ticketMessage = await channel.messages.fetch(ticketData.ticketMessageId).catch(() => null);
-```
-
----
-
-**Severity**: HIGH — Affects every ticket operation  
-**Impact**: 10x speed improvement on tickets  
-**Status**: Ready to implement
-
+See [the repository audit](CODE_QUALITY_AUDIT.md) for complete verification and remaining operational limits.

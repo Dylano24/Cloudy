@@ -503,8 +503,8 @@ export function validateConfig(config) {
   // safely use client.user.id, preventing Railway from crashing when a
   // separate CLIENT_ID variable was not configured.
 
-  // PostgreSQL is optional. initializeDatabase() automatically falls back to
-  // in-memory storage when no database connection is configured.
+  // initializeDatabase() requires PostgreSQL in production. Local development
+  // can use the explicitly reported in-memory fallback.
 
   return errors;
 }

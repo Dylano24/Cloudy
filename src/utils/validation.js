@@ -22,7 +22,7 @@ export function validateString(value, fieldName = 'string', maxLength = 2000) {
 }
 
 export function validateNumber(value, fieldName = 'number') {
-  if (typeof value !== 'number' || isNaN(value)) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     logger.warn(`[VALIDATION] ${fieldName} must be a valid number, got ${value}`);
     return null;
   }
@@ -41,7 +41,7 @@ export function validateDiscordId(value, fieldName = 'ID') {
     return null;
   }
 
-  if (!/^\d{18,20}$/.test(value)) {
+  if (!/^\d{17,20}$/.test(value)) {
     logger.warn(`[VALIDATION] Invalid ${fieldName} format`);
     return null;
   }

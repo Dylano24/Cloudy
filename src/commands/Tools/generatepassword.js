@@ -1,7 +1,7 @@
-import { webcrypto as crypto } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import { getColor } from '../../config/bot.js';
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import { createEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
+import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -57,37 +57,23 @@ export default {
         const numbers = '0123456789';
         const symbols = '!@#$%^&*()_+-=[]{}|;:,.<>?';
 
-        let chars = lowercase;
-        if (includeUppercase) chars += uppercase;
-        if (includeNumbers) chars += numbers;
-        if (includeSymbols) chars += symbols;
+        const characterGroups = [lowercase];
+        if (includeUppercase) characterGroups.push(uppercase);
+        if (includeNumbers) characterGroups.push(numbers);
+        if (includeSymbols) characterGroups.push(symbols);
+        const chars = characterGroups.join('');
 
-        let password = '';
-        const randomValues = new Uint32Array(length);
-        crypto.getRandomValues(randomValues);
-
-        for (let i = 0; i < length; i++) {
-            const randomIndex = randomValues[i] % chars.length;
-            password += chars[randomIndex];
+        // Reserve one character per requested group so later choices cannot
+        // overwrite a required category. Every choice uses secure randomness.
+        const passwordCharacters = characterGroups.map(group => group[randomInt(group.length)]);
+        while (passwordCharacters.length < length) {
+            passwordCharacters.push(chars[randomInt(chars.length)]);
         }
-
-        if (includeUppercase && !/[A-Z]/.test(password)) {
-            const randomIndex = Math.floor(Math.random() * length);
-            const randomUpper = uppercase[Math.floor(Math.random() * uppercase.length)];
-            password = password.substring(0, randomIndex) + randomUpper + password.substring(randomIndex + 1);
+        for (let i = passwordCharacters.length - 1; i > 0; i--) {
+            const randomIndex = randomInt(i + 1);
+            [passwordCharacters[i], passwordCharacters[randomIndex]] = [passwordCharacters[randomIndex], passwordCharacters[i]];
         }
-
-        if (includeNumbers && !/[0-9]/.test(password)) {
-            const randomIndex = Math.floor(Math.random() * length);
-            const randomNumber = numbers[Math.floor(Math.random() * numbers.length)];
-            password = password.substring(0, randomIndex) + randomNumber + password.substring(randomIndex + 1);
-        }
-
-        if (includeSymbols && !/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) {
-            const randomIndex = Math.floor(Math.random() * length);
-            const randomSymbol = symbols[Math.floor(Math.random() * symbols.length)];
-            password = password.substring(0, randomIndex) + randomSymbol + password.substring(randomIndex + 1);
-        }
+        const password = passwordCharacters.join('');
 
         let strength = 'Weak';
         let strengthEmoji = '🔴';

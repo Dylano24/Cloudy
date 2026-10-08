@@ -1,7 +1,5 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import { createEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
-import { logger } from '../../utils/logger.js';
-import { getColor } from '../../config/bot.js';
+import { successEmbed } from '../../utils/embeds.js';
 import { setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -27,7 +25,7 @@ export default {
                     hexColor = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
                 } else {
                     hexColor = hexColor.replace('#', '');
-                    if (!/^[0-9A-Fa-f]{3,6}$/.test(hexColor)) {
+                    if (!/^(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(hexColor)) {
                         return await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please provide a valid hex code.\n\n**Valid formats:**\n• `#FF5733` (with hash)\n• `FF5733` (without hash)\n• `F57` (3-digit shorthand)\n\n**Invalid:** `#GG5733` (G is not a hex digit)' });
                     }
 

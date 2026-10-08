@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { createEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
+import { successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -164,11 +164,7 @@ export default {
 
         let decimalValue;
         try {
-            if (fromBase === 'B64') {
-                decimalValue = parseBigIntFromBase(cleanNumber, fromBase);
-            } else {
-                decimalValue = parseBigIntFromBase(cleanNumber, fromBase);
-            }
+            decimalValue = parseBigIntFromBase(cleanNumber, fromBase);
         } catch (error) {
             logger.error('Base conversion parse error:', error);
             return replyUserError(interaction, {

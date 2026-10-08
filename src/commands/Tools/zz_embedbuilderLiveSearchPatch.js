@@ -6,6 +6,7 @@ import {
     StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import embedBuilderCommand from './embedbuilder.js';
+import { filterEmbedBuilderRecords } from '../../utils/embedBuilderAccess.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
     getEmbedRegistry,
@@ -773,7 +774,8 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
 
         const registryRecords = await getEmbedRegistry(interaction.guildId);
         await warmSavedEmbedTemplateScopes(interaction.guildId, registryRecords.map(record => record.channelId));
-        const records = mergeSearchRecords(interaction.guildId, registryRecords);
+        const records = filterEmbedBuilderRecords(interaction.guild, interaction.member,
+            mergeSearchRecords(interaction.guildId, registryRecords), { requireSend: true });
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
         const choices = buildSearchChoices(matches);
         await interaction.respond(choices).catch(() => {});
@@ -787,7 +789,8 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
 
         if (selected && interaction.guildId) {
             const registryRecords = await getEmbedRegistry(interaction.guildId);
-            const records = mergeSearchRecords(interaction.guildId, registryRecords);
+            const records = filterEmbedBuilderRecords(interaction.guild, interaction.member,
+                mergeSearchRecords(interaction.guildId, registryRecords), { requireSend: true });
             const displayRecords = builderSearchDisplayRecords(records);
             const record = displayRecords.find(item =>
                 String(item.channelId) === selected.channelId

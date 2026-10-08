@@ -130,6 +130,12 @@ export default {
 
         if (!saved) {
             logger.warn(`Failed to save giveaway to database: ${giveawayMessage.id}`);
+            await giveawayMessage.delete().catch(() => {});
+            throw new TitanBotError(
+                'Giveaway persistence failed',
+                ErrorTypes.DATABASE,
+                'The giveaway could not be saved. Please try again.',
+            );
         }
 
         try {
