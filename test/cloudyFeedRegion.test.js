@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import { mediaCandidates } from '../src/services/cloudyFeedService.js';
 import { buildCloudyFeedDashboard, feedDetail } from '../src/services/cloudyFeedDashboardService.js';
 
-test('USA only accepts explicitly verified US photos or videos', () => {
+test('feed accepts supported photos and videos regardless of origin country', () => {
   const items = [
     { url: 'https://example.org/us', image: 'https://example.org/us.jpg', country: 'US' },
     { url: 'https://example.org/foreign', video: 'https://example.org/c.mp4', country: 'CA' },
     { url: 'https://example.org/unknown', video: 'https://example.org/d.mp4', country: null },
     { url: 'https://example.org/us-article', country: 'US' },
   ];
-  assert.deepEqual(mediaCandidates(items).map(item => item.url), ['https://example.org/us']);
+  assert.deepEqual(mediaCandidates(items).map(item => item.url), [
+    'https://example.org/us', 'https://example.org/foreign', 'https://example.org/unknown',
+  ]);
 });
 
 test('USA filtering is not shown in main dashboard or selected feed detail', () => {
