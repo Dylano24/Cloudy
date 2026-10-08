@@ -1,3 +1,4 @@
+import { openAutoFeedManager } from '../../services/autoFeedManager.js';
 import {
     ActivityType,
     MessageFlags,
@@ -121,9 +122,20 @@ export default {
                             { name: 'Invisible', value: 'invisible' }
                         )
                 )
+        )
+        .addSubcommandGroup((group) =>
+            group.setName('feed')
+                .setDescription('Manage randomized website posts')
+                .addSubcommand((subcommand) =>
+                    subcommand.setName('manager')
+                        .setDescription('Open the Owner only Auto feed manager')
+                )
         ),
 
     async execute(interaction) {
+        if (interaction.options.getSubcommandGroup(false) === 'feed') {
+            return openAutoFeedManager(interaction);
+        }
         if (!canManageBot(interaction)) {
             await interaction.reply({
                 content: 'You do not have permission to change the bot profile.',
