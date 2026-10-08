@@ -20,6 +20,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { registerBuilderPreviewMessage,
     unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
+import { registerBuilderPreviewReplyToken } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError,
     replyUserError,
@@ -1779,6 +1780,9 @@ export default {
                 && interaction.channel?.send
                 && !interaction.replied
                 && !interaction.deferred) {
+                // The global REST footer policy must not secretly add a C
+                // thumbnail that the preview and buttons say is absent.
+                registerBuilderPreviewReplyToken(interaction.token);
                 const previewResponsePromise = interaction.reply({
                     embeds: [buildPreviewEmbed(state)],
                     components: getBuilderPreviewComponents(state),
@@ -1800,6 +1804,7 @@ export default {
                     previewMessage = await interaction.fetchReply().catch(() => null);
                 }
             } else {
+                registerBuilderPreviewReplyToken(interaction.token);
                 const initialShown = await InteractionHelper.safeReply(interaction, {
                     embeds: [buildPreviewEmbed(state)],
                     components: getBuilderPreviewComponents(state),
