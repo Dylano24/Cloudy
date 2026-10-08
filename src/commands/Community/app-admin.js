@@ -505,8 +505,10 @@ async function handleList(interaction) {
                 try {
                     await interaction.guild.members.fetch(app.userId);
                     return app; 
-                } catch {
-                    
+                } catch (error) {
+                    // A failed lookup only confirms departure for Unknown Member.
+                    if (Number(error?.code) !== 10007) return app;
+
                     await deleteApplication(interaction.client, interaction.guild.id, app.id, app.userId);
                     return null; 
                 }

@@ -2,8 +2,6 @@ import { ChannelType, Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
-const BOT_COMMANDS_CHANNEL_ID = '1539371836570083368';
-
 export default {
   name: Events.ClientReady,
   once: true,

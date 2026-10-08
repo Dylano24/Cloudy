@@ -39,8 +39,14 @@ export default {
         return;
       }
 
-      const isAiRequest = String(message.channel?.name || '').toLowerCase() === 'botlog-commands' && /^!ai\s/.test(message.content || '');
-      logger.debug(`Message received from ${message.author.tag}: ${isAiRequest ? '[AI request omitted]' : message.content}`);
+      logger.debug('Message received', {
+        event: 'message.received',
+        messageId: message.id,
+        guildId: message.guild.id,
+        channelId: message.channel?.id,
+        userId: message.author.id,
+        traceId: message.traceId || message.traceContext?.traceId,
+      });
 
       const identityBlocked = await enforceProtectedIdentityMessage(message);
       if (identityBlocked) {
@@ -93,7 +99,7 @@ async function handlePrefixCommand(message, client) {
       args = [musicPrefixShortcut, ...args];
     }
 
-    logger.info(`Prefix command detected: ${commandName}, args: ${args.join(', ')}`);
+    logger.info(`Prefix command detected: ${commandName}`);
 
     const resolvedCommandName = resolveCommandAlias(commandName);
     logger.info(`Resolved command name: ${resolvedCommandName}`);

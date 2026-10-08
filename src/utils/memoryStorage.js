@@ -1,14 +1,12 @@
 // memoryStorage.js
 
-import { logger } from './logger.js';
-
 class MemoryStorage {
     constructor() {
         this.data = new Map();
         this.expirationTimes = new Map();
     }
 
-    async get(key, defaultValue = null) {
+    #readValue(key, defaultValue = null) {
         const value = this.data.get(key);
         
         if (this.expirationTimes.has(key)) {
@@ -21,6 +19,10 @@ class MemoryStorage {
         }
         
         return value !== undefined ? value : defaultValue;
+    }
+
+    async get(key, defaultValue = null) {
+        return this.#readValue(key, defaultValue);
     }
 
     async set(key, value, ttl = null) {
@@ -77,14 +79,16 @@ class MemoryStorage {
     }
 
     async increment(key, amount = 1) {
-        const current = await this.get(key, 0);
+        // Read and update without yielding, so concurrent operations cannot
+        // read the same counter value and overwrite one another.
+        const current = this.#readValue(key, 0);
         const newValue = current + amount;
         await this.set(key, newValue);
         return newValue;
     }
 
     async decrement(key, amount = 1) {
-        const current = await this.get(key, 0);
+        const current = this.#readValue(key, 0);
         const newValue = current - amount;
         await this.set(key, newValue);
         return newValue;

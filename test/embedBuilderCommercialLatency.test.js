@@ -87,10 +87,13 @@ test('Modify and manager pagination use the one-request fast path on real Discor
   for (const id of ['simple_embed_modify_channel_page:', 'simple_embed_modify_embed_page:']) {
     const start = collectorBody.indexOf(id);
     assert.ok(start >= 0, `missing ${id}`);
-    const end = collectorBody.indexOf('return;', start);
+    const end = collectorBody.indexOf('\n                }', start);
     const block = collectorBody.slice(start, end);
     assert.match(block, /updateEmbedManager\(interaction/);
-    assert.doesNotMatch(block, /deferUpdate\(\)/);
+    // Denied navigation acknowledges privately; authorized navigation still
+    // goes straight to its existing one-request update without a defer.
+    const authorizedBlock = block.slice(block.lastIndexOf('await updateEmbedManager('));
+    assert.doesNotMatch(authorizedBlock, /deferUpdate\(\)/);
   }
 });
 

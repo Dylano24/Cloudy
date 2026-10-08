@@ -48,9 +48,6 @@ const warningClearAllHandler = {
         return await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: 'Only the moderator who viewed these warnings can clear them.' });
       }
 
-      const targetUser = await client.users.fetch(targetUserId).catch(() => null);
-      const targetName = targetUser ? targetUser.username : 'this user';
-
       const clearModal = new ModalBuilder()
         .setCustomId(`warning_clear_confirm_modal:${targetUserId}:${interaction.user.id}`)
         .setTitle('Clear All Warnings')
@@ -150,11 +147,7 @@ async function warningClearConfirmModalHandler(interaction, client) {
     });
   } catch (error) {
     logger.error('Warning clear confirm modal handler error:', error);
-    if (!interaction.replied && !interaction.deferred) {
-      await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Failed to clear warnings.' });
-    } else {
-      await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Failed to clear warnings.' });
-    }
+    await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Failed to clear warnings.' });
   }
 }
 

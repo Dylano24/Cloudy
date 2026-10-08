@@ -97,6 +97,17 @@ export class ResponseCoordinator {
   }
 
   async respond(payload) {
+    const previousResponse = this._pendingResponse || Promise.resolve();
+    const response = previousResponse.catch(() => {}).then(() => this.sendResponse(payload));
+    this._pendingResponse = response;
+    try {
+      return await response;
+    } finally {
+      if (this._pendingResponse === response) this._pendingResponse = null;
+    }
+  }
+
+  async sendResponse(payload) {
     if (this.isUsageFinalized()) {
       return this.getReplyMessage();
     }
@@ -106,11 +117,10 @@ export class ResponseCoordinator {
       return this.edit(payload);
     }
 
-    this.interaction.replied = true;
-
     if (this.message?.channel) {
       const sentMessage = await this.message.channel.send(payload);
       this.setReplyMessage(sentMessage);
+      this.interaction.replied = true;
       return sentMessage;
     }
 

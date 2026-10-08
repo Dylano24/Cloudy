@@ -14,8 +14,8 @@ Before starting large features, open an issue or discuss in the [support server]
 
 ### Prerequisites
 
-- **Node.js 20+** (Docker and CI use Node 20)
-- **PostgreSQL** (recommended for development; the bot can fall back to in-memory storage if PostgreSQL is unavailable)
+- **Node.js 24.x** (Docker and CI also use Node 24)
+- **PostgreSQL** (required in production; local non-production development can use memory fallback, which loses data on restart)
 - A **Discord bot application** with the intents listed in [README.md](README.md#required-bot-intents)
 
 ### Local Setup
@@ -23,7 +23,7 @@ Before starting large features, open an issue or discuss in the [support server]
 1. Fork and clone the repository.
 2. Install dependencies:
    ```bash
-   npm install
+   npm ci
    ```
 3. Copy the environment file and configure it:
    ```bash
@@ -32,6 +32,7 @@ Before starting large features, open an issue or discuss in the [support server]
    At minimum, set `DISCORD_TOKEN`, `CLIENT_ID`, and `GUILD_ID` for single-server development. See [README.md](README.md#manual-installation-steps) for full configuration options.
 4. Verify your database setup (when using PostgreSQL):
    ```bash
+   npm run migrate
    npm run migrate:check
    ```
 5. Start the bot:
@@ -55,7 +56,7 @@ Use descriptive branch names, for example:
 
 ## Database & Migrations
 
-TitanBot uses PostgreSQL as its primary store. If PostgreSQL is unreachable at startup, the bot can operate in a **degraded in-memory mode** — but that mode is not suitable for production and should not be the only way you test persistence-related changes.
+Cloudy uses PostgreSQL as its primary store. Production startup fails when PostgreSQL is unavailable. Outside production, a degraded in-memory mode supports local development; test persistence changes with PostgreSQL as well.
 
 Useful commands:
 
@@ -77,7 +78,7 @@ Test features that read or write guild data with **both** PostgreSQL and the mem
 - **Keep changes minimal** — prefer extending existing utilities and services over duplicating logic.
 - **Document user-facing behavior** — update README.md when setup steps or configuration change; mention new env vars in `.env.example`.
 
-There is no ESLint config in this repo today; consistency with surrounding code is the main bar.
+ESLint is configured in `eslint.config.js`. Run `npm run check` before opening a pull request; it runs lint and the complete Node test suite. For cached lint, use `npm run check:fast`. Follow the preservation and deployment rules in `AGENTS.md`.
 
 ## Pull Request Checklist
 

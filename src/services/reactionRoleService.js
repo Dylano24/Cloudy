@@ -491,7 +491,17 @@ export async function reconcileReactionRoleMessages(client, guildId = null) {
                 continue;
             }
 
-            const guild = client.guilds.cache.get(targetGuildId) || await client.guilds.fetch(targetGuildId).catch(() => null);
+            let guild;
+            try {
+                guild = client.guilds.cache.get(targetGuildId) || await client.guilds.fetch(targetGuildId).catch(error => {
+                    if (error?.code === 10004) return null;
+                    throw error;
+                });
+            } catch (error) {
+                summary.errors += 1;
+                logger.warn(`Failed to verify guild ${targetGuildId} during reaction role reconciliation:`, error);
+                continue;
+            }
             if (!guild) {
                 for (const reactionRoleMessage of reactionRoleMessages) {
                     summary.scannedMessages += 1;
@@ -508,7 +518,10 @@ export async function reconcileReactionRoleMessages(client, guildId = null) {
 
                 try {
                     const channel = guild.channels.cache.get(reactionRoleMessage.channelId)
-                        || await guild.channels.fetch(reactionRoleMessage.channelId).catch(() => null);
+                        || await guild.channels.fetch(reactionRoleMessage.channelId).catch(error => {
+                            if (error?.code === 10003) return null;
+                            throw error;
+                        });
 
                     if (!channel || !channel.isTextBased?.()) {
                         await client.db.delete(getReactionRoleKey(targetGuildId, reactionRoleMessage.messageId));
@@ -517,7 +530,10 @@ export async function reconcileReactionRoleMessages(client, guildId = null) {
                         continue;
                     }
 
-                    const message = await channel.messages.fetch(reactionRoleMessage.messageId).catch(() => null);
+                    const message = await channel.messages.fetch(reactionRoleMessage.messageId).catch(error => {
+                        if (error?.code === 10008) return null;
+                        throw error;
+                    });
                     if (!message) {
                         await client.db.delete(getReactionRoleKey(targetGuildId, reactionRoleMessage.messageId));
                         invalidateReactionRoleListCache(targetGuildId);

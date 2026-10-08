@@ -11,6 +11,16 @@ import {
 import { logEvent, EVENT_TYPES } from '../../services/loggingService.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
+async function persistEndedGiveaway(client, guildId, giveaway) {
+    if (!await saveGiveaway(client, guildId, giveaway)) {
+        throw new TitanBotError(
+            'Giveaway persistence failed',
+            ErrorTypes.DATABASE,
+            'The giveaway could not be saved. Please try again.',
+        );
+    }
+}
+
 export default {
     data: new SlashCommandBuilder()
         .setName("gend")
@@ -111,7 +121,7 @@ export default {
             );
         }
 
-        await saveGiveaway(
+        await persistEndedGiveaway(
             interaction.client,
             interaction.guildId,
             updatedGiveaway,
@@ -134,7 +144,7 @@ export default {
                 content: `🎉 CONGRATULATIONS ${winnerMentions}! You won the **${updatedGiveaway.prize}** giveaway! Please contact the host <@${updatedGiveaway.hostId}> to claim your prize.`,
             });
             updatedGiveaway.winnerPingMessageId = winnerPingMsg.id;
-            await saveGiveaway(interaction.client, interaction.guildId, updatedGiveaway);
+            await persistEndedGiveaway(interaction.client, interaction.guildId, updatedGiveaway);
 
             logger.info(`Giveaway ended with ${winners.length} winner(s): ${messageId}`);
 

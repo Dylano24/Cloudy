@@ -1,6 +1,6 @@
 // economy.js
 
-import { getColor, getEconomyKey as getEconomyStorageKey } from './database.js';
+import { getEconomyKey as getEconomyStorageKey } from './database.js';
 import { BotConfig } from '../config/bot.js';
 import { normalizeEconomyData } from './schemas.js';
 import { logger } from './logger.js';
@@ -11,7 +11,6 @@ import { createError, ErrorTypes, wrapServiceBoundary } from './errorHandler.js'
 const ECONOMY_CONFIG = BotConfig.economy || {};
 const BASE_BANK_CAPACITY = ECONOMY_CONFIG.baseBankCapacity || 10000;
 const BANK_CAPACITY_PER_LEVEL = ECONOMY_CONFIG.bankCapacityPerLevel || 5000;
-const DAILY_AMOUNT = ECONOMY_CONFIG.dailyAmount || 100;
 const WORK_MIN = ECONOMY_CONFIG.workMin || 10;
 const WORK_MAX = ECONOMY_CONFIG.workMax || 100;
 const COOLDOWNS = ECONOMY_CONFIG.cooldowns || {

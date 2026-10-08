@@ -52,6 +52,7 @@ import {
     } from '../../services/embedRegistryService.js';
 import { touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
+import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord } from '../../utils/embedBuilderAccess.js';
 import { getFromDb,
     setInDb } from '../../utils/database.js';
 import {
@@ -133,8 +134,9 @@ function buildChannelOption(guild, channel) {
         .setValue(channel.id);
 }
 
-function buildChannelPicker(guild, page = 0) {
-    const channels = getEveryGuildChannel(guild);
+function buildChannelPicker(guild, page = 0, member = null) {
+    const channels = getEveryGuildChannel(guild)
+        .filter(channel => canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true }));
     const pageCount = Math.max(1, Math.ceil(channels.length / CHANNEL_PAGE_SIZE));
     const safePage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
     const pageStart = safePage * CHANNEL_PAGE_SIZE;
@@ -675,7 +677,8 @@ export function buildPostedEmbeds(state) {
     });
 }
 
-async function postBuiltMessage(channel, state, guild) {
+async function postBuiltMessage(channel, state, guild, member) {
+    if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false };
     const permissions = channel.permissionsFor(guild.members.me);
     const requiredPermissions = [
         PermissionFlagsBits.ViewChannel,
@@ -768,7 +771,7 @@ function buildControls(state) {
         .setLabel('Edit title & message')
         .setEmoji('✍🏼');
     if (state.contentEditorUrl) {
-        titleButton.setURL(state.contentEditorUrl).setStyle(ButtonStyle.Link);
+        titleButton.setCustomId('simple_embed_open_content').setStyle(ButtonStyle.Secondary);
     } else {
         titleButton
             .setCustomId('simple_embed_content')
@@ -815,7 +818,7 @@ function buildControls(state) {
                 .setLabel('Set side color')
                 .setEmoji('🎨');
             if (state.colorPickerUrl) {
-                return button.setURL(state.colorPickerUrl).setStyle(ButtonStyle.Link);
+                return button.setCustomId('simple_embed_open_color').setStyle(ButtonStyle.Secondary);
             }
             return button
                 .setCustomId('simple_embed_color_unavailable')
@@ -1479,6 +1482,29 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
     });
 }
 
+async function openPrivateBuilderEditor(buttonInteraction, state, mode) {
+    if (buttonInteraction.user?.id !== state.builderUserId) return;
+    const url = mode === 'content' ? state.contentEditorUrl : state.colorPickerUrl;
+    if (!url) {
+        await buttonInteraction.deferUpdate().catch(() => {});
+        return;
+    }
+    const response = await buttonInteraction.reply({
+        components: [new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel(mode === 'content' ? 'Edit title & message' : 'Set side color')
+                .setEmoji(mode === 'content' ? '✍🏼' : '🎨')
+                .setStyle(ButtonStyle.Link)
+                .setURL(url),
+        )],
+        flags: MessageFlags.Ephemeral,
+        withResponse: true,
+    });
+    const message = response?.resource?.message
+        || (response?.id ? response : await buttonInteraction.fetchReply());
+    if (message?.id) state.builderChildMessages.set(message.id, message);
+}
+
 async function postMessage(buttonInteraction, state, guild) {
     if (state.modifyTarget) {
         await buttonInteraction.deferUpdate().catch(() => {});
@@ -1502,7 +1528,7 @@ async function postMessage(buttonInteraction, state, guild) {
     // channel metadata is maintenance work and must not block this click.
     void refreshAllTicketChannels(guild, true).catch(() => {});
 
-    const initialPicker = buildChannelPicker(guild, 0);
+    const initialPicker = buildChannelPicker(guild, 0, buttonInteraction.member);
     const channelPickerMessage = await buttonInteraction.followUp({
         embeds: initialPicker.embeds,
         components: initialPicker.components,
@@ -1530,7 +1556,7 @@ async function postMessage(buttonInteraction, state, guild) {
     collector.on('collect', async channelInteraction => {
         if (channelInteraction.customId.startsWith('simple_embed_channel_page:')) {
             const page = Number(channelInteraction.customId.split(':')[1]) || 0;
-            const picker = buildChannelPicker(guild, page);
+            const picker = buildChannelPicker(guild, page, channelInteraction.member);
             await channelInteraction.update({
                 embeds: picker.embeds,
                 components: picker.components,
@@ -1552,7 +1578,14 @@ async function postMessage(buttonInteraction, state, guild) {
             return;
         }
 
-        const posted = await postBuiltMessage(channel, state, guild).catch(() => ({ ok: false }));
+        if (!canUseEmbedBuilderChannel(guild, channelInteraction.member, channel, { requireSend: true })) {
+            await replyUserError(channelInteraction, {
+                type: ErrorTypes.PERMISSION,
+                message: 'You need permission to view and send messages in the selected channel.',
+            });
+            return;
+        }
+        const posted = await postBuiltMessage(channel, state, guild, channelInteraction.member).catch(() => ({ ok: false }));
         if (!posted.ok) {
             await replyUserError(channelInteraction, {
                 type: ErrorTypes.PERMISSION,
@@ -1603,6 +1636,7 @@ export default {
 
             const state = {
                 builderBotManaged,
+                builderUserId: interaction.user.id,
                 title: null,
                 message: null,
                 embedFields: [],
@@ -1631,6 +1665,15 @@ export default {
             const pendingSearch = globalThis.__cloudyEmbedBuilderSearchSelections?.get?.(pendingSearchKey) || null;
             if (!interaction.__cloudyInitialBuilderSelection && pendingSearch) {
                 interaction.__cloudyInitialBuilderSelection = pendingSearch;
+            }
+            const initialSelection = interaction.__cloudyInitialBuilderSelection;
+            if (initialSelection && !canAccessEmbedBuilderRecord(interaction.guild, interaction.member, {
+                ...initialSelection.record,
+                previewRecord: initialSelection.previewRecord || initialSelection.record?.previewRecord,
+                sourceRecord: initialSelection.sourceRecord || initialSelection.record?.sourceRecord,
+            }, { requireSend: true })) {
+                delete interaction.__cloudyInitialBuilderSelection;
+                globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
             if (applyInitialSearchSelectionToState(interaction, state)) {
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
@@ -1788,11 +1831,25 @@ export default {
 
             collector.on('collect', async buttonInteraction => {
                 try {
+                    if (state.modifyTarget && buttonInteraction.customId === 'simple_embed_post'
+                        && !canAccessEmbedBuilderRecord(interaction.guild, buttonInteraction.member, state.modifyTarget, { requireSend: true })) {
+                        await replyUserError(buttonInteraction, {
+                            type: ErrorTypes.PERMISSION,
+                            message: 'You need permission to view and send messages in the selected channel.',
+                        });
+                        return;
+                    }
                     if (state.saveInFlight && buttonInteraction.customId !== 'simple_embed_post') {
                         await buttonInteraction.deferUpdate();
                         return;
                     }
                     switch (buttonInteraction.customId) {
+                        case 'simple_embed_open_content':
+                            await openPrivateBuilderEditor(buttonInteraction, state, 'content');
+                            break;
+                        case 'simple_embed_open_color':
+                            await openPrivateBuilderEditor(buttonInteraction, state, 'color');
+                            break;
                         case 'simple_embed_content':
                             await editContent(buttonInteraction, state);
                             break;

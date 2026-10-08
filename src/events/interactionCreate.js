@@ -1,4 +1,4 @@
-import { Events, MessageFlags } from 'discord.js';
+import { Events } from 'discord.js';
 import { performance } from 'node:perf_hooks';
 import { recordSlowInteractionCompletion } from '../utils/interactionLatency.js';
 import { logger } from '../utils/logger.js';

@@ -55,13 +55,9 @@ export default {
 
         if (welcomeConfig?.goodbyeEnabled && goodbyeChannelId) {
             const channel = guild.channels.cache.get(goodbyeChannelId);
-            if (channel?.isTextBased?.()) {
-                const me = guild.members.me;
-                const permissions = me ? channel.permissionsFor(me) : null;
-                if (!permissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
-                    return;
-                }
-
+            const me = guild.members.me;
+            const permissions = me && channel?.isTextBased?.() ? channel.permissionsFor(me) : null;
+            if (permissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
                 const formatData = { user, guild, member };
                 const goodbyeMessage = formatWelcomeMessage(
                     welcomeConfig.leaveMessage || welcomeConfig.leaveEmbed?.description || botConfig.welcome?.defaultGoodbyeMessage || '{user} has left the server.',

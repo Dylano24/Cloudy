@@ -22,7 +22,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ✅ FIX: Add this step
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -49,7 +48,16 @@ jobs:
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify non-root runtime permissions
+        if: github.event_name == 'pull_request'
+        env:
+          SMOKE_IMAGE: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        run: >-
+          docker run --rm --entrypoint node "$SMOKE_IMAGE" -e
+          "const fs = require('node:fs'); if (process.getuid() === 0) throw new Error('Runtime must be non-root'); fs.accessSync('logs', fs.constants.W_OK); fs.accessSync('src/config/bot.js', fs.constants.W_OK);"

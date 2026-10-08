@@ -26,17 +26,25 @@ export default {
             ? next5.map(birthday => ({
                 birthday,
                 member: fetchedMembers.get(birthday.userId) || null,
+                confirmedMissing: !fetchedMembers.has(birthday.userId),
             }))
             : await Promise.all(
-                next5.map(async birthday => ({
-                    birthday,
-                    member: await interaction.guild.members.fetch(birthday.userId).catch(() => null),
-                })),
+                next5.map(async birthday => {
+                    try {
+                        const member = await interaction.guild.members.fetch(birthday.userId);
+                        return { birthday, member, confirmedMissing: false };
+                    } catch (error) {
+                        // Network and permission errors do not prove that a member left.
+                        return { birthday, member: null, confirmedMissing: Number(error?.code) === 10007 };
+                    }
+                }),
             );
 
-        const currentBirthdays = birthdaysWithMembers.filter(({ birthday, member }) => {
+        const currentBirthdays = birthdaysWithMembers.filter(({ birthday, member, confirmedMissing }) => {
             if (member) return true;
-            deleteBirthday(client, interaction.guildId, birthday.userId).catch(() => null);
+            if (confirmedMissing) {
+                deleteBirthday(client, interaction.guildId, birthday.userId).catch(() => null);
+            }
             return false;
         });
 

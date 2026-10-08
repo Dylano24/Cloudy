@@ -1,6 +1,6 @@
-# TitanBot - Ultimate Discord Bot
+# Cloudy Discord Bot
 
-**TitanBot** is a powerful, feature-rich Discord bot designed to enhance your server experience with comprehensive moderation tools, engaging economy systems, utility features, and much more. Built with modern Discord.js v14 and PostgreSQL for optimal performance and data persistence.
+**Cloudy** is based on TitanBot by codebymitch and provides moderation, tickets, economy, music and community tools. It uses Node.js 24, Discord.js v14 and PostgreSQL. See [the current audit](CODE_QUALITY_AUDIT.md) for verified changes and operational limitations.
 
 [![Support Server](https://img.shields.io/badge/-Support%20Server-%235865F2?logo=discord&logoColor=white&style=flat-square&logoWidth=20)](https://discord.gg/8kJBYhTGW9)
 [![Discord.js](https://img.shields.io/npm/v/discord.js?style=flat-square&labelColor=%23202225&color=%23202225&logo=npm&logoColor=white&logoWidth=20)](https://www.npmjs.com/package/discord.js)
@@ -85,7 +85,7 @@ TitanBot offers a complete suite of tools for Discord server management and comm
 ### Music
 - **24/7 Mode** - Play music 24/7
 - **Interative Button System** - Manage music through buttons
-- **Supports EVERY platform** - Supports spotify, deezer, youtube, apple music
+- **Music sources** - Availability depends on the configured Lavalink nodes and their source plugins
   
 </td>
 </tr>
@@ -104,15 +104,15 @@ TitanBot is fully containerized for easy deployment.
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/codebymitch/TitanBot.git
-   cd TitanBot
+   git clone https://github.com/Dylano24/Cloudy.git
+   cd Cloudy
    ```
 
 2. **Configure environment variables:**
    ```bash
    cp .env.example .env
    ```
-   Set at minimum `DISCORD_TOKEN`, `CLIENT_ID`, and `GUILD_ID`. Docker Compose also reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` from `.env` (defaults: `titanbot` / `password` / `titanbot`).
+   Set `DISCORD_TOKEN`, `CLIENT_ID`, and `GUILD_ID`. Docker Compose also reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` from `.env`. Set your own PostgreSQL password before starting; the compose defaults are intended for local setup.
 
 3. **Build and start the containers:**
    ```bash
@@ -148,26 +148,26 @@ Music uses [Lavalink v4](https://github.com/lavalink-devs/Lavalink) via [Riffy](
 The bot is automatically published to GitHub Container Registry on every push to main.
 
 ```bash
-docker pull ghcr.io/codebymitch/titanbot:main
+docker pull ghcr.io/dylano24/cloudy:main
 ```
 
 <a name="manual-installation-steps"></a>
 ## Manual Installation Steps
 
 ### Prerequisites
-- Node.js 20.10.0 or higher
-- PostgreSQL server (recommended) or memory storage fallback
+- Node.js 24.x (the version used by Docker and CI)
+- PostgreSQL server; production startup requires persistent PostgreSQL. The memory fallback is available only outside production and loses data on restart.
 - Discord bot application with proper intents
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/codebymitch/TitanBot.git
-   cd TitanBot
+   git clone https://github.com/Dylano24/Cloudy.git
+   cd Cloudy
    ```
 
 2. **Install Dependencies**
    ```bash
-   npm install
+   npm ci
    ```
 
 3. **Configure Environment Variables**
@@ -212,17 +212,14 @@ docker pull ghcr.io/codebymitch/titanbot:main
    This gives clear startup/online status messages while keeping logs simple for non-technical operators.
    If port `3000` is busy, the bot tries the next available ports automatically (up to `PORT_RETRY_ATTEMPTS`).
 
-### Multiple servers
+### Deployment scope
 
-Slash commands are registered **globally** on startup (via `CLIENT_ID`), so the bot works in every server it is invited to. `GUILD_ID` stays in the tutorial `.env` for setup steps but is not used for command registration.
+The current start script synchronizes slash commands to the configured `GUILD_ID` before starting the bot. This deployment is configured for one server. Guild-scoped storage exists, but generic multi-server commercial hosting has not been validated.
 
 Notes:
-- Global slash commands may take up to about an hour to propagate on first deploy
-- Each server has **isolated** data: config, economy, tickets, leveling, dashboards, warnings, etc. (all keys are scoped as `guild:{guildId}:...`)
-- In the [Discord Developer Portal](https://discord.com/developers/applications), ensure your bot is not restricted to a single guild if you plan to invite it elsewhere
 - Generate an OAuth2 invite URL from the [Discord Developer Portal](https://discord.com/developers/applications) (OAuth2 → URL Generator, scopes: `bot` and `applications.commands`)
 
-4. **Setup PostgreSQL Database** (Optional but recommended)
+4. **Setup PostgreSQL Database** (required in production)
    ```bash
    # Create database and user
    createdb titanbot
@@ -233,6 +230,7 @@ Notes:
 
 5. **Verify Database Setup**
    ```bash
+   npm run migrate
    npm run migrate:check
    ```
 
@@ -241,11 +239,13 @@ Notes:
    npm start
    ```
 
-> **Note on database migrations:** Schema tables and legacy key migrations run
-> **automatically on startup**, so` managed hosts like **Railway** need no manual
-> migration step — just deploy/restart. To disable auto-migration set
-> `AUTO_MIGRATE=false`. You can still run a manual key migration locally with
-> `node scripts/migrate-keys.js --dry-run` (preview) or `node scripts/migrate-keys.js`.
+   On Windows PowerShell, run the two start steps separately because `exec` in the npm start script is a Unix shell builtin:
+   ```powershell
+   node scripts/register-cloudy-guild-commands.js
+   if ($LASTEXITCODE -eq 0) { node src/bootstrap.js }
+   ```
+
+> Startup supports automatic initial schema/key migration when enabled. Before releasing schema changes, run `npm run migrate` and `npm run migrate:check` against the intended database. A schema-version mismatch stops startup. `AUTO_MIGRATE=false` disables automatic migration; `npm run migrate:keys:dry` previews legacy key changes.
 <a name="bot-intents"></a>
 
 ## Required Bot Intents
@@ -257,8 +257,8 @@ TitanBot requires the following Discord intents:
 - **Guild Message Reactions**
 - **Guild Voice States**
 - **Direct Messages**
-- **Bot**
-- **Applications.commands**
+
+The invite uses the OAuth2 scopes `bot` and `applications.commands`; these are separate from gateway intents.
 
 ### Required Permissions
 - **View Channels**
@@ -270,7 +270,6 @@ TitanBot requires the following Discord intents:
 - **Manage Channels**
 - **Manage Roles**
 - **Kick Members**
-- **Manage Messages**
 - **Ban Members**
 - **Moderate Members**
 - **Connect**
@@ -287,4 +286,4 @@ TitanBot is released under the MIT License. See [LICENSE](LICENSE) for details.
 
 Thank you for choosing TitanBot for your Discord server! We're constantly working to improve and add new features based on community feedback.
 
-*Last updated: May 2026*
+*Last updated: 8 October 2026*

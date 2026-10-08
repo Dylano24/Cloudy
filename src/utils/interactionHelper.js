@@ -8,7 +8,6 @@ import { ResponseCoordinator } from './responseCoordinator.js';
 import { observeInteractionLatency } from './interactionLatency.js';
 
 const INTERACTION_TIMEOUT_MS = 15 * 60 * 1000;
-const DEFAULT_DEFER_OPTIONS = { flags: MessageFlags.Ephemeral };
 const INTERACTION_UNAVAILABLE_CODES = new Set([10062, 40060, 50027]);
 const INTERNAL_TEMPLATE_AUTHOR_PREFIX = 'cloudy template key:';
 

@@ -3,7 +3,8 @@
 import { logEvent as logAuditEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { formatLogLine } from './logging/logEmbeds.js';
 import { logger } from './logger.js';
-import { getFromDb, setInDb } from './database.js';
+import { db, getFromDb, setInDb } from './database.js';
+import { Mutex } from './mutex.js';
 
 const ACTION_TO_EVENT_TYPE = {
   'Member Banned': EVENT_TYPES.MODERATION_BAN,
@@ -123,37 +124,39 @@ export async function logEvent({ client, guild, guildId, event }) {
 export async function generateCaseId(client, guildId) {
   try {
     const caseKey = `moderation_cases_${guildId}`;
-    const currentCase = await getFromDb(caseKey, 0);
-    const nextCase = currentCase + 1;
-    await setInDb(caseKey, nextCase);
-    return nextCase;
+    return await Mutex.runExclusive(`moderation-case-id:${guildId}`, async () => {
+      const currentCase = await db.get(caseKey, 0, { strict: true });
+      const nextCase = currentCase + 1;
+      if (!await setInDb(caseKey, nextCase)) throw new Error('Failed to persist moderation case counter');
+      return nextCase;
+    });
   } catch (error) {
     logger.error("Error generating case ID:", error);
-return Date.now();
+    return Date.now();
   }
 }
 
 export async function storeModerationCase({ guildId, caseId, caseData }) {
   try {
-    const caseKey = `moderation_case_${guildId}_${caseId}`;
-    const caseDataWithTimestamp = {
-      ...caseData,
-      createdAt: new Date().toISOString(),
-      caseId
-    };
-    
-    await setInDb(caseKey, caseDataWithTimestamp);
-    
-    const caseListKey = `moderation_cases_list_${guildId}`;
-    const caseList = await getFromDb(caseListKey, []);
-    caseList.push(caseDataWithTimestamp);
-    
-    if (caseList.length > 1000) {
-      caseList.splice(0, caseList.length - 1000);
-    }
-    
-    await setInDb(caseListKey, caseList);
-    return true;
+    return await Mutex.runExclusive(`moderation-case-list:${guildId}`, async () => {
+      const caseKey = `moderation_case_${guildId}_${caseId}`;
+      const caseDataWithTimestamp = {
+        ...caseData,
+        createdAt: new Date().toISOString(),
+        caseId
+      };
+      const caseListKey = `moderation_cases_list_${guildId}`;
+      const caseList = await db.get(caseListKey, [], { strict: true });
+      caseList.push(caseDataWithTimestamp);
+
+      if (caseList.length > 1000) {
+        caseList.splice(0, caseList.length - 1000);
+      }
+
+      if (!await setInDb(caseKey, caseDataWithTimestamp)) throw new Error('Failed to persist moderation case');
+      if (!await setInDb(caseListKey, caseList)) throw new Error('Failed to persist moderation case history');
+      return true;
+    });
   } catch (error) {
     logger.error("Error storing moderation case:", error);
     return false;
@@ -163,8 +166,6 @@ export async function storeModerationCase({ guildId, caseId, caseData }) {
 export async function getModerationCases(guildId, filters = {}) {
   try {
     const { userId, moderatorId, action, limit = 50, offset = 0 } = filters;
-    
-    const allCases = [];
     
     const caseListKey = `moderation_cases_list_${guildId}`;
     const caseList = await getFromDb(caseListKey, []);

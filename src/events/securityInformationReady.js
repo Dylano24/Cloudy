@@ -8,7 +8,6 @@ import {
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-const SECURITY_CHANNEL_ID = '1533197569495142551';
 const CONTACT_CHANNEL_ID = '1533197784725852181';
 
 function buildSecurityEmbed() {

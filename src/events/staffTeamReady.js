@@ -9,7 +9,6 @@ import { FAQ_AI_CHANNEL_ID } from '../services/faqAiService.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-const STAFF_CHANNEL_ID = '1533198028733939722';
 const CONTACT_SUPPORT_CHANNEL_ID = '1533197784725852181';
 
 function buildStaffEmbed(guild) {
