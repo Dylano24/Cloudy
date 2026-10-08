@@ -80,7 +80,7 @@ function tag(block, tagName) {
 }
 
 function attribute(markup, name) {
-  const match = markup.match(new RegExp('\\b' + name + '\\s*=\s*([\x22\x27])([\\s\\S]*?)\\1', 'i'));
+  const match = markup.match(new RegExp('\\b' + name + '\\s*=\\s*([\x22\x27])([\\s\\S]*?)\\1', 'i'));
   return match ? decodeHtmlEntities(match[2]) : '';
 }
 
