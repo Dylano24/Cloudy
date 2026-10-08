@@ -599,3 +599,54 @@ test('System-catalog Search reads thumbnail from its physical live preview peer'
   assert.equal(state.showLogo, true);
   assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail.url, CLOUDY_LOGO_URL);
 });
+
+test('saved template without logo takes precedence over an older Discord peer with a logo', async () => {
+  const { db } = await import('../src/utils/database.js');
+  const { saveEmbedTemplateDecoration } = await import('../src/services/embedTemplateService.js');
+  const kv = new Map();
+  db.initialized = true;
+  db.useFallback = false;
+  db.db = {
+    get: async key => kv.get(key) ?? null,
+    set: async (key, value) => { kv.set(key, structuredClone(value)); return true; },
+  };
+
+  const guildId = 'saved-no-logo-priority-regression-20261008';
+  const channelId = 'saved-no-logo-priority-channel';
+  const title = 'Saved no logo must win';
+  assert.equal(await saveEmbedTemplateDecoration(
+    guildId, channelId, [title], { title, description: 'Keep this body' },
+    { sharedScope: true, applyThumbnail: true },
+  ), true);
+
+  let fetched = 0;
+  const guild = {
+    id: guildId,
+    channels: { cache: new Map([['older-peer-channel', {
+      messages: { fetch: async () => {
+        fetched++;
+        return { embeds: [{ toJSON: () => ({
+          title, thumbnail: { url: CLOUDY_LOGO_URL },
+        }) }] };
+      } },
+    }]]) },
+  };
+  const record = {
+    guildId, channelId, source: 'system-catalog',
+    messageId: 'catalog-message', embedIndex: 0,
+    snapshot: { title, description: 'Keep this body' },
+  };
+  const peer = {
+    ...record, source: 'reconciled',
+    channelId: 'older-peer-channel', messageId: 'old-live-peer',
+    snapshot: { title, thumbnail: { url: CLOUDY_LOGO_URL } },
+  };
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, guild, record, peer), true);
+  assert.equal(state.modifyTarget.savedLogoPreference, true);
+  assert.equal(state.showLogo, false, 'saved explicit no-logo preference beats the old peer');
+  assert.equal(await syncBuilderLogoFromLiveMessage(guild, state), false);
+  assert.equal(fetched, 0, 'a known explicit preference requires no live-peer round trip');
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
+  assertLogoButtons(state, { canAdd: true, canRemove: false });
+});
