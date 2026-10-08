@@ -45,7 +45,8 @@ import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { applyInitialSearchSelectionToState,
     openEmbedManager,
     prepareEmbedManager,
-    saveModifiedEmbed } from '../../services/embedManagerService.js';
+    saveModifiedEmbed,
+    syncBuilderLogoFromLiveMessage } from '../../services/embedManagerService.js';
 import {
     purgeEmbedRegistryRecord,
     registerCloudyEmbedMessage,
@@ -1701,7 +1702,8 @@ export default {
                 delete interaction.__cloudyInitialBuilderSelection;
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
-            if (applyInitialSearchSelectionToState(interaction, state)) {
+            const initialSavedRecordLoaded = applyInitialSearchSelectionToState(interaction, state);
+            if (initialSavedRecordLoaded) {
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
 
@@ -1854,6 +1856,17 @@ export default {
             state.finishBuilder = reason => {
                 if (!collector.ended) collector.stop(reason || 'completed');
             };
+
+            // Search paints instantly from the saved snapshot; reconcile only
+            // its logo with the selected live Discord message in the background.
+            if (initialSavedRecordLoaded) {
+                void syncBuilderLogoFromLiveMessage(interaction.guild, state)
+                    .then(changed => changed && !collector.ended
+                        ? refreshBuilder(interaction, state) : null)
+                    .catch(error => logger.warn(
+                        `[EMBED_BUILDER] Live logo read failed: ${error?.message || error}`,
+                    ));
+            }
 
             collector.on('collect', async buttonInteraction => {
                 try {
