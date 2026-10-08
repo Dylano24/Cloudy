@@ -52,6 +52,8 @@ function withTraceContext(context = {}, traceContext = {}) {
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
+    // Cloudy feed interactions are handled by their own Owner-only event listener.
+    if (interaction.customId?.startsWith('cloudyfeed:')) return;
     const interactionTraceContext = createInteractionTraceContext(interaction);
     interaction.traceContext = interactionTraceContext;
     interaction.traceId = interactionTraceContext.traceId;
