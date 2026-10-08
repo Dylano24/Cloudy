@@ -39,22 +39,14 @@ function ticketError(message, userMessage, code = 'TICKET_RELIABILITY_ERROR') {
 }
 
 
-function cloneTicketData(ticketData) {
-  return ticketData ? structuredClone(ticketData) : null;
-}
-
-function mutationKey(channel) {
-  return `${channel.guild.id}:${channel.id}`;
-}
-
-function canReuseMutationContext(channel) {
-  return !mutationQueues.has(mutationKey(channel));
-}
-
-async function ticketDataForMutation(channel, providedTicketData = null) {
-  const provided = cloneTicketData(providedTicketData);
-  if (provided) return provided;
-  return getTicketData(channel.guild.id, channel.id);
+async function ticketDataForMutation(channel) {
+  // Permission checks can finish after another action drains the queue. Read
+  // the current state inside the queue instead of trusting that earlier snapshot.
+  const ticketData = await getTicketData(channel.guild.id, channel.id);
+  if (ticketData?.status === 'deleted' || ticketData?.deletionScheduledAt) {
+    throw ticketError('Ticket deletion already started', 'This ticket is already scheduled for deletion.', 'TICKET_DELETE_ALREADY_SCHEDULED');
+  }
+  return ticketData;
 }
 
 function ticketNumberOf(ticketData) {
@@ -424,11 +416,9 @@ function mutate(channel, operation) {
   return enqueue(mutationQueues, `${channel.guild.id}:${channel.id}`, operation);
 }
 
-export async function claimTicket(channel, claimer, providedTicketData = null) {
-  const reusable = canReuseMutationContext(channel) ? providedTicketData : null;
-
+export async function claimTicket(channel, claimer) {
   return mutate(channel, async () => {
-    const ticketData = await ticketDataForMutation(channel, reusable);
+    const ticketData = await ticketDataForMutation(channel);
     if (!ticketData) {
       throw ticketError('Ticket data not found', 'This is not a valid ticket channel.', 'TICKET_NOT_FOUND');
     }
@@ -444,11 +434,13 @@ export async function claimTicket(channel, claimer, providedTicketData = null) {
     }
 
     const alreadyClaimedByActor = String(ticketData.claimedBy || '') === String(claimer.id);
-    if (!alreadyClaimedByActor) {
-      ticketData.claimedBy = claimer.id;
-      ticketData.claimedAt = new Date().toISOString();
-      await saveTicketData(channel.guild.id, channel.id, ticketData);
+    if (alreadyClaimedByActor) {
+      void syncCloudyTicketMessage(channel).catch(() => {});
+      return ticketData;
     }
+    ticketData.claimedBy = claimer.id;
+    ticketData.claimedAt = new Date().toISOString();
+    await saveTicketData(channel.guild.id, channel.id, ticketData);
 
     const claimerId = String(claimer?.id || claimer?.user?.id || '').trim();
     await sendTicketStatus(channel, {
@@ -460,33 +452,29 @@ export async function claimTicket(channel, claimer, providedTicketData = null) {
 
     // The visible acknowledgement is already delivered. Keep the heavier main
     // ticket render after it so a history/pin fetch can never delay feedback.
-    await syncCloudyTicketMessage(channel);
+    void syncCloudyTicketMessage(channel).catch(() => {});
 
-    if (!alreadyClaimedByActor) {
-      logTicketMutation(channel, {
-        type: 'claim',
-        ticketId: channel.id,
-        ticketNumber: ticketNumberOf(ticketData),
-        userId: ticketData.userId,
-        executorId: claimer.id,
-        metadata: { claimedAt: ticketData.claimedAt },
-      });
-    }
+    logTicketMutation(channel, {
+      type: 'claim',
+      ticketId: channel.id,
+      ticketNumber: ticketNumberOf(ticketData),
+      userId: ticketData.userId,
+      executorId: claimer.id,
+      metadata: { claimedAt: ticketData.claimedAt },
+    });
 
     return ticketData;
   });
 }
 
-export async function unclaimTicket(channel, unclaimer, providedTicketData = null) {
-  const reusable = canReuseMutationContext(channel) ? providedTicketData : null;
-
+export async function unclaimTicket(channel, unclaimer) {
   return mutate(channel, async () => {
-    const ticketData = await ticketDataForMutation(channel, reusable);
+    const ticketData = await ticketDataForMutation(channel);
     if (!ticketData) {
       throw ticketError('Ticket data not found', 'This is not a valid ticket channel.', 'TICKET_NOT_FOUND');
     }
     if (!ticketData.claimedBy) {
-      await syncCloudyTicketMessage(channel);
+      void syncCloudyTicketMessage(channel).catch(() => {});
       return ticketData;
     }
 
@@ -503,7 +491,7 @@ export async function unclaimTicket(channel, unclaimer, providedTicketData = nul
       userId: unclaimerId || null,
     });
 
-    await syncCloudyTicketMessage(channel);
+    void syncCloudyTicketMessage(channel).catch(() => {});
 
     logTicketMutation(channel, {
       type: 'unclaim',
@@ -518,16 +506,15 @@ export async function unclaimTicket(channel, unclaimer, providedTicketData = nul
   });
 }
 
-export async function updateTicketPriority(channel, priority, updater, providedTicketData = null) {
+export async function updateTicketPriority(channel, priority, updater) {
   const requestedPriority = String(priority || '').toLowerCase();
   const normalizedPriority = requestedPriority === 'urgent' ? 'high' : requestedPriority;
   if (!PRIORITY_MAP[normalizedPriority]) {
     throw ticketError('Invalid ticket priority', 'Invalid priority selected.');
   }
 
-  const reusable = canReuseMutationContext(channel) ? providedTicketData : null;
   return mutate(channel, async () => {
-    const ticketData = await ticketDataForMutation(channel, reusable);
+    const ticketData = await ticketDataForMutation(channel);
     if (!ticketData) {
       throw ticketError(
         'Ticket data not found',
@@ -537,6 +524,11 @@ export async function updateTicketPriority(channel, priority, updater, providedT
     }
 
     const previousPriority = normalizePriority(ticketData.priority);
+    if (previousPriority === normalizedPriority) {
+      void setTicketPinnedBase(channel, Boolean(ticketData.pinned)).catch(() => {});
+      void syncCloudyTicketMessage(channel).catch(() => {});
+      return ticketData;
+    }
     ticketData.priority = normalizedPriority;
     ticketData.priorityUpdatedBy = updater.id;
     ticketData.priorityUpdatedAt = new Date().toISOString();
@@ -562,7 +554,7 @@ export async function updateTicketPriority(channel, priority, updater, providedT
 }
 
 async function applyPinnedState(channel, pinned, providedTicketData = null) {
-  const ticketData = await ticketDataForMutation(channel, providedTicketData);
+  const ticketData = providedTicketData || await ticketDataForMutation(channel);
   if (!ticketData) {
     throw ticketError(
       'Ticket data not found while updating pin state',
@@ -588,11 +580,9 @@ export async function setTicketPinned(channel, pinned) {
   return mutate(channel, () => applyPinnedState(channel, pinned));
 }
 
-export async function toggleTicketPinned(channel, providedTicketData = null) {
-  const reusable = canReuseMutationContext(channel) ? providedTicketData : null;
-
+export async function toggleTicketPinned(channel) {
   return mutate(channel, async () => {
-    const ticketData = await ticketDataForMutation(channel, reusable);
+    const ticketData = await ticketDataForMutation(channel);
     if (!ticketData) {
       throw ticketError(
         'Ticket data not found while toggling pin state',
@@ -611,10 +601,9 @@ export async function toggleTicketPinned(channel, providedTicketData = null) {
 
 export async function closeTicket(channel, closer, reason, options = {}) {
   reason = requireTicketCloseReason(reason);
-  const reusable = canReuseMutationContext(channel) ? options.ticketData : null;
 
   return mutate(channel, async () => {
-    const ticketData = await ticketDataForMutation(channel, reusable);
+    const ticketData = await ticketDataForMutation(channel);
     if (!ticketData) {
       throw ticketError('Ticket data not found', 'This is not a valid ticket channel.', 'TICKET_NOT_FOUND');
     }
@@ -623,7 +612,7 @@ export async function closeTicket(channel, closer, reason, options = {}) {
       // The durable close may have succeeded before Discord permission cleanup
       // failed. Retrying must finish that cleanup even though status is closed.
       await hideClosedTicket(channel);
-      await syncCloudyTicketMessage(channel);
+      void syncCloudyTicketMessage(channel).catch(() => {});
       if (typeof options.onVisible === 'function') await options.onVisible().catch(() => {});
       scheduleTicketReconcile(channel, [1000, 5000, 20000]);
       return ticketData;
@@ -672,9 +661,7 @@ export async function closeTicket(channel, closer, reason, options = {}) {
       await options.onVisible().catch(() => {});
     }
 
-    await Promise.allSettled([
-      syncCloudyTicketMessage(channel),
-    ]);
+    void syncCloudyTicketMessage(channel).catch(() => {});
 
     logTicketMutation(channel, {
       type: 'close',
@@ -692,10 +679,8 @@ export async function closeTicket(channel, closer, reason, options = {}) {
 }
 
 export async function reopenTicket(channel, reopener, options = {}) {
-  const reusable = canReuseMutationContext(channel) ? options.ticketData : null;
-
   return mutate(channel, async () => {
-    const ticketData = await ticketDataForMutation(channel, reusable);
+    const ticketData = await ticketDataForMutation(channel);
     if (!ticketData) {
       throw ticketError('Ticket data not found', 'This is not a valid ticket channel.', 'TICKET_NOT_FOUND');
     }
@@ -776,7 +761,7 @@ export async function reopenTicket(channel, reopener, options = {}) {
     });
 
     // These independent presentation synchronizations can finish afterward.
-    await Promise.allSettled([
+    void Promise.allSettled([
       syncCloudyTicketMessage(channel),
       syncCloudyTicketChannelName(channel),
     ]);
@@ -786,12 +771,10 @@ export async function reopenTicket(channel, reopener, options = {}) {
   });
 }
 
-export async function deleteTicket(channel, deleter, providedTicketData = null) {
-  const reusable = canReuseMutationContext(channel) ? providedTicketData : null;
-
+export async function deleteTicket(channel, deleter) {
   return mutate(channel, async () => {
     clearTicketReconcileTimers(channel);
-    return deleteTicketSafely(channel, deleter, reusable);
+    return deleteTicketSafely(channel, deleter);
   });
 }
 
