@@ -501,7 +501,10 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData, o
   if (!(template.schemaVersion >= 3) && Array.isArray(decoration.fields) && !decoration.fields.length) delete decoration.fields;
   const aliases = [options.responseIdentity || balanceResponseIdentity(embedData), metadataAlias(embedData), ...aliasKeys(embedData.title)].filter(Boolean);
   const result = decorateEmbedData(embedData, Object.fromEntries(aliases.map(alias => [alias, decoration])), { strictTitle: true, preserveRuntimeBody: genericStatus });
-  return { ...result, updatedAt: template.updatedAt, canonicalIdentity: template.canonicalIdentity };
+  return { ...result, updatedAt: template.updatedAt, canonicalIdentity: template.canonicalIdentity,
+    // Read-only metadata for the Builder: a previously saved Add/Remove logo
+    // must override stale live peers, while untouched dynamic logos remain live.
+    thumbnailOverrideApplied: template.applyThumbnail === true };
 }
 
 export async function applySavedEmbedTemplates(message, { initialCreation = false } = {}) {
