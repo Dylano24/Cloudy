@@ -235,7 +235,9 @@ export async function applyAction(interaction, guild, action, input = {}) {
       const source = validateSourceUrl(get('source')).href;
       const minutes = parseMinutes(get('minutes'));
       const adult = parseAdult(get('adult'));
-      const mediaType = parseMediaType(get('mediaType'));
+      // The /auto feed modal supplies and requires this choice; older internal
+      // callers without this field retain their existing behavior.
+      const mediaType = Object.hasOwn(input, 'mediaType') ? parseMediaType(get('mediaType')) : undefined;
       const channel = await validateChannel(guild, get('channel'), adult);
       const items = await readWebsiteItems(source);
       const problem = mediaSourceProblem(items, source, mediaType);
@@ -259,7 +261,8 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const source = newUrl ? validateSourceUrl(newUrl).href : feed.source;
         const minutes = get('minutes') ? parseMinutes(get('minutes')) : feed.minutes;
         const adult = parseAdult(get('adult'), feed.adult);
-        const mediaType = parseMediaType(get('mediaType') || feed.mediaType);
+        const mediaType = Object.hasOwn(input, 'mediaType')
+          ? parseMediaType(get('mediaType')) : feed.mediaType;
         const channel = await validateChannel(guild, get('channel') || feed.channelId, adult);
         const sourceChanged = source !== feed.source;
         const typeChanged = mediaType !== feed.mediaType;
