@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { REST } from '@discordjs/rest';
 import { normalizeCloudyMessage } from '../src/services/cloudyBrandingService.js';
-import { withCloudyFooter, installCloudyFooterOutput, CLOUDY_STANDARD_FOOTER, registerBuilderPreviewReplyToken, withManualBuilderSaveLogoChoice } from '../src/utils/cloudyFooter.js';
+import { withCloudyFooter, installCloudyFooterOutput, CLOUDY_STANDARD_FOOTER, registerBuilderPreviewReplyToken, withManualBuilderSaveLogoChoice, withManualBuilderPostLogoChoice } from '../src/utils/cloudyFooter.js';
 import { registerBuilderPreviewMessage, unregisterBuilderPreviewMessage } from '../src/utils/builderSessionCleanup.js';
 
 test('message-create normalization does not reintroduce branding beside recipient tags', async () => {
@@ -104,6 +104,36 @@ test('Discord REST message and interaction paths keep bare tags without automati
       body: { type: 4, data: { embeds: [{ footer: { text: CLOUDY_STANDARD_FOOTER } }] } },
     });
     assert.equal(captured.at(-1).body.data.embeds[0].thumbnail, undefined, 'new Builder preview respects logo choice');
+
+    await withManualBuilderPostLogoChoice(() => rest.request({
+      fullRoute: '/channels/123456789012345678/messages',
+      method: 'POST',
+      body: { embeds: [{ title: 'A newly posted no-logo Builder embed' }] },
+    }));
+    assert.equal(captured.at(-1).body.embeds[0].thumbnail, undefined, 'new manually posted embed must honor Remove logo');
+    assert.equal(captured.at(-1).body.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER, 'the native gray embed still gets its footer');
+
+    await rest.request({
+      fullRoute: '/channels/123456789012345678/messages',
+      method: 'POST',
+      body: { embeds: [{ title: 'A regular new bot embed' }] },
+    });
+    assert.match(captured.at(-1).body.embeds[0].thumbnail.url, /cloudy-c-logo/, 'new default embeds are still branded');
+
+    await rest.request({
+      fullRoute: '/channels/123456789012345678/messages',
+      method: 'POST',
+      body: { content: 'Only a text message', components: [{ type: 1, components: [] }] },
+    });
+    assert.equal(captured.at(-1).body.content, 'Only a text message');
+    assert.equal(captured.at(-1).body.embeds, undefined, 'plain text and buttons cannot acquire a footer embed');
+
+    await rest.request({
+      fullRoute: '/channels/123456789012345678/messages',
+      method: 'POST',
+      body: { embeds: [{ title: 'Old authored style', footer: { text: CLOUDY_STANDARD_FOOTER } }] },
+    });
+    assert.equal(captured.at(-1).body.embeds[0].thumbnail, undefined, 'an existing styled no-logo embed is not forcibly given the C');
   } finally {
     Object.defineProperty(prototype, 'request', original);
   }
