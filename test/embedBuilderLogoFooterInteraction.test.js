@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 import { loadRecordSnapshotIntoState } from '../src/services/embedManagerService.js';
-import { buildBuilderEmbeds } from '../src/commands/Tools/embedbuilder.js';
+import { buildBuilderEmbeds, buildControls } from '../src/commands/Tools/embedbuilder.js';
 import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
 function reopen(snapshot, id) {
@@ -69,4 +69,62 @@ test('Builder logo clicks and footer submit acknowledge before changing preview 
   const controls = source.slice(source.indexOf('function buildControls('), source.indexOf('function getPreviewUpdateQueue('));
   assert.match(controls, /const hasLogo = Boolean\(buildPreviewEmbed\(state\)\.toJSON\(\)\.thumbnail\?\.url\)/);
   assert.match(controls, /setCustomId\('simple_embed_remove_logo'\)[\s\S]*?setDisabled\(!hasLogo\)/);
+});
+
+function assertLogoButtons(state, { canAdd, canRemove }) {
+  const row = buildControls(state)[1].toJSON();
+  const add = row.components.find(button => button.custom_id === 'simple_embed_logo');
+  const remove = row.components.find(button => button.custom_id === 'simple_embed_remove_logo');
+  assert.ok(add, 'Add logo control exists');
+  assert.ok(remove, 'Remove logo control exists');
+  assert.equal(add.disabled, !canAdd, 'Add logo follows the visible thumbnail');
+  assert.equal(remove.disabled, !canRemove, 'Remove logo follows the visible thumbnail');
+}
+
+test('Add and Remove logo buttons always follow the actual preview', () => {
+  const state = {
+    title: 'Logo controls',
+    message: 'Test message',
+    sideColor: 0xffffff,
+    showLogo: true,
+    removeExistingLogo: false,
+    bottomLine: null,
+  };
+
+  assertLogoButtons(state, { canAdd: false, canRemove: true });
+  state.showLogo = false;
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
+  assertLogoButtons(state, { canAdd: true, canRemove: false });
+
+  state.showLogo = true;
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
+  assertLogoButtons(state, { canAdd: false, canRemove: true });
+});
+
+test('Existing embed with a visible thumbnail always permits Remove logo', () => {
+  const state = {
+    title: 'Existing thumbnail',
+    message: 'Test message',
+    sideColor: 0xffffff,
+    showLogo: false,
+    removeExistingLogo: false,
+    bottomLine: null,
+    modifyTarget: {
+      sourceEmbedData: {
+        title: 'Existing thumbnail',
+        thumbnail: { url: 'https://example.com/existing-thumbnail.png' },
+      },
+    },
+  };
+
+  // An existing thumbnail may differ from the default Cloudy URL.
+  assertLogoButtons(state, { canAdd: false, canRemove: true });
+  state.removeExistingLogo = true;
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
+  assertLogoButtons(state, { canAdd: true, canRemove: false });
+
+  state.showLogo = true;
+  state.removeExistingLogo = false;
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
+  assertLogoButtons(state, { canAdd: false, canRemove: true });
 });
