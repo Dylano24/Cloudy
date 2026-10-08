@@ -10,3 +10,12 @@ test('Edit title and message opens the website directly without an interaction r
   assert.equal(button.url, url);
   assert.equal(button.custom_id, undefined);
 });
+
+test('Set side color opens the website directly without an interaction reply', () => {
+  const url = 'https://example.com/embed-color?session=test';
+  const buttons = buildControls({ colorPickerUrl: url }).flatMap(row => row.toJSON().components);
+  const button = buttons.find(item => item.label === 'Set side color');
+  assert.equal(button.style, 5);
+  assert.equal(button.url, url);
+  assert.equal(button.custom_id, undefined);
+});

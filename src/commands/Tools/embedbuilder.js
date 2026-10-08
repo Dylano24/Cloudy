@@ -827,7 +827,7 @@ export function buildControls(state) {
                 .setLabel('Set side color')
                 .setEmoji('🎨');
             if (state.colorPickerUrl) {
-                return button.setCustomId('simple_embed_open_color').setStyle(ButtonStyle.Secondary);
+                return button.setURL(state.colorPickerUrl).setStyle(ButtonStyle.Link);
             }
             return button
                 .setCustomId('simple_embed_color_unavailable')
