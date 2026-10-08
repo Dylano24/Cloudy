@@ -612,11 +612,12 @@ function buildPreviewEmbed(state) {
             delete data.fields;
         }
 
-        if (state.removeExistingLogo || !state.showLogo) {
+        if (state.removeExistingLogo || (state.logoTouched && !state.showLogo)) {
             delete data.thumbnail;
-        } else if (state.logoTouched) {
-            // Only Add logo intentionally replaces an existing thumbnail.
-            // Merely opening a visible thumbnail must leave its URL intact.
+        } else if (state.logoTouched && state.showLogo) {
+            // An explicit Add replaces the thumbnail with Cloudy's C; an
+            // untouched existing thumbnail always remains visible, regardless
+            // of a stale internal logo setting.
             data.thumbnail = { url: CLOUDY_LOGO_URL };
         }
 
@@ -748,7 +749,7 @@ function buildControlEmbed(state) {
             `**Title** › ${shortValue(state.title, 40)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
             `**Side color** › \`${colorToHex(state.sideColor)}\``,
-            `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
+            `**Logo** › ${buildPreviewEmbed(state).toJSON().thumbnail?.url ? 'Enabled' : 'Disabled'}`,
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Media** › ${mediaLabel}`,
             `**Buttons** › ${countBuilderButtons(state)}`,
