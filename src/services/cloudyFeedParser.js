@@ -134,7 +134,7 @@ function normalizeItem({ title, link, description, image, video }, base) {
 }
 
 function imageFromTag(html) {
-  const el = String(html || '').match(/<(?:img|source)\b[^>]*>/i)?.[0] || '';
+  const el = String(html || '').match(/<img\b[^>]*>/i)?.[0] || '';
   return attribute(el, 'data-src') || attribute(el, 'src') || '';
 }
 
