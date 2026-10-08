@@ -6,6 +6,8 @@ import {
 import { hasCloudyOwnerMember, hasCloudyOwnerRole } from './ownerRoleAccess.js';
 import { readWebsiteItems, validateSourceUrl } from './cloudyFeedParser.js';
 import { makeVideoAttachmentMessage } from './cloudyFeedMediaUpload.js';
+import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
+import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
 
 const PREFIX = 'cloudyfeed:';
@@ -58,7 +60,9 @@ function dashboard(guildId, feeds) {
   const embed = new EmbedBuilder()
     .setTitle('Cloudy feed')
     .setDescription('Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.')
-    .setColor(0xFFFFFF);
+    .setColor(0xFFFFFF)
+    .setThumbnail(CLOUDY_LOGO_URL)
+    .setFooter({ text: CLOUDY_BRANDING });
   if (!feeds.length) {
     embed.addFields({ name: 'Feeds', value: 'No feeds configured.' });
   }
@@ -325,7 +329,8 @@ async function processGuild(client, guild) {
             // Never fall back to a site link when the video cannot be uploaded.
             post = await makeVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
           } else {
-            const embed = new EmbedBuilder().setColor(0xFFFFFF).setTitle(item.title);
+            const embed = new EmbedBuilder().setColor(0xFFFFFF).setTitle(item.title)
+              .setThumbnail(CLOUDY_LOGO_URL).setFooter({ text: CLOUDY_BRANDING });
             if (item.description) embed.setDescription(item.description);
             if (item.image) embed.setImage(item.image);
             post = { embeds: [embed], allowedMentions: { parse: [] } };
