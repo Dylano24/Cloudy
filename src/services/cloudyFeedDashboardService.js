@@ -40,9 +40,11 @@ function keepSessionAlive(session, modalOpen = false) {
   session.timer.unref?.();
 }
 
-function labelHours(minutes) {
-  const hours = minutes / 60;
-  return hours === 1 ? 'Every 1 hour' : 'Every ' + hours + ' hours';
+export function formatAutoMessage(minutes) {
+  const value = Number(minutes);
+  if (!Number.isSafeInteger(value) || value < 1) return 'Unknown';
+  if (value % 60 === 0) return `${value / 60}h`;
+  return `${value}m`;
 }
 
 export function buildCloudyFeedDashboard(guildId, feeds) {
@@ -58,7 +60,7 @@ export function buildCloudyFeedDashboard(guildId, feeds) {
       name: 'Feed ' + feed.id,
       value: '**Source:** ' + feed.source.slice(0, 150)
         + '\n**Channel:** <#' + feed.channelId + '>'
-        + '\n**Auto message:** ' + labelHours(feed.minutes)
+        + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
         + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused'),
     });
   }
@@ -153,22 +155,25 @@ function feedModal(session) {
     .setTitle(editing ? 'Edit feed' : 'Add feed');
   return modal.addComponents(
     input('source', 'Website URL', !editing, 'https://example.com', editing ? session.feed?.source : ''),
-    input('hours', 'Auto message (hours)', !editing, '2', editing ? String(session.feed.minutes / 60) : ''),
+    input('duration', 'Auto message', !editing, '1m or 1h', editing ? formatAutoMessage(session.feed.minutes) : ''),
     input('adult', '18+ content', false, 'yes / no', editing ? (session.feed.adult ? 'yes' : 'no') : ''),
   );
 }
 
-export function hoursToMinutes(value, fallback) {
-  const trimmed = String(value || '').trim();
+export function parseAutoMessageTime(value, fallback) {
+  const trimmed = String(value || '').trim().toLowerCase();
   if (!trimmed) {
     if (fallback !== undefined) return fallback;
-    throw new Error('Enter Auto message in hours.');
+    throw new Error('Enter Auto message, for example 1m or 1h.');
   }
-  const number = Number(trimmed);
-  if (!Number.isSafeInteger(number) || number < 1 || number > 168) {
-    throw new Error('Auto message must be between 1 and 168 hours.');
+  const match = /^(\\d+)(m|h)$/.exec(trimmed);
+  if (!match) throw new Error('Use 1m for minutes or 1h for hours.');
+  const number = Number(match[1]);
+  const minutes = match[2] === 'h' ? number * 60 : number;
+  if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 10080) {
+    throw new Error('Auto message must be between 1m and 168h.');
   }
-  return number * 60;
+  return minutes;
 }
 
 async function findOwnerGuild(client, guildId, userId) {
@@ -333,9 +338,9 @@ export async function handleCloudyFeedControls(interaction, client) {
       session.modalOpen = false;
       keepSessionAlive(session);
       const source = interaction.fields.getTextInputValue('source').trim();
-      const hours = interaction.fields.getTextInputValue('hours').trim();
+      const duration = interaction.fields.getTextInputValue('duration').trim();
       const adult = interaction.fields.getTextInputValue('adult').trim();
-      const minutes = hoursToMinutes(hours, session.action === 'edit' ? session.feed?.minutes : undefined);
+      const minutes = parseAutoMessageTime(duration, session.action === 'edit' ? session.feed?.minutes : undefined);
       const data = {
         source, minutes: String(minutes), adult,
         channel: session.channelId,
