@@ -13,6 +13,23 @@ const TRANSCODE_TIMEOUT_MS = 35_000;
 const DOWNLOAD_TIMEOUT_MS = 55_000;
 const ACCEPTED_VIDEO_FILES = /\.(?:mp4|webm|mkv|mov|ts)$/i;
 
+let conversionBusy = false;
+const waitingConversions = [];
+async function withConversionSlot(task) {
+  if (conversionBusy) {
+    await new Promise(resolve => waitingConversions.push(resolve));
+  } else {
+    conversionBusy = true;
+  }
+  try {
+    return await task();
+  } finally {
+    const next = waitingConversions.shift();
+    if (next) next();
+    else conversionBusy = false;
+  }
+}
+
 function runLocalCommand(binary, args, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -102,7 +119,8 @@ export async function makeExtractedVideoAttachmentMessage(pageUrl, guildLimit, {
     let extension = videoFileType(content);
     if (!extension || content.length > limitBytes) {
       // No truncated files: either convert the entire clip, or decline upload.
-      pathname = await convert(pathname, path.join(directory, 'cloudy-optimized.mp4'), limitBytes);
+      pathname = await withConversionSlot(() =>
+        convert(pathname, path.join(directory, 'cloudy-optimized.mp4'), limitBytes));
       content = await readFile(pathname);
       extension = videoFileType(content);
     }
