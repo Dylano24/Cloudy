@@ -223,7 +223,7 @@ test('logo clicks use the same fixed preview message edit path as the working fo
       id: 'builder-dashboard',
       edit: async payload => {
         updates.push({ type: 'dashboard', id: 'builder-dashboard', payload });
-        return { id: 'builder-dashboard' };
+        return null;
       },
     },
   };
