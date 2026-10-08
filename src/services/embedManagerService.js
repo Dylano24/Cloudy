@@ -1144,6 +1144,10 @@ export function loadRecordSnapshotIntoState(
             messageId: String(liveLogoRecord.messageId || ''),
             embedIndex: Math.max(0, Number(liveLogoRecord.embedIndex) || 0),
         },
+        // Explicitly saved reusable logo preference beats historical runtime
+        // messages that still display an older logo before their next event.
+        savedLogoPreference: record.source !== 'embed-builder'
+            && savedDisplay.matched && savedDisplay.thumbnailOverrideApplied === true,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: record.canonicalIdentity || templateRule?.key || templateIdentity(
@@ -1166,7 +1170,8 @@ export function loadRecordSnapshotIntoState(
 export async function syncBuilderLogoFromLiveMessage(guild, state) {
     const target = state?.modifyTarget;
     const location = target?.liveLogoSource;
-    if (!guild || !location?.channelId || !location?.messageId || state.logoTouched) return false;
+    if (!guild || !location?.channelId || !location?.messageId
+        || state.logoTouched || target.savedLogoPreference) return false;
 
     const channel = guild.channels.cache?.get?.(location.channelId)
         || await guild.channels.fetch?.(location.channelId).catch(() => null);
