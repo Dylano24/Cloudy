@@ -51,6 +51,6 @@ test('feed selection also has a Back button without changing the choices', () =>
   const result = feedChooser({ id: 'abc123' }, [{
     id: 'aabbccdd', source: 'https://example.org/feed',
   }]);
-  assert.equal(result.components[0].components[0].data.options[0].value, 'aabbccdd');
+  assert.equal(result.components[0].components[0].toJSON().options[0].value, 'aabbccdd');
   assert.equal(result.components[1].components[0].data.custom_id, 'cloudyfeed:back:abc123');
 });
