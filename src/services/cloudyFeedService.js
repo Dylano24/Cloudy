@@ -162,8 +162,9 @@ async function validateChannel(guild, channelId, adult) {
   }
   const me = guild.members.me || await guild.members.fetchMe();
   if (!channel.permissionsFor(me)?.has([
-    PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks,
-  ])) throw new Error('Cloudy needs View Channel, Send Messages and Embed Links.');
+    PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles,
+  ])) throw new Error('Cloudy needs View Channel, Send Messages, Embed Links and Attach Files.');
   return channel;
 }
 
