@@ -70,18 +70,6 @@ export function buildCloudyFeedDashboard(guildId, feeds) {
     .setDescription('Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.')
     .setColor(0xFFFFFF);
 
-  if (!feeds.length) embed.addFields({ name: 'Feeds', value: 'No feeds configured.' });
-
-  for (const [index, feed] of feeds.slice(0, 5).entries()) {
-    embed.addFields({
-      name: (index + 1) + '. ' + readableFeedName(feed) + ' • #' + (feed.channelName || 'channel'),
-      value: '**Source:** ' + feed.source.slice(0, 150)
-        + '\n**Channel:** <#' + feed.channelId + '>'
-        + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
-        + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
-        + '\n' + feedStatusLine(feed),
-    });
-  }
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(PREFIX + 'add:' + guildId).setLabel('Add feed').setStyle(ButtonStyle.Success),
@@ -122,6 +110,8 @@ export function feedDetail(session, feed) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':edit')
       .setLabel('Edit feed').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':changeChannel')
+      .setLabel('Change channel').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':pause')
       .setLabel(feed.active ? 'Pause feed' : 'Resume feed')
       .setStyle(feed.active ? ButtonStyle.Primary : ButtonStyle.Success),
@@ -308,7 +298,7 @@ export async function handleCloudyFeedControls(interaction, client) {
   try {
     if (type === 'back' && interaction.isButton()) {
       const feeds = await readFeeds(client, session.guildId);
-      if (session.view === 'channel' && session.action === 'edit' && session.feed) {
+      if (session.view === 'channel' && session.feed) {
         session.action = null;
         session.view = 'detail';
         await interaction.update(feedDetail(session, session.feed));
@@ -342,15 +332,24 @@ export async function handleCloudyFeedControls(interaction, client) {
         await interaction.update(feeds.length ? feedChooser(session, feeds) : dashboardForSession(session, feeds));
         return true;
       }
-      if (!session.feed || session.view !== 'detail' || !['edit', 'pause', 'delete'].includes(value)) {
+      if (!session.feed || session.view !== 'detail' || !['edit', 'changeChannel', 'pause', 'delete'].includes(value)) {
         await silentAck(interaction);
         return true;
       }
       if (value === 'edit') {
+        // Open the modal immediately from the selected feed inside the same channel.
         session.action = 'edit';
         session.channelId = session.feed.channelId;
+        session.view = 'modal';
+        await interaction.showModal(feedModal(session));
+        keepSessionAlive(session, true);
+        return true;
+      }
+      if (value === 'changeChannel') {
+        session.action = 'changeChannel';
+        session.channelId = session.feed.channelId;
         session.view = 'channel';
-        await interaction.update(channelChooser(session, true));
+        await interaction.update(channelChooser(session));
         return true;
       }
 
@@ -385,14 +384,27 @@ export async function handleCloudyFeedControls(interaction, client) {
     }
 
     if (type === 'channel' && interaction.isChannelSelectMenu()) {
-      if (!['add', 'edit'].includes(session.action)) {
+      if (!['add', 'changeChannel'].includes(session.action)) {
         await silentAck(interaction);
         return true;
       }
       session.channelId = interaction.values[0];
-      session.view = 'modal';
-      await interaction.showModal(feedModal(session));
-      keepSessionAlive(session, true);
+      if (session.action === 'changeChannel' && session.feed) {
+        await interaction.deferUpdate();
+        const feeds = await applyAction(interaction, guild, 'edit', {
+          feedId: session.feed.id,
+          channel: session.channelId,
+        });
+        if (!feeds) throw new Error('Cloudy feed is busy. Please try again.');
+        session.feed = feeds.find(feed => feed.id === session.feed.id) || session.feed;
+        session.action = null;
+        session.view = 'detail';
+        await interaction.editReply(feedDetail(session, session.feed));
+      } else {
+        session.view = 'modal';
+        await interaction.showModal(feedModal(session));
+        keepSessionAlive(session, true);
+      }
       return true;
     }
 
