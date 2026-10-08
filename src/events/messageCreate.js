@@ -301,7 +301,21 @@ async function handleLeveling(message, client) {
 }
 
 
+const reappearQueues = new Map();
+
 async function handleEmbedReappear(message) {
+  const channelKey = `${message.guild.id}:${message.channel.id}`;
+  const previous = reappearQueues.get(channelKey) || Promise.resolve();
+  const pending = previous.catch(() => {}).then(() => processEmbedReappear(message));
+  reappearQueues.set(channelKey, pending);
+  try {
+    await pending;
+  } finally {
+    if (reappearQueues.get(channelKey) === pending) reappearQueues.delete(channelKey);
+  }
+}
+
+async function processEmbedReappear(message) {
   try {
     const prefix = `cloudy:embed-reappear:${message.guild.id}:${message.channel.id}:`;
     const indexKey = `cloudy:embed-reappear-index:${message.guild.id}:${message.channel.id}`;
@@ -371,8 +385,29 @@ async function handleEmbedReappear(message) {
         continue;
       }
 
-      // Reappear means move the same logical embed back to the bottom, not
-      // keep stacking copies.
+      // Persist the pending move before removing the visible copy so a failed
+      // send or restart leaves the saved embed ready for the next-message retry.
+      if (!await setInDb(key, config)) continue;
+      const previousMessageId = config.messageId ? String(config.messageId) : null;
+      if (previousMessageId) {
+        const previous = await message.channel.messages.fetch(previousMessageId).catch(error => {
+          if (Number(error?.code) === 10008) return null;
+          throw error;
+        });
+        if (previous) {
+          const removedPrevious = await previous.delete().then(() => true).catch(() => false);
+          if (!removedPrevious) continue;
+        }
+      }
+
+      if (await getFromDb(disableKey, null)) {
+        removedIds.add(originalMessageId);
+        await deleteFromDb(key);
+        continue;
+      }
+
+      // Remove the old copy before creating the new one: Discord must never
+      // show two copies while the embed moves to the bottom.
       const sent = await message.channel.send({
         embeds: [config.embed],
         components: config.components || [],
@@ -386,20 +421,6 @@ async function handleEmbedReappear(message) {
         removedIds.add(originalMessageId);
         await deleteFromDb(key);
         continue;
-      }
-
-      const previousMessageId = config.messageId ? String(config.messageId) : null;
-      if (previousMessageId && previousMessageId !== String(sent.id)) {
-        const previous = await message.channel.messages.fetch(previousMessageId).catch(() => null);
-        if (previous) {
-          const removedPrevious = await previous.delete().then(() => true).catch(() => false);
-          if (!removedPrevious) {
-            await sent.delete().catch(() => {});
-            config.count = Math.max(Number(config.every) || 1, Number(config.count) || 0);
-            await setInDb(key, config);
-            continue;
-          }
-        }
       }
 
       if (await getFromDb(disableKey, null)) {
