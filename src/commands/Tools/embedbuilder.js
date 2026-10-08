@@ -590,7 +590,9 @@ function buildPreviewEmbed(state) {
     const firstChunk = chunks[0] || null;
 
     if (state.modifyTarget?.sourceEmbedData) {
-        const source = state.modifyTarget.sourceEmbedData;
+        // Preview must start from the same visible saved/overlaid thumbnail
+        // selected in Search/Modify, not an older catalog/source thumbnail.
+        const source = state.modifyTarget.previewSourceData || state.modifyTarget.sourceEmbedData;
         const data = { ...source, color: state.sideColor };
         if (isInternalTemplateAuthor(data.author?.name)) delete data.author;
 
@@ -610,12 +612,12 @@ function buildPreviewEmbed(state) {
             delete data.fields;
         }
 
-        if (state.removeExistingLogo) {
+        if (state.removeExistingLogo || !state.showLogo) {
             delete data.thumbnail;
-        } else if (state.showLogo) {
+        } else if (state.logoTouched) {
+            // Only Add logo intentionally replaces an existing thumbnail.
+            // Merely opening a visible thumbnail must leave its URL intact.
             data.thumbnail = { url: CLOUDY_LOGO_URL };
-        } else if (isCloudyLogoUrl(data.thumbnail?.url)) {
-            delete data.thumbnail;
         }
 
         if (chunks.length <= 1) {
