@@ -20,7 +20,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { registerBuilderPreviewMessage,
     unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
-import { registerBuilderPreviewReplyToken } from '../../utils/cloudyFooter.js';
+import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError,
     replyUserError,
@@ -711,7 +711,10 @@ async function postBuiltMessage(channel, state, guild, member) {
             payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
         }
 
-        const sent = await channel.send(payload);
+        // Publish this exact Builder choice. The general Cloudy footer policy
+        // may add missing footer text, but must not re-add an intentionally
+        // absent C on this new owner-authored embed.
+        const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload));
         await registerCloudyEmbedMessage(sent, 'embed-builder');
         if (state.reappearAfter) {
             const reappearKey = `cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`;
