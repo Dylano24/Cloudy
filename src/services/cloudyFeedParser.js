@@ -235,7 +235,50 @@ export function htmlFeedUrl(html, base) {
   return null;
 }
 
+// Some publishers expose their *public direct media files* in schema.org
+// VideoObject metadata rather than an HTML <video> element. Never treat an
+// iframe, watch page, HLS playlist or thumbnail as a downloadable video.
+export function videoObjectMediaItems(html, base) {
+  const items = [];
+  const scripts = String(html || '').matchAll(
+    /<script\b[^>]*type\s*=\s*['"]application\/ld\+json['"][^>]*>([\s\S]*?)<\/script>/gi,
+  );
+  for (const script of scripts) {
+    let data;
+    try { data = JSON.parse(script[1]); } catch { continue; }
+    const queue = [data];
+    while (queue.length && items.length < 100) {
+      const object = queue.shift();
+      if (Array.isArray(object)) { queue.push(...object); continue; }
+      if (!object || typeof object !== 'object') continue;
+      if (Array.isArray(object['@graph'])) queue.push(...object['@graph']);
+      if (Array.isArray(object.itemListElement)) queue.push(...object.itemListElement);
+      if (object.item && typeof object.item === 'object') queue.push(object.item);
+      const types = Array.isArray(object['@type']) ? object['@type'] : [object['@type']];
+      if (!types.includes('VideoObject')) continue;
+      const mediaUrl = typeof object.contentUrl === 'string'
+        ? safeItemUrl(object.contentUrl, base) : null;
+      if (!mediaUrl?.startsWith('https:') || !/\.(?:mp4|webm)(?:[?#]|$)/i.test(mediaUrl)) continue;
+      const country = object.countryOfOrigin?.name || object.countryOfOrigin
+        || object.contentLocation?.address?.addressCountry || object.contentLocation?.addressCountry;
+      const thumbnail = Array.isArray(object.thumbnailUrl)
+        ? object.thumbnailUrl[0] : object.thumbnailUrl;
+      const item = normalizeItem({
+        title: typeof object.name === 'string' ? object.name : 'Video',
+        link: typeof object.url === 'string' ? object.url : base,
+        video: mediaUrl,
+        image: typeof thumbnail === 'string' ? thumbnail : '',
+        country: typeof country === 'object' ? country?.name : country,
+      }, base);
+      if (item) items.push(item);
+    }
+  }
+  return items;
+}
+
 export function parseWebsiteItems(html, base) {
+  const structured = videoObjectMediaItems(html, base);
+  if (structured.length) return structured;
   const found = [];
   const articles = html.match(/<article\b[\s\S]*?<\/article>/gi) || [];
   for (const article of articles.slice(0, 100)) {
