@@ -55,6 +55,17 @@ test('Builder logo clicks and footer submit acknowledge before changing preview 
   assert.match(footer, /await submitted\.deferUpdate\(\);\s*state\.bottomLine =/);
   assert.match(footer, /await refreshBuilderPreviewOnly\(submitted, state\)/);
 
+  const content = source.slice(source.indexOf('async function editContent('), source.indexOf('async function editBottomLine('));
+  assert.match(content, /await submitted\.deferUpdate\(\);\s*state\.title =/);
+
+  const media = source.slice(source.indexOf('async function editMedia('), source.indexOf('async function getSharedOwnerGuilds('));
+  assert.match(media, /await submitted\.deferUpdate\(\);\s*if \(mediaKind === 'video'\)/);
+
+  const clearMedia = source.slice(source.indexOf("case 'simple_embed_clear_media':"), source.indexOf("case 'simple_embed_buttons':"));
+  assert.match(clearMedia, /await buttonInteraction\.deferUpdate\(\);\s*state\.mediaUrl = null/);
+  const reset = source.slice(source.indexOf("case 'simple_embed_reset':"), source.indexOf('default:', source.indexOf("case 'simple_embed_reset':")));
+  assert.match(reset, /await buttonInteraction\.deferUpdate\(\);\s*await cleanupBuilderButtonUi/);
+
   const controls = source.slice(source.indexOf('function buildControls('), source.indexOf('function getPreviewUpdateQueue('));
   assert.match(controls, /const hasLogo = Boolean\(buildPreviewEmbed\(state\)\.toJSON\(\)\.thumbnail\?\.url\)/);
   assert.match(controls, /setCustomId\('simple_embed_remove_logo'\)[\s\S]*?setDisabled\(!hasLogo\)/);
