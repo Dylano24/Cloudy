@@ -176,6 +176,19 @@ export function parseYtDlpItems(payload) {
   return result;
 }
 
+function stableGalleryKey(url) {
+  const parsed = new URL(url);
+  // Signed CDNs rotate these fields. Keep actual media IDs and search
+  // parameters so different pictures at the same endpoint remain distinct.
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (/^(?:token|sig|signature|expires|expiry|exp|policy|key-pair-id|x-amz-.*)$/i.test(key)) {
+      parsed.searchParams.delete(key);
+    }
+  }
+  parsed.searchParams.sort();
+  return 'gallery-dl:' + parsed.href;
+}
+
 export function parseGalleryDlUrls(stdout, source) {
   const seen = new Set();
   const items = [];
@@ -185,7 +198,7 @@ export function parseGalleryDlUrls(stdout, source) {
     seen.add(image);
     items.push({
       title: 'Photo', url: source, image, video: null, description: '', country: null,
-      dedupKey: 'gallery-dl:' + image.split('?')[0],
+      dedupKey: stableGalleryKey(image),
     });
     if (items.length >= MAX_ENTRIES) break;
   }
