@@ -171,7 +171,7 @@ function field(interaction, name) {
 }
 
 export function mediaCandidates(items) {
-  return items.filter(item => Boolean(item.image || item.video));
+  return items.filter(item => Boolean(item.image || item.video) && item.country === 'US');
 }
 
 export function mediaItemKey(item) {
@@ -190,11 +190,11 @@ export async function applyAction(interaction, guild, action, input = {}) {
       const adult = parseAdult(get('adult'));
       const channel = await validateChannel(guild, get('channel'), adult);
       const items = mediaCandidates(await readWebsiteItems(source));
-      if (!items.length) throw new Error('No supported photos or videos found. Choose a public gallery, media page or supported feed.');
+      if (!items.length) throw new Error('No verified USA photos or videos found. This website must provide per-video or per-photo country metadata.');
       const id = randomUUID().slice(0, 8);
       const name = (get('name') || (host => host.charAt(0).toUpperCase() + host.slice(1))(new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0])).slice(0, 64);
       feeds.push({ id, name, source, channelId: channel.id, channelName: channel.name, minutes, adult, active: true,
-        nextAt: now + minutes * 60_000, recentUrls: [], lastError: null, lastCheck: now });
+        nextAt: now + minutes * 60_000, recentUrls: [], lastError: null, lastCheck: now, lastUsCheck: now });
     } else {
       const id = get('feedId');
       const feed = feeds.find(value => value.id === id);
@@ -213,13 +213,13 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const sourceChanged = source !== feed.source;
         if (sourceChanged) {
           const items = mediaCandidates(await readWebsiteItems(source));
-          if (!items.length) throw new Error('No supported photos or videos found at the new website.');
+          if (!items.length) throw new Error('No verified USA photos or videos found at the new website.');
           feed.recentUrls = [];
         }
         const name = (get('name') || feed.name || new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0]).slice(0, 64);
         Object.assign(feed, { name, source, channelId: channel.id, channelName: channel.name, adult, minutes,
           nextAt: now + minutes * 60_000,
-          ...(sourceChanged ? { lastError: null, lastCheck: now } : {}) });
+          ...(sourceChanged ? { lastError: null, lastCheck: now, lastUsCheck: now } : {}) });
       }
     }
     await saveFeeds(interaction.client, guild.id, feeds);
@@ -277,7 +277,7 @@ async function processGuild(client, guild) {
         const seen = new Set(feed.recentUrls || []);
         const available = candidates.filter(item => !seen.has(mediaItemKey(item)));
         if (!candidates.length) {
-          feed.lastError = 'No supported photos or videos found';
+          feed.lastError = 'No verified USA media found';
         } else if (!available.length) {
           feed.lastError = 'No new media available';
         } else {
@@ -304,6 +304,7 @@ async function processGuild(client, guild) {
         logger.warn('[CLOUDY_FEED] Scheduled feed failed (' + feed.id + '):', error);
       }
       feed.lastCheck = Date.now();
+      feed.lastUsCheck = feed.lastCheck;
       feed.nextAt = next;
       changed = true;
     }
