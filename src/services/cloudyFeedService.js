@@ -176,6 +176,31 @@ export function mediaCandidates(items) {
   return items.filter(item => Boolean(item.image || item.video) && item.country === 'US');
 }
 
+// Dedicated video sites expose thumbnails and watch-page links that are not
+// actual video files. Do not publish a thumbnail as if it were a playable video.
+export function isVideoOnlySource(source) {
+  try {
+    const hostname = new URL(source).hostname.toLowerCase();
+    return hostname === 'pornhub.com' || hostname.endsWith('.pornhub.com');
+  } catch { return false; }
+}
+
+export function eligibleMediaForSource(items, source) {
+  const eligible = mediaCandidates(items);
+  return isVideoOnlySource(source) ? eligible.filter(item => Boolean(item.video)) : eligible;
+}
+
+export function mediaSourceProblem(items, source) {
+  if (!items.length) return 'Website contains no accessible media posts.';
+  if (isVideoOnlySource(source) && !items.some(item => item.video)) {
+    return 'Website does not provide directly playable video files.';
+  }
+  if (!eligibleMediaForSource(items, source).length) {
+    return 'No matching playable media available from this website.';
+  }
+  return null;
+}
+
 export function mediaItemKey(item) {
   return item.video || item.image || item.url;
 }
@@ -194,8 +219,9 @@ export async function applyAction(interaction, guild, action, input = {}) {
       const minutes = parseMinutes(get('minutes'));
       const adult = parseAdult(get('adult'));
       const channel = await validateChannel(guild, get('channel'), adult);
-      const items = mediaCandidates(await readWebsiteItems(source));
-      if (!items.length) throw new Error('No supported media found for the current feed settings.');
+      const items = await readWebsiteItems(source);
+      const problem = mediaSourceProblem(items, source);
+      if (problem) throw new Error(problem);
       const id = randomUUID().slice(0, 8);
       const name = (get('name') || (host => host.charAt(0).toUpperCase() + host.slice(1))(new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0])).slice(0, 64);
       feeds.push({ id, name, source, channelId: channel.id, channelName: channel.name, minutes, adult, active: true,
@@ -217,8 +243,9 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const channel = await validateChannel(guild, get('channel') || feed.channelId, adult);
         const sourceChanged = source !== feed.source;
         if (sourceChanged) {
-          const items = mediaCandidates(await readWebsiteItems(source));
-          if (!items.length) throw new Error('No supported media found at the new website.');
+          const items = await readWebsiteItems(source);
+          const problem = mediaSourceProblem(items, source);
+          if (problem) throw new Error(problem);
           feed.recentUrls = [];
         }
         const name = (get('name') || feed.name || new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0]).slice(0, 64);
@@ -278,11 +305,12 @@ async function processGuild(client, guild) {
       const next = Date.now() + Math.max(MIN_MINUTES, feed.minutes) * 60_000;
       try {
         const channel = await validateChannel(guild, feed.channelId, feed.adult);
-        const candidates = mediaCandidates(await readWebsiteItems(feed.source));
+        const discovered = await readWebsiteItems(feed.source);
+        const candidates = eligibleMediaForSource(discovered, feed.source);
         const seen = new Set(feed.recentUrls || []);
         const available = candidates.filter(item => !seen.has(mediaItemKey(item)));
         if (!candidates.length) {
-          feed.lastError = 'No matching media found';
+          feed.lastError = mediaSourceProblem(discovered, feed.source);
         } else if (!available.length) {
           feed.lastError = 'No new media available';
         } else {
