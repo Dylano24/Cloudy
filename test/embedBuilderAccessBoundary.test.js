@@ -90,18 +90,18 @@ async function open(t, options) {
   return { ...f, dashboard };
 }
 
-test('public Builder keeps its panels and layout without exposing either bearer URL', async t => {
+test('public Builder keeps its layout with a direct content link and private color launch', async t => {
   const f = await open(t);
   assert.equal(f.publicPayloads.length, 2);
   assert.ok(f.publicPayloads.every(payload => !(Number(payload.flags || 0) & MessageFlags.Ephemeral)));
   assert.equal(f.dashboard.components.length, 5);
   const launchButtons = buttons(f.dashboard).filter(button => ['Edit title & message', 'Set side color'].includes(button.label));
   assert.equal(launchButtons.length, 2);
-  assert.ok(launchButtons.every(button => !button.url && button.custom_id), 'public launch controls must not contain session capabilities');
-  assert.doesNotMatch(JSON.stringify(f.publicPayloads.map(payload => ({ ...payload, components: payload.components?.map(row => row.toJSON()) }))), /embed-color\?session=/);
+  assert.ok(launchButtons.find(button => button.label === 'Edit title & message').url);
+  assert.ok(launchButtons.find(button => button.label === 'Set side color').custom_id);
 });
 
-test('only the owner receives a private link and its existing editor still updates the public preview', async t => {
+test('direct content editor and private color editor still update the preview', async t => {
   const f = fixture(t);
   let rootCollector;
   const originalSend = f.channel.send;
@@ -114,12 +114,11 @@ test('only the owner receives a private link and its existing editor still updat
   await builder.execute(f.interaction);
   t.after(() => rootCollector.stop('test-ended'));
   assert.equal(rootCollector.options.filter(f.component('simple_embed_open_content', { id: 'another-viewer' })), false);
-  await rootCollector.listeners('collect')[0](f.component('simple_embed_open_content'));
   await rootCollector.listeners('collect')[0](f.component('simple_embed_open_color'));
-  assert.equal(f.childPayloads.length, 2, 'each launch returns one owner-private link');
+  assert.equal(f.childPayloads.length, 1, 'only color launch returns a private link');
   assert.ok(f.childPayloads.every(payload => Number(payload.flags) & MessageFlags.Ephemeral));
-  const contentUrl = new URL(buttons(f.childPayloads[0])[0].url);
-  const colorUrl = new URL(buttons(f.childPayloads[1])[0].url);
+  const contentUrl = new URL(buttons(f.channel.lastMessage).find(button => button.label === 'Edit title & message').url);
+  const colorUrl = new URL(buttons(f.childPayloads[0])[0].url);
   assert.equal(contentUrl.searchParams.get('mode'), 'content');
   assert.equal(contentUrl.searchParams.get('session'), colorUrl.searchParams.get('session'));
   const token = contentUrl.searchParams.get('session');

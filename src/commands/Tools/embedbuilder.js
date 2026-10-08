@@ -780,7 +780,7 @@ export function buildControls(state) {
         .setLabel('Edit title & message')
         .setEmoji('✍🏼');
     if (state.contentEditorUrl) {
-        titleButton.setCustomId('simple_embed_open_content').setStyle(ButtonStyle.Secondary);
+        titleButton.setURL(state.contentEditorUrl).setStyle(ButtonStyle.Link);
     } else {
         titleButton
             .setCustomId('simple_embed_content')
