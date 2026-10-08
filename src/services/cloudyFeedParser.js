@@ -1,6 +1,7 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
+import { readCloudyProviderItems } from './cloudyFeedProviders.js';
 
 // Large websites can exceed 1 MB in markup alone. Read a bounded prefix
 // rather than rejecting useful articles when the rest of the page is huge.
@@ -365,6 +366,11 @@ export async function readWebsiteItems(sourceUrl) {
   if (/\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(directUrl)) {
     return [{ title: 'Photo', url: directUrl, description: '', image: directUrl, video: null, country: null }];
   }
+  const provider = await readCloudyProviderItems(directUrl, {
+    normalizeCountry: normalizeMediaCountry,
+    downloader: downloadWebsite,
+  });
+  if (provider !== null) return provider;
   const first = await downloadWebsite(directUrl);
   if (/<(?:rss|feed)\b/i.test(first.text)) return parseFeedItems(first.text, first.url);
   const alternate = htmlFeedUrl(first.text, first.url);
