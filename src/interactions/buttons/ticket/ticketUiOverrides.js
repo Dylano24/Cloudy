@@ -22,8 +22,8 @@ import {
   checkTicketCreationLimit,
   toggleTicketPinned,
   updateTicketPriority,
+  deleteTicket,
 } from '../../../services/ticketReliabilityService.js';
-import { deleteTicketSafely as deleteTicket } from '../../../services/ticketDeleteService.js';
 import { PRIORITY_MAP } from '../../../utils/helpers.js';
 import { logTicketEvent } from '../../../utils/ticket/ticketLogging.js';
 import { logger } from '../../../utils/logger.js';
@@ -103,6 +103,18 @@ async function editBasicTicketReply(interaction, title, description, components 
     components,
   });
   scheduleTicketReplyDeletion(interaction);
+}
+
+async function followUpTicketReply(interaction, payload) {
+  const reply = await interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral });
+  const id = reply?.id || reply?.resource?.message?.id;
+  if (id && typeof interaction.webhook?.deleteMessage === 'function') {
+    const timer = setTimeout(() => {
+      void interaction.webhook.deleteMessage(id).catch(() => {});
+    }, 10_000);
+    timer.unref?.();
+  }
+  return reply;
 }
 
 const createTicketHandler = {
@@ -297,11 +309,9 @@ const pinTicketHandler = {
 const priorityMenuHandler = {
   name: 'ticket_priority_menu',
   async execute(interaction, client) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
-
     try {
-      const context = await requireStaff(interaction, client, 'change ticket priority');
+      if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+      const context = await requireStaff(interaction, client, 'change ticket priority', true);
       if (!context) return;
 
       const storedPriority = String(context.ticketData.priority || 'none').toLowerCase();
@@ -318,7 +328,7 @@ const priorityMenuHandler = {
           new StringSelectMenuOptionBuilder().setLabel('None').setValue('none').setEmoji('⚪'),
         );
 
-      await InteractionHelper.safeEditReply(interaction, {
+      await followUpTicketReply(interaction, {
         content: '',
         embeds: [buildCloudyTicketEmbed({
           title: 'Ticket priority',
@@ -326,13 +336,14 @@ const priorityMenuHandler = {
         })],
         components: [new ActionRowBuilder().addComponents(menu)],
       });
-      scheduleTicketReplyDeletion(interaction);
     } catch (error) {
       logger.error('Priority menu button failed', { error: error.message, channelId: interaction.channelId });
-      await replyUserError(interaction, {
-        type: ErrorTypes.UNKNOWN,
-        message: error?.userMessage || 'Could not open the priority menu.',
-      });
+      const message = error?.userMessage || 'Could not open the priority menu.';
+      if (interaction.deferred || interaction.replied) {
+        await followUpTicketReply(interaction, { embeds: [buildUserErrorEmbed(ErrorTypes.UNKNOWN, message)], components: [] }).catch(() => {});
+      } else {
+        await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message });
+      }
     }
   },
 };
@@ -340,18 +351,16 @@ const priorityMenuHandler = {
 const legacyPriorityHandler = {
   name: 'ticket_priority',
   async execute(interaction, client, args = []) {
-    const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferred) return;
-
     try {
-      const context = await requireStaff(interaction, client, 'change ticket priority');
+      if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+      const context = await requireStaff(interaction, client, 'change ticket priority', true);
       if (!context) return;
 
       const requestedPriority = String(args[0] || '').toLowerCase();
       const priority = requestedPriority === 'urgent' ? 'high' : requestedPriority;
       const info = PRIORITY_MAP[priority];
       if (!info) {
-        await InteractionHelper.safeEditReply(interaction, {
+        await followUpTicketReply(interaction, {
           content: 'Invalid priority selected.',
           embeds: [],
           components: [],
@@ -360,21 +369,23 @@ const legacyPriorityHandler = {
       }
 
       await updateTicketPriority(interaction.channel, priority, interaction.user, context.ticketData);
-      await editBasicTicketReply(
-        interaction,
-        'Priority Updated',
-        `Ticket priority has been set to **${info.emoji} ${info.label}**.`,
-      );
+      await followUpTicketReply(interaction, {
+        content: '',
+        embeds: [buildCloudyTicketEmbed({ title: 'Priority Updated', description: `Ticket priority has been set to **${info.emoji} ${info.label}**.` })],
+        components: [],
+      });
     } catch (error) {
       logger.error('Legacy ticket priority button failed', {
         error: error.message,
         channelId: interaction.channelId,
       });
-      await InteractionHelper.safeEditReply(interaction, {
+      const payload = {
         content: error?.userMessage || 'An error occurred while updating the ticket priority.',
         embeds: [],
         components: [],
-      }).catch(() => {});
+      };
+      if (interaction.deferred || interaction.replied) await followUpTicketReply(interaction, payload).catch(() => {});
+      else await InteractionHelper.safeReply(interaction, { ...payload, flags: MessageFlags.Ephemeral });
     }
   },
 };

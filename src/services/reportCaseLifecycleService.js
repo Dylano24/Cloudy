@@ -496,20 +496,21 @@ export async function handleReportCaseControl(interaction, client, [action, mess
     const key = reportKey(interaction.guildId, messageId);
     let shouldPresentRead = false;
     await withReportLock(key, async () => {
-      const record = await client.db.get(key);
-      mark('case_lookup');
-      const entry = record?.cases?.[audience];
-      if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
       // Discord already supplied the actor on this interaction. Reuse a real
       // GuildMember instead of serializing another Discord member lookup.
       const actor = interaction.guild.members.cache?.get?.(interaction.user.id)
         || (interaction.member?.id === interaction.user.id && interaction.member?.roles?.cache
           ? interaction.member : null);
-      const [config, member] = await Promise.all([
+      // The case, guild settings and actor are independent prerequisites. A
+      // cold settings read must not add another full storage round trip.
+      const [record, config, member] = await Promise.all([
+        client.db.get(key),
         getGuildConfig(client, interaction.guildId),
         actor ? Promise.resolve(actor) : interaction.guild.members.fetch(interaction.user.id),
       ]);
-      mark('actor_and_config');
+      mark('case_actor_and_config');
+      const entry = record?.cases?.[audience];
+      if (!entry || record.closedAt || entry.deletedAt || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
       const staff = caseStaffAllowed(interaction.guild, member, config);
       const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
       const inDeletePrompt = interaction.channelId === entry.channelId && interaction.message.id === entry.deletePromptId;
@@ -555,21 +556,21 @@ export async function handleReportCaseControl(interaction, client, [action, mess
     });
     mark('lock_released');
     if (shouldPresentRead) {
+      // Once the close is durable, its required staff presentation must still
+      // run if private confirmation templates or delivery are slow or fail.
+      const presentation = queueReportReadPresentation(
+        client, interaction.guild, key, audience, interaction.message, interaction.channel,
+      );
+      // Observe essential presentation errors immediately for both response
+      // adapters, even if private confirmation is still blocked or fails.
+      void presentation.catch(error => {
+        logger.error('[REPORT_READ_PRESENTATION] Failed to finish staff presentation:', error);
+      });
       // The same private success response is sent only after the report was
       // durably marked read and its participant permissions were revoked.
       await confirmRead();
       mark('confirmation');
-      const presentation = queueReportReadPresentation(
-        client, interaction.guild, key, audience, interaction.message, interaction.channel,
-      );
-      if (silentAck) {
-        // The private success embed is already delivered and access is revoked.
-        // Staff logs and the red Delete prompt are essential, but their Discord
-        // REST calls must never hold the user's handler or next 100 interactions.
-        void presentation.catch(error => {
-          logger.error('[REPORT_READ_PRESENTATION] Failed to finish staff presentation:', error);
-        });
-      } else {
+      if (!silentAck) {
         // Older adapters without component follow-ups retain their original
         // completion contract (also used by legacy test fixtures).
         await presentation;

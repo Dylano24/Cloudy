@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { Collection, EmbedBuilder, MessageFlags, PermissionsBitField } from 'discord.js';
+import { ChannelType, Collection, EmbedBuilder, MessageFlags, PermissionsBitField } from 'discord.js';
 import { db, getTicketData, getTicketKey } from '../src/utils/database.js';
 import buttons from '../src/interactions/buttons/ticket/ticketUiOverrides.js';
 import { getTicketPermissionContext } from '../src/utils/ticket/ticketPermissions.js';
 import { getPinnedMessages } from '../src/utils/messagePins.js';
+import { claimTicket, updateTicketPriority } from '../src/services/ticketReliabilityService.js';
+import modals from '../src/interactions/modals/ticket/createTicketUi.js';
+import { installInteractionMessageLifecycle } from '../src/utils/interactionMessageLifecycle.js';
+import { InteractionHelper } from '../src/utils/interactionHelper.js';
 
 let sequence = 0;
 function fixture({ staff = false, record = true } = {}) {
@@ -48,6 +52,260 @@ function fixture({ staff = false, record = true } = {}) {
     reply: async payload => { replies.push(payload); interaction.replied = true; } };
   return { interaction, client, guild, channel, storage, ticketKey, values, trace, replies, publicPayloads };
 }
+
+function nextInteraction(f, customId) {
+  const interaction = { ...f.interaction, id: `${customId}-${++sequence}`, customId, deferred: false, replied: false };
+  interaction.deferUpdate = async () => { f.trace.push(`ack:${customId}`); interaction.deferred = true; };
+  interaction.deferReply = async () => assert.fail(`${customId} must not display a thinking reply`);
+  interaction.editReply = async () => assert.fail(`${customId} must not overwrite the public ticket`);
+  interaction.deleteReply = async () => assert.fail(`${customId} must not delete the public ticket`);
+  interaction.followUp = async payload => { f.replies.push(payload); return { id: `private-${f.replies.length}` }; };
+  return interaction;
+}
+
+function captureTicketLogs(f) {
+  const logs = [];
+  const creator = { id: f.values.get(f.ticketKey).userId, user: { username: 'Creator', displayAvatarURL: () => 'https://example.com/creator.png' } };
+  f.guild.members = { me: {}, cache: new Collection([[creator.id, creator]]), fetch: async id => id === creator.id ? creator : f.interaction.member };
+  f.values.get(`guild:${f.guild.id}:config`).ticketLogsChannelId = 'logs';
+  f.guild.channels.cache.set('logs', { id: 'logs', type: ChannelType.GuildText, isSendable: () => true,
+    permissionsFor: () => ({ has: () => true }), send: async payload => { logs.push(payload); return { id: `log-${logs.length}` }; } });
+  return logs;
+}
+
+test('claim spam acknowledges every click before a slow write and sends one public status', async () => {
+  const f = fixture({ staff: true });
+  const logs = captureTicketLogs(f);
+  let finishWrite, writes = 0;
+  const set = f.storage.set;
+  f.storage.set = async (key, value) => {
+    if (key === f.ticketKey) {
+      writes += 1;
+      if (writes === 1) await new Promise(resolve => { finishWrite = resolve; });
+    }
+    return set(key, value);
+  };
+  const handler = buttons.find(button => button.name === 'ticket_claim');
+  const clicks = Array.from({ length: 8 }, () => nextInteraction(f, 'ticket_claim'));
+  const actions = clicks.map(click => handler.execute(click, f.client));
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(f.trace.filter(item => item === 'ack:ticket_claim').length, 8);
+  assert.equal(typeof finishWrite, 'function');
+  assert.equal(f.publicPayloads.length, 0);
+  finishWrite();
+  await Promise.all(actions);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(writes, 1);
+  assert.equal(f.publicPayloads.length, 1);
+  assert.equal(f.replies.length, 0);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].embeds[0].toJSON().title, 'Ticket claimed');
+  assert.equal(logs[0].embeds[0].toJSON().color, 0x57F287);
+  assert.equal((await getTicketData(f.guild.id, f.channel.id)).claimedBy, f.interaction.user.id);
+});
+
+test('same-actor claim retries a failed main-message paint without duplicating its status or log', async () => {
+  const f = fixture({ staff: true });
+  const logs = captureTicketLogs(f);
+  f.values.get(f.ticketKey).ticketMessageId = 'main-ticket';
+  const edits = [];
+  const main = { id: 'main-ticket', author: f.client.user, editable: true, embeds: [{ title: 'Ticket #1' }],
+    edit: async payload => {
+      edits.push(payload);
+      if (edits.length === 1) throw new Error('Temporary Discord edit failure');
+      return main;
+    } };
+  f.channel.messages.fetch = async () => main;
+  const handler = buttons.find(button => button.name === 'ticket_claim');
+  await handler.execute(nextInteraction(f, 'ticket_claim'), f.client);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(edits.length, 1);
+  await handler.execute(nextInteraction(f, 'ticket_claim'), f.client);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(edits.length, 2);
+  assert.equal(edits[1].components[0].toJSON().components[0].custom_id, 'ticket_unclaim');
+  assert.equal(f.publicPayloads.length, 1);
+  assert.equal(logs.length, 1);
+});
+
+test('a delayed permission snapshot cannot overwrite a completed ticket mutation', async () => {
+  const f = fixture({ staff: true });
+  const stale = structuredClone(f.values.get(f.ticketKey));
+  await claimTicket(f.channel, f.interaction.user, stale);
+  await updateTicketPriority(f.channel, 'high', f.interaction.user, stale);
+  const saved = await getTicketData(f.guild.id, f.channel.id);
+  assert.equal(saved.claimedBy, f.interaction.user.id);
+  assert.equal(saved.priority, 'high');
+});
+
+test('delete and reopen clicks share a queue and cannot reopen an archived deletion', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture({ staff: true });
+  Object.assign(f.values.get(f.ticketKey), { status: 'closed', transcriptArchivedAt: '2026-10-08T00:00:00.000Z' });
+  Object.assign(f.values.get(`guild:${f.guild.id}:config`), { ticketLogsChannelId: 'logs', ticketTranscriptChannelId: 'transcripts' });
+  let finishNotice, permissionEdits = 0;
+  f.channel.permissionOverwrites = { edit: async () => { permissionEdits += 1; } };
+  f.channel.send = async payload => {
+    f.publicPayloads.push(payload);
+    if (payload.embeds?.[0]?.title === 'Ticket deleted') await new Promise(resolve => { finishNotice = resolve; });
+    return { id: `notice-${f.publicPayloads.length}` };
+  };
+  f.channel.delete = async () => {};
+  const deletion = buttons.find(button => button.name === 'ticket_delete').execute(nextInteraction(f, 'ticket_delete'), f.client);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(typeof finishNotice, 'function');
+  const reopening = buttons.find(button => button.name === 'ticket_reopen').execute(nextInteraction(f, 'ticket_reopen'), f.client);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.ok(f.trace.includes('ack:ticket_reopen'));
+  const beforeArchive = await getTicketData(f.guild.id, f.channel.id);
+  finishNotice();
+  await Promise.all([deletion, reopening]);
+  assert.equal(beforeArchive.status, 'closed');
+  assert.equal(permissionEdits, 0);
+  assert.equal((await getTicketData(f.guild.id, f.channel.id)).status, 'deleted');
+  assert.equal(f.publicPayloads.length, 1);
+  assert.match(f.replies[0].embeds[0].description, /deleted|deletion/);
+});
+
+test('priority buttons silently acknowledge before slow permission IO and keep the private final payload', async () => {
+  for (const customId of ['ticket_priority_menu', 'ticket_priority']) {
+    const f = fixture({ staff: true });
+    const interaction = nextInteraction(f, customId);
+    let finishRead;
+    const get = f.storage.get;
+    f.storage.get = key => key === f.ticketKey
+      ? new Promise(resolve => { finishRead = () => { f.storage.get = get; resolve(structuredClone(f.values.get(key))); }; })
+      : get(key);
+    const action = buttons.find(button => button.name === customId).execute(interaction, f.client, ['high']);
+    await new Promise(resolve => { setImmediate(resolve); });
+    assert.equal(f.trace[0], `ack:${customId}`);
+    assert.equal(typeof finishRead, 'function');
+    finishRead();
+    await action;
+    assert.equal(f.replies.length, 1);
+    assert.equal(f.replies[0].flags, MessageFlags.Ephemeral);
+    assert.equal(f.replies[0].embeds[0].title, customId === 'ticket_priority_menu' ? 'Ticket priority' : 'Priority Updated');
+    assert.equal(Boolean(f.replies[0].components.length), customId === 'ticket_priority_menu');
+  }
+});
+
+test('button close modal clears loading before a slow database read and preserves the public ticket on failure', async () => {
+  const f = fixture({ staff: true });
+  const interaction = nextInteraction(f, 'ticket_close_modal');
+  interaction.isFromMessage = () => true;
+  interaction.fields = { getTextInputValue: () => 'Resolved' };
+  let finishRead;
+  const get = f.storage.get;
+  f.storage.get = key => key === f.ticketKey
+    ? new Promise((_, reject) => { finishRead = () => reject(new Error('Database unavailable')); })
+    : get(key);
+  const action = modals.find(modal => modal.name === 'ticket_close_modal').execute(interaction, f.client);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(f.trace[0], 'ack:ticket_close_modal');
+  assert.equal(typeof finishRead, 'function');
+  finishRead();
+  await action;
+  assert.equal(f.replies.length, 1);
+  assert.equal(f.replies[0].flags, MessageFlags.Ephemeral);
+  assert.match(f.replies[0].content, /database is temporarily unavailable/);
+  assert.equal(f.values.get(f.ticketKey).status, 'open');
+  assert.equal(f.publicPayloads.length, 0);
+});
+
+test('concurrent close submits clear loading during slow permission edits and retain one final status and log', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture({ staff: true });
+  const logs = captureTicketLogs(f);
+  let finishPermission;
+  f.channel.permissionOverwrites = { cache: new Collection(), edit: async () => {
+    if (!finishPermission) await new Promise(resolve => { finishPermission = resolve; });
+  } };
+  const handler = modals.find(modal => modal.name === 'ticket_close_modal');
+  const clicks = Array.from({ length: 4 }, () => {
+    const interaction = nextInteraction(f, 'ticket_close_modal');
+    interaction.isFromMessage = () => true;
+    interaction.fields = { getTextInputValue: () => 'Resolved' };
+    return interaction;
+  });
+  const actions = clicks.map(click => handler.execute(click, f.client));
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(f.trace.filter(item => item === 'ack:ticket_close_modal').length, 4);
+  assert.equal(typeof finishPermission, 'function');
+  assert.equal(f.publicPayloads.length, 0);
+  assert.equal(f.replies.length, 0);
+  finishPermission();
+  await Promise.all(actions);
+  await new Promise(resolve => { setImmediate(resolve); });
+  const saved = await getTicketData(f.guild.id, f.channel.id);
+  assert.equal(saved.status, 'closed');
+  assert.equal(saved.closeReason, 'Resolved');
+  assert.equal(f.publicPayloads.length, 1);
+  assert.equal(f.publicPayloads[0].embeds[0].title, 'Ticket closed');
+  assert.equal(f.publicPayloads[0].embeds[0].color, 0xFF7A00);
+  assert.deepEqual(f.publicPayloads[0].components[0].toJSON().components.map(button => button.custom_id), ['ticket_reopen', 'ticket_delete']);
+  assert.equal(f.replies.length, 0);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].embeds[0].toJSON().title, 'Ticket closed');
+  assert.equal(logs[0].embeds[0].toJSON().color, 0xFF7A00);
+});
+
+test('a failed close persistence stays visible privately without posting a success', async () => {
+  const f = fixture({ staff: true });
+  const interaction = nextInteraction(f, 'ticket_close_modal');
+  interaction.isFromMessage = () => true;
+  interaction.fields = { getTextInputValue: () => 'Resolved' };
+  f.storage.set = async key => { if (key === f.ticketKey) throw new Error('PostgreSQL write unavailable'); return true; };
+  await modals.find(modal => modal.name === 'ticket_close_modal').execute(interaction, f.client);
+  assert.equal(f.trace[0], 'ack:ticket_close_modal');
+  assert.equal(f.values.get(f.ticketKey).status, 'open');
+  assert.equal(f.publicPayloads.length, 0);
+  assert.equal(f.replies.length, 1);
+  assert.equal(f.replies[0].flags, MessageFlags.Ephemeral);
+  assert.match(f.replies[0].content, /error occurred while closing/);
+});
+
+test('silent priority final replies delete their own private message after exactly ten seconds', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture({ staff: true });
+  const interaction = nextInteraction(f, 'ticket_priority');
+  const deleted = [];
+  interaction.webhook = { deleteMessage: async id => deleted.push(id) };
+  await buttons.find(button => button.name === 'ticket_priority').execute(interaction, f.client, ['high']);
+  t.mock.timers.tick(9_999);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.deepEqual(deleted, []);
+  t.mock.timers.tick(1);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.deepEqual(deleted, ['private-1']);
+});
+
+test('a button close error expires after ten seconds without editing or deleting its source transcript', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  installInteractionMessageLifecycle();
+  const f = fixture({ staff: true });
+  const interaction = nextInteraction(f, 'ticket_close_modal');
+  const deleted = [];
+  interaction.message = { id: 'transcript', attachments: [{ name: 'ticket-transcript.html' }], embeds: [{ title: 'Ticket transcript' }], components: [] };
+  const original = structuredClone(interaction.message);
+  interaction.isFromMessage = () => true;
+  interaction.fields = { getTextInputValue: () => 'Resolved' };
+  interaction.webhook = { deleteMessage: async id => deleted.push(id) };
+  interaction.followUp = async payload => {
+    f.replies.push(payload);
+    return { id: 'close-error', ...payload, flags: { has: flag => flag === MessageFlags.Ephemeral } };
+  };
+  f.storage.set = async () => { throw new Error('PostgreSQL write unavailable'); };
+  InteractionHelper.patchInteractionResponses(interaction);
+  await modals.find(modal => modal.name === 'ticket_close_modal').execute(interaction, f.client);
+  assert.equal(f.replies.length, 1);
+  t.mock.timers.tick(9_999);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.deepEqual(deleted, []);
+  t.mock.timers.tick(1);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.deepEqual(deleted, ['close-error']);
+  assert.deepEqual(interaction.message, original);
+});
 
 test('ticket Pin has no thinking placeholder and never deletes the public ticket', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
