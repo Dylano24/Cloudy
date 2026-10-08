@@ -106,3 +106,58 @@ test('brands component-only messages but leaves Components V2 payloads untouched
   const componentsV2 = { flags: 32768, components: [{ type: 17, components: [] }] };
   assert.deepEqual(withCloudyFooter(componentsV2), componentsV2);
 });
+
+
+test('Embed Builder live preview preserves explicit no-logo while keeping the standard footer', () => {
+  const payload = {
+    embeds: [{ color: 0xffffff, footer: { text: CLOUDY_STANDARD_FOOTER } }],
+    components: [],
+  };
+  // A raw Cloudy message should still get the C automatically.
+  assert.equal(withCloudyFooter(payload).embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
+  // The Builder preview is deliberately logo-free: the REST pipeline must
+  // honor the editor state instead of silently reinserting the C.
+  const saved = withCloudyFooter(payload, { suppressAutomaticLogo: true });
+  assert.equal(saved.embeds[0].thumbnail, undefined);
+  assert.equal(saved.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+  assert.deepEqual(saved, payload);
+});
+
+test('Message builder dashboard never grows an unrelated automatic C thumbnail', () => {
+  const dashboard = { embeds: [{
+    title: 'Message builder',
+    description: 'Logo › Disabled',
+    footer: { text: CLOUDY_STANDARD_FOOTER },
+  }] };
+  const result = withCloudyFooter(dashboard);
+  assert.equal(result.embeds[0].thumbnail, undefined);
+  assert.equal(result.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+  assert.deepEqual(result, dashboard);
+});
+
+test('manual no-logo Save keeps its logo choice but ordinary Cloudy messages retain branding', () => {
+  const manuallySaved = { embeds: [{
+    title: 'Owner saved message',
+    description: 'Keep my choices',
+    footer: { text: CLOUDY_STANDARD_FOOTER },
+  }] };
+  const result = withCloudyFooter(manuallySaved, {
+    isNewMessage: false,
+    suppressAutomaticLogo: true,
+  });
+  assert.deepEqual(result, manuallySaved);
+  assert.equal(withCloudyFooter(manuallySaved, { isNewMessage: false })
+    .embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
+});
+
+test('Builder operations register scoped logo exceptions instead of disabling global branding', async () => {
+  const fs = await import('node:fs');
+  const builder = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const manager = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+  const footer = fs.readFileSync('src/utils/cloudyFooter.js', 'utf8');
+  assert.match(builder, /registerBuilderPreviewReplyToken\(interaction\.token\)/);
+  assert.match(manager, /withManualBuilderSaveLogoChoice\(message\.id,/);
+  assert.match(footer, /isRegisteredBuilderPreviewMessageId\(editedMessageId\)/);
+  assert.match(footer, /manualBuilderSaveMessageIds\.has\(editedMessageId\)/);
+  assert.match(footer, /pendingBuilderPreviewReplyTokens\.delete\(replyToken\)/);
+});
