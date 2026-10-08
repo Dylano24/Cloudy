@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  validateSourceUrl, publicIp, readResponsePrefix, parseFeedItems, htmlFeedUrl, parseWebsiteItems,
+  validateSourceUrl, publicIp, readResponsePrefix, parseFeedItems, htmlFeedUrl, parseWebsiteItems, readWebsiteItems,
 } from '../src/services/cloudyFeedParser.js';
 
 test('accepts public HTTPS pages but rejects local and internal URLs', () => {
@@ -114,4 +114,23 @@ test('does not treat a plain FAQ document as an image or video feed', () => {
   assert.equal(items.length, 1);
   assert.equal(items[0].image, null);
   assert.equal(items[0].video, null);
+});
+
+
+test('accepts direct HTTPS image and video links as media sources', async () => {
+  const image = await readWebsiteItems('https://cdn.example.org/image.jpg');
+  const video = await readWebsiteItems('https://cdn.example.org/video.mp4');
+  assert.equal(image[0].image, 'https://cdn.example.org/image.jpg');
+  assert.equal(image[0].video, null);
+  assert.equal(video[0].video, 'https://cdn.example.org/video.mp4');
+  assert.equal(video[0].image, null);
+});
+
+test('continues finding media after text-only articles', () => {
+  const html = '<html><title>Gallery</title>'
+    + '<article><h2>Information</h2><a href="/info">Read</a></article>'
+    + '<figure><img src="/uploads/new-photo.jpg"><figcaption>Gallery picture</figcaption></figure>'
+    + '</html>';
+  const items = parseWebsiteItems(html, 'https://example.org/gallery');
+  assert.ok(items.some(item => item.image === 'https://example.org/uploads/new-photo.jpg'));
 });
