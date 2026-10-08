@@ -119,7 +119,50 @@ function safeItemUrl(value, base) {
   } catch { return null; }
 }
 
-function normalizeItem({ title, link, description, image, video }, base) {
+// Only explicit per-item geography counts. Locale, VPN or Railway geography
+// cannot verify the origin of an individual photo or video.
+export function normalizeMediaCountry(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[._-]+/g, ' ').replace(/\s+/g, ' ');
+  return /^(?:us|usa|u s a|united states|united states of america|🇺🇸)$/.test(normalized) ? 'US' : null;
+}
+
+function htmlItemCountry(fragment) {
+  const root = String(fragment || '').match(/<(?:article|figure|a|video)\b[^>]*>/i)?.[0] || '';
+  return normalizeMediaCountry(attribute(root, 'data-country')
+    || attribute(root, 'data-country-code')
+    || attribute(root, 'data-origin-country'));
+}
+
+function rssItemCountry(block) {
+  return normalizeMediaCountry(tag(block, 'country')
+    || tag(block, 'dc:coverage')
+    || tag(block, 'media:country'));
+}
+
+function videoObjectCountry(html) {
+  // A public JSON-LD VideoObject with explicit countryOfOrigin or contentLocation.
+  for (const script of String(html || '').matchAll(/<script\b[^>]*type\s*=\s*['"]application\/ld\+json['"][^>]*>([\s\S]*?)<\/script>/gi)) {
+    let data;
+    try { data = JSON.parse(script[1]); } catch { continue; }
+    const queue = [data];
+    while (queue.length) {
+      const item = queue.shift();
+      if (Array.isArray(item)) { queue.push(...item); continue; }
+      if (!item || typeof item !== 'object') continue;
+      if (Array.isArray(item['@graph'])) queue.push(...item['@graph']);
+      const types = Array.isArray(item['@type']) ? item['@type'] : [item['@type']];
+      if (!types.includes('VideoObject')) continue;
+      const country = item.countryOfOrigin?.name || item.countryOfOrigin
+        || item.contentLocation?.address?.addressCountry
+        || item.contentLocation?.addressCountry;
+      const code = normalizeMediaCountry(typeof country === 'object' ? country?.name : country);
+      if (code) return code;
+    }
+  }
+  return null;
+}
+
+function normalizeItem({ title, link, description, image, video, country }, base) {
   const url = safeItemUrl(link, base);
   if (!title || !url) return null;
   const media = safeItemUrl(image, base);
@@ -130,6 +173,7 @@ function normalizeItem({ title, link, description, image, video }, base) {
     description: String(description || '').slice(0, 1000),
     image: media && media.startsWith('https:') ? media : null,
     video: movie && movie.startsWith('https:') ? movie : null,
+    country: normalizeMediaCountry(country),
   };
 }
 
@@ -174,6 +218,7 @@ export function parseFeedItems(xml, base) {
       description: tag(block, 'description') || tag(block, 'summary') || tag(block, 'content'),
       image: foundMedia.image || imageFromTag(block),
       video: foundMedia.video || videoFromTag(block),
+      country: rssItemCountry(block),
     }, base);
     if (result) items.push(result);
   }
@@ -205,6 +250,7 @@ export function parseWebsiteItems(html, base) {
       description: decode(paragraph),
       image,
       video,
+      country: htmlItemCountry(article),
     }, base);
     if (item) found.push(item);
   }
@@ -220,7 +266,8 @@ export function parseWebsiteItems(html, base) {
     const caption = decode(figure.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i)?.[1] || '');
     const anchor = figure.match(/<a\b[^>]*>/i)?.[0] || '';
     const title = caption || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '') || 'Media';
-    const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image, video, description: '' }, base);
+    const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image, video,
+      country: htmlItemCountry(figure), description: '' }, base);
     if (item) found.push(item);
   }
   if (found.some(item => item.image || item.video)) return found.filter(item => item.image || item.video);
@@ -238,7 +285,8 @@ export function parseWebsiteItems(html, base) {
     const anchor = block.match(/<a\b[^>]*>/i)?.[0] || '';
     const title = attribute(imgTag, 'alt')
       || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '') || 'Photo';
-    const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image }, base);
+    const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image,
+      country: htmlItemCountry(block) }, base);
     if (item) found.push(item);
   }
   if (found.some(item => item.image || item.video)) return found.filter(item => item.image || item.video);
@@ -250,6 +298,7 @@ export function parseWebsiteItems(html, base) {
     const previewTag = html.match(/<video\b[^>]*>/i)?.[0] || '';
     const item = normalizeItem({
       title, link: base, video: directVideo, image: attribute(previewTag, 'poster'),
+      country: htmlItemCountry(html) || videoObjectCountry(html),
     }, base);
     if (item) return [item];
   }
@@ -268,10 +317,10 @@ export async function readWebsiteItems(sourceUrl) {
   const directUrl = validateSourceUrl(sourceUrl).href;
   // Public direct media URLs can be posted without scraping or downloading files.
   if (/\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(directUrl)) {
-    return [{ title: 'Video', url: directUrl, description: '', image: null, video: directUrl }];
+    return [{ title: 'Video', url: directUrl, description: '', image: null, video: directUrl, country: null }];
   }
   if (/\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(directUrl)) {
-    return [{ title: 'Photo', url: directUrl, description: '', image: directUrl, video: null }];
+    return [{ title: 'Photo', url: directUrl, description: '', image: directUrl, video: null, country: null }];
   }
   const first = await downloadWebsite(directUrl);
   if (/<(?:rss|feed)\b/i.test(first.text)) return parseFeedItems(first.text, first.url);
