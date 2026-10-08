@@ -764,8 +764,8 @@ export function buildBuilderEmbeds(state) {
 
 function buildControls(state) {
     // BUILDER_FINAL_CONTROLS_V1: final user-requested five-row layout.
-    const sourceHasLogo = Boolean(state.modifyTarget?.sourceEmbedData?.thumbnail?.url);
-    const hasLogo = !state.removeExistingLogo && (state.showLogo || sourceHasLogo);
+    // Match the Remove control to the logo actually rendered in the live preview.
+    const hasLogo = Boolean(buildPreviewEmbed(state).toJSON().thumbnail?.url);
 
     const titleButton = new ButtonBuilder()
         .setLabel('Edit title & message')
@@ -1165,6 +1165,7 @@ async function editContent(buttonInteraction, state) {
 
     if (!submitted) return;
 
+    await submitted.deferUpdate();
     state.title = submitted.fields.getTextInputValue('simple_embed_title').trim() || null;
     state.message = submitted.fields.getTextInputValue('simple_embed_message').trim() || null;
 
@@ -1201,6 +1202,9 @@ async function editBottomLine(buttonInteraction, state) {
 
     if (!submitted) return;
 
+    // Updating the bot-managed preview does not acknowledge the modal by itself.
+    // Confirm it first so Discord cannot report a false failure after the edit.
+    await submitted.deferUpdate();
     state.bottomLine = submitted.fields.getTextInputValue('simple_embed_footer_text').trim() || null;
 
     await refreshBuilderPreviewOnly(submitted, state);
@@ -1255,9 +1259,11 @@ async function editMedia(buttonInteraction, state) {
         return;
     }
 
-    if (mediaKind === 'video') {
-        await submitted.deferUpdate().catch(() => {});
+    // Discord requires the modal to be acknowledged even though media is edited
+    // through the separate bot-managed Builder preview.
+    await submitted.deferUpdate();
 
+    if (mediaKind === 'video') {
         try {
             const converted = await convertVideoUrlToGif(uploadedMedia.url);
             state.mediaUrl = null;
@@ -1854,11 +1860,13 @@ export default {
                             await editContent(buttonInteraction, state);
                             break;
                         case 'simple_embed_logo':
+                            await buttonInteraction.deferUpdate();
                             state.showLogo = true;
                             state.removeExistingLogo = false;
                             await refreshBuilder(buttonInteraction, state);
                             break;
                         case 'simple_embed_remove_logo':
+                            await buttonInteraction.deferUpdate();
                             state.showLogo = false;
                             state.removeExistingLogo = true;
                             await refreshBuilder(buttonInteraction, state);
@@ -1870,6 +1878,7 @@ export default {
                             await editMedia(buttonInteraction, state);
                             break;
                         case 'simple_embed_clear_media':
+                            await buttonInteraction.deferUpdate();
                             state.mediaUrl = null;
                             state.mediaBuffer = null;
                             state.mediaName = null;
@@ -1938,6 +1947,7 @@ export default {
                             await interaction.deleteReply().catch(() => {});
                             break;
                         case 'simple_embed_reset':
+                            await buttonInteraction.deferUpdate();
                             await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
                             state.title = null;
                             state.message = null;
