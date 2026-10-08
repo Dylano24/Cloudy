@@ -13,6 +13,7 @@ import { reconcileTermsMessage } from "../services/termsMessageService.js";
 import { reconcileStoreTermsMessage } from "../services/storeTermsMessageService.js";
 import { ensureSystemEmbedCatalogs } from "../services/systemEmbedCatalogService.js";
 import { scheduleCloudyLogoMigration } from './cloudyLogoMigrationReady.js';
+import { warmGuildConfigCache } from '../services/config/guildConfig.js';
 
 async function runReadyStep(label, task) {
   try {
@@ -75,6 +76,14 @@ export default {
     startupLog(`Ready! Logged in as ${client.user.tag}`);
     startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
     startupLog(`Loaded ${client.commands.size} commands`);
+
+    // Warm normal config reads without holding up startup or changing saved
+    // values. Slash commands arriving after warm-up avoid a cold DB roundtrip.
+    void warmGuildConfigCache(client)
+      .then(({ attempted, warmed }) => {
+        logger.debug(`[READY] Guild config cache warmed: ${warmed}/${attempted}`);
+      })
+      .catch(error => logger.warn('[READY] Guild config warm-up unavailable:', error));
 
     // Keep the Embed Builder master list synchronized independently from the
     // rest of startup so every static, temporary and runtime embed can appear.
