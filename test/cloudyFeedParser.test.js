@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  validateSourceUrl, publicIp, readResponsePrefix, parseFeedItems, htmlFeedUrl, parseWebsiteItems, readWebsiteItems,
+  validateSourceUrl, publicIp, readResponsePrefix, parseFeedItems, htmlFeedUrl, parseWebsiteItems, readWebsiteItems, normalizeMediaCountry,
 } from '../src/services/cloudyFeedParser.js';
 
 test('accepts public HTTPS pages but rejects local and internal URLs', () => {
@@ -133,4 +133,47 @@ test('continues finding media after text-only articles', () => {
     + '</html>';
   const items = parseWebsiteItems(html, 'https://example.org/gallery');
   assert.ok(items.some(item => item.image === 'https://example.org/uploads/new-photo.jpg'));
+});
+
+test('USA country normalization is exact, not a language or a domain hint', () => {
+  for (const source of ['US', 'USA', 'United States', 'United States of America', '🇺🇸']) {
+    assert.equal(normalizeMediaCountry(source), 'US', source);
+  }
+  for (const source of ['', 'NL', 'Netherlands', 'CA', 'en-US', 'English', 'United Kingdom']) {
+    assert.equal(normalizeMediaCountry(source), null, source);
+  }
+});
+
+test('RSS item country metadata is per post and does not assume a default region', () => {
+  const rss = '<rss><channel><item><title>US clip</title><link>https://example.org/a</link>'
+    + '<country>United States</country><enclosure url="https://example.org/a.mp4" type="video/mp4" /></item>'
+    + '<item><title>Unmarked clip</title><link>https://example.org/b</link>'
+    + '<enclosure url="https://example.org/b.mp4" type="video/mp4" /></item>'
+    + '<item><title>Other clip</title><link>https://example.org/c</link>'
+    + '<country>CA</country><enclosure url="https://example.org/c.mp4" type="video/mp4" /></item>'
+    + '</channel></rss>';
+  const results = parseFeedItems(rss, 'https://example.org/rss');
+  assert.deepEqual(results.map(item => item.country), ['US', null, null]);
+});
+
+test('an HTML gallery identifies USA only from explicit item attributes', () => {
+  const html = '<html><title>Media</title>'
+    + '<figure data-country="USA"><img src="/usa.jpg"><figcaption>USA</figcaption></figure>'
+    + '<figure data-country="DE"><img src="/europe.jpg"><figcaption>Europe</figcaption></figure>'
+    + '</html>';
+  const results = parseWebsiteItems(html, 'https://example.org/media');
+  assert.equal(results.find(x => x.image?.includes('usa.jpg'))?.country, 'US');
+  assert.equal(results.find(x => x.image?.includes('europe.jpg'))?.country, null);
+});
+
+test('a country-tagged video object is accepted but an en-US page locale is not', () => {
+  const html = '<html lang="en-US"><title>Clips</title>'
+    + '<script type="application/ld+json">'
+    + '{"@type":"VideoObject","name":"US clip","countryOfOrigin":{"name":"United States"}}'
+    + '</script><video src="/us.mp4"></video></html>';
+  const results = parseWebsiteItems(html, 'https://example.org/clip');
+  assert.equal(results[0].country, 'US');
+  const other = parseWebsiteItems('<html lang="en-US"><title>Clip</title><video src="/x.mp4"></video></html>',
+    'https://example.org/clip');
+  assert.equal(other[0].country, null);
 });
