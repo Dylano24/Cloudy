@@ -762,9 +762,9 @@ export function buildBuilderEmbeds(state) {
     return [new EmbedBuilder(previewData), controlEmbed];
 }
 
-function buildControls(state) {
+export function buildControls(state) {
     // BUILDER_FINAL_CONTROLS_V1: final user-requested five-row layout.
-    // Match the Remove control to the logo actually rendered in the live preview.
+    // Both logo controls follow the thumbnail actually visible in the preview.
     const hasLogo = Boolean(buildPreviewEmbed(state).toJSON().thumbnail?.url);
 
     const titleButton = new ButtonBuilder()
@@ -787,7 +787,7 @@ function buildControls(state) {
             .setLabel('Add logo')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('☁️')
-            .setDisabled(state.showLogo && !state.removeExistingLogo),
+            .setDisabled(hasLogo),
         new ButtonBuilder()
             .setCustomId('simple_embed_remove_logo')
             .setLabel('Remove logo')
