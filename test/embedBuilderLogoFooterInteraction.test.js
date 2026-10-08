@@ -125,6 +125,7 @@ test('Existing embed with a visible thumbnail always permits Remove logo', () =>
 
   state.showLogo = true;
   state.removeExistingLogo = false;
+  state.logoTouched = true;
   assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
   assertLogoButtons(state, { canAdd: false, canRemove: true });
 });
