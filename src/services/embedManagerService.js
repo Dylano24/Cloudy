@@ -1840,9 +1840,9 @@ function applyStateToExistingEmbed(state) {
     }
     data.color = state.sideColor;
 
-    if (state.removeExistingLogo || !state.showLogo) {
+    if (state.removeExistingLogo || (state.logoTouched && !state.showLogo)) {
         delete data.thumbnail;
-    } else if (state.logoTouched) {
+    } else if (state.logoTouched && state.showLogo) {
         data.thumbnail = { url: CLOUDY_LOGO_URL };
     } else if (target?.previewSourceData) {
         // Keep the thumbnail actually displayed when Search/Modify was opened,
