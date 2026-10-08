@@ -17,7 +17,7 @@ test('Embed Builder preloads only registry data and invalidates it after mutatio
   assert.match(openBody, /includeBotHistory: false/);
 });
 
-test('local Builder state changes refresh preview and dashboard without a defer round-trip', () => {
+test('local Builder state changes acknowledge Discord before concurrent preview and dashboard edits', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   assert.match(source, /async function editBuilderDashboardMessage/);
   assert.match(source, /function queueBuilderRefresh/);
@@ -30,7 +30,7 @@ test('local Builder state changes refresh preview and dashboard without a defer 
     assert.ok(start >= 0, `missing ${id}`);
     const end = source.indexOf('break;', start);
     const block = source.slice(start, end);
-    assert.doesNotMatch(block, /deferUpdate\(\)/);
+    assert.match(block, /await buttonInteraction\.deferUpdate\(\)/);
     assert.match(block, /refreshBuilder\(buttonInteraction, state\)/);
   }
 });
