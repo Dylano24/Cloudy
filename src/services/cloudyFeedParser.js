@@ -141,7 +141,8 @@ function imageFromTag(html) {
 function videoFromTag(html) {
   const el = String(html || '').match(/<video\b[^>]*>/i)?.[0] || '';
   const source = String(html || '').match(/<source\b[^>]*>/i)?.[0] || '';
-  return attribute(el, 'src') || attribute(source, 'src') || '';
+  return attribute(el, 'src') || attribute(el, 'data-src')
+    || attribute(source, 'src') || attribute(source, 'data-src') || '';
 }
 
 function mediaAttrs(block) {
@@ -224,6 +225,24 @@ export function parseWebsiteItems(html, base) {
   }
   if (found.length) return found;
 
+  // Some public photo galleries use image links rather than figure/article tags.
+  // Ignore navigation graphics, logos, avatars and other non-post images.
+  const images = html.match(/<a\b[^>]*>[\s\S]*?<img\b[^>]*>[\s\S]*?<\/a>/gi) || [];
+  for (const block of images.slice(0, 100)) {
+    const image = imageFromTag(block);
+    if (!/\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(image)) continue;
+    if (/(?:avatar|logo|icon|badge|emoji|sprite|thumbnail-placeholder)/i.test(image)) continue;
+    const imgTag = block.match(/<img\b[^>]*>/i)?.[0] || '';
+    const width = Number(attribute(imgTag, 'width'));
+    if (width > 0 && width < 160) continue;
+    const anchor = block.match(/<a\b[^>]*>/i)?.[0] || '';
+    const title = attribute(imgTag, 'alt')
+      || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '') || 'Photo';
+    const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image }, base);
+    if (item) found.push(item);
+  }
+  if (found.length) return found;
+
   // On a single-video post, the video tag may not be inside an article.
   const directVideo = videoFromTag(html);
   if (directVideo) {
@@ -243,7 +262,15 @@ export function parseWebsiteItems(html, base) {
 }
 
 export async function readWebsiteItems(sourceUrl) {
-  const first = await downloadWebsite(sourceUrl);
+  const directUrl = validateSourceUrl(sourceUrl).href;
+  // Public direct media URLs can be posted without scraping or downloading files.
+  if (/\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(directUrl)) {
+    return [{ title: 'Video', url: directUrl, description: '', image: null, video: directUrl }];
+  }
+  if (/\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(directUrl)) {
+    return [{ title: 'Photo', url: directUrl, description: '', image: directUrl, video: null }];
+  }
+  const first = await downloadWebsite(directUrl);
   if (/<(?:rss|feed)\b/i.test(first.text)) return parseFeedItems(first.text, first.url);
   const alternate = htmlFeedUrl(first.text, first.url);
   if (alternate) {
