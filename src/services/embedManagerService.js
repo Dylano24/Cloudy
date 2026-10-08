@@ -1102,8 +1102,16 @@ export function loadRecordSnapshotIntoState(
             : (Number.isInteger(sourceData?.color)
                 ? sourceData.color
                 : (Number.isInteger(data.color) ? data.color : 0xFFFFFF)));
+    // A manually saved Builder embed owns its thumbnail choice. Never restore
+    // a logo from a preview peer or a similarly named template behind its back.
+    if (record.source === 'embed-builder') {
+        displayThumbnail = data.thumbnail;
+        if (displayThumbnail) displaySourceData.thumbnail = displayThumbnail;
+        else delete displaySourceData.thumbnail;
+    }
     state.showLogo = isCloudyLogoUrl(displayThumbnail?.url);
     state.removeExistingLogo = false;
+    state.logoTouched = false;
     state.bottomLine = footerText || null;
     state.mediaUrl = displayImage?.url || null;
     state.mediaBuffer = null;
@@ -1174,6 +1182,7 @@ function loadEmbedIntoState(state, resolved) {
     state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
     state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);
     state.removeExistingLogo = false;
+    state.logoTouched = false;
     state.bottomLine = footerText || null;
     state.mediaUrl = data.image?.url || null;
     state.mediaBuffer = null;
@@ -2164,6 +2173,7 @@ export async function saveModifiedEmbed(guild, state) {
         state.modifyTarget.sourceEmbedData = current;
         state.modifyTarget.previewSourceData = { ...current };
         state.modifyTarget.cachedMessage = null;
+        liveState.logoTouched = false;
         return {
             ok: true,
             channel: 'Saved templates',
@@ -2272,7 +2282,10 @@ export async function saveModifiedEmbed(guild, state) {
                 editedEmbedData: { description: state.message || undefined, fields: state.embedFields || [] },
                 applyFields: true,
                 preserveRuntimeFieldValues: String(target.templateTitle || '').startsWith('ticket-log:'),
-                applyThumbnail: mediaChanges.thumbnailChanged,
+                // A deliberate Add/Remove logo is authoritative even if the
+                // live embed already happens to match: an older stored
+                // template must not resurrect the opposite logo choice.
+                applyThumbnail: mediaChanges.thumbnailChanged || state.logoTouched === true,
                 applyImage: mediaChanges.imageChanged,
             },
         );
@@ -2335,6 +2348,7 @@ export async function saveModifiedEmbed(guild, state) {
         });
 
     if (!registered) return { ok: false, reason: 'persistence-failed' };
+    liveState.logoTouched = false;
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
 }

@@ -34,7 +34,7 @@ test('local Builder state changes acknowledge Discord before concurrent preview 
     const block = source.slice(start, end);
     assert.match(block, /await buttonInteraction\.deferUpdate\(\)/);
     if (id === 'simple_embed_logo' || id === 'simple_embed_remove_logo') {
-      assert.match(block, /refreshBuilderLogo\(interaction, state\)/);
+      assert.match(block, /refreshBuilderLogo\(buttonInteraction, state\)/);
     } else {
       assert.match(block, /refreshBuilder\(buttonInteraction, state\)/);
     }
