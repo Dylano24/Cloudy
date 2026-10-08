@@ -99,7 +99,7 @@ test('Read reuses the guild member supplied by Discord without an extra API fetc
   assert.deepEqual(channel.overwriteEdits[0].id, f.target.id);
 });
 
-test('second report Read never waits behind slow log updates from the first Read', async () => {
+test('second report Read never waits behind slow presentation updates from the first Read', async () => {
   const f = fixture();
   await f.register();
   const initial = await f.submit('no_sanction');
@@ -116,20 +116,18 @@ test('second report Read never waits behind slow log updates from the first Read
   const gate = new Promise(resolve => { unblock = resolve; });
   let slowLogStarted;
   const slowLog = new Promise(resolve => { slowLogStarted = resolve; });
-  const originalFetch = f.logs.messages.fetch;
-  f.logs.messages.fetch = async id => {
-    if (id === reporterEntry.createdLogId) {
-      slowLogStarted();
-      await gate;
-    }
-    return originalFetch(id);
+  const originalEdit = reporterNotice.edit;
+  reporterNotice.edit = async payload => {
+    slowLogStarted();
+    await gate;
+    return originalEdit(payload);
   };
 
   const firstRead = handleReportCaseControl(first, f.client, ['read', initial.messageId, 'reporter']);
   let secondRead;
   try {
-    // The first report is already persisted and acknowledged but staff-log
-    // refresh is deliberately stuck. The next audience must still progress.
+    // The first report is persisted and acknowledged but notice presentation
+    // is deliberately stuck. The next audience must still progress.
     await slowLog;
     assert.equal(json(first.error.embeds[0]).title, 'Thank you.');
 
