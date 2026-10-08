@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('settings add a default logo only when an existing message has neither a logo nor a footer', () => {
+test('saved Builder logo setting does not add a C logo without explicit user choice', () => {
   const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
   const hydrationFunctions = [
     'export function loadRecordSnapshotIntoState',
     'function loadEmbedIntoState',
   ];
   const expressions = [
-    /state\.showLogo = isCloudyLogoUrl\(displayThumbnail\?\.url\) \|\| \(!displayThumbnail && !data\.footer\?\.text\);/,
-    /state\.showLogo = isCloudyLogoUrl\(data\.thumbnail\?\.url\) \|\| \(!data\.thumbnail && !data\.footer\?\.text\);/,
+    /state\.showLogo = isCloudyLogoUrl\(displayThumbnail\?\.url\);/,
+    /state\.showLogo = isCloudyLogoUrl\(data\.thumbnail\?\.url\);/,
   ];
 
   for (let index = 0; index < hydrationFunctions.length; index += 1) {
