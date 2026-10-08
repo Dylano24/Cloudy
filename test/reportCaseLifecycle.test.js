@@ -35,12 +35,13 @@ function fixture() {
 
 
 
-test('standard footer preserves body, handles plain text and long content without truncation',()=>{
+test('standard footer stays in gray embeds but never alters plain or long text',()=>{
   const preservedFooter = withCloudyFooter({embeds:[{title:'Saved title',description:'Saved text',footer:{text:'old'}}]}).embeds[0].footer;
   assert.equal(preservedFooter.text, 'old');
   assert.equal(preservedFooter.icon_url, undefined);
-  const plain=withCloudyFooter({content:'Hello'});assert.equal(plain.content,`Hello\n\n${CLOUDY_STANDARD_FOOTER}`);assert.deepEqual(withCloudyFooter(plain),plain);
-  const long=withCloudyFooter({content:'x'.repeat(2000)});assert.equal(long.content.length,2000);assert.equal(long.embeds[0].footer.text,CLOUDY_STANDARD_FOOTER);
+  const plain=withCloudyFooter({content:'Hello'});assert.deepEqual(plain,{content:'Hello'});assert.deepEqual(withCloudyFooter(plain),plain);
+  const long=withCloudyFooter({content:'x'.repeat(2000)});assert.equal(long.content.length,2000);assert.equal(long.embeds,undefined);
+  const rich=withCloudyFooter({embeds:[{title:'New gray notice'}]});assert.equal(rich.embeds[0].footer.text,CLOUDY_STANDARD_FOOTER);
 });
 
 test('appeal identity resolves banned username and rejects ambiguous usernames',async()=>{

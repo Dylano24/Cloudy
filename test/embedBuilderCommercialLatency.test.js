@@ -17,11 +17,13 @@ test('Embed Builder preloads only registry data and invalidates it after mutatio
   assert.match(openBody, /includeBotHistory: false/);
 });
 
-test('local Builder state changes refresh preview and dashboard without a defer round-trip', () => {
+test('local Builder state changes acknowledge Discord before concurrent preview and dashboard edits', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   assert.match(source, /async function editBuilderDashboardMessage/);
   assert.match(source, /function queueBuilderRefresh/);
-  assert.match(source, /const previewPromise = editBuilderPreviewMessage\(/);
+  assert.match(source, /const previewPromise = next\.preferOriginalReply/);
+  assert.match(source, /interaction\.editReply\(next\.previewPayload\)/);
+  assert.match(source, /editBuilderPreviewMessage\(state, interaction, next\.previewPayload\)/);
   assert.match(source, /const dashboardPromise = next\.dashboardPayload && state\.builderDashboardMessageId/);
   assert.match(source, /await Promise\.all\(\[/);
 
@@ -30,8 +32,12 @@ test('local Builder state changes refresh preview and dashboard without a defer 
     assert.ok(start >= 0, `missing ${id}`);
     const end = source.indexOf('break;', start);
     const block = source.slice(start, end);
-    assert.doesNotMatch(block, /deferUpdate\(\)/);
-    assert.match(block, /refreshBuilder\(buttonInteraction, state\)/);
+    assert.match(block, /await buttonInteraction\.deferUpdate\(\)/);
+    if (id === 'simple_embed_logo' || id === 'simple_embed_remove_logo') {
+      assert.match(block, /refreshBuilderLogo\(buttonInteraction, state\)/);
+    } else {
+      assert.match(block, /refreshBuilder\(buttonInteraction, state\)/);
+    }
   }
 });
 
