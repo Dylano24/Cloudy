@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { REST } from '@discordjs/rest';
 import { normalizeCloudyMessage } from '../src/services/cloudyBrandingService.js';
-import { withCloudyFooter, installCloudyFooterOutput, CLOUDY_STANDARD_FOOTER } from '../src/utils/cloudyFooter.js';
+import { withCloudyFooter, installCloudyFooterOutput, CLOUDY_STANDARD_FOOTER, registerBuilderPreviewReplyToken, withManualBuilderSaveLogoChoice } from '../src/utils/cloudyFooter.js';
+import { registerBuilderPreviewMessage, unregisterBuilderPreviewMessage } from '../src/utils/builderSessionCleanup.js';
 
 test('message-create normalization does not reintroduce branding beside recipient tags', async () => {
   let edited = false;
@@ -58,6 +59,51 @@ test('Discord REST message and interaction paths keep bare tags without automati
     assert.equal(captured[5].body.embeds[0].title, 'Report action log');
     assert.equal(captured[5].body.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
     assert.match(captured[5].body.embeds[0].thumbnail.url, /cloudy-c-logo/);
+
+    // Regression: the photo-visible C must truly disappear from the original
+    // top preview after Remove logo, without being put back by REST branding.
+    const previewId = '923456789012345679';
+    registerBuilderPreviewMessage(previewId);
+    await rest.request({
+      fullRoute: `/channels/123456789012345678/messages/${previewId}`,
+      method: 'PATCH',
+      body: { embeds: [{ footer: { text: CLOUDY_STANDARD_FOOTER } }] },
+    });
+    assert.equal(captured.at(-1).body.embeds[0].thumbnail, undefined);
+    assert.equal(captured.at(-1).body.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+    unregisterBuilderPreviewMessage(previewId);
+
+    await rest.request({
+      fullRoute: '/channels/123456789012345678/messages',
+      method: 'POST',
+      body: { embeds: [{ title: 'Message builder', footer: { text: CLOUDY_STANDARD_FOOTER } }] },
+    });
+    assert.equal(captured.at(-1).body.embeds[0].thumbnail, undefined, 'dashboard stays logo-free');
+
+    // Manual Save also preserves an explicit no-logo choice, whereas ordinary
+    // bot notifications retain their default branding, including edits.
+    const savedId = '923456789012345680';
+    await withManualBuilderSaveLogoChoice(savedId, () => rest.request({
+      fullRoute: `/channels/123456789012345678/messages/${savedId}`,
+      method: 'PATCH',
+      body: { embeds: [{ title: 'My existing embed', footer: { text: CLOUDY_STANDARD_FOOTER } }] },
+    }));
+    assert.equal(captured.at(-1).body.embeds[0].thumbnail, undefined, 'manual Save must never restore C');
+
+    await rest.request({
+      fullRoute: '/channels/123456789012345678/messages/923456789012345681',
+      method: 'PATCH',
+      body: { embeds: [{ title: 'Ordinary system response', footer: { text: CLOUDY_STANDARD_FOOTER } }] },
+    });
+    assert.match(captured.at(-1).body.embeds[0].thumbnail.url, /cloudy-c-logo/, 'other bot messages keep default logo');
+
+    registerBuilderPreviewReplyToken('builder-preview-token-123');
+    await rest.request({
+      fullRoute: '/interactions/123456789012345678/builder-preview-token-123/callback',
+      method: 'POST',
+      body: { type: 4, data: { embeds: [{ footer: { text: CLOUDY_STANDARD_FOOTER } }] } },
+    });
+    assert.equal(captured.at(-1).body.data.embeds[0].thumbnail, undefined, 'new Builder preview respects logo choice');
   } finally {
     Object.defineProperty(prototype, 'request', original);
   }
