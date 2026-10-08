@@ -181,7 +181,10 @@ export function mediaItemKey(item) {
 }
 
 export async function applyAction(interaction, guild, action, input = {}) {
-  const get = (name) => Object.hasOwn(input, name) ? String(input[name] ?? '').trim() : field(interaction, name);
+  // Channel dropdown updates do not have modal fields. Treat omitted fields as unchanged.
+  const get = (name) => Object.hasOwn(input, name)
+    ? String(input[name] ?? '').trim()
+    : (interaction.isModalSubmit?.() ? field(interaction, name) : '');
   return withGuildLock(interaction.client, guild.id, async () => {
     const feeds = await readFeeds(interaction.client, guild.id);
     const now = Date.now();
