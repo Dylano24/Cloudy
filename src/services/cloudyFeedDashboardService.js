@@ -40,9 +40,11 @@ function keepSessionAlive(session, modalOpen = false) {
   session.timer.unref?.();
 }
 
-function labelHours(minutes) {
-  const hours = minutes / 60;
-  return hours === 1 ? 'Every 1 hour' : 'Every ' + hours + ' hours';
+export function formatAutoMessage(minutes) {
+  const value = Number(minutes);
+  if (!Number.isSafeInteger(value) || value < 1) return 'Unknown';
+  if (value % 60 === 0) return `${value / 60}h`;
+  return `${value}m`;
 }
 
 export function buildCloudyFeedDashboard(guildId, feeds) {
@@ -58,7 +60,7 @@ export function buildCloudyFeedDashboard(guildId, feeds) {
       name: 'Feed ' + feed.id,
       value: '**Source:** ' + feed.source.slice(0, 150)
         + '\n**Channel:** <#' + feed.channelId + '>'
-        + '\n**Auto message:** ' + labelHours(feed.minutes)
+        + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
         + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused'),
     });
   }
@@ -87,20 +89,24 @@ function choiceEmbed(description) {
   return [new EmbedBuilder().setTitle('Cloudy feed').setDescription(description).setColor(0xFFFFFF)];
 }
 
-function channelChooser(session, edit = false) {
+export function channelChooser(session, edit = false) {
   const picker = new ChannelSelectMenuBuilder()
     .setCustomId(PREFIX + 'channel:' + session.id)
     .setPlaceholder('Select a channel')
     .setMinValues(1)
     .setMaxValues(1)
     .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
-  const components = [new ActionRowBuilder().addComponents(picker)];
+  const buttons = [];
   if (edit) {
-    components.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(PREFIX + 'keep:' + session.id)
-        .setLabel('Keep current channel').setStyle(ButtonStyle.Secondary),
-    ));
+    buttons.push(new ButtonBuilder().setCustomId(PREFIX + 'keep:' + session.id)
+      .setLabel('Keep current channel').setStyle(ButtonStyle.Secondary));
   }
+  buttons.push(new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id)
+    .setLabel('Back').setStyle(ButtonStyle.Secondary));
+  const components = [
+    new ActionRowBuilder().addComponents(picker),
+    new ActionRowBuilder().addComponents(buttons),
+  ];
   return {
     embeds: choiceEmbed('Select the channel where Cloudy should post.'),
     components,
@@ -108,7 +114,7 @@ function channelChooser(session, edit = false) {
   };
 }
 
-function feedChooser(session, feeds) {
+export function feedChooser(session, feeds) {
   const options = feeds.slice(0, 5).map(feed => ({
     label: 'Feed ' + feed.id,
     description: String(feed.source).slice(0, 95),
@@ -120,7 +126,13 @@ function feedChooser(session, feeds) {
     .addOptions(options);
   return {
     embeds: choiceEmbed('Select the feed you want to manage.'),
-    components: [new ActionRowBuilder().addComponents(menu)],
+    components: [
+      new ActionRowBuilder().addComponents(menu),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id)
+          .setLabel('Back').setStyle(ButtonStyle.Secondary),
+      ),
+    ],
     allowedMentions: { parse: [] },
   };
 }
@@ -143,22 +155,25 @@ function feedModal(session) {
     .setTitle(editing ? 'Edit feed' : 'Add feed');
   return modal.addComponents(
     input('source', 'Website URL', !editing, 'https://example.com', editing ? session.feed?.source : ''),
-    input('hours', 'Auto message (hours)', !editing, '2', editing ? String(session.feed.minutes / 60) : ''),
+    input('duration', 'Auto message', !editing, '1m or 1h', editing ? formatAutoMessage(session.feed.minutes) : ''),
     input('adult', '18+ content', false, 'yes / no', editing ? (session.feed.adult ? 'yes' : 'no') : ''),
   );
 }
 
-export function hoursToMinutes(value, fallback) {
-  const trimmed = String(value || '').trim();
+export function parseAutoMessageTime(value, fallback) {
+  const trimmed = String(value || '').trim().toLowerCase();
   if (!trimmed) {
     if (fallback !== undefined) return fallback;
-    throw new Error('Enter Auto message in hours.');
+    throw new Error('Enter Auto message, for example 1m or 1h.');
   }
-  const number = Number(trimmed);
-  if (!Number.isSafeInteger(number) || number < 1 || number > 168) {
-    throw new Error('Auto message must be between 1 and 168 hours.');
+  const match = /^(\d+)(m|h)$/.exec(trimmed);
+  if (!match) throw new Error('Use 1m for minutes or 1h for hours.');
+  const number = Number(match[1]);
+  const minutes = match[2] === 'h' ? number * 60 : number;
+  if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 10080) {
+    throw new Error('Auto message must be between 1m and 168h.');
   }
-  return number * 60;
+  return minutes;
 }
 
 async function findOwnerGuild(client, guildId, userId) {
@@ -241,6 +256,23 @@ export async function handleCloudyFeedControls(interaction, client) {
   keepSessionAlive(session);
 
   try {
+    if (type === 'back' && interaction.isButton()) {
+      const feeds = await readFeeds(client, session.guildId);
+      if (session.action === 'edit' && session.feed) {
+        // From channel selection, go back to the feed selector.
+        session.feed = null;
+        session.channelId = null;
+        await interaction.update(feedChooser(session, feeds));
+      } else {
+        // From a feed selector or the Add feed channel selector, go home.
+        session.action = null;
+        session.feed = null;
+        session.channelId = null;
+        await interaction.update(dashboardForSession(session, feeds));
+      }
+      return true;
+    }
+
     if (type === 'button' && interaction.isButton()) {
       if (!['add', 'edit', 'pause', 'delete'].includes(value)) {
         await silentAck(interaction);
@@ -306,9 +338,9 @@ export async function handleCloudyFeedControls(interaction, client) {
       session.modalOpen = false;
       keepSessionAlive(session);
       const source = interaction.fields.getTextInputValue('source').trim();
-      const hours = interaction.fields.getTextInputValue('hours').trim();
+      const duration = interaction.fields.getTextInputValue('duration').trim();
       const adult = interaction.fields.getTextInputValue('adult').trim();
-      const minutes = hoursToMinutes(hours, session.action === 'edit' ? session.feed?.minutes : undefined);
+      const minutes = parseAutoMessageTime(duration, session.action === 'edit' ? session.feed?.minutes : undefined);
       const data = {
         source, minutes: String(minutes), adult,
         channel: session.channelId,

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  validateSourceUrl, publicIp, parseFeedItems, htmlFeedUrl, parseWebsiteItems,
+  validateSourceUrl, publicIp, readResponsePrefix, parseFeedItems, htmlFeedUrl, parseWebsiteItems,
 } from '../src/services/cloudyFeedParser.js';
 
 test('accepts public HTTPS pages but rejects local and internal URLs', () => {
@@ -46,4 +46,32 @@ test('extracts randomizable individual website articles', () => {
   assert.deepEqual(parseWebsiteItems(html, 'https://example.org/').map(item => item.url), [
     'https://example.org/first', 'https://example.org/second',
   ]);
+});
+
+test('reads website responses larger than the previous 1 MB limit', async () => {
+  const data = new TextEncoder().encode('<html><title>Large site</title>' + ' '.repeat(1_500_000) + '</html>');
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    },
+  });
+  const result = await readResponsePrefix(stream);
+  assert.equal(result.truncated, false);
+  assert.equal(result.text.length, data.byteLength);
+  assert.match(result.text, /^<html><title>Large site/);
+});
+
+test('limits oversized HTML to a bounded prefix without throwing', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('<article><h2>News</h2><a href="/news">Read</a></article>' + 'x'.repeat(200)));
+    },
+    cancel() { cancelled = true; },
+  });
+  const result = await readResponsePrefix(stream, 128);
+  assert.equal(result.truncated, true);
+  assert.ok(result.text.length <= 128);
+  assert.equal(cancelled, true);
 });

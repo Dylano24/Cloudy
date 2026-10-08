@@ -2,7 +2,9 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
 
-const MAX_BODY_BYTES = 1_000_000;
+// Large websites can exceed 1 MB in markup alone. Read a bounded prefix
+// rather than rejecting useful articles when the rest of the page is huge.
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
 export function validateSourceUrl(input) {
   let url;
@@ -55,17 +57,42 @@ export async function downloadWebsite(raw, hops = 0) {
   if (type && !/(text\/html|application\/xhtml|xml|rss|atom)/.test(type)) {
     throw new Error('Website must provide an HTML, RSS or Atom page.');
   }
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of response.body || []) {
-    size += chunk.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      await response.body.cancel().catch(() => {});
-      throw new Error('Website response is too large.');
-    }
-    chunks.push(Buffer.from(chunk));
+  const { text, truncated } = await readResponsePrefix(response.body);
+  return { url: url.href, text, truncated };
+}
+
+// Download only a bounded portion, even if a site serves arbitrarily large HTML.
+// The prefix often contains the site's RSS link or several complete articles.
+// Cancel the remaining stream to avoid excess bandwidth and memory usage.
+export async function readResponsePrefix(body, limitBytes = MAX_BODY_BYTES) {
+  if (!body) return { text: '', truncated: false };
+  if (!Number.isSafeInteger(limitBytes) || limitBytes < 1 || limitBytes > MAX_BODY_BYTES) {
+    throw new Error('Invalid website read limit.');
   }
-  return { url: url.href, text: Buffer.concat(chunks).toString('utf8') };
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let remaining = limitBytes;
+  let truncated = false;
+  try {
+    while (remaining > 0) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      const taken = Math.min(value.byteLength, remaining);
+      chunks.push(decoder.decode(value.subarray(0, taken), { stream: true }));
+      remaining -= taken;
+      if (taken < value.byteLength) {
+        truncated = true;
+        break;
+      }
+    }
+    if (remaining === 0) truncated = true;
+    if (truncated) await reader.cancel().catch(() => {});
+    return { text: chunks.join('') + decoder.decode(), truncated };
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function decode(value) {
