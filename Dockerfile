@@ -4,7 +4,8 @@ WORKDIR /usr/src/app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache ffmpeg
+# Media extraction stays in the existing bot container; no extra Railway service.
+RUN apk add --no-cache ffmpeg yt-dlp gallery-dl
 
 COPY package*.json ./
 RUN npm ci --omit=dev
