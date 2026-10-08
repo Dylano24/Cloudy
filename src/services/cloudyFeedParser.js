@@ -119,16 +119,43 @@ function safeItemUrl(value, base) {
   } catch { return null; }
 }
 
-function normalizeItem({ title, link, description, image }, base) {
+function normalizeItem({ title, link, description, image, video }, base) {
   const url = safeItemUrl(link, base);
   if (!title || !url) return null;
   const media = safeItemUrl(image, base);
+  const movie = safeItemUrl(video, base);
   return {
     title: String(title).slice(0, 250),
     url,
     description: String(description || '').slice(0, 1000),
     image: media && media.startsWith('https:') ? media : null,
+    video: movie && movie.startsWith('https:') ? movie : null,
   };
+}
+
+function imageFromTag(html) {
+  const el = String(html || '').match(/<(?:img|source)\b[^>]*>/i)?.[0] || '';
+  return attribute(el, 'data-src') || attribute(el, 'src') || '';
+}
+
+function videoFromTag(html) {
+  const el = String(html || '').match(/<video\b[^>]*>/i)?.[0] || '';
+  const source = String(html || '').match(/<source\b[^>]*>/i)?.[0] || '';
+  return attribute(el, 'src') || attribute(source, 'src') || '';
+}
+
+function mediaAttrs(block) {
+  const tags = block.match(/<(?:media:content|media:thumbnail|enclosure)\b[^>]*>/gi) || [];
+  const media = { image: '', video: '' };
+  for (const t of tags) {
+    const url = attribute(t, 'url');
+    const mime = (attribute(t, 'type') || attribute(t, 'medium')).toLowerCase();
+    const isVideo = /^video\b/.test(mime) || /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(url);
+    const isImage = /^image\b/.test(mime) || /<media:thumbnail\b/i.test(t) || /\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(url);
+    if (isVideo && !media.video) media.video = url;
+    if (isImage && !media.image) media.image = url;
+  }
+  return media;
 }
 
 export function parseFeedItems(xml, base) {
@@ -139,12 +166,13 @@ export function parseFeedItems(xml, base) {
     const atomLink = atom
       ? (block.match(/<link\b[^>]*?\brel\s*=\s*['"]alternate['"][^>]*>/i)?.[0] || block.match(/<link\b[^>]*>/i)?.[0] || '')
       : '';
-    const imageNode = block.match(/<(?:media:content|media:thumbnail|enclosure)\b[^>]*>/i)?.[0] || '';
+    const foundMedia = mediaAttrs(block);
     const result = normalizeItem({
       title: tag(block, 'title'),
       link: atom ? attribute(atomLink, 'href') || tag(block, 'id') : tag(block, 'link') || tag(block, 'guid'),
       description: tag(block, 'description') || tag(block, 'summary') || tag(block, 'content'),
-      image: attribute(imageNode, 'url') || attribute(block.match(/<img\b[^>]*>/i)?.[0] || '', 'src'),
+      image: foundMedia.image || imageFromTag(block),
+      video: foundMedia.video || videoFromTag(block),
     }, base);
     if (result) items.push(result);
   }
@@ -168,16 +196,45 @@ export function parseWebsiteItems(html, base) {
     const anchor = article.match(/<a\b[^>]*href\s*=\s*['"][^'"]+['"][^>]*>/i)?.[0] || '';
     const heading = article.match(/<h[1-4]\b[^>]*>([\s\S]*?)<\/h[1-4]>/i)?.[1] || '';
     const paragraph = article.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] || '';
-    const image = article.match(/<img\b[^>]*>/i)?.[0] || '';
+    const image = imageFromTag(article);
+    const video = videoFromTag(article);
     const item = normalizeItem({
       title: decode(heading),
       link: attribute(anchor, 'href'),
       description: decode(paragraph),
-      image: attribute(image, 'src'),
+      image,
+      video,
     }, base);
     if (item) found.push(item);
   }
   if (found.length) return found;
+
+  // A gallery can contain photos or videos in figure blocks rather than
+  // article blocks. Do not treat navigation icons, avatars or branding as posts.
+  const figures = html.match(/<figure\b[\s\S]*?<\/figure>/gi) || [];
+  for (const figure of figures.slice(0, 100)) {
+    const image = imageFromTag(figure);
+    const video = videoFromTag(figure);
+    if (!image && !video) continue;
+    const caption = decode(figure.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i)?.[1] || '');
+    const anchor = figure.match(/<a\b[^>]*>/i)?.[0] || '';
+    const title = caption || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '') || 'Media';
+    const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image, video, description: '' }, base);
+    if (item) found.push(item);
+  }
+  if (found.length) return found;
+
+  // On a single-video post, the video tag may not be inside an article.
+  const directVideo = videoFromTag(html);
+  if (directVideo) {
+    const title = decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '') || 'Video';
+    const previewTag = html.match(/<video\b[^>]*>/i)?.[0] || '';
+    const item = normalizeItem({
+      title, link: base, video: directVideo, image: attribute(previewTag, 'poster'),
+    }, base);
+    if (item) return [item];
+  }
+
   // Plain webpages without article lists are a single post, never scraped as arbitrary media.
   const og = html.match(/<meta\b[^>]*property\s*=\s*['"]og:title['"][^>]*>/i)?.[0] || '';
   const title = attribute(og, 'content') || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '');
