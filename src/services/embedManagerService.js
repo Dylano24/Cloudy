@@ -1102,7 +1102,7 @@ export function loadRecordSnapshotIntoState(
             : (Number.isInteger(sourceData?.color)
                 ? sourceData.color
                 : (Number.isInteger(data.color) ? data.color : 0xFFFFFF)));
-    state.showLogo = isCloudyLogoUrl(displayThumbnail?.url) || (!displayThumbnail && !data.footer?.text);
+    state.showLogo = isCloudyLogoUrl(displayThumbnail?.url);
     state.removeExistingLogo = false;
     state.bottomLine = footerText || null;
     state.mediaUrl = displayImage?.url || null;
@@ -1172,7 +1172,7 @@ function loadEmbedIntoState(state, resolved) {
         }))
         : [];
     state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
-    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url) || (!data.thumbnail && !data.footer?.text);
+    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url);
     state.removeExistingLogo = false;
     state.bottomLine = footerText || null;
     state.mediaUrl = data.image?.url || null;
