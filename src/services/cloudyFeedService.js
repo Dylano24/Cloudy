@@ -18,7 +18,7 @@ function storageKey(guildId) {
   return 'guild:' + guildId + ':cloudy:feeds';
 }
 
-async function readFeeds(client, guildId) {
+export async function readFeeds(client, guildId) {
   const data = await client.db.get(storageKey(guildId), []);
   return Array.isArray(data) ? data : [];
 }
@@ -170,22 +170,23 @@ function field(interaction, name) {
   return interaction.fields.getTextInputValue(name).trim();
 }
 
-async function applyAction(interaction, guild, action) {
+export async function applyAction(interaction, guild, action, input = {}) {
+  const get = (name) => Object.hasOwn(input, name) ? String(input[name] ?? '').trim() : field(interaction, name);
   return withGuildLock(interaction.client, guild.id, async () => {
     const feeds = await readFeeds(interaction.client, guild.id);
     const now = Date.now();
     if (action === 'add') {
       if (feeds.length >= MAX_FEEDS) throw new Error('Maximum five feeds per server.');
-      const source = validateSourceUrl(field(interaction, 'source')).href;
-      const minutes = parseMinutes(field(interaction, 'minutes'));
-      const adult = parseAdult(field(interaction, 'adult'));
-      const channel = await validateChannel(guild, field(interaction, 'channel'), adult);
+      const source = validateSourceUrl(get('source')).href;
+      const minutes = parseMinutes(get('minutes'));
+      const adult = parseAdult(get('adult'));
+      const channel = await validateChannel(guild, get('channel'), adult);
       const items = await readWebsiteItems(source);
       if (!items.length) throw new Error('No posts found. This website may require a supported RSS feed or API.');
       const id = randomUUID().slice(0, 8);
       feeds.push({ id, source, channelId: channel.id, minutes, adult, active: true, nextAt: now + minutes * 60_000, recentUrls: [] });
     } else {
-      const id = field(interaction, 'feedId');
+      const id = get('feedId');
       const feed = feeds.find(value => value.id === id);
       if (!feed) throw new Error('No feed found with that ID.');
       if (action === 'delete') {
@@ -194,11 +195,11 @@ async function applyAction(interaction, guild, action) {
         feed.active = !feed.active;
         feed.nextAt = now + feed.minutes * 60_000;
       } else if (action === 'edit') {
-        const newUrl = field(interaction, 'source');
+        const newUrl = get('source');
         const source = newUrl ? validateSourceUrl(newUrl).href : feed.source;
-        const minutes = field(interaction, 'minutes') ? parseMinutes(field(interaction, 'minutes')) : feed.minutes;
-        const adult = parseAdult(field(interaction, 'adult'), feed.adult);
-        const channel = await validateChannel(guild, field(interaction, 'channel') || feed.channelId, adult);
+        const minutes = get('minutes') ? parseMinutes(get('minutes')) : feed.minutes;
+        const adult = parseAdult(get('adult'), feed.adult);
+        const channel = await validateChannel(guild, get('channel') || feed.channelId, adult);
         if (source !== feed.source) {
           const items = await readWebsiteItems(source);
           if (!items.length) throw new Error('No posts found at the new website.');
