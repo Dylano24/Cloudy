@@ -77,7 +77,7 @@ export function feedEmbedBase() {
 export function buildCloudyFeedDashboard(guildId, feeds) {
   const embed = feedEmbedBase()
     .setTitle('Cloudy feed')
-    .setDescription('Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.');
+    .setDescription('Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.\n\u200B');
 
 
   const row = new ActionRowBuilder().addComponents(
@@ -110,7 +110,6 @@ export function feedDetail(session, feed) {
     .addFields({
       name: readableFeedName(feed),
       value: '**Source:** ' + feed.source.slice(0, 250)
-        + '\n━━━━━━━━━━━━━━━━━━━━'
         + '\n**Channel:** <#' + feed.channelId + '>'
         + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
         + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
@@ -209,23 +208,17 @@ export function feedModal(session) {
     .setTitle(editing ? 'Edit feed' : 'Add feed');
   if (!editing) {
     return modal.addComponents(
-      input('name', 'Feed name', false, 'Erome', ''),
+      input('name', 'Feed name', false, 'Enter feed name', ''),
       input('source', 'Website URL', true, 'https://example.com', ''),
       input('duration', 'Auto message', true, '1m or 1h', ''),
       input('adult', '18+ content', false, 'yes / no', ''),
     );
   }
-  const channel = new ChannelSelectMenuBuilder()
-    .setCustomId('feedChannel')
-    .setPlaceholder('Keep current channel')
-    .setMinValues(0).setMaxValues(1).setRequired(false)
-    .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
   return modal.addLabelComponents(
-    textLabel('name', 'Feed name', false, 'Erome', readableFeedName(session.feed)),
+    textLabel('name', 'Feed name', false, 'Enter feed name', readableFeedName(session.feed)),
     textLabel('source', 'Website URL', false, 'https://example.com', session.feed?.source),
     textLabel('duration', 'Auto message', false, '1m or 1h', formatAutoMessage(session.feed.minutes)),
     textLabel('adult', '18+ content', false, 'yes / no', session.feed.adult ? 'yes' : 'no'),
-    new LabelBuilder().setLabel('Channel (optional)').setChannelSelectMenuComponent(channel),
   );
 }
 
@@ -433,11 +426,9 @@ export async function handleCloudyFeedControls(interaction, client) {
       const duration = interaction.fields.getTextInputValue('duration').trim();
       const adult = interaction.fields.getTextInputValue('adult').trim();
       const minutes = parseAutoMessageTime(duration, session.action === 'edit' ? session.feed?.minutes : undefined);
-      const selectedChannel = session.action === 'edit'
-        ? interaction.fields.getSelectedChannels('feedChannel')?.first()?.id : null;
       const data = {
         name, source, minutes: String(minutes), adult,
-        channel: selectedChannel || session.channelId,
+        channel: session.channelId,
         ...(session.action === 'edit' ? { feedId: session.feed.id } : {}),
       };
       const feeds = await applyAction(interaction, guild, session.action, data);
