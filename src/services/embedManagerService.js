@@ -1748,6 +1748,17 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 ]);
                 if (selectionVersion !== session.selectionVersion) return;
                 if (loadedFromSnapshot) {
+                    // A registry snapshot may be older than the actual visible
+                    // thumbnail. Update only this Builder's logo, never its
+                    // other fields or any saved Discord embed.
+                    const selectedTarget = state.modifyTarget;
+                    void syncBuilderLogoFromLiveMessage(guild, state)
+                        .then(changed => changed && selectionVersion === session.selectionVersion
+                            && state.modifyTarget === selectedTarget
+                            ? refreshBuilder() : null)
+                        .catch(error => logger.warn(
+                            `[EMBED_BUILDER] Live logo read failed: ${error?.message || error}`,
+                        ));
                     void refreshSelectedBuilderComponents(guild, state, refreshBuilder, messageId);
                 }
             })().catch(error => {
