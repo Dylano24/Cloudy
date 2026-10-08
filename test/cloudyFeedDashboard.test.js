@@ -12,20 +12,23 @@ test('Cloudy feed slash command uses /auto feed and default disabled visibility'
   assert.equal(data.options[0].type, ApplicationCommandOptionType.Subcommand);
 });
 
-test('Cloudy feed dashboard keeps exact copy and shows named feeds with manage button', () => {
-  const result = buildCloudyFeedDashboard('1532882647838228723', [{
-    id: 'aabbccdd', source: 'https://example.org/feed', channelId: '1532882647838228724',
-    minutes: 120, active: true, recentUrls: [],
-  }]);
-  const embed = result.embeds[0].toJSON();
-  assert.equal(embed.title, 'Cloudy feed');
-  assert.equal(embed.description, 'Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.');
-  assert.match(embed.fields[0].value, /Auto message:\*\* 2h/);
-  assert.doesNotMatch(embed.fields[0].value, /Duplicates|Random posts|Channel ID/);
-  const buttons = result.components[0].components;
-  assert.deepEqual(buttons.map(button => button.data.label), ['Add feed', 'Manage feed']);
-  assert.match(embed.fields[0].name, /Example/);
-  assert.match(embed.fields[0].value, /Source check/);
+test('Cloudy feed main embed only shows its original title and description', () => {
+  const feed = {
+    id: 'aabbccdd', name: 'Pornhub', source: 'https://nl.pornhub.com/',
+    channelId: '1532882647838228724', minutes: 120, active: true,
+    lastError: 'No matching media found',
+  };
+  for (const feeds of [[], [feed]]) {
+    const result = buildCloudyFeedDashboard('1532882647838228723', feeds);
+    const embed = result.embeds[0].toJSON();
+    assert.equal(embed.title, 'Cloudy feed');
+    assert.equal(embed.description,
+      'Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.');
+    assert.equal(embed.fields, undefined, 'No source/channel/timer/status in main dashboard');
+    const buttons = result.components[0].components;
+    assert.deepEqual(buttons.map(button => button.data.label), ['Add feed', 'Manage feed']);
+    assert.equal(buttons[1].data.disabled, feeds.length === 0);
+  }
 });
 
 test('Auto message accepts minutes and hours from 1m through 168h', () => {
@@ -46,11 +49,11 @@ test('Auto message displays short duration units', () => {
   assert.equal(formatAutoMessage(60), '1h');
   assert.equal(formatAutoMessage(120), '2h');
   assert.equal(formatAutoMessage(90), '90m');
-  const embed = buildCloudyFeedDashboard('1532882647838228723', [{
+  const detail = feedDetail({ id: 'abc123' }, {
     id: 'aabbccdd', source: 'https://example.org/feed', channelId: '1532882647838228724',
     minutes: 1, active: true,
-  }]).embeds[0].toJSON();
-  assert.match(embed.fields[0].value, /Auto message:\*\* 1m/);
+  }).embeds[0].toJSON();
+  assert.match(detail.fields[0].value, /Auto message:\*\* 1m/);
 });
 
 test('channel picker has a Back button for new feeds and edit feeds', () => {
@@ -88,12 +91,12 @@ test('selected feed detail displays full source, channel, interval and dynamic p
   assert.match(card, /5m/);
   assert.match(card, /No supported photos or videos found/);
   assert.deepEqual(active.components[0].components.map(button => button.data.label),
-    ['Edit feed', 'Pause feed', 'Delete feed', 'Back']);
-  assert.equal(active.components[0].components[1].data.style, ButtonStyle.Primary);
+    ['Edit feed', 'Change channel', 'Pause feed', 'Delete feed', 'Back']);
+  assert.equal(active.components[0].components[2].data.style, ButtonStyle.Primary);
 
   const paused = feedDetail(session, { ...feed, active: false });
-  assert.equal(paused.components[0].components[1].data.label, 'Resume feed');
-  assert.equal(paused.components[0].components[1].data.style, ButtonStyle.Success);
+  assert.equal(paused.components[0].components[2].data.label, 'Resume feed');
+  assert.equal(paused.components[0].components[2].data.style, ButtonStyle.Success);
 });
 
 test('feed chooser shows a readable name and destination channel', () => {
