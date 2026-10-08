@@ -1083,6 +1083,14 @@ export function loadRecordSnapshotIntoState(
     const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
     const templateKind = stableSystemTemplateKind(sourceData || {})
         || stableSystemTemplateKind(data);
+    // A cached registry thumbnail is not proof of what Discord currently
+    // displays. Track the exact selected physical message for a read-only
+    // reconciliation whenever an existing Builder is opened or saved.
+    const liveLogoRecord = record.source === 'embed-builder'
+        ? record
+        : (previewRecord && !previewRecord.detached
+            && !['system-catalog', 'runtime-preview'].includes(String(previewRecord.source || '').toLowerCase())
+            ? previewRecord : record);
 
     state.title = templateKind === 'content' ? null : (displayTitle || null);
     state.message = displayDescription || null;
@@ -1131,6 +1139,11 @@ export function loadRecordSnapshotIntoState(
         sourceEmbedData: data,
         templateSourceData,
         previewSourceData: displaySourceData,
+        liveLogoSource: {
+            channelId: String(liveLogoRecord.backingChannelId || liveLogoRecord.channelId || ''),
+            messageId: String(liveLogoRecord.messageId || ''),
+            embedIndex: Math.max(0, Number(liveLogoRecord.embedIndex) || 0),
+        },
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: record.canonicalIdentity || templateRule?.key || templateIdentity(
@@ -1142,6 +1155,39 @@ export function loadRecordSnapshotIntoState(
         detached: Boolean(record.detached),
         cachedMessage: null,
     };
+    return true;
+}
+
+/**
+ * Read the thumbnail from the selected physical Discord message. Registry and
+ * Search snapshots can lag a user-saved embed. Never write to Discord here.
+ * Never override an explicit Add/Remove decision in this Builder session.
+ */
+export async function syncBuilderLogoFromLiveMessage(guild, state) {
+    const target = state?.modifyTarget;
+    const location = target?.liveLogoSource;
+    if (!guild || !location?.channelId || !location?.messageId || state.logoTouched) return false;
+
+    const channel = guild.channels.cache?.get?.(location.channelId)
+        || await guild.channels.fetch?.(location.channelId).catch(() => null);
+    if (!channel?.messages?.fetch) return false;
+    const message = await channel.messages.fetch(location.messageId).catch(() => null);
+    const selectedEmbed = message?.embeds?.[location.embedIndex] || null;
+    if (!selectedEmbed || target !== state.modifyTarget || state.logoTouched) return false;
+
+    const embedData = selectedEmbed.toJSON?.() || selectedEmbed;
+    const logoUrl = embedData?.thumbnail?.url || null;
+    const previewSource = target.previewSourceData || target.sourceEmbedData || {};
+    const previousUrl = previewSource.thumbnail?.url || null;
+    const changed = previousUrl !== logoUrl || state.showLogo !== Boolean(logoUrl);
+    if (!changed) return false;
+
+    const nextPreview = { ...previewSource };
+    if (logoUrl) nextPreview.thumbnail = { url: logoUrl };
+    else delete nextPreview.thumbnail;
+    target.previewSourceData = nextPreview;
+    state.showLogo = Boolean(logoUrl);
+    state.removeExistingLogo = false;
     return true;
 }
 
@@ -1200,6 +1246,11 @@ function loadEmbedIntoState(state, resolved) {
         embedIndex: Number(record.embedIndex || 0),
         source: record.source || 'cloudy',
         sourceEmbedData: data,
+        liveLogoSource: {
+            channelId: String(channel.id),
+            messageId: String(message.id),
+            embedIndex: Math.max(0, Number(record.embedIndex) || 0),
+        },
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
@@ -2169,6 +2220,12 @@ function queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, c
 export async function saveModifiedEmbed(guild, state) {
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
+    // Read the actual selected message before Save when no logo button was
+    // pressed. This prevents a stale registry thumbnail being restored by a
+    // seemingly unrelated Save.
+    if (state?.modifyTarget && !state.logoTouched) {
+        await syncBuilderLogoFromLiveMessage(guild, state);
+    }
     const liveState = state;
     state = { ...state, embedFields: state.embedFields?.map(field => ({ ...field })) };
     const target = state.modifyTarget;
