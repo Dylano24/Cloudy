@@ -43,6 +43,12 @@ export function unregisterBuilderPreviewMessage(message) {
   return builderPreviewMessageIds.delete(id);
 }
 
+// The REST branding layer needs to recognize the exact temporary top preview
+// so a deliberately absent logo is not silently added back on edit.
+export function isRegisteredBuilderPreviewMessageId(messageId) {
+  return builderPreviewMessageIds.has(String(messageId || '').trim());
+}
+
 export function isBuilderSessionMessage(message) {
   const id = String(message?.id || '').trim();
   if (id && builderPreviewMessageIds.has(id)) return true;

@@ -5,6 +5,7 @@ import {
     balanceResponseIdentity,
     isLegacyBalanceParserArtifact } from './balanceResponseIdentity.js';
 import { normalizeManualIndent } from '../utils/manualEmbedIndent.js';
+import { withManualBuilderSaveLogoChoice } from '../utils/cloudyFooter.js';
 import { isBuilderSessionMessage, linkBuilderSessionMessages, registerBuilderSessionCollector, touchBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import {
     ActionRowBuilder,
@@ -1083,6 +1084,14 @@ export function loadRecordSnapshotIntoState(
     const templateRule = getTemplateRule(logicalChannelId, recordName(record) || data.title);
     const templateKind = stableSystemTemplateKind(sourceData || {})
         || stableSystemTemplateKind(data);
+    // A cached registry thumbnail is not proof of what Discord currently
+    // displays. Track the exact selected physical message for a read-only
+    // reconciliation whenever an existing Builder is opened or saved.
+    const liveLogoRecord = record.source === 'embed-builder'
+        ? record
+        : (previewRecord && !previewRecord.detached
+            && !['system-catalog', 'runtime-preview'].includes(String(previewRecord.source || '').toLowerCase())
+            ? previewRecord : record);
 
     state.title = templateKind === 'content' ? null : (displayTitle || null);
     state.message = displayDescription || null;
@@ -1102,8 +1111,19 @@ export function loadRecordSnapshotIntoState(
             : (Number.isInteger(sourceData?.color)
                 ? sourceData.color
                 : (Number.isInteger(data.color) ? data.color : 0xFFFFFF)));
-    state.showLogo = isCloudyLogoUrl(displayThumbnail?.url) || (!displayThumbnail && !data.footer?.text);
+    // A manually saved Builder embed owns its thumbnail choice. Never restore
+    // a logo from a preview peer or a similarly named template behind its back.
+    if (record.source === 'embed-builder') {
+        displayThumbnail = data.thumbnail;
+        if (displayThumbnail) displaySourceData.thumbnail = displayThumbnail;
+        else delete displaySourceData.thumbnail;
+    }
+    // An embed has a removable top-right logo whenever its thumbnail exists.
+    // The thumbnail can have a Discord CDN URL or a saved custom URL; a match
+    // against only the bundled Cloudy asset incorrectly reports "Disabled".
+    state.showLogo = Boolean(displayThumbnail?.url);
     state.removeExistingLogo = false;
+    state.logoTouched = false;
     state.bottomLine = footerText || null;
     state.mediaUrl = displayImage?.url || null;
     state.mediaBuffer = null;
@@ -1120,6 +1140,15 @@ export function loadRecordSnapshotIntoState(
         sourceEmbedData: data,
         templateSourceData,
         previewSourceData: displaySourceData,
+        liveLogoSource: {
+            channelId: String(liveLogoRecord.backingChannelId || liveLogoRecord.channelId || ''),
+            messageId: String(liveLogoRecord.messageId || ''),
+            embedIndex: Math.max(0, Number(liveLogoRecord.embedIndex) || 0),
+        },
+        // Explicitly saved reusable logo preference beats historical runtime
+        // messages that still display an older logo before their next event.
+        savedLogoPreference: record.source !== 'embed-builder'
+            && savedDisplay.matched && savedDisplay.thumbnailOverrideApplied === true,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: record.canonicalIdentity || templateRule?.key || templateIdentity(
@@ -1131,6 +1160,40 @@ export function loadRecordSnapshotIntoState(
         detached: Boolean(record.detached),
         cachedMessage: null,
     };
+    return true;
+}
+
+/**
+ * Read the thumbnail from the selected physical Discord message. Registry and
+ * Search snapshots can lag a user-saved embed. Never write to Discord here.
+ * Never override an explicit Add/Remove decision in this Builder session.
+ */
+export async function syncBuilderLogoFromLiveMessage(guild, state) {
+    const target = state?.modifyTarget;
+    const location = target?.liveLogoSource;
+    if (!guild || !location?.channelId || !location?.messageId
+        || state.logoTouched || target.savedLogoPreference) return false;
+
+    const channel = guild.channels.cache?.get?.(location.channelId)
+        || await guild.channels.fetch?.(location.channelId).catch(() => null);
+    if (!channel?.messages?.fetch) return false;
+    const message = await channel.messages.fetch(location.messageId).catch(() => null);
+    const selectedEmbed = message?.embeds?.[location.embedIndex] || null;
+    if (!selectedEmbed || target !== state.modifyTarget || state.logoTouched) return false;
+
+    const embedData = selectedEmbed.toJSON?.() || selectedEmbed;
+    const logoUrl = embedData?.thumbnail?.url || null;
+    const previewSource = target.previewSourceData || target.sourceEmbedData || {};
+    const previousUrl = previewSource.thumbnail?.url || null;
+    const changed = previousUrl !== logoUrl || state.showLogo !== Boolean(logoUrl);
+    if (!changed) return false;
+
+    const nextPreview = { ...previewSource };
+    if (logoUrl) nextPreview.thumbnail = { url: logoUrl };
+    else delete nextPreview.thumbnail;
+    target.previewSourceData = nextPreview;
+    state.showLogo = Boolean(logoUrl);
+    state.removeExistingLogo = false;
     return true;
 }
 
@@ -1172,8 +1235,9 @@ function loadEmbedIntoState(state, resolved) {
         }))
         : [];
     state.sideColor = Number.isInteger(data.color) ? data.color : 0xFFFFFF;
-    state.showLogo = isCloudyLogoUrl(data.thumbnail?.url) || (!data.thumbnail && !data.footer?.text);
+    state.showLogo = Boolean(data.thumbnail?.url);
     state.removeExistingLogo = false;
+    state.logoTouched = false;
     state.bottomLine = footerText || null;
     state.mediaUrl = data.image?.url || null;
     state.mediaBuffer = null;
@@ -1188,6 +1252,11 @@ function loadEmbedIntoState(state, resolved) {
         embedIndex: Number(record.embedIndex || 0),
         source: record.source || 'cloudy',
         sourceEmbedData: data,
+        liveLogoSource: {
+            channelId: String(channel.id),
+            messageId: String(message.id),
+            embedIndex: Math.max(0, Number(record.embedIndex) || 0),
+        },
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
         templateMode: Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder',
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
@@ -1716,6 +1785,17 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 ]);
                 if (selectionVersion !== session.selectionVersion) return;
                 if (loadedFromSnapshot) {
+                    // A registry snapshot may be older than the actual visible
+                    // thumbnail. Update only this Builder's logo, never its
+                    // other fields or any saved Discord embed.
+                    const selectedTarget = state.modifyTarget;
+                    void syncBuilderLogoFromLiveMessage(guild, state)
+                        .then(changed => changed && selectionVersion === session.selectionVersion
+                            && state.modifyTarget === selectedTarget
+                            ? refreshBuilder() : null)
+                        .catch(error => logger.warn(
+                            `[EMBED_BUILDER] Live logo read failed: ${error?.message || error}`,
+                        ));
                     void refreshSelectedBuilderComponents(guild, state, refreshBuilder, messageId);
                 }
             })().catch(error => {
@@ -1859,9 +1939,19 @@ function applyStateToExistingEmbed(state) {
     }
     data.color = state.sideColor;
 
-    if (state.removeExistingLogo) delete data.thumbnail;
-    else if (state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
-    else if (isCloudyLogoUrl(data.thumbnail?.url)) delete data.thumbnail;
+    if (state.removeExistingLogo || (state.logoTouched && !state.showLogo)) {
+        delete data.thumbnail;
+    } else if (state.logoTouched && state.showLogo) {
+        data.thumbnail = { url: CLOUDY_LOGO_URL };
+    } else if (target?.previewSourceData) {
+        // Keep the thumbnail actually displayed when Search/Modify was opened,
+        // including custom/Discord-hosted URLs. Do not replace it on Save.
+        if (target.previewSourceData.thumbnail?.url) {
+            data.thumbnail = { url: target.previewSourceData.thumbnail.url };
+        } else {
+            delete data.thumbnail;
+        }
+    }
 
     if (state.bottomLine) {
         const marker = target?.hadBuilderMarker ? MESSAGE_BUILDER_FOOTER_MARKER : '';
@@ -2178,6 +2268,12 @@ function queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, c
 export async function saveModifiedEmbed(guild, state) {
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
+    // Read the actual selected message before Save when no logo button was
+    // pressed. This prevents a stale registry thumbnail being restored by a
+    // seemingly unrelated Save.
+    if (state?.modifyTarget && !state.logoTouched) {
+        await syncBuilderLogoFromLiveMessage(guild, state);
+    }
     const liveState = state;
     state = { ...state, embedFields: state.embedFields?.map(field => ({ ...field })) };
     const target = state.modifyTarget;
@@ -2195,6 +2291,7 @@ export async function saveModifiedEmbed(guild, state) {
         state.modifyTarget.sourceEmbedData = current;
         state.modifyTarget.previewSourceData = { ...current };
         state.modifyTarget.cachedMessage = null;
+        liveState.logoTouched = false;
         return {
             ok: true,
             channel: 'Saved templates',
@@ -2246,7 +2343,11 @@ export async function saveModifiedEmbed(guild, state) {
         }
     }
     activeEmbedManagerSaves.add(String(message.id));
-    const edited = await message.edit(payload).catch(error => {
+    // A deliberate manual Save owns its thumbnail state. The global REST
+    // branding must not re-add a logo because the footer is Cloudy's default.
+    const edited = await withManualBuilderSaveLogoChoice(message.id, () =>
+        message.edit(payload)
+    ).catch(error => {
         logger.error('Failed to save modified embed:', error);
         return null;
     });
@@ -2303,7 +2404,10 @@ export async function saveModifiedEmbed(guild, state) {
                 editedEmbedData: { description: state.message || undefined, fields: state.embedFields || [] },
                 applyFields: true,
                 preserveRuntimeFieldValues: String(target.templateTitle || '').startsWith('ticket-log:'),
-                applyThumbnail: mediaChanges.thumbnailChanged,
+                // A deliberate Add/Remove logo is authoritative even if the
+                // live embed already happens to match: an older stored
+                // template must not resurrect the opposite logo choice.
+                applyThumbnail: mediaChanges.thumbnailChanged || state.logoTouched === true,
                 applyImage: mediaChanges.imageChanged,
             },
         );
@@ -2350,6 +2454,10 @@ export async function saveModifiedEmbed(guild, state) {
         nextPreview.fields = Array.isArray(state.embedFields)
             ? state.embedFields.map(field => ({ ...field }))
             : [];
+        // Saving a logo choice must immediately update the same preview source
+        // used after reopening and after another Save in this Builder session.
+        if (current.thumbnail?.url) nextPreview.thumbnail = { url: current.thumbnail.url };
+        else delete nextPreview.thumbnail;
         state.modifyTarget.previewSourceData = nextPreview;
     }
     state.modifyTarget.cachedMessage = edited;
@@ -2366,6 +2474,7 @@ export async function saveModifiedEmbed(guild, state) {
         });
 
     if (!registered) return { ok: false, reason: 'persistence-failed' };
+    liveState.logoTouched = false;
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
 }

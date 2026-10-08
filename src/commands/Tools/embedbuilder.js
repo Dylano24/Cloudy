@@ -20,6 +20,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { registerBuilderPreviewMessage,
     unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
+import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError,
     replyUserError,
@@ -45,7 +46,8 @@ import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { applyInitialSearchSelectionToState,
     openEmbedManager,
     prepareEmbedManager,
-    saveModifiedEmbed } from '../../services/embedManagerService.js';
+    saveModifiedEmbed,
+    syncBuilderLogoFromLiveMessage } from '../../services/embedManagerService.js';
 import {
     purgeEmbedRegistryRecord,
     registerCloudyEmbedMessage,
@@ -367,6 +369,7 @@ function resetBuilderAfterRecordDeletion(state) {
     state.sideColor = 0xFFFFFF;
     state.showLogo = true;
     state.removeExistingLogo = false;
+    state.logoTouched = false;
     state.bottomLine = DEFAULT_FOOTER_TEXT;
     state.mediaUrl = null;
     state.mediaBuffer = null;
@@ -589,7 +592,9 @@ function buildPreviewEmbed(state) {
     const firstChunk = chunks[0] || null;
 
     if (state.modifyTarget?.sourceEmbedData) {
-        const source = state.modifyTarget.sourceEmbedData;
+        // Preview must start from the same visible saved/overlaid thumbnail
+        // selected in Search/Modify, not an older catalog/source thumbnail.
+        const source = state.modifyTarget.previewSourceData || state.modifyTarget.sourceEmbedData;
         const data = { ...source, color: state.sideColor };
         if (isInternalTemplateAuthor(data.author?.name)) delete data.author;
 
@@ -609,12 +614,13 @@ function buildPreviewEmbed(state) {
             delete data.fields;
         }
 
-        if (state.removeExistingLogo) {
+        if (state.removeExistingLogo || (state.logoTouched && !state.showLogo)) {
             delete data.thumbnail;
-        } else if (state.showLogo) {
+        } else if (state.logoTouched && state.showLogo) {
+            // An explicit Add replaces the thumbnail with Cloudy's C; an
+            // untouched existing thumbnail always remains visible, regardless
+            // of a stale internal logo setting.
             data.thumbnail = { url: CLOUDY_LOGO_URL };
-        } else if (isCloudyLogoUrl(data.thumbnail?.url)) {
-            delete data.thumbnail;
         }
 
         if (chunks.length <= 1) {
@@ -705,7 +711,10 @@ async function postBuiltMessage(channel, state, guild, member) {
             payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
         }
 
-        const sent = await channel.send(payload);
+        // Publish this exact Builder choice. The general Cloudy footer policy
+        // may add missing footer text, but must not re-add an intentionally
+        // absent C on this new owner-authored embed.
+        const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload));
         await registerCloudyEmbedMessage(sent, 'embed-builder');
         if (state.reappearAfter) {
             const reappearKey = `cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`;
@@ -745,7 +754,7 @@ function buildControlEmbed(state) {
             `**Title** › ${shortValue(state.title, 40)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
             `**Side color** › \`${colorToHex(state.sideColor)}\``,
-            `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
+            `**Logo** › ${buildPreviewEmbed(state).toJSON().thumbnail?.url ? 'Enabled' : 'Disabled'}`,
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Media** › ${mediaLabel}`,
             `**Buttons** › ${countBuilderButtons(state)}`,
@@ -762,10 +771,10 @@ export function buildBuilderEmbeds(state) {
     return [new EmbedBuilder(previewData), controlEmbed];
 }
 
-function buildControls(state) {
+export function buildControls(state) {
     // BUILDER_FINAL_CONTROLS_V1: final user-requested five-row layout.
-    const sourceHasLogo = Boolean(state.modifyTarget?.sourceEmbedData?.thumbnail?.url);
-    const hasLogo = !state.removeExistingLogo && (state.showLogo || sourceHasLogo);
+    // Both logo controls follow the thumbnail actually visible in the preview.
+    const hasLogo = Boolean(buildPreviewEmbed(state).toJSON().thumbnail?.url);
 
     const titleButton = new ButtonBuilder()
         .setLabel('Edit title & message')
@@ -787,7 +796,7 @@ function buildControls(state) {
             .setLabel('Add logo')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('☁️')
-            .setDisabled(state.showLogo && !state.removeExistingLogo),
+            .setDisabled(hasLogo),
         new ButtonBuilder()
             .setCustomId('simple_embed_remove_logo')
             .setLabel('Remove logo')
@@ -1059,7 +1068,7 @@ async function deleteBuilderPreviewMessage(state) {
 }
 
 // BUILDER_PREVIEW_BUTTON_PLACEMENT_V1
-function queueBuilderRefresh(interaction, state, includeDashboard = true) {
+export function queueBuilderRefresh(interaction, state, includeDashboard = true, preferOriginalReply = false) {
     if (state.colorSessionToken) {
         state.colorPickerUrl = COLOR_PICKER_URL + '/embed-color?session=' + state.colorSessionToken + '&color=' + encodeURIComponent(colorToHex(state.sideColor));
     }
@@ -1081,7 +1090,7 @@ function queueBuilderRefresh(interaction, state, includeDashboard = true) {
         }
         : null;
 
-    state.previewEditPending = { previewPayload, dashboardPayload };
+    state.previewEditPending = { previewPayload, dashboardPayload, preferOriginalReply };
     if (state.previewEditRunning) return Promise.resolve(true);
 
     return (async () => {
@@ -1092,11 +1101,14 @@ function queueBuilderRefresh(interaction, state, includeDashboard = true) {
                 const next = state.previewEditPending;
                 state.previewEditPending = null;
 
-                const previewPromise = editBuilderPreviewMessage(
-                    state,
-                    interaction,
-                    next.previewPayload,
-                );
+                // Logo clicks originate on the dashboard, but the preview is the
+                // original slash-command reply. Update that exact reply first;
+                // fall back to the normal Message edit if its token expires.
+                const previewPromise = next.preferOriginalReply && typeof interaction?.editReply === 'function'
+                    ? interaction.editReply(next.previewPayload)
+                        .then(() => true)
+                        .catch(() => editBuilderPreviewMessage(state, interaction, next.previewPayload))
+                    : editBuilderPreviewMessage(state, interaction, next.previewPayload);
                 const dashboardPromise = next.dashboardPayload && state.builderDashboardMessageId
                     ? editBuilderDashboardMessage(state, next.dashboardPayload)
                     : Promise.resolve(true);
@@ -1121,6 +1133,18 @@ function queueBuilderRefresh(interaction, state, includeDashboard = true) {
 
 async function refreshBuilder(interaction, state) {
     return queueBuilderRefresh(interaction, state, true);
+}
+
+export async function refreshBuilderLogo(interaction, state) {
+    // The footer already reliably edits this exact top preview. Logo clicks
+    // must use the same proven preview-only route before updating controls.
+    const previewUpdated = await refreshBuilderPreviewOnly(interaction, state);
+    if (!previewUpdated) return false;
+
+    return editBuilderDashboardMessage(state, {
+        embeds: [buildControlEmbed(state)],
+        components: buildControls(state),
+    });
 }
 
 async function refreshBuilderPreviewOnly(interaction, state) {
@@ -1165,6 +1189,7 @@ async function editContent(buttonInteraction, state) {
 
     if (!submitted) return;
 
+    await submitted.deferUpdate();
     state.title = submitted.fields.getTextInputValue('simple_embed_title').trim() || null;
     state.message = submitted.fields.getTextInputValue('simple_embed_message').trim() || null;
 
@@ -1201,6 +1226,9 @@ async function editBottomLine(buttonInteraction, state) {
 
     if (!submitted) return;
 
+    // Updating the bot-managed preview does not acknowledge the modal by itself.
+    // Confirm it first so Discord cannot report a false failure after the edit.
+    await submitted.deferUpdate();
     state.bottomLine = submitted.fields.getTextInputValue('simple_embed_footer_text').trim() || null;
 
     await refreshBuilderPreviewOnly(submitted, state);
@@ -1255,9 +1283,11 @@ async function editMedia(buttonInteraction, state) {
         return;
     }
 
-    if (mediaKind === 'video') {
-        await submitted.deferUpdate().catch(() => {});
+    // Discord requires the modal to be acknowledged even though media is edited
+    // through the separate bot-managed Builder preview.
+    await submitted.deferUpdate();
 
+    if (mediaKind === 'video') {
         try {
             const converted = await convertVideoUrlToGif(uploadedMedia.url);
             state.mediaUrl = null;
@@ -1645,6 +1675,7 @@ export default {
                 sideColor: 0xFFFFFF,
                 showLogo: true,
                 removeExistingLogo: false,
+                logoTouched: false,
                 bottomLine: DEFAULT_FOOTER_TEXT,
                 mediaUrl: null,
                 mediaBuffer: null,
@@ -1675,7 +1706,8 @@ export default {
                 delete interaction.__cloudyInitialBuilderSelection;
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
-            if (applyInitialSearchSelectionToState(interaction, state)) {
+            const initialSavedRecordLoaded = applyInitialSearchSelectionToState(interaction, state);
+            if (initialSavedRecordLoaded) {
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
 
@@ -1751,6 +1783,9 @@ export default {
                 && interaction.channel?.send
                 && !interaction.replied
                 && !interaction.deferred) {
+                // The global REST footer policy must not secretly add a C
+                // thumbnail that the preview and buttons say is absent.
+                registerBuilderPreviewReplyToken(interaction.token);
                 const previewResponsePromise = interaction.reply({
                     embeds: [buildPreviewEmbed(state)],
                     components: getBuilderPreviewComponents(state),
@@ -1772,6 +1807,7 @@ export default {
                     previewMessage = await interaction.fetchReply().catch(() => null);
                 }
             } else {
+                registerBuilderPreviewReplyToken(interaction.token);
                 const initialShown = await InteractionHelper.safeReply(interaction, {
                     embeds: [buildPreviewEmbed(state)],
                     components: getBuilderPreviewComponents(state),
@@ -1829,6 +1865,17 @@ export default {
                 if (!collector.ended) collector.stop(reason || 'completed');
             };
 
+            // Search paints instantly from the saved snapshot; reconcile only
+            // its logo with the selected live Discord message in the background.
+            if (initialSavedRecordLoaded) {
+                void syncBuilderLogoFromLiveMessage(interaction.guild, state)
+                    .then(changed => changed && !collector.ended
+                        ? refreshBuilder(interaction, state) : null)
+                    .catch(error => logger.warn(
+                        `[EMBED_BUILDER] Live logo read failed: ${error?.message || error}`,
+                    ));
+            }
+
             collector.on('collect', async buttonInteraction => {
                 try {
                     if (state.modifyTarget && buttonInteraction.customId === 'simple_embed_post'
@@ -1854,14 +1901,22 @@ export default {
                             await editContent(buttonInteraction, state);
                             break;
                         case 'simple_embed_logo':
+                            await buttonInteraction.deferUpdate();
                             state.showLogo = true;
                             state.removeExistingLogo = false;
-                            await refreshBuilder(buttonInteraction, state);
+                            state.logoTouched = true;
+                            if (!await refreshBuilderLogo(buttonInteraction, state)) {
+                                logger.warn('[EMBED_BUILDER] Add logo preview or dashboard update did not complete.');
+                            }
                             break;
                         case 'simple_embed_remove_logo':
+                            await buttonInteraction.deferUpdate();
                             state.showLogo = false;
                             state.removeExistingLogo = true;
-                            await refreshBuilder(buttonInteraction, state);
+                            state.logoTouched = true;
+                            if (!await refreshBuilderLogo(buttonInteraction, state)) {
+                                logger.warn('[EMBED_BUILDER] Remove logo preview or dashboard update did not complete.');
+                            }
                             break;
                         case 'simple_embed_footer':
                             await editBottomLine(buttonInteraction, state);
@@ -1870,6 +1925,7 @@ export default {
                             await editMedia(buttonInteraction, state);
                             break;
                         case 'simple_embed_clear_media':
+                            await buttonInteraction.deferUpdate();
                             state.mediaUrl = null;
                             state.mediaBuffer = null;
                             state.mediaName = null;
@@ -1938,6 +1994,7 @@ export default {
                             await interaction.deleteReply().catch(() => {});
                             break;
                         case 'simple_embed_reset':
+                            await buttonInteraction.deferUpdate();
                             await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
                             state.title = null;
                             state.message = null;
@@ -1945,6 +2002,7 @@ export default {
                             state.sideColor = 0xFFFFFF;
                             state.showLogo = true;
                             state.removeExistingLogo = false;
+                            state.logoTouched = false;
                             state.bottomLine = DEFAULT_FOOTER_TEXT;
                             state.mediaUrl = null;
                             state.mediaBuffer = null;
