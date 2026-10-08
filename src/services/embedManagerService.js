@@ -2331,8 +2331,6 @@ export async function saveModifiedEmbed(guild, state) {
     const beforeTermsStamp = embeds[index];
     embeds[index] = stampTermsFooterOnSave(message.embeds[index].toJSON(), beforeTermsStamp, {
         channelId: backingChannelId,
-        componentsChanged: state.componentsDirty && JSON.stringify(getBuilderMessageComponents(state))
-            !== JSON.stringify((message.components || []).map(row => row.toJSON ? row.toJSON() : row)),
     });
     const termsFooterUpdated = embeds[index] !== beforeTermsStamp;
 
