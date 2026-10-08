@@ -397,6 +397,8 @@ async function processEmbedReappear(message) {
         if (previous) {
           const removedPrevious = await previous.delete().then(() => true).catch(() => false);
           if (!removedPrevious) continue;
+          // Give Discord clients time to process deletion before the replacement.
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
 

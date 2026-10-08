@@ -47,6 +47,9 @@ test('each single publication moves one preserved guide below it, across all thr
       manager.schedule(human);
       t.mock.timers.tick(1500);
       await new Promise(resolve => { setImmediate(resolve); });
+      assert.equal([...history.values()].filter(msg => msg.author.id === 'bot').length, 0);
+      t.mock.timers.tick(2000);
+      await new Promise(resolve => { setImmediate(resolve); });
       assert.equal(history.has(human.id), true);
       assert.equal([...history.values()].filter(msg => msg.author.id === 'bot').length, 1);
       assert.equal(channel.lastMessageId, state.messageId);
