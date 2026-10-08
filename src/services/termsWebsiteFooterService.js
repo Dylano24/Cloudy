@@ -6,22 +6,11 @@ const MANUAL_TERMS_FOOTER = /^© Cloudy Inc\. • Last updated \d{2} [A-Za-z]+ \
 const TERMS_TITLE = /(?:store )?terms of (?:sale|service)$/i;
 const TERMS_CHANNEL_IDS = new Set(['1533191366190829768', '1534786470790037665']);
 
-function editableEmbed(data) {
-  return {
-    title: data?.title || null, description: data?.description || null,
-    url: data?.url || null, color: data?.color ?? null, timestamp: data?.timestamp || null,
-    author: data?.author ? [data.author.name, data.author.url || null, data.author.icon_url || null] : null,
-    fields: (data?.fields || []).map(field => [field.name, field.value, Boolean(field.inline)]),
-    image: data?.image?.url || null, thumbnail: data?.thumbnail?.url || null,
-    footer: data?.footer ? [data.footer.text, data.footer.icon_url || null] : null,
-  };
-}
-
-export function stampTermsFooterOnSave(previous, next, { channelId, now = new Date(), componentsChanged = false } = {}) {
+export function stampTermsFooterOnSave(previous, next, { channelId, now = new Date() } = {}) {
   const isTerms = TERMS_TITLE.test(String(previous?.title || ''))
     || TERMS_TITLE.test(String(next?.title || ''))
     || (TERMS_CHANNEL_IDS.has(String(channelId)) && MANUAL_TERMS_FOOTER.test(String(previous?.footer?.text || '')));
-  if (!isTerms || (!componentsChanged && JSON.stringify(editableEmbed(previous)) === JSON.stringify(editableEmbed(next)))) return next;
+  if (!isTerms) return next;
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Amsterdam', day: '2-digit', month: 'long', year: 'numeric',
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
