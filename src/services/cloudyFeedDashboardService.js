@@ -166,7 +166,7 @@ export function parseAutoMessageTime(value, fallback) {
     if (fallback !== undefined) return fallback;
     throw new Error('Enter Auto message, for example 1m or 1h.');
   }
-  const match = /^(\\d+)(m|h)$/.exec(trimmed);
+  const match = /^(\d+)(m|h)$/.exec(trimmed);
   if (!match) throw new Error('Use 1m for minutes or 1h for hours.');
   const number = Number(match[1]);
   const minutes = match[2] === 'h' ? number * 60 : number;
