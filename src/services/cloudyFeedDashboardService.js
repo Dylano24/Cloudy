@@ -58,7 +58,7 @@ export function readableFeedName(feed) {
 
 function feedStatusLine(feed) {
   if (feed.lastError) return '**Source check:** ' + String(feed.lastError).slice(0, 180);
-  return '**Source check:** ' + (feed.lastCheck ? 'Media available' : 'Not checked');
+  return '**Source check:** ' + (feed.lastUsCheck ? 'USA media available' : 'USA origin not checked yet');
 }
 
 export function buildCloudyFeedDashboard(guildId, feeds) {
@@ -75,6 +75,7 @@ export function buildCloudyFeedDashboard(guildId, feeds) {
       value: '**Source:** ' + feed.source.slice(0, 150)
         + '\n**Channel:** <#' + feed.channelId + '>'
         + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
+        + '\n**Region:** USA only'
         + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
         + '\n' + feedStatusLine(feed),
     });
@@ -113,6 +114,7 @@ export function feedDetail(session, feed) {
       value: '**Source:** ' + feed.source.slice(0, 250)
         + '\n**Channel:** <#' + feed.channelId + '>'
         + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
+        + '\n**Region:** USA only'
         + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
         + '\n' + feedStatusLine(feed),
     });
