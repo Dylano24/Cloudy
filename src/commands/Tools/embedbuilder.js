@@ -1939,6 +1939,14 @@ export default {
                                 (editorInteraction, editorState) => refreshBuilder(editorInteraction, editorState),
                             );
                             break;
+                        case 'simple_embed_remove_buttons': {
+                            await buttonInteraction.deferUpdate();
+                            await hydrateBuilderMessageComponents(buttonInteraction.guild, state);
+                            state.componentRows = removeRightmostBuilderButton(state.componentRows);
+                            state.componentsDirty = true;
+                            await refreshBuilder(buttonInteraction, state);
+                            break;
+                        }
                         case 'simple_embed_clear_buttons':
                         case 'simple_embed_modify':
                             await openEmbedManager(
