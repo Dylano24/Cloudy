@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { loadRecordSnapshotIntoState, saveModifiedEmbed } from '../src/services/embedManagerService.js';
+import { loadRecordSnapshotIntoState, saveModifiedEmbed, syncBuilderLogoFromLiveMessage } from '../src/services/embedManagerService.js';
 import { buildBuilderEmbeds, buildControls, queueBuilderRefresh, refreshBuilderLogo } from '../src/commands/Tools/embedbuilder.js';
 import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
@@ -469,4 +469,133 @@ test('a manual Save keeps the visible logo until it is explicitly removed, then 
   assert.equal(loadRecordSnapshotIntoState(reopenedWithLogo, guild, record()), true);
   assert.equal(reopenedWithLogo.showLogo, true);
   assertLogoButtons(reopenedWithLogo, { canAdd: false, canRemove: true });
+});
+
+test('stale no-logo Search snapshot reads the actual visible Discord logo without writing it', async () => {
+  const liveUrl = 'https://cdn.discordapp.com/attachments/123/456/visible-c.gif';
+  let fetched = 0;
+  let writes = 0;
+  const message = {
+    embeds: [{ toJSON: () => ({
+      title: 'User custom message',
+      description: 'Keep original body',
+      thumbnail: { url: liveUrl },
+    }) }],
+    edit: async () => { writes += 1; throw Error('read-only sync must never edit'); },
+  };
+  const guild = {
+    id: 'logo-live-check-guild',
+    channels: {
+      cache: new Map([['logo-live-check-channel', {
+        messages: { fetch: async id => {
+          assert.equal(id, 'logo-live-message');
+          fetched += 1;
+          return message;
+        } },
+      }]]),
+      fetch: async () => { throw Error('should use cached channel'); },
+    },
+  };
+  const state = {};
+  const snapshot = {
+    guildId: guild.id, channelId: 'logo-live-check-channel',
+    messageId: 'logo-live-message', embedIndex: 0,
+    source: 'embed-builder',
+    snapshot: { title: 'User custom message', description: 'Keep original body' },
+  };
+  assert.equal(loadRecordSnapshotIntoState(state, guild, snapshot), true);
+  assert.equal(state.showLogo, false, 'stale registry has no logo');
+  assert.equal(await syncBuilderLogoFromLiveMessage(guild, state), true);
+  assert.equal(state.showLogo, true);
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail.url, liveUrl);
+  assertLogoButtons(state, { canAdd: false, canRemove: true });
+  assert.equal(state.message, 'Keep original body');
+  assert.equal(fetched, 1);
+  assert.equal(writes, 0);
+});
+
+test('stale logo snapshot is cleared when the real saved Discord message has no logo', async () => {
+  const channelId = 'real-no-logo-channel';
+  const guild = {
+    id: 'real-no-logo-guild',
+    channels: { cache: new Map([[channelId, {
+      messages: { fetch: async () => ({
+        embeds: [{ toJSON: () => ({ title: 'User custom message' }) }],
+      }) },
+    }]]) },
+  };
+  const state = {};
+  const record = {
+    guildId: guild.id, channelId, messageId: 'real-no-logo-message',
+    source: 'embed-builder', embedIndex: 0,
+    snapshot: { title: 'User custom message', thumbnail: { url: CLOUDY_LOGO_URL } },
+  };
+  assert.equal(loadRecordSnapshotIntoState(state, guild, record), true);
+  assert.equal(state.showLogo, true, 'stale registry has a logo');
+  assert.equal(await syncBuilderLogoFromLiveMessage(guild, state), true);
+  assert.equal(state.showLogo, false);
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
+  assertLogoButtons(state, { canAdd: true, canRemove: false });
+});
+
+test('an explicit Remove logo is never undone by an in-flight live-logo reconciliation', async () => {
+  const channelId = 'concurrent-logo-channel';
+  let release;
+  const delayedMessage = new Promise(resolve => { release = resolve; });
+  const guild = {
+    id: 'concurrent-logo-guild',
+    channels: { cache: new Map([[channelId, {
+      messages: { fetch: async () => delayedMessage },
+    }]]) },
+  };
+  const state = {};
+  const record = {
+    guildId: guild.id, channelId, messageId: 'concurrent-logo-message',
+    source: 'embed-builder', embedIndex: 0,
+    snapshot: { title: 'User custom message', thumbnail: { url: CLOUDY_LOGO_URL } },
+  };
+  assert.equal(loadRecordSnapshotIntoState(state, guild, record), true);
+  const sync = syncBuilderLogoFromLiveMessage(guild, state);
+  state.showLogo = false;
+  state.removeExistingLogo = true;
+  state.logoTouched = true;
+  release({ embeds: [{ toJSON: () => ({ title: 'User custom message', thumbnail: { url: CLOUDY_LOGO_URL } }) }] });
+  assert.equal(await sync, false);
+  assert.equal(state.showLogo, false);
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
+  assertLogoButtons(state, { canAdd: true, canRemove: false });
+});
+
+test('System-catalog Search reads thumbnail from its physical live preview peer', async () => {
+  const guild = {
+    id: 'logo-peer-live-guild',
+    channels: { cache: new Map([['real-peer-channel', {
+      messages: { fetch: async id => {
+        assert.equal(id, 'peer-message');
+        return { embeds: [{ toJSON: () => ({
+          title: 'Visible peer',
+          thumbnail: { url: CLOUDY_LOGO_URL },
+        }) }] };
+      } },
+    }]]) },
+  };
+  const record = {
+    guildId: guild.id, channelId: 'logical-channel',
+    backingChannelId: 'catalog-channel', messageId: 'catalog-message',
+    embedIndex: 0, source: 'system-catalog',
+    snapshot: { title: 'Catalog title' },
+  };
+  const peer = {
+    ...record,
+    source: 'reconciled',
+    channelId: 'real-peer-channel', backingChannelId: 'real-peer-channel',
+    messageId: 'peer-message',
+    snapshot: { title: 'Visible peer' },
+  };
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, guild, record, peer), true);
+  assert.equal(state.showLogo, false);
+  assert.equal(await syncBuilderLogoFromLiveMessage(guild, state), true);
+  assert.equal(state.showLogo, true);
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail.url, CLOUDY_LOGO_URL);
 });
