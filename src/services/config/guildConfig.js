@@ -109,6 +109,40 @@ export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(
     userMessage: 'Failed to load server configuration. Please try again.',
 });
 
+/**
+ * Prime the normal, write-through guild configuration cache after gateway login.
+ * This moves one cold PostgreSQL read per guild off the first slash-command path.
+ * Bounded concurrency prevents adding a burst of connections in larger servers.
+ * Warm-up is best-effort and never modifies persisted settings or permissions.
+ */
+export async function warmGuildConfigCache(client, { concurrency = 4 } = {}) {
+    if (!client?.db || client.db.getStatus?.().isDegraded) {
+        return { attempted: 0, warmed: 0 };
+    }
+
+    const guildIds = [...new Set(client.guilds?.cache?.keys?.() || [])];
+    const count = guildIds.length;
+    if (!count) return { attempted: 0, warmed: 0 };
+
+    let cursor = 0;
+    let warmed = 0;
+    const workers = Math.min(count, Math.max(1, Math.floor(Number(concurrency) || 1)));
+
+    await Promise.all(Array.from({ length: workers }, async () => {
+        while (cursor < count) {
+            const guildId = guildIds[cursor++];
+            try {
+                await getGuildConfig(client, guildId);
+                warmed += 1;
+            } catch {
+                // Existing command-level handling remains authoritative on failure.
+            }
+        }
+    }));
+
+    return { attempted: count, warmed };
+}
+
 export const setGuildConfig = wrapServiceBoundary(async function setGuildConfig(client, guildId, config, context = {}) {
     return await enqueueGuildWrite(guildId, async () => {
         const normalized = normalizeCloudyGuildConfig(config);
