@@ -298,7 +298,7 @@ export function parseWebsiteItems(html, base) {
     const previewTag = html.match(/<video\b[^>]*>/i)?.[0] || '';
     const item = normalizeItem({
       title, link: base, video: directVideo, image: attribute(previewTag, 'poster'),
-      country: htmlItemCountry(html) || videoObjectCountry(html),
+      country: htmlItemCountry(html.match(/<video\b[^>]*>/i)?.[0] || '') || videoObjectCountry(html),
     }, base);
     if (item) return [item];
   }
