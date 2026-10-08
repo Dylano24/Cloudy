@@ -152,3 +152,16 @@ test('Edit feed contains only the original four fields and preserves the current
     ['Feed name', 'Website URL', 'Auto message', '18+ content']);
   assert.doesNotMatch(JSON.stringify(modal), /feedChannel|Channel \(optional\)|channel.*select/i);
 });
+
+test('Feed name uses a neutral placeholder without changing saved names', () => {
+  const add = feedModal({ id: 'session1', action: 'add' }).toJSON();
+  const edit = feedModal({
+    id: 'session1', action: 'edit',
+    feed: { id: 'abc', source: 'https://example.org/media', name: 'My feed', minutes: 5, adult: false },
+  }).toJSON();
+  assert.match(JSON.stringify(add), /Enter feed name/);
+  assert.match(JSON.stringify(edit), /Enter feed name/);
+  assert.doesNotMatch(JSON.stringify(add), /Erome/);
+  assert.doesNotMatch(JSON.stringify(edit), /Erome/);
+  assert.match(JSON.stringify(edit), /"value":"My feed"/);
+});
