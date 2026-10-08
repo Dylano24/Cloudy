@@ -190,7 +190,7 @@ export async function applyAction(interaction, guild, action, input = {}) {
       const adult = parseAdult(get('adult'));
       const channel = await validateChannel(guild, get('channel'), adult);
       const items = mediaCandidates(await readWebsiteItems(source));
-      if (!items.length) throw new Error('No USA-tagged photos or videos found. This website must provide per-video or per-photo country metadata.');
+      if (!items.length) throw new Error('No supported media found for the current feed settings.');
       const id = randomUUID().slice(0, 8);
       const name = (get('name') || (host => host.charAt(0).toUpperCase() + host.slice(1))(new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0])).slice(0, 64);
       feeds.push({ id, name, source, channelId: channel.id, channelName: channel.name, minutes, adult, active: true,
@@ -213,7 +213,7 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const sourceChanged = source !== feed.source;
         if (sourceChanged) {
           const items = mediaCandidates(await readWebsiteItems(source));
-          if (!items.length) throw new Error('No USA-tagged photos or videos found at the new website.');
+          if (!items.length) throw new Error('No supported media found at the new website.');
           feed.recentUrls = [];
         }
         const name = (get('name') || feed.name || new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0]).slice(0, 64);
@@ -277,7 +277,7 @@ async function processGuild(client, guild) {
         const seen = new Set(feed.recentUrls || []);
         const available = candidates.filter(item => !seen.has(mediaItemKey(item)));
         if (!candidates.length) {
-          feed.lastError = 'No USA-tagged media found';
+          feed.lastError = 'No matching media found';
         } else if (!available.length) {
           feed.lastError = 'No new media available';
         } else {
