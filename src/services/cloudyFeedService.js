@@ -176,8 +176,10 @@ function field(interaction, name) {
   return interaction.fields.getTextInputValue(name).trim();
 }
 
+// All public supported media is eligible regardless of origin country.
+// Website access, safe media formats and Discord upload checks remain enforced.
 export function mediaCandidates(items) {
-  return items.filter(item => Boolean(item.image || item.video) && item.country === 'US');
+  return items.filter(item => Boolean(item.image || item.video));
 }
 
 // Dedicated video sites expose thumbnails and watch-page links that are not
