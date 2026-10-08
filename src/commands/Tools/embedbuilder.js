@@ -1165,6 +1165,7 @@ async function editContent(buttonInteraction, state) {
 
     if (!submitted) return;
 
+    await submitted.deferUpdate();
     state.title = submitted.fields.getTextInputValue('simple_embed_title').trim() || null;
     state.message = submitted.fields.getTextInputValue('simple_embed_message').trim() || null;
 
@@ -1258,9 +1259,11 @@ async function editMedia(buttonInteraction, state) {
         return;
     }
 
-    if (mediaKind === 'video') {
-        await submitted.deferUpdate().catch(() => {});
+    // Discord requires the modal to be acknowledged even though media is edited
+    // through the separate bot-managed Builder preview.
+    await submitted.deferUpdate();
 
+    if (mediaKind === 'video') {
         try {
             const converted = await convertVideoUrlToGif(uploadedMedia.url);
             state.mediaUrl = null;
@@ -1875,6 +1878,7 @@ export default {
                             await editMedia(buttonInteraction, state);
                             break;
                         case 'simple_embed_clear_media':
+                            await buttonInteraction.deferUpdate();
                             state.mediaUrl = null;
                             state.mediaBuffer = null;
                             state.mediaName = null;
@@ -1943,6 +1947,7 @@ export default {
                             await interaction.deleteReply().catch(() => {});
                             break;
                         case 'simple_embed_reset':
+                            await buttonInteraction.deferUpdate();
                             await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
                             state.title = null;
                             state.message = null;
