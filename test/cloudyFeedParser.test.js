@@ -177,3 +177,46 @@ test('a country-tagged video object is accepted but an en-US page locale is not'
     'https://example.org/clip');
   assert.equal(other[0].country, null);
 });
+
+test('public JSON-LD VideoObject with MP4 contentUrl is a playable video source', () => {
+  const html = '<html><script type="application/ld+json">'
+    + JSON.stringify({
+      '@type': 'VideoObject', name: 'Media clip',
+      url: 'https://example.org/watch/1', contentUrl: 'https://cdn.example.org/clip.mp4?file=1',
+      countryOfOrigin: { name: 'United States' },
+      thumbnailUrl: 'https://cdn.example.org/thumb.jpg',
+    }) + '</script></html>';
+  const item = parseWebsiteItems(html, 'https://example.org/');
+  assert.equal(item.length, 1);
+  assert.equal(item[0].video, 'https://cdn.example.org/clip.mp4?file=1');
+  assert.equal(item[0].country, 'US');
+  assert.equal(item[0].url, 'https://example.org/watch/1');
+});
+
+test('JSON-LD watch page, HLS playlist and iframe are never treated as direct video files', () => {
+  const records = [
+    { '@type': 'VideoObject', name: 'Watch', contentUrl: 'https://example.org/watch/1' },
+    { '@type': 'VideoObject', name: 'Stream', contentUrl: 'https://example.org/stream.m3u8' },
+    { '@type': 'VideoObject', name: 'Embed', embedUrl: 'https://example.org/player/7' },
+    { '@type': 'VideoObject', name: 'Unsafe', contentUrl: 'http://example.org/clip.mp4' },
+  ];
+  const html = '<html><script type="application/ld+json">'
+    + JSON.stringify({ '@graph': records }) + '</script></html>';
+  const items = parseWebsiteItems(html, 'https://example.org/');
+  assert.equal(items.filter(item => item.video).length, 0);
+});
+
+test('nested JSON-LD ItemList videos are supported without network calls', () => {
+  const html = '<html><script type="application/ld+json">'
+    + JSON.stringify({
+      '@type': 'ItemList',
+      itemListElement: [
+        { item: { '@type': 'VideoObject', name: 'Clip A', contentUrl: 'https://media.example.org/a.webm',
+          countryOfOrigin: 'USA' } },
+      ],
+    }) + '</script></html>';
+  const items = parseWebsiteItems(html, 'https://example.org/');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].video, 'https://media.example.org/a.webm');
+  assert.equal(items[0].country, 'US');
+});
