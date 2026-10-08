@@ -1311,16 +1311,48 @@ export function shouldApplyBackgroundRegistryRefresh(state, session) {
         && !session.hasInteracted;
 }
 
+function queueEmbedManagerUpdate(state, session, send, isCurrent, acknowledgement = null) {
+    const previousUpdate = session.pendingUpdate;
+    const update = (async () => {
+        try {
+            if (previousUpdate) {
+                await Promise.all([previousUpdate.catch(() => {}), acknowledgement]);
+            }
+            if (session.closed || state.activeEmbedManager !== session || !isCurrent()) return false;
+            return await send();
+        } catch (error) {
+            if (CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+                closeEmbedManagerSession(state, session, 'message-unavailable');
+                logger.debug(`Embed manager message ${session.messageId} is no longer available.`);
+                return false;
+            }
+            throw error;
+        }
+    })();
+    session.pendingUpdate = update;
+    return update.finally(() => {
+        if (session.pendingUpdate === update) session.pendingUpdate = null;
+    });
+}
+
 async function updateEmbedManager(interaction, payload, state, session) {
     if (session.closed || state.activeEmbedManager !== session) return false;
 
     try {
-        if (!interaction.deferred && !interaction.replied && typeof interaction.update === 'function') {
-            await interaction.update(payload);
-        } else {
-            await interaction.editReply(payload);
-        }
-        return true;
+        const selectionVersion = session.selectionVersion;
+        // A pending Discord edit must finish before the next paint. Acknowledge
+        // overlapping clicks immediately, then paint only the latest selection.
+        // Ordinary navigation still uses its single update callback.
+        const acknowledgement = session.pendingUpdate && !interaction.deferred && !interaction.replied
+            ? interaction.deferUpdate() : null;
+        return await queueEmbedManagerUpdate(state, session, async () => {
+            if (!interaction.deferred && !interaction.replied && typeof interaction.update === 'function') {
+                await interaction.update(payload);
+            } else {
+                await interaction.editReply(payload);
+            }
+            return true;
+        }, () => selectionVersion === session.selectionVersion, acknowledgement);
     } catch (error) {
         if (CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
             closeEmbedManagerSession(state, session, 'message-unavailable');
@@ -1589,10 +1621,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 filterEmbedManagerRecords(liveOverviewRecords),
             ));
 
-            await buttonInteraction.webhook.editMessage(
-                managerMessage.id,
-                channelPage(records, 0),
-            ).catch(error => {
+            await queueEmbedManagerUpdate(state, session, () => buttonInteraction.webhook.editMessage(
+                managerMessage.id, channelPage(records, 0),
+            ), () => shouldApplyBackgroundRegistryRefresh(state, session)).catch(error => {
                 if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
                     logger.error('Failed to refresh the embed manager registry:', error);
                 }
