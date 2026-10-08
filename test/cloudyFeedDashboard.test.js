@@ -149,19 +149,21 @@ test('Edit feed keeps the original fields, adds only the required media selector
   assert.equal(modal.title, 'Edit feed');
   assert.equal(modal.components.length, 5);
   assert.deepEqual(modal.components.map(x => x.label),
-    ['Name', 'Website URL', 'Auto message', '18+ content', 'Media type']);
+    ['Feed name', 'Website URL', 'Auto message', '18+ content', 'Media type']);
   assert.deepEqual(modal.components[4].component.options.map(x => x.label),
     ['Videos only', 'Pictures only']);
   assert.doesNotMatch(JSON.stringify(modal), /feedChannel|Channel \(optional\)|channel.*select/i);
 });
 
-test('Name uses a neutral placeholder without changing saved names', () => {
+test('Feed name label has Enter name placeholder without changing saved names', () => {
   const add = feedModal({ id: 'session1', action: 'add' }).toJSON();
   const edit = feedModal({
     id: 'session1', action: 'edit',
     feed: { id: 'abc', source: 'https://example.org/media', name: 'My feed', minutes: 5, adult: false },
   }).toJSON();
+  assert.equal(add.components[0].components[0].label, 'Feed name');
   assert.match(JSON.stringify(add), /Enter name/);
+  assert.equal(edit.components[0].label, 'Feed name');
   assert.match(JSON.stringify(edit), /Enter name/);
   assert.doesNotMatch(JSON.stringify(add), /Erome/);
   assert.doesNotMatch(JSON.stringify(edit), /Erome/);
