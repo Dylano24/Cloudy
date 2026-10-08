@@ -650,3 +650,48 @@ test('saved template without logo takes precedence over an older Discord peer wi
   assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
   assertLogoButtons(state, { canAdd: true, canRemove: false });
 });
+
+test('real Builder preview edits bypass global automatic response template decoration', async () => {
+  const { prepareMessageEditPayload, applySavedResponsePayloadTemplates } =
+    await import('../src/events/fullResponseCatalogReady.js');
+  const { registerBuilderPreviewMessage, unregisterBuilderPreviewMessage } =
+    await import('../src/utils/builderSessionCleanup.js');
+  const id = 'builder-live-response-cannot-restore-logo';
+  const payload = {
+    embeds: [{
+      title: 'Custom response',
+      description: 'Owner edited',
+      footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+    }],
+  };
+  const mockMessage = {
+    id,
+    guildId: 'builder-test-guild',
+    channelId: 'builder-test-channel',
+    client: { user: { id: 'bot' } },
+    author: { id: 'bot' },
+    embeds: [{ title: 'Custom response' }],
+  };
+
+  registerBuilderPreviewMessage(id);
+  try {
+    assert.equal(prepareMessageEditPayload(mockMessage, payload), payload,
+      'live preview edit payload is handed to Discord unmodified');
+  } finally {
+    unregisterBuilderPreviewMessage(id);
+  }
+  const response = await applySavedResponsePayloadTemplates(payload, {
+    commandName: 'embedbuilder',
+    guildId: 'builder-test-guild',
+    channelId: 'builder-test-channel',
+  });
+  assert.equal(response, payload, 'initial Builder reply bypasses saved runtime thumbnail overrides');
+
+  const posted = {
+    ...mockMessage,
+    id: 'posted-user-embed',
+    embeds: [{ title: 'User posted', footer: { text: 'Custom footer\u200B' } }],
+  };
+  assert.equal(prepareMessageEditPayload(posted, payload), payload,
+    'explicitly posted Builder embeds also bypass runtime logo injection');
+});
