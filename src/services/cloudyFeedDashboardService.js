@@ -58,7 +58,7 @@ export function readableFeedName(feed) {
 
 function feedStatusLine(feed) {
   if (feed.lastError) return '**Source check:** ' + String(feed.lastError).slice(0, 180);
-  return '**Source check:** ' + (feed.lastUsCheck ? 'USA media available' : 'USA origin not checked yet');
+  return '**Source check:** ' + (feed.lastUsCheck ? 'USA-tagged media available' : 'USA origin not checked yet');
 }
 
 export function buildCloudyFeedDashboard(guildId, feeds) {
