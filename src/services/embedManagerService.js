@@ -5,6 +5,7 @@ import {
     balanceResponseIdentity,
     isLegacyBalanceParserArtifact } from './balanceResponseIdentity.js';
 import { normalizeManualIndent } from '../utils/manualEmbedIndent.js';
+import { stampTermsFooterOnSave } from './termsWebsiteFooterService.js';
 import { withManualBuilderSaveLogoChoice } from '../utils/cloudyFooter.js';
 import { isBuilderSessionMessage, linkBuilderSessionMessages, registerBuilderSessionCollector, touchBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import {
@@ -2327,6 +2328,13 @@ export async function saveModifiedEmbed(guild, state) {
     const embeds = message.embeds.map((embed, embedIndex) =>
         embedIndex === index ? applyStateToExistingEmbed(state) : embed.toJSON(),
     );
+    const beforeTermsStamp = embeds[index];
+    embeds[index] = stampTermsFooterOnSave(message.embeds[index].toJSON(), beforeTermsStamp, {
+        channelId: backingChannelId,
+        componentsChanged: state.componentsDirty && JSON.stringify(getBuilderMessageComponents(state))
+            !== JSON.stringify((message.components || []).map(row => row.toJSON ? row.toJSON() : row)),
+    });
+    const termsFooterUpdated = embeds[index] !== beforeTermsStamp;
 
     if (getEmbedsTextLength(embeds) > DISCORD_EMBED_TOTAL_TEXT_LIMIT) {
         return { ok: false, reason: 'embed-too-large' };
@@ -2366,6 +2374,10 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
+    if (termsFooterUpdated) {
+        state.bottomLine = current.footer?.text || embeds[index].footer.text;
+        liveState.bottomLine = state.bottomLine;
+    }
     const mediaChanges = mediaChangeState(sourceData, current);
     let updatedCount = 1;
 
@@ -2458,6 +2470,7 @@ export async function saveModifiedEmbed(guild, state) {
         // used after reopening and after another Save in this Builder session.
         if (current.thumbnail?.url) nextPreview.thumbnail = { url: current.thumbnail.url };
         else delete nextPreview.thumbnail;
+        if (termsFooterUpdated) nextPreview.footer = { ...current.footer };
         state.modifyTarget.previewSourceData = nextPreview;
     }
     state.modifyTarget.cachedMessage = edited;
