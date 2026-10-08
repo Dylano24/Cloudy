@@ -2,6 +2,7 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
 import { readCloudyProviderItems } from './cloudyFeedProviders.js';
+import { discoverExtractorMedia } from './cloudyFeedExtractorService.js';
 
 // Large websites can exceed 1 MB in markup alone. Read a bounded prefix
 // rather than rejecting useful articles when the rest of the page is huge.
@@ -357,27 +358,53 @@ export function parseWebsiteItems(html, base) {
   return item ? [item] : [];
 }
 
-export async function readWebsiteItems(sourceUrl) {
+function matchesFeedMedia(items, mediaType) {
+  return items.some(item =>
+    mediaType === 'video' ? Boolean(item.video)
+      : mediaType === 'picture' ? Boolean(item.image && !item.video)
+        : Boolean(item.image || item.video));
+}
+
+// Keep the existing provider/RSS/HTML order and speed; only try the specialist
+// extractors if the website doesn't expose the requested media directly.
+export async function readWebsiteItems(sourceUrl, mediaType) {
   const directUrl = validateSourceUrl(sourceUrl).href;
-  // Public direct media URLs can be posted without scraping or downloading files.
   if (/\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(directUrl)) {
     return [{ title: 'Video', url: directUrl, description: '', image: null, video: directUrl, country: null }];
   }
   if (/\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(directUrl)) {
     return [{ title: 'Photo', url: directUrl, description: '', image: directUrl, video: null, country: null }];
   }
-  const provider = await readCloudyProviderItems(directUrl, {
-    normalizeCountry: normalizeMediaCountry,
-    downloader: downloadWebsite,
-  });
-  if (provider !== null) return provider;
-  const first = await downloadWebsite(directUrl);
-  if (/<(?:rss|feed)\b/i.test(first.text)) return parseFeedItems(first.text, first.url);
-  const alternate = htmlFeedUrl(first.text, first.url);
-  if (alternate) {
-    const feed = await downloadWebsite(alternate);
-    const items = parseFeedItems(feed.text, feed.url);
-    if (items.length) return items;
+
+  let discovered = [];
+  let nativeError = null;
+  try {
+    const provider = await readCloudyProviderItems(directUrl, {
+      normalizeCountry: normalizeMediaCountry,
+      downloader: downloadWebsite,
+    });
+    if (provider !== null) {
+      discovered = provider;
+    } else {
+      const first = await downloadWebsite(directUrl);
+      if (/<(?:rss|feed)\b/i.test(first.text)) {
+        discovered = parseFeedItems(first.text, first.url);
+      } else {
+        const alternate = htmlFeedUrl(first.text, first.url);
+        if (alternate) {
+          const feed = await downloadWebsite(alternate);
+          discovered = parseFeedItems(feed.text, feed.url);
+        }
+        if (!discovered.length) discovered = parseWebsiteItems(first.text, first.url);
+      }
+    }
+  } catch (error) {
+    nativeError = error;
   }
-  return parseWebsiteItems(first.text, first.url);
+
+  if (matchesFeedMedia(discovered, mediaType)) return discovered;
+  const extracted = await discoverExtractorMedia(directUrl, mediaType);
+  if (extracted.length) return extracted;
+  if (nativeError) throw nativeError;
+  return discovered;
 }
