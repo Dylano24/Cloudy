@@ -47,6 +47,23 @@ export function formatAutoMessage(minutes) {
   return `${value}m`;
 }
 
+export function readableFeedName(feed) {
+  if (feed.name) return String(feed.name).slice(0, 64);
+  try {
+    const hostname = new URL(feed.source).hostname.replace(/^(?:www|nl)\./i, '');
+    const base = hostname.split('.')[0] || 'Website';
+    return base.charAt(0).toUpperCase() + base.slice(1);
+  } catch { return 'Website'; }
+}
+
+function feedStatusLine(feed) {
+  if (feed.lastError) {
+    const detail = String(feed.lastError).replace(/No USA-tagged (?:media|photos or videos) found/gi, 'No matching media found');
+    return '**Source check:** ' + detail.slice(0, 180);
+  }
+  return '**Source check:** ' + (feed.lastUsCheck ? 'Media available' : 'Not checked');
+}
+
 export function buildCloudyFeedDashboard(guildId, feeds) {
   const embed = new EmbedBuilder()
     .setTitle('Cloudy feed')
@@ -55,21 +72,21 @@ export function buildCloudyFeedDashboard(guildId, feeds) {
 
   if (!feeds.length) embed.addFields({ name: 'Feeds', value: 'No feeds configured.' });
 
-  for (const feed of feeds.slice(0, 5)) {
+  for (const [index, feed] of feeds.slice(0, 5).entries()) {
     embed.addFields({
-      name: 'Feed ' + feed.id,
+      name: (index + 1) + '. ' + readableFeedName(feed) + ' • #' + (feed.channelName || 'channel'),
       value: '**Source:** ' + feed.source.slice(0, 150)
         + '\n**Channel:** <#' + feed.channelId + '>'
         + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
-        + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused'),
+        + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
+        + '\n' + feedStatusLine(feed),
     });
   }
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(PREFIX + 'add:' + guildId).setLabel('Add feed').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(PREFIX + 'edit:' + guildId).setLabel('Edit feed').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(PREFIX + 'pause:' + guildId).setLabel('Pause feed').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(PREFIX + 'delete:' + guildId).setLabel('Delete feed').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(PREFIX + 'manage:' + guildId).setLabel('Manage feed').setStyle(ButtonStyle.Secondary)
+      .setDisabled(!feeds.length),
   );
 
   // Replace stable placeholder IDs with this user's per-dashboard session IDs.
@@ -79,7 +96,7 @@ export function buildCloudyFeedDashboard(guildId, feeds) {
 function dashboardForSession(session, feeds) {
   const payload = buildCloudyFeedDashboard(session.guildId, feeds);
   const buttons = payload.components[0].components;
-  ['add', 'edit', 'pause', 'delete'].forEach((action, index) => {
+  ['add', 'manage'].forEach((action, index) => {
     buttons[index].setCustomId(PREFIX + 'button:' + session.id + ':' + action);
   });
   return payload;
@@ -87,6 +104,33 @@ function dashboardForSession(session, feeds) {
 
 function choiceEmbed(description) {
   return [new EmbedBuilder().setTitle('Cloudy feed').setDescription(description).setColor(0xFFFFFF)];
+}
+
+export function feedDetail(session, feed) {
+  const embed = new EmbedBuilder()
+    .setTitle('Cloudy feed')
+    .setDescription('Manage your selected feed.')
+    .setColor(0xFFFFFF)
+    .addFields({
+      name: readableFeedName(feed),
+      value: '**Source:** ' + feed.source.slice(0, 250)
+        + '\n**Channel:** <#' + feed.channelId + '>'
+        + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
+        + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
+        + '\n' + feedStatusLine(feed),
+    });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':edit')
+      .setLabel('Edit feed').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':pause')
+      .setLabel(feed.active ? 'Pause feed' : 'Resume feed')
+      .setStyle(feed.active ? ButtonStyle.Primary : ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':delete')
+      .setLabel('Delete feed').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id)
+      .setLabel('Back').setStyle(ButtonStyle.Secondary),
+  );
+  return { embeds: [embed], components: [row], allowedMentions: { parse: [] } };
 }
 
 export function channelChooser(session, edit = false) {
@@ -115,11 +159,16 @@ export function channelChooser(session, edit = false) {
 }
 
 export function feedChooser(session, feeds) {
-  const options = feeds.slice(0, 5).map(feed => ({
-    label: 'Feed ' + feed.id,
-    description: String(feed.source).slice(0, 95),
-    value: feed.id,
-  }));
+  const options = feeds.slice(0, 5).map(feed => {
+    const channel = session.guild?.channels?.cache?.get(feed.channelId);
+    const channelName = channel?.name || feed.channelName || 'channel';
+    return {
+      label: (readableFeedName(feed) + ' • #' + channelName).slice(0, 100),
+      description: (formatAutoMessage(feed.minutes) + ' • '
+        + (feed.active ? 'Active' : 'Paused') + ' • ' + String(feed.source)).slice(0, 100),
+      value: feed.id,
+    };
+  });
   const menu = new StringSelectMenuBuilder()
     .setCustomId(PREFIX + 'feed:' + session.id)
     .setPlaceholder('Select a feed')
@@ -154,6 +203,7 @@ function feedModal(session) {
     .setCustomId(PREFIX + 'submit:' + session.id)
     .setTitle(editing ? 'Edit feed' : 'Add feed');
   return modal.addComponents(
+    input('name', 'Feed name', false, 'Erome', editing ? readableFeedName(session.feed) : ''),
     input('source', 'Website URL', !editing, 'https://example.com', editing ? session.feed?.source : ''),
     input('duration', 'Auto message', !editing, '1m or 1h', editing ? formatAutoMessage(session.feed.minutes) : ''),
     input('adult', '18+ content', false, 'yes / no', editing ? (session.feed.adult ? 'yes' : 'no') : ''),
@@ -220,8 +270,8 @@ export async function openCloudyFeedDashboard(interaction, client) {
   }
   const session = {
     id: makeId(), guildId: guild.id, userId: interaction.user.id,
-    root: interaction, timer: null, action: null, feed: null,
-    channelId: null, modalOpen: false,
+    root: interaction, guild, timer: null, action: null, feed: null,
+    channelId: null, modalOpen: false, view: 'dashboard',
   };
   sessions.set(session.id, session);
   try {
@@ -258,13 +308,17 @@ export async function handleCloudyFeedControls(interaction, client) {
   try {
     if (type === 'back' && interaction.isButton()) {
       const feeds = await readFeeds(client, session.guildId);
-      if (session.action === 'edit' && session.feed) {
-        // From channel selection, go back to the feed selector.
+      if (session.view === 'channel' && session.action === 'edit' && session.feed) {
+        session.action = null;
+        session.view = 'detail';
+        await interaction.update(feedDetail(session, session.feed));
+      } else if (session.view === 'detail') {
+        session.view = 'picker';
         session.feed = null;
-        session.channelId = null;
+        session.action = null;
         await interaction.update(feedChooser(session, feeds));
       } else {
-        // From a feed selector or the Add feed channel selector, go home.
+        session.view = 'dashboard';
         session.action = null;
         session.feed = null;
         session.channelId = null;
@@ -274,22 +328,43 @@ export async function handleCloudyFeedControls(interaction, client) {
     }
 
     if (type === 'button' && interaction.isButton()) {
-      if (!['add', 'edit', 'pause', 'delete'].includes(value)) {
+      if (value === 'add') {
+        session.action = 'add';
+        session.feed = null;
+        session.channelId = null;
+        session.view = 'channel';
+        await interaction.update(channelChooser(session));
+        return true;
+      }
+      if (value === 'manage') {
+        const feeds = await readFeeds(client, session.guildId);
+        session.view = feeds.length ? 'picker' : 'dashboard';
+        await interaction.update(feeds.length ? feedChooser(session, feeds) : dashboardForSession(session, feeds));
+        return true;
+      }
+      if (!session.feed || session.view !== 'detail' || !['edit', 'pause', 'delete'].includes(value)) {
         await silentAck(interaction);
         return true;
       }
-      session.action = value;
-      session.feed = null;
-      session.channelId = null;
-      if (value === 'add') {
-        await interaction.update(channelChooser(session));
+      if (value === 'edit') {
+        session.action = 'edit';
+        session.channelId = session.feed.channelId;
+        session.view = 'channel';
+        await interaction.update(channelChooser(session, true));
+        return true;
+      }
+
+      await interaction.deferUpdate();
+      const feeds = await applyAction(interaction, guild, value, { feedId: session.feed.id });
+      if (!feeds) throw new Error('Cloudy feed is busy. Please try again.');
+      if (value === 'delete') {
+        session.feed = null;
+        session.view = 'dashboard';
+        await interaction.editReply(dashboardForSession(session, feeds));
       } else {
-        const feeds = await readFeeds(client, session.guildId);
-        if (!feeds.length) {
-          await interaction.update(dashboardForSession(session, feeds));
-        } else {
-          await interaction.update(feedChooser(session, feeds));
-        }
+        session.feed = feeds.find(feed => feed.id === session.feed.id) || null;
+        session.view = 'detail';
+        await interaction.editReply(feedDetail(session, session.feed));
       }
       return true;
     }
@@ -298,19 +373,13 @@ export async function handleCloudyFeedControls(interaction, client) {
       const feeds = await readFeeds(client, session.guildId);
       session.feed = feeds.find(feed => feed.id === interaction.values[0]) || null;
       if (!session.feed) {
-        await interaction.update(dashboardForSession(session, feeds));
-      } else if (session.action === 'edit') {
-        session.channelId = session.feed.channelId;
-        await interaction.update(channelChooser(session, true));
-      } else if (session.action === 'pause' || session.action === 'delete') {
-        await interaction.deferUpdate();
-        const result = await applyAction(interaction, guild, session.action, { feedId: session.feed.id });
-        if (!result) throw new Error('Cloudy feed is busy. Please try again.');
-        session.action = null;
-        session.feed = null;
-        await interaction.editReply(dashboardForSession(session, result));
+        session.view = 'picker';
+        await interaction.update(feedChooser(session, feeds));
       } else {
-        await interaction.deferUpdate();
+        session.view = 'detail';
+        session.action = null;
+        session.channelId = session.feed.channelId;
+        await interaction.update(feedDetail(session, session.feed));
       }
       return true;
     }
@@ -321,12 +390,14 @@ export async function handleCloudyFeedControls(interaction, client) {
         return true;
       }
       session.channelId = interaction.values[0];
+      session.view = 'modal';
       await interaction.showModal(feedModal(session));
       keepSessionAlive(session, true);
       return true;
     }
 
     if (type === 'keep' && interaction.isButton() && session.action === 'edit' && session.feed) {
+      session.view = 'modal';
       await interaction.showModal(feedModal(session));
       keepSessionAlive(session, true);
       return true;
@@ -337,21 +408,26 @@ export async function handleCloudyFeedControls(interaction, client) {
       await interaction.deferUpdate();
       session.modalOpen = false;
       keepSessionAlive(session);
+      const name = interaction.fields.getTextInputValue('name').trim();
       const source = interaction.fields.getTextInputValue('source').trim();
       const duration = interaction.fields.getTextInputValue('duration').trim();
       const adult = interaction.fields.getTextInputValue('adult').trim();
       const minutes = parseAutoMessageTime(duration, session.action === 'edit' ? session.feed?.minutes : undefined);
       const data = {
-        source, minutes: String(minutes), adult,
+        name, source, minutes: String(minutes), adult,
         channel: session.channelId,
         ...(session.action === 'edit' ? { feedId: session.feed.id } : {}),
       };
       const feeds = await applyAction(interaction, guild, session.action, data);
       if (!feeds) throw new Error('Cloudy feed is busy. Please try again.');
+      const saved = session.action === 'add'
+        ? feeds[feeds.length - 1]
+        : feeds.find(feed => feed.id === session.feed?.id);
       session.action = null;
-      session.feed = null;
-      session.channelId = null;
-      await interaction.editReply(dashboardForSession(session, feeds));
+      session.feed = saved || null;
+      session.channelId = saved?.channelId || null;
+      session.view = saved ? 'detail' : 'dashboard';
+      await interaction.editReply(saved ? feedDetail(session, saved) : dashboardForSession(session, feeds));
       return true;
     }
 
