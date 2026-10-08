@@ -5,6 +5,7 @@ import {
 } from 'discord.js';
 import { hasCloudyOwnerMember, hasCloudyOwnerRole } from './ownerRoleAccess.js';
 import { readWebsiteItems, validateSourceUrl } from './cloudyFeedParser.js';
+import { makeVideoAttachmentMessage } from './cloudyFeedMediaUpload.js';
 import { logger } from '../utils/logger.js';
 
 const PREFIX = 'cloudyfeed:';
@@ -161,13 +162,22 @@ async function validateChannel(guild, channelId, adult) {
   }
   const me = guild.members.me || await guild.members.fetchMe();
   if (!channel.permissionsFor(me)?.has([
-    PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks,
-  ])) throw new Error('Cloudy needs View Channel, Send Messages and Embed Links.');
+    PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles,
+  ])) throw new Error('Cloudy needs View Channel, Send Messages, Embed Links and Attach Files.');
   return channel;
 }
 
 function field(interaction, name) {
   return interaction.fields.getTextInputValue(name).trim();
+}
+
+export function mediaCandidates(items) {
+  return items.filter(item => Boolean(item.image || item.video) && item.country === 'US');
+}
+
+export function mediaItemKey(item) {
+  return item.video || item.image || item.url;
 }
 
 export async function applyAction(interaction, guild, action, input = {}) {
@@ -181,10 +191,12 @@ export async function applyAction(interaction, guild, action, input = {}) {
       const minutes = parseMinutes(get('minutes'));
       const adult = parseAdult(get('adult'));
       const channel = await validateChannel(guild, get('channel'), adult);
-      const items = await readWebsiteItems(source);
-      if (!items.length) throw new Error('No posts found. This website may require a supported RSS feed or API.');
+      const items = mediaCandidates(await readWebsiteItems(source));
+      if (!items.length) throw new Error('No supported media found for the current feed settings.');
       const id = randomUUID().slice(0, 8);
-      feeds.push({ id, source, channelId: channel.id, minutes, adult, active: true, nextAt: now + minutes * 60_000, recentUrls: [] });
+      const name = (get('name') || (host => host.charAt(0).toUpperCase() + host.slice(1))(new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0])).slice(0, 64);
+      feeds.push({ id, name, source, channelId: channel.id, channelName: channel.name, minutes, adult, active: true,
+        nextAt: now + minutes * 60_000, recentUrls: [], lastError: null, lastCheck: now, lastUsCheck: now });
     } else {
       const id = get('feedId');
       const feed = feeds.find(value => value.id === id);
@@ -200,12 +212,16 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const minutes = get('minutes') ? parseMinutes(get('minutes')) : feed.minutes;
         const adult = parseAdult(get('adult'), feed.adult);
         const channel = await validateChannel(guild, get('channel') || feed.channelId, adult);
-        if (source !== feed.source) {
-          const items = await readWebsiteItems(source);
-          if (!items.length) throw new Error('No posts found at the new website.');
+        const sourceChanged = source !== feed.source;
+        if (sourceChanged) {
+          const items = mediaCandidates(await readWebsiteItems(source));
+          if (!items.length) throw new Error('No supported media found at the new website.');
           feed.recentUrls = [];
         }
-        Object.assign(feed, { source, channelId: channel.id, adult, minutes, nextAt: now + minutes * 60_000 });
+        const name = (get('name') || feed.name || new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0]).slice(0, 64);
+        Object.assign(feed, { name, source, channelId: channel.id, channelName: channel.name, adult, minutes,
+          nextAt: now + minutes * 60_000,
+          ...(sourceChanged ? { lastError: null, lastCheck: now, lastUsCheck: now } : {}) });
       }
     }
     await saveFeeds(interaction.client, guild.id, feeds);
@@ -259,31 +275,50 @@ async function processGuild(client, guild) {
       const next = Date.now() + Math.max(MIN_MINUTES, feed.minutes) * 60_000;
       try {
         const channel = await validateChannel(guild, feed.channelId, feed.adult);
-        const candidates = await readWebsiteItems(feed.source);
+        const candidates = mediaCandidates(await readWebsiteItems(feed.source));
         const seen = new Set(feed.recentUrls || []);
-        const available = candidates.filter(item => !seen.has(item.url));
-        if (available.length) {
-          const item = available[Math.floor(Math.random() * available.length)];
-          // Reserve the item before sending to prevent replays after a process restart.
-          feed.recentUrls = [...(feed.recentUrls || []), item.url].slice(-100);
+        const available = candidates.filter(item => !seen.has(mediaItemKey(item)));
+        if (!candidates.length) {
+          feed.lastError = 'No matching media found';
+        } else if (!available.length) {
+          feed.lastError = 'No new media available';
+        } else {
+          // Choose playable videos first. Images remain supported when a
+          // feed has no new videos.
+          const videoOptions = available.filter(item => item.video);
+          const selection = videoOptions.length ? videoOptions : available;
+          const item = selection[Math.floor(Math.random() * selection.length)];
+          let post;
+          if (item.video) {
+            // Download and verify before reserving or publishing the media.
+            // Never fall back to a site link when the video cannot be uploaded.
+            post = await makeVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
+          } else {
+            const embed = new EmbedBuilder().setColor(0xFFFFFF).setTitle(item.title);
+            if (item.description) embed.setDescription(item.description);
+            if (item.image) embed.setImage(item.image);
+            post = { embeds: [embed], allowedMentions: { parse: [] } };
+          }
+          // Reserve before sending to avoid double posts on process restart.
+          feed.recentUrls = [...seen, mediaItemKey(item)].slice(-200);
           feed.nextAt = next;
           await saveFeeds(client, guild.id, feeds);
-          const embed = new EmbedBuilder().setColor(0xFFFFFF)
-            .setTitle(item.title).setURL(item.url);
-          if (item.description) embed.setDescription(item.description);
-          if (item.image) embed.setImage(item.image);
-          await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+          await channel.send(post);
+          feed.lastError = null;
+          feed.lastPostedAt = Date.now();
         }
       } catch (error) {
+        feed.lastError = String(error?.message || 'Website unavailable').slice(0, 180);
         logger.warn('[CLOUDY_FEED] Scheduled feed failed (' + feed.id + '):', error);
       }
+      feed.lastCheck = Date.now();
+      feed.lastUsCheck = feed.lastCheck;
       feed.nextAt = next;
       changed = true;
     }
     if (changed) await saveFeeds(client, guild.id, feeds);
   });
 }
-
 export async function runCloudyFeedSchedule(client) {
   if (!client.isReady() || client.db?.getStatus?.().isDegraded) return;
   await Promise.allSettled([...client.guilds.cache.values()].map(async guild => {

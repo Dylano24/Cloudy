@@ -119,16 +119,88 @@ function safeItemUrl(value, base) {
   } catch { return null; }
 }
 
-function normalizeItem({ title, link, description, image }, base) {
+// Only explicit per-item geography counts. Locale, VPN or Railway geography
+// cannot verify the origin of an individual photo or video.
+export function normalizeMediaCountry(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[._-]+/g, ' ').replace(/\s+/g, ' ');
+  return /^(?:us|usa|u s a|united states|united states of america|🇺🇸)$/.test(normalized) ? 'US' : null;
+}
+
+function htmlItemCountry(fragment) {
+  const root = String(fragment || '').match(/<(?:article|figure|a|video)\b[^>]*>/i)?.[0] || '';
+  return normalizeMediaCountry(attribute(root, 'data-country')
+    || attribute(root, 'data-country-code')
+    || attribute(root, 'data-origin-country'));
+}
+
+function rssItemCountry(block) {
+  return normalizeMediaCountry(tag(block, 'country')
+    || tag(block, 'dc:coverage')
+    || tag(block, 'media:country'));
+}
+
+function videoObjectCountry(html) {
+  // A public JSON-LD VideoObject with explicit countryOfOrigin or contentLocation.
+  for (const script of String(html || '').matchAll(/<script\b[^>]*type\s*=\s*['"]application\/ld\+json['"][^>]*>([\s\S]*?)<\/script>/gi)) {
+    let data;
+    try { data = JSON.parse(script[1]); } catch { continue; }
+    const queue = [data];
+    while (queue.length) {
+      const item = queue.shift();
+      if (Array.isArray(item)) { queue.push(...item); continue; }
+      if (!item || typeof item !== 'object') continue;
+      if (Array.isArray(item['@graph'])) queue.push(...item['@graph']);
+      const types = Array.isArray(item['@type']) ? item['@type'] : [item['@type']];
+      if (!types.includes('VideoObject')) continue;
+      const country = item.countryOfOrigin?.name || item.countryOfOrigin
+        || item.contentLocation?.address?.addressCountry
+        || item.contentLocation?.addressCountry;
+      const code = normalizeMediaCountry(typeof country === 'object' ? country?.name : country);
+      if (code) return code;
+    }
+  }
+  return null;
+}
+
+function normalizeItem({ title, link, description, image, video, country }, base) {
   const url = safeItemUrl(link, base);
   if (!title || !url) return null;
   const media = safeItemUrl(image, base);
+  const movie = safeItemUrl(video, base);
   return {
     title: String(title).slice(0, 250),
     url,
     description: String(description || '').slice(0, 1000),
     image: media && media.startsWith('https:') ? media : null,
+    video: movie && movie.startsWith('https:') ? movie : null,
+    country: normalizeMediaCountry(country),
   };
+}
+
+function imageFromTag(html) {
+  const el = String(html || '').match(/<img\b[^>]*>/i)?.[0] || '';
+  return attribute(el, 'data-src') || attribute(el, 'src') || '';
+}
+
+function videoFromTag(html) {
+  const el = String(html || '').match(/<video\b[^>]*>/i)?.[0] || '';
+  const source = String(html || '').match(/<source\b[^>]*>/i)?.[0] || '';
+  return attribute(el, 'src') || attribute(el, 'data-src')
+    || attribute(source, 'src') || attribute(source, 'data-src') || '';
+}
+
+function mediaAttrs(block) {
+  const tags = block.match(/<(?:media:content|media:thumbnail|enclosure)\b[^>]*>/gi) || [];
+  const media = { image: '', video: '' };
+  for (const t of tags) {
+    const url = attribute(t, 'url');
+    const mime = (attribute(t, 'type') || attribute(t, 'medium')).toLowerCase();
+    const isVideo = /^video\b/.test(mime) || /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(url);
+    const isImage = /^image\b/.test(mime) || /<media:thumbnail\b/i.test(t) || /\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(url);
+    if (isVideo && !media.video) media.video = url;
+    if (isImage && !media.image) media.image = url;
+  }
+  return media;
 }
 
 export function parseFeedItems(xml, base) {
@@ -139,12 +211,14 @@ export function parseFeedItems(xml, base) {
     const atomLink = atom
       ? (block.match(/<link\b[^>]*?\brel\s*=\s*['"]alternate['"][^>]*>/i)?.[0] || block.match(/<link\b[^>]*>/i)?.[0] || '')
       : '';
-    const imageNode = block.match(/<(?:media:content|media:thumbnail|enclosure)\b[^>]*>/i)?.[0] || '';
+    const foundMedia = mediaAttrs(block);
     const result = normalizeItem({
       title: tag(block, 'title'),
       link: atom ? attribute(atomLink, 'href') || tag(block, 'id') : tag(block, 'link') || tag(block, 'guid'),
       description: tag(block, 'description') || tag(block, 'summary') || tag(block, 'content'),
-      image: attribute(imageNode, 'url') || attribute(block.match(/<img\b[^>]*>/i)?.[0] || '', 'src'),
+      image: foundMedia.image || imageFromTag(block),
+      video: foundMedia.video || videoFromTag(block),
+      country: rssItemCountry(block),
     }, base);
     if (result) items.push(result);
   }
@@ -168,16 +242,70 @@ export function parseWebsiteItems(html, base) {
     const anchor = article.match(/<a\b[^>]*href\s*=\s*['"][^'"]+['"][^>]*>/i)?.[0] || '';
     const heading = article.match(/<h[1-4]\b[^>]*>([\s\S]*?)<\/h[1-4]>/i)?.[1] || '';
     const paragraph = article.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] || '';
-    const image = article.match(/<img\b[^>]*>/i)?.[0] || '';
+    const image = imageFromTag(article);
+    const video = videoFromTag(article);
     const item = normalizeItem({
       title: decode(heading),
       link: attribute(anchor, 'href'),
       description: decode(paragraph),
-      image: attribute(image, 'src'),
+      image,
+      video,
+      country: htmlItemCountry(article),
     }, base);
     if (item) found.push(item);
   }
+  if (found.some(item => item.image || item.video)) return found;
+
+  // A gallery can contain photos or videos in figure blocks rather than
+  // article blocks. Do not treat navigation icons, avatars or branding as posts.
+  const figures = html.match(/<figure\b[\s\S]*?<\/figure>/gi) || [];
+  for (const figure of figures.slice(0, 100)) {
+    const image = imageFromTag(figure);
+    const video = videoFromTag(figure);
+    if (!image && !video) continue;
+    const caption = decode(figure.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i)?.[1] || '');
+    const anchor = figure.match(/<a\b[^>]*>/i)?.[0] || '';
+    const title = caption || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '') || 'Media';
+    const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image, video,
+      country: htmlItemCountry(figure), description: '' }, base);
+    if (item) found.push(item);
+  }
+  if (found.some(item => item.image || item.video)) return found.filter(item => item.image || item.video);
+
+  // Some public photo galleries use image links rather than figure/article tags.
+  // Ignore navigation graphics, logos, avatars and other non-post images.
+  const images = html.match(/<a\b[^>]*>[\s\S]*?<img\b[^>]*>[\s\S]*?<\/a>/gi) || [];
+  for (const block of images.slice(0, 100)) {
+    const image = imageFromTag(block);
+    if (!/\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(image)) continue;
+    if (/(?:avatar|logo|icon|badge|emoji|sprite|thumbnail-placeholder)/i.test(image)) continue;
+    const imgTag = block.match(/<img\b[^>]*>/i)?.[0] || '';
+    const width = Number(attribute(imgTag, 'width'));
+    if (width > 0 && width < 160) continue;
+    const anchor = block.match(/<a\b[^>]*>/i)?.[0] || '';
+    const title = attribute(imgTag, 'alt')
+      || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '') || 'Photo';
+    const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image,
+      country: htmlItemCountry(block) }, base);
+    if (item) found.push(item);
+  }
+  if (found.some(item => item.image || item.video)) return found.filter(item => item.image || item.video);
+
+  // On a single-video post, the video tag may not be inside an article.
+  const directVideo = videoFromTag(html);
+  if (directVideo) {
+    const title = decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '') || 'Video';
+    const previewTag = html.match(/<video\b[^>]*>/i)?.[0] || '';
+    const item = normalizeItem({
+      title, link: base, video: directVideo, image: attribute(previewTag, 'poster'),
+      country: htmlItemCountry(html.match(/<video\b[^>]*>/i)?.[0] || '') || videoObjectCountry(html),
+    }, base);
+    if (item) return [item];
+  }
+
+  // Keep text-only article support, but allow photo/video discovery before fallback.
   if (found.length) return found;
+
   // Plain webpages without article lists are a single post, never scraped as arbitrary media.
   const og = html.match(/<meta\b[^>]*property\s*=\s*['"]og:title['"][^>]*>/i)?.[0] || '';
   const title = attribute(og, 'content') || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '');
@@ -186,7 +314,15 @@ export function parseWebsiteItems(html, base) {
 }
 
 export async function readWebsiteItems(sourceUrl) {
-  const first = await downloadWebsite(sourceUrl);
+  const directUrl = validateSourceUrl(sourceUrl).href;
+  // Public direct media URLs can be posted without scraping or downloading files.
+  if (/\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(directUrl)) {
+    return [{ title: 'Video', url: directUrl, description: '', image: null, video: directUrl, country: null }];
+  }
+  if (/\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(directUrl)) {
+    return [{ title: 'Photo', url: directUrl, description: '', image: directUrl, video: null, country: null }];
+  }
+  const first = await downloadWebsite(directUrl);
   if (/<(?:rss|feed)\b/i.test(first.text)) return parseFeedItems(first.text, first.url);
   const alternate = htmlFeedUrl(first.text, first.url);
   if (alternate) {
