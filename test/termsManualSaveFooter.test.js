@@ -8,12 +8,15 @@ test('Terms title and emoji changes receive Amsterdam Save date and time with th
   const next = { ...original, title: '✅ Updated conditions' };
   const result = stampTermsFooterOnSave(original, next, { now: new Date('2026-10-09T12:32:00Z') });
   assert.equal(result.footer.text, '© Cloudy Inc. • Last updated 09 October 2026 • 14:32');
+  const later = stampTermsFooterOnSave(result, structuredClone(result), { channelId: '1533191366190829768', now: new Date('2026-10-10T13:45:00Z') });
+  assert.equal(later.footer.text, '© Cloudy Inc. • Last updated 10 October 2026 • 15:45');
   assert.equal(result.footer.icon_url, original.footer.icon_url);
   assert.equal(result.description, original.description);
 });
 
-test('unchanged Save and unrelated embeds keep their footer', () => {
-  assert.deepEqual(stampTermsFooterOnSave(original, structuredClone(original)), original);
+test('every Terms Save refreshes the date while unrelated embeds keep their footer', () => {
+  const result = stampTermsFooterOnSave(original, structuredClone(original), { now: new Date('2026-10-09T12:32:00Z') });
+  assert.equal(result.footer.text, '© Cloudy Inc. • Last updated 09 October 2026 • 14:32');
   const unrelated = { ...original, title: 'Privacy policy' };
   assert.deepEqual(stampTermsFooterOnSave(unrelated, { ...unrelated, description: 'Changed' }), { ...unrelated, description: 'Changed' });
 });
@@ -37,7 +40,7 @@ test('startup reconciliation never overwrites a manually dated Discord Terms foo
   assert.equal(await syncExistingTermsFooter(message, 'Terms of service'), false);
 });
 
-test('real Builder Save stamps only the selected Terms embed and a second unchanged Save preserves it', async t => {
+test('real Builder Save stamps only the selected Terms embed even without content changes', async t => {
   const { Embed } = await import('discord.js');
   const { db } = await import('../src/utils/database.js');
   const { loadRecordSnapshotIntoState, saveModifiedEmbed } = await import('../src/services/embedManagerService.js');
@@ -63,7 +66,7 @@ test('real Builder Save stamps only the selected Terms embed and a second unchan
   const state = {};
   loadRecordSnapshotIntoState(state, guild, { guildId: guild.id, channelId: channel.id, messageId: message.id, source: 'embed-builder', embedIndex: 0, snapshot: original });
   assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
-  assert.equal(message.embeds[0].footer.text, original.footer.text, 'unchanged first Save must retain published date');
+  assert.notEqual(message.embeds[0].footer.text, original.footer.text, 'even an unchanged Save refreshes the published date');
   state.title = '✅ Updated conditions';
   assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
   const savedFooter = message.embeds[0].footer.text;
