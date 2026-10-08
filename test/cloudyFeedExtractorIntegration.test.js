@@ -4,7 +4,8 @@ import {
   parseGalleryDlUrls, parseYtDlpItems, discoverExtractorMedia,
 } from '../src/services/cloudyFeedExtractorService.js';
 import { targetVideoBitrateKbps, makeExtractedVideoAttachmentMessage } from '../src/services/cloudyFeedVideoExtractor.js';
-import { writeFile, stat } from 'node:fs/promises';
+import { writeFile, stat, mkdir } from 'node:fs/promises';
+import { makeExtractedImageAttachmentMessage } from '../src/services/cloudyFeedPictureExtractor.js';
 import { mediaItemKey, eligibleMediaForSource } from '../src/services/cloudyFeedService.js';
 
 test('yt-dlp metadata discovers real public video posts, not thumbnails or DRM', () => {
@@ -133,4 +134,31 @@ test('oversized extracted videos are converted locally instead of linked or trun
   assert.equal(message.files[0].name, 'cloudy-video.mp4');
   assert.deepEqual(message.files[0].attachment, optimized);
   assert.equal(Object.hasOwn(message, 'embeds'), false);
+});
+
+test('gallery-dl can upload a public picture when its CDN blocks hotlinking', async () => {
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  let savedPath;
+  const message = await makeExtractedImageAttachmentMessage('https://example.org/gallery', 2, 1024, {
+    runner: async (binary, args) => {
+      assert.equal(binary, 'gallery-dl');
+      assert.equal(args[args.indexOf('--range') + 1], '2');
+      const directory = args[args.indexOf('--destination') + 1];
+      await mkdir(directory + '/pictures', { recursive: true });
+      savedPath = directory + '/pictures/photo.png';
+      await writeFile(savedPath, bytes);
+    },
+  });
+  assert.equal(message.files[0].name, 'cloudy-picture.png');
+  assert.deepEqual(message.files[0].attachment, bytes);
+  assert.equal(Object.hasOwn(message, 'embeds'), false);
+  assert.equal(Object.hasOwn(message, 'content'), false);
+  await assert.rejects(stat(savedPath), { code: 'ENOENT' });
+});
+
+test('gallery-dl limits picture selection and does not fetch an arbitrary gallery index', async () => {
+  await assert.rejects(makeExtractedImageAttachmentMessage('https://example.org/gallery', 0, 1024),
+    /Invalid gallery picture selection/);
+  await assert.rejects(makeExtractedImageAttachmentMessage('https://example.org/gallery', 21, 1024),
+    /Invalid gallery picture selection/);
 });
