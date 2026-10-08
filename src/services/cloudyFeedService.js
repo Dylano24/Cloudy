@@ -5,7 +5,7 @@ import {
 } from 'discord.js';
 import { hasCloudyOwnerMember, hasCloudyOwnerRole } from './ownerRoleAccess.js';
 import { readWebsiteItems, validateSourceUrl } from './cloudyFeedParser.js';
-import { makeVideoAttachmentMessage } from './cloudyFeedMediaUpload.js';
+import { makeVideoAttachmentMessage, makeImageAttachmentMessage } from './cloudyFeedMediaUpload.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
@@ -349,11 +349,9 @@ async function processGuild(client, guild) {
             // Never fall back to a site link when the video cannot be uploaded.
             post = await makeVideoAttachmentMessage(item.video, guild.maximumUploadLimit);
           } else {
-            const embed = new EmbedBuilder().setColor(0xFFFFFF).setTitle(item.title)
-              .setThumbnail(CLOUDY_LOGO_URL).setFooter({ text: CLOUDY_BRANDING });
-            if (item.description) embed.setDescription(item.description);
-            if (item.image) embed.setImage(item.image);
-            post = { embeds: [embed], allowedMentions: { parse: [] } };
+            // Post the real photo as a native Discord attachment, not a
+            // remote URL inside an embed. Reject blocked, oversized or invalid files.
+            post = await makeImageAttachmentMessage(item.image, guild.maximumUploadLimit);
           }
           // Reserve before sending to avoid double posts on process restart.
           feed.recentUrls = [...seen, mediaItemKey(item)].slice(-200);
