@@ -5,6 +5,7 @@ import {
   ChannelSelectMenuBuilder,
   ChannelType,
   EmbedBuilder,
+  LabelBuilder,
   MessageFlags,
   ModalBuilder,
   StringSelectMenuBuilder,
@@ -15,6 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { readFeeds, applyAction } from './cloudyFeedService.js';
 import { logger } from '../utils/logger.js';
+import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
+import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 
 const PREFIX = 'cloudyfeed:';
 const IDLE_MS = 5 * 60_000;
@@ -64,11 +67,17 @@ function feedStatusLine(feed) {
   return '**Source check:** ' + (feed.lastUsCheck ? 'Media available' : 'Not checked');
 }
 
+export function feedEmbedBase() {
+  return new EmbedBuilder()
+    .setColor(0xFFFFFF)
+    .setThumbnail(CLOUDY_LOGO_URL)
+    .setFooter({ text: CLOUDY_BRANDING });
+}
+
 export function buildCloudyFeedDashboard(guildId, feeds) {
-  const embed = new EmbedBuilder()
+  const embed = feedEmbedBase()
     .setTitle('Cloudy feed')
-    .setDescription('Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.')
-    .setColor(0xFFFFFF);
+    .setDescription('Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.');
 
 
   const row = new ActionRowBuilder().addComponents(
@@ -91,17 +100,17 @@ function dashboardForSession(session, feeds) {
 }
 
 function choiceEmbed(description) {
-  return [new EmbedBuilder().setTitle('Cloudy feed').setDescription(description).setColor(0xFFFFFF)];
+  return [feedEmbedBase().setTitle('Cloudy feed').setDescription(description)];
 }
 
 export function feedDetail(session, feed) {
-  const embed = new EmbedBuilder()
+  const embed = feedEmbedBase()
     .setTitle('Cloudy feed')
     .setDescription('Manage your selected feed.')
-    .setColor(0xFFFFFF)
     .addFields({
       name: readableFeedName(feed),
       value: '**Source:** ' + feed.source.slice(0, 250)
+        + '\n━━━━━━━━━━━━━━━━━━━━'
         + '\n**Channel:** <#' + feed.channelId + '>'
         + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
         + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
@@ -110,8 +119,6 @@ export function feedDetail(session, feed) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':edit')
       .setLabel('Edit feed').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':changeChannel')
-      .setLabel('Change channel').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':pause')
       .setLabel(feed.active ? 'Pause feed' : 'Resume feed')
       .setStyle(feed.active ? ButtonStyle.Primary : ButtonStyle.Success),
@@ -187,16 +194,38 @@ function input(id, label, required, placeholder, defaultValue) {
   return new ActionRowBuilder().addComponents(field);
 }
 
-function feedModal(session) {
+function textLabel(id, label, required, placeholder, defaultValue) {
+  const field = new TextInputBuilder().setCustomId(id)
+    .setStyle(TextInputStyle.Short).setRequired(required).setMaxLength(500);
+  if (placeholder) field.setPlaceholder(placeholder);
+  if (defaultValue) field.setValue(defaultValue);
+  return new LabelBuilder().setLabel(label).setTextInputComponent(field);
+}
+
+export function feedModal(session) {
   const editing = session.action === 'edit';
   const modal = new ModalBuilder()
     .setCustomId(PREFIX + 'submit:' + session.id)
     .setTitle(editing ? 'Edit feed' : 'Add feed');
-  return modal.addComponents(
-    input('name', 'Feed name', false, 'Erome', editing ? readableFeedName(session.feed) : ''),
-    input('source', 'Website URL', !editing, 'https://example.com', editing ? session.feed?.source : ''),
-    input('duration', 'Auto message', !editing, '1m or 1h', editing ? formatAutoMessage(session.feed.minutes) : ''),
-    input('adult', '18+ content', false, 'yes / no', editing ? (session.feed.adult ? 'yes' : 'no') : ''),
+  if (!editing) {
+    return modal.addComponents(
+      input('name', 'Feed name', false, 'Erome', ''),
+      input('source', 'Website URL', true, 'https://example.com', ''),
+      input('duration', 'Auto message', true, '1m or 1h', ''),
+      input('adult', '18+ content', false, 'yes / no', ''),
+    );
+  }
+  const channel = new ChannelSelectMenuBuilder()
+    .setCustomId('feedChannel')
+    .setPlaceholder('Keep current channel')
+    .setMinValues(0).setMaxValues(1).setRequired(false)
+    .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
+  return modal.addLabelComponents(
+    textLabel('name', 'Feed name', false, 'Erome', readableFeedName(session.feed)),
+    textLabel('source', 'Website URL', false, 'https://example.com', session.feed?.source),
+    textLabel('duration', 'Auto message', false, '1m or 1h', formatAutoMessage(session.feed.minutes)),
+    textLabel('adult', '18+ content', false, 'yes / no', session.feed.adult ? 'yes' : 'no'),
+    new LabelBuilder().setLabel('Channel (optional)').setChannelSelectMenuComponent(channel),
   );
 }
 
@@ -332,7 +361,7 @@ export async function handleCloudyFeedControls(interaction, client) {
         await interaction.update(feeds.length ? feedChooser(session, feeds) : dashboardForSession(session, feeds));
         return true;
       }
-      if (!session.feed || session.view !== 'detail' || !['edit', 'changeChannel', 'pause', 'delete'].includes(value)) {
+      if (!session.feed || session.view !== 'detail' || !['edit', 'pause', 'delete'].includes(value)) {
         await silentAck(interaction);
         return true;
       }
@@ -345,14 +374,6 @@ export async function handleCloudyFeedControls(interaction, client) {
         keepSessionAlive(session, true);
         return true;
       }
-      if (value === 'changeChannel') {
-        session.action = 'changeChannel';
-        session.channelId = session.feed.channelId;
-        session.view = 'channel';
-        await interaction.update(channelChooser(session));
-        return true;
-      }
-
       await interaction.deferUpdate();
       const feeds = await applyAction(interaction, guild, value, { feedId: session.feed.id });
       if (!feeds) throw new Error('Cloudy feed is busy. Please try again.');
@@ -384,27 +405,14 @@ export async function handleCloudyFeedControls(interaction, client) {
     }
 
     if (type === 'channel' && interaction.isChannelSelectMenu()) {
-      if (!['add', 'changeChannel'].includes(session.action)) {
+      if (session.action !== 'add') {
         await silentAck(interaction);
         return true;
       }
       session.channelId = interaction.values[0];
-      if (session.action === 'changeChannel' && session.feed) {
-        await interaction.deferUpdate();
-        const feeds = await applyAction(interaction, guild, 'edit', {
-          feedId: session.feed.id,
-          channel: session.channelId,
-        });
-        if (!feeds) throw new Error('Cloudy feed is busy. Please try again.');
-        session.feed = feeds.find(feed => feed.id === session.feed.id) || session.feed;
-        session.action = null;
-        session.view = 'detail';
-        await interaction.editReply(feedDetail(session, session.feed));
-      } else {
-        session.view = 'modal';
-        await interaction.showModal(feedModal(session));
-        keepSessionAlive(session, true);
-      }
+      session.view = 'modal';
+      await interaction.showModal(feedModal(session));
+      keepSessionAlive(session, true);
       return true;
     }
 
@@ -425,9 +433,11 @@ export async function handleCloudyFeedControls(interaction, client) {
       const duration = interaction.fields.getTextInputValue('duration').trim();
       const adult = interaction.fields.getTextInputValue('adult').trim();
       const minutes = parseAutoMessageTime(duration, session.action === 'edit' ? session.feed?.minutes : undefined);
+      const selectedChannel = session.action === 'edit'
+        ? interaction.fields.getSelectedChannels('feedChannel')?.first()?.id : null;
       const data = {
         name, source, minutes: String(minutes), adult,
-        channel: session.channelId,
+        channel: selectedChannel || session.channelId,
         ...(session.action === 'edit' ? { feedId: session.feed.id } : {}),
       };
       const feeds = await applyAction(interaction, guild, session.action, data);
