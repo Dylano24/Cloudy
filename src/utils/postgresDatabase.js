@@ -530,28 +530,31 @@ class PostgreSQLDatabase {
             const plan = getStructuredListPlan(prefix, pgConfig.tables);
             const tempPrefixes = plan.tempPrefixes ?? [prefix];
 
-            for (const tempPrefix of tempPrefixes) {
-                const tempResult = await this.pool.query(
-                    `SELECT key FROM ${pgConfig.tables.temp_data} WHERE key LIKE $1 AND (expires_at IS NULL OR expires_at > NOW())`,
-                    [`${tempPrefix}%`],
-                );
-                for (const row of tempResult.rows) {
-                    keys.add(canonicalizeKey(row.key));
-                }
-            }
+            const reads = [
+                ...tempPrefixes.map(tempPrefix => ({
+                    sql: `SELECT key FROM ${pgConfig.tables.temp_data} WHERE key LIKE $1 AND (expires_at IS NULL OR expires_at > NOW())`,
+                    params: [`${tempPrefix}%`],
+                    mapKey: row => canonicalizeKey(row.key),
+                })),
+                {
+                    sql: `SELECT key FROM ${pgConfig.tables.cache_data} WHERE key LIKE $1 AND (expires_at IS NULL OR expires_at > NOW())`,
+                    params: [`${prefix}%`],
+                    mapKey: row => row.key,
+                },
+                ...plan.queries,
+            ];
 
-            const cacheResult = await this.pool.query(
-                `SELECT key FROM ${pgConfig.tables.cache_data} WHERE key LIKE $1 AND (expires_at IS NULL OR expires_at > NOW())`,
-                [`${prefix}%`],
-            );
-            for (const row of cacheResult.rows) {
-                keys.add(row.key);
-            }
-
-            for (const query of plan.queries) {
-                const result = await this.pool.query(query.sql, query.params);
-                for (const row of result.rows) {
-                    keys.add(query.mapKey(row));
+            // These reads are independent. Small batches reduce serial network
+            // waits without letting one broad list occupy the entire pool.
+            // Merge in source order, never completion order, to preserve ties
+            // and canonical/legacy deduplication for existing callers.
+            for (let offset = 0; offset < reads.length; offset += 4) {
+                const batch = reads.slice(offset, offset + 4);
+                const results = await Promise.all(batch.map(query => this.pool.query(query.sql, query.params)));
+                for (let index = 0; index < batch.length; index++) {
+                    for (const row of results[index].rows) {
+                        keys.add(batch[index].mapKey(row));
+                    }
                 }
             }
 
