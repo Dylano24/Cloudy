@@ -75,3 +75,43 @@ test('limits oversized HTML to a bounded prefix without throwing', async () => {
   assert.ok(result.text.length <= 128);
   assert.equal(cancelled, true);
 });
+
+
+test('detects image and video RSS media including enclosures', () => {
+  const rss = '<rss><channel>'
+    + '<item><title>First photo</title><link>https://example.org/album/a</link>'
+    + '<enclosure url="https://cdn.example.org/photo.jpg" type="image/jpeg"/></item>'
+    + '<item><title>Video clip</title><link>https://example.org/album/b</link>'
+    + '<enclosure url="https://cdn.example.org/video.mp4" type="video/mp4"/></item>'
+    + '</channel></rss>';
+  const items = parseFeedItems(rss, 'https://example.org/rss');
+  assert.equal(items[0].image, 'https://cdn.example.org/photo.jpg');
+  assert.equal(items[0].video, null);
+  assert.equal(items[1].video, 'https://cdn.example.org/video.mp4');
+  assert.equal(items[1].image, null);
+});
+
+test('extracts public video tags and gallery figure images', () => {
+  const videos = parseWebsiteItems(
+    '<html><title>Clips</title><video poster="/thumb.jpg"><source src="/clip.mp4" type="video/mp4"></video></html>',
+    'https://example.org/posts/video',
+  );
+  assert.equal(videos[0].video, 'https://example.org/clip.mp4');
+  assert.equal(videos[0].image, 'https://example.org/thumb.jpg');
+
+  const images = parseWebsiteItems(
+    '<html><figure><a href="/album/1"><img src="/uploads/photo.jpg"></a>'
+    + '<figcaption>First upload</figcaption></figure></html>',
+    'https://example.org/',
+  );
+  assert.equal(images[0].url, 'https://example.org/album/1');
+  assert.equal(images[0].image, 'https://example.org/uploads/photo.jpg');
+});
+
+test('does not treat a plain FAQ document as an image or video feed', () => {
+  const items = parseWebsiteItems('<html><title>Frequently asked questions</title><h1>FAQ</h1></html>',
+    'https://example.org/s/faq');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].image, null);
+  assert.equal(items[0].video, null);
+});
