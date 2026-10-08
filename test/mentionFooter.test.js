@@ -24,7 +24,7 @@ test('mention-only messages retain tags and allowed-mentions rules without autom
     assert.equal(result, payload);
     assert.deepEqual(result.allowed_mentions, payload.allowed_mentions);
   }
-  assert.equal(withCloudyFooter({ content: '<@123456789012345678> Please read this.' }).content, `<@123456789012345678> Please read this.\n\n${CLOUDY_STANDARD_FOOTER}`);
+  assert.equal(withCloudyFooter({ content: '<@123456789012345678> Please read this.' }).content, '<@123456789012345678> Please read this.');
   const embed = withCloudyFooter({ content: '<@123456789012345678>', embeds: [{ title: 'Ticket reopened' }] });
   assert.equal(embed.content, '<@123456789012345678>');
   assert.equal(embed.embeds[0].title, 'Ticket reopened');
@@ -54,7 +54,7 @@ test('Discord REST message and interaction paths keep bare tags without automati
     assert.equal(captured[1].body.content, 'Updated report status');
     assert.equal(captured[2].body.data.content, mention);
     assert.equal(captured[3].body.data.flags, 64);
-    assert.equal(captured[4].body.content, `Deferred interaction result\n\n${CLOUDY_STANDARD_FOOTER}`);
+    assert.equal(captured[4].body.content, 'Deferred interaction result');
     assert.equal(captured[5].body.content, mention);
     assert.equal(captured[5].body.embeds[0].title, 'Report action log');
     assert.equal(captured[5].body.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
@@ -95,7 +95,7 @@ test('Discord REST message and interaction paths keep bare tags without automati
       method: 'PATCH',
       body: { embeds: [{ title: 'Ordinary system response', footer: { text: CLOUDY_STANDARD_FOOTER } }] },
     });
-    assert.match(captured.at(-1).body.embeds[0].thumbnail.url, /cloudy-c-logo/, 'other bot messages keep default logo');
+    assert.equal(captured.at(-1).body.embeds[0].thumbnail, undefined, 'existing bot messages cannot gain a C from an unrelated edit');
 
     registerBuilderPreviewReplyToken('builder-preview-token-123');
     await rest.request({
