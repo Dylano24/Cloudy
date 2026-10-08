@@ -1059,7 +1059,7 @@ async function deleteBuilderPreviewMessage(state) {
 }
 
 // BUILDER_PREVIEW_BUTTON_PLACEMENT_V1
-function queueBuilderRefresh(interaction, state, includeDashboard = true) {
+export function queueBuilderRefresh(interaction, state, includeDashboard = true, preferOriginalReply = false) {
     if (state.colorSessionToken) {
         state.colorPickerUrl = COLOR_PICKER_URL + '/embed-color?session=' + state.colorSessionToken + '&color=' + encodeURIComponent(colorToHex(state.sideColor));
     }
@@ -1081,7 +1081,7 @@ function queueBuilderRefresh(interaction, state, includeDashboard = true) {
         }
         : null;
 
-    state.previewEditPending = { previewPayload, dashboardPayload };
+    state.previewEditPending = { previewPayload, dashboardPayload, preferOriginalReply };
     if (state.previewEditRunning) return Promise.resolve(true);
 
     return (async () => {
@@ -1092,11 +1092,14 @@ function queueBuilderRefresh(interaction, state, includeDashboard = true) {
                 const next = state.previewEditPending;
                 state.previewEditPending = null;
 
-                const previewPromise = editBuilderPreviewMessage(
-                    state,
-                    interaction,
-                    next.previewPayload,
-                );
+                // Logo clicks originate on the dashboard, but the preview is the
+                // original slash-command reply. Update that exact reply first;
+                // fall back to the normal Message edit if its token expires.
+                const previewPromise = next.preferOriginalReply && typeof interaction?.editReply === 'function'
+                    ? interaction.editReply(next.previewPayload)
+                        .then(() => true)
+                        .catch(() => editBuilderPreviewMessage(state, interaction, next.previewPayload))
+                    : editBuilderPreviewMessage(state, interaction, next.previewPayload);
                 const dashboardPromise = next.dashboardPayload && state.builderDashboardMessageId
                     ? editBuilderDashboardMessage(state, next.dashboardPayload)
                     : Promise.resolve(true);
@@ -1121,6 +1124,10 @@ function queueBuilderRefresh(interaction, state, includeDashboard = true) {
 
 async function refreshBuilder(interaction, state) {
     return queueBuilderRefresh(interaction, state, true);
+}
+
+async function refreshBuilderLogo(interaction, state) {
+    return queueBuilderRefresh(interaction, state, true, true);
 }
 
 async function refreshBuilderPreviewOnly(interaction, state) {
@@ -1863,13 +1870,13 @@ export default {
                             await buttonInteraction.deferUpdate();
                             state.showLogo = true;
                             state.removeExistingLogo = false;
-                            await refreshBuilder(buttonInteraction, state);
+                            await refreshBuilderLogo(interaction, state);
                             break;
                         case 'simple_embed_remove_logo':
                             await buttonInteraction.deferUpdate();
                             state.showLogo = false;
                             state.removeExistingLogo = true;
-                            await refreshBuilder(buttonInteraction, state);
+                            await refreshBuilderLogo(interaction, state);
                             break;
                         case 'simple_embed_footer':
                             await editBottomLine(buttonInteraction, state);
