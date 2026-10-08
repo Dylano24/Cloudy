@@ -137,7 +137,7 @@ test('all feed embeds keep C logo and footer without a white separator', () => {
   assert.doesNotMatch(JSON.stringify(main.embeds[0].toJSON()), /https:\/\/example.org/);
 });
 
-test('Edit feed contains only the original four fields and preserves the current channel', () => {
+test('Edit feed keeps the original fields, adds only the required media selector and preserves the current channel', () => {
   const session = {
     id: 'session1', action: 'edit',
     feed: {
@@ -147,9 +147,11 @@ test('Edit feed contains only the original four fields and preserves the current
   };
   const modal = feedModal(session).toJSON();
   assert.equal(modal.title, 'Edit feed');
-  assert.equal(modal.components.length, 4);
+  assert.equal(modal.components.length, 5);
   assert.deepEqual(modal.components.map(x => x.label),
-    ['Feed name', 'Website URL', 'Auto message', '18+ content']);
+    ['Feed name', 'Website URL', 'Auto message', '18+ content', 'Media type']);
+  assert.deepEqual(modal.components[4].component.options.map(x => x.label),
+    ['Videos only', 'Pictures only']);
   assert.doesNotMatch(JSON.stringify(modal), /feedChannel|Channel \(optional\)|channel.*select/i);
 });
 
@@ -164,4 +166,44 @@ test('Feed name uses a neutral placeholder without changing saved names', () => 
   assert.doesNotMatch(JSON.stringify(add), /Erome/);
   assert.doesNotMatch(JSON.stringify(edit), /Erome/);
   assert.match(JSON.stringify(edit), /"value":"My feed"/);
+});
+
+test('Add feed requires exactly one media type with no All media option', () => {
+  const modal = feedModal({ id: 'abc', action: 'add' }).toJSON();
+  assert.equal(modal.components.length, 5);
+  const label = modal.components[4];
+  assert.equal(label.label, 'Media type');
+  assert.equal(label.component.custom_id, 'mediaType');
+  assert.equal(label.component.required, true);
+  assert.equal(label.component.min_values, 1);
+  assert.equal(label.component.max_values, 1);
+  assert.deepEqual(label.component.options.map(option => [option.label, option.value]),
+    [['Videos only', 'video'], ['Pictures only', 'picture']]);
+  assert.equal(label.component.options.some(option => option.default), false);
+});
+
+test('Edit feed preselects existing type but requires a choice for legacy feeds', () => {
+  const base = { id: 'f', name: 'My feed', source: 'https://example.org/', minutes: 1, adult: false };
+  for (const type of ['video', 'picture']) {
+    const modal = feedModal({ id: 'abc', action: 'edit', feed: { ...base, mediaType: type } }).toJSON();
+    const label = modal.components[4];
+    assert.equal(label.component.required, true);
+    assert.deepEqual(label.component.options.filter(x => x.default).map(x => x.value), [type]);
+  }
+  const legacy = feedModal({ id: 'abc', action: 'edit', feed: base }).toJSON();
+  assert.equal(legacy.components[4].component.options.some(x => x.default), false);
+});
+
+test('Feed details show only the selected media type and no unwanted mode', () => {
+  const base = {
+    id: 'f', source: 'https://example.org/', channelId: '123456789012345678',
+    minutes: 1, active: true,
+  };
+  const video = feedDetail({ id: 'abc' }, { ...base, mediaType: 'video' }).embeds[0].toJSON();
+  const photo = feedDetail({ id: 'abc' }, { ...base, mediaType: 'picture' }).embeds[0].toJSON();
+  const legacy = feedDetail({ id: 'abc' }, base).embeds[0].toJSON();
+  assert.match(video.fields[0].value, /Media type:\*\* Videos only/);
+  assert.match(photo.fields[0].value, /Media type:\*\* Pictures only/);
+  assert.doesNotMatch(legacy.fields[0].value, /Media type:/);
+  assert.doesNotMatch(JSON.stringify([video, photo, legacy]), /All media/);
 });

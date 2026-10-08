@@ -103,6 +103,12 @@ function choiceEmbed(description) {
   return [feedEmbedBase().setTitle('Cloudy feed').setDescription(description)];
 }
 
+function selectedMediaLabel(mediaType) {
+  if (mediaType === 'video') return 'Videos only';
+  if (mediaType === 'picture') return 'Pictures only';
+  return null;
+}
+
 export function feedDetail(session, feed) {
   const embed = feedEmbedBase()
     .setTitle('Cloudy feed')
@@ -112,6 +118,7 @@ export function feedDetail(session, feed) {
       value: '**Source:** ' + feed.source.slice(0, 250)
         + '\n**Channel:** <#' + feed.channelId + '>'
         + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
+        + (selectedMediaLabel(feed.mediaType) ? '\n**Media type:** ' + selectedMediaLabel(feed.mediaType) : '')
         + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
         + '\n' + feedStatusLine(feed),
     });
@@ -201,24 +208,41 @@ function textLabel(id, label, required, placeholder, defaultValue) {
   return new LabelBuilder().setLabel(label).setTextInputComponent(field);
 }
 
+function mediaTypeSelect(value) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId('mediaType')
+    .setPlaceholder('Choose media type')
+    .setRequired(true)
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      { label: 'Videos only', value: 'video', default: value === 'video' },
+      { label: 'Pictures only', value: 'picture', default: value === 'picture' },
+    );
+  return new LabelBuilder().setLabel('Media type').setStringSelectMenuComponent(menu);
+}
+
 export function feedModal(session) {
   const editing = session.action === 'edit';
   const modal = new ModalBuilder()
     .setCustomId(PREFIX + 'submit:' + session.id)
     .setTitle(editing ? 'Edit feed' : 'Add feed');
   if (!editing) {
-    return modal.addComponents(
+    modal.addComponents(
       input('name', 'Feed name', false, 'Enter feed name', ''),
       input('source', 'Website URL', true, 'https://example.com', ''),
       input('duration', 'Auto message', true, '1m or 1h', ''),
       input('adult', '18+ content', false, 'yes / no', ''),
     );
+    return modal.addLabelComponents(mediaTypeSelect());
+
   }
   return modal.addLabelComponents(
     textLabel('name', 'Feed name', false, 'Enter feed name', readableFeedName(session.feed)),
     textLabel('source', 'Website URL', false, 'https://example.com', session.feed?.source),
     textLabel('duration', 'Auto message', false, '1m or 1h', formatAutoMessage(session.feed.minutes)),
     textLabel('adult', '18+ content', false, 'yes / no', session.feed.adult ? 'yes' : 'no'),
+    mediaTypeSelect(session.feed.mediaType),
   );
 }
 
@@ -425,9 +449,10 @@ export async function handleCloudyFeedControls(interaction, client) {
       const source = interaction.fields.getTextInputValue('source').trim();
       const duration = interaction.fields.getTextInputValue('duration').trim();
       const adult = interaction.fields.getTextInputValue('adult').trim();
+      const mediaType = interaction.fields.getStringSelectValues('mediaType')[0];
       const minutes = parseAutoMessageTime(duration, session.action === 'edit' ? session.feed?.minutes : undefined);
       const data = {
-        name, source, minutes: String(minutes), adult,
+        name, source, minutes: String(minutes), adult, mediaType,
         channel: session.channelId,
         ...(session.action === 'edit' ? { feedId: session.feed.id } : {}),
       };
