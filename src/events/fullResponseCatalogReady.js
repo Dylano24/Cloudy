@@ -17,6 +17,8 @@ import {
   getCachedSavedEmbedTemplateData,
 } from '../services/embedTemplateService.js';
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
+import { isRegisteredBuilderPreviewMessageId } from '../utils/builderSessionCleanup.js';
+import { MESSAGE_BUILDER_FOOTER_MARKER } from '../services/cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
 import { rememberBuilderRuntimePreview } from '../services/builderRuntimePreviewService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
@@ -136,7 +138,27 @@ function messageContext(message) {
   };
 }
 
+// A Builder preview is already rendered from the owner's edit state. Runtime
+// templates must never overwrite that state or its selected thumbnail.
+function isBuilderAuthoredInteraction(source) {
+  const command = String(source?.commandName || '').toLowerCase();
+  const customId = String(source?.customId || '').toLowerCase();
+  return command === 'embedbuilder' || customId.startsWith('simple_embed_');
+}
+
+function isBuilderAuthoredMessage(message) {
+  if (!message) return false;
+  if (isRegisteredBuilderPreviewMessageId(message.id)) return true;
+  if (isBuilderAuthoredInteraction(messageContext(message))) return true;
+  return (message.embeds || []).some(embed => {
+    const data = embed?.toJSON ? embed.toJSON() : embed;
+    return /^(?:message builder|modify embed)$/i.test(String(data?.title || '').trim())
+      || String(data?.footer?.text || '').endsWith(MESSAGE_BUILDER_FOOTER_MARKER);
+  });
+}
+
 function applyPayloadTemplates(payload, source) {
+  if (isBuilderAuthoredInteraction(source)) return payload;
   if (isPrivateReportCasePayload(payload)) return payload;
   if (payload == null) return payload;
 
@@ -253,6 +275,7 @@ function shouldPrepareMessageEdit(message) {
     && message.author?.id === message.client.user.id
     && !autoApplyingMessageIds.has(message.id)
     && !isEmbedManagerSaveInProgress(message.id)
+    && !isBuilderAuthoredMessage(message)
     && String(message.content || '').trim() !== SYSTEM_CATALOG_CONTENT,
   );
 }
@@ -337,6 +360,7 @@ function embedJson(embed) {
 
 async function applyTemplatesToExistingMessage(message, { initialCreation = false } = {}) {
   if (isPrivateReportCasePayload(message)) return false;
+  if (isBuilderAuthoredMessage(message)) return false;
   if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return false;
   if (!message?.client?.user?.id || !message.guildId || !message.editable) return false;
   if (message.author?.id !== message.client.user.id) return false;
@@ -466,7 +490,7 @@ function seedKnownGameResponses() {
 }
 
 export async function applySavedResponsePayloadTemplates(payload, source) {
-  if (isPrivateReportCasePayload(payload)) return payload;
+  if (isPrivateReportCasePayload(payload) || isBuilderAuthoredInteraction(source)) return payload;
   if (!payload || typeof payload !== 'object' || !Array.isArray(payload.embeds)) return payload;
   const guildId = source?.guildId || source?.channel?.guild?.id;
   const channelId = source?.channelId || source?.channel?.id;
@@ -496,6 +520,7 @@ function patchInteractionCapture() {
       interaction[method] = async (payload, ...args) => {
         let outgoing = payload;
         try {
+          if (isBuilderAuthoredInteraction(source)) return original(payload, ...args);
           capturePayload(payload, source);
           outgoing = applyPayloadTemplates(payload, source);
           outgoing = await applySavedResponsePayloadTemplates(outgoing, source);
@@ -571,7 +596,7 @@ export default {
     seedKnownGameResponses();
 
     client.on(Events.MessageCreate, async message => {
-      if (String(message?.content || '').trim() === SYSTEM_CATALOG_CONTENT) return;
+      if (String(message?.content || '').trim() === SYSTEM_CATALOG_CONTENT || isBuilderAuthoredMessage(message)) return;
       try {
         if (await isTicketLifecycleLogChannel(message)) return;
         captureMessage(message);
@@ -586,7 +611,7 @@ export default {
         ? await newMessage.fetch().catch(() => null)
         : newMessage;
       if (!message) return;
-      if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT) return;
+      if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT || isBuilderAuthoredMessage(message)) return;
       if (isEmbedManagerSaveInProgress(message.id)) return;
       if (autoApplyingMessageIds.has(message.id)) return;
 
