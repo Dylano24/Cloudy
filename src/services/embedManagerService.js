@@ -5,6 +5,7 @@ import {
     balanceResponseIdentity,
     isLegacyBalanceParserArtifact } from './balanceResponseIdentity.js';
 import { normalizeManualIndent } from '../utils/manualEmbedIndent.js';
+import { withManualBuilderSaveLogoChoice } from '../utils/cloudyFooter.js';
 import { isBuilderSessionMessage, linkBuilderSessionMessages, registerBuilderSessionCollector, touchBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import {
     ActionRowBuilder,
@@ -2311,7 +2312,11 @@ export async function saveModifiedEmbed(guild, state) {
         }
     }
     activeEmbedManagerSaves.add(String(message.id));
-    const edited = await message.edit(payload).catch(error => {
+    // A deliberate manual Save owns its thumbnail state. The global REST
+    // branding must not re-add a logo because the footer is Cloudy's default.
+    const edited = await withManualBuilderSaveLogoChoice(message.id, () =>
+        message.edit(payload)
+    ).catch(error => {
         logger.error('Failed to save modified embed:', error);
         return null;
     });
