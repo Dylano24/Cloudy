@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import {
   videoFileType, videoUploadLimit, bufferVideoStream, makeVideoAttachmentMessage,
+  imageFileType, bufferImageStream, makeImageAttachmentMessage,
 } from '../src/services/cloudyFeedMediaUpload.js';
 
 const mp4 = Buffer.alloc(24);
@@ -53,4 +54,52 @@ test('too-large or malformed media never becomes a link post', async () => {
     async () => ({ buffer: mp4, extension: 'mp4' })), /not a supported playable Discord attachment/);
   await assert.rejects(makeVideoAttachmentMessage('https://example.org/video', 200,
     async () => ({ buffer: Buffer.from('Hello'), extension: 'mp4' })), /not a supported playable Discord attachment/);
+});
+
+const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+const jpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
+const gif = Buffer.from('GIF89a010101010101', 'ascii');
+const webp = Buffer.from('RIFF1234WEBPVP8 ', 'ascii');
+
+test('only JPEG, PNG, GIF and WebP bytes can be posted as photos', () => {
+  assert.equal(imageFileType(jpg), 'jpg');
+  assert.equal(imageFileType(png), 'png');
+  assert.equal(imageFileType(gif), 'gif');
+  assert.equal(imageFileType(webp), 'webp');
+  assert.equal(imageFileType(Buffer.from('<html>Not a photo</html>')), null);
+  assert.equal(imageFileType(mp4), null);
+});
+
+test('picture download is size-bounded, including streamed bytes', async () => {
+  const result = await bufferImageStream(Readable.from([png]), 100);
+  assert.equal(result.extension, 'png');
+  assert.deepEqual(result.buffer, png);
+  await assert.rejects(bufferImageStream(Readable.from([png, png]), 18), /too large/);
+  await assert.rejects(bufferImageStream(Readable.from([Buffer.from('<html>bad</html>')]), 100),
+    /supported JPEG, PNG, GIF or WebP/);
+});
+
+test('native Discord photo attachment contains no embed or outbound website link', async () => {
+  const request = [];
+  const message = await makeImageAttachmentMessage('https://media.example.org/pic.png', 100,
+    async (url, limit) => {
+      request.push({ url, limit });
+      return { buffer: png, extension: 'png' };
+    });
+  assert.deepEqual(request, [{ url: 'https://media.example.org/pic.png', limit: 100 }]);
+  assert.equal(message.files.length, 1);
+  assert.equal(message.files[0].name, 'cloudy-picture.png');
+  assert.deepEqual(message.files[0].attachment, png);
+  assert.equal(Object.hasOwn(message, 'content'), false);
+  assert.equal(Object.hasOwn(message, 'embeds'), false);
+  assert.deepEqual(message.allowedMentions, { parse: [] });
+});
+
+test('invalid photo never falls back to site link or video thumbnail', async () => {
+  await assert.rejects(makeImageAttachmentMessage('https://example.org/a.jpg', 100,
+    async () => ({ buffer: mp4, extension: 'mp4' })),
+  /not a supported Discord image attachment/);
+  await assert.rejects(makeImageAttachmentMessage('https://example.org/a.jpg', 4,
+    async () => ({ buffer: png, extension: 'png' })),
+  /not a supported Discord image attachment/);
 });
