@@ -208,7 +208,7 @@ export function parseWebsiteItems(html, base) {
     }, base);
     if (item) found.push(item);
   }
-  if (found.length) return found;
+  if (found.some(item => item.image || item.video)) return found;
 
   // A gallery can contain photos or videos in figure blocks rather than
   // article blocks. Do not treat navigation icons, avatars or branding as posts.
@@ -223,7 +223,7 @@ export function parseWebsiteItems(html, base) {
     const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image, video, description: '' }, base);
     if (item) found.push(item);
   }
-  if (found.length) return found;
+  if (found.some(item => item.image || item.video)) return found.filter(item => item.image || item.video);
 
   // Some public photo galleries use image links rather than figure/article tags.
   // Ignore navigation graphics, logos, avatars and other non-post images.
@@ -241,7 +241,7 @@ export function parseWebsiteItems(html, base) {
     const item = normalizeItem({ title, link: attribute(anchor, 'href') || base, image }, base);
     if (item) found.push(item);
   }
-  if (found.length) return found;
+  if (found.some(item => item.image || item.video)) return found.filter(item => item.image || item.video);
 
   // On a single-video post, the video tag may not be inside an article.
   const directVideo = videoFromTag(html);
@@ -253,6 +253,9 @@ export function parseWebsiteItems(html, base) {
     }, base);
     if (item) return [item];
   }
+
+  // Keep text-only article support, but allow photo/video discovery before fallback.
+  if (found.length) return found;
 
   // Plain webpages without article lists are a single post, never scraped as arbitrary media.
   const og = html.match(/<meta\b[^>]*property\s*=\s*['"]og:title['"][^>]*>/i)?.[0] || '';
