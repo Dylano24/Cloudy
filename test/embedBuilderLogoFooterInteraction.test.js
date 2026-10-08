@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 import { loadRecordSnapshotIntoState } from '../src/services/embedManagerService.js';
-import { buildBuilderEmbeds, buildControls, queueBuilderRefresh } from '../src/commands/Tools/embedbuilder.js';
+import { buildBuilderEmbeds, buildControls, queueBuilderRefresh, refreshBuilderLogo } from '../src/commands/Tools/embedbuilder.js';
 import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
 function reopen(snapshot, id) {
@@ -197,4 +197,135 @@ test('Logo preview falls back to bot message edit if original reply edit fails',
   state.removeExistingLogo = false;
   assert.equal(await queueBuilderRefresh(originalSlashInteraction, state, true, true), true);
   assert.equal(fallbackLogo, CLOUDY_LOGO_URL);
+});
+
+test('logo clicks use the same fixed preview message edit path as the working footer', async () => {
+  const updates = [];
+  const state = {
+    title: 'Logo preview',
+    message: 'Visible',
+    embedFields: [],
+    sideColor: 0xffffff,
+    bottomLine: 'Leave the footer intact',
+    showLogo: true,
+    removeExistingLogo: false,
+    builderBotManaged: true,
+    builderPreviewUnavailable: false,
+    builderMessage: {
+      id: 'original-preview',
+      edit: async payload => {
+        updates.push({ type: 'preview', id: 'original-preview', payload });
+        return { id: 'original-preview' };
+      },
+    },
+    builderDashboardMessageId: 'builder-dashboard',
+    builderDashboardMessage: {
+      id: 'builder-dashboard',
+      edit: async payload => {
+        updates.push({ type: 'dashboard', id: 'builder-dashboard', payload });
+        return null;
+      },
+    },
+  };
+  const dashboardInteraction = {
+    editReply: async () => {
+      assert.fail('a dashboard interaction must not edit its own reply for the top preview');
+    },
+  };
+
+  assert.equal(await refreshBuilderLogo(dashboardInteraction, state), true);
+  assert.deepEqual(updates.map(item => item.type), ['preview', 'dashboard']);
+  assert.equal(updates[0].payload.embeds[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
+
+  updates.length = 0;
+  state.showLogo = false;
+  state.removeExistingLogo = true;
+  state.logoTouched = true;
+  assert.equal(await refreshBuilderLogo(dashboardInteraction, state), true);
+  assert.deepEqual(updates.map(item => item.type), ['preview', 'dashboard']);
+  assert.equal(updates[0].payload.embeds[0].toJSON().thumbnail, undefined);
+  assert.equal(updates[0].payload.embeds[0].toJSON().footer.text, 'Leave the footer intact');
+  assert.equal(updates[1].payload.components[1].toJSON().components[0].disabled, false);
+  assert.equal(updates[1].payload.components[1].toJSON().components[1].disabled, true);
+
+  updates.length = 0;
+  state.showLogo = true;
+  state.removeExistingLogo = false;
+  assert.equal(await refreshBuilderLogo(dashboardInteraction, state), true);
+  assert.equal(updates[0].payload.embeds[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
+  assert.equal(updates[1].payload.components[1].toJSON().components[0].disabled, true);
+  assert.equal(updates[1].payload.components[1].toJSON().components[1].disabled, false);
+});
+
+test('reopened manually saved logo-free embed does not inherit logo from preview peer', () => {
+  const saved = {
+    guildId: 'regression-manual-no-logo-20261008',
+    channelId: 'regression-manual-no-logo-channel',
+    messageId: 'saved-no-logo',
+    embedIndex: 0,
+    source: 'embed-builder',
+    title: 'Manually saved custom embed no logo',
+    snapshot: { title: 'Manually saved custom embed no logo', description: 'Saved without logo' },
+  };
+  const olderPreviewPeer = {
+    ...saved,
+    messageId: 'stale-peer',
+    snapshot: {
+      title: saved.title,
+      thumbnail: { url: CLOUDY_LOGO_URL },
+    },
+  };
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, { id: saved.guildId }, saved, olderPreviewPeer), true);
+  assert.equal(state.showLogo, false);
+  assert.equal(state.logoTouched, false);
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
+  const row = buildControls(state)[1].toJSON();
+  assert.equal(row.components[0].disabled, false);
+  assert.equal(row.components[1].disabled, true);
+});
+
+test('saving a deliberate no-logo choice replaces a previously saved logo decoration', async () => {
+  const { db } = await import('../src/utils/database.js');
+  const { saveEmbedTemplateDecoration, getCachedSavedEmbedTemplateData } =
+    await import('../src/services/embedTemplateService.js');
+  const data = new Map();
+  db.initialized = true;
+  db.useFallback = false;
+  db.db = {
+    get: async key => data.get(key) ?? null,
+    set: async (key, value) => { data.set(key, structuredClone(value)); return true; },
+  };
+
+  const guildId = 'logo-remove-template-regression-20261008';
+  const channelId = 'logo-remove-template-channel';
+  const title = 'Persistent logo preference regression';
+  const aliases = [title];
+
+  assert.equal(await saveEmbedTemplateDecoration(
+    guildId, channelId, aliases,
+    { title, thumbnail: { url: CLOUDY_LOGO_URL } },
+    { sharedScope: true, applyThumbnail: true },
+  ), true);
+  assert.equal(getCachedSavedEmbedTemplateData(
+    guildId, channelId, { title },
+  ).data.thumbnail?.url, CLOUDY_LOGO_URL);
+
+  assert.equal(await saveEmbedTemplateDecoration(
+    guildId, channelId, aliases,
+    { title },
+    { sharedScope: true, applyThumbnail: true },
+  ), true);
+  assert.equal(getCachedSavedEmbedTemplateData(
+    guildId, channelId, { title, thumbnail: { url: CLOUDY_LOGO_URL } },
+  ).data.thumbnail, undefined, 'old template logo cannot return after an explicit removal');
+
+  assert.equal(await saveEmbedTemplateDecoration(
+    guildId, channelId, aliases,
+    { title, description: 'Edited text with no logo' },
+    { sharedScope: true, applyThumbnail: false },
+  ), true);
+  assert.equal(getCachedSavedEmbedTemplateData(
+    guildId, channelId, { title, thumbnail: { url: CLOUDY_LOGO_URL } },
+  ).data.thumbnail, undefined, 'unrelated later Save preserves the no-logo preference');
 });
