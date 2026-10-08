@@ -22,12 +22,12 @@ test('porn website thumbnails cannot be posted in place of playable videos', () 
   assert.equal(eligibleMediaForSource([thumbnail], 'https://example.org/gallery').length, 1);
 });
 
-test('video platform accepts only videos with permitted regional metadata', () => {
+test('video platform accepts video regardless of country metadata', () => {
   const source = 'https://nl.pornhub.com/video';
   const unknown = { url: 'https://example.org/1', video: 'https://example.org/1.mp4', country: null };
   const selected = { url: 'https://example.org/2', video: 'https://example.org/2.mp4', country: 'US' };
-  assert.deepEqual(eligibleMediaForSource([unknown, selected], source), [selected]);
-  assert.equal(mediaSourceProblem([unknown], source), 'No matching playable media available from this website.');
+  assert.deepEqual(eligibleMediaForSource([unknown, selected], source), [unknown, selected]);
+  assert.equal(mediaSourceProblem([unknown], source), null);
   assert.equal(mediaSourceProblem([unknown, selected], source), null);
 });
 
