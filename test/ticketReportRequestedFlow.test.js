@@ -168,10 +168,15 @@ test('retrying a partially closed ticket repairs permissions before clearing its
     if (failOnce) { failOnce = false; throw new Error('Temporary permission outage'); }
     return edit(...args);
   };
-  await assert.rejects(closeTicket(f.channel, f.interaction.user, 'Resolved'), /Temporary permission outage/);
+  let prematurelyVisible = false;
+  await assert.rejects(closeTicket(f.channel, f.interaction.user, 'Resolved', {
+    onVisible: async () => { prematurelyVisible = true; },
+  }), /Temporary permission outage/);
   const closed = await getTicketData(f.guild.id, f.channel.id);
   assert.equal(closed.status, 'closed');
-  assert.equal(f.permissions.length, 0);
+  assert.equal(prematurelyVisible, false);
+  assert.equal(f.permissions.some(permission => permission.id === f.guild.id), false);
+  assert.equal(f.permissions.filter(permission => permission.id === closed.userId).at(-1)?.value.ViewChannel, false);
   let acknowledged = false;
   await closeTicket(f.channel, f.interaction.user, 'Retry', { onVisible: async () => {
     assert.equal(f.permissions.filter(p => p.id === closed.userId).at(-1)?.value.ViewChannel, false);

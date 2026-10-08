@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, PermissionsBitField } from 'discord.js';
-import { handleReportCaseControl, REPORT_LOG_CHANNEL_ID } from '../src/services/reportCaseLifecycleService.js';
+import { handleReportCaseControl, restoreReportCaseTimers, REPORT_LOG_CHANNEL_ID } from '../src/services/reportCaseLifecycleService.js';
 import { logger } from '../src/utils/logger.js';
 
 const settle = () => new Promise(resolve => { setImmediate(resolve); });
@@ -16,7 +16,7 @@ function fixture() {
   const record = { guildId, messageId: 'report', number: 1, reporterId: 'reporter', targetId: 'target',
     cases: { target: { channelId: 'case', messageId: 'notice' } } };
   const values = new Map([[key, record], [configKey, { ticketStaffRoleId: 'staff-role' }]]);
-  const payloads = [], permissions = [], privateReplies = [];
+  const payloads = [], permissions = [], privateReplies = [], removed = [];
   const storage = { get: async id => structuredClone(values.get(id) || null),
     set: async (id, value) => { values.set(id, structuredClone(value)); return true; } };
   const client = { db: storage, user: { id: 'bot' } };
@@ -29,6 +29,7 @@ function fixture() {
   function channel(id) {
     const messages = new Collection();
     const result = { id, guild, messages: { cache: messages, fetch: async messageId => messages.get(messageId) },
+      delete: async () => { removed.push(id); },
       permissionOverwrites: { cache: new Collection(), edit: async (member, denied) => {
         permissions.push({ id: member.id, permissions: denied });
       } },
@@ -56,8 +57,108 @@ function fixture() {
       webhook: { deleteMessage: async () => {} } };
     return click;
   }
-  return { key, configKey, record, values, storage, client, guild, interaction, notice, caseChannel, payloads, permissions, privateReplies };
+  return { key, configKey, record, values, storage, client, guild, interaction, notice, caseChannel, payloads, permissions, privateReplies, channels, channel, removed };
 }
+
+function deleteFixture() {
+  const f = fixture();
+  const staff = { id: 'staff', user: { id: 'staff' }, permissions: new PermissionsBitField(), roles: { cache: new Collection([['staff-role', {}]]) } };
+  f.guild.members.cache.set(staff.id, staff);
+  Object.assign(f.record.cases.target, { closedAt: 1, closedBy: 'target', deletePromptId: 'delete-prompt', closeLogId: 'closed-log' });
+  const reporterChannel = f.channel('reporter-case');
+  f.record.cases.reporter = { channelId: reporterChannel.id, messageId: 'reporter-notice' };
+  f.channel(REPORT_LOG_CHANNEL_ID);
+  const deleteClick = () => {
+    const click = f.interaction();
+    click.user = staff.user; click.member = staff;
+    click.message = { id: 'delete-prompt', author: f.client.user };
+    return click;
+  };
+  const reporter = { id: 'reporter', user: { id: 'reporter' }, roles: { cache: new Collection() }, permissions: new PermissionsBitField() };
+  f.guild.members.cache.set(reporter.id, reporter);
+  const readClick = f.interaction();
+  Object.assign(readClick, { user: reporter.user, member: reporter, channel: reporterChannel, channelId: reporterChannel.id,
+    message: { id: 'reporter-notice', author: f.client.user, edit: async () => {} } });
+  return { ...f, deleteClick, readClick };
+}
+
+test('blocked Delete logging releases the report lock before the other audience reads', async () => {
+  const f = deleteFixture();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const logs = f.channels.get(REPORT_LOG_CHANNEL_ID), send = logs.send;
+  logs.send = async payload => { if (json(payload.embeds[0]).title === 'Report deleted') await gate; return send(payload); };
+  const deleting = handleReportCaseControl(f.deleteClick(), f.client, ['delete', 'report', 'target']);
+  await settle();
+  const reading = handleReportCaseControl(f.readClick, f.client, ['read', 'report', 'reporter']);
+  try {
+    await settle();
+    assert.ok(f.values.get(f.key).cases.target.deletedAt);
+    assert.ok(f.values.get(f.key).cases.reporter.closedAt, 'Delete staff-log IO must not hold an independent Read behind the report lock');
+    assert.equal(json(f.privateReplies[0]?.embeds?.[0] || {}).title, 'Thank you.');
+  } finally {
+    release(); await Promise.all([deleting, reading]); await settle();
+  }
+  assert.ok(f.values.get(f.key).cases.target.deleteLogId);
+  assert.ok(f.values.get(f.key).cases.reporter.closeLogId);
+});
+
+test('duplicate Delete clicks finish after one durable channel deletion while its one log is pending', async () => {
+  const f = deleteFixture();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const logs = f.channels.get(REPORT_LOG_CHANNEL_ID), send = logs.send;
+  logs.send = async payload => { if (json(payload.embeds[0]).title === 'Report deleted') await gate; return send(payload); };
+  let completed = 0;
+  const deletions = Array.from({ length: 5 }, () => handleReportCaseControl(f.deleteClick(), f.client, ['delete', 'report', 'target']).then(() => { completed += 1; }));
+  try {
+    await settle();
+    assert.equal(completed, 5, 'Component handlers must finish without waiting for staff-log REST');
+    assert.deepEqual(f.removed, ['case']);
+    assert.equal(f.privateReplies.length, 0, 'Already-completed authorized deletion should not create error spam');
+  } finally {
+    release(); await Promise.all(deletions); await settle();
+  }
+  assert.equal(f.payloads.filter(payload => json(payload.message.embeds[0]).title === 'Report deleted').length, 1);
+  assert.ok(f.values.get(f.key).cases.target.deleteLogId);
+});
+
+test('a failed Delete log resumes from its durable deleted state on restore without deleting the channel again', async t => {
+  const f = deleteFixture();
+  const logs = f.channels.get(REPORT_LOG_CHANNEL_ID), send = logs.send;
+  const errors = [];
+  t.mock.method(logger, 'error', (message, error) => { if (message.includes('[REPORT_DELETE_PRESENTATION]')) errors.push(error); });
+  logs.send = async () => { throw new Error('Report log temporarily unavailable'); };
+  await handleReportCaseControl(f.deleteClick(), f.client, ['delete', 'report', 'target']);
+  await settle();
+  assert.ok(f.values.get(f.key).cases.target.deletedAt);
+  assert.equal(f.values.get(f.key).cases.target.deleteLogId, undefined);
+  assert.equal(errors.length, 1);
+  logs.send = send;
+  f.storage.list = async () => [f.key];
+  f.client.guilds = { cache: new Collection([[f.guild.id, f.guild]]) };
+  f.values.get(f.key).expiresAt = Date.now() + 86_400_000;
+  await restoreReportCaseTimers(f.client);
+  assert.ok(f.values.get(f.key).cases.target.deleteLogId, 'Restore must deliver the essential deletion log');
+  assert.deepEqual(f.removed, ['case']);
+  assert.equal(f.payloads.filter(payload => json(payload.message.embeds[0]).title === 'Report deleted').length, 1);
+});
+
+test('repeated completed Read does not refetch or repaint its successful private presentation', async () => {
+  const f = fixture();
+  await handleReportCaseControl(f.interaction(), f.client, ['read', 'report', 'target']);
+  await settle();
+  const sent = f.payloads.length;
+  let edits = 0, fetches = 0;
+  f.notice.edit = async () => { edits += 1; };
+  f.caseChannel.messages.fetch = async () => { fetches += 1; };
+  await handleReportCaseControl(f.interaction(), f.client, ['read', 'report', 'target']);
+  await settle();
+  assert.equal(f.payloads.length, sent);
+  assert.equal(f.permissions.length, 1);
+  assert.equal(edits, 0, 'A completed Read must not repaint the notice');
+  assert.equal(fetches, 0, 'A completed Read must not fetch its existing Delete prompt');
+});
 
 test('Read starts independent cold case and configuration reads together before its durable close', async () => {
   const f = fixture();
