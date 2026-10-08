@@ -4,7 +4,10 @@ export const WEBSITE_TERMS_FOOTER = 'Last updated 20.03.2026 at 13h42';
 
 const MANUAL_TERMS_FOOTER = /^© Cloudy Inc\. • Last updated \d{2} [A-Za-z]+ \d{4} • \d{2}:\d{2}$/;
 const TERMS_TITLE = /(?:store )?terms of (?:sale|service)$/i;
-const TERMS_CHANNEL_IDS = new Set(['1533191366190829768', '1534786470790037665']);
+const TERMS_CHANNEL_IDS = new Set([
+  '1533191366190829768', '1534786470790037665',
+  '1554538587075248139', '1554538589960802354',
+]);
 
 export function stampTermsFooterOnSave(previous, next, { channelId, now = new Date() } = {}) {
   const isTerms = TERMS_TITLE.test(String(previous?.title || ''))

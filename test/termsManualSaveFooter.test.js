@@ -28,6 +28,9 @@ test('Terms of sale and renamed Terms in their channel keep automatic dating on 
   }
   const renamed = { ...original, title: 'Updated conditions' };
   assert.notEqual(stampTermsFooterOnSave(renamed, { ...renamed, description: 'Changed' }, { channelId: '1533191366190829768' }).footer.text, original.footer.text);
+  for (const channelId of ['1554538587075248139', '1554538589960802354']) {
+    assert.equal(stampTermsFooterOnSave(renamed, structuredClone(renamed), { channelId, now: new Date('2026-10-09T12:32:00Z') }).footer.text, '© Cloudy Inc. • Last updated 09 October 2026 • 14:32');
+  }
 });
 
 test('winter Save uses Amsterdam timezone and the previous UTC day correctly', () => {
