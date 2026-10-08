@@ -43,6 +43,7 @@ import { saveEmbedTemplateDecoration,
 import { removeRetiredGamblingGuideCommand,
     isRetiredGamblingEmbed } from '../config/gamblingCommands.js';
 import { hydrateBuilderPreviewRecord } from './builderRuntimePreviewService.js';
+import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord, filterEmbedBuilderRecords } from '../utils/embedBuilderAccess.js';
 import { discoverMissingChannelEmbed,
     discoverMissingChannelEmbeds,
     discoverRecentChannelEmbeds } from './embedMissingChannelService.js';
@@ -816,7 +817,7 @@ function builderDisplayChannel(guild, channelId) {
 }
 
 // BUILDER_DURABLE_SNAPSHOT_V1
-function buildChannelGroups(guild, records) {
+function buildChannelGroups(guild, records, member = undefined) {
     const groups = new Map();
 
     // Restore the original channel browser behavior: show every real
@@ -825,6 +826,7 @@ function buildChannelGroups(guild, records) {
     // attached to these channel rows.
     for (const channel of guild.channels.cache.values()) {
         if (![0, 5].includes(channel?.type) || !channel?.messages?.fetch) continue;
+        if (member !== undefined && !canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) continue;
         groups.set(String(channel.id), []);
     }
 
@@ -867,13 +869,13 @@ function navigationRow(prefix, page, pageCount) {
     );
 }
 
-export function createEmbedManagerChannelPager(guild) {
+export function createEmbedManagerChannelPager(guild, member = undefined) {
     let previousRecords = null;
     let groups = null;
     return (records, page = 0, checkingChannelIds = null) => {
         if (records !== previousRecords) {
             previousRecords = records;
-            groups = buildChannelGroups(guild, records).map(group => ({
+            groups = buildChannelGroups(guild, records, member).map(group => ({
                 ...group,
                 embedCount: collapseDisplayRecords(builderRecordsForChannel(guild, group.channelId, group.records), group.channelId).length,
             }));
@@ -1406,7 +1408,9 @@ export function prepareEmbedManager(guild, state) {
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
-    const channelPage = createEmbedManagerChannelPager(guild);
+    const member = buttonInteraction.member || null;
+    const accessibleRecords = records => filterEmbedBuilderRecords(guild, member, records, { requireSend: true });
+    const channelPage = createEmbedManagerChannelPager(guild, member);
     // Fast opens reply directly. Slow storage must not expire the component:
     // deferUpdate is silent and keeps the exact existing private follow-up flow.
     let pendingAcknowledgement = null;
@@ -1439,10 +1443,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         // Do not flash stale history rows while live reconciliation is still
         // running. Manual Builder records and routed future templates appear
         // immediately; verified live bot-history records are merged in shortly.
-        const storedRecords = filterEmbedManagerRecords(
+        const storedRecords = accessibleRecords(filterEmbedManagerRecords(
             allStoredRecords,
             { includeBotHistory: false },
-        );
+        ));
         let liveOverviewRecords = [];
         let records = [...storedRecords];
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, storedRecords);
@@ -1508,13 +1512,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             liveOverviewRecords = discoveredRecords;
             if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
 
-            records = mergeEmbedManagerRecords(
+            records = accessibleRecords(mergeEmbedManagerRecords(
                 mergeEmbedManagerRecords(
                     filterEmbedManagerRecords(refreshedRecords),
                     storedRecords,
                 ),
                 filterEmbedManagerRecords(liveOverviewRecords),
-            );
+            ));
 
             await buttonInteraction.webhook.editMessage(
                 managerMessage.id,
@@ -1550,6 +1554,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
 
                 if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:')) {
                     const channelId = interaction.values?.[0];
+                    if (!canUseEmbedBuilderChannel(guild, interaction.member, channelId, { requireSend: true })) {
+                        await interaction.deferUpdate().catch(() => {});
+                        return;
+                    }
 
                     // Paint instantly from the canonical records already loaded for
                     // this manager session. Fresh Discord/registry discovery runs
@@ -1588,7 +1596,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                             || session.closed
                             || state.activeEmbedManager !== session) return;
 
-                        records = refreshedRecords;
+                        records = accessibleRecords(refreshedRecords);
                         await updateEmbedManager(
                             interaction,
                             buildEmbedPayload(guild, records, channelId, 0),
@@ -1604,6 +1612,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     const parts = interaction.customId.split(':');
                     const channelId = parts[1];
                     const page = Number(parts[2]) || 0;
+                    if (!canUseEmbedBuilderChannel(guild, interaction.member, channelId, { requireSend: true })) {
+                        await interaction.deferUpdate().catch(() => {});
+                        return;
+                    }
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
                     return;
                 }
@@ -1618,6 +1630,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 const page = Number(parts[2]) || 0;
                 const [messageId, embedIndexRaw] = String(interaction.values?.[0] || '').split(':');
                 const embedIndex = Number(embedIndexRaw) || 0;
+                if (!canUseEmbedBuilderChannel(guild, interaction.member, channelId, { requireSend: true })) return;
 
                 const selectedDisplayRecord = collapseDisplayRecords(
                     records.filter(item => builderDisplayChannelId(guild, item) === String(channelId)),
@@ -1636,7 +1649,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 );
 
                 if (!record) {
-                    records = filterEmbedManagerRecords(await getEmbedRegistry(guild.id));
+                    records = accessibleRecords(filterEmbedManagerRecords(await getEmbedRegistry(guild.id)));
                     record = records.find(item =>
                         String(item.channelId) === String(channelId) &&
                         String(item.messageId) === String(messageId) &&
@@ -1644,6 +1657,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     );
                 }
 
+                if (record && !canAccessEmbedBuilderRecord(guild, interaction.member, {
+                    ...record, previewRecord, sourceRecord,
+                }, { requireSend: true })) return;
                 if (record) previewRecord = await hydrateBuilderPreviewRecord(guild, record, previewRecord, interaction.user.id).catch(() => previewRecord);
                 let loaded = record ? loadRecordSnapshotIntoState(state, guild, record, previewRecord, sourceRecord) : false;
                 const loadedFromSnapshot = loaded;
@@ -2235,7 +2251,7 @@ export async function saveModifiedEmbed(guild, state) {
         ].filter(Boolean);
         const gameContext = curatedGameTemplateContext(target.templateTitle);
         if (gameContext) {
-            primeSystemEmbedTemplateData(target.templateTitle, gameContext, current);
+            primeSystemEmbedTemplateData(target.templateTitle, gameContext, current, guild.id);
         }
 
         // The selected embed is already saved above. Persist the reusable

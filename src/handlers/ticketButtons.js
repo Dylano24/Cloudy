@@ -1,8 +1,7 @@
 import ticketModals from '../interactions/modals/ticket/createTicketUi.js';
-import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
+import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, MessageFlags } from 'discord.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
 import {
-  createTicket,
   closeTicket,
   claimTicket,
   updateTicketPriority,
@@ -11,24 +10,13 @@ import {
   reopenTicket,
   deleteTicket,
 } from '../services/ticketReliabilityService.js';
-import { getGuildConfig } from '../services/config/guildConfig.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { logger } from '../utils/logger.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
-import { replyUserError, ErrorTypes, handleInteractionError, createError } from '../utils/errorHandler.js';
+import { replyUserError, ErrorTypes, createError } from '../utils/errorHandler.js';
 import { getTicketPermissionContext } from '../utils/ticket/ticketPermissions.js';
 import { requireTicketCloseReason } from '../services/ticketActionPolicy.js';
-
-function escapeHtml(text) {
-  if (!text) return '';
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
 
 async function ensureGuildContext(interaction) {
   if (interaction.inGuild()) {
@@ -85,29 +73,6 @@ async function assertTicketPermission(interaction, client, actionLabel, options 
       ErrorTypes.PERMISSION,
       `${permissionMessage}\n\nYou cannot ${actionLabel}.`
     );
-  }
-
-  return context;
-}
-
-async function ensureTicketPermission(interaction, client, actionLabel, options = {}) {
-  const { allowTicketCreator = false } = options;
-
-  const context = await getTicketPermissionContext({ client, interaction });
-
-  if (!context.ticketData) {
-    await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'This action can only be used in a valid ticket channel.' });
-    return null;
-  }
-
-  const allowed = allowTicketCreator ? context.canCloseTicket : context.canManageTicket;
-  if (!allowed) {
-    const permissionMessage = allowTicketCreator
-      ? 'Only the ticket creator or the staff team can perform this action.'
-      : `Only the staff team can ${actionLabel}.`;
-
-    await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: `${permissionMessage}\n\nYou cannot ${actionLabel}.` });
-    return null;
   }
 
   return context;
@@ -391,11 +356,7 @@ const reopenTicketHandler = {
       const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
       if (!deferSuccess) return;
       
-      const { movedToOpenCategory, openCategoryMoveFailed } = await reopenTicket(interaction.channel, interaction.member);
-      let reopenMessage = 'This ticket has been reopened.';
-      if (openCategoryMoveFailed) {
-        reopenMessage += ' Note: Could not move the channel back to the open tickets category.';
-      }
+      await reopenTicket(interaction.channel, interaction.member);
       await interaction.deleteReply().catch(() => {});
     } catch (error) {
       logger.error('Error reopening ticket:', error);

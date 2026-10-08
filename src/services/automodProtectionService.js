@@ -125,6 +125,7 @@ async function moderateImageUrl(url) {
   try {
     const response = await fetch('https://api.openai.com/v1/moderations', {
       method: 'POST',
+      signal: AbortSignal.timeout(15_000),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',

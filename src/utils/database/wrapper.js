@@ -121,8 +121,8 @@ export class DatabaseWrapper {
         return assertStorageOperationSucceeded(result, key, 'write');
     }
 
-    async get(key, defaultValue = null) {
-        return this.db.get(key, defaultValue);
+    async get(key, defaultValue = null, options = {}) {
+        return this.db.get(key, defaultValue, options);
     }
 
     async delete(key) {

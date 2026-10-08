@@ -388,9 +388,9 @@ async function applyTemplatesToExistingMessage(message, { initialCreation = fals
 }
 
 function seedKnownGameResponses() {
-  const roulette = { commandName: 'roulette' };
-  const blackjack = { commandName: 'blackjack' };
-  const baccarat = { commandName: 'baccarat' };
+  const roulette = { commandName: 'roulette', globalTemplate: true };
+  const blackjack = { commandName: 'blackjack', globalTemplate: true };
+  const baccarat = { commandName: 'baccarat', globalTemplate: true };
 
   captureSystemEmbedData({
     title: 'Roulette win',

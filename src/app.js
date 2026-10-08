@@ -6,7 +6,6 @@ import cron from 'node-cron';
 
 import config from './config/application.js';
 import { initializeDatabase } from './utils/database.js';
-import { getGuildConfig } from './services/config/guildConfig.js';
 import { getServerCounters, saveServerCounters, updateCounter } from './services/serverstatsService.js';
 import { logger, startupLog, shutdownLog } from './utils/logger.js';
 import { checkBirthdays } from './services/birthdayService.js';
@@ -338,7 +337,6 @@ class TitanBot extends Client {
         }
         
         // Save cleaned counters if any were orphaned
-        // Save cleaned counters if any were orphaned
         if (orphanedCounters.length > 0) {
           await saveServerCounters(this, guildId, validCounters);
           logger.info(`Cleaned up ${orphanedCounters.length} orphaned counter(s) from guild ${guildId} during scheduled update`);
@@ -409,7 +407,7 @@ class TitanBot extends Client {
 
       if (this.webServer) {
         logger.info('Closing web server...');
-        await new Promise((resolve) => this.webServer.close(resolve));
+        await new Promise((resolve) => { this.webServer.close(resolve); });
         logger.info('✅ Web server closed');
       }
 

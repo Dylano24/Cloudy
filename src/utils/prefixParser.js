@@ -86,11 +86,11 @@ export function mapArgumentsToOptions(args, commandData) {
     
     return {
       _positional: args,
-      get: (name) => args[0] || null,
-      getString: (name) => args[0] || null,
-      getUser: (name) => null,
-      getInteger: (name) => parseInt(args[0]) || null,
-      getBoolean: (name) => args[0] === 'true',
+      get: () => args[0] || null,
+      getString: () => args[0] || null,
+      getUser: () => null,
+      getInteger: () => parseInt(args[0]) || null,
+      getBoolean: () => args[0] === 'true',
       getSubcommand: () => null,
       getSubcommandGroup: () => null,
       validateRequired: () => ({ valid: true, missing: [] })
@@ -105,7 +105,7 @@ export function mapArgumentsToOptions(args, commandData) {
   let optionDefs = [];
 
   logger.debug(
-    `Parsing prefix command: commandName=${cmdData.name}, args=${JSON.stringify(args)}, hasSubcommands=${hasSubcommands}, hasSubcommandGroup=${!!subcommandGroup}, optionsCount=${cmdData.options.length}`,
+    `Parsing prefix command: commandName=${cmdData.name}, argumentCount=${args.length}, hasSubcommands=${hasSubcommands}, hasSubcommandGroup=${!!subcommandGroup}, optionsCount=${cmdData.options.length}`,
   );
 
   if (subcommandGroup) {

@@ -9,7 +9,11 @@ RUN apk add --no-cache ffmpeg
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-COPY . .
+COPY --chown=node:node . .
+
+RUN mkdir -p logs && chown node:node /usr/src/app /usr/src/app/logs
+
+USER node
 
 EXPOSE 3000
 

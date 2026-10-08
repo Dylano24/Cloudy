@@ -414,8 +414,10 @@ export class ModerationService {
         );
       }
 
-      const bans = await guild.bans.fetch();
-      const banInfo = bans.get(user.id);
+      const banInfo = await guild.bans.fetch({ user: user.id, force: true }).catch(error => {
+        if (error.code === 10026) return null;
+        throw error;
+      });
 
       if (!banInfo) {
         throw new TitanBotError(

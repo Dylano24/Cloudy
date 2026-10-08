@@ -3,9 +3,6 @@
 import {
     getJoinToCreateConfig,
     saveJoinToCreateConfig,
-    updateJoinToCreateConfig,
-    getTemporaryChannelInfo,
-    formatChannelName as formatChannelNameUtil
 } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../utils/errorHandler.js';

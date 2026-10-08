@@ -11,6 +11,16 @@ import {
 import { logEvent, EVENT_TYPES } from '../../services/loggingService.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
+async function persistReroll(client, guildId, giveaway) {
+    if (!await saveGiveaway(client, guildId, giveaway)) {
+        throw new TitanBotError(
+            'Giveaway persistence failed',
+            ErrorTypes.DATABASE,
+            'The giveaway could not be saved. Please try again.',
+        );
+    }
+}
+
 export default {
     data: new SlashCommandBuilder()
         .setName("greroll")
@@ -112,7 +122,7 @@ export default {
 
         if (!channel || !channel.isTextBased()) {
 
-            await saveGiveaway(
+            await persistReroll(
                 interaction.client,
                 interaction.guildId,
                 updatedGiveaway,
@@ -140,7 +150,7 @@ export default {
 
         if (!message) {
 
-            await saveGiveaway(
+            await persistReroll(
                 interaction.client,
                 interaction.guildId,
                 updatedGiveaway,
@@ -209,7 +219,7 @@ export default {
             });
         }
 
-        await saveGiveaway(
+        await persistReroll(
             interaction.client,
             interaction.guildId,
             updatedGiveaway,

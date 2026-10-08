@@ -48,7 +48,7 @@ function ensureCommand(command) {
   const result = spawnSync(command, ['--version'], {
     encoding: 'utf8',
     stdio: 'pipe',
-    shell: process.platform === 'win32'
+    shell: false
   });
 
   if (result.status !== 0) {
@@ -123,7 +123,7 @@ async function run() {
   const result = spawnSync('pg_dump', dumpArgs, {
     encoding: 'utf8',
     stdio: 'pipe',
-    shell: process.platform === 'win32'
+    shell: false
   });
 
   if (result.status !== 0) {

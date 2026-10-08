@@ -482,8 +482,15 @@ function parentContext(context) {
   return value.includes('/') ? value.split('/')[0] : null;
 }
 
-function cacheIdentity(key, context = null) {
-  return `${normalize(context) || 'global'}::${normalize(key)}`;
+function cacheIdentity(key, context = null, guildId = null) {
+  const identity = `${normalize(context) || 'global'}::${normalize(key)}`;
+  return guildId ? `${String(guildId)}::${identity}` : identity;
+}
+
+function contextGuildId(source) {
+  if (source?.globalTemplate) return null;
+  return source?.guildId || source?.guild?.id || source?.channel?.guild?.id
+    || getTraceContext()?.guildId || null;
 }
 
 function findCatalogChannel(guild) {
@@ -543,18 +550,19 @@ function isInternalTemplate(data) {
   return authorName.toLowerCase().startsWith(TEMPLATE_KEY_PREFIX.toLowerCase());
 }
 
-function rememberTemplate(key, data, context = null) {
+function rememberTemplate(key, data, context = null, guildId = null) {
   if (!key || !data || !isEditableSystemCatalogTemplate(key, context)) return;
-  templateCache.set(cacheIdentity(key, context), cloneData(data));
+  templateCache.set(cacheIdentity(key, context, guildId), cloneData(data));
 }
 
-function findTemplate(key, context) {
+function findTemplate(key, context, guildId = null) {
   if (!key) return null;
   const exact = normalize(context);
   const parent = parentContext(exact);
-  return templateCache.get(cacheIdentity(key, exact))
-    || (parent ? templateCache.get(cacheIdentity(key, parent)) : null)
-    || templateCache.get(cacheIdentity(key, null))
+  return templateCache.get(cacheIdentity(key, exact, guildId))
+    || (parent ? templateCache.get(cacheIdentity(key, parent, guildId)) : null)
+    || templateCache.get(cacheIdentity(key, null, guildId))
+    || (guildId ? findTemplate(key, context) : null)
     || null;
 }
 
@@ -682,16 +690,16 @@ function rememberCatalogMessage(message) {
     });
 
     const canonicalKey = semanticCatalogKey(metadata, embed);
-    catalogEntries.add(cacheIdentity(metadata.key, metadata.context));
-    rememberTemplate(metadata.key, embed, metadata.context);
+    catalogEntries.add(cacheIdentity(metadata.key, metadata.context, message.guildId));
+    rememberTemplate(metadata.key, embed, metadata.context, message.guildId);
 
     // Old catalog rows can carry a description-hash key. Also cache the same
     // saved template under today's canonical response-type key so one Builder
     // Save immediately affects every future runtime response of that type.
     if (canonicalKey && canonicalKey !== metadata.key
       && isEditableSystemCatalogTemplate(canonicalKey, metadata.context)) {
-      catalogEntries.add(cacheIdentity(canonicalKey, metadata.context));
-      rememberTemplate(canonicalKey, embed, metadata.context);
+      catalogEntries.add(cacheIdentity(canonicalKey, metadata.context, message.guildId));
+      rememberTemplate(canonicalKey, embed, metadata.context, message.guildId);
     }
   }
 }
@@ -1003,6 +1011,12 @@ async function syncSourceDefinitionEntries(context, messages, sourceDefinitions 
     }
 
     const current = cloneData(location.embed);
+    if (PRESERVE_EXISTING_EMBEDS) {
+      catalogEntries.add(cacheIdentity(entry.key, entry.context, context.guild.id));
+      rememberTemplate(entry.key, current, entry.context, context.guild.id);
+      nextBaseline[entry.key] = { variantId: normalizedDefinition.variantId, data: cloneData(entry.data) };
+      continue;
+    }
     const previousSource = previousBaseline?.[entry.key]?.data || null;
     let next = current;
 
@@ -1021,16 +1035,16 @@ async function syncSourceDefinitionEntries(context, messages, sourceDefinitions 
     }
 
     if (!catalogDataChanged(current, next)) {
-      catalogEntries.add(cacheIdentity(entry.key, entry.context));
-      rememberTemplate(entry.key, current, entry.context);
+      catalogEntries.add(cacheIdentity(entry.key, entry.context, context.guild.id));
+      rememberTemplate(entry.key, current, entry.context, context.guild.id);
     } else {
       const edited = await editCatalogLocation(location, next);
       if (edited) {
         changedCount += 1;
         location.message = edited;
         location.embed = edited.embeds?.[location.index] || new EmbedBuilder(next);
-        catalogEntries.add(cacheIdentity(entry.key, entry.context));
-        rememberTemplate(entry.key, next, entry.context);
+        catalogEntries.add(cacheIdentity(entry.key, entry.context, context.guild.id));
+        rememberTemplate(entry.key, next, entry.context, context.guild.id);
         await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register migrated source response: ${error.message}`));
       }
     }
@@ -1044,12 +1058,12 @@ async function syncSourceDefinitionEntries(context, messages, sourceDefinitions 
 
 async function appendCatalogEntry(context, entry, messages) {
   if (!entry?.key || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
-  const identity = entryIdentity(entry);
+  const identity = `${String(context.guild.id)}::${entryIdentity(entry)}`;
   const existingLocation = findCatalogEntry(messages, entry);
 
   if (existingLocation && PRESERVE_EXISTING_EMBEDS) {
     catalogEntries.add(identity);
-    rememberTemplate(entry.key, cloneData(existingLocation.embed), entry.context);
+    rememberTemplate(entry.key, cloneData(existingLocation.embed), entry.context, context.guild.id);
     return false;
   }
 
@@ -1069,7 +1083,7 @@ async function appendCatalogEntry(context, entry, messages) {
     );
     if (!catalogDataChanged(currentData, mergedData)) {
       catalogEntries.add(identity);
-      rememberTemplate(entry.key, currentData, entry.context);
+      rememberTemplate(entry.key, currentData, entry.context, context.guild.id);
       return false;
     }
 
@@ -1080,7 +1094,7 @@ async function appendCatalogEntry(context, entry, messages) {
     rememberCatalogMessage(edited);
 
     catalogEntries.add(identity);
-    rememberTemplate(entry.key, mergedData, entry.context);
+    rememberTemplate(entry.key, mergedData, entry.context, context.guild.id);
     await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register updated response catalog: ${error.message}`));
     return true;
   }
@@ -1100,7 +1114,7 @@ async function appendCatalogEntry(context, entry, messages) {
   rememberCatalogMessage(edited);
 
   catalogEntries.add(identity);
-  rememberTemplate(entry.key, entry.data, entry.context);
+  rememberTemplate(entry.key, entry.data, entry.context, context.guild.id);
   await saveCatalogIds(context.guild.id, messages);
   await registerCatalogMessages([edited]).catch(error => logger.warn(`Failed to register response catalog: ${error.message}`));
   return true;
@@ -1257,7 +1271,7 @@ function scheduleFlush() {
 
 function queueRuntimeEntry(entry) {
   if (!entry?.key || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
-  const identity = cacheIdentity(entry.key, entry.context);
+  const identity = cacheIdentity(entry.key, entry.context, entry.guildId);
   const pending = pendingTemplates.get(identity);
   if (pending) {
     const merged = mergeCatalogShape(pending.data, entry.data);
@@ -1266,7 +1280,7 @@ function queueRuntimeEntry(entry) {
   }
 
   if (catalogEntries.has(identity)) {
-    const cached = findTemplate(entry.key, entry.context);
+    const cached = findTemplate(entry.key, entry.context, entry.guildId);
     const merged = mergeCatalogShape(cached || {}, entry.data);
     if (cached && !catalogDataChanged(cached, merged)) return false;
     pendingTemplates.set(identity, { ...entry, data: merged });
@@ -1291,6 +1305,8 @@ export function registerDiscoveredEmbedDefinition(definition = {}) {
 export function captureSystemEmbedData(embedData, contextSource = null) {
   const sourceData = cloneData(embedData);
   const context = inferContextHint(contextSource);
+  const guildId = contextGuildId(contextSource);
+  if (!guildId && !contextSource?.globalTemplate) return false;
   if (!context || isTicketContext(context)) return false;
   const data = isBlackjackContext(context)
     ? stripBlackjackCardsRemaining(sourceData)
@@ -1308,6 +1324,7 @@ export function captureSystemEmbedData(embedData, contextSource = null) {
 
   return queueRuntimeEntry({
     key,
+    guildId,
     context,
     kind: 'embed',
     data: withStableKey(reusableData, key, context, 'embed'),
@@ -1318,11 +1335,12 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   const data = cloneData(embedData);
   if (isInternalTemplate(data)) return data;
   const context = inferContextHint(contextSource);
+  const guildId = contextGuildId(contextSource);
   if (isTicketContext(context)) return data;
   const specificKey = balanceResponseIdentity(data, context) || resolveEmbedSourceAlias(context, data.title)
     || getSystemEmbedTemplateKey('embed', data.title, data.description, context);
   const titleKey = normalize(data.title);
-  const template = (specificKey ? findTemplate(specificKey, context) : null) || findTemplate(titleKey, context);
+  const template = (specificKey ? findTemplate(specificKey, context, guildId) : null) || findTemplate(titleKey, context, guildId);
 
   if (!template) {
     if (context && specificKey) captureSystemEmbedData(data, contextSource);
@@ -1417,9 +1435,9 @@ function renderTicketMainDynamic(templateValue, values = []) {
   return String(templateValue || '').replace(/\{dynamic\}/gi, () => String(values[index++] ?? ''));
 }
 
-export function applyTicketMainTemplateData(embedData, { ticketNumber = 'Unknown', userId = null, reason = 'No reason provided' } = {}) {
+export function applyTicketMainTemplateData(embedData, { guildId = null, ticketNumber = 'Unknown', userId = null, reason = 'No reason provided' } = {}) {
   const data = cloneData(embedData);
-  const template = findTemplate('ticket-main', 'tickets/main');
+  const template = findTemplate('ticket-main', 'tickets/main', guildId || contextGuildId(null));
   if (!template) return data;
 
   const next = { ...data };
@@ -1465,15 +1483,16 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
   if (!content?.trim()) return payload;
 
   const context = inferContextHint(contextSource);
+  const guildId = contextGuildId(contextSource);
   if (!context || isTicketContext(context)) return payload;
   const signature = responseSignature('content', '', content);
   const stableKey = plainSourceAliases.get(plainSourceAliasIdentity(context, content)) || null;
   const key = stableKey || signature;
-  const template = findTemplate(key, context) || (stableKey ? findTemplate(signature, context) : null);
+  const template = findTemplate(key, context, guildId) || (stableKey ? findTemplate(signature, context, guildId) : null);
 
   if (!template) {
     const entry = definitionToCatalog({ kind: 'content', context, content, key });
-    queueRuntimeEntry(entry);
+    if (guildId || contextSource?.globalTemplate) queueRuntimeEntry({ ...entry, guildId });
     return payload;
   }
 
@@ -1578,7 +1597,7 @@ export function primeSystemEmbedCatalogMessage(message) {
 // Embed Builder can edit a reusable game template through either its catalog
 // record or a real game message. Prime the canonical cache in the same tick as
 // Save so the very next component update cannot reuse the previous styling.
-export function primeSystemEmbedTemplateData(key, context, embedData) {
+export function primeSystemEmbedTemplateData(key, context, embedData, guildId = null) {
   const normalizedKey = normalize(key);
   const normalizedContext = normalize(context);
   if (!normalizedKey || !normalizedContext || !embedData
@@ -1588,8 +1607,8 @@ export function primeSystemEmbedTemplateData(key, context, embedData) {
   const data = isBlackjackContext(normalizedContext)
     ? stripBlackjackCardsRemaining(sourceData)
     : sourceData;
-  rememberTemplate(normalizedKey, data, normalizedContext);
-  catalogEntries.add(cacheIdentity(normalizedKey, normalizedContext));
+  rememberTemplate(normalizedKey, data, normalizedContext, guildId);
+  catalogEntries.add(cacheIdentity(normalizedKey, normalizedContext, guildId));
   return true;
 }
 
@@ -1614,6 +1633,7 @@ async function flushPendingTemplates() {
     await cleanupSystemCatalogEntries(messages);
     for (const message of messages) rememberCatalogMessage(message);
     for (const entry of queued) {
+      if (entry.guildId && String(entry.guildId) !== String(context.guild.id)) continue;
       await appendCatalogEntry(context, entry, messages).catch(error => {
         logger.warn(`Failed to append or enrich runtime response template: ${error.message}`);
       });

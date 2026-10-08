@@ -12,9 +12,9 @@ import {
 } from 'discord.js';
 import { buildStandardLogEmbed, formatLogLine } from '../utils/logging/logEmbeds.js';
 import { getGuildConfig } from './config/guildConfig.js';
-import { getTicketData, saveTicketData, deleteTicketData, getOpenTicketCountForUser, incrementTicketCounter } from '../utils/database.js';
+import { getTicketData, saveTicketData, getOpenTicketCountForUser, incrementTicketCounter } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
-import { createEmbed, errorEmbed } from '../utils/embeds.js';
+import { createEmbed } from '../utils/embeds.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { forceCloudyTicketFooter } from '../utils/ticket/ticketBranding.js';
@@ -94,7 +94,6 @@ export async function createTicket(
 ) {
   try {
     const config = options.config || await getGuildConfig(guild.client, guild.id);
-    const ticketConfig = config.tickets || {};
 
     if (!options.skipLimitCheck) {
       const maxTicketsPerUser = config.maxTicketsPerUser ?? 3;
@@ -606,16 +605,6 @@ export async function reopenTicket(channel, reopener) {
   } catch (error) {
     rethrowTicketError(error, 'reopenTicket', 'Failed to reopen ticket. Please try again in a moment.', { guildId: channel?.guild?.id, channelId: channel?.id, reopenerId: reopener?.id });
   }
-}
-
-function escapeHtml(text) {
-  if (!text) return '';
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }
 
 async function generateTranscript(channel) {
