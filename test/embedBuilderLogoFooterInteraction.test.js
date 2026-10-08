@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { loadRecordSnapshotIntoState } from '../src/services/embedManagerService.js';
+import { loadRecordSnapshotIntoState, saveModifiedEmbed } from '../src/services/embedManagerService.js';
 import { buildBuilderEmbeds, buildControls, queueBuilderRefresh, refreshBuilderLogo } from '../src/commands/Tools/embedbuilder.js';
 import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
@@ -125,6 +125,7 @@ test('Existing embed with a visible thumbnail always permits Remove logo', () =>
 
   state.showLogo = true;
   state.removeExistingLogo = false;
+  state.logoTouched = true;
   assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
   assertLogoButtons(state, { canAdd: false, canRemove: true });
 });
@@ -328,4 +329,144 @@ test('saving a deliberate no-logo choice replaces a previously saved logo decora
   assert.equal(getCachedSavedEmbedTemplateData(
     guildId, channelId, { title, thumbnail: { url: CLOUDY_LOGO_URL } },
   ).data.thumbnail, undefined, 'unrelated later Save preserves the no-logo preference');
+});
+
+test('a visible Discord-hosted custom logo is recognized without replacing its URL', () => {
+  const customLogo = 'https://cdn.discordapp.com/attachments/123/456/a-special-visible-logo.png';
+  const state = reopen({
+    title: 'Recognize this thumbnail',
+    description: 'Already visible in Discord',
+    thumbnail: { url: customLogo },
+  }, 'custom-logo-existing');
+
+  assert.equal(state.showLogo, true);
+  assert.equal(state.logoTouched, false);
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail?.url, customLogo);
+  assertLogoButtons(state, { canAdd: false, canRemove: true });
+
+  state.showLogo = false;
+  state.removeExistingLogo = true;
+  state.logoTouched = true;
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
+  assertLogoButtons(state, { canAdd: true, canRemove: false });
+
+  state.showLogo = true;
+  state.removeExistingLogo = false;
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
+  assertLogoButtons(state, { canAdd: false, canRemove: true });
+});
+
+test('Search uses the actual visible peer thumbnail, not the stale catalog source', () => {
+  const record = {
+    guildId: 'visible-peer-guild',
+    channelId: 'visible-peer-channel',
+    messageId: 'source-no-logo',
+    source: 'system-catalog',
+    embedIndex: 0,
+    title: 'Logo in live peer',
+    snapshot: { title: 'Logo in live peer', description: 'Source has no thumbnail' },
+  };
+  const peer = {
+    ...record,
+    messageId: 'live-peer-with-logo',
+    snapshot: {
+      title: 'Logo in live peer',
+      description: 'Visible peer',
+      thumbnail: { url: CLOUDY_LOGO_URL },
+    },
+  };
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, { id: record.guildId }, record, peer), true);
+  assert.equal(state.showLogo, true);
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail?.url, CLOUDY_LOGO_URL);
+  assertLogoButtons(state, { canAdd: false, canRemove: true });
+
+  state.showLogo = false;
+  state.removeExistingLogo = true;
+  state.logoTouched = true;
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().thumbnail, undefined);
+  assertLogoButtons(state, { canAdd: true, canRemove: false });
+});
+
+test('a manual Save keeps the visible logo until it is explicitly removed, then never restores it', async () => {
+  const { Embed } = await import('discord.js');
+  const { db } = await import('../src/utils/database.js');
+  const kv = new Map();
+  db.initialized = true;
+  db.useFallback = false;
+  db.db = {
+    get: async key => kv.get(key) ?? null,
+    set: async (key, value) => { kv.set(key, structuredClone(value)); return true; },
+    delete: async key => kv.delete(key),
+    list: async prefix => [...kv.keys()].filter(key => key.startsWith(prefix)),
+  };
+
+  const guildId = 'save-visible-logo-20261008';
+  const channelId = 'save-visible-logo-channel';
+  const message = {
+    id: 'save-visible-logo-message', guildId, channelId,
+    author: { id: 'bot' }, flags: { has: () => false },
+    embeds: [new Embed({
+      title: 'Logo save regression',
+      description: 'Body remains unchanged',
+      thumbnail: { url: 'https://cdn.discordapp.com/attachments/123/456/a-visible-logo.png' },
+    })],
+  };
+  message.edit = async payload => {
+    message.embeds = payload.embeds.map(data => new Embed(data));
+    return message;
+  };
+  const channel = {
+    id: channelId,
+    name: 'test-channel',
+    messages: {
+      cache: new Map([[message.id, message]]),
+      fetch: async () => message,
+    },
+  };
+  message.channel = channel;
+  const guild = {
+    id: guildId, client: { user: { id: 'bot' } },
+    channels: {
+      cache: new Map([[channelId, channel]]),
+      fetch: async () => channel,
+    },
+  };
+  const record = () => ({
+    guildId, channelId, messageId: message.id, source: 'embed-builder',
+    embedIndex: 0, snapshot: message.embeds[0].toJSON(),
+  });
+
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, guild, record()), true);
+  assert.equal(state.showLogo, true);
+  const savedLogo = message.embeds[0].thumbnail.url;
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.equal(message.embeds[0].thumbnail.url, savedLogo, 'Save without Add must keep custom logo');
+
+  state.showLogo = false;
+  state.removeExistingLogo = true;
+  state.logoTouched = true;
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.equal(message.embeds[0].thumbnail, null);
+
+  const reopened = {};
+  assert.equal(loadRecordSnapshotIntoState(reopened, guild, record()), true);
+  assert.equal(reopened.showLogo, false);
+  assert.equal(buildBuilderEmbeds(reopened)[0].toJSON().thumbnail, undefined);
+  assertLogoButtons(reopened, { canAdd: true, canRemove: false });
+
+  assert.equal((await saveModifiedEmbed(guild, reopened)).ok, true);
+  assert.equal(message.embeds[0].thumbnail, null, 'another Save never re-adds the logo');
+
+  reopened.showLogo = true;
+  reopened.removeExistingLogo = false;
+  reopened.logoTouched = true;
+  assert.equal((await saveModifiedEmbed(guild, reopened)).ok, true);
+  assert.equal(message.embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
+
+  const reopenedWithLogo = {};
+  assert.equal(loadRecordSnapshotIntoState(reopenedWithLogo, guild, record()), true);
+  assert.equal(reopenedWithLogo.showLogo, true);
+  assertLogoButtons(reopenedWithLogo, { canAdd: false, canRemove: true });
 });

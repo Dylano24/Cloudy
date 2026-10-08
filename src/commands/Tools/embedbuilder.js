@@ -590,7 +590,9 @@ function buildPreviewEmbed(state) {
     const firstChunk = chunks[0] || null;
 
     if (state.modifyTarget?.sourceEmbedData) {
-        const source = state.modifyTarget.sourceEmbedData;
+        // Preview must start from the same visible saved/overlaid thumbnail
+        // selected in Search/Modify, not an older catalog/source thumbnail.
+        const source = state.modifyTarget.previewSourceData || state.modifyTarget.sourceEmbedData;
         const data = { ...source, color: state.sideColor };
         if (isInternalTemplateAuthor(data.author?.name)) delete data.author;
 
@@ -610,12 +612,13 @@ function buildPreviewEmbed(state) {
             delete data.fields;
         }
 
-        if (state.removeExistingLogo) {
+        if (state.removeExistingLogo || (state.logoTouched && !state.showLogo)) {
             delete data.thumbnail;
-        } else if (state.showLogo) {
+        } else if (state.logoTouched && state.showLogo) {
+            // An explicit Add replaces the thumbnail with Cloudy's C; an
+            // untouched existing thumbnail always remains visible, regardless
+            // of a stale internal logo setting.
             data.thumbnail = { url: CLOUDY_LOGO_URL };
-        } else if (isCloudyLogoUrl(data.thumbnail?.url)) {
-            delete data.thumbnail;
         }
 
         if (chunks.length <= 1) {
@@ -746,7 +749,7 @@ function buildControlEmbed(state) {
             `**Title** › ${shortValue(state.title, 40)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
             `**Side color** › \`${colorToHex(state.sideColor)}\``,
-            `**Logo** › ${state.showLogo ? 'Enabled' : 'Disabled'}`,
+            `**Logo** › ${buildPreviewEmbed(state).toJSON().thumbnail?.url ? 'Enabled' : 'Disabled'}`,
             `**Footer** › ${shortValue(state.bottomLine, 40)}`,
             `**Media** › ${mediaLabel}`,
             `**Buttons** › ${countBuilderButtons(state)}`,
