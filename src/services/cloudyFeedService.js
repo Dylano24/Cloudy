@@ -7,6 +7,7 @@ import { hasCloudyOwnerMember, hasCloudyOwnerRole } from './ownerRoleAccess.js';
 import { readWebsiteItems, validateSourceUrl } from './cloudyFeedParser.js';
 import { makeVideoAttachmentMessage, makeImageAttachmentMessage } from './cloudyFeedMediaUpload.js';
 import { makeExtractedVideoAttachmentMessage } from './cloudyFeedVideoExtractor.js';
+import { makeExtractedImageAttachmentMessage } from './cloudyFeedPictureExtractor.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
@@ -369,7 +370,20 @@ async function processGuild(client, guild) {
           } else {
             // Post the real photo as a native Discord attachment, not a
             // remote URL inside an embed. Reject blocked, oversized or invalid files.
-            post = await makeImageAttachmentMessage(item.image, guild.maximumUploadLimit);
+            if (item.mediaExtractor === 'gallery-dl') {
+              try {
+                post = await makeImageAttachmentMessage(item.image, guild.maximumUploadLimit);
+              } catch {
+                // Some galleries need their public referrer/header context
+                // rather than a direct CDN hotlink. Still upload the file
+                // directly to Discord without adding text or embeds.
+                post = await makeExtractedImageAttachmentMessage(
+                  item.url, item.galleryIndex, guild.maximumUploadLimit,
+                );
+              }
+            } else {
+              post = await makeImageAttachmentMessage(item.image, guild.maximumUploadLimit);
+            }
           }
           // Reserve before sending to avoid double posts on process restart.
           feed.recentUrls = [...seen, mediaItemKey(item)].slice(-200);
