@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   parseGalleryDlUrls, parseYtDlpItems, discoverExtractorMedia,
 } from '../src/services/cloudyFeedExtractorService.js';
-import { targetVideoBitrateKbps } from '../src/services/cloudyFeedVideoExtractor.js';
+import { targetVideoBitrateKbps, makeExtractedVideoAttachmentMessage } from '../src/services/cloudyFeedVideoExtractor.js';
+import { writeFile, stat } from 'node:fs/promises';
 import { mediaItemKey, eligibleMediaForSource } from '../src/services/cloudyFeedService.js';
 
 test('yt-dlp metadata discovers real public video posts, not thumbnails or DRM', () => {
@@ -79,4 +80,47 @@ test('ffmpeg bitrate optimization respects Discord limits and never trims a long
   assert.ok(targetVideoBitrateKbps(10 * 1024 * 1024, 35) > 110);
   assert.throws(() => targetVideoBitrateKbps(10 * 1024 * 1024, 400), /cannot fit/);
   assert.throws(() => targetVideoBitrateKbps(500_000, 240), /too long/);
+});
+
+test('yt-dlp media posts as native Discord video and removes temporary files', async () => {
+  const bytes = Buffer.alloc(24);
+  bytes.write('ftyp', 4, 'ascii');
+  let tempPath;
+  const message = await makeExtractedVideoAttachmentMessage('https://example.org/watch/clip', 10_000, {
+    runner: async (binary, args) => {
+      assert.equal(binary, 'yt-dlp');
+      const output = args[args.indexOf('--output') + 1];
+      tempPath = output.replace('%(ext)s', 'mp4');
+      await writeFile(tempPath, bytes);
+    },
+    convert: async () => { throw new Error('should not convert playable MP4'); },
+  });
+  assert.equal(message.files[0].name, 'cloudy-video.mp4');
+  assert.deepEqual(message.files[0].attachment, bytes);
+  assert.equal(Object.hasOwn(message, 'embeds'), false);
+  assert.equal(Object.hasOwn(message, 'content'), false);
+  await assert.rejects(stat(tempPath), { code: 'ENOENT' });
+});
+
+test('oversized extracted videos are converted locally instead of linked or truncated', async () => {
+  const original = Buffer.alloc(160);
+  original.write('ftyp', 4, 'ascii');
+  const optimized = Buffer.alloc(24);
+  optimized.write('ftyp', 4, 'ascii');
+  let converted = 0;
+  const message = await makeExtractedVideoAttachmentMessage('https://example.org/watch/big', 80, {
+    runner: async (_binary, args) => {
+      await writeFile(args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4'), original);
+    },
+    convert: async (_input, destination, limit) => {
+      assert.equal(limit, 80);
+      converted++;
+      await writeFile(destination, optimized);
+      return destination;
+    },
+  });
+  assert.equal(converted, 1);
+  assert.equal(message.files[0].name, 'cloudy-video.mp4');
+  assert.deepEqual(message.files[0].attachment, optimized);
+  assert.equal(Object.hasOwn(message, 'embeds'), false);
 });
