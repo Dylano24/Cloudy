@@ -14,14 +14,18 @@ const waitingExtractions = [];
 
 async function withExtractorSlot(task) {
   if (activeExtractions >= MAX_CONCURRENT_EXTRACTIONS) {
+    // The released slot is reserved for the waiter; a newly arriving task
+    // cannot overtake it and accidentally exceed the extraction limit.
     await new Promise(resolve => waitingExtractions.push(resolve));
+  } else {
+    activeExtractions++;
   }
-  activeExtractions++;
   try {
     return await task();
   } finally {
-    activeExtractions--;
-    waitingExtractions.shift()?.();
+    const next = waitingExtractions.shift();
+    if (next) next();
+    else activeExtractions--;
   }
 }
 
