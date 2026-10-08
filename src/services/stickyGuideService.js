@@ -18,6 +18,7 @@ export function createStickyGuideManager({
   isGuide,
   onError,
   delayMs = DEFAULT_REFRESH_DELAY_MS,
+  moveDelayMs = 0,
   everyNMessages = 1,
 }) {
   const operations = new Map();
@@ -65,9 +66,36 @@ export function createStickyGuideManager({
     }
     if (existing && prepareExisting) existing = await prepareExisting(existing);
     const latest = recent.first();
-    const alreadyLast = existing && latest?.id === existing.id
+    const alreadyLast = !state?.pendingPayload && existing && latest?.id === existing.id
       && !isNewerId(channel.lastMessageId, existing.id);
     let current = existing;
+
+    if (!alreadyLast && moveDelayMs > 0) {
+      const payload = state?.pendingPayload || await buildPayload(channel, existing);
+      // Save the exact payload before deletion so restart/send failure cannot
+      // replace manually edited creator content with the default guide.
+      await persist(channel, {
+        messageId: existing?.id || state?.messageId || null,
+        staleMessageIds: [...guides.keys()],
+        pendingPayload: JSON.parse(JSON.stringify(payload)),
+      });
+      for (const guide of guides.values()) {
+        try {
+          await guide.delete();
+        } catch (error) {
+          if (Number(error.code) !== 10008) throw error;
+        }
+      }
+      if (guides.size) await new Promise(resolve => setTimeout(resolve, moveDelayMs));
+      current = await channel.send(payload);
+      try {
+        await persist(channel, { messageId: current.id, staleMessageIds: [] });
+      } catch (error) {
+        await current.delete().catch(onError);
+        throw error;
+      }
+      return true;
+    }
 
     if (!alreadyLast) {
       current = await channel.send(await buildPayload(channel, existing));

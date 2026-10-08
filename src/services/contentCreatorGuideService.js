@@ -49,6 +49,7 @@ export function createContentCreatorGuideManager() {
     },
     buildPayload: (_channel, existing) => buildContentCreatorPayload(existing),
     everyNMessages: 1,
+    moveDelayMs: 2000,
     onError: error => logger.warn(`Content Creators guide refresh failed: ${error.message}`),
   });
 }

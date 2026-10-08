@@ -6,7 +6,7 @@ class Messages extends Map {
   first() { return this.values().next().value; }
 }
 
-function fixture() {
+function fixture(managerOptions = {}) {
   let nextId = 100;
   let state = null;
   const history = new Map();
@@ -52,6 +52,7 @@ function fixture() {
     return message;
   };
   const options = {
+    ...managerOptions,
     loadState: async () => structuredClone(state),
     saveState: async (_channel, value) => {
       if (failures.save) return false;
@@ -75,6 +76,51 @@ function fixture() {
 }
 
 const settle = () => new Promise(resolve => { setImmediate(resolve); });
+
+test('delayed moves remove the old creator guide and wait before posting without overlap', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture({ moveDelayMs: 2000 });
+  const old = f.addMessage({ guide: true });
+  f.addMessage({ author: { id: 'user' } });
+  const pending = f.manager.refresh(f.channel);
+  await settle();
+  assert.equal(f.history.has(old.id), false);
+  assert.equal(f.actions.some(([action]) => action === 'send'), false);
+  t.mock.timers.tick(1999);
+  await settle();
+  assert.equal(f.actions.some(([action]) => action === 'send'), false);
+  t.mock.timers.tick(1);
+  await pending;
+  assert.deepEqual(f.history.get(f.state.messageId).embeds, old.embeds);
+});
+
+test('failed delayed repost retains saved content across restart', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture({ moveDelayMs: 2000 });
+  const old = f.addMessage({ guide: true, title: 'Saved custom content' });
+  f.state = { messageId: old.id };
+  f.addMessage({ author: { id: 'user' } });
+  f.failures.send = true;
+  const pending = assert.rejects(f.manager.refresh(f.channel), /Cannot send/);
+  await settle();
+  t.mock.timers.tick(2000);
+  await pending;
+  assert.deepEqual(f.state.pendingPayload.embeds, old.embeds);
+  f.failures.send = false;
+  await f.restart().refresh(f.channel);
+  assert.deepEqual(f.history.get(f.state.messageId).embeds, old.embeds);
+  assert.equal(f.state.pendingPayload, undefined);
+});
+
+test('failed deletion in delayed mode never posts a duplicate', async () => {
+  const f = fixture({ moveDelayMs: 2000 });
+  const old = f.addMessage({ guide: true });
+  f.addMessage({ author: { id: 'user' } });
+  f.failures.delete = old.id;
+  await assert.rejects(f.manager.refresh(f.channel), /Cannot delete/);
+  assert.equal(f.history.has(old.id), true);
+  assert.equal(f.actions.some(([action]) => action === 'send'), false);
+});
 
 test('moves the guide below a user and saves the replacement before deleting the old guide', async () => {
   const f = fixture();
