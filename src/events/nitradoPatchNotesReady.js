@@ -329,7 +329,7 @@ export async function checkForNitradoUpdate(client) {
   try {
     const article = await fetchLatestNitradoRustArticle();
     const channel = await resolveCloudyChannel(client, 'nitradoPatch', { textOnly: true });
-    if (!channel?.isTextBased()) throw new Error(`Channel ${NITRADO_PATCH_CHANNEL_ID} is not a text channel`);
+    if (!channel?.isTextBased()) throw new Error(`Nitrado update channel ${NITRADO_PATCH_CHANNEL_ID} is missing or inaccessible. Check the channel name, View Channel and Cloudy permissions.`);
 
     const botMember = channel.guild?.members?.me;
     const permissions = botMember ? channel.permissionsFor(botMember) : null;
