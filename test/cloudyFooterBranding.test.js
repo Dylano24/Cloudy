@@ -35,6 +35,25 @@ test('all separate rich Cloudy embeds get both marks with no duplicate branding'
   assert.deepEqual(withCloudyFooter(result), result);
 });
 
+test('future embeds get the C even when their standard footer already exists', () => {
+  const authored = { embeds: [{
+    title: 'Permission Denied',
+    description: 'You do not have permission.',
+    footer: { text: CLOUDY_STANDARD_FOOTER },
+  }] };
+  const fresh = withCloudyFooter(authored);
+  assert.equal(fresh.embeds[0].title, 'Permission denied');
+  assert.equal(fresh.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+  assert.match(fresh.embeds[0].thumbnail?.url || '', /cloudy-c-logo/);
+  assert.equal(authored.embeds[0].thumbnail, undefined, 'input is not mutated');
+  assert.equal(authored.embeds[0].title, 'Permission Denied');
+
+  // An already-published message is never automatically restyled.
+  assert.equal(withCloudyFooter(authored, { isNewMessage: false }), authored);
+  // The Embed Builder's explicit Remove logo choice is retained.
+  assert.equal(withCloudyFooter(authored, { suppressAutomaticLogo: true }).embeds[0].thumbnail, undefined);
+});
+
 test('standalone tag notifications never acquire a footer, logo or extra embed', () => {
   for (const content of [
     '<@123456789012345678>',
