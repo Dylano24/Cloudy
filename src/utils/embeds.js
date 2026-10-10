@@ -290,7 +290,13 @@ export function buildUserErrorEmbed(errorType, description = '', options = {}) {
   // response template still contains the previous Title Case spelling.
   data.title = title;
 
-  // Error responses always retain the Cloudy C logo, even if an edited\n  // system template removed its thumbnail.\n  if (!data.thumbnail?.url) data.thumbnail = { url: CLOUDY_C_LOGO_URL };\n\n  // Dedicated-channel errors must render identically for gambling and shop.
+  // Default error embeds need the C even if a system template omitted it.
+  // Preserve manually authored custom-footers and thumbnails.
+  if (!data.thumbnail?.url && (!data.footer?.text || data.footer.text === CLOUDY_FOOTER)) {
+    data.thumbnail = { url: CLOUDY_C_LOGO_URL };
+  }
+
+  // Dedicated-channel errors must render identically for gambling and shop.
   // Keep the live channel mention/text dynamic, but force the same Cloudy
   // wrong-channel presentation used by the gambling flow.
   const dedicatedWrongChannel = title === 'Wrong channel'
