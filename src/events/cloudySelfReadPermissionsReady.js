@@ -3,7 +3,8 @@ import {
     Events,
     PermissionFlagsBits,
 } from 'discord.js';
-import { logger } from '../utils/logger.js';
+import { logger, startupLog } from '../utils/logger.js';
+import { inspectCloudyChannelLinks, formatCloudyChannelAudit } from '../services/cloudyChannelAuditService.js';
 import { fetchGuildChannels } from '../utils/guildChannelFetch.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 
@@ -101,6 +102,10 @@ async function inspectAndRepairGuild(client) {
         logger.warn(`[CHANNEL_RECOVERY] Could not refresh guild channels: ${error?.message || error}`);
     });
 
+    // Summarize actual Discord channel visibility without touching saved content.
+    // startupLog remains visible on installations configured with LOG_LEVEL=warn.
+    startupLog('[CHANNEL_AUDIT] Before permission recovery: ' + formatCloudyChannelAudit(inspectCloudyChannelLinks(guild, member)));
+
     const patchChannelIds = new Set();
     let missingPatchChannels = 0;
     for (const destination of PATCH_DESTINATIONS) {
@@ -135,6 +140,8 @@ async function inspectAndRepairGuild(client) {
         `[CHANNEL_RECOVERY] Guild ${TARGET_GUILD_ID} complete; permissions repaired in ${repaired} channel(s); `
         + `patch destinations unavailable: ${missingPatchChannels}.`,
     );
+    startupLog('[CHANNEL_AUDIT] After permission recovery: ' + formatCloudyChannelAudit(inspectCloudyChannelLinks(guild, member)));
+    startupLog('[CHANNEL_RECOVERY] Complete: repaired ' + repaired + ' existing channel permission sets; patch destinations unavailable ' + missingPatchChannels + '.');
     return { found: true, repaired, missingPatchChannels };
 }
 
