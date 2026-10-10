@@ -41,6 +41,9 @@ export async function withManualBuilderSaveLogoChoice(messageId, callback) {
 
 export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomaticLogo = false } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
+  // Only brand newly sent embeds. An edit must never restyle an existing
+  // owner-authored or already-correct Discord message.
+  if (!isNewMessage) return payload;
   if (Number(payload.flags) & 32768) return payload;
   // Bare tags are companion messages, never separate branded notices.
   // A tagged message WITH an embed must still get the normal Cloudy branding.
@@ -62,9 +65,14 @@ export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomat
       const hasExistingFooter = Boolean(
         original.footer?.text || original.footer?.icon_url || original.footer?.iconURL
       );
-      if (isNewMessage && embed.description === 'Only owners can ban members from reports.') {
+      if (embed.description === 'Only owners can ban members from reports.') {
         embed.title = 'Permission denied';
         embed.thumbnail = { url: CLOUDY_C_LOGO_URL };
+        embedChanged = true;
+      }
+      // Use sentence case for new system messages only, never saved Builder posts.
+      if (!suppressAutomaticLogo && /^permission denied$/i.test(title) && title !== 'Permission denied') {
+        embed.title = 'Permission denied';
         embedChanged = true;
       }
       // A logo isn't a footer. Keep a custom footer untouched.
@@ -72,9 +80,10 @@ export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomat
         embed.footer = { text: CLOUDY_STANDARD_FOOTER };
         embedChanged = true;
       }
-      // An explicitly saved non-standard footer can belong to a Builder
-      // message where the owner intentionally removed the logo.
-      if (isNewMessage && !suppressAutomaticLogo && !hasExistingFooter
+      // A default footer must not suppress the C on a newly sent bot embed.
+      // Explicit Builder choices, saved custom footers and other thumbnails stay intact.
+      if (!suppressAutomaticLogo
+          && (!hasExistingFooter || original.footer?.text === CLOUDY_STANDARD_FOOTER)
           && title.toLowerCase() !== 'message builder'
           && !embed.thumbnail?.url && embed.footer?.text === CLOUDY_STANDARD_FOOTER) {
         embed.thumbnail = { url: CLOUDY_C_LOGO_URL };
