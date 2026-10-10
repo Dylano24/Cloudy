@@ -269,7 +269,7 @@ async function completeReportAction(interaction, client, report, action, userId,
       if (!targetMember) {
         const error = new Error('The reported member is no longer in this server.');
         error.userMessage = 'The reported member is no longer in this server, so Timeout cannot be applied.';
-        error.context = { expected: true, titleOverride: 'Permission denied' };
+        error.context = { expected: true, titleOverride: 'Something went wrong' };
         throw error;
       }
     }
