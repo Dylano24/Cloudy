@@ -1,5 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import { logger } from './logger.js';
+import { publishAnonymousLatencySample } from './workerLatencyTelemetry.js';
 
 const observed = Symbol('cloudy.interactionLatency');
 
@@ -22,8 +23,13 @@ export function recordSlowInteractionCompletion(interaction, elapsedMs, {
 } = {}) {
   if (!interaction || isFaqInteraction(interaction) || elapsedMs < 750) return;
   try {
-    report({ event: 'interaction.handler.latency', ...interactionLabel(interaction),
-      phase: 'handler_complete', elapsedMs: Math.round(elapsedMs) });
+    const sample = { event: 'interaction.handler.latency', ...interactionLabel(interaction),
+      phase: 'handler_complete', elapsedMs: Math.round(elapsedMs) };
+    report(sample);
+    // Opt-in only; never await Redis on the Discord interaction path.
+    if (process.env.CLOUDY_LATENCY_WORKER_EXPORT === '1') {
+      void publishAnonymousLatencySample(sample).catch(() => {});
+    }
   } catch { /* Observability must never interfere with a Discord handler. */ }
 }
 const ACK = new Set(['reply', 'update', 'showModal', 'respond', 'deferReply', 'deferUpdate']);
@@ -49,8 +55,12 @@ export function observeInteractionLatency(interaction, {
     // Instrumentation must never change a successful Discord response into an
     // application error, even if a logger transport fails.
     try {
-      report({ event: 'interaction.latency', ...interactionLabel(interaction),
-        phase, elapsedMs: Math.round(elapsedMs), ...(thinkingMs == null ? {} : { thinkingMs: Math.round(thinkingMs) }) });
+      const sample = { event: 'interaction.latency', ...interactionLabel(interaction),
+        phase, elapsedMs: Math.round(elapsedMs), ...(thinkingMs == null ? {} : { thinkingMs: Math.round(thinkingMs) }) };
+      report(sample);
+      if (process.env.CLOUDY_LATENCY_WORKER_EXPORT === '1') {
+        void publishAnonymousLatencySample(sample).catch(() => {});
+      }
     } catch { /* Preserve the original response result. */ }
   };
   for (const method of new Set([...ACK, ...VISIBLE])) {
