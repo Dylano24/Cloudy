@@ -1,0 +1,30 @@
+name: Cloudy read-only Discord audit
+
+on:
+  push:
+    branches: ['chatgpt-cloudy-complete-audit']
+    paths:
+      - 'scripts/audit-cloudy-guild-readonly.js'
+      - '.github/workflows/cloudy-audit-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GUILD_ID: '1532882647838228723'
+      DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN || secrets.CLOUDY_DISCORD_TOKEN || secrets.BOT_TOKEN || secrets.TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --omit=dev --ignore-scripts
+      - name: Inspect current guild and channel permissions (no writes)
+        run: node scripts/audit-cloudy-guild-readonly.js
