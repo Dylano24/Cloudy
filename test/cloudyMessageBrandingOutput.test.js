@@ -113,9 +113,8 @@ test('Embed Builder live preview preserves explicit no-logo while keeping the st
     embeds: [{ color: 0xffffff, footer: { text: CLOUDY_STANDARD_FOOTER } }],
     components: [],
   };
-  // Even the standard footer is not a request to override an intentionally
-  // absent logo on an already-authored embed.
-  assert.equal(withCloudyFooter(payload).embeds[0].thumbnail, undefined);
+  // An ordinary new bot embed needs its C even if its default footer exists.
+  assert.equal(withCloudyFooter(payload).embeds[0].thumbnail?.url, CLOUDY_LOGO_URL);
   // The Builder preview is deliberately logo-free: the REST pipeline must
   // honor the editor state instead of silently reinserting the C.
   const saved = withCloudyFooter(payload, { suppressAutomaticLogo: true });
@@ -168,16 +167,15 @@ test('Builder operations register scoped logo exceptions instead of disabling gl
   assert.match(footer, /pendingBuilderPreviewReplyTokens\.delete\(replyToken\)/);
 });
 
-test('existing embeds keep their no-logo choice on edits and when reposted with a footer', () => {
+test('existing embeds and deliberately logo-free Builder reposts remain untouched', () => {
   const existing = {
     embeds: [{ title: 'Intentionally logo-free', footer: { text: CLOUDY_STANDARD_FOOTER } }],
   };
   assert.deepEqual(withCloudyFooter(existing, { isNewMessage: false }), existing);
-  assert.deepEqual(withCloudyFooter(existing, { isNewMessage: true }), existing);
+  assert.deepEqual(withCloudyFooter(existing, { isNewMessage: true, suppressAutomaticLogo: true }), existing);
+  assert.equal(withCloudyFooter(existing, { isNewMessage: true }).embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
   const oldWithoutFooter = { embeds: [{ title: 'Old message with no logo' }] };
-  const patched = withCloudyFooter(oldWithoutFooter, { isNewMessage: false });
-  assert.equal(patched.embeds[0].thumbnail, undefined);
-  assert.equal(patched.embeds[0].footer.text, CLOUDY_STANDARD_FOOTER);
+  assert.deepEqual(withCloudyFooter(oldWithoutFooter, { isNewMessage: false }), oldWithoutFooter);
 });
 
 test('plain notifications, multiline texts, tagged component controls and attachments stay unbranded', () => {
