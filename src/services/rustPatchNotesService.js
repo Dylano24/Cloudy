@@ -34,6 +34,8 @@ const LATEST_KNOWN_PATCH = {
 };
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const STARTUP_RETRY_MS = 60 * 1000;
+const FAILURE_LOG_INTERVAL_MS = 60 * 60 * 1000;
+let lastPatchChannelWarningAt = 0;
 
 function decodeXml(value = '') {
     return decodeHtmlEntities(value)
@@ -157,7 +159,7 @@ async function checkForRustPatch(client) {
 
         const channel = await resolveCloudyChannel(client, 'rustPatch', { textOnly: true });
         if (!channel?.isTextBased()) {
-            throw new Error(`Channel ${RUST_PATCH_CHANNEL_ID} is not a text channel`);
+            throw new Error(`Rust update channel ${RUST_PATCH_CHANNEL_ID} is missing or inaccessible. Check the channel name, View Channel and Cloudy permissions.`);
         }
 
         const botMember = channel.guild?.members?.me;
@@ -226,10 +228,16 @@ async function checkForRustPatch(client) {
             components: [linkRow],
         });
         await client.db.set(LAST_PATCH_KEY, patch.link);
+        lastPatchChannelWarningAt = 0;
         logger.info(`Posted Rust patch notes: ${patch.title}`);
         return true;
     } catch (error) {
-        logger.warn('Rust patch notes check failed:', error);
+        if (Date.now() - lastPatchChannelWarningAt >= FAILURE_LOG_INTERVAL_MS) {
+            lastPatchChannelWarningAt = Date.now();
+            logger.warn('Rust patch notes check failed:', error);
+        } else {
+            logger.debug(`Rust patch notes check still unavailable: ${error?.message || error}`);
+        }
         return false;
     }
 }
