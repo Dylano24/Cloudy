@@ -623,6 +623,6 @@ export function buildTicketDashboardValuePrompt(guild, setting, config, page = 0
   };
 }
 
-export async function getCurrentTicketDashboardConfig(client, guildId) {
-  return await getGuildConfig(client, guildId);
+export async function getCurrentTicketDashboardConfig(client, guildId, options = {}) {
+  return await getGuildConfig(client, guildId, {}, options);
 }
