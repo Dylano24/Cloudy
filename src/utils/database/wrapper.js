@@ -230,7 +230,7 @@ export async function getFromDb(key, defaultValue = null, options = {}) {
             if (cached !== null) return cached;
         }
 
-        const value = await db.get(key, defaultValue, options);
+        const value = await db.get(key, null, options);
         if (value !== null && cacheTtl > 0) {
             void redisSetJson(key, value, cacheTtl);
         }
