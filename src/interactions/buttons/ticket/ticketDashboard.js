@@ -310,11 +310,14 @@ const deleteHandler = {
     const guildId = args[0];
     if (!(await validateDashboardInteraction(interaction, guildId))) return;
     let disabledSaved = false;
+    let previousDisabled = false;
     try {
       if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
 
       // Disable creation first so stale panel interactions cannot create a
       // ticket during the short window while the Discord panel is being removed.
+      const previousConfig = await getCurrentTicketDashboardConfig(client, guildId, { strict: true });
+      previousDisabled = previousConfig.ticketSystemDisabled === true;
       await updateGuildConfig(client, guildId, { ticketSystemDisabled: true });
       disabledSaved = true;
 
@@ -326,7 +329,7 @@ const deleteHandler = {
       });
     } catch (error) {
       if (disabledSaved) {
-        await updateGuildConfig(client, guildId, { ticketSystemDisabled: false }).catch(() => {});
+        await updateGuildConfig(client, guildId, { ticketSystemDisabled: previousDisabled }).catch(() => {});
       }
       logger.error('Ticket dashboard delete failed', { guildId, error: error.message });
       await replyDashboardError(interaction, error?.userMessage || 'Could not delete the ticket system.');
