@@ -1,4 +1,5 @@
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
+import { preserveSystemErrorPresentation } from '../utils/systemErrorPresentation.js';
 import { BALANCE_RESPONSE_KEY, balanceResponseIdentity } from './balanceResponseIdentity.js';
 import { EmbedBuilder } from 'discord.js';
 import { getFromDb, setInDb } from '../utils/database.js';
@@ -1334,6 +1335,8 @@ export function captureSystemEmbedData(embedData, contextSource = null) {
 export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   const data = cloneData(embedData);
   if (isInternalTemplate(data)) return data;
+  const errorPresentation = preserveSystemErrorPresentation(data);
+  if (errorPresentation) return errorPresentation;
   const context = inferContextHint(contextSource);
   const guildId = contextGuildId(contextSource);
   if (isTicketContext(context)) return data;
