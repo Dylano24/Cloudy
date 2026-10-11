@@ -549,9 +549,15 @@ function normalizeRecord(record) {
 }
 
 const registryReadLoads = new Map();
-export async function getEmbedRegistry(guildId) {
+const registrySearchCache = new Map();
+export async function getEmbedRegistry(guildId, { cached = false } = {}) {
     const key = String(guildId);
     const generation = getEmbedRegistryGeneration(guildId);
+    const savedRead = registrySearchCache.get(key);
+    if (cached && savedRead?.generation === generation && savedRead.expiresAt > Date.now()
+        && !registryMutationQueues.has(key)) {
+        return structuredClone(savedRead.records);
+    }
     let pending = registryReadLoads.get(key);
     if (!pending || pending.generation !== generation) {
         pending = { generation, promise: readStoredRecords(guildId).then(cleanStoredRecords) };
@@ -559,8 +565,12 @@ export async function getEmbedRegistry(guildId) {
     }
     try {
         // Share only in-flight storage work, never mutable records or a stale
-        // cross-request cache. A concurrent mutation starts a fresh read.
-        return structuredClone(await pending.promise);
+        // cross-request cache unless search explicitly opts in. Mutations start fresh reads.
+        const records = await pending.promise;
+        if (generation === getEmbedRegistryGeneration(guildId) && !registryMutationQueues.has(key)) {
+            registrySearchCache.set(key, { generation, records, expiresAt: Date.now() + 5000 });
+        }
+        return structuredClone(records);
     } finally {
         if (registryReadLoads.get(key) === pending) registryReadLoads.delete(key);
     }
