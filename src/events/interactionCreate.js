@@ -255,7 +255,7 @@ export default {
             }
           } else if (interaction.commandName === 'reactroles' && focusedOption.name === 'panel') {
             try {
-              const { getAllReactionRoleMessages, deleteReactionRoleMessage } = await import('../services/reactionRoleService.js');
+              const { getAllReactionRoleMessages } = await import('../services/reactionRoleService.js');
               const guildId = interaction.guildId;
               const guild = interaction.guild;
               
@@ -274,7 +274,6 @@ export default {
 
                   const channel = guild.channels.cache.get(panel.channelId);
                   if (!channel) {
-                    await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
                     return null;
                   }
 
@@ -283,8 +282,7 @@ export default {
                   try {
                     const message = await channel.messages.fetch(panel.messageId, { signal: controller.signal }).catch(() => null);
                     if (!message) {
-                      await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
-                      return null;
+                        return null;
                     }
 
                     return { panel, channel, message };
