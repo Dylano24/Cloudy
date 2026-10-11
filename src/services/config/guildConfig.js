@@ -79,7 +79,7 @@ function enqueueGuildWrite(guildId, operation) {
 }
 
 async function readLatestGuildConfig(client, guildId, context = {}) {
-    const raw = await readGuildConfig(client, guildId, context);
+    const raw = await readGuildConfig(client, guildId, context, { strict: true });
     return normalizeCloudyGuildConfig(raw);
 }
 
@@ -92,6 +92,7 @@ export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(
     if (!pendingRead) {
         pendingRead = readLatestGuildConfig(client, guildId, context)
             .then(config => getCachedGuildConfig(guildId) || cacheGuildConfig(guildId, config))
+            .catch(() => normalizeCloudyGuildConfig({}))
             .finally(() => {
                 if (guildConfigReads.get(key) === pendingRead) {
                     guildConfigReads.delete(key);
