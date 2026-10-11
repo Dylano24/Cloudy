@@ -54,6 +54,7 @@ export default {
   async execute(interaction, client) {
     // Cloudy feed interactions are handled by their own Owner-only event listener.
     if (interaction.customId?.startsWith('cloudyfeed:')) return;
+    if (interaction.__ticketDashboardFastPathHandled) return;
     const interactionTraceContext = createInteractionTraceContext(interaction);
     interaction.traceContext = interactionTraceContext;
     interaction.traceId = interactionTraceContext.traceId;
@@ -65,6 +66,8 @@ export default {
         ResponseCoordinator.attach(interaction);
 
         if (interaction.isChatInputCommand() || interaction.isMessageContextMenuCommand()) {
+          let cooldownReservation;
+          let commandStarted = false;
           try {
             logger.info(`Command executed: /${interaction.commandName} by ${interaction.user.tag}`, {
               event: 'interaction.command.received',
@@ -125,7 +128,9 @@ export default {
                 );
               }
 
-              client.cooldowns.set(cooldownKey, Date.now() + defaultCooldownSec * 1000);
+              const expires = Date.now() + defaultCooldownSec * 1000;
+              client.cooldowns.set(cooldownKey, expires);
+              cooldownReservation = { key: cooldownKey, expires };
             }
 
             // Abuse protection and guild configuration are independent reads.
@@ -177,6 +182,7 @@ export default {
               return;
             }
 
+            commandStarted = true;
             await command.execute(interaction, guildConfig, client);
             await scheduleTransientInteractionReplyDeletion(interaction);
           } catch (error) {
@@ -185,6 +191,11 @@ export default {
               commandName: interaction.commandName,
               subtype: COMMAND_ERROR_SUBTYPES[interaction.commandName] || error?.context?.subtype,
             }, interactionTraceContext));
+          } finally {
+            if (!commandStarted && cooldownReservation
+                && client.cooldowns.get(cooldownReservation.key) === cooldownReservation.expires) {
+              client.cooldowns.delete(cooldownReservation.key);
+            }
           }
         } else if (interaction.isAutocomplete()) {
           const autocompleteCommand = client.commands.get(interaction.commandName);
@@ -227,7 +238,7 @@ export default {
                 guildId: interaction.guildId,
                 commandName: interaction.commandName
               });
-              await interaction.respond([]);
+              await interaction.respond([]).catch(() => {});
             }
           } else if (interaction.commandName === 'app-admin' && focusedOption.name === 'application') {
             try {
@@ -251,11 +262,11 @@ export default {
                 guildId: interaction.guildId,
                 commandName: interaction.commandName
               });
-              await interaction.respond([]);
+              await interaction.respond([]).catch(() => {});
             }
           } else if (interaction.commandName === 'reactroles' && focusedOption.name === 'panel') {
             try {
-              const { getAllReactionRoleMessages, deleteReactionRoleMessage } = await import('../services/reactionRoleService.js');
+              const { getAllReactionRoleMessages } = await import('../services/reactionRoleService.js');
               const guildId = interaction.guildId;
               const guild = interaction.guild;
               
@@ -274,7 +285,6 @@ export default {
 
                   const channel = guild.channels.cache.get(panel.channelId);
                   if (!channel) {
-                    await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
                     return null;
                   }
 
@@ -283,7 +293,6 @@ export default {
                   try {
                     const message = await channel.messages.fetch(panel.messageId, { signal: controller.signal }).catch(() => null);
                     if (!message) {
-                      await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
                       return null;
                     }
 
@@ -318,7 +327,7 @@ export default {
                 guildId: interaction.guildId,
                 commandName: interaction.commandName
               });
-              await interaction.respond([]);
+              await interaction.respond([]).catch(() => {});
             }
           }
         } else if (interaction.isButton()) {

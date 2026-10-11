@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { getReactionRoleKey } from '../utils/database/keys.js';
-import { getGuildConfig, setGuildConfig, patchGuildConfig } from './config/guildConfig.js';
+import { getGuildConfig, updateGuildConfig, patchGuildConfig } from './config/guildConfig.js';
 import {
     getTicketPanelStatus,
     getVerificationPanelStatus,
@@ -45,8 +45,7 @@ export async function reconcileTicketPanels(client) {
 
             if (panelStatus.recoveredId) {
                 summary.recoveredIds += 1;
-                config.ticketPanelMessageId = panelStatus.recoveredId;
-                await setGuildConfig(client, guild.id, config);
+                await updateGuildConfig(client, guild.id, { ticketPanelMessageId: panelStatus.recoveredId });
             }
 
             if (panelStatus.exists) {

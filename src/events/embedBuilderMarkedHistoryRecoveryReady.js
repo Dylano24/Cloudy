@@ -42,7 +42,10 @@ async function recoverGuild(guild, botUserId) {
     let before;
 
     while (true) {
-      const batch = await channel.messages.fetch({ limit: BATCH_SIZE, before }).catch(() => null);
+      const batch = await channel.messages.fetch({ limit: BATCH_SIZE, before }).catch(error => {
+        if (error?.code === 10003 || error?.code === 10008) return null;
+        throw error;
+      });
       if (!batch?.size) break;
 
       scanned += batch.size;

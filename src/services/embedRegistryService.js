@@ -549,9 +549,15 @@ function normalizeRecord(record) {
 }
 
 const registryReadLoads = new Map();
-export async function getEmbedRegistry(guildId) {
+const registrySearchCache = new Map();
+export async function getEmbedRegistry(guildId, { cached = false } = {}) {
     const key = String(guildId);
     const generation = getEmbedRegistryGeneration(guildId);
+    const savedRead = registrySearchCache.get(key);
+    if (cached && savedRead?.generation === generation && savedRead.expiresAt > Date.now()
+        && !registryMutationQueues.has(key)) {
+        return structuredClone(savedRead.records);
+    }
     let pending = registryReadLoads.get(key);
     if (!pending || pending.generation !== generation) {
         pending = { generation, promise: readStoredRecords(guildId).then(cleanStoredRecords) };
@@ -559,8 +565,12 @@ export async function getEmbedRegistry(guildId) {
     }
     try {
         // Share only in-flight storage work, never mutable records or a stale
-        // cross-request cache. A concurrent mutation starts a fresh read.
-        return structuredClone(await pending.promise);
+        // cross-request cache unless search explicitly opts in. Mutations start fresh reads.
+        const records = await pending.promise;
+        if (generation === getEmbedRegistryGeneration(guildId) && !registryMutationQueues.has(key)) {
+            registrySearchCache.set(key, { generation, records, expiresAt: Date.now() + 5000 });
+        }
+        return structuredClone(records);
     } finally {
         if (registryReadLoads.get(key) === pending) registryReadLoads.delete(key);
     }
@@ -844,15 +854,21 @@ export async function removeEmbedRegistryChannel(guildId, channelId) {
 export async function resolveEmbedRegistryRecord(guild, record) {
     if (!guild || !record) return null;
     const sourceChannelId = physicalChannelId(record);
-    const channel = guild.channels.cache.get(sourceChannelId)
-        || await guild.channels.fetch(sourceChannelId).catch(() => null);
-    if (!channel?.messages?.fetch) return null;
-
-    const message = await channel.messages.fetch(record.messageId).catch(() => null);
-    if (!message) {
-        await removeEmbedRegistryRecord(guild.id, record.channelId, record.messageId, record.embedIndex);
+    let channel;
+    let message;
+    try {
+        channel = guild.channels.cache.get(sourceChannelId)
+            || await guild.channels.fetch(sourceChannelId);
+        if (!channel?.messages?.fetch) return null;
+        message = await channel.messages.fetch(record.messageId);
+    } catch (error) {
+        // Lost access and transient network failures do not prove deletion.
+        if (error?.code === 10003 || error?.code === 10008) {
+            await removeEmbedRegistryRecord(guild.id, record.channelId, record.messageId, record.embedIndex);
+        }
         return null;
     }
+    if (!message) return null;
 
     const embed = message.embeds?.[Number(record.embedIndex || 0)] || null;
     if (!embed) {
@@ -1037,7 +1053,10 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
         while (channelScanned < maxMessagesPerChannel) {
             const remaining = maxMessagesPerChannel - channelScanned;
             const limit = Number.isFinite(remaining) ? Math.min(SCAN_BATCH_SIZE, remaining) : SCAN_BATCH_SIZE;
-            const batch = await channel.messages.fetch({ limit, before }).catch(() => null);
+            const batch = await channel.messages.fetch({ limit, before }).catch(error => {
+                if (error?.code === 10003 || error?.code === 10008) return null;
+                throw error;
+            });
             if (!batch?.size) break;
 
             for (const message of batch.values()) {
