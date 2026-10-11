@@ -1090,7 +1090,11 @@ export function queueBuilderRefresh(interaction, state, includeDashboard = true,
         }
         : null;
 
-    state.previewEditPending = { previewPayload, dashboardPayload, preferOriginalReply };
+    state.previewEditPending = {
+        previewPayload,
+        dashboardPayload: dashboardPayload || state.previewEditPending?.dashboardPayload || null,
+        preferOriginalReply: preferOriginalReply || state.previewEditPending?.preferOriginalReply || false,
+    };
     if (state.previewEditRunning) return Promise.resolve(true);
 
     return (async () => {
