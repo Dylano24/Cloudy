@@ -1,6 +1,6 @@
 # Cloudy technical repair verification
 
-Prepared against main `7dfe1cf776d0d9540c4a0d48c17a40f9a184c122` using Node 24.19.0. Changes are isolated on local branch `repair/technical-audit-2026-10-11`. No production deployment, database change, configuration change, or Discord action was performed. An attempted GitHub branch push was blocked by automatic approval review; nothing has been published.
+Prepared against main `7dfe1cf776d0d9540c4a0d48c17a40f9a184c122` using Node 24.19.0. Changes are isolated on local branch `repair/technical-audit-2026-10-11`. No production deployment, database change, configuration change, or Discord action was performed. The initial GitHub push was blocked by automatic approval review. The owner then explicitly approved publishing the repair branch without merge or deployment.
 
 The owner supplied the October 11 technical specification and requested implementation. Each repaired finding has a regression test observed failing before the production fix. Existing tests were not modified.
 
