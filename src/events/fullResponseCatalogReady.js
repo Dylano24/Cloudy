@@ -1,4 +1,5 @@
 import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
+import { preserveSystemErrorPresentation } from '../utils/systemErrorPresentation.js';
 // BUILDER_SAVED_PARITY_V1
 import { rememberTransientPayloadIntent } from '../utils/transientResponse.js';
 import { balanceResponseIdentity } from '../services/balanceResponseIdentity.js';
@@ -500,6 +501,8 @@ export async function applySavedResponsePayloadTemplates(payload, source) {
   return { ...payload, embeds: payload.embeds.map(embed => {
     const data = embed?.toJSON ? embed.toJSON() : embed;
     if (/^cloudy template key:/i.test(String(data?.author?.name || ''))) return embed;
+    const errorPresentation = preserveSystemErrorPresentation(data);
+    if (errorPresentation) return errorPresentation;
     return getCachedSavedEmbedTemplateData(guildId, channelId, data, { responseIdentity: balanceResponseIdentity(data, source) }).data;
   }) };
 }
