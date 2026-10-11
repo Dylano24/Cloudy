@@ -46,7 +46,7 @@ async function loadTemplates(guildId, channelId) {
 
   if (templateLoads.has(key)) return templateLoads.get(key);
   const job = (async () => {
-    const templates = cleanTemplates(await getFromDb(key, {}));
+    const templates = cleanTemplates(await getFromDb(key, {}, { strict: true }));
     templateCache.set(key, templates);
     return templates;
   })();
@@ -462,7 +462,7 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed, 
 }
 
 export async function warmSavedEmbedTemplateScopes(guildId, channelIds = []) {
-  await Promise.all([...new Set([GLOBAL_SCOPE, ...channelIds].filter(Boolean))]
+  await Promise.allSettled([...new Set([GLOBAL_SCOPE, ...channelIds].filter(Boolean))]
     .map(channelId => loadTemplates(guildId, channelId)));
 }
 
