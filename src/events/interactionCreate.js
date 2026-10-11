@@ -238,7 +238,7 @@ export default {
                 guildId: interaction.guildId,
                 commandName: interaction.commandName
               });
-              await interaction.respond([]);
+              await interaction.respond([]).catch(() => {});
             }
           } else if (interaction.commandName === 'app-admin' && focusedOption.name === 'application') {
             try {
@@ -262,7 +262,7 @@ export default {
                 guildId: interaction.guildId,
                 commandName: interaction.commandName
               });
-              await interaction.respond([]);
+              await interaction.respond([]).catch(() => {});
             }
           } else if (interaction.commandName === 'reactroles' && focusedOption.name === 'panel') {
             try {
@@ -327,7 +327,7 @@ export default {
                 guildId: interaction.guildId,
                 commandName: interaction.commandName
               });
-              await interaction.respond([]);
+              await interaction.respond([]).catch(() => {});
             }
           }
         } else if (interaction.isButton()) {
