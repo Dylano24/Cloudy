@@ -1043,7 +1043,10 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
         while (channelScanned < maxMessagesPerChannel) {
             const remaining = maxMessagesPerChannel - channelScanned;
             const limit = Number.isFinite(remaining) ? Math.min(SCAN_BATCH_SIZE, remaining) : SCAN_BATCH_SIZE;
-            const batch = await channel.messages.fetch({ limit, before }).catch(() => null);
+            const batch = await channel.messages.fetch({ limit, before }).catch(error => {
+                if (error?.code === 10003 || error?.code === 10008) return null;
+                throw error;
+            });
             if (!batch?.size) break;
 
             for (const message of batch.values()) {
