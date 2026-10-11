@@ -82,7 +82,7 @@ async function readLatestGuildConfig(client, guildId, context = {}) {
     return normalizeCloudyGuildConfig(raw);
 }
 
-export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(client, guildId, context = {}) {
+export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(client, guildId, context = {}, options = {}) {
     const cached = getCachedGuildConfig(guildId);
     if (cached) return cached;
 
@@ -92,7 +92,6 @@ export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(
     if (!pendingRead) {
         pendingRead = readLatestGuildConfig(client, guildId, context)
             .then(config => getCachedGuildConfig(guildId) || cacheGuildConfig(guildId, config))
-            .catch(() => cloneConfig(stale) || normalizeCloudyGuildConfig({}))
             .finally(() => {
                 if (guildConfigReads.get(key) === pendingRead) {
                     guildConfigReads.delete(key);
@@ -101,10 +100,17 @@ export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(
         guildConfigReads.set(key, pendingRead);
     }
 
-    if (stale) return cloneConfig(stale);
+    if (stale && !options.strict) {
+        void pendingRead.catch(() => {});
+        return cloneConfig(stale);
+    }
 
-    const config = await pendingRead;
-    return cloneConfig(config);
+    try {
+        return cloneConfig(await pendingRead);
+    } catch (error) {
+        if (options.strict) throw error;
+        return cloneConfig(stale) || normalizeCloudyGuildConfig({});
+    }
 }, {
     service: 'guildConfigService',
     operation: 'getGuildConfig',
