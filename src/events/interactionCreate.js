@@ -293,7 +293,7 @@ export default {
                   try {
                     const message = await channel.messages.fetch(panel.messageId, { signal: controller.signal }).catch(() => null);
                     if (!message) {
-                        return null;
+                      return null;
                     }
 
                     return { panel, channel, message };

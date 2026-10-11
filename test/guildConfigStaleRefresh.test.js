@@ -16,12 +16,12 @@ test('expired config returns immediately while refresh runs; writers await a fre
   const guildId = '940000000000000001';
   await getGuildConfig(client, guildId);
   now += 300001;
-  const result = await Promise.race([getGuildConfig(client, guildId), new Promise(resolve => setTimeout(() => resolve(null), 30))]);
+  const result = await Promise.race([getGuildConfig(client, guildId), new Promise(resolve => { setTimeout(() => resolve(null), 30); })]);
   assert.equal(result?.prefix, 'old');
   await updateGuildConfig(client, guildId, { maxTicketsPerUser: 6 });
   assert.equal(saved[0].prefix, 'fresh');
   release({ prefix: 'obsolete', maxTicketsPerUser: 1 });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => { setImmediate(resolve); });
   assert.equal((await getGuildConfig(client, guildId)).prefix, 'fresh');
 });
 
@@ -36,7 +36,7 @@ test('failed refresh retains last good config without letting stale values drive
   now += 300001;
   offline = true;
   assert.equal((await getGuildConfig(client, guildId)).prefix, '?');
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => { setImmediate(resolve); });
   assert.equal((await getGuildConfig(client, guildId)).prefix, '?');
   await assert.rejects(updateGuildConfig(client, guildId, { maxTicketsPerUser: 5 }));
   assert.equal(writes, 0);

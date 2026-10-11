@@ -38,7 +38,7 @@ test('a genuinely missing config permits first write and warm updates need no re
 
 test('concurrent failed config reads share one request without poisoning cache', async () => {
   let reads = 0;
-  const client = { db: { get: async () => { reads++; await new Promise(r => setTimeout(r, 5)); throw new Error('offline'); } } };
+  const client = { db: { get: async () => { reads++; await new Promise(r => { setTimeout(r, 5); }); throw new Error('offline'); } } };
   const guildId = id();
   const configs = await Promise.all(Array.from({ length: 5 }, () => getGuildConfig(client, guildId)));
   assert.equal(reads, 1);
