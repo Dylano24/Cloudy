@@ -1,0 +1,72 @@
+name: One-time Cloudy source export
+
+on:
+  push:
+    branches:
+      - chatgpt-export-cloudy-source-20261011
+    paths:
+      - .github/workflows/export-cloudy-source-once.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout production source (read-only)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Combine every tracked text file
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, subprocess
+
+          output = Path("Cloudy_complete_source.txt")
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          paths = [Path(p.decode('utf-8')) for p in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\x00") if p]
+          texts = []
+          binaries = []
+          for path in paths:
+              data = path.read_bytes()
+              try:
+                  if b"\x00" in data:
+                      raise ValueError("Binary NUL bytes")
+                  text = data.decode("utf-8")
+              except (UnicodeDecodeError, ValueError):
+                  binaries.append((path.as_posix(), len(data), hashlib.sha256(data).hexdigest()))
+              else:
+                  texts.append((path.as_posix(), text))
+          with output.open("w", encoding="utf-8", newline="\n") as out:
+              out.write("CLOUDY DISCORD BOT — COMPLETE TRACKED SOURCE (TEXT)\n")
+              out.write("Source: Dylano24/Cloudy | Branch: main | Commit: " + head + "\n")
+              out.write(f"Tracked files: {len(paths)} | Text files: {len(texts)} | Binary assets: {len(binaries)}\n")
+              out.write("All tracked UTF-8 text files appear IN FULL, including config, source, tests and docs.\n")
+              out.write("Binary assets (GIF/PNG/etc.) are listed at the end with SHA256, because they cannot be copied as readable source text.\n")
+              out.write("No Railway environment secrets or PostgreSQL data are included.\n")
+              for path, text in texts:
+                  out.write("\n\n" + "=" * 96 + "\n")
+                  out.write("FILE: " + path + "\n")
+                  out.write("=" * 96 + "\n")
+                  out.write(text)
+                  if not text.endswith("\n"):
+                      out.write("\n")
+              out.write("\n\n" + "=" * 96 + "\n")
+              out.write("BINARY ASSET MANIFEST (NOT TEXT)\n")
+              out.write("=" * 96 + "\n")
+              for path, size, sha in binaries:
+                  out.write(f"{path} | {size} bytes | SHA256={sha}\n")
+          print(f"Exported {len(texts)} text files, {len(binaries)} binary assets; bytes={output.stat().st_size}; commit={head}.")
+          PY
+      - name: Upload combined text file
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cloudy-complete-source-text
+          path: Cloudy_complete_source.txt
+          retention-days: 7
