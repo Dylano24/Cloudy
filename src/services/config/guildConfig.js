@@ -53,7 +53,6 @@ function getCachedGuildConfig(guildId) {
     const cached = guildConfigCache.get(key);
     if (!cached) return null;
     if (cached.expiresAt <= Date.now()) {
-        guildConfigCache.delete(key);
         return null;
     }
     return cloneConfig(cached.value);
@@ -79,15 +78,16 @@ function enqueueGuildWrite(guildId, operation) {
 }
 
 async function readLatestGuildConfig(client, guildId, context = {}) {
-    const raw = await readGuildConfig(client, guildId, context);
+    const raw = await readGuildConfig(client, guildId, context, { strict: true });
     return normalizeCloudyGuildConfig(raw);
 }
 
-export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(client, guildId, context = {}) {
+export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(client, guildId, context = {}, options = {}) {
     const cached = getCachedGuildConfig(guildId);
     if (cached) return cached;
 
     const key = String(guildId);
+    const stale = guildConfigCache.get(key)?.value;
     let pendingRead = guildConfigReads.get(key);
     if (!pendingRead) {
         pendingRead = readLatestGuildConfig(client, guildId, context)
@@ -100,8 +100,17 @@ export const getGuildConfig = wrapServiceBoundary(async function getGuildConfig(
         guildConfigReads.set(key, pendingRead);
     }
 
-    const config = await pendingRead;
-    return cloneConfig(config);
+    if (stale && !options.strict) {
+        void pendingRead.catch(() => {});
+        return cloneConfig(stale);
+    }
+
+    try {
+        return cloneConfig(await pendingRead);
+    } catch (error) {
+        if (options.strict) throw error;
+        return cloneConfig(stale) || normalizeCloudyGuildConfig({});
+    }
 }, {
     service: 'guildConfigService',
     operation: 'getGuildConfig',

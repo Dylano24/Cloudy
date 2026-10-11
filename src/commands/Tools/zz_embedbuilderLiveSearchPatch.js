@@ -639,12 +639,16 @@ function parseSelection(value) {
     };
 }
 
-async function hydrateLiveSearchRecord(guild, record) {
+export async function hydrateLiveSearchRecord(guild, record, timeoutMs = 1200) {
     if (!guild || !record || record.detached || String(record.source || '').toLowerCase() === 'system-catalog') {
         return record;
     }
 
-    const resolved = await resolveEmbedRegistryRecord(guild, record).catch(() => null);
+    let timer;
+    const resolved = await Promise.race([
+        resolveEmbedRegistryRecord(guild, record).catch(() => null),
+        new Promise(resolve => { timer = setTimeout(() => resolve(null), timeoutMs); }),
+    ]).finally(() => clearTimeout(timer));
     if (!resolved?.message || !resolved?.embed) return record;
 
     return {
@@ -772,7 +776,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             return;
         }
 
-        const registryRecords = await getEmbedRegistry(interaction.guildId);
+        const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
         await warmSavedEmbedTemplateScopes(interaction.guildId, registryRecords.map(record => record.channelId));
         const records = filterEmbedBuilderRecords(interaction.guild, interaction.member,
             mergeSearchRecords(interaction.guildId, registryRecords), { requireSend: true });
@@ -788,7 +792,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
         const selected = parseSelection(rawSelection);
 
         if (selected && interaction.guildId) {
-            const registryRecords = await getEmbedRegistry(interaction.guildId);
+            const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
             const records = filterEmbedBuilderRecords(interaction.guild, interaction.member,
                 mergeSearchRecords(interaction.guildId, registryRecords), { requireSend: true });
             const displayRecords = builderSearchDisplayRecords(records);

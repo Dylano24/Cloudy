@@ -58,8 +58,14 @@ export async function reconcileLevelRoles(client, guildId = null) {
             let configChanged = false;
 
             for (const [level, roleId] of Object.entries(rewards)) {
-                const role =
-                    guild.roles.cache.get(roleId) || (await guild.roles.fetch(roleId).catch(() => null));
+                let role;
+                try {
+                    role = guild.roles.cache.get(roleId) || await guild.roles.fetch(roleId);
+                } catch (error) {
+                    summary.errors += 1;
+                    logger.warn(`Could not check level ${level} reward role ${roleId} in guild ${guild.id}:`, error.message);
+                    continue;
+                }
                 if (!role) {
                     delete rewards[level];
                     configChanged = true;

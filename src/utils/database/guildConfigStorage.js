@@ -18,11 +18,12 @@ export function unwrapReplitData(data) {
 
 /**
  * Low-level guild config read. Returns normalized config with defaults;
- * never throws — callers use the guild config service for typed errors.
+ * strict reads throw so write callers cannot merge against fallback defaults.
  */
-export async function readGuildConfig(client, guildId, context = {}) {
+export async function readGuildConfig(client, guildId, context = {}, { strict = false } = {}) {
     try {
         if (!client?.db || typeof client.db.get !== 'function') {
+            if (strict) throw new Error(`Database unavailable for readGuildConfig in guild ${guildId}`);
             logger.warn(`Database unavailable for readGuildConfig in guild ${guildId}`);
             return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
         }
@@ -37,7 +38,7 @@ export async function readGuildConfig(client, guildId, context = {}) {
             });
         }
 
-        const rawConfig = await client.db.get(getGuildConfigKey(guildId), null);
+        const rawConfig = await client.db.get(getGuildConfigKey(guildId), null, { strict });
 
         if (rawConfig === null) {
             return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
@@ -53,6 +54,7 @@ export async function readGuildConfig(client, guildId, context = {}) {
             userId: context.userId,
             command: context.command,
         });
+        if (strict) throw error;
         return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
     }
 }

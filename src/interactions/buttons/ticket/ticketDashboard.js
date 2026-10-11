@@ -88,14 +88,23 @@ async function readConfigFast(client, guildId) {
   let timer;
   try {
     return await Promise.race([
-      getCurrentTicketDashboardConfig(client, guildId).catch(() => ({})),
-      new Promise(resolve => {
-        timer = setTimeout(() => resolve({}), CONFIG_READ_TIMEOUT_MS);
+      getCurrentTicketDashboardConfig(client, guildId, { strict: true }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Ticket dashboard configuration read timed out')), CONFIG_READ_TIMEOUT_MS);
         timer.unref?.();
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
+  }
+}
+
+async function replyDashboardError(interaction, message) {
+  const payload = { content: message };
+  if (interaction.deferred || interaction.replied) {
+    await interaction.editReply(payload).catch(() => {});
+  } else {
+    await InteractionHelper.safeReply(interaction, { ...payload, flags: MessageFlags.Ephemeral });
   }
 }
 
@@ -174,11 +183,7 @@ const openSettingHandler = {
         setting,
         error: error.message,
       });
-      const config = await readConfigFast(client, guildId);
-      const payload = buildTicketDashboardPayload(interaction.guild, config);
-      payload.content = error?.userMessage || 'Could not open that ticket setting. Please try again.';
-      if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-      else await InteractionHelper.safeReply(interaction, { content: payload.content, flags: MessageFlags.Ephemeral });
+      await replyDashboardError(interaction, 'Could not open that ticket setting. Please try again.');
     }
   },
 };
@@ -245,11 +250,7 @@ const clearHandler = {
       await interaction.editReply(payload);
     } catch (error) {
       logger.error('Ticket dashboard clear failed', { guildId, field, error: error.message });
-      const config = await readConfigFast(client, guildId);
-      const payload = buildTicketDashboardPayload(interaction.guild, config);
-      payload.content = error?.userMessage || 'Could not clear that ticket setting.';
-      if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-      else await InteractionHelper.safeReply(interaction, { content: payload.content, flags: MessageFlags.Ephemeral });
+      await replyDashboardError(interaction, error?.userMessage || 'Could not clear that ticket setting.');
     }
   },
 };
@@ -263,11 +264,7 @@ const staffHandler = {
       await renderSetting(interaction, client, guildId, 'staff_role');
     } catch (error) {
       logger.error('Ticket dashboard legacy staff button failed', { guildId, error: error.message });
-      const config = await readConfigFast(client, guildId);
-      const payload = buildTicketDashboardPayload(interaction.guild, config);
-      payload.content = error?.userMessage || 'Could not open the staff role setting.';
-      if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-      else await InteractionHelper.safeReply(interaction, { content: payload.content, flags: MessageFlags.Ephemeral });
+      await replyDashboardError(interaction, error?.userMessage || 'Could not open the staff role setting.');
     }
   },
 };
@@ -281,6 +278,7 @@ const maxTicketsHandler = {
       await renderSetting(interaction, client, guildId, 'max_tickets');
     } catch (error) {
       logger.error('Ticket dashboard legacy max button failed', { guildId, error: error.message });
+      await replyDashboardError(interaction, 'Could not open that ticket setting. Please try again.');
     }
   },
 };
@@ -301,11 +299,7 @@ const repostHandler = {
       await interaction.editReply(payload);
     } catch (error) {
       logger.error('Ticket dashboard repost failed', { guildId, error: error.message });
-      const config = await readConfigFast(client, guildId);
-      const payload = buildTicketDashboardPayload(interaction.guild, config);
-      payload.content = error?.userMessage || 'Could not repost the ticket panel.';
-      if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-      else await InteractionHelper.safeReply(interaction, { content: payload.content, flags: MessageFlags.Ephemeral });
+      await replyDashboardError(interaction, error?.userMessage || 'Could not repost the ticket panel.');
     }
   },
 };
@@ -316,11 +310,14 @@ const deleteHandler = {
     const guildId = args[0];
     if (!(await validateDashboardInteraction(interaction, guildId))) return;
     let disabledSaved = false;
+    let previousDisabled = false;
     try {
       if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
 
       // Disable creation first so stale panel interactions cannot create a
       // ticket during the short window while the Discord panel is being removed.
+      const previousConfig = await getCurrentTicketDashboardConfig(client, guildId, { strict: true });
+      previousDisabled = previousConfig.ticketSystemDisabled === true;
       await updateGuildConfig(client, guildId, { ticketSystemDisabled: true });
       disabledSaved = true;
 
@@ -332,14 +329,10 @@ const deleteHandler = {
       });
     } catch (error) {
       if (disabledSaved) {
-        await updateGuildConfig(client, guildId, { ticketSystemDisabled: false }).catch(() => {});
+        await updateGuildConfig(client, guildId, { ticketSystemDisabled: previousDisabled }).catch(() => {});
       }
       logger.error('Ticket dashboard delete failed', { guildId, error: error.message });
-      const config = await readConfigFast(client, guildId);
-      const payload = buildTicketDashboardPayload(interaction.guild, config);
-      payload.content = error?.userMessage || 'Could not delete the ticket system.';
-      if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-      else await InteractionHelper.safeReply(interaction, { content: payload.content, flags: MessageFlags.Ephemeral });
+      await replyDashboardError(interaction, error?.userMessage || 'Could not delete the ticket system.');
     }
   },
 };

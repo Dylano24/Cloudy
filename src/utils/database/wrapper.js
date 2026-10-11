@@ -222,7 +222,7 @@ export async function initializeDatabase() {
     }
 }
 
-export async function getFromDb(key, defaultValue = null) {
+export async function getFromDb(key, defaultValue = null, options = {}) {
     try {
         const cacheTtl = redisCacheTtlForKey(key);
         if (cacheTtl > 0) {
@@ -230,13 +230,14 @@ export async function getFromDb(key, defaultValue = null) {
             if (cached !== null) return cached;
         }
 
-        const value = await db.get(key);
+        const value = await db.get(key, null, options);
         if (value !== null && cacheTtl > 0) {
             void redisSetJson(key, value, cacheTtl);
         }
         return value === null ? defaultValue : value;
     } catch (error) {
         logger.error(`Error getting value for key ${key}:`, error);
+        if (options.strict) throw error;
         return defaultValue;
     }
 }

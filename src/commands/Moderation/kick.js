@@ -59,6 +59,8 @@ export default {
             );
         }
 
+        if (!(await InteractionHelper.safeDefer(interaction))) return;
+
         const result = await ModerationService.kickUser({
             guild: interaction.guild,
             member,
