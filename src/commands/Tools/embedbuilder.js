@@ -490,11 +490,14 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
     const saved = await saveModifiedEmbed(guild, state);
 
     if (!saved.ok) {
+        const failureMessage = saved.discordUpdated
+            ? 'The Discord message was updated, but the changes could not be saved permanently. Please try Save again.'
+            : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
         const failure = await buttonInteraction.followUp({
             content: null,
             embeds: [new EmbedBuilder()
                 .setTitle('Could not save changes')
-                .setDescription('The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.')
+                .setDescription(failureMessage)
                 .setColor(getColor('error'))],
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
@@ -503,7 +506,7 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
         else {
             await replyUserError(buttonInteraction, {
                 type: ErrorTypes.UNKNOWN,
-                message: 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.',
+                message: failureMessage,
             });
         }
         return saved;

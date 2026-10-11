@@ -2287,7 +2287,7 @@ export async function saveModifiedEmbed(guild, state) {
         }
 
         const persisted = await updateDetachedEmbedRegistrySnapshot(guild.id, target, current);
-        if (!persisted) return { ok: false, reason: 'persistence-failed' };
+        if (!persisted) return { ok: false, reason: 'persistence-failed', discordUpdated: true };
 
         state.modifyTarget.sourceEmbedData = current;
         state.modifyTarget.previewSourceData = { ...current };
@@ -2423,7 +2423,7 @@ export async function saveModifiedEmbed(guild, state) {
         );
         if (!templateSaved) {
             logger.error('Failed to persist saved embed template before confirming Builder Save.');
-            return { ok: false, reason: 'persistence-failed' };
+            return { ok: false, reason: 'persistence-failed', discordUpdated: true };
         }
 
         if (target.source === 'system-catalog') {
@@ -2484,7 +2484,7 @@ export async function saveModifiedEmbed(guild, state) {
             return false;
         });
 
-    if (!registered) return { ok: false, reason: 'persistence-failed' };
+    if (!registered) return { ok: false, reason: 'persistence-failed', discordUpdated: true };
     liveState.logoTouched = false;
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
