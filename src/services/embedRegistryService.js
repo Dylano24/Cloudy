@@ -844,15 +844,21 @@ export async function removeEmbedRegistryChannel(guildId, channelId) {
 export async function resolveEmbedRegistryRecord(guild, record) {
     if (!guild || !record) return null;
     const sourceChannelId = physicalChannelId(record);
-    const channel = guild.channels.cache.get(sourceChannelId)
-        || await guild.channels.fetch(sourceChannelId).catch(() => null);
-    if (!channel?.messages?.fetch) return null;
-
-    const message = await channel.messages.fetch(record.messageId).catch(() => null);
-    if (!message) {
-        await removeEmbedRegistryRecord(guild.id, record.channelId, record.messageId, record.embedIndex);
+    let channel;
+    let message;
+    try {
+        channel = guild.channels.cache.get(sourceChannelId)
+            || await guild.channels.fetch(sourceChannelId);
+        if (!channel?.messages?.fetch) return null;
+        message = await channel.messages.fetch(record.messageId);
+    } catch (error) {
+        // Lost access and transient network failures do not prove deletion.
+        if (error?.code === 10003 || error?.code === 10008) {
+            await removeEmbedRegistryRecord(guild.id, record.channelId, record.messageId, record.embedIndex);
+        }
         return null;
     }
+    if (!message) return null;
 
     const embed = message.embeds?.[Number(record.embedIndex || 0)] || null;
     if (!embed) {
