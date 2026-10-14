@@ -100,12 +100,17 @@ test('website Groq prompt supports natural conversation and never enables tools'
     config: { provider: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: 'test-only', model: 'openai/gpt-oss-20b' },
   }, async (_url, options) => {
     const body = JSON.parse(options.body);
-    assert.equal(body.model, 'openai/gpt-oss-20b');
+    assert.equal(body.model, 'openai/gpt-oss-120b');
+    assert.equal(body.reasoning_effort, 'high');
+    assert.equal(body.include_reasoning, false);
+    assert.ok(body.max_completion_tokens >= 4000);
     assert.equal(body.tool_choice, 'none');
     assert.equal(body.stream, false);
     assert.match(body.messages[0].content, /main job is natural, thoughtful conversation/i);
     assert.match(body.messages[0].content, /Do NOT immediately direct them to the Support/i);
     assert.match(body.messages[0].content, /one to three clear sentences/i);
+    assert.match(body.messages[0].content, /internal multi-step reasoning/i);
+    assert.match(body.messages[0].content, /For translation or language-only follow-ups/i);
     assert.match(body.messages[0].content, /Do not put any URL, raw path/i);
     assert.equal(body.messages[1].content, 'Do you like dinosaurs?');
     assert.equal(body.messages[2].content, 'Dinosaurs are fascinating.');
