@@ -20,6 +20,7 @@ import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/databas
 import { applyEmbedColorPickerSession } from './services/embedColorPickerSessionService.js';
 import { embedColorPickerPage } from './web/embedColorPickerPage.js';
 import { registerAppealsApi } from './web/appealsApi.js';
+import { registerWebsiteAssistantApi } from './web/websiteAssistantApi.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 
 class TitanBot extends Client {
@@ -143,6 +144,7 @@ class TitanBot extends Client {
     app.use(express.json({ limit: '8kb' }));
 
     registerAppealsApi(app, this);
+    registerWebsiteAssistantApi(app);
 
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
