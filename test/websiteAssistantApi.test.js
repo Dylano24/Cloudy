@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createWebsiteAssistantHandler } from '../src/web/websiteAssistantApi.js';
+import { createWebsiteAssistantHandler, answerWebsiteAi } from '../src/web/websiteAssistantApi.js';
 
 const secret = 'a'.repeat(64);
 function request(overrides = {}) {
@@ -87,4 +87,28 @@ test('website assistant caps call volume and does not leak internal provider err
   const capped = response();
   await handle(request(), capped);
   assert.equal(capped.statusCode, 429);
+});
+
+test('website Groq prompt supports natural conversation and never enables tools', async () => {
+  const answer = await answerWebsiteAi({
+    question: 'And what did we talk about before?',
+    evidence: '{"verifiedWebsiteInformation":[]}',
+    history: [
+      { role: 'user', content: 'Do you like dinosaurs?' },
+      { role: 'assistant', content: 'Dinosaurs are fascinating.' },
+    ],
+    config: { provider: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: 'test-only', model: 'openai/gpt-oss-20b' },
+  }, async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(body.model, 'openai/gpt-oss-20b');
+    assert.equal(body.tool_choice, 'none');
+    assert.equal(body.stream, false);
+    assert.match(body.messages[0].content, /Talk naturally like a conversational AI/);
+    assert.equal(body.messages[1].content, 'Do you like dinosaurs?');
+    assert.equal(body.messages[2].content, 'Dinosaurs are fascinating.');
+    assert.match(body.messages[3].content, /talk about before/);
+    assert.equal(options.headers.Authorization, 'Bearer test-only');
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'We talked about dinosaurs.' } }] }));
+  });
+  assert.equal(answer.text, 'We talked about dinosaurs.');
 });
