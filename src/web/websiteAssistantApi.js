@@ -10,6 +10,10 @@ const MAX_ACTIVE = 3;
 const MAX_PER_MINUTE = 25;
 const MAX_PER_DAY = 250;
 
+// Use the stronger Groq-hosted reasoning model only for the public website
+// assistant. The existing Discord Assistant keeps its own configured model.
+export const WEBSITE_AI_MODEL = 'openai/gpt-oss-120b';
+
 function matchesSecret(header, secret) {
   if (!secret || secret.length < 32 || typeof header !== 'string') return false;
   const submitted = header.startsWith('Bearer ') ? header.slice(7) : '';
@@ -28,6 +32,10 @@ export async function answerWebsiteAi({ question, evidence, history, config }, f
         'You are Cloudy Assistant, a helpful AI for the official Cloudy Inc. website.',
         'You were made for Cloudy Inc. by Dylano. Your main job is natural, thoughtful conversation, not advertising Cloudy, its shop or support.',
         'Reply directly to what the visitor actually said. Converse fluently in the same language (including natural Dutch). Use context from prior turns without repeating introductions. If a question is vague, ask one helpful, specific clarification instead of listing websites.',
+        'Apply careful, internal multi-step reasoning when a question is complex: identify the real task, use the relevant conversation context, check logic and calculations, distinguish verified facts from uncertainty, and deliver a clear final response without displaying private deliberation.',
+        'For translation or language-only follow-ups (for example "In het Frans", "in English", "en français"), translate the preceding relevant answer into the requested language without adding fresh advice, introductions, promotional text or extra information. If the user instead asks to speak in a language, simply continue the conversation in that language.',
+        'When the visitor asks for a comparison, calculation, explanation or plan, answer the actual question rather than redirecting them elsewhere. Follow multi-part instructions carefully and correct obvious mistakes when the evidence supports it.',
+        'Use official page names such as Cloudy Store, Support & Help, Cloudy Discord, Appeal form, Terms of service and Privacy policy when they genuinely matter. The website safely turns those names into clickable links. Do not invent page names.',
         'For short requests respond in one to three clear sentences, not long essays or repeated reassurance. Expand when a detailed explanation is genuinely requested. Be accurate, helpful, personable and professional, without repetitive filler, marketing language or unnecessary emojis.',
         'When someone simply says they need help or support (for example "Ik heb support nodig"), ask what they need help with. Do NOT immediately direct them to the Support & Help page, Discord, a ticket or a staff member.',
         'Only discuss Cloudy pages, Discord, support, purchases, rules or refunds when the visitor specifically asks about those topics or the current Cloudy question genuinely requires them. Do not suggest links, pages, staff or Discord after unrelated general questions.',
@@ -49,10 +57,12 @@ export async function answerWebsiteAi({ question, evidence, history, config }, f
     },
   ];
   const body = {
-    model: config.model,
+    model: WEBSITE_AI_MODEL,
     messages,
-    temperature: 0.55,
-    max_completion_tokens: 1200,
+    temperature: 0.45,
+    max_completion_tokens: 4600,
+    reasoning_effort: 'high',
+    include_reasoning: false,
     tool_choice: 'none',
     stream: false,
   };
@@ -61,7 +71,7 @@ export async function answerWebsiteAi({ question, evidence, history, config }, f
   const response = await fetchImpl(config.url, {
     method: 'POST',
     redirect: 'error',
-    signal: AbortSignal.timeout(40_000),
+    signal: AbortSignal.timeout(45_000),
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.key}`,
