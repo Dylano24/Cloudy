@@ -101,12 +101,12 @@ export function createAiGate(now = Date.now) {
   let active = 0;
   let window = 0;
   let count = 0;
-  return (key) => {
+  return (key, { cooldownMs = 20_000 } = {}) => {
     const time = now();
     for (const [id, expires] of users) if (expires <= time) users.delete(id);
     if (time >= window) { window = time + 60_000; count = 0; }
     if (users.has(key) || active >= 2 || count >= 10 || users.size >= 1000) throw new AiError('rate_limit');
-    users.set(key, time + 20_000); count++; active++;
+    users.set(key, time + Math.max(3_000, Math.min(20_000, cooldownMs))); count++; active++;
     let released = false;
     return () => { if (!released) { released = true; active--; } };
   };
