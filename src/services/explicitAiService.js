@@ -235,8 +235,9 @@ export function createExplicitAiService({
   defaultGuildContext = false,
   allowMessageGuildContext = false,
   askEvidence = null,
+  requestCooldownMs = 20_000,
 } = {}) {
-  return async (actor, input) => {
+  return async (actor, input, { history = [] } = {}) => {
     let release;
     let action = 'invalid';
     const identity = { guildId: actor?.guild?.id, userId: actor?.user?.id || actor?.author?.id };
@@ -254,7 +255,7 @@ export function createExplicitAiService({
       });
       if (action === 'help') return { text: AI_HELP, diagnostics: {} };
       const config = provider();
-      release = reserve(`${identity.guildId}:${identity.userId}`);
+      release = reserve(`${identity.guildId}:${identity.userId}`, { cooldownMs: requestCooldownMs });
       let evidence = '';
       let sourceInfo;
       const diagnostics = { readableChannelsScanned: 0, evidenceItems: 0, githubFilesRead: 0, runtimeLogLines: 0 };
@@ -280,7 +281,7 @@ export function createExplicitAiService({
         evidence = await sourceSearch(request.question);
         diagnostics.githubFilesRead = JSON.parse(evidence).matches.length;
       }
-      const result = await answer({ question: request.question, evidence, action, config });
+      const result = await answer({ question: request.question, evidence, action, history: action === 'ask' ? history : [], config });
       // Explicit label is application-owned, never dependent on the model obeying instructions.
       const label = sourceInfo ? `Local source: ${sourceInfo.path}\nSHA-256: ${sourceInfo.sha256}\n${action === 'prepare' ? 'UNAPPLIED PROPOSAL: review and test before applying.\n' : ''}\n` : '';
       audit({ ...identity, action, outcome: 'success', provider: config.provider, contextBytes: Buffer.byteLength(evidence) });
