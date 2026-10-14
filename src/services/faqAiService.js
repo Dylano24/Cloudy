@@ -11,18 +11,21 @@ import { logger } from '../utils/logger.js';
 import { createExplicitAiService } from './explicitAiService.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { buildCloudyPublicKnowledgeEvidence } from './cloudyPublicKnowledgeService.js';
+import { faqConversation } from './faqConversation.js';
+import { parseAiRequest } from './aiSafety.js';
 
 export const FAQ_AI_CHANNEL_ID = '1534654577385672917';
 export const FAQ_AI_BUTTON_ID = 'faq_ai_question';
 export const FAQ_AI_MODAL_ID = 'faq_ai_question_modal';
 
 const FAQ_PANEL_STATE_KEY = `global:faq-ai:panel:${FAQ_AI_CHANNEL_ID}`;
-const QUESTION_COOLDOWN_MS = 20_000;
+const QUESTION_COOLDOWN_MS = 5_000;
 const KNOWLEDGE_CACHE_TTL_MS = 60_000;
 const recentQuestions = new Map();
 let lastQuestionSweepAt = 0;
 const runFaqKnowledgeAi = createExplicitAiService({
   askEvidence: buildCloudyPublicKnowledgeEvidence,
+  requestCooldownMs: 5_000,
 });
 
 function buildPanelPayload() {
@@ -125,6 +128,15 @@ export function getFaqQuestionCooldown(userId) {
 
 export async function answerFaqQuestion(client, question, actor) {
   if (!actor || actor.client !== client) throw new Error('forbidden');
-  const result = await runFaqKnowledgeAi(actor, question);
-  return result.text.length > 1800 ? `${result.text.slice(0, 1797)}...` : result.text;
+  const request = parseAiRequest(question);
+  if (request.action === 'ask' && /^(?:reset|new chat|start over|nieuw gesprek)$/i.test(request.question.trim())) {
+    faqConversation.reset(actor);
+    return 'Conversation reset. You can start a new conversation.';
+  }
+  const result = await runFaqKnowledgeAi(actor, question, {
+    history: request.action === 'ask' ? faqConversation.history(actor) : [],
+  });
+  const visibleAnswer = result.text.length > 1800 ? `${result.text.slice(0, 1797)}...` : result.text;
+  if (request.action === 'ask') faqConversation.remember(actor, request.question, visibleAnswer);
+  return visibleAnswer;
 }
