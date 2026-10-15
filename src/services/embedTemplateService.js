@@ -519,19 +519,15 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
   if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return true;
 
   try {
-    const [stored, sharedStored] = await Promise.all([
-      loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true }),
-      loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true }),
-    ]);
-    if (!Object.keys(stored).length && !Object.keys(sharedStored).length) return false;
+    const stored = await loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true });
+    if (!Object.keys(stored).length) return false;
 
     let matched = false;
     let changed = false;
     const embeds = message.embeds.map(embed => {
       const data = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
       const sharedRuntimeBody = isSharedRuntimeBodyTitle(data.title);
-      const source = sharedRuntimeBody ? sharedStored : stored;
-      const result = decorateEmbedData(embed, source, {
+      const result = decorateEmbedData(embed, stored, {
         preserveRuntimeBody: sharedRuntimeBody,
       });
       if (!result.matched) return embed;
