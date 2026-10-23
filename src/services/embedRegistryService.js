@@ -717,8 +717,9 @@ function detachedBuilderRecord(record) {
     return detached;
 }
 
-export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snapshot) {
+export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snapshot, components = null) {
     const normalizedSnapshot = normalizeEmbedSnapshot(snapshot);
+    const normalizedComponents = components == null ? null : normalizeMessageComponents(components);
     if (!guildId || !target?.messageId || !normalizedSnapshot) return false;
 
     return mutateRegistry(guildId, async () => {
@@ -736,6 +737,7 @@ export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snaps
                 title: normalizedSnapshot.title || record.title,
                 name: embedName(normalizedSnapshot),
                 snapshot: normalizedSnapshot,
+                components: normalizedComponents == null ? record.components : normalizedComponents,
                 detached: true,
             });
             if (updated) rememberEmbedSnapshot(updated, normalizedSnapshot);
@@ -743,6 +745,58 @@ export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snaps
         });
 
         if (!changed) return false;
+        return setInDb(registryKey(guildId), sortRecords(next));
+    });
+}
+
+export async function relinkDetachedEmbedRegistryMessage(guildId, target, message) {
+    const targetIndex = Math.max(0, Number(target?.embedIndex) || 0);
+    const postedEmbed = message?.embeds?.[0] || null;
+    if (!guildId || !target?.messageId || !message?.id || !message?.channelId || !postedEmbed) return false;
+
+    return mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        let sourceRecord = null;
+        const targetChannelId = String(target.channelId || '');
+        const targetBackingChannelId = String(target.backingChannelId || target.channelId || '');
+
+        const remaining = records.filter(record => {
+            const matches = String(record.messageId) === String(target.messageId)
+                && Number(record.embedIndex || 0) === targetIndex
+                && (
+                    String(record.channelId) === targetChannelId
+                    || physicalChannelId(record) === targetBackingChannelId
+                );
+            if (!matches) return true;
+            if (!sourceRecord && isManualBuilderRecord(record)) sourceRecord = record;
+            return false;
+        });
+
+        if (!sourceRecord?.detached) return false;
+
+        const location = recordLocationForEmbed(message, postedEmbed, sourceRecord);
+        const replacement = normalizeRecord({
+            ...sourceRecord,
+            ...location,
+            messageId: String(message.id),
+            embedIndex: 0,
+            source: 'embed-builder',
+            title: postedEmbed?.title || '',
+            name: embedName(postedEmbed),
+            channelName: message.channel?.name || sourceRecord.channelName || '',
+            snapshot: normalizeEmbedSnapshot(postedEmbed),
+            components: normalizeMessageComponents(message.components),
+            detached: false,
+            createdAt: sourceRecord.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
+        });
+        if (!replacement) return false;
+
+        rememberEmbedSnapshot(replacement, postedEmbed);
+        const next = remaining.filter(record =>
+            !(String(record.messageId) === String(message.id)
+                && Number(record.embedIndex || 0) === 0)
+        );
+        next.push(replacement);
         return setInDb(registryKey(guildId), sortRecords(next));
     });
 }
