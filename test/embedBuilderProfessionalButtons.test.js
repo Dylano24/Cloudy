@@ -36,7 +36,7 @@ test('professional Builder flow uses native color/visibility controls and one Ad
   assert.doesNotMatch(modal, /button_settings/);
   assert.doesNotMatch(modal, /button_action/);
   assert.match(modal, /ButtonStyle\.Link/);
-  assert.match(modal, /blank stays/);
+  assert.match(modal, /Leave blank to keep it/);
   assert.doesNotMatch(modal, /blank = stays/);
 
   const previewStart = service.indexOf('export async function syncBuilderButtonPreview');
