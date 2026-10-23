@@ -923,7 +923,7 @@ export function buildControls(state) {
             .setDisabled(!state.modifyTarget),
     ];
 
-    if (state.modifyTarget?.detached && state.modifyTarget?.source === 'embed-builder') {
+    if (!state.pendingBuilderDelete && state.modifyTarget?.detached && state.modifyTarget?.source === 'embed-builder') {
         saveButtons.push(
             new ButtonBuilder()
                 .setCustomId('simple_embed_repost')
