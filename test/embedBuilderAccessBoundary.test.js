@@ -84,7 +84,7 @@ async function open(t, options) {
   const f = fixture(t, options);
   await builder.execute(f.interaction);
   // The root dashboard is the last public send, and owns every owner-gated control.
-  const dashboard = f.publicPayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title & message'));
+  const dashboard = f.publicPayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title and message'));
   assert.ok(dashboard);
   t.after(() => f.channel.lastMessage.collector.stop('test-ended'));
   return { ...f, dashboard };
@@ -95,9 +95,9 @@ test('public Builder keeps its layout with direct content and color links', asyn
   assert.equal(f.publicPayloads.length, 2);
   assert.ok(f.publicPayloads.every(payload => !(Number(payload.flags || 0) & MessageFlags.Ephemeral)));
   assert.equal(f.dashboard.components.length, 5);
-  const launchButtons = buttons(f.dashboard).filter(button => ['Edit title & message', 'Set side color'].includes(button.label));
+  const launchButtons = buttons(f.dashboard).filter(button => ['Edit title and message', 'Set side color'].includes(button.label));
   assert.equal(launchButtons.length, 2);
-  assert.ok(launchButtons.find(button => button.label === 'Edit title & message').url);
+  assert.ok(launchButtons.find(button => button.label === 'Edit title and message').url);
   assert.ok(launchButtons.find(button => button.label === 'Set side color').url);
 });
 
@@ -115,7 +115,7 @@ test('direct content and color editors still update the preview without private 
   t.after(() => rootCollector.stop('test-ended'));
   assert.equal(rootCollector.options.filter(f.component('simple_embed_open_content', { id: 'another-viewer' })), false);
   assert.equal(f.childPayloads.length, 0);
-  const contentUrl = new URL(buttons(f.channel.lastMessage).find(button => button.label === 'Edit title & message').url);
+  const contentUrl = new URL(buttons(f.channel.lastMessage).find(button => button.label === 'Edit title and message').url);
   const colorUrl = new URL(buttons(f.channel.lastMessage).find(button => button.label === 'Set side color').url);
   assert.equal(contentUrl.searchParams.get('mode'), 'content');
   assert.equal(contentUrl.searchParams.get('session'), colorUrl.searchParams.get('session'));
@@ -179,7 +179,7 @@ test('forged Post selection cannot use bot-only permissions, while an allowed ch
   const rootCollector = f.channel.lastMessage.collector;
   t.after(() => rootCollector.stop('test-ended'));
   await rootCollector.listeners('collect')[0](f.component('simple_embed_open_content'));
-  const launchPayload = f.childPayloads.at(-1) || f.publicPayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title & message'));
+  const launchPayload = f.childPayloads.at(-1) || f.publicPayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title and message'));
   const token = new URL(buttons(launchPayload).find(button => button.url)?.url).searchParams.get('session');
   await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'message', value: 'Owner post' }));
   await flushPendingEmbedEditorUpdates(token);
