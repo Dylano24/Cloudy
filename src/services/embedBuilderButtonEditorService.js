@@ -476,7 +476,7 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
       ),
       new LabelBuilder()
         .setLabel('Response message')
-        .setDescription('Write a message or add a link below. One is required.')
+        .setDescription('Write a message or add a link below (required)')
         .setTextInputComponent(
           new TextInputBuilder()
             .setCustomId('button_response')
