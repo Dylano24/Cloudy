@@ -10,12 +10,17 @@ import {
   removeEmbedRegistryMessage,
   updateDetachedEmbedRegistrySnapshot,
 } from '../src/services/embedRegistryService.js';
-import { isEmbedManagerVisibleRecord } from '../src/services/embedManagerService.js';
+import {
+  isEmbedManagerVisibleRecord,
+  loadRecordSnapshotIntoState,
+  syncBuilderLogoFromLiveMessage,
+} from '../src/services/embedManagerService.js';
 import {
   relinkExistingEmbedReappearRule,
   restoreExistingEmbedReappearRule,
 } from '../src/services/embedReappearService.js';
 import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { buildControls } from '../src/commands/Tools/embedbuilder.js';
 
 const values = new Map();
 
@@ -223,4 +228,47 @@ test('Repost moves an existing Reappear rule to the new message and can restore 
   assert.equal(rule.count, 2);
   assert.equal(rule.embed.title, 'Old title');
   assert.equal(rule.components[0].components[0].label, 'Old button');
+});
+
+
+test('a missed Discord delete is detected when the saved manual embed is opened', async () => {
+  resetDb();
+  const guildId = 'durable-missed-delete-guild';
+  const original = builderMessage({ id: 'message-old', guildId, title: 'Missing panel' });
+  await registerCloudyEmbedMessage(original, 'embed-builder');
+
+  const [record] = await getEmbedRegistry(guildId);
+  const missing = new Error('Unknown message');
+  missing.code = 10008;
+  const channel = {
+    id: 'general',
+    messages: {
+      fetch: async () => {
+        throw missing;
+      },
+    },
+  };
+  const guild = {
+    id: guildId,
+    client: { user: { id: 'cloudy' } },
+    channels: {
+      cache: new Map([['general', channel]]),
+      fetch: async id => id === 'general' ? channel : null,
+    },
+  };
+  const state = {};
+
+  assert.equal(loadRecordSnapshotIntoState(state, guild, record), true);
+  assert.equal(state.modifyTarget.detached, false);
+  assert.equal(await syncBuilderLogoFromLiveMessage(guild, state), true);
+  assert.equal(state.modifyTarget.detached, true);
+
+  const [savedRecord] = await getEmbedRegistry(guildId);
+  assert.equal(savedRecord.detached, true);
+
+  const ids = buildControls(state)
+    .flatMap(row => row.toJSON().components)
+    .map(component => component.custom_id)
+    .filter(Boolean);
+  assert.equal(ids.includes('simple_embed_repost'), true);
 });
