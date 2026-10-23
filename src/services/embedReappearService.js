@@ -86,8 +86,33 @@ export async function relinkExistingEmbedReappearRule({
     ok: Boolean(ruleSaved && indexSaved),
     linked: Boolean(ruleSaved && indexSaved),
     originMessageId,
+    previousRule: asPlain(existing.config, null),
     rule,
   };
+}
+
+export async function restoreExistingEmbedReappearRule({
+  guildId,
+  channelId,
+  originMessageId,
+  rule,
+}) {
+  const guild = String(guildId || '').trim();
+  const channel = String(channelId || '').trim();
+  const originId = String(originMessageId || '').trim();
+  const previousRule = asPlain(rule, null);
+  if (!guild || !channel || !originId || !previousRule) return false;
+
+  const prefix = `cloudy:embed-reappear:${guild}:${channel}:`;
+  const indexKey = `cloudy:embed-reappear-index:${guild}:${channel}`;
+  const indexedIds = normalizeIndex(await getFromDb(indexKey, []));
+  const nextIndex = indexedIds.includes(originId) ? indexedIds : [...indexedIds, originId];
+
+  const [ruleSaved, indexSaved] = await Promise.all([
+    setInDb(prefix + originId, previousRule),
+    setInDb(indexKey, nextIndex),
+  ]);
+  return Boolean(ruleSaved && indexSaved);
 }
 
 export async function syncExistingEmbedReappearRule({
