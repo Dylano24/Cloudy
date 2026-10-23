@@ -1164,7 +1164,7 @@ export function loadRecordSnapshotIntoState(
         detached: Boolean(record.detached),
         cachedMessage: null,
     };
-    loadBuilderComponentsFromRecord(state, record);
+    if (record.detached) loadBuilderComponentsFromRecord(state, record);
     return true;
 }
 
