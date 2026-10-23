@@ -1392,7 +1392,7 @@ test('embed manager shows one editable casino template for repeated dynamic resu
   assert.equal(options.length, 2);
   assert.ok(options.some(option => option.label === 'Blackjack bet'));
   assert.ok(options.some(option => option.label === 'Blackjack loss'));
-  assert.ok(options.some(option => /applies to 2 matching embed\(s\)/.test(option.description)));
+  assert.ok(options.some(option => /Applies to 2 matching embed\(s\)/.test(option.description)));
 });
 
 test('audit log lookup returns immediately when Discord already has the entry', async () => {
