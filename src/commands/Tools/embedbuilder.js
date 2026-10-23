@@ -133,7 +133,7 @@ function buildChannelOption(guild, channel) {
 
     return new StringSelectMenuOptionBuilder()
         .setLabel(`${channel.type === ChannelType.GuildAnnouncement ? '📢' : '#'} ${String(channel.name || channel.id)}`.slice(0, 100))
-        .setDescription(`${visibility} • ${typeLabel}${parent} • ${channel.id}`.slice(0, 100))
+        .setDescription(`${visibility}. ${typeLabel}${parent}`.slice(0, 100))
         .setValue(channel.id);
 }
 
@@ -814,7 +814,7 @@ export function buildControls(state) {
     const hasLogo = Boolean(buildPreviewEmbed(state).toJSON().thumbnail?.url);
 
     const titleButton = new ButtonBuilder()
-        .setLabel('Edit title & message')
+        .setLabel('Edit title and message')
         .setEmoji('✍🏼');
     if (state.contentEditorUrl) {
         titleButton.setURL(state.contentEditorUrl).setStyle(ButtonStyle.Link);
@@ -1296,7 +1296,7 @@ async function editMedia(buttonInteraction, state) {
 
     const modal = new ModalBuilder()
         .setCustomId('simple_embed_media_modal')
-        .setTitle('Set picture/video GIF')
+        .setTitle('Add picture or video')
         .addLabelComponents(
             new LabelBuilder()
                 .setLabel('Upload picture, video or GIF')
@@ -1398,7 +1398,7 @@ function buildEmojiEmbeds(guild, emojis) {
     if (!values.length) {
         return [
             new EmbedBuilder()
-                .setTitle(`${guild.name} • Emojis`.slice(0, 256))
+                .setTitle(`${guild.name} emojis`.slice(0, 256))
                 .setDescription('This server has no custom emojis available to Cloudy.')
                 .setColor(getColor('info')),
         ];
@@ -1443,7 +1443,7 @@ function buildOwnerEmojiPayload(guild, emojis) {
     }
 
     const infoEmbed = new EmbedBuilder()
-        .setTitle(`Discord emojis • ${guild.name}`.slice(0, 256))
+        .setTitle(`Discord emojis for ${guild.name}`.slice(0, 256))
         .setDescription([
             `**Custom emojis:** ${values.length}`,
             '',
@@ -1495,7 +1495,7 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
                     .addOptions(...segment.map(guild =>
                         new StringSelectMenuOptionBuilder()
                             .setLabel(guild.name.slice(0, 100))
-                            .setDescription(`${guild.memberCount || 0} members • ${guild.id}`.slice(0, 100))
+                            .setDescription(`${guild.memberCount || 0} members`.slice(0, 100))
                             .setValue(guild.id),
                     )),
             ),
