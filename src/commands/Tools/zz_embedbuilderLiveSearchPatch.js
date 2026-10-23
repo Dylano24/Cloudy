@@ -372,7 +372,7 @@ function builderSearchDisplayRecords(records) {
         if (!channelId || !messageId) continue;
 
         if (['bot-history', 'history'].includes(source)) continue;
-        if (record?.detached && source !== 'system-catalog') continue;
+        if (record?.detached && !['system-catalog', 'embed-builder'].includes(source)) continue;
         if (isInternalSearchRecord(record)) continue;
 
         const stableKey = stableSearchTemplateKey(record);
