@@ -77,16 +77,31 @@ export async function relinkExistingEmbedReappearRule({
     ? indexedIds
     : [...indexedIds, originMessageId];
 
+  const previousRule = asPlain(existing.config, null);
   const [ruleSaved, indexSaved] = await Promise.all([
     setInDb(prefix + originMessageId, rule),
     setInDb(indexKey, nextIndex),
   ]);
 
+  if (!ruleSaved || !indexSaved) {
+    await Promise.all([
+      previousRule ? setInDb(prefix + originMessageId, previousRule) : Promise.resolve(true),
+      setInDb(indexKey, indexedIds),
+    ]);
+    return {
+      ok: false,
+      linked: false,
+      originMessageId,
+      previousRule,
+      reason: 'persistence-failed',
+    };
+  }
+
   return {
-    ok: Boolean(ruleSaved && indexSaved),
-    linked: Boolean(ruleSaved && indexSaved),
+    ok: true,
+    linked: true,
     originMessageId,
-    previousRule: asPlain(existing.config, null),
+    previousRule,
     rule,
   };
 }
