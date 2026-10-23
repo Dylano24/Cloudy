@@ -18,7 +18,7 @@ test('Builder Search keeps user embeds separate but collapses duplicate automate
   assert.deepEqual(new Set(manual.map(match => match.record.messageId)), new Set(['a', 'b']));
 });
 
-test('Builder Search excludes runtime notification history and deleted detached messages', () => {
+test('Builder Search excludes runtime history while keeping missing manual Builder embeds', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
 
   const displayStart = source.indexOf('function builderSearchDisplayRecords');
@@ -27,7 +27,7 @@ test('Builder Search excludes runtime notification history and deleted detached 
   const displayBody = source.slice(displayStart, previewStart);
 
   assert.match(displayBody, /\['bot-history', 'history'\]\.includes\(source\)/);
-  assert.match(displayBody, /record\?\.detached && source !== 'system-catalog'/);
+  assert.match(displayBody, /record\?\.detached && !\['system-catalog', 'embed-builder'\]\.includes\(source\)/);
   assert.match(displayBody, /stableSearchTemplateKey\(record\)/);
   assert.match(displayBody, /stableSearchTemplateContext\(record\)/);
 });
