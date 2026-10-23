@@ -29,6 +29,7 @@ import {
     getEmbedRegistrySnapshot,
     reconcileEmbedRegistry,
     relinkDetachedEmbedRegistryMessage,
+    removeEmbedRegistryRecord,
     updateDetachedEmbedRegistrySnapshot,
     registerCloudyEmbedMessage,
     resolveEmbedRegistryRecord,
@@ -1168,7 +1169,7 @@ export function loadRecordSnapshotIntoState(
         detached: Boolean(record.detached),
         cachedMessage: null,
     };
-    if (record.detached) loadBuilderComponentsFromRecord(state, record);
+    if (record.source === 'embed-builder') loadBuilderComponentsFromRecord(state, record);
     return true;
 }
 
@@ -1186,7 +1187,28 @@ export async function syncBuilderLogoFromLiveMessage(guild, state) {
     const channel = guild.channels.cache?.get?.(location.channelId)
         || await guild.channels.fetch?.(location.channelId).catch(() => null);
     if (!channel?.messages?.fetch) return false;
-    const message = await channel.messages.fetch(location.messageId).catch(() => null);
+
+    let message;
+    try {
+        message = await channel.messages.fetch(location.messageId);
+    } catch (error) {
+        const messageMissing = Number(error?.code) === 10008;
+        if (messageMissing
+            && target.source === 'embed-builder'
+            && target === state.modifyTarget) {
+            await removeEmbedRegistryRecord(
+                guild.id,
+                target.channelId,
+                target.messageId,
+                target.embedIndex,
+            ).catch(() => false);
+            target.detached = true;
+            target.cachedMessage = null;
+            return true;
+        }
+        return false;
+    }
+
     const selectedEmbed = message?.embeds?.[location.embedIndex] || null;
     if (!selectedEmbed || target !== state.modifyTarget || state.logoTouched) return false;
 
