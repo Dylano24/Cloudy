@@ -48,23 +48,24 @@ test('Add button modal keeps button name, duration, response and link separate',
   assert.match(body, /setLabel\('Button name'\)/);
   assert.match(body, /setLabel\('Duration \(optional\)'\)/);
   assert.match(body, /10s, 30s, 1m, 5m • blank stays/);
-  assert.match(body, /setLabel\('Response message \(optional\)'\)/);
-  assert.match(body, /setLabel\('Add link \(optional\)'\)/);
+  assert.match(body, /setLabel\('Response message'\)/);
+  assert.match(body, /setDescription\('Write a message or add a link below\.'\)/);
+  assert.match(body, /setLabel\('Add link'\)/);
   assert.doesNotMatch(body, /button_settings/);
   assert.doesNotMatch(body, /Color \/ visibility/);
   assert.doesNotMatch(body, /Response message \/ add link/);
 });
 
-test('Response text and Add link may be submitted together', () => {
+test('Add button requires exactly one response or link', () => {
   const source = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
   const start = source.indexOf('async function showAddResponseModal');
   const end = source.indexOf('async function showAddLinkModal', start);
   const body = source.slice(start, end);
 
-  assert.doesNotMatch(body, /Use either Response message or Add link/);
   assert.match(body, /if \(!responseText && !url\)/);
-  assert.match(body, /url: url \|\| null/);
-  assert.match(body, /linkLabel: label/);
+  assert.match(body, /Enter a response message or add a link\./);
+  assert.match(body, /if \(responseText && url\)/);
+  assert.match(body, /Choose only one: a response message or a link\./);
 });
 
 test('Builder response duration still supports values up to 15 minutes', () => {

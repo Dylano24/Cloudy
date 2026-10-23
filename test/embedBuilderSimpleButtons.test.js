@@ -45,7 +45,7 @@ test('Add button keeps response message and link URL in separate fields', () => 
   assert.match(body, /parseButtonDuration/);
   assert.match(body, /deleteAfterMs: duration\.ms/);
   assert.match(body, /ButtonStyle\.Link/);
-  assert.doesNotMatch(body, /if \(responseText && url\)/);
+  assert.match(body, /if \(responseText && url\)/);
   assert.match(body, /if \(url && !\/\^https\?:/);
 });
 

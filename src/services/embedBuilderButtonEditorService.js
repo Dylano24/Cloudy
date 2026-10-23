@@ -4,6 +4,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  LabelBuilder,
   MessageFlags,
   ModalBuilder,
   StringSelectMenuBuilder,
@@ -473,19 +474,21 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
           .setMaxLength(16)
           .setRequired(false),
       ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('button_response')
-          .setLabel('Response message (optional)')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('Message sent when the button is clicked')
-          .setMaxLength(4000)
-          .setRequired(false),
-      ),
+      new LabelBuilder()
+        .setLabel('Response message')
+        .setDescription('Write a message or add a link below.')
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId('button_response')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('Message sent when the button is clicked')
+            .setMaxLength(4000)
+            .setRequired(false),
+        ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('button_url')
-          .setLabel('Add link (optional)')
+          .setLabel('Add link')
           .setStyle(TextInputStyle.Short)
           .setPlaceholder('https://example.com')
           .setMaxLength(512)
@@ -532,7 +535,11 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
     return;
   }
   if (!responseText && !url) {
-    await replyButtonEditorError(submitted, 'Add a response message, a link, or both.');
+    await replyButtonEditorError(submitted, 'Enter a response message or add a link.');
+    return;
+  }
+  if (responseText && url) {
+    await replyButtonEditorError(submitted, 'Choose only one: a response message or a link.');
     return;
   }
   if (url && !/^https?:\/\//i.test(url)) {
