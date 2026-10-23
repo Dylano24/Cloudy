@@ -23,6 +23,73 @@ async function loadIndexedRules(prefix, ids) {
   })));
 }
 
+export async function relinkExistingEmbedReappearRule({
+  guildId,
+  channelId,
+  previousMessageId,
+  messageId,
+  embedIndex = 0,
+  embed,
+  components = [],
+}) {
+  const guild = String(guildId || '').trim();
+  const channel = String(channelId || '').trim();
+  const previousId = String(previousMessageId || '').trim();
+  const nextId = String(messageId || '').trim();
+  const index = Math.max(0, Number(embedIndex) || 0);
+
+  if (!guild || !channel || !previousId || !nextId) {
+    return { ok: false, reason: 'missing-target' };
+  }
+
+  const prefix = `cloudy:embed-reappear:${guild}:${channel}:`;
+  const indexKey = `cloudy:embed-reappear-index:${guild}:${channel}`;
+  const indexedIds = normalizeIndex(await getFromDb(indexKey, []));
+  if (!indexedIds.length) return { ok: true, linked: false };
+
+  const indexedRules = await loadIndexedRules(prefix, indexedIds);
+  const existing = indexedRules.find(({ originMessageId, config }) =>
+    originMessageId === previousId
+    || String(config?.messageId || '') === previousId
+    || String(config?.originMessageId || '') === previousId
+  ) || null;
+  if (!existing?.config) return { ok: true, linked: false };
+
+  const originMessageId = String(existing.originMessageId);
+  const disableKey = `cloudy:embed-reappear-disabled:${guild}:${channel}:${originMessageId}:${index}`;
+  if (await getFromDb(disableKey, null)) {
+    return { ok: true, linked: false, disabled: true, originMessageId };
+  }
+
+  const rule = {
+    ...existing.config,
+    guildId: guild,
+    channelId: channel,
+    messageId: nextId,
+    originMessageId,
+    embedIndex: index,
+    count: 0,
+    embed: asPlain(embed, existing.config.embed),
+    components: asPlain(components, existing.config.components || []),
+    updatedAt: new Date().toISOString(),
+  };
+  const nextIndex = indexedIds.includes(originMessageId)
+    ? indexedIds
+    : [...indexedIds, originMessageId];
+
+  const [ruleSaved, indexSaved] = await Promise.all([
+    setInDb(prefix + originMessageId, rule),
+    setInDb(indexKey, nextIndex),
+  ]);
+
+  return {
+    ok: Boolean(ruleSaved && indexSaved),
+    linked: Boolean(ruleSaved && indexSaved),
+    originMessageId,
+    rule,
+  };
+}
+
 export async function syncExistingEmbedReappearRule({
   guildId,
   channelId,
