@@ -36,6 +36,10 @@ import {
     } from './embedRegistryService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import {
+    relinkExistingEmbedReappearRule,
+    restoreExistingEmbedReappearRule,
+    } from './embedReappearService.js';
+import {
     CLOUDY_LOGO_URL,
     isCloudyLogoUrl,
     migrateCloudyLogoEmbedData,
@@ -2305,8 +2309,36 @@ export async function repostDetachedEmbed(guild, state, member = null) {
     });
     if (!sent) return { ok: false, reason: 'send-failed' };
 
+    const reappearRelink = await relinkExistingEmbedReappearRule({
+        guildId: guild.id,
+        channelId: channel.id,
+        previousMessageId: target.messageId,
+        messageId: sent.id,
+        embedIndex: target.embedIndex,
+        embed: current,
+        components,
+    }).catch(error => {
+        logger.error('Failed to relink Reappear after Builder repost:', error);
+        return { ok: false };
+    });
+    if (!reappearRelink.ok) {
+        await sent.delete().catch(() => {});
+        return { ok: false, reason: 'reappear-persistence-failed' };
+    }
+
     const relinked = await relinkDetachedEmbedRegistryMessage(guild.id, target, sent);
     if (!relinked) {
+        if (reappearRelink.linked && reappearRelink.previousRule) {
+            const restored = await restoreExistingEmbedReappearRule({
+                guildId: guild.id,
+                channelId: channel.id,
+                originMessageId: reappearRelink.originMessageId,
+                rule: reappearRelink.previousRule,
+            }).catch(() => false);
+            if (!restored) {
+                logger.error('Failed to restore the Reappear rule after Builder repost rollback.');
+            }
+        }
         await sent.delete().catch(() => {});
         return { ok: false, reason: 'persistence-failed' };
     }
