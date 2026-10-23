@@ -11,6 +11,11 @@ import {
   updateDetachedEmbedRegistrySnapshot,
 } from '../src/services/embedRegistryService.js';
 import { isEmbedManagerVisibleRecord } from '../src/services/embedManagerService.js';
+import {
+  relinkExistingEmbedReappearRule,
+  restoreExistingEmbedReappearRule,
+} from '../src/services/embedReappearService.js';
+import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 const values = new Map();
 
@@ -145,4 +150,77 @@ test('only a detached manual Builder record is exposed as a missing editable ite
   assert.equal(isEmbedManagerVisibleRecord({ ...base, source: 'embed-builder' }), true);
   assert.equal(isEmbedManagerVisibleRecord({ ...base, source: 'bot-history' }), false);
   assert.equal(isEmbedManagerVisibleRecord({ ...base, source: 'system-catalog' }), false);
+});
+
+
+test('missing manual Builder embeds remain searchable by their original content', async () => {
+  resetDb();
+  const guildId = 'durable-search-guild';
+  const original = builderMessage({ id: 'message-old', guildId, title: 'Server rules' });
+
+  await registerCloudyEmbedMessage(original, 'embed-builder');
+  await removeEmbedRegistryMessage(guildId, 'general', 'message-old');
+  const records = await getEmbedRegistry(guildId);
+
+  const guild = {
+    channels: {
+      cache: new Map([['general', { id: 'general', name: 'general', parent: null }]]),
+    },
+  };
+  const matches = buildMatches(guild, records, 'server rules');
+
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].record.messageId, 'message-old');
+  assert.equal(matches[0].record.detached, true);
+});
+
+test('Repost moves an existing Reappear rule to the new message and can restore it on rollback', async () => {
+  resetDb();
+  const guildId = 'durable-reappear-guild';
+  const channelId = 'general';
+  values.set(`cloudy:embed-reappear-index:${guildId}:${channelId}`, ['message-old']);
+  values.set(`cloudy:embed-reappear:${guildId}:${channelId}:message-old`, {
+    guildId,
+    channelId,
+    messageId: 'message-old',
+    originMessageId: 'message-old',
+    embedIndex: 0,
+    every: 3,
+    count: 2,
+    embed: { title: 'Old title' },
+    components: [buttonRow('Old button')],
+  });
+
+  const relinked = await relinkExistingEmbedReappearRule({
+    guildId,
+    channelId,
+    previousMessageId: 'message-old',
+    messageId: 'message-new',
+    embedIndex: 0,
+    embed: { title: 'New title' },
+    components: [buttonRow('New button')],
+  });
+
+  assert.equal(relinked.ok, true);
+  assert.equal(relinked.linked, true);
+  assert.equal(relinked.previousRule.messageId, 'message-old');
+
+  let rule = values.get(`cloudy:embed-reappear:${guildId}:${channelId}:message-old`);
+  assert.equal(rule.messageId, 'message-new');
+  assert.equal(rule.count, 0);
+  assert.equal(rule.embed.title, 'New title');
+  assert.equal(rule.components[0].components[0].label, 'New button');
+
+  assert.equal(await restoreExistingEmbedReappearRule({
+    guildId,
+    channelId,
+    originMessageId: relinked.originMessageId,
+    rule: relinked.previousRule,
+  }), true);
+
+  rule = values.get(`cloudy:embed-reappear:${guildId}:${channelId}:message-old`);
+  assert.equal(rule.messageId, 'message-old');
+  assert.equal(rule.count, 2);
+  assert.equal(rule.embed.title, 'Old title');
+  assert.equal(rule.components[0].components[0].label, 'Old button');
 });
