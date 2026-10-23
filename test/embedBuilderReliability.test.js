@@ -868,7 +868,7 @@ test('deleted manual Builder embeds stay as detached saved templates with their 
   assert.equal(stored.snapshot.description, description);
 });
 
-test('detached snapshots remain loadable but stay out of the live channel browser', () => {
+test('detached manual snapshots remain loadable and searchable after message deletion', () => {
   const guildId = '100000000000000092';
   const record = {
     guildId,
@@ -896,7 +896,10 @@ test('detached snapshots remain loadable but stay out of the live channel browse
   const channelPayload = buildChannelPayload(guild, [record]);
   assert.equal(channelPayload.components.length, 0);
   assert.match(channelPayload.embeds[0].toJSON().description, /\*\*Channels:\*\* 0/);
-  assert.deepEqual(buildLiveSearchMatches(guild, [record], 'rules'), []);
+  const matches = buildLiveSearchMatches(guild, [record], 'rules');
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].record.messageId, record.messageId);
+  assert.equal(matches[0].record.detached, true);
 
   const state = {};
   assert.equal(loadRecordSnapshotIntoState(state, guild, record), true);
@@ -1389,7 +1392,7 @@ test('embed manager shows one editable casino template for repeated dynamic resu
   assert.equal(options.length, 2);
   assert.ok(options.some(option => option.label === 'Blackjack bet'));
   assert.ok(options.some(option => option.label === 'Blackjack loss'));
-  assert.ok(options.some(option => /applies to 2 matching embed\(s\)/.test(option.description)));
+  assert.ok(options.some(option => /Applies to 2 matching embed\(s\)/.test(option.description)));
 });
 
 test('audit log lookup returns immediately when Discord already has the entry', async () => {

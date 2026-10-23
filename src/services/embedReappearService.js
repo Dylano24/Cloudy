@@ -23,6 +23,113 @@ async function loadIndexedRules(prefix, ids) {
   })));
 }
 
+export async function relinkExistingEmbedReappearRule({
+  guildId,
+  channelId,
+  previousMessageId,
+  messageId,
+  embedIndex = 0,
+  embed,
+  components = [],
+}) {
+  const guild = String(guildId || '').trim();
+  const channel = String(channelId || '').trim();
+  const previousId = String(previousMessageId || '').trim();
+  const nextId = String(messageId || '').trim();
+  const index = Math.max(0, Number(embedIndex) || 0);
+
+  if (!guild || !channel || !previousId || !nextId) {
+    return { ok: false, reason: 'missing-target' };
+  }
+
+  const prefix = `cloudy:embed-reappear:${guild}:${channel}:`;
+  const indexKey = `cloudy:embed-reappear-index:${guild}:${channel}`;
+  const indexedIds = normalizeIndex(await getFromDb(indexKey, []));
+  if (!indexedIds.length) return { ok: true, linked: false };
+
+  const indexedRules = await loadIndexedRules(prefix, indexedIds);
+  const existing = indexedRules.find(({ originMessageId, config }) =>
+    originMessageId === previousId
+    || String(config?.messageId || '') === previousId
+    || String(config?.originMessageId || '') === previousId
+  ) || null;
+  if (!existing?.config) return { ok: true, linked: false };
+
+  const originMessageId = String(existing.originMessageId);
+  const disableKey = `cloudy:embed-reappear-disabled:${guild}:${channel}:${originMessageId}:${index}`;
+  if (await getFromDb(disableKey, null)) {
+    return { ok: true, linked: false, disabled: true, originMessageId };
+  }
+
+  const rule = {
+    ...existing.config,
+    guildId: guild,
+    channelId: channel,
+    messageId: nextId,
+    originMessageId,
+    embedIndex: index,
+    count: 0,
+    embed: asPlain(embed, existing.config.embed),
+    components: asPlain(components, existing.config.components || []),
+    updatedAt: new Date().toISOString(),
+  };
+  const nextIndex = indexedIds.includes(originMessageId)
+    ? indexedIds
+    : [...indexedIds, originMessageId];
+
+  const previousRule = asPlain(existing.config, null);
+  const [ruleSaved, indexSaved] = await Promise.all([
+    setInDb(prefix + originMessageId, rule),
+    setInDb(indexKey, nextIndex),
+  ]);
+
+  if (!ruleSaved || !indexSaved) {
+    await Promise.all([
+      previousRule ? setInDb(prefix + originMessageId, previousRule) : Promise.resolve(true),
+      setInDb(indexKey, indexedIds),
+    ]);
+    return {
+      ok: false,
+      linked: false,
+      originMessageId,
+      previousRule,
+      reason: 'persistence-failed',
+    };
+  }
+
+  return {
+    ok: true,
+    linked: true,
+    originMessageId,
+    previousRule,
+    rule,
+  };
+}
+
+export async function restoreExistingEmbedReappearRule({
+  guildId,
+  channelId,
+  originMessageId,
+  rule,
+}) {
+  const guild = String(guildId || '').trim();
+  const channel = String(channelId || '').trim();
+  const originId = String(originMessageId || '').trim();
+  const previousRule = asPlain(rule, null);
+  if (!guild || !channel || !originId || !previousRule) return false;
+
+  const prefix = `cloudy:embed-reappear:${guild}:${channel}:`;
+  const indexKey = `cloudy:embed-reappear-index:${guild}:${channel}`;
+  const indexedIds = normalizeIndex(await getFromDb(indexKey, []));
+  const nextIndex = indexedIds.includes(originId) ? indexedIds : [...indexedIds, originId];
+
+  const [ruleSaved, indexSaved] = await Promise.all([
+    setInDb(prefix + originId, previousRule),
+    setInDb(indexKey, nextIndex),
+  ]);
+  return Boolean(ruleSaved && indexSaved);
+}
+
 export async function syncExistingEmbedReappearRule({
   guildId,
   channelId,

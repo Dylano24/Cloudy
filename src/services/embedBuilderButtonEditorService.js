@@ -388,7 +388,7 @@ function managerPayload(state) {
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('embed_button_color_select')
-          .setPlaceholder('Color • ' + styleName.charAt(0).toUpperCase() + styleName.slice(1))
+          .setPlaceholder('Color: ' + styleName.charAt(0).toUpperCase() + styleName.slice(1))
           .setMinValues(1)
           .setMaxValues(1)
           .addOptions(...colorOptions),
@@ -396,7 +396,7 @@ function managerPayload(state) {
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('embed_button_visibility_select')
-          .setPlaceholder('Visibility (optional) • ' + (visibility === 'public' ? 'Public' : 'Private'))
+          .setPlaceholder('Visibility (optional): ' + (visibility === 'public' ? 'Public' : 'Private'))
           .setMinValues(1)
           .setMaxValues(1)
           .addOptions(...visibilityOptions),
@@ -470,7 +470,7 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
           .setCustomId('button_duration')
           .setLabel('Duration (optional)')
           .setStyle(TextInputStyle.Short)
-          .setPlaceholder('10s, 30s, 1m, 5m • blank stays')
+          .setPlaceholder('10s, 30s, 1m, 5m. Leave blank to keep it')
           .setMaxLength(16)
           .setRequired(false),
       ),
