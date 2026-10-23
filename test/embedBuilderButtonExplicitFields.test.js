@@ -49,7 +49,7 @@ test('Add button modal keeps button name, duration, response and link separate',
   assert.match(body, /setLabel\('Duration \(optional\)'\)/);
   assert.match(body, /10s, 30s, 1m, 5m • blank stays/);
   assert.match(body, /setLabel\('Response message'\)/);
-  assert.match(body, /setDescription\('Write a message or add a link below\.'\)/);
+  assert.match(body, /setDescription\('Write a message or add a link below\. One is required\.'\)/);
   assert.match(body, /setLabel\('Add link'\)/);
   assert.doesNotMatch(body, /button_settings/);
   assert.doesNotMatch(body, /Color \/ visibility/);
