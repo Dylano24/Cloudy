@@ -14,12 +14,12 @@ test('Builder button editor shows Color and Visibility as separate native contro
   const visibilityIndex = manager.indexOf("setCustomId('embed_button_visibility_select')");
   const addIndex = manager.indexOf("setCustomId('embed_button_add_response')");
   assert.ok(colorIndex >= 0 && colorIndex < visibilityIndex && visibilityIndex < addIndex);
-  assert.match(manager, /Color • /);
+  assert.match(manager, /Color: /);
   assert.match(manager, /Gray/);
   assert.match(manager, /Blue/);
   assert.match(manager, /Green/);
   assert.match(manager, /Red/);
-  assert.match(manager, /Visibility \(optional\) • /);
+  assert.match(manager, /Visibility \(optional\): /);
   assert.match(manager, /Private/);
   assert.match(manager, /Public/);
   assert.match(manager, /setLabel\('Add button'\)/);
@@ -47,7 +47,7 @@ test('Add button modal keeps button name, duration, response and link separate',
   assert.match(body, /setTitle\('Add button'\)/);
   assert.match(body, /setLabel\('Button name'\)/);
   assert.match(body, /setLabel\('Duration \(optional\)'\)/);
-  assert.match(body, /10s, 30s, 1m, 5m • blank stays/);
+  assert.match(body, /10s, 30s, 1m, 5m\. Leave blank to keep it/);
   assert.match(body, /setLabel\('Response message'\)/);
   assert.match(body, /setDescription\('Write a message or add a link below \(required\)'\)/);
   assert.match(body, /setLabel\('Add link'\)/);
