@@ -868,7 +868,7 @@ test('deleted manual Builder embeds stay as detached saved templates with their 
   assert.equal(stored.snapshot.description, description);
 });
 
-test('detached snapshots remain loadable but stay out of the live channel browser', () => {
+test('detached manual snapshots remain loadable and searchable after message deletion', () => {
   const guildId = '100000000000000092';
   const record = {
     guildId,
@@ -896,7 +896,10 @@ test('detached snapshots remain loadable but stay out of the live channel browse
   const channelPayload = buildChannelPayload(guild, [record]);
   assert.equal(channelPayload.components.length, 0);
   assert.match(channelPayload.embeds[0].toJSON().description, /\*\*Channels:\*\* 0/);
-  assert.deepEqual(buildLiveSearchMatches(guild, [record], 'rules'), []);
+  const matches = buildLiveSearchMatches(guild, [record], 'rules');
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].record.messageId, record.messageId);
+  assert.equal(matches[0].record.detached, true);
 
   const state = {};
   assert.equal(loadRecordSnapshotIntoState(state, guild, record), true);
