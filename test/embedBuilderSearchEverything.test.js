@@ -98,7 +98,8 @@ test('Modify browser shows every real channel while keeping Search-only archive 
   const manager = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
 
   assert.match(manager, /function isEmbedManagerVisibleRecord|export function isEmbedManagerVisibleRecord/);
-  assert.match(manager, /if \(!record\?\.messageId \|\| record\.detached\) return false/);
+  assert.match(manager, /if \(!record\?\.messageId\) return false/);
+  assert.match(manager, /record\.detached && source !== 'embed-builder'/);
   assert.match(manager, /if \(!includeBotHistory && source === 'bot-history'\) return false/);
   assert.match(manager, /source === 'system-catalog'/);
   assert.match(manager, /logicalChannelId !== backingChannelId/);
