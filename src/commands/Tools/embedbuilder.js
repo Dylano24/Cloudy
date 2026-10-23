@@ -703,6 +703,15 @@ async function postBuiltMessage(channel, state, guild, member) {
     }
 
     const embeds = buildPostedEmbeds(state);
+    const sentMessages = [];
+
+    const rollbackPost = async () => {
+        for (const sent of [...sentMessages].reverse()) {
+            await purgeEmbedRegistryRecord(guild.id, sent.channelId, sent.id, 0).catch(() => {});
+            await sent.delete().catch(() => {});
+        }
+    };
+
     for (let index = 0; index < embeds.length; index += 1) {
         const isLast = index === embeds.length - 1;
         const payload = { embeds: [embeds[index]] };
@@ -719,14 +728,16 @@ async function postBuiltMessage(channel, state, guild, member) {
         // may add missing footer text, but must not re-add an intentionally
         // absent C on this new owner-authored embed.
         const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload));
+        sentMessages.push(sent);
+
         const registered = await registerCloudyEmbedMessage(sent, 'embed-builder');
         if (!registered) {
-            await sent.delete().catch(() => {});
+            await rollbackPost();
             return { ok: false, reason: 'persistence-failed' };
         }
         if (state.reappearAfter) {
             const reappearKey = `cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`;
-            await setInDb(reappearKey, {
+            const ruleSaved = await setInDb(reappearKey, {
                 guildId: guild.id,
                 channelId: channel.id,
                 messageId: sent.id,
@@ -741,7 +752,11 @@ async function postBuiltMessage(channel, state, guild, member) {
             const indexKey = `cloudy:embed-reappear-index:${guild.id}:${channel.id}`;
             const existingIndex = await getFromDb(indexKey, []);
             const nextIndex = [...new Set([...(Array.isArray(existingIndex) ? existingIndex : []), sent.id])];
-            await setInDb(indexKey, nextIndex);
+            const indexSaved = await setInDb(indexKey, nextIndex);
+            if (!ruleSaved || !indexSaved) {
+                await rollbackPost();
+                return { ok: false, reason: 'persistence-failed' };
+            }
         }
     }
 
@@ -2036,9 +2051,11 @@ export default {
                                                 ? 'You no longer have permission to repost this embed in the original channel.'
                                                 : reposted.reason === 'channel-missing'
                                                     ? 'The original channel is no longer available.'
-                                                    : reposted.reason === 'persistence-failed'
-                                                        ? 'Cloudy could not save the new message reference, so the repost was rolled back.'
-                                                        : 'The embed could not be reposted right now.',
+                                                    : reposted.reason === 'reappear-persistence-failed'
+                                                        ? 'Cloudy could not update the linked Reappear rule, so the repost was rolled back.'
+                                                        : reposted.reason === 'persistence-failed'
+                                                            ? 'Cloudy could not save the new message reference, so the repost was rolled back.'
+                                                            : 'The embed could not be reposted right now.',
                                         )
                                         .setColor(getColor('error'))],
                                     flags: MessageFlags.Ephemeral,
