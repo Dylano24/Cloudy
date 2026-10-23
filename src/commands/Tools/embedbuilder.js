@@ -46,6 +46,7 @@ import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { applyInitialSearchSelectionToState,
     openEmbedManager,
     prepareEmbedManager,
+    repostDetachedEmbed,
     saveModifiedEmbed,
     syncBuilderLogoFromLiveMessage } from '../../services/embedManagerService.js';
 import {
@@ -718,7 +719,11 @@ async function postBuiltMessage(channel, state, guild, member) {
         // may add missing footer text, but must not re-add an intentionally
         // absent C on this new owner-authored embed.
         const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload));
-        await registerCloudyEmbedMessage(sent, 'embed-builder');
+        const registered = await registerCloudyEmbedMessage(sent, 'embed-builder');
+        if (!registered) {
+            await sent.delete().catch(() => {});
+            return { ok: false, reason: 'persistence-failed' };
+        }
         if (state.reappearAfter) {
             const reappearKey = `cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`;
             await setInDb(reappearKey, {
@@ -862,7 +867,7 @@ export function buildControls(state) {
             .setEmoji('🔁'),
     );
 
-    const saveRow = new ActionRowBuilder().addComponents(
+    const saveButtons = [
         new ButtonBuilder()
             .setCustomId('simple_embed_post')
             .setLabel(state.pendingBuilderDelete
@@ -887,7 +892,19 @@ export function buildControls(state) {
             .setStyle(state.pendingBuilderDelete ? ButtonStyle.Secondary : ButtonStyle.Danger)
             .setEmoji(state.pendingBuilderDelete ? '↩️' : '🗑️')
             .setDisabled(!state.modifyTarget),
-    );
+    ];
+
+    if (state.modifyTarget?.detached && state.modifyTarget?.source === 'embed-builder') {
+        saveButtons.push(
+            new ButtonBuilder()
+                .setCustomId('simple_embed_repost')
+                .setLabel('Repost')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('📤'),
+        );
+    }
+
+    const saveRow = new ActionRowBuilder().addComponents(...saveButtons);
 
     return [titleRow, logoRow, contentRow, editRow, saveRow];
 }
@@ -1625,8 +1642,10 @@ async function postMessage(buttonInteraction, state, guild) {
         const posted = await postBuiltMessage(channel, state, guild, channelInteraction.member).catch(() => ({ ok: false }));
         if (!posted.ok) {
             await replyUserError(channelInteraction, {
-                type: ErrorTypes.PERMISSION,
-                message: `I need permission to post embeds in ${channel}.`,
+                type: posted.reason === 'persistence-failed' ? ErrorTypes.UNKNOWN : ErrorTypes.PERMISSION,
+                message: posted.reason === 'persistence-failed'
+                    ? 'The message could not be saved permanently, so it was not kept in the channel. Please try again.'
+                    : `I need permission to post embeds in ${channel}.`,
             });
             return;
         }
@@ -2001,6 +2020,43 @@ export default {
                             await buttonInteraction.deferUpdate().catch(() => {});
                             await togglePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
                             break;
+                        case 'simple_embed_repost': {
+                            await buttonInteraction.deferUpdate().catch(() => {});
+                            const reposted = await repostDetachedEmbed(
+                                interaction.guild,
+                                state,
+                                buttonInteraction.member,
+                            );
+                            if (!reposted.ok) {
+                                const failure = await buttonInteraction.followUp({
+                                    embeds: [new EmbedBuilder()
+                                        .setTitle('Something went wrong')
+                                        .setDescription(
+                                            reposted.reason === 'permission-denied'
+                                                ? 'You no longer have permission to repost this embed in the original channel.'
+                                                : reposted.reason === 'channel-missing'
+                                                    ? 'The original channel is no longer available.'
+                                                    : reposted.reason === 'persistence-failed'
+                                                        ? 'Cloudy could not save the new message reference, so the repost was rolled back.'
+                                                        : 'The embed could not be reposted right now.',
+                                        )
+                                        .setColor(getColor('error'))],
+                                    flags: MessageFlags.Ephemeral,
+                                    fetchReply: true,
+                                }).catch(() => null);
+                                if (failure) removeTransientMessage(buttonInteraction, failure);
+                                break;
+                            }
+
+                            const confirmation = await buttonInteraction.followUp({
+                                embeds: [successEmbed('Message reposted', `The embed was reposted to ${reposted.channel} and saved automatically.`)],
+                                flags: MessageFlags.Ephemeral,
+                                fetchReply: true,
+                            }).catch(() => null);
+                            if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
+                            await refreshBuilder(buttonInteraction, state);
+                            break;
+                        }
                         case 'simple_embed_close':
                             await buttonInteraction.deferUpdate().catch(() => {});
                             await deleteBuilderDashboardMessage(state).catch(() => {});
