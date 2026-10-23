@@ -962,7 +962,7 @@ export function buildEmbedPayload(guild, records, channelId, page = 0) {
                 const description = record.detached
                     ? 'Message missing. Repost available'
                     : isTemplate
-                        ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
+                        ? `Edit this template. Applies to ${record.templateCount || 1} matching embed(s)`
                         : 'Edit this embed';
                 const option = new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(displayName, 'Embed'))
