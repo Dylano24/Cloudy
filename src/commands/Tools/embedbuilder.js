@@ -706,9 +706,16 @@ async function postBuiltMessage(channel, state, guild, member) {
     const sentMessages = [];
 
     const rollbackPost = async () => {
-        for (const sent of [...sentMessages].reverse()) {
-            await purgeEmbedRegistryRecord(guild.id, sent.channelId, sent.id, 0).catch(() => {});
-            await sent.delete().catch(() => {});
+        for (const entry of [...sentMessages].reverse()) {
+            if (entry.registered) {
+                await purgeEmbedRegistryRecord(
+                    guild.id,
+                    entry.message.channelId,
+                    entry.message.id,
+                    0,
+                ).catch(() => {});
+            }
+            await entry.message.delete().catch(() => {});
         }
     };
 
@@ -727,14 +734,21 @@ async function postBuiltMessage(channel, state, guild, member) {
         // Publish this exact Builder choice. The general Cloudy footer policy
         // may add missing footer text, but must not re-add an intentionally
         // absent C on this new owner-authored embed.
-        const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload));
-        sentMessages.push(sent);
+        const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload)).catch(() => null);
+        if (!sent) {
+            await rollbackPost();
+            return { ok: false, reason: 'send-failed' };
+        }
+
+        const sentEntry = { message: sent, registered: false };
+        sentMessages.push(sentEntry);
 
         const registered = await registerCloudyEmbedMessage(sent, 'embed-builder');
         if (!registered) {
             await rollbackPost();
             return { ok: false, reason: 'persistence-failed' };
         }
+        sentEntry.registered = true;
         if (state.reappearAfter) {
             const reappearKey = `cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`;
             const ruleSaved = await setInDb(reappearKey, {
