@@ -6,7 +6,7 @@ import {
     isLegacyBalanceParserArtifact } from './balanceResponseIdentity.js';
 import { normalizeManualIndent } from '../utils/manualEmbedIndent.js';
 import { stampTermsFooterOnSave } from './termsWebsiteFooterService.js';
-import { withManualBuilderSaveLogoChoice } from '../utils/cloudyFooter.js';
+import { withManualBuilderPostLogoChoice, withManualBuilderSaveLogoChoice } from '../utils/cloudyFooter.js';
 import { isBuilderSessionMessage, linkBuilderSessionMessages, registerBuilderSessionCollector, touchBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import {
     ActionRowBuilder,
@@ -28,6 +28,7 @@ import {
     getEmbedRegistryGeneration,
     getEmbedRegistrySnapshot,
     reconcileEmbedRegistry,
+    relinkDetachedEmbedRegistryMessage,
     updateDetachedEmbedRegistrySnapshot,
     registerCloudyEmbedMessage,
     resolveEmbedRegistryRecord,
@@ -953,9 +954,11 @@ export function buildEmbedPayload(guild, records, channelId, page = 0) {
                 const name = recordName(record) || record.name || 'Embed';
                 const isTemplate = Boolean(record.templateMode);
                 const displayName = isTemplate ? record.name : stripCustomEmojiMarkup(name);
-                const description = isTemplate
-                    ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
-                    : 'Edit this embed';
+                const description = record.detached
+                    ? 'Message missing. Repost available'
+                    : isTemplate
+                        ? `Edit this template • applies to ${record.templateCount || 1} matching embed(s)`
+                        : 'Edit this embed';
                 const option = new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(displayName, 'Embed'))
                     .setDescription(description.slice(0, 100))
@@ -1161,6 +1164,7 @@ export function loadRecordSnapshotIntoState(
         detached: Boolean(record.detached),
         cachedMessage: null,
     };
+    loadBuilderComponentsFromRecord(state, record);
     return true;
 }
 
@@ -1373,9 +1377,10 @@ function managerRecordKey(record) {
 }
 
 export function isEmbedManagerVisibleRecord(record, { includeBotHistory = true } = {}) {
-    if (!record?.messageId || record.detached) return false;
+    if (!record?.messageId) return false;
 
     const source = String(record.source || '').toLowerCase();
+    if (record.detached && source !== 'embed-builder') return false;
 
     // Full runtime/history capture belongs to Search. The channel browser may
     // show those records only after live reconciliation has confirmed them.
@@ -2266,6 +2271,75 @@ function queueMatchingTemplatePeerUpdate(guild, stateSnapshot, targetSnapshot, c
     });
 }
 
+export async function repostDetachedEmbed(guild, state, member = null) {
+    const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
+    await flushPendingEmbedEditorUpdates(state?.colorSessionToken);
+
+    const target = state?.modifyTarget;
+    if (!guild || !target?.detached || target.source !== 'embed-builder') {
+        return { ok: false, reason: 'missing-detached-target' };
+    }
+
+    const channelId = String(target.backingChannelId || target.channelId || '');
+    const channel = guild.channels.cache.get(channelId)
+        || await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel?.send) return { ok: false, reason: 'channel-missing' };
+    if (member && !canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) {
+        return { ok: false, reason: 'permission-denied' };
+    }
+
+    const current = applyStateToExistingEmbed(state);
+    if (getEmbedsTextLength([current]) > DISCORD_EMBED_TOTAL_TEXT_LIMIT) {
+        return { ok: false, reason: 'embed-too-large' };
+    }
+
+    const components = getBuilderMessageComponents(state);
+    const payload = {
+        embeds: [current],
+        ...(components.length ? { components } : {}),
+    };
+
+    const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload)).catch(error => {
+        logger.error('Failed to repost detached Builder embed:', error);
+        return null;
+    });
+    if (!sent) return { ok: false, reason: 'send-failed' };
+
+    const relinked = await relinkDetachedEmbedRegistryMessage(guild.id, target, sent);
+    if (!relinked) {
+        await sent.delete().catch(() => {});
+        return { ok: false, reason: 'persistence-failed' };
+    }
+
+    const sourceEmbedData = sent.embeds?.[0]?.toJSON?.() || current;
+    state.modifyTarget = {
+        ...target,
+        channelId: String(target.channelId || channel.id),
+        backingChannelId: String(channel.id),
+        messageId: String(sent.id),
+        embedIndex: 0,
+        sourceEmbedData,
+        previewSourceData: { ...sourceEmbedData },
+        liveLogoSource: {
+            channelId: String(channel.id),
+            messageId: String(sent.id),
+            embedIndex: 0,
+        },
+        detached: false,
+        cachedMessage: sent,
+    };
+    state.componentRows = components;
+    state.componentRowsSourceMessageId = String(sent.id);
+    state.componentsDirty = false;
+    state.logoTouched = false;
+
+    return {
+        ok: true,
+        channel,
+        message: sent,
+    };
+}
+
 export async function saveModifiedEmbed(guild, state) {
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
@@ -2286,7 +2360,12 @@ export async function saveModifiedEmbed(guild, state) {
             return { ok: false, reason: 'embed-too-large' };
         }
 
-        const persisted = await updateDetachedEmbedRegistrySnapshot(guild.id, target, current);
+        const persisted = await updateDetachedEmbedRegistrySnapshot(
+            guild.id,
+            target,
+            current,
+            getBuilderMessageComponents(state),
+        );
         if (!persisted) return { ok: false, reason: 'persistence-failed', discordUpdated: true };
 
         state.modifyTarget.sourceEmbedData = current;
