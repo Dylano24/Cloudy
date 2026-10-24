@@ -467,13 +467,21 @@ function builderSearchDisplayRecords(records) {
 export function latestRealPreviewRecord(guild, records, selectedRecord) {
     if (!selectedRecord) return null;
     if (selectedRecord.previewRecord) return selectedRecord.previewRecord;
+
     const selectedDocument = recordDocument(guild, selectedRecord);
-    const key = logicalKey(selectedRecord, selectedDocument);
+    const selectedIdentity = exactAutomatedSearchIdentity(selectedRecord, selectedDocument);
 
     return records
-        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog')
-        .filter(record => logicalKey(record, recordDocument(guild, record)) === key)
+        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog' && !record?.detached)
+        .filter(record => {
+            const document = recordDocument(guild, record);
+            const identity = exactAutomatedSearchIdentity(record, document);
+            return Boolean(selectedIdentity && identity && selectedIdentity === identity)
+                || compatibleSearchShape(selectedRecord, record, selectedDocument, document);
+        })
         .sort((left, right) => {
+            const completeness = searchRecordCompleteness(left) - searchRecordCompleteness(right);
+            if (completeness) return completeness;
             const leftTime = new Date(left?.updatedAt || left?.createdAt || 0).getTime();
             const rightTime = new Date(right?.updatedAt || right?.createdAt || 0).getTime();
             return leftTime - rightTime;
@@ -662,6 +670,28 @@ function mergeCompatibleCatalogPeers(matches) {
         merged[index] = mergeCompatibleSearchMatch(merged[index], match);
     }
     return merged;
+}
+
+function completeSelectedSearchRecord(guild, records, selectedRecord) {
+    let selected = {
+        record: selectedRecord,
+        document: recordDocument(guild, selectedRecord),
+        score: 0,
+    };
+
+    for (const candidate of builderSearchDisplayRecords(records)) {
+        if (candidate === selectedRecord
+            || (String(candidate?.channelId) === String(selectedRecord?.channelId)
+                && String(candidate?.messageId) === String(selectedRecord?.messageId)
+                && Number(candidate?.embedIndex || 0) === Number(selectedRecord?.embedIndex || 0))) {
+            continue;
+        }
+        const document = recordDocument(guild, candidate);
+        if (!compatibleSearchShape(selected.record, candidate, selected.document, document)) continue;
+        selected = mergeCompatibleSearchMatch(selected, { record: candidate, document, score: 0 });
+    }
+
+    return selected.record;
 }
 
 export function buildMatches(guild, records, query) {
@@ -1004,15 +1034,16 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             const records = filterEmbedBuilderRecords(interaction.guild, interaction.member,
                 mergeSearchRecords(interaction.guildId, registryRecords), { requireSend: true });
             const displayRecords = builderSearchDisplayRecords(records);
-            const record = displayRecords.find(item =>
+            const selectedRecord = displayRecords.find(item =>
                 String(item.channelId) === selected.channelId
                 && String(item.messageId) === selected.messageId
                 && Number(item.embedIndex || 0) === selected.embedIndex,
             );
-            if (record) {
-                // Search must open the exact same complete preview that Modify
-                // would use for this canonical group. Never fall back to a
-                // sparse catalog row when a fuller live/source peer exists.
+            if (selectedRecord) {
+                const record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
+                // Search must open the complete compatible preview for this
+                // response type, while never borrowing data from another
+                // same-title response with different content.
                 const groupedPreview = record.previewRecord
                     || latestRealPreviewRecord(interaction.guild, records, record)
                     || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
