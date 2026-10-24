@@ -238,3 +238,76 @@ test('Search report results remove runtime case numbers and technical channel na
   assert.deepEqual(choices.map(choice => choice.name), ['New report']);
   assert.ok(choices.every(choice => !/botlog|report-logs|#17|(2)|Variant/i.test(choice.name)));
 });
+
+
+test('Fix Guide Search prefers the complete live panel over transient AI answer templates', () => {
+  const guild = {
+    channels: {
+      cache: new Map([['1546229542027534478', {
+        id: '1546229542027534478',
+        name: 'staff-assistant',
+        parent: null,
+      }]]),
+    },
+  };
+
+  const livePanel = {
+    guildId: 'fix-guide-guild',
+    channelId: '1546229542027534478',
+    messageId: '1554543233047199787',
+    embedIndex: 0,
+    source: 'bot-history',
+    snapshot: {
+      title: 'Cloudy Assistant • Fix Guide',
+      description: 'Ask Cloudy anything, from technical Cloudy problems and bot errors to programming, troubleshooting, research and current information.\n\nIn this Owner Fix Guide, Cloudy can automatically use relevant history from server channels that both you and the bot are allowed to read.\n\n**How to use:** Click **❔ Ask** below and describe exactly what you want to know or fix.',
+      footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+    },
+    components: [{
+      components: [{ custom_id: 'cloudy_fix_guide_ask', label: 'Ask', style: 2 }],
+    }],
+  };
+
+  const transientAnswer = {
+    guildId: 'fix-guide-guild',
+    channelId: 'catalog',
+    messageId: '200000000000000001',
+    embedIndex: 0,
+    source: 'system-catalog',
+    snapshot: {
+      title: 'Cloudy Fix Guide',
+      description: '{dynamic}',
+      author: {
+        name: 'Cloudy template key: source:fix-guide-answer || Cloudy context: owner-assistant/answer',
+      },
+    },
+  };
+
+  const matches = buildMatches(guild, [transientAnswer, livePanel], 'fix guide');
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].record.messageId, livePanel.messageId);
+  assert.equal(matches[0].record.snapshot.description, livePanel.snapshot.description);
+  assert.equal(matches[0].record.components[0].components[0].custom_id, 'cloudy_fix_guide_ask');
+  assert.equal(matches[0].document.title, 'Cloudy Assistant Fix Guide');
+});
+
+test('Removed from Builder Search keeps the real commercial name and supports direct lookup', () => {
+  const guild = { channels: { cache: new Map() } };
+  const removed = {
+    guildId: 'builder-delete-guild',
+    channelId: '999',
+    messageId: '100000000000000099',
+    embedIndex: 0,
+    source: 'system-catalog',
+    snapshot: {
+      title: 'Removed from Builder',
+      description: 'The stale record and its Reappear rule were removed from the Embed Builder.',
+      author: {
+        name: 'Cloudy template key: builder:removed || Cloudy context: embed-builder/delete || Cloudy kind: embed',
+      },
+    },
+  };
+
+  const matches = buildMatches(guild, [removed], 'removed from builder');
+  assert.equal(matches.length, 1);
+  assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), ['Removed from Builder']);
+});
