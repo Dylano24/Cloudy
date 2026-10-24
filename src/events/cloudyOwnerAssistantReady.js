@@ -7,6 +7,7 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
+import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 
 export const FIX_GUIDE_CHANNEL_ID = '1546229542027534478';
 export const FIX_GUIDE_ASK_BUTTON_ID = 'cloudy_fix_guide_ask';
@@ -41,11 +42,37 @@ function buildPanel() {
   };
 }
 
+function fixGuideComponents(message) {
+  return (message?.components || []).flatMap(row => row?.components || []);
+}
+
+export function isFixGuidePanelComponentContractSafe(message, clientUserId) {
+  if (message?.author?.id !== clientUserId) return false;
+  const components = fixGuideComponents(message);
+  return components.length === 1
+    && components[0]?.customId === FIX_GUIDE_ASK_BUTTON_ID;
+}
+
 function isAssistantPanel(message, clientUserId) {
   return message.author?.id === clientUserId && (
     message.components?.some(row => row.components?.some(component => component.customId === FIX_GUIDE_ASK_BUTTON_ID))
     || message.embeds?.some(embed => embed.title === PANEL_TITLE)
   );
+}
+
+async function repairFixGuideComponents(message, payload, clientUserId) {
+  if (!message || isFixGuidePanelComponentContractSafe(message, clientUserId)) return message;
+  try {
+    return await message.edit({ components: payload.components }) || message;
+  } catch (error) {
+    logger.error('[OWNER_ASSISTANT] Failed to repair FIX-GUIDE components:', {
+      guildId: message?.guildId,
+      channelId: message?.channelId,
+      messageId: message?.id,
+      error: error?.message || String(error),
+    });
+    return null;
+  }
 }
 
 export default {
@@ -75,9 +102,19 @@ export default {
         panelMessage = recent?.find(message => isAssistantPanel(message, client.user.id)) || null;
       }
 
+      const panelPayload = buildPanel();
       panelMessage = panelMessage
-        ? panelMessage
-        : await channel.send(buildPanel());
+        ? await repairFixGuideComponents(panelMessage, panelPayload, client.user.id)
+        : await channel.send(panelPayload);
+
+      if (!panelMessage) {
+        panelMessage = await channel.send(panelPayload);
+      }
+
+      // Existing panels do not emit MessageCreate after a restart. Re-register
+      // the live message explicitly so Search and channel Modify always share
+      // the same complete snapshot and component rows.
+      await registerCloudyEmbedMessage(panelMessage, 'bot-history');
 
       if (client.db?.set) await client.db.set(panelStateKey(channel.id), panelMessage.id).catch(() => {});
       logger.warn(`[OWNER_ASSISTANT] FIX-GUIDE panel ready in channel ${channel.id}`);
