@@ -1821,6 +1821,8 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         let lastHistoryPaint = 0;
                         void discoverMissingChannelEmbeds(
                             guild, channelId, buttonInteraction.client.user.id, {
+                                shouldContinue: () => selectionVersion === session.selectionVersion
+                                    && !session.closed && state.activeEmbedManager === session,
                                 onBatch: async batch => {
                                     if (selectionVersion !== session.selectionVersion
                                         || session.closed || state.activeEmbedManager !== session) return;
