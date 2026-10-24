@@ -170,7 +170,8 @@ test('discovery promotes ticket logs only inside the configured log destinations
   const liveRecords = await discoverRecentChannelEmbeds(guild, liveTicketChannelId, 'cloudy-bot');
 
   assert.equal(logRecords[0].source, 'ticket-log');
-  assert.equal(liveRecords[0].source, 'embed-builder');
+  assert.deepEqual(liveRecords, [],
+    'ticket lifecycle notices outside the configured log channel are not explicit Builder posts');
 
   const payload = buildEmbedPayload(guild, logRecords, logChannelId, 0);
   const option = payload.components[0].toJSON().components[0].options[0];

@@ -1255,9 +1255,18 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     const runtimePreview = await hydrateBuilderPreviewRecord(
         interaction.guild, record, groupedPreview, interaction.user.id,
     ).catch(() => groupedPreview);
-    const previewRecord = runtimePreview
-        ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
-        : null;
+    // An explicit Save already holds the authoritative full snapshot and
+    // component rows. Do not wait up to 650ms for a redundant Discord fetch
+    // before its Builder preview becomes visible; normal live records still
+    // validate/fetch as before.
+    const savedManualSnapshot = record.source === 'embed-builder'
+        && record.manualSaved === true && record.snapshot
+        && Array.isArray(record.components);
+    const previewRecord = savedManualSnapshot
+        ? record
+        : (runtimePreview
+            ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
+            : null);
     // Manual Builder controls are loaded from the selected record. If the live
     // read found newer buttons on that exact message, keep them in the draft.
     if (record.source === 'embed-builder' && previewRecord
