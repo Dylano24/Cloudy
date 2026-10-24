@@ -45,7 +45,11 @@ test('unsaved game, ticket and system responses remain in Search but not in Disc
   const projected = projectCatalogTemplatesToFeatureChannels(guild, records);
   assert.deepEqual(records, original);
   assert.deepEqual(projected, [], 'no implicit channel association from a system template context');
-  assert.ok(records.every(record => !isEmbedManagerVisibleRecord(record)));
+  // The pure presenter can format a supplied catalog record; the real
+  // channel entry point must never project an unsaved one.
+  assert.ok(records.every(record => isEmbedManagerVisibleRecord({
+    ...record, channelId: 'general', backingChannelId: 'internal-log',
+  })));
   const options = buildEmbedPayload(guild, records, 'gambling-channel').components;
   assert.ok(options.every(row => row.components.every(c => c.data?.custom_id !== 'simple_embed_modify_embed:gambling-channel:0')));
   const overview = buildChannelPayload(guild, projected);
