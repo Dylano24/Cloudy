@@ -723,10 +723,14 @@ export function getSearchableSystemCatalogRecords(guildId) {
     }));
 }
 
-export async function removeSystemEmbedCatalogMessage(guildId, messageId) {
+export async function removeSystemEmbedCatalogMessage(guildId, channelId, messageId) {
   const guild = String(guildId || '').trim();
+  const channel = String(channelId || '').trim();
   const message = String(messageId || '').trim();
-  if (!guild || !message) return false;
+  if (!guild || !channel || !message) return false;
+
+  const context = contexts.get(guild);
+  if (context?.channel?.id && String(context.channel.id) !== channel) return false;
 
   const prefix = `${guild}:${message}:`;
   let removed = false;
