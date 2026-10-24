@@ -26,7 +26,7 @@ export default {
         await Promise.all([
           removeEmbedRegistryMessage(message.guild.id, message.channelId, message.id)
             .catch(error => logger.warn(`Failed to remove deleted message ${message.id} from the embed registry:`, error)),
-          removeSystemEmbedCatalogMessage(message.guild.id, message.id)
+          removeSystemEmbedCatalogMessage(message.guild.id, message.channelId, message.id)
             .catch(error => logger.warn(`Failed to invalidate deleted system catalog message ${message.id}:`, error)),
         ]);
       }
