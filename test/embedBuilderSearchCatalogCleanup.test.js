@@ -216,7 +216,18 @@ test('removing a system-catalog entry persists a Builder-only hide without delet
   assert.equal(buildMatches(guildWith('111111111111111111'), [item], 'ping').length, 1);
   assert.equal(await hideSystemCatalogFromBuilder(guildId, { ...item, sourceEmbedData: item.snapshot }), true);
   assert.equal(isSystemCatalogHiddenFromBuilder(item), true);
-  assert.equal(buildMatches(guildWith('111111111111111111'), [item], 'ping').length, 0);
+  const olderPing = {
+    ...item,
+    messageId: '333333333333333333',
+    snapshot: {
+      ...item.snapshot,
+      description: 'Bot latency: 88ms',
+      author: { name: 'Cloudy template key: source:older-ping || Cloudy context: core/ping || Cloudy kind: embed' },
+    },
+  };
+  assert.equal(isSystemCatalogHiddenFromBuilder(olderPing), true,
+    'deleting one Ping result must not expose an older catalog copy');
+  assert.equal(buildMatches(guildWith('111111111111111111'), [item, olderPing], 'ping').length, 0);
   assert.ok(data.has('cloudy:embed-builder-hidden-catalog:' + guildId),
     'visibility preference must be stored durably, not only removed from the in-memory Search list');
   assert.equal(item.snapshot.description, 'Bot latency: 99ms', 'runtime definition remains untouched');
