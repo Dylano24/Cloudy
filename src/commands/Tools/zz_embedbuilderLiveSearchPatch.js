@@ -563,8 +563,7 @@ function isTransientAssistantCatalogRecord(record) {
     if (hasInteractiveComponents(record)) return false;
 
     const title = normalize(rawRecordTitle(record));
-    return /^cloudy fix guide(?:\s+\d+)?$/.test(title)
-        || title === 'cloudy support assistant';
+    return /^cloudy fix guide(?:\s+\d+)?$/.test(title);
 }
 
 function builderSearchDisplayRecords(records) {
