@@ -4,6 +4,9 @@ import path from 'node:path';
 const SOURCE_ROOT = path.resolve(process.cwd(), 'src');
 const MAX_FILE_SIZE = 1_000_000;
 const SKIPPED_FILES = new Set([
+  'embedbuilder.js',
+  '00_embedbuilderSearchSchemaPatch.js',
+  'zz_embedbuilderLiveSearchPatch.js',
   'embedManagerService.js',
   'embedDefinitionDiscoveryService.js',
   'embedTemplateService.js',
