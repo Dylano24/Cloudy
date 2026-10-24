@@ -73,7 +73,7 @@ test('Search merges direct system catalog records through the complete Search lo
   assert.match(source, /filterEmbedBuilderSearchRecords\(/);
 });
 
-test('Deleted from Builder remains backed by the Builder deletion catalog response', () => {
+test('Removed from Builder remains backed by the Builder deletion catalog response', () => {
   const source = fs.readFileSync('src/services/systemEmbedCatalogService.js', 'utf8');
   assert.match(source, /title: 'Removed from Builder'/);
   assert.match(source, /context: 'embed-builder\/delete'/);
@@ -140,7 +140,7 @@ test('Builder Search presents commercial sentence-case names without source plac
   assert.equal(commercialBuilderTitle('New report #17'), 'New report');
   assert.equal(commercialBuilderTitle('Report case 42'), 'Report case');
   assert.equal(commercialBuilderTitle('Botlog • Permission Denied'), 'Permission denied');
-  assert.equal(commercialBuilderTitle('Removed from Builder'), 'Deleted from Builder');
+  assert.equal(commercialBuilderTitle('Removed from Builder'), 'Removed from Builder');
 });
 
 test('Builder Search does not expose bullets, technical channel slugs, duplicate suffixes or Variant labels', () => {
@@ -190,7 +190,7 @@ test('Builder Search collapses source-discovery duplicates with the same respons
 });
 
 
-test('Deleted from Builder is discoverable through the commercial Search name', () => {
+test('Removed from Builder is discoverable through the commercial Search name', () => {
   const guild = { channels: { cache: new Map() } };
   const record = {
     guildId: 'builder-delete-guild',
@@ -209,7 +209,7 @@ test('Deleted from Builder is discoverable through the commercial Search name', 
 
   const matches = buildMatches(guild, [record], 'deleted from builder');
   assert.equal(matches.length, 1);
-  assert.equal(matches[0].document.title, 'Deleted from Builder');
+  assert.equal(matches[0].document.title, 'Removed from Builder');
 });
 
 test('Search report results remove runtime case numbers and technical channel names', () => {
