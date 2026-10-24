@@ -152,6 +152,54 @@ function humanizeDynamicTitle(value) {
     return possessive?.[1] ? clean(possessive[1], 100) : text;
 }
 
+const BUILDER_DISPLAY_TERMS = new Map([
+    ['discord', 'Discord'], ['cloudy', 'Cloudy'], ['rust', 'Rust'],
+    ['api', 'API'], ['id', 'ID'], ['url', 'URL'], ['faq', 'FAQ'],
+    ['dm', 'DM'], ['ai', 'AI'], ['xp', 'XP'], ['vip', 'VIP'],
+    ['2fa', '2FA'], ['oauth', 'OAuth'], ['paypal', 'PayPal'],
+    ['builder', 'Builder'], ['reappear', 'Reappear'],
+]);
+
+export function commercialBuilderTitle(value) {
+    const raw = clean(value, 100);
+    if (!raw) return '';
+
+    const visible = raw
+        .replace(/\p{Extended_Pictographic}/gu, ' ')
+        .replace(/[\uFE0F\u200D]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    // Runtime placeholders are source-discovery metadata, not administrator copy.
+    if (/^rolling\b.*\{dynamic\}/i.test(visible)) return 'Rolling dice';
+
+    let text = visible
+        .replace(/<a?:[^:>]+:\d+>/g, ' ')
+        .replace(/<[@#&!]?\d+>/g, ' ')
+        .replace(/\{dynamic\}/gi, ' ')
+        .replace(/[•·|]+/g, ' ')
+        .replace(/[*_`~>#]+/g, ' ')
+        .replace(/[-_–—]+/g, ' ')
+        .replace(/\brandomuser\b/gi, 'random user')
+        .replace(/\brole\s*selector\b/gi, 'role selector')
+        .replace(/\bbot\s*log\b/gi, 'bot log')
+        .replace(/\breport\s*logs?\b/gi, 'report logs')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([:;,.!?])/g, '$1')
+        .replace(/^[\s:;,.!?]+/g, '')
+        .replace(/[\s:;]+$/g, '')
+        .trim();
+
+    if (!text) return '';
+    text = text.toLowerCase();
+    for (const [term, display] of BUILDER_DISPLAY_TERMS) {
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        text = text.replace(new RegExp('\\b' + escaped + '\\b', 'gi'), display);
+    }
+    text = text.charAt(0).toUpperCase() + text.slice(1);
+    return clean(text, 100);
+}
+
 function isTechnicalVisibleName(value) {
     const text = clean(value, 100);
     return /^cloudy template key:/i.test(text)
@@ -159,7 +207,7 @@ function isTechnicalVisibleName(value) {
         || /^(?:game|ticket-log):[a-z0-9:_-]+$/i.test(text);
 }
 
-export function recordTitle(record) {
+function rawRecordTitle(record) {
     const data = snapshot(record);
     const candidates = [record?.previewRecord ? record?.name : null, data?.title, record?.name, record?.title]
         .map(value => clean(value, 100))
@@ -187,6 +235,10 @@ export function recordTitle(record) {
     if (authorName && !isTechnicalVisibleName(authorName)) return authorName;
 
     return '';
+}
+
+export function recordTitle(record) {
+    return commercialBuilderTitle(rawRecordTitle(record));
 }
 
 function recordDocument(guild, record) {
@@ -467,8 +519,9 @@ function exactAutomatedSearchIdentity(record, document = null) {
     if (source === 'embed-builder') return '';
 
     const stableContext = stableSearchTemplateContext(record);
+    const sourceTitle = rawRecordTitle(record);
     const definition = getSystemSourceDefinitionPreview(
-        recordTitle(record),
+        sourceTitle,
         stableContext || searchContext(record, document),
     );
     const shape = definition
@@ -480,7 +533,7 @@ function exactAutomatedSearchIdentity(record, document = null) {
         // decoration are not separate Search items. Meaningful text/fields are.
         return [
             definition ? 'definition' : 'visible',
-            normalize(recordTitle(record)),
+            normalize(sourceTitle),
             JSON.stringify(shape),
         ].join(':');
     } catch {
@@ -537,10 +590,15 @@ export function buildMatches(guild, records, query) {
 function cleanChoiceText(value, max = 48) {
     return clean(
         String(value || '')
-            .replace(/<a?:[^:>]+:\d+>/g, '')
-            .replace(/<[@#&!]?\d+>/g, '')
-            .replace(/\{dynamic\}/gi, '…')
-            .replace(/[*_`~>|#]+/g, ' '),
+            .replace(/\p{Extended_Pictographic}/gu, ' ')
+            .replace(/[\uFE0F\u200D]/g, ' ')
+            .replace(/<a?:[^:>]+:\d+>/g, ' ')
+            .replace(/<[@#&!]?\d+>/g, ' ')
+            .replace(/\{dynamic\}/gi, ' ')
+            .replace(/[•·|]+/g, ' ')
+            .replace(/[-_–—]+/g, ' ')
+            .replace(/[*_`~>#]+/g, ' ')
+            .replace(/\s+/g, ' '),
         max,
     );
 }
@@ -565,8 +623,8 @@ function choiceDetail(match) {
         .find(Boolean);
     if (fieldValue && normalize(fieldValue) !== normalize(document.title)) return fieldValue;
 
-    const channelName = clean(document?.channel?.name, 30);
-    if (channelName) return `#${channelName}`;
+    const channelName = cleanChoiceText(document?.channel?.name, 30);
+    if (channelName) return channelName;
     return '';
 }
 
@@ -583,45 +641,36 @@ export function buildSearchChoices(matches) {
 
     return list.map(match => {
         const { record, document } = match;
-        const title = clean(document?.title || 'Embed', 100);
-        const titleKey = normalize(title);
-        const duplicateCount = titleCounts.get(titleKey) || 0;
+        const title = commercialBuilderTitle(document?.title || 'Embed') || 'Embed';
+        const duplicateCount = titleCounts.get(normalize(title)) || 0;
 
         let name = title;
         if (duplicateCount > 1) {
-            const channelName = clean(document?.channel?.name, 24);
-            const detail = choiceDetail(match);
-            const parts = [
-                title,
-                channelName ? `#${channelName}` : '',
-                detail && normalize(detail) !== normalize(channelName) ? detail : '',
-            ].filter(Boolean);
-
-            name = clean(parts.join(' • '), 100);
+            const channelName = cleanChoiceText(document?.channel?.name, 28);
+            const detail = commercialBuilderTitle(choiceDetail(match));
+            if (detail
+                && normalize(detail) !== normalize(channelName)
+                && normalize(detail) !== normalize(title)) {
+                name = clean(`${title}: ${detail}`, 100);
+            } else if (channelName) {
+                name = clean(`${title} in ${channelName}`, 100);
+            }
         }
 
         const baseName = name;
         const seen = usedNames.get(baseName) || 0;
         usedNames.set(baseName, seen + 1);
-
         if (seen > 0) {
-            name = clean(
-                `${baseName} • Variant ${seen + 1}`,
-                100,
-            );
-
-            let collision = usedNames.get(name) || 0;
-            while (collision > 0) {
-                name = clean(`${baseName} • Variant ${seen + collision + 1}`, 100);
-                collision = usedNames.get(name) || 0;
+            let suffix = seen + 1;
+            name = clean(`${baseName} (${suffix})`, 100);
+            while (usedNames.has(name)) {
+                suffix += 1;
+                name = clean(`${baseName} (${suffix})`, 100);
             }
             usedNames.set(name, 1);
         }
 
-        return {
-            name,
-            value: selectionValue(record),
-        };
+        return { name, value: selectionValue(record) };
     });
 }
 
