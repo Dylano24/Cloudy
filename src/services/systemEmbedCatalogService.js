@@ -549,6 +549,18 @@ function parseTemplateMetadata(embed) {
 function builderCatalogVisibilityId(record) {
   const data = record?.sourceEmbedData || record?.snapshot || record;
   if (!data) return null;
+
+  // One Ping action may have multiple historical catalog keys with different
+  // measurements. Hide the entire logical latency reply, not only one old row.
+  const pingTitle = normalize(data.title).replace(/[^a-z0-9]/g, '');
+  const pingFields = (Array.isArray(data.fields) ? data.fields : [])
+    .map(field => normalize(field?.name));
+  if (['ping', 'pong'].includes(pingTitle)
+      && (pingFields.some(name => /^(?:bot|api) latency$/.test(name))
+          || /\\b(?:bot|api) latency\\b/i.test(String(data.description || '')))) {
+    return 'command|ping|latency';
+  }
+
   const metadata = parseTemplateMetadata(data);
   if (!metadata.key) return null;
   return [metadata.kind || 'embed', metadata.context || '', metadata.key].join('|');
