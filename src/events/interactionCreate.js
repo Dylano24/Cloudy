@@ -22,6 +22,11 @@ import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
 import { enforceDefaultCommandPermissions } from '../utils/permissionGuard.js';
 import { scheduleTransientInteractionReplyDeletion } from '../utils/transientResponse.js';
+import { FAQ_AI_BUTTON_ID, FAQ_AI_MODAL_ID } from '../services/faqAiService.js';
+import {
+  FIX_GUIDE_ASK_BUTTON_ID,
+  FIX_GUIDE_ASK_MODAL_ID,
+} from './cloudyOwnerAssistantReady.js';
 
 const COMMAND_ERROR_SUBTYPES = {
   warn: 'warn_failed',
@@ -39,6 +44,14 @@ const COMMAND_ERROR_SUBTYPES = {
   greroll: 'giveaway_failed',
 };
 
+export function isDedicatedAssistantInteraction(interaction) {
+  const customId = String(interaction?.customId || '');
+  return customId === FAQ_AI_BUTTON_ID
+    || customId === FAQ_AI_MODAL_ID
+    || customId === FIX_GUIDE_ASK_BUTTON_ID
+    || customId === FIX_GUIDE_ASK_MODAL_ID;
+}
+
 function withTraceContext(context = {}, traceContext = {}) {
   return {
     traceId: traceContext.traceId,
@@ -52,6 +65,10 @@ function withTraceContext(context = {}, traceContext = {}) {
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
+    // Dedicated assistant interactions are handled by their own event listeners.
+    // Never allow the generic button/modal router to claim these reserved IDs.
+    if (isDedicatedAssistantInteraction(interaction)) return;
+
     // Cloudy feed interactions are handled by their own Owner-only event listener.
     if (interaction.customId?.startsWith('cloudyfeed:')) return;
     if (interaction.__ticketDashboardFastPathHandled) return;
