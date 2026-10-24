@@ -11,7 +11,7 @@ import { discoverEmbedDefinitions } from '../src/services/embedDefinitionDiscove
 import { buildGamblingGuideDescription, removeRetiredGamblingGuideCommand, isRetiredGamblingCommand } from '../src/config/gamblingCommands.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 import { createStickyGuideManager } from '../src/services/stickyGuideService.js';
-import { hydrateBuilderPreviewRecord } from '../src/services/builderRuntimePreviewService.js';
+import { hydrateBuilderPreviewRecord, rememberBuilderRuntimePreview } from '../src/services/builderRuntimePreviewService.js';
 
 function storage() {
   const values = new Map();
