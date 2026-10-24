@@ -18,6 +18,8 @@ import {
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
 const CATALOG_CONTENT = 'System & error embed templates';
 const MAX_EMBEDS_PER_MESSAGE = 10;
+// Discord rejects a message whose embeds together exceed 6000 characters.
+const MAX_EMBED_CHARS_PER_MESSAGE = 6000;
 const TEMPLATE_KEY_PREFIX = 'Cloudy template key:';
 const TEMPLATE_CONTEXT_SEPARATOR = ' || Cloudy context:';
 const TEMPLATE_KIND_SEPARATOR = ' || Cloudy kind:';
@@ -953,6 +955,19 @@ function catalogEntryIdentity(metadata, embed) {
   return cacheIdentity(semanticCatalogKey(metadata, embed), metadata.context);
 }
 
+function catalogEmbedCharacters(embeds) {
+  return embeds.reduce((total, embed) => {
+    const data = embed?.toJSON ? embed.toJSON() : (embed || {});
+    const fields = Array.isArray(data.fields) ? data.fields : [];
+    return total
+      + String(data.title || '').length
+      + String(data.description || '').length
+      + String(data.footer?.text || '').length
+      + String(data.author?.name || '').length
+      + fields.reduce((sum, field) => sum + String(field?.name || '').length + String(field?.value || '').length, 0);
+  }, 0);
+}
+
 function entryIdentity(entry) {
   const data = cloneData(entry.data);
   const canonical = getSystemEmbedTemplateKey(entry.kind, data.title, data.description, entry.context);
@@ -1177,16 +1192,43 @@ async function appendCatalogEntry(context, entry, messages) {
 
   let target = messages.at(-1) || null;
   let embeds = target ? target.embeds.map(embed => embed.toJSON()) : [];
-  if (!target || embeds.length >= MAX_EMBEDS_PER_MESSAGE) {
-    target = await context.channel.send({ content: CATALOG_CONTENT, embeds: [] }).catch(() => null);
-    if (!target) return false;
-    messages.push(target);
+  const entryData = cloneData(entry.data);
+  const startNewMessage = async () => {
+    const sent = await context.channel.send({ content: CATALOG_CONTENT, embeds: [] }).catch(() => null);
+    if (!sent) return false;
+    messages.push(sent);
+    target = sent;
     embeds = [];
+    return true;
+  };
+  if (!target
+    || embeds.length >= MAX_EMBEDS_PER_MESSAGE
+    || catalogEmbedCharacters([...embeds, entryData]) > MAX_EMBED_CHARS_PER_MESSAGE) {
+    if (!(await startNewMessage())) return false;
   }
 
-  embeds.push(new EmbedBuilder(entry.data));
-  const edited = await target.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
-  if (!edited) return false;
+  embeds.push(new EmbedBuilder(entryData));
+  let appendError = null;
+  let edited = await target.edit({ content: CATALOG_CONTENT, embeds }).catch(error => {
+    appendError = error;
+    return null;
+  });
+  if (!edited && embeds.length > 1) {
+    // The existing last catalog message could not take this entry (Discord
+    // limit, foreign author, stale message). A built-in response must never
+    // silently vanish from Search, so continue in a fresh catalog message.
+    logger.warn(`[EMBED_BUILDER] Catalog message ${target.id} refused entry ${entry.key}@${entry.context}; starting a new catalog message: ${appendError?.message || 'unknown error'}`);
+    if (!(await startNewMessage())) return false;
+    embeds.push(new EmbedBuilder(entryData));
+    edited = await target.edit({ content: CATALOG_CONTENT, embeds }).catch(error => {
+      appendError = error;
+      return null;
+    });
+  }
+  if (!edited) {
+    logger.warn(`[EMBED_BUILDER] Could not index catalog entry ${entry.key}@${entry.context}: ${appendError?.message || 'unknown error'}`);
+    return false;
+  }
   rememberCatalogMessage(edited);
 
   catalogEntries.add(identity);
