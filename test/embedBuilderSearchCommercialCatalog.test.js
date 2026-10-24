@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { performance } from 'node:perf_hooks';
 
 import {
   buildMatches,
   buildSearchChoices,
+  buildAutocompleteMatches,
 } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 function guildWithChannel(id = 'botlog', name = 'botlog') {
@@ -105,4 +107,44 @@ test('same automated response shown in different channels is still one Search re
   ], 'task removed');
 
   assert.equal(matches.length, 1);
+});
+
+test('autocomplete searches a 4,000-entry catalog without fully hydrating every match', () => {
+  const guild = guildWithChannel();
+  const catalog = Array.from({ length: 4000 }, (_, i) => automated({
+    id: String(i + 1),
+    source: 'system-catalog',
+    title: 'General notice ' + i,
+    description: 'Generic response ' + i,
+  }));
+  catalog.push(automated({ id: '5000', title: 'Ping!', description: 'Bot latency: 88ms', source: 'system-catalog' }));
+  catalog.push(automated({ id: '5001', title: 'Ping!', description: 'Bot latency: 99ms', source: 'system-catalog' }));
+  const started = performance.now();
+  const matches = buildAutocompleteMatches(guild, catalog, 'ping');
+  const elapsed = performance.now() - started;
+  assert.deepEqual(buildSearchChoices(matches).map(x => x.name), ['Ping!']);
+  assert.ok(elapsed < 1800, `Autocomplete catalog filtering took ${elapsed}ms`);
+});
+
+test('autocomplete finds a response whose title is generic but body names the requested action', () => {
+  const guild = guildWithChannel();
+  const catalog = Array.from({ length: 100 }, (_, i) => automated({
+    id: String(1000 + i), source: 'system-catalog', title: 'Unrelated notice ' + i,
+    description: 'Other unrelated response',
+  }));
+  catalog.push(automated({ id: '9999', title: 'Error', description: 'Appeal action service denied this request.', source: 'system-catalog' }));
+  const result = buildAutocompleteMatches(guild, catalog, 'appeal action');
+  assert.ok(result.some(x => x.record.messageId === '9999'));
+});
+
+test('autocomplete preserves a manually saved embed but excludes a non-saved draft', () => {
+  const guild = guildWithChannel();
+  const records = Array.from({ length: 100 }, (_, i) => automated({
+    id: String(i + 100), source: 'system-catalog', title: 'Filler ' + i,
+  }));
+  records.push({ ...automated({ id: 'saved', title: 'Builder policy', source: 'embed-builder' }), manualSaved: true });
+  records.push({ ...automated({ id: 'unsaved', title: 'Builder policy', source: 'embed-builder' }), manualSaved: false });
+  const matches = buildAutocompleteMatches(guild, records, 'builder policy');
+  assert.ok(matches.some(x => x.record.messageId === 'saved'));
+  assert.ok(!matches.some(x => x.record.messageId === 'unsaved'));
 });
