@@ -1572,10 +1572,16 @@ async function buildSystemEmbedCatalogs(client) {
 
   let totalAdded = 0;
 
+  const primaryGuildId = String(process.env.GUILD_ID || '').trim();
+
   for (const guild of client.guilds.cache.values()) {
     const channel = findCatalogChannel(guild);
     if (!channel?.messages?.fetch) {
-      logger.warn(`[EMBED_BUILDER] No botlog channel found in guild ${guild.id}; response catalog cannot be indexed.`);
+      const message = `[EMBED_BUILDER] No botlog channel found in guild ${guild.id}; response catalog cannot be indexed.`;
+      if (primaryGuildId && String(guild.id) === primaryGuildId) {
+        throw new Error(message);
+      }
+      logger.warn(message);
       continue;
     }
 
@@ -1612,11 +1618,14 @@ async function buildSystemEmbedCatalogs(client) {
         .slice(0, 12)
         .map(entry => `${entry.key}@${entry.context}`)
         .join(', ');
-      throw new Error(
-        `Embed Builder system catalog incomplete for guild ${guild.id}: `
+      const message = `Embed Builder system catalog incomplete for guild ${guild.id}: `
         + `${coverage.indexed}/${coverage.expected} built-in responses indexed`
-        + (missingNames ? ` (missing: ${missingNames})` : ''),
-      );
+        + (missingNames ? ` (missing: ${missingNames})` : '');
+
+      if (!primaryGuildId || String(guild.id) === primaryGuildId) {
+        throw new Error(message);
+      }
+      logger.warn(message);
     }
   }
 
