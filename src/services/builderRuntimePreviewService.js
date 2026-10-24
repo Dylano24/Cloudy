@@ -1,3 +1,4 @@
+import { getFromDb } from '../utils/database.js';
 import { removeRetiredGamblingGuideCommand } from '../config/gamblingCommands.js';
 import { buildDashboardEmbed } from '../commands/Economy/modules/economy_dashboard.js';
 import { buildEconomyLeaderboardEmbed } from '../commands/Economy/eleaderboard.js';
@@ -64,7 +65,9 @@ export async function hydrateBuilderPreviewRecord(guild, record, previewRecord, 
     return { ...record, source: 'runtime-preview', snapshot: embed.toJSON() };
   }
   const storageKey = key(guild.id, record.channelId, title);
-  const saved = latest.get(storageKey);
+  // Older deliberately customized preview snapshots may already exist from
+  // previous releases. Read them without generating any new automatic writes.
+  const saved = latest.get(storageKey) || await getFromDb(storageKey, null);
   if (!saved) return previewRecord;
   return { ...record, source: 'runtime-preview', snapshot: removeRetiredGamblingGuideCommand(saved) };
 }
