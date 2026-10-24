@@ -217,14 +217,15 @@ class TitanBot extends Client {
 
     app.get('/ready', (req, res) => {
       const dbStatus = this.db?.getStatus?.() || { isDegraded: true, connectionType: 'none' };
-      const isReady = this.isReady() && !dbStatus.isDegraded;
-
       const primaryGuildId = process.env.GUILD_ID || this.guilds?.cache?.first?.()?.id || null;
       const searchCoverage = primaryGuildId
         ? getBuiltInSystemCatalogCoverage(primaryGuildId)
         : { expected: 0, indexed: 0, complete: false, missing: [] };
-      const removedFromBuilderIndexed = !searchCoverage.missing
-        .some(entry => entry.key === 'builder:removed');
+      const removedFromBuilderIndexed = searchCoverage.complete
+        || !searchCoverage.missing.some(entry => entry.key === 'builder:removed');
+      const isReady = this.isReady()
+        && !dbStatus.isDegraded
+        && searchCoverage.complete;
 
       const metrics = {
         guildCount: this.guilds?.cache?.size ?? 0,
@@ -255,7 +256,11 @@ class TitanBot extends Client {
 
       res.status(503).json({
         ready: false,
-        reason: !this.isReady() ? 'Bot not Ready' : 'Database degraded',
+        reason: !this.isReady()
+          ? 'Bot not Ready'
+          : dbStatus.isDegraded
+            ? 'Database degraded'
+            : 'Embed Builder Search catalog incomplete',
         metrics,
       });
     });
