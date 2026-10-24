@@ -1473,8 +1473,7 @@ export function isEmbedManagerVisibleRecord(record, { includeBotHistory = true }
         const logicalChannelId = String(record.channelId || '');
         const backingChannelId = String(record.backingChannelId || '');
         return Boolean(
-            record.manualSaved === true
-            && logicalChannelId
+            logicalChannelId
             && backingChannelId
             && logicalChannelId !== backingChannelId
         );
@@ -1602,7 +1601,7 @@ export async function verifyLiveBuilderChannelRecords(
             && String(record.source || '').toLowerCase() !== 'system-catalog');
     const keys = new Set(fresh.map(managerRecordKey));
     const candidates = (Array.isArray(registeredRecords) ? registeredRecords : [])
-        .filter(record => (record.manualSaved === true || String(record.source || '') === 'embed-builder')
+        .filter(record => record.manualSaved === true
             && !record.detached
             && String(record.channelId) === logicalId
             && (!record.backingChannelId || String(record.backingChannelId) === logicalId)
@@ -1680,8 +1679,8 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         // An unsaved source definition belongs to Search, not a channel menu.
         // Saved catalog records retain their explicit logical origin and their
         // private backing message independently of where this Builder opened.
-        const catalogTemplates = projectCatalogTemplatesToFeatureChannels(
-            guild, allStoredRecords.filter(record => record.source === 'system-catalog'),
+        const catalogTemplates = projectCatalogTemplatesToFeatureChannels(guild,
+            allStoredRecords.filter(record => record.source === 'system-catalog'),
         );
         let records = accessibleRecords(mergeEmbedManagerRecords([], catalogTemplates));
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, records);
