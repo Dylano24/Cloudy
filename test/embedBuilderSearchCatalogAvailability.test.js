@@ -25,3 +25,16 @@ test('Search keeps Removed from Builder searchable by both the real and commerci
   assert.match(source, /removed from builder/);
   assert.match(source, /deleted from builder/);
 });
+
+
+test('system catalog resolves its storage channel through the central Cloudy resolver', () => {
+  const source = fs.readFileSync('src/services/systemEmbedCatalogService.js', 'utf8');
+
+  assert.match(source, /resolveCloudyChannel/);
+  assert.match(
+    source,
+    /await resolveCloudyChannel\(client, 'botlog', \{ guild, textOnly: true \}\)/,
+  );
+  assert.doesNotMatch(source, /function findCatalogChannel\(/);
+  assert.doesNotMatch(source, /compact\.includes\('botlog'\)/);
+});
