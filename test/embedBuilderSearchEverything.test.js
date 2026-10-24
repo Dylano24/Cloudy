@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { buildMatches, buildSearchChoices, commercialBuilderTitle } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
-test('Builder Search keeps user embeds separate but collapses duplicate automated/template peers', () => {
+test('Builder Search collapses duplicate user and automated peers into one catalog result', () => {
   const guild = { channels: { cache: new Map() } };
   const record = (messageId, source) => ({
     guildId: 'search-identity-guild', channelId: 'channel', messageId,
@@ -14,8 +14,7 @@ test('Builder Search keeps user embeds separate but collapses duplicate automate
   assert.equal(automated.length, 1);
   assert.equal(automated[0].record.messageId, 'b');
   const manual = buildMatches(guild, [record('a', 'embed-builder'), record('b', 'embed-builder')], 'identity example');
-  assert.equal(manual.length, 2);
-  assert.deepEqual(new Set(manual.map(match => match.record.messageId)), new Set(['a', 'b']));
+  assert.equal(manual.length, 1);
 });
 
 test('Builder Search excludes runtime history while keeping missing manual Builder embeds', () => {
@@ -72,7 +71,7 @@ test('Search merges direct system catalog records so catalog responses cannot di
   assert.match(source, /mergeSearchRecords\(interaction\.guildId, registryRecords\)/);
 });
 
-test('Removed from Builder is a searchable catalog response', () => {
+test('Deleted from Builder remains backed by the Builder deletion catalog response', () => {
   const source = fs.readFileSync('src/services/systemEmbedCatalogService.js', 'utf8');
   assert.match(source, /title: 'Removed from Builder'/);
   assert.match(source, /context: 'embed-builder\/delete'/);
@@ -138,7 +137,7 @@ test('Builder Search presents commercial sentence-case names without source plac
   assert.equal(commercialBuilderTitle('Ticket #{dynamic}'), 'Ticket');
 });
 
-test('Builder Search does not expose bullets, raw channel slugs or Variant labels', () => {
+test('Builder Search does not expose bullets, technical channel slugs, duplicate suffixes or Variant labels', () => {
   const choices = buildSearchChoices([
     {
       record: { channelId: '1', messageId: '10', embedIndex: 0, snapshot: {} },
@@ -151,8 +150,7 @@ test('Builder Search does not expose bullets, raw channel slugs or Variant label
   ]);
 
   assert.deepEqual(choices.map(choice => choice.name), [
-    'Report deleted in report logs',
-    'Report deleted in report logs (2)',
+    'Report deleted',
   ]);
   assert.ok(choices.every(choice => !/[•·]/.test(choice.name)));
   assert.ok(choices.every(choice => !/Variant\s+\d+/i.test(choice.name)));
