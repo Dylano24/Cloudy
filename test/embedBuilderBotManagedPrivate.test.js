@@ -7,7 +7,7 @@ test('every guild Embed Builder uses a bot-managed preview message', () => {
   assert.match(source, /EMBED_BUILDER_BOT_MANAGED_ALL_GUILD_V2/);
   assert.match(source, /builderBotManaged = Boolean\(interaction\.guild && interaction\.channel\)/);
   assert.doesNotMatch(source, /!isPublicToEveryone\(interaction\.guild, interaction\.channel\)/);
-  assert.match(source, /const previewResponsePromise = interaction\.reply\(\{/);
+  assert.match(source, /interaction\.reply\(\{ \.\.\.previewPayload, withResponse: true \}\)/);
   assert.match(source, /const dashboardPromise = interaction\.channel\.send\(\{/);
   assert.match(source, /withResponse: true/);
   assert.match(source, /state\.builderMessage\s*=\s*previewMessage/);
