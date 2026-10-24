@@ -778,6 +778,13 @@ function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return manualSearchIdentity(record);
 
+    // New report is one automated response family. Case numbers, free-text
+    // reasons and optional evidence belong to the report instance, not to a
+    // different Search template. Manual Builder posts were handled above.
+    if (normalize(recordTitle(record)) === 'new report') {
+        return 'report:new';
+    }
+
     const stableContext = stableSearchTemplateContext(record);
     const sourceTitle = rawRecordTitle(record);
     const definition = getSystemSourceDefinitionPreview(
