@@ -14,7 +14,9 @@ test('Embed Builder preloads only registry data and invalidates it after mutatio
 
   const openBody = source.slice(openStart);
   assert.match(openBody, /preparedGeneration === getEmbedRegistryGeneration\(guild\.id\)/);
-  assert.match(openBody, /includeBotHistory: false/);
+  assert.match(openBody, /let records = \[\];/);
+  assert.match(openBody, /verifyLiveBuilderChannelRecords\(/);
+  assert.doesNotMatch(openBody, /mergeEmbedManagerRecords\(registeredRecords, discoveredRecords\)/);
 });
 
 test('local Builder state changes acknowledge Discord before concurrent preview and dashboard edits', () => {

@@ -96,6 +96,13 @@ test('Discord autocomplete produces unique human-readable names without raw temp
 
 
 test('Modify browser shows every real channel while keeping Search-only archive records out', () => {
+  const service = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+  assert.match(service, /verifyLiveBuilderChannelRecords/);
+  assert.match(service, /const liveRecords = await verifyLiveBuilderChannelRecords/);
+  assert.match(service, /Checking current Discord messages/);
+  assert.doesNotMatch(service.slice(service.indexOf('export async function openEmbedManager')),
+    /mergeEmbedManagerRecords\(registeredRecords, discoveredRecords\)/);
+
   const manager = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
 
   assert.match(manager, /function isEmbedManagerVisibleRecord|export function isEmbedManagerVisibleRecord/);

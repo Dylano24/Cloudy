@@ -121,6 +121,17 @@ async function getRecentUsableMessages(channel, botUserId, { fullHistory = true 
     // Always refresh exactly one newest page first. This is the only network
     // fetch used by live channel switching in the Embed Builder.
     const newestBatch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE });
+    // A channel picker must be based on messages Discord actually returned.
+    // The discovery cache can contain removed older messages outside the newest
+    // page; never let those cached snapshots appear as live channel entries.
+    if (!fullHistory) {
+        if (!newestBatch?.values) return [];
+        return [...newestBatch.values()]
+            .filter(message => isUsableMessage(message, botUserId))
+            .sort((a, b) => candidatePriority(b) - candidatePriority(a)
+                || Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0));
+    }
+
     if (newestBatch?.size) {
         const oldestId = String(newestBatch.last()?.id || '');
         for (const [id, message] of state.messages) {
