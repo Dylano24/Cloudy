@@ -72,7 +72,7 @@ test('Search keeps different bot messages but gives them unique descriptive name
   const choices = buildSearchChoices(matches);
   const names = choices.map(choice => choice.name);
   assert.equal(new Set(names).size, 3);
-  assert.ok(names.every(name => name.startsWith('Task Removed')));
+  assert.ok(names.every(name => name.startsWith('Task removed')));
   assert.ok(names.some(name => /Scheduled task/i.test(name)));
   assert.ok(names.some(name => /Verification task/i.test(name)));
   assert.ok(names.some(name => /Role reward task/i.test(name)));
@@ -123,7 +123,7 @@ test('Search keeps useful system/error templates and hides history mirrors', () 
   ], 'invalid');
 
   assert.equal(matches.length, 1);
-  assert.equal(matches[0].document.title, 'Invalid Input');
+  assert.equal(matches[0].document.title, 'Invalid input');
 });
 
 
@@ -147,7 +147,7 @@ test('Search collapses runtime copies that differ only by dynamic IDs or task ke
   assert.equal(matches.length, 1);
 });
 
-test('Search uses readable Variant labels instead of raw message IDs when names still collide', () => {
+test('Search uses readable numeric copies instead of Variant labels or raw message IDs when names still collide', () => {
   const guild = guildWith('general');
   const matches = buildMatches(guild, [
     record({
@@ -167,6 +167,7 @@ test('Search uses readable Variant labels instead of raw message IDs when names 
   ], 'custom panel');
 
   const names = buildSearchChoices(matches).map(choice => choice.name);
-  assert.ok(names.some(name => /Variant 2$/i.test(name)));
+  assert.ok(names.some(name => /\(2\)$/i.test(name)));
+  assert.ok(names.every(name => !/Variant\s+\d+/i.test(name)));
   assert.ok(names.every(name => !/345678/.test(name)));
 });

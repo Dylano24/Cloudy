@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { buildMatches, buildSearchChoices, commercialBuilderTitle } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 test('Builder Search keeps user embeds separate but collapses duplicate automated/template peers', () => {
   const guild = { channels: { cache: new Map() } };
@@ -123,4 +123,64 @@ test('Search hides history mirrors and deduplicates canonical catalog templates'
   assert.match(body, /stableSearchTemplateContext\(record\)/);
   assert.match(body, /\['template', stableKey, stableContext\]/);
   assert.match(body, /\['catalog', stableContext, title\]/);
+});
+
+
+test('Builder Search presents commercial sentence-case names without source placeholders', () => {
+  assert.equal(commercialBuilderTitle('✅ Retention Updated'), 'Retention updated');
+  assert.equal(commercialBuilderTitle('✅ Role Removed'), 'Role removed');
+  assert.equal(commercialBuilderTitle('🎲 Random User Selected'), 'Random user selected');
+  assert.equal(commercialBuilderTitle('Reaction Roles Dashboard'), 'Reaction roles dashboard');
+  assert.equal(commercialBuilderTitle('Remove Role Reward'), 'Remove role reward');
+  assert.equal(commercialBuilderTitle('Randomuser • Error'), 'Random user error');
+  assert.equal(commercialBuilderTitle('Discord API Error'), 'Discord API error');
+  assert.equal(commercialBuilderTitle('Rolling {dynamic}d{dynamic}{dynamic}'), 'Rolling dice');
+  assert.equal(commercialBuilderTitle('Ticket #{dynamic}'), 'Ticket');
+});
+
+test('Builder Search does not expose bullets, raw channel slugs or Variant labels', () => {
+  const choices = buildSearchChoices([
+    {
+      record: { channelId: '1', messageId: '10', embedIndex: 0, snapshot: {} },
+      document: { title: 'Report Deleted', channel: { name: 'report-logs' } },
+    },
+    {
+      record: { channelId: '1', messageId: '11', embedIndex: 0, snapshot: {} },
+      document: { title: 'Report Deleted', channel: { name: 'report-logs' } },
+    },
+  ]);
+
+  assert.deepEqual(choices.map(choice => choice.name), [
+    'Report deleted in report logs',
+    'Report deleted in report logs (2)',
+  ]);
+  assert.ok(choices.every(choice => !/[•·]/.test(choice.name)));
+  assert.ok(choices.every(choice => !/Variant\s+\d+/i.test(choice.name)));
+  assert.ok(choices.every(choice => !choice.name.includes('{dynamic}')));
+});
+
+test('Builder Search collapses source-discovery duplicates with the same response title and context', () => {
+  const guild = { channels: { cache: new Map() } };
+  const record = (messageId, key, description) => ({
+    guildId: 'commercial-search-guild',
+    channelId: 'catalog-channel',
+    messageId,
+    embedIndex: 0,
+    source: 'system-catalog',
+    snapshot: {
+      title: 'Report Deleted',
+      description,
+      author: {
+        name: `Cloudy template key: ${key} || Cloudy context: reports/delete`,
+      },
+    },
+  });
+
+  const matches = buildMatches(guild, [
+    record('100', 'source:aaaa1111', 'Report 123 was deleted by <@111111111111111111>.'),
+    record('101', 'source:bbbb2222', 'Report 456 was deleted by <@222222222222222222>.'),
+  ], 'report deleted');
+
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].document.title, 'Report deleted');
 });
