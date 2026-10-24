@@ -141,7 +141,11 @@ export function commercialBuilderTitle(value) {
         .replace(/\p{Extended_Pictographic}/gu, ' ')
         .replace(/[\uFE0F\u200D]/g, ' ')
         .replace(/\s+/g, ' ')
-        .trim();
+        .trim()
+        // Runtime case/report/ticket numbers are instance data, not catalog names.
+        .replace(/\s*#\s*\d+\s*$/g, '')
+        .replace(/\b((?:report|ticket)\s+case)\s+\d+\s*$/i, '$1')
+        .replace(/\b(new\s+report)\s+\d+\s*$/i, '$1');
 
     // Runtime placeholders are source-discovery metadata, not administrator copy.
     if (/^rolling\b.*\{dynamic\}/i.test(visible)) return 'Rolling dice';
@@ -612,6 +616,9 @@ function cleanChoiceText(value, max = 48) {
             .replace(/<a?:[^:>]+:\d+>/g, ' ')
             .replace(/<[@#&!]?\d+>/g, ' ')
             .replace(/\{dynamic\}/gi, ' ')
+            .replace(/\b(?:report|ticket|case)\s*#?\s*\d+\b/gi, match =>
+                match.replace(/\s*#?\s*\d+\b/, ''))
+            .replace(/\b\d{5,}\b/g, ' ')
             .replace(/[•·|]+/g, ' ')
             .replace(/[-_–—]+/g, ' ')
             .replace(/[*_`~>#]+/g, ' ')
