@@ -17,6 +17,7 @@ import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../..
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
 import {
+    ensureSystemEmbedCatalogs,
     getSearchableSystemCatalogRecords,
     getSystemSourceDefinitionPreview,
     getSystemSourceDefinitionPreviewForEmbed,
@@ -439,7 +440,37 @@ export function filterEmbedBuilderSearchRecords(guild, member, records, options 
         .filter(Boolean);
 }
 
+const SEARCH_CATALOG_WARMUP_WAIT_MS = 700;
+
+async function warmSystemCatalogForSearch(client) {
+    if (!client) return false;
+
+    // Startup normally owns catalog creation. Search also starts/retries it so
+    // ephemeral Builder responses never disappear just because startup catalog
+    // initialization was late or had a transient failure. Bound the wait to
+    // keep Discord autocomplete comfortably inside its response window.
+    const initialization = ensureSystemEmbedCatalogs(client)
+        .then(() => true)
+        .catch(() => false);
+
+    let timer;
+    const ready = await Promise.race([
+        initialization,
+        new Promise(resolve => {
+            timer = setTimeout(() => resolve(false), SEARCH_CATALOG_WARMUP_WAIT_MS);
+            timer.unref?.();
+        }),
+    ]).finally(() => {
+        if (timer) clearTimeout(timer);
+    });
+
+    // If the bounded wait elapsed, initialization intentionally keeps running;
+    // ensureSystemEmbedCatalogs owns/caches that same promise.
+    return ready;
+}
+
 async function loadEmbedBuilderSearchRecords(interaction) {
+    await warmSystemCatalogForSearch(interaction.client);
     const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
     await warmSavedEmbedTemplateScopes(
         interaction.guildId,
