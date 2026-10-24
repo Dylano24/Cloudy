@@ -78,7 +78,7 @@ test('Search keeps different bot messages but gives them unique descriptive name
   assert.ok(names.some(name => /Role reward task/i.test(name)));
 });
 
-test('Search never emits duplicate choice names even for two distinct identical manual embeds', () => {
+test('Search shows one result for two identical manual embeds', () => {
   const guild = guildWith('general');
   const matches = buildMatches(guild, [
     record({
@@ -97,9 +97,9 @@ test('Search never emits duplicate choice names even for two distinct identical 
     }),
   ], 'custom panel');
 
-  assert.equal(matches.length, 2);
+  assert.equal(matches.length, 1);
   const choices = buildSearchChoices(matches);
-  assert.equal(new Set(choices.map(choice => choice.name)).size, 2);
+  assert.deepEqual(choices.map(choice => choice.name), ['Custom panel']);
 });
 
 test('Search keeps useful system/error templates and hides history mirrors', () => {
@@ -147,7 +147,7 @@ test('Search collapses runtime copies that differ only by dynamic IDs or task ke
   assert.equal(matches.length, 1);
 });
 
-test('Search uses readable numeric copies instead of Variant labels or raw message IDs when names still collide', () => {
+test('Search never invents duplicate suffixes or exposes raw message IDs', () => {
   const guild = guildWith('general');
   const matches = buildMatches(guild, [
     record({
@@ -167,7 +167,8 @@ test('Search uses readable numeric copies instead of Variant labels or raw messa
   ], 'custom panel');
 
   const names = buildSearchChoices(matches).map(choice => choice.name);
-  assert.ok(names.some(name => /\(2\)$/i.test(name)));
+  assert.deepEqual(names, ['Custom panel']);
+  assert.ok(names.every(name => !/\(\d+\)$/i.test(name)));
   assert.ok(names.every(name => !/Variant\s+\d+/i.test(name)));
   assert.ok(names.every(name => !/345678/.test(name)));
 });

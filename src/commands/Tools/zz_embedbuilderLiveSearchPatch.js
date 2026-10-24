@@ -13,7 +13,7 @@ import {
     getEmbedRegistrySnapshot,
     resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
-import { collapseDisplayRecords, canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
+import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
 import {
@@ -168,10 +168,15 @@ export function commercialBuilderTitle(value) {
         .replace(/\p{Extended_Pictographic}/gu, ' ')
         .replace(/[\uFE0F\u200D]/g, ' ')
         .replace(/\s+/g, ' ')
-        .trim();
+        .trim()
+        // Runtime case/report/ticket numbers are instance data, not catalog names.
+        .replace(/\s*#\s*\d+\s*$/g, '')
+        .replace(/\b((?:report|ticket)\s+case)\s+\d+\s*$/i, '$1')
+        .replace(/\b(new\s+report)\s+\d+\s*$/i, '$1');
 
     // Runtime placeholders are source-discovery metadata, not administrator copy.
     if (/^rolling\b.*\{dynamic\}/i.test(visible)) return 'Rolling dice';
+    if (/^removed from builder$/i.test(visible)) return 'Deleted from Builder';
 
     let text = visible
         .replace(/<a?:[^:>]+:\d+>/g, ' ')
@@ -185,6 +190,7 @@ export function commercialBuilderTitle(value) {
         .replace(/\bbot\s*log\b/gi, 'bot log')
         .replace(/\breport\s*logs?\b/gi, 'report logs')
         .replace(/\s+/g, ' ')
+        .replace(/^(?:bot\s*log|botlog|report\s*logs?)\b(?:\s*[.:]\s*|\s+)/i, '')
         .replace(/\s+([:;,.!?])/g, '$1')
         .replace(/^[\s:;,.!?]+/g, '')
         .replace(/[\s:;]+$/g, '')
@@ -461,13 +467,37 @@ function builderSearchDisplayRecords(records) {
 export function latestRealPreviewRecord(guild, records, selectedRecord) {
     if (!selectedRecord) return null;
     if (selectedRecord.previewRecord) return selectedRecord.previewRecord;
-    const selectedDocument = recordDocument(guild, selectedRecord);
-    const key = logicalKey(selectedRecord, selectedDocument);
 
-    return records
-        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog')
-        .filter(record => logicalKey(record, recordDocument(guild, record)) === key)
+    const selectedDocument = recordDocument(guild, selectedRecord);
+    const selectedIdentity = exactAutomatedSearchIdentity(selectedRecord, selectedDocument);
+    const realRecords = records
+        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog' && !record?.detached);
+
+    const compatible = realRecords
+        .filter(record => {
+            const document = recordDocument(guild, record);
+            const identity = exactAutomatedSearchIdentity(record, document);
+            return Boolean(selectedIdentity && identity && selectedIdentity === identity)
+                || compatibleSearchShape(selectedRecord, record, selectedDocument, document);
+        });
+
+    const candidates = compatible.length
+        ? compatible
+        : String(selectedRecord?.source || '').toLowerCase() === 'system-catalog'
+            ? realRecords.filter(record =>
+                logicalKey(record, recordDocument(guild, record))
+                    === logicalKey(selectedRecord, selectedDocument))
+            : [];
+
+    // A catalog row may be sparse while one unique live message contains the
+    // complete embed. Use that single peer. If several same-title peers exist,
+    // refuse to guess which one belongs to the selected Search result.
+    const safeCandidates = compatible.length || candidates.length <= 1 ? candidates : [];
+
+    return safeCandidates
         .sort((left, right) => {
+            const completeness = searchRecordCompleteness(left) - searchRecordCompleteness(right);
+            if (completeness) return completeness;
             const leftTime = new Date(left?.updatedAt || left?.createdAt || 0).getTime();
             const rightTime = new Date(right?.updatedAt || right?.createdAt || 0).getTime();
             return leftTime - rightTime;
@@ -514,9 +544,36 @@ function searchContext(record, document = null) {
         || normalize(record?.channelId);
 }
 
+function manualSearchIdentity(record) {
+    const data = snapshot(record);
+    try {
+        return [
+            'manual',
+            JSON.stringify({
+                title: normalize(data?.title),
+                description: normalize(data?.description),
+                fields: Array.isArray(data?.fields)
+                    ? data.fields.map(field => ({
+                        name: normalize(field?.name),
+                        value: normalize(field?.value),
+                        inline: Boolean(field?.inline),
+                    }))
+                    : [],
+                color: Number.isInteger(data?.color) ? data.color : null,
+                footer: normalize(data?.footer?.text),
+                thumbnail: String(data?.thumbnail?.url || ''),
+                image: String(data?.image?.url || ''),
+                components: Array.isArray(record?.components) ? record.components : [],
+            }),
+        ].join(':');
+    } catch {
+        return '';
+    }
+}
+
 function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
-    if (source === 'embed-builder') return '';
+    if (source === 'embed-builder') return manualSearchIdentity(record);
 
     const stableContext = stableSearchTemplateContext(record);
     const sourceTitle = rawRecordTitle(record);
@@ -529,8 +586,8 @@ function exactAutomatedSearchIdentity(record, document = null) {
         : visibleSearchShape(snapshot(record));
 
     try {
-        // Technical catalog metadata, physical message ids/channels and visual
-        // decoration are not separate Search items. Meaningful text/fields are.
+        // Physical IDs, channel names and decoration do not create another
+        // Search item. Only a genuinely different response shape does.
         return [
             definition ? 'definition' : 'visible',
             normalize(sourceTitle),
@@ -539,6 +596,118 @@ function exactAutomatedSearchIdentity(record, document = null) {
     } catch {
         return '';
     }
+}
+
+function searchRecordCompleteness(record) {
+    const data = snapshot(record);
+    let score = 0;
+    if (data?.description) score += 1000 + String(data.description).length;
+    if (Array.isArray(data?.fields)) score += data.fields.length * 500;
+    if (data?.footer?.text) score += 250;
+    if (data?.thumbnail?.url) score += 150;
+    if (data?.image?.url) score += 100;
+    if (Array.isArray(record?.components)) score += record.components.length * 200;
+    return score;
+}
+
+function compatibleSearchShape(leftRecord, rightRecord, leftDocument, rightDocument) {
+    if (normalize(leftDocument?.title) !== normalize(rightDocument?.title)) return false;
+
+    const leftSource = String(leftRecord?.source || '').toLowerCase();
+    const rightSource = String(rightRecord?.source || '').toLowerCase();
+    if (leftSource === 'embed-builder' || rightSource === 'embed-builder') return false;
+    if (leftSource !== 'system-catalog' && rightSource !== 'system-catalog') return false;
+
+    const leftContext = stableSearchTemplateContext(leftRecord);
+    const rightContext = stableSearchTemplateContext(rightRecord);
+    if (leftContext && rightContext && leftContext !== rightContext) return false;
+
+    const left = visibleSearchShape(snapshot(leftRecord));
+    const right = visibleSearchShape(snapshot(rightRecord));
+    if (left.description && right.description && left.description !== right.description) return false;
+
+    const fieldMap = fields => new Map((fields || [])
+        .filter(field => field?.name)
+        .map(field => [field.name, field.value || '']));
+    const leftFields = fieldMap(left.fields);
+    const rightFields = fieldMap(right.fields);
+    if (leftFields.size && rightFields.size) {
+        let shared = 0;
+        for (const [name, value] of leftFields) {
+            if (!rightFields.has(name)) continue;
+            shared += 1;
+            const other = rightFields.get(name);
+            if (value && other && value !== other) return false;
+        }
+        if (!shared) return false;
+    }
+
+    return true;
+}
+
+function mergeCompatibleSearchMatch(left, right) {
+    const candidates = [left.record, right.record]
+        .flatMap(record => [record, record?.previewRecord, record?.sourceRecord])
+        .filter(Boolean);
+
+    const catalog = candidates
+        .filter(record => String(record?.source || '').toLowerCase() === 'system-catalog')
+        .sort((a, b) => searchRecordCompleteness(a) - searchRecordCompleteness(b))
+        .at(-1) || null;
+    const live = candidates
+        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog' && !record?.detached)
+        .sort((a, b) => searchRecordCompleteness(a) - searchRecordCompleteness(b)
+            || new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime())
+        .at(-1) || null;
+
+    const selected = catalog || chooseBetter(left, right).record;
+    const record = {
+        ...selected,
+        ...(live ? { previewRecord: live } : {}),
+        ...(catalog ? { sourceRecord: catalog } : {}),
+    };
+
+    return {
+        record,
+        document: left.score >= right.score ? left.document : right.document,
+        score: Math.max(left.score ?? 0, right.score ?? 0),
+    };
+}
+
+function mergeCompatibleCatalogPeers(matches) {
+    const merged = [];
+    for (const match of matches) {
+        const index = merged.findIndex(existing =>
+            compatibleSearchShape(existing.record, match.record, existing.document, match.document));
+        if (index < 0) {
+            merged.push(match);
+            continue;
+        }
+        merged[index] = mergeCompatibleSearchMatch(merged[index], match);
+    }
+    return merged;
+}
+
+function completeSelectedSearchRecord(guild, records, selectedRecord) {
+    let selected = {
+        record: selectedRecord,
+        document: recordDocument(guild, selectedRecord),
+        score: 0,
+    };
+
+    for (const candidate of builderSearchDisplayRecords(records)) {
+        if (candidate === selectedRecord
+            || (String(candidate?.channelId) === String(selectedRecord?.channelId)
+                && String(candidate?.messageId) === String(selectedRecord?.messageId)
+                && Number(candidate?.embedIndex || 0) === Number(selectedRecord?.embedIndex || 0))) {
+            continue;
+        }
+        const document = recordDocument(guild, candidate);
+        if (!compatibleSearchShape(selected.record, candidate, selected.document, document)) continue;
+        selected = mergeCompatibleSearchMatch(selected, { record: candidate, document, score: 0 });
+    }
+
+    return selected.record;
 }
 
 export function buildMatches(guild, records, query) {
@@ -569,7 +738,9 @@ export function buildMatches(guild, records, query) {
         matches[existingIndex] = chooseBetter(matches[existingIndex], match);
     }
 
-    return matches.sort((a, b) => {
+    const uniqueMatches = mergeCompatibleCatalogPeers(matches);
+
+    return uniqueMatches.sort((a, b) => {
         if (hasQuery && b.score !== a.score) return b.score - a.score;
 
         const priorityDelta = priority(b.record) - priority(a.record);
@@ -595,6 +766,9 @@ function cleanChoiceText(value, max = 48) {
             .replace(/<a?:[^:>]+:\d+>/g, ' ')
             .replace(/<[@#&!]?\d+>/g, ' ')
             .replace(/\{dynamic\}/gi, ' ')
+            .replace(/\b(?:report|ticket|case)\s*#?\s*\d+\b/gi, match =>
+                match.replace(/\s*#?\s*\d+\b/, ''))
+            .replace(/\b\d{5,}\b/g, ' ')
             .replace(/[•·|]+/g, ' ')
             .replace(/[-_–—]+/g, ' ')
             .replace(/[*_`~>#]+/g, ' ')
@@ -603,28 +777,64 @@ function cleanChoiceText(value, max = 48) {
     );
 }
 
+const PREFERRED_DETAIL_FIELDS = new Set([
+    'audience', 'action', 'status', 'result', 'type', 'reason', 'priority',
+    'category', 'mode', 'method', 'source', 'target', 'role',
+]);
+const GENERIC_DETAIL_FIELDS = new Set([
+    'report', 'ticket', 'case', 'member', 'user', 'id', 'channel', 'server',
+]);
+const TECHNICAL_CHANNEL_NAMES = /^(?:bot\s*log|botlog|report\s*logs?|logs?)$/i;
+
+function searchContextLabel(record) {
+    const context = stableSearchTemplateContext(record);
+    if (!context) return '';
+    const parts = context.split('/').map(part => part.trim()).filter(Boolean);
+    let leaf = parts.at(-1) || '';
+    if (/^(?:botlog|reports?|logs?)$/i.test(leaf) && parts.length > 1) leaf = parts.at(-2);
+    leaf = leaf
+        .replace(/-(?:service|interaction|module|handler|command)$/i, '')
+        .replace(/^(?:botlog|report-?logs?)$/i, '');
+    return commercialBuilderTitle(leaf);
+}
+
 function choiceDetail(match) {
     const { record, document } = match;
     const data = snapshot(record);
+    const fields = Array.isArray(data?.fields) ? data.fields : [];
+
+    // Prefer a field that explains why two same-title responses are genuinely
+    // different. Report cases, for example, become Reporter / Reported member
+    // instead of meaningless (2), (3), ... suffixes.
+    for (const field of fields) {
+        const fieldName = normalize(cleanChoiceText(field?.name, 36));
+        if (!PREFERRED_DETAIL_FIELDS.has(fieldName)) continue;
+        const value = commercialBuilderTitle(cleanChoiceText(field?.value, 48));
+        if (value && normalize(value) !== normalize(document.title)) return value;
+    }
 
     const description = String(data?.description || '')
         .split('\n')
-        .map(line => cleanChoiceText(line, 48))
-        .find(Boolean);
-    if (description && normalize(description) !== normalize(document.title)) return description;
+        .map(line => commercialBuilderTitle(cleanChoiceText(line, 60)))
+        .find(value => value && normalize(value) !== normalize(document.title));
+    if (description) return description;
 
-    const fieldName = (data?.fields || [])
-        .map(field => cleanChoiceText(field?.name, 36))
-        .find(Boolean);
-    if (fieldName && normalize(fieldName) !== normalize(document.title)) return fieldName;
+    for (const field of fields) {
+        const fieldName = commercialBuilderTitle(cleanChoiceText(field?.name, 36));
+        const normalizedName = normalize(fieldName);
+        if (!fieldName || GENERIC_DETAIL_FIELDS.has(normalizedName)) continue;
+        const value = commercialBuilderTitle(cleanChoiceText(field?.value, 42));
+        if (value && normalize(value) !== normalize(fieldName)) {
+            return clean(`${fieldName}: ${value}`, 60);
+        }
+        if (normalize(fieldName) !== normalize(document.title)) return fieldName;
+    }
 
-    const fieldValue = (data?.fields || [])
-        .map(field => cleanChoiceText(field?.value, 42))
-        .find(Boolean);
-    if (fieldValue && normalize(fieldValue) !== normalize(document.title)) return fieldValue;
+    const context = searchContextLabel(record);
+    if (context && normalize(context) !== normalize(document.title)) return context;
 
     const channelName = cleanChoiceText(document?.channel?.name, 30);
-    if (channelName) return channelName;
+    if (channelName && !TECHNICAL_CHANNEL_NAMES.test(channelName)) return commercialBuilderTitle(channelName);
     return '';
 }
 
@@ -638,40 +848,32 @@ export function buildSearchChoices(matches) {
     }
 
     const usedNames = new Map();
+    const choices = [];
 
-    return list.map(match => {
+    for (const match of list) {
         const { record, document } = match;
         const title = commercialBuilderTitle(document?.title || 'Embed') || 'Embed';
         const duplicateCount = titleCounts.get(normalize(title)) || 0;
 
         let name = title;
         if (duplicateCount > 1) {
-            const channelName = cleanChoiceText(document?.channel?.name, 28);
-            const detail = commercialBuilderTitle(choiceDetail(match));
-            if (detail
-                && normalize(detail) !== normalize(channelName)
-                && normalize(detail) !== normalize(title)) {
+            const detail = choiceDetail(match);
+            if (detail && normalize(detail) !== normalize(title)) {
                 name = clean(`${title}: ${detail}`, 100);
-            } else if (channelName) {
-                name = clean(`${title} in ${channelName}`, 100);
             }
         }
 
-        const baseName = name;
-        const seen = usedNames.get(baseName) || 0;
-        usedNames.set(baseName, seen + 1);
-        if (seen > 0) {
-            let suffix = seen + 1;
-            name = clean(`${baseName} (${suffix})`, 100);
-            while (usedNames.has(name)) {
-                suffix += 1;
-                name = clean(`${baseName} (${suffix})`, 100);
-            }
-            usedNames.set(name, 1);
-        }
+        // Search is a clean catalog, not a raw message dump. If two records
+        // still resolve to the same human name, expose only the strongest one
+        // instead of adding Variant/(2)/(3) noise. Modify-by-channel still keeps
+        // access to the physical messages.
+        const nameKey = normalize(name);
+        if (!nameKey || usedNames.has(nameKey)) continue;
+        usedNames.set(nameKey, true);
+        choices.push({ name, value: selectionValue(record) });
+    }
 
-        return { name, value: selectionValue(record) };
-    });
+    return choices;
 }
 
 function selectionValue(record) {
@@ -746,9 +948,12 @@ function isModifyPayload(payload) {
 function buildDirectSelectionPayload(interaction, payload, pending) {
     const record = pending.record;
     const document = recordDocument(interaction.guild, record);
-    const description = document.channel?.name
-        ? `#${document.channel.name}`
-        : 'Saved embed';
+    const source = String(record?.source || '').toLowerCase();
+    const description = record?.detached
+        ? 'Saved embed. Original message is missing'
+        : source === 'embed-builder'
+            ? 'Saved embed'
+            : 'Cloudy response';
 
     const menu = new StringSelectMenuBuilder()
         .setCustomId(`simple_embed_modify_embed:${record.channelId}:0`)
@@ -845,17 +1050,27 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             const records = filterEmbedBuilderRecords(interaction.guild, interaction.member,
                 mergeSearchRecords(interaction.guildId, registryRecords), { requireSend: true });
             const displayRecords = builderSearchDisplayRecords(records);
-            const record = displayRecords.find(item =>
+            const selectedRecord = displayRecords.find(item =>
                 String(item.channelId) === selected.channelId
                 && String(item.messageId) === selected.messageId
                 && Number(item.embedIndex || 0) === selected.embedIndex,
             );
-            if (record) {
-                const liveCandidate = record.previewRecord
+            if (selectedRecord) {
+                const record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
+                // Search must open the complete compatible preview for this
+                // response type, while never borrowing data from another
+                // same-title response with different content.
+                const groupedPreview = record.previewRecord
                     || latestRealPreviewRecord(interaction.guild, records, record)
                     || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
-                const previewRecord = liveCandidate
-                    ? await hydrateLiveSearchRecord(interaction.guild, liveCandidate)
+                const runtimePreview = await hydrateBuilderPreviewRecord(
+                    interaction.guild,
+                    record,
+                    groupedPreview,
+                    interaction.user.id,
+                ).catch(() => groupedPreview);
+                const previewRecord = runtimePreview
+                    ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
                     : null;
 
                 const initialSelection = {
