@@ -557,7 +557,7 @@ function builderCatalogVisibilityId(record) {
     .map(field => normalize(field?.name));
   if (['ping', 'pong'].includes(pingTitle)
       && (pingFields.some(name => /^(?:bot|api) latency$/.test(name))
-          || /\\b(?:bot|api) latency\\b/i.test(String(data.description || '')))) {
+          || /\b(?:bot|api) latency\b/i.test(String(data.description || '')))) {
     return 'command|ping|latency';
   }
 
