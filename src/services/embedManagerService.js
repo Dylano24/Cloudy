@@ -1,6 +1,6 @@
 // CLOUDY_INTERACTION_LATENCY_V1
 // BUILDER_SAVED_PARITY_V1
-import { isSystemCatalogHiddenFromBuilder, getSearchableSystemCatalogRecords } from './systemEmbedCatalogService.js';
+import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
 import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
@@ -1602,7 +1602,7 @@ export async function verifyLiveBuilderChannelRecords(
             && String(record.source || '').toLowerCase() !== 'system-catalog');
     const keys = new Set(fresh.map(managerRecordKey));
     const candidates = (Array.isArray(registeredRecords) ? registeredRecords : [])
-        .filter(record => record.manualSaved === true
+        .filter(record => (record.manualSaved === true || String(record.source || '') === 'embed-builder')
             && !record.detached
             && String(record.channelId) === logicalId
             && (!record.backingChannelId || String(record.backingChannelId) === logicalId)
