@@ -47,7 +47,7 @@ test('a warm Search selection opens its complete snapshot without waiting for re
   ]);
   assert.ok(selection, 'selection must not wait for the stalled storage refresh');
   assert.ok(performance.now() - started < 500);
-  assert.equal(privateRead, true, 'storage may refresh independently of the selected result');
+  assert.equal(privateRead, false, 'warm Search selections do not start a new registry read');
   const state = {};
   assert.equal(applyInitialSearchSelectionToState({ ...interaction, __cloudyInitialBuilderSelection: selection }, state), true);
   assert.equal(state.title, 'Rules PANEL');

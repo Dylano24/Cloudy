@@ -6,6 +6,8 @@ import {
     StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import embedBuilderCommand from './embedbuilder.js';
+import { logger } from '../../utils/logger.js';
+import { performance } from 'node:perf_hooks';
 import { canUseEmbedBuilderChannel } from '../../utils/embedBuilderAccess.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
@@ -485,10 +487,43 @@ async function warmSystemCatalogForSearch(client) {
     return ready;
 }
 
-const FAST_SEARCH_CACHE_TTL = 10_000;
+const FAST_SEARCH_CACHE_TTL = 30_000;
 const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
     || (globalThis.__cloudyEmbedFastSearchCache = new Map());
 const lastRegistrySearchRefresh = new Map();
+const lastCanonicalSearchRefresh = new Map();
+const lastCatalogSearchWarm = new Map();
+
+// Discord autocomplete has a short, non-deferable deadline. Database and
+// full-catalog refreshes are scheduled AFTER replying, never per keystroke.
+function scheduleAutocompleteSearchRefresh(interaction) {
+    const guildId = String(interaction.guildId || '');
+    if (!guildId) return;
+    const now = Date.now();
+    if (now - (lastCatalogSearchWarm.get(guildId) || 0) < 10_000) return;
+    lastCatalogSearchWarm.set(guildId, now);
+
+    const timer = setTimeout(() => {
+        void ensureHiddenBuilderCatalogLoaded(guildId).catch(error =>
+            logger.warn('[EMBED_SEARCH] Hidden templates refresh failed: ' + error?.message));
+        void warmSystemCatalogForSearch(interaction.client).catch(error =>
+            logger.warn('[EMBED_SEARCH] Catalog warmup failed: ' + error?.message));
+
+        if (now - (lastRegistrySearchRefresh.get(guildId) || 0) >= 15_000) {
+            lastRegistrySearchRefresh.set(guildId, now);
+            void getEmbedRegistry(guildId, { cached: true }).then(() => {
+                const existing = fastSearchCache.get(guildId);
+                if (existing?.registryPending) fastSearchCache.delete(guildId);
+            }).catch(error => logger.warn('[EMBED_SEARCH] Registry refresh failed: ' + error?.message));
+        }
+        if (now - (lastCanonicalSearchRefresh.get(guildId) || 0) >= 60_000) {
+            lastCanonicalSearchRefresh.set(guildId, now);
+            void getFastCanonicalBuilderRecords(interaction.guild).catch(error =>
+                logger.warn('[EMBED_SEARCH] Canonical refresh failed: ' + error?.message));
+        }
+    }, 0);
+    timer.unref?.();
+}
 
 export async function loadFastEmbedBuilderSearchRecords(interaction) {
     const guildId = String(interaction.guildId || '');
@@ -496,57 +531,31 @@ export async function loadFastEmbedBuilderSearchRecords(interaction) {
     const generation = getEmbedRegistryGeneration(guildId);
     const cached = fastSearchCache.get(guildId);
 
-    // Keep visibility and catalog caches warm outside Discord's three-second
-    // autocomplete response window. The Builder's saved archive is unchanged.
-    void ensureHiddenBuilderCatalogLoaded(guildId).catch(() => {});
-    void warmSystemCatalogForSearch(interaction.client).catch(() => {});
-    void getFastCanonicalBuilderRecords(interaction.guild).catch(() => {});
-
-    const known = peekEmbedRegistry(interaction.guildId);
-    if (now - (lastRegistrySearchRefresh.get(guildId) || 0) >= 1500) {
-        lastRegistrySearchRefresh.set(guildId, now);
-        // Autocomplete must NEVER wait on a cold database read. The live system
-        // catalog and any last-known records can answer the current keystroke;
-        // the read fills the next keystroke's results instead.
-        void getEmbedRegistry(interaction.guildId, { cached: true })
-            .then(() => {
-                const existing = fastSearchCache.get(guildId);
-                if (existing?.generation === generation && existing.registryPending) {
-                    fastSearchCache.delete(guildId);
-                }
-            })
-            .catch(() => {});
-    }
-
-    // One autocomplete keystroke must not clone and re-index thousands of
-    // system responses again when neither the registry nor hidden rules changed.
+    // First reuse the indexed source list: do not clone 3,000+ registry rows or
+    // warm a Discord catalog while somebody types the next character.
     if (cached?.generation === generation && cached?.records?.length && cached.expiresAt > now) {
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, cached.records, { requireSend: true },
         );
     }
 
-    // A cold process still serves the independently available catalog; it
-    // never reports an empty Search solely because PostgreSQL is busy.
-    const registryRecords = known || [];
+    const known = peekEmbedRegistry(guildId);
     const canonicalRecords = peekCanonicalBuilderRecords(interaction.guild);
-    const merged = mergeSearchRecords(guildId, [...registryRecords, ...canonicalRecords]);
-    const filtered = filterEmbedBuilderSearchRecords(
-        interaction.guild, interaction.member, merged, { requireSend: true },
-    );
-
-    if (filtered.length) {
+    const raw = mergeSearchRecords(guildId, [...(known || []), ...canonicalRecords]);
+    if (raw.length) {
+        // Store unfiltered records to avoid one member's permission set hiding
+        // results from another. Check each requesting user's access on return.
         fastSearchCache.set(guildId, {
             generation,
             registryPending: !known,
-            records: filtered,
-            expiresAt: Date.now() + FAST_SEARCH_CACHE_TTL,
+            records: raw,
+            expiresAt: now + FAST_SEARCH_CACHE_TTL,
         });
-        return filtered;
+        return filterEmbedBuilderSearchRecords(
+            interaction.guild, interaction.member, raw, { requireSend: true },
+        );
     }
 
-    // Stale-while-refresh is preferable to an empty dropdown when catalog
-    // regeneration is underway. Permissions are always checked per user.
     if (cached?.generation === generation && cached?.records?.length) {
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, cached.records, { requireSend: true },
@@ -1025,6 +1034,37 @@ export function buildMatches(guild, records, query) {
     });
 }
 
+// Bound the heavy snapshot/dedup pipeline to a shortlist before Discord's
+// autocomplete deadline. Full canonical records remain available on selection.
+// Title and body terms are both considered, including errors whose title is
+// generic but whose description names the underlying response.
+export function buildAutocompleteMatches(guild, records, rawQuery) {
+    const query = normalize(rawQuery);
+    if (!query) return [];
+    if (records.length <= 80) return buildMatches(guild, records, query).slice(0, 25);
+
+    const tokens = query.split(' ').filter(Boolean);
+    const candidates = [];
+    for (const record of records) {
+        const data = record?.snapshot || {};
+        const title = normalize([record?.name, record?.title, data.title].filter(Boolean).join(' '));
+        const body = normalize([
+            data.description,
+            ...(Array.isArray(data.fields) ? data.fields.flatMap(f => [f?.name, f?.value]) : []),
+        ].filter(Boolean).join(' '));
+        const combined = title + ' ' + body;
+        if (!tokens.every(token => combined.includes(token))) continue;
+        const rank = title === query ? 10000
+            : title.startsWith(query) ? 9000
+            : title.includes(query) ? 8000
+            : body.includes(query) ? 3500 : 1000;
+        candidates.push({ record, rank });
+    }
+
+    candidates.sort((a, b) => b.rank - a.rank);
+    return buildMatches(guild, candidates.slice(0, 80).map(item => item.record), query).slice(0, 25);
+}
+
 function cleanChoiceText(value, max = 48) {
     return clean(
         String(value || '')
@@ -1355,28 +1395,43 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
     patchResponses();
 
     embedBuilderCommand.autocomplete = async function liveEmbedAutocomplete(interaction) {
-        if (!interaction.guildId || !interaction.guild) {
-            await interaction.respond([]).catch(() => {});
-            return;
-        }
+        const started = performance.now();
+        let count = 0;
+        try {
+            if (!interaction.guildId || !interaction.guild) {
+                await interaction.respond([]);
+                return;
+            }
+            const focused = interaction.options.getFocused(true);
+            if (focused?.name !== 'search' || !normalize(focused.value)) {
+                await interaction.respond([]);
+                return;
+            }
 
-        const focused = interaction.options.getFocused(true);
-        if (focused?.name !== 'search') {
-            await interaction.respond([]).catch(() => {});
-            return;
+            const records = await loadFastEmbedBuilderSearchRecords(interaction);
+            const matches = buildAutocompleteMatches(interaction.guild, records, focused.value);
+            const choices = buildSearchChoices(matches);
+            count = choices.length;
+            await interaction.respond(choices);
+        } catch (error) {
+            // Previous handler silently swallowed failed Discord responses,
+            // which made actual timeouts indistinguishable from "no embeds".
+            logger.error('[EMBED_SEARCH] Autocomplete failed:', {
+                guildId: interaction.guildId, elapsedMs: Math.round(performance.now() - started),
+                error: error?.message || String(error),
+            });
+            if (!interaction.responded) {
+                await interaction.respond([]).catch(() => {});
+            }
+        } finally {
+            const elapsedMs = Math.round(performance.now() - started);
+            if (elapsedMs > 700 || count === 0) {
+                logger.warn('[EMBED_SEARCH] autocomplete telemetry', {
+                    guildId: interaction.guildId, elapsedMs, resultCount: count,
+                });
+            }
+            if (interaction.guild) scheduleAutocompleteSearchRefresh(interaction);
         }
-
-        // Empty autocomplete must stay empty. Search only starts after the user
-        // types something; opening /embedbuilder must never dump a template list.
-        if (!normalize(focused.value)) {
-            await interaction.respond([]).catch(() => {});
-            return;
-        }
-
-        const records = await loadFastEmbedBuilderSearchRecords(interaction);
-        const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
-        const choices = buildSearchChoices(matches);
-        await interaction.respond(choices).catch(() => {});
     };
 
     const originalExecute = embedBuilderCommand.execute.bind(embedBuilderCommand);
