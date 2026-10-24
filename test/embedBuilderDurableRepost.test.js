@@ -70,12 +70,12 @@ function builderMessage({ id, guildId, channelId = 'general', title = 'Rules', c
   };
 }
 
-test('manual Builder post remains saved after Discord deletion and can relink to one reposted message', async () => {
+test('explicitly saved Builder post survives Discord deletion and can relink to one reposted message', async () => {
   resetDb();
   const guildId = 'durable-repost-guild';
   const original = builderMessage({ id: 'message-old', guildId });
 
-  assert.equal(await registerCloudyEmbedMessage(original, 'embed-builder'), true);
+  assert.equal(await registerCloudyEmbedMessage(original, 'embed-builder', { manualSave: true }), true);
 
   let records = await getEmbedRegistry(guildId);
   assert.equal(records.length, 1);
@@ -119,7 +119,7 @@ test('editing a missing Builder embed keeps its saved buttons for a later repost
   const guildId = 'durable-edit-guild';
   const original = builderMessage({ id: 'message-old', guildId });
 
-  await registerCloudyEmbedMessage(original, 'embed-builder');
+  await registerCloudyEmbedMessage(original, 'embed-builder', { manualSave: true });
   await removeEmbedRegistryMessage(guildId, 'general', 'message-old');
 
   let [record] = await getEmbedRegistry(guildId);
@@ -163,7 +163,7 @@ test('missing manual Builder embeds remain searchable by their original content'
   const guildId = 'durable-search-guild';
   const original = builderMessage({ id: 'message-old', guildId, title: 'Server rules' });
 
-  await registerCloudyEmbedMessage(original, 'embed-builder');
+  await registerCloudyEmbedMessage(original, 'embed-builder', { manualSave: true });
   await removeEmbedRegistryMessage(guildId, 'general', 'message-old');
   const records = await getEmbedRegistry(guildId);
 
@@ -235,7 +235,7 @@ test('a missed Discord delete is detected when the saved manual embed is opened'
   resetDb();
   const guildId = 'durable-missed-delete-guild';
   const original = builderMessage({ id: 'message-old', guildId, title: 'Missing panel' });
-  await registerCloudyEmbedMessage(original, 'embed-builder');
+  await registerCloudyEmbedMessage(original, 'embed-builder', { manualSave: true });
 
   const [record] = await getEmbedRegistry(guildId);
   const missing = new Error('Unknown message');

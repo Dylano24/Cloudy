@@ -70,12 +70,12 @@ test('repeated transient replies do not grow the stored registry', async () => {
   assert.deepEqual(await getEmbedRegistry(guildId), []);
 });
 
-test('a deleted manual Builder post still stays as a detached saved template', async () => {
+test('an explicitly saved Builder post stays as a detached saved template', async () => {
   resetDb();
   const guildId = 'history-manual-guild';
   const message = botMessage({ id: 'manual-1', guildId, title: 'Rules', description: 'Saved Builder content' });
 
-  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder'), true);
+  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder', { manualSave: true }), true);
   assert.equal(await removeEmbedRegistryMessage(guildId, 'general', 'manual-1'), true);
 
   const [record] = await getEmbedRegistry(guildId);

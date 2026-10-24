@@ -843,7 +843,7 @@ test('registry persists the complete manual Builder snapshot instead of only its
   assert.equal(stored[0].channelName, 'rules');
 });
 
-test('deleted manual Builder embeds stay as detached saved templates with their full body', async () => {
+test('deleted explicitly saved Builder embeds stay as detached templates with their full body', async () => {
   installTestStorage();
 
   const guildId = '100000000000000093';
@@ -859,7 +859,7 @@ test('deleted manual Builder embeds stay as detached saved templates with their 
     createdAt: new Date('2026-10-02T17:01:00.000Z'),
   };
 
-  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder'), true);
+  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder', { manualSave: true }), true);
   assert.equal(await removeEmbedRegistryMessage(guildId, channelId, messageId), true);
 
   const [stored] = await getEmbedRegistry(guildId);
