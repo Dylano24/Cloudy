@@ -1689,10 +1689,23 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         session.collector = collector;
         registerBuilderSessionCollector(managerMessage, collector);
 
-        // Background storage may still warm other parts of the Builder, but
-        // must never repopulate this channel menu from unverified saved records.
-        // Fresh Discord channel discovery owns the rows on selection.
-        void Promise.resolve(allStoredRecords);
+        // Refresh storage in the background without treating cached records
+        // as proof that any physical message is still in Discord. Guard the
+        // page edit against newer user navigation, just as before.
+        void getEmbedRegistry(guild.id).then(async () => {
+            if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
+            await queueEmbedManagerUpdate(
+                state, session,
+                () => buttonInteraction.webhook.editMessage(
+                    managerMessage.id, channelPage(records, 0, checkingChannelIds),
+                ),
+                () => shouldApplyBackgroundRegistryRefresh(state, session),
+            );
+        }).catch(error => {
+            if (!CLOSED_MANAGER_ERROR_CODES.has(error?.code)) {
+                logger.debug('Background Builder registry refresh skipped: ' + error?.message);
+            }
+        });
 
         collector.on('collect', async interaction => {
             touchBuilderSessionMessage(managerMessage);
