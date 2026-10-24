@@ -22,6 +22,23 @@ import { embedColorPickerPage } from './web/embedColorPickerPage.js';
 import { registerAppealsApi } from './web/appealsApi.js';
 import { registerWebsiteAssistantApi } from './web/websiteAssistantApi.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
+import { getBuiltInSystemCatalogCoverage } from './services/systemEmbedCatalogService.js';
+
+function runtimeBuildInfo() {
+  const commit = String(
+    process.env.RAILWAY_GIT_COMMIT_SHA
+    || process.env.GIT_COMMIT_SHA
+    || '',
+  ).trim();
+  const branch = String(process.env.RAILWAY_GIT_BRANCH || '').trim();
+  const deploymentId = String(process.env.RAILWAY_DEPLOYMENT_ID || '').trim();
+
+  return {
+    commit: commit ? commit.slice(0, 12) : null,
+    branch: branch || null,
+    deploymentId: deploymentId || null,
+  };
+}
 
 class TitanBot extends Client {
   constructor() {
@@ -58,6 +75,12 @@ class TitanBot extends Client {
   async start() {
     try {
       startupLog('Starting TitanBot...');
+      const buildInfo = runtimeBuildInfo();
+      startupLog(
+        `Build: ${buildInfo.commit || 'unknown'}`
+        + (buildInfo.branch ? ` | Branch: ${buildInfo.branch}` : '')
+        + (buildInfo.deploymentId ? ` | Railway deployment: ${buildInfo.deploymentId}` : ''),
+      );
       
       startupLog('Initializing database...');
       const dbInstance = await initializeDatabase();
@@ -182,6 +205,7 @@ class TitanBot extends Client {
         status: 'healthy',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
+        build: runtimeBuildInfo(),
         database: {
           connected: dbStatus.connectionType !== 'none',
           degraded: dbStatus.isDegraded,
@@ -195,13 +219,27 @@ class TitanBot extends Client {
       const dbStatus = this.db?.getStatus?.() || { isDegraded: true, connectionType: 'none' };
       const isReady = this.isReady() && !dbStatus.isDegraded;
 
+      const primaryGuildId = process.env.GUILD_ID || this.guilds?.cache?.first?.()?.id || null;
+      const searchCoverage = primaryGuildId
+        ? getBuiltInSystemCatalogCoverage(primaryGuildId)
+        : { expected: 0, indexed: 0, complete: false, missing: [] };
+      const removedFromBuilderIndexed = !searchCoverage.missing
+        .some(entry => entry.key === 'builder:removed');
+
       const metrics = {
         guildCount: this.guilds?.cache?.size ?? 0,
         commandCount: this.commands?.size ?? 0,
+        build: runtimeBuildInfo(),
         database: {
           mode: dbStatus.connectionType,
           degraded: dbStatus.isDegraded,
           degradedReason: dbStatus.degradedReason ?? null,
+        },
+        embedBuilderSearch: {
+          builtInExpected: searchCoverage.expected,
+          builtInIndexed: searchCoverage.indexed,
+          builtInComplete: searchCoverage.complete,
+          removedFromBuilderIndexed,
         },
         schemaVersion: EXPECTED_SCHEMA_VERSION,
         schemaLabel: EXPECTED_SCHEMA_LABEL,
@@ -226,6 +264,7 @@ class TitanBot extends Client {
       res.status(200).json({ 
         message: 'Cloudy system online',
         version: pkg.version,
+        build: runtimeBuildInfo(),
         timestamp: new Date().toISOString()
       });
     });
