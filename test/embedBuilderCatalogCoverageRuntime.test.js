@@ -51,3 +51,16 @@ test('public health and readiness expose the live Railway revision and Search co
   assert.match(source, /removedFromBuilderIndexed/);
   assert.match(source, /Embed Builder Search catalog incomplete/);
 });
+
+
+test('single and bulk Discord deletion invalidate the system Search catalog cache', () => {
+  const single = fs.readFileSync('src/events/messageDelete.js', 'utf8');
+  const bulk = fs.readFileSync('src/events/messageDeleteBulk.js', 'utf8');
+  const catalog = fs.readFileSync('src/services/systemEmbedCatalogService.js', 'utf8');
+
+  assert.match(single, /removeSystemEmbedCatalogMessage/);
+  assert.match(bulk, /removeSystemEmbedCatalogMessage/);
+  assert.match(catalog, /export async function removeSystemEmbedCatalogMessage/);
+  assert.match(catalog, /catalogEnsurePromise = null/);
+  assert.match(catalog, /storedIds\.map\(String\)\.filter/);
+});
