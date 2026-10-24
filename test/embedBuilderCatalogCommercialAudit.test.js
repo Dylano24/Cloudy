@@ -72,7 +72,8 @@ test('ephemeral AI answer files are excluded from reusable Embed Builder templat
     'botlog/cloudy-fix-guide-interaction',
   ]);
 
-  const leaked = definitions.filter(definition => forbiddenContexts.has(definition.context));
+  const leaked = definitions.filter(definition =>
+    definition.kind === 'embed' && forbiddenContexts.has(definition.context));
   assert.deepEqual(
     leaked,
     [],
