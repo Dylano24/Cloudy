@@ -21,15 +21,8 @@ function walk(dir, files = []) {
 }
 
 function allowedOwner(file, owner) {
-  if (owner === 'faq') {
-    return file === 'src/services/faqAiService.js'
-      || file === 'src/events/faqAiInteraction.js'
-      || file === 'src/events/interactionCreate.js';
-  }
-  if (owner === 'fix-guide') {
-    return file === 'src/events/cloudyOwnerAssistantReady.js'
-      || file === 'src/events/cloudyFixGuideInteraction.js'
-      || file === 'src/events/interactionCreate.js';
+  if (owner === 'faq' || owner === 'fix-guide') {
+    return file === 'src/config/assistantInteractionIds.js';
   }
   return false;
 }
