@@ -614,6 +614,21 @@ function isUnusableDiscoveredEmbed(definition = {}) {
   return !hasTitle && !hasDescription && !hasFields;
 }
 
+function isDynamicOnlyDiscoveredEmbed(definition = {}) {
+  if (String(definition.kind || '').toLowerCase() !== 'embed') return false;
+
+  const title = String(definition.title || '')
+    .replace(/\{dynamic\}/gi, ' ')
+    .replace(/\p{Extended_Pictographic}/gu, ' ')
+    .replace(/[\uFE0F\u200D]/g, ' ')
+    .replace(/[\s\-–—:|•()[\]{}]+/g, ' ')
+    .trim();
+
+  // Keep meaningful dynamic families such as "{dynamic}'s Balance"; only
+  // discard titles whose human-readable part disappears completely.
+  return !title;
+}
+
 function isEphemeralAssistantAnswerEmbed(definition = {}) {
   if (String(definition.kind || '').toLowerCase() !== 'embed') return false;
   const context = String(definition.context || '').toLowerCase();
@@ -645,7 +660,9 @@ export async function discoverEmbedDefinitions() {
   }));
   for (const row of rows) {
     for (const definition of row || []) {
-      if (isUnusableDiscoveredEmbed(definition) || isEphemeralAssistantAnswerEmbed(definition)) continue;
+      if (isUnusableDiscoveredEmbed(definition)
+        || isDynamicOnlyDiscoveredEmbed(definition)
+        || isEphemeralAssistantAnswerEmbed(definition)) continue;
 
       const identity = `${definition.kind}|${definition.context}|${definition.title || definition.label || ''}|${definition.description || ''}`;
       if (unique.has(identity)) continue;
