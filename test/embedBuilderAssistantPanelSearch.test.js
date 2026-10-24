@@ -58,7 +58,7 @@ test('Search includes live Fix Guide panel without requiring canonicalIdentity',
   assert.equal(matches[0].record.snapshot.description, 'The complete fixed Fix Guide panel description.');
   assert.deepEqual(
     buildSearchChoices(matches).map(choice => choice.name),
-    ['Cloudy Assistant Fix Guide'],
+    ['Cloudy assistant fix guide'],
   );
 });
 
