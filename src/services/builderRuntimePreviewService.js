@@ -1,11 +1,8 @@
-import { getFromDb, setInDb } from '../utils/database.js';
 import { removeRetiredGamblingGuideCommand } from '../config/gamblingCommands.js';
 import { buildDashboardEmbed } from '../commands/Economy/modules/economy_dashboard.js';
 import { buildEconomyLeaderboardEmbed } from '../commands/Economy/eleaderboard.js';
 
-const pending = new Map();
 const latest = new Map();
-const fingerprints = new Map();
 function key(guildId, channelId, title) {
   let value = String(title || '').replace(/\{dynamic\}/gi, '__cloudy_dynamic__');
   value = value.replace(/^([a-z0-9_.-]{2,32})(?='s\b)/i, '__cloudy_dynamic__');
@@ -35,26 +32,9 @@ export async function rememberBuilderRuntimePreview(payload, source) {
     if (!data.description && !data.fields?.length) return;
     const storageKey = key(guildId, channelId, data.title);
     const serialized = JSON.stringify(data);
-    if (fingerprints.get(storageKey) === serialized) {
-      if (pending.has(storageKey)) await pending.get(storageKey);
-      return;
-    }
-    const snapshot = JSON.parse(serialized);
-    latest.set(storageKey, snapshot);
-    fingerprints.set(storageKey, serialized);
-    if (pending.has(storageKey)) { await pending.get(storageKey); return; }
-    const job = (async () => {
-      let written;
-      do {
-        written = fingerprints.get(storageKey);
-        const saved = await setInDb(storageKey, latest.get(storageKey));
-        if (!saved) throw new Error('Runtime preview could not be persisted');
-      } while (written !== fingerprints.get(storageKey));
-    })();
-    pending.set(storageKey, job);
-    try { await job; }
-    catch (error) { fingerprints.delete(storageKey); throw error; }
-    finally { if (pending.get(storageKey) === job) pending.delete(storageKey); }
+    // Automatic responses provide temporary visual examples, never durable
+    // Builder saves. Only the explicit Save workflow writes lasting templates.
+    latest.set(storageKey, JSON.parse(serialized));
   }));
 }
 
@@ -84,7 +64,7 @@ export async function hydrateBuilderPreviewRecord(guild, record, previewRecord, 
     return { ...record, source: 'runtime-preview', snapshot: embed.toJSON() };
   }
   const storageKey = key(guild.id, record.channelId, title);
-  const saved = latest.get(storageKey) || await getFromDb(storageKey, null);
+  const saved = latest.get(storageKey);
   if (!saved) return previewRecord;
   return { ...record, source: 'runtime-preview', snapshot: removeRetiredGamblingGuideCommand(saved) };
 }
