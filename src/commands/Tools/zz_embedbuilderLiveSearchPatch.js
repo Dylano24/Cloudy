@@ -164,16 +164,22 @@ export function commercialBuilderTitle(value) {
     const raw = clean(value, 100);
     if (!raw) return '';
 
-    // Runtime placeholders are source-discovery metadata, not administrator copy.
-    if (/^rolling\b.*\{dynamic\}/i.test(raw)) return 'Rolling dice';
+    const visible = raw
+        .replace(/\p{Extended_Pictographic}/gu, ' ')
+        .replace(/[\uFE0F\u200D]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    let text = raw
+    // Runtime placeholders are source-discovery metadata, not administrator copy.
+    if (/^rolling\b.*\{dynamic\}/i.test(visible)) return 'Rolling dice';
+
+    let text = visible
         .replace(/<a?:[^:>]+:\d+>/g, ' ')
         .replace(/<[@#&!]?\d+>/g, ' ')
         .replace(/\{dynamic\}/gi, ' ')
         .replace(/[•·|]+/g, ' ')
         .replace(/[*_`~>#]+/g, ' ')
-        .replace(/[-_]+/g, ' ')
+        .replace(/[-_–—]+/g, ' ')
         .replace(/\brandomuser\b/gi, 'random user')
         .replace(/\brole\s*selector\b/gi, 'role selector')
         .replace(/\bbot\s*log\b/gi, 'bot log')
@@ -586,11 +592,13 @@ export function buildMatches(guild, records, query) {
 function cleanChoiceText(value, max = 48) {
     return clean(
         String(value || '')
+            .replace(/\p{Extended_Pictographic}/gu, ' ')
+            .replace(/[\uFE0F\u200D]/g, ' ')
             .replace(/<a?:[^:>]+:\d+>/g, ' ')
             .replace(/<[@#&!]?\d+>/g, ' ')
             .replace(/\{dynamic\}/gi, ' ')
             .replace(/[•·|]+/g, ' ')
-            .replace(/[-_]+/g, ' ')
+            .replace(/[-_–—]+/g, ' ')
             .replace(/[*_`~>#]+/g, ' ')
             .replace(/\s+/g, ' '),
         max,
