@@ -1573,7 +1573,7 @@ export async function verifyLiveBuilderChannelRecords(
     await Promise.all(Array.from({ length: Math.min(4, candidates.length) }, async () => {
         while (next < candidates.length) {
             const candidate = candidates[next++];
-            const message = await channel.messages.fetch(String(candidate.messageId)).catch(() => null);
+            const message = await channel.messages.fetch({ message: String(candidate.messageId), force: true }).catch(() => null);
             if (!message || String(message.author?.id || '') !== String(botUserId || '')) continue;
             const embed = message.embeds?.[Math.max(0, Number(candidate.embedIndex) || 0)];
             if (!embed) continue;
@@ -1841,7 +1841,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     return;
                 }
                 const liveChannel = guild.channels.cache.get(String(channelId));
-                const liveMessage = await liveChannel?.messages?.fetch?.(String(record.messageId)).catch(() => null);
+                const liveMessage = await liveChannel?.messages?.fetch?.({ message: String(record.messageId), force: true }).catch(() => null);
                 const liveEmbed = liveMessage?.embeds?.[embedIndex];
                 if (!liveEmbed || String(liveMessage.author?.id || '') !== String(buttonInteraction.client.user.id)) {
                     records = records.filter(item => managerRecordKey(item) !== managerRecordKey(record));
