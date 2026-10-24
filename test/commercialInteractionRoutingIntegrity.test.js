@@ -6,10 +6,7 @@ import test from 'node:test';
 test('general interaction router reserves FAQ and Fix Guide component ids for their dedicated event handlers', () => {
   const source = fs.readFileSync('src/events/interactionCreate.js', 'utf8');
 
-  assert.match(source, /FAQ_AI_BUTTON_ID/);
-  assert.match(source, /FAQ_AI_MODAL_ID/);
-  assert.match(source, /FIX_GUIDE_ASK_BUTTON_ID/);
-  assert.match(source, /FIX_GUIDE_ASK_MODAL_ID/);
+  assert.match(source, /RESERVED_ASSISTANT_CUSTOM_IDS/);
   assert.match(source, /isDedicatedAssistantInteraction/);
 
   const guardIndex = source.indexOf('isDedicatedAssistantInteraction');
