@@ -844,44 +844,23 @@ function builderDisplayChannel(guild, channelId) {
     return guild?.channels?.cache?.get?.(String(channelId)) || null;
 }
 
-// Project source-defined responses into a feature's channel menu without
-// changing where their canonical catalog messages are physically stored.
-// A catalog entry is NOT evidence of a posted Discord message.
-function featureChannelSlug(value) {
-    const name = String(value || '').split('|').at(-1) || '';
-    return name.normalize('NFKD').toLowerCase()
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-}
-
+// The channel browser shows real Builder posts and deliberate Saves, never
+// code-defined responses that happen to share a channel name with their context.
+// Search retains the complete source catalog. The selected origin channel ID is
+// immutable; opening the Builder from another channel cannot change it.
 export function projectCatalogTemplatesToFeatureChannels(guild, records = []) {
-    const byName = new Map();
-    for (const channel of guild?.channels?.cache?.values?.() || []) {
-        if (![0, 5].includes(channel?.type) || !channel?.messages?.fetch) continue;
-        const slug = featureChannelSlug(channel.name);
-        if (slug && !byName.has(slug)) byName.set(slug, channel);
-    }
-
     const projected = [];
     for (const record of records) {
         if (String(record?.guildId || '') !== String(guild?.id || '')
             || String(record?.source || '') !== 'system-catalog'
+            || record.manualSaved !== true
             || !record.messageId || isSystemCatalogHiddenFromBuilder(record)) continue;
-        const context = stableSystemTemplateContext(record.snapshot || getEmbedRegistrySnapshot(record));
-        const root = featureChannelSlug(context.split('/')[0]);
-        // Only unambiguous named destinations. Never put tickets, private logs,
-        // or unrelated response families into an arbitrary fallback channel.
-        if (!root || ['botlog', 'embed-builder'].includes(root)) continue;
-        const channel = byName.get(root);
-        if (!channel || String(channel.id) === String(record.backingChannelId || record.channelId)) continue;
-
-        projected.push({
-            ...record,
-            channelId: String(channel.id),
-            backingChannelId: String(record.backingChannelId || record.channelId),
-            catalogChannelProjection: true,
-        });
+        const channelId = String(record.channelId || '');
+        const backingChannelId = String(record.backingChannelId || channelId);
+        const channel = guild?.channels?.cache?.get?.(channelId);
+        if (!channel || ![0, 5].includes(channel.type) || !channel.messages?.fetch
+            || channelId === backingChannelId) continue;
+        projected.push({ ...record, channelId, backingChannelId, catalogChannelProjection: true });
     }
     return projected;
 }
@@ -1494,7 +1473,8 @@ export function isEmbedManagerVisibleRecord(record, { includeBotHistory = true }
         const logicalChannelId = String(record.channelId || '');
         const backingChannelId = String(record.backingChannelId || '');
         return Boolean(
-            logicalChannelId
+            record.manualSaved === true
+            && logicalChannelId
             && backingChannelId
             && logicalChannelId !== backingChannelId
         );
@@ -1697,13 +1677,12 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         const preparedRecords = prepared && await prepared;
         const allStoredRecords = preparedRecords && preparedGeneration === getEmbedRegistryGeneration(guild.id)
             ? preparedRecords : await getEmbedRegistry(guild.id);
-        // Keep actual Discord messages distinct from reusable source definitions.
-        // Source definitions are visible under their matching feature channel,
-        // but they retain their private catalog backing IDs for safe editing.
-        const catalogTemplates = projectCatalogTemplatesToFeatureChannels(guild, [
-            ...getSearchableSystemCatalogRecords(guild.id),
-            ...allStoredRecords.filter(record => record.source === 'system-catalog'),
-        ]);
+        // An unsaved source definition belongs to Search, not a channel menu.
+        // Saved catalog records retain their explicit logical origin and their
+        // private backing message independently of where this Builder opened.
+        const catalogTemplates = projectCatalogTemplatesToFeatureChannels(
+            guild, allStoredRecords.filter(record => record.source === 'system-catalog'),
+        );
         let records = accessibleRecords(mergeEmbedManagerRecords([], catalogTemplates));
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, records);
         const initialPayload = guild.channels.cache.size
@@ -1804,9 +1783,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         return;
                     }
 
-                    // Never flash old saved/catalog records when switching back
-                    // into a channel. The first paint says Checking; Discord's
-                    // fresh message fetch replaces it with the verified list.
+                    // Never display unsaved source definitions. Only actual
+                    // Builder posts and deliberate saved catalog entries appear
+                    // when the channel's live message check completes.
                     records = records.filter(record => String(record.channelId) !== String(channelId)
                         || record.catalogChannelProjection);
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: true }), state, session);
