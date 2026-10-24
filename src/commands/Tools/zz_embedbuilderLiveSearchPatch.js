@@ -470,6 +470,49 @@ async function warmSystemCatalogForSearch(client) {
     return ready;
 }
 
+const FAST_SEARCH_CACHE_TTL = 15_000;
+const fastSearchRecordsCache = globalThis.__cloudyEmbedFastSearchRecordsCache
+    || (globalThis.__cloudyEmbedFastSearchRecordsCache = new Map());
+
+function cacheFastSearchRecords(guildId, records) {
+    fastSearchRecordsCache.set(String(guildId), {
+        records,
+        expiresAt: Date.now() + FAST_SEARCH_CACHE_TTL,
+    });
+    return records;
+}
+
+async function loadFastEmbedBuilderSearchRecords(interaction) {
+    const guildId = String(interaction.guildId || '');
+    const cached = fastSearchRecordsCache.get(guildId);
+    if (cached?.records?.length && cached.expiresAt > Date.now()) return cached.records;
+
+    // Never block Discord autocomplete on catalog initialization, canonical
+    // grouping or Discord message hydration. Kick those jobs in the background
+    // and answer immediately from the persisted registry + in-memory catalog.
+    void warmSystemCatalogForSearch(interaction.client).catch(() => {});
+    void getFastCanonicalBuilderRecords(interaction.guild).catch(() => {});
+
+    const registryRecords = await Promise.race([
+        getEmbedRegistry(interaction.guildId, { cached: true }).catch(() => []),
+        new Promise(resolve => setTimeout(() => resolve([]), 250)),
+    ]);
+
+    const merged = mergeSearchRecords(interaction.guildId, registryRecords);
+    const filtered = filterEmbedBuilderSearchRecords(
+        interaction.guild,
+        interaction.member,
+        merged,
+        { requireSend: true },
+    );
+
+    if (filtered.length) return cacheFastSearchRecords(guildId, filtered);
+
+    // If a cold process has not populated the registry yet, retain the last
+    // known Search set instead of flashing an empty autocomplete menu.
+    return cached?.records || [];
+}
+
 async function loadEmbedBuilderSearchRecords(interaction) {
     await warmSystemCatalogForSearch(interaction.client);
     const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
@@ -488,12 +531,13 @@ async function loadEmbedBuilderSearchRecords(interaction) {
         interaction.guildId,
         [...registryRecords, ...canonicalRecords],
     );
-    return filterEmbedBuilderSearchRecords(
+    const filtered = filterEmbedBuilderSearchRecords(
         interaction.guild,
         interaction.member,
         merged,
         { requireSend: true },
     );
+    return cacheFastSearchRecords(interaction.guildId, filtered);
 }
 
 function mergeSearchRecords(guildId, registryRecords) {
@@ -1177,7 +1221,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             return;
         }
 
-        const records = await loadEmbedBuilderSearchRecords(interaction);
+        const records = await loadFastEmbedBuilderSearchRecords(interaction);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
         const choices = buildSearchChoices(matches);
         await interaction.respond(choices).catch(() => {});
