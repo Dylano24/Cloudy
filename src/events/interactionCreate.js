@@ -22,12 +22,7 @@ import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
 import { enforceDefaultCommandPermissions } from '../utils/permissionGuard.js';
 import { scheduleTransientInteractionReplyDeletion } from '../utils/transientResponse.js';
-import {
-  FAQ_AI_BUTTON_ID,
-  FAQ_AI_MODAL_ID,
-  FIX_GUIDE_ASK_BUTTON_ID,
-  FIX_GUIDE_ASK_MODAL_ID,
-} from '../config/assistantInteractionIds.js';
+import { RESERVED_ASSISTANT_CUSTOM_IDS } from '../config/assistantInteractionIds.js';
 
 const COMMAND_ERROR_SUBTYPES = {
   warn: 'warn_failed',
@@ -47,10 +42,7 @@ const COMMAND_ERROR_SUBTYPES = {
 
 export function isDedicatedAssistantInteraction(interaction) {
   const customId = String(interaction?.customId || '');
-  return customId === FAQ_AI_BUTTON_ID
-    || customId === FAQ_AI_MODAL_ID
-    || customId === FIX_GUIDE_ASK_BUTTON_ID
-    || customId === FIX_GUIDE_ASK_MODAL_ID;
+  return RESERVED_ASSISTANT_CUSTOM_IDS.has(customId);
 }
 
 function withTraceContext(context = {}, traceContext = {}) {
