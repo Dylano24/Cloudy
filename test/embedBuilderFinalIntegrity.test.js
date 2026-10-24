@@ -98,7 +98,7 @@ test('live channel discovery fetches only the newest page and carries an inline 
     id: '501',
     guildId: 'guild-fast',
     author: { id: 'bot-1' },
-    embeds: [{ title: 'Cloudy Assistant', description: 'Latest live preview' }],
+    embeds: [{ title: 'Cloudy Assistant', description: 'Latest live preview', footer: { text: '\u200B' } }],
     components: [],
     flags: { has: () => false },
     createdAt: new Date('2026-09-02T11:55:00Z'),
