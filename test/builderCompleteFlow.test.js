@@ -23,7 +23,7 @@ function fixture(id) {
   }, edit: async (messageId, payload) => messages.get(messageId).edit(payload) };
   function add(messageId, body, createdAt) {
     const message = { id: messageId, guildId: id, guild, client, channelId: channel.id, channel, author: client.user, flags: { has: () => false }, content: '', editable: true, createdAt: new Date(createdAt), createdTimestamp: createdAt, components: [],
-      embeds: [new Embed({ title: 'Appeal form', description: body, color: 0xFFFFFF, footer: { text: 'Cloudy footer' } })],
+      embeds: [new Embed({ title: 'Appeal form', description: body, color: 0xFFFFFF, footer: { text: 'Cloudy footer\u200B' } })],
       async edit(payload) { this.embeds = payload.embeds.map(e => new Embed(e.toJSON?.() || e)); return this; } };
     messages.set(messageId, message); return message;
   }
