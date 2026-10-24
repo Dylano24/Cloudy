@@ -530,8 +530,7 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
     const embeds = message.embeds.map(embed => {
       const data = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
       const sharedRuntimeBody = isSharedRuntimeBodyTitle(data.title);
-      const source = stored;
-      const result = decorateEmbedData(embed, source, {
+      const result = decorateEmbedData(embed, stored, {
         preserveRuntimeBody: sharedRuntimeBody,
       });
       if (!result.matched) return embed;
