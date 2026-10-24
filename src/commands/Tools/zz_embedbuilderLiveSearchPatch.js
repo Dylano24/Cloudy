@@ -520,7 +520,7 @@ async function loadFastEmbedBuilderSearchRecords(interaction) {
     // A cold refresh must never flash "Nothing found" if Search had a valid
     // result set moments earlier.
     if (cached?.records?.length && cached.expiresAt > Date.now()) {
-        return cached.records;
+        return filterEmbedBuilderSearchRecords(interaction.guild, interaction.member, cached.records, { requireSend: true });
     }
 
     return [];
@@ -886,10 +886,16 @@ function mergeCompatibleSearchMatch(left, right) {
 
 function mergeCompatibleCatalogPeers(matches) {
     const merged = [];
+    const titleIndexes = new Map();
     for (const match of matches) {
-        const index = merged.findIndex(existing =>
-            compatibleSearchShape(existing.record, match.record, existing.document, match.document));
+        const title = normalize(match.document?.title);
+        const peers = titleIndexes.get(title) || [];
+        const index = peers.find(candidate => compatibleSearchShape(
+            merged[candidate].record, match.record, merged[candidate].document, match.document,
+        )) ?? -1;
         if (index < 0) {
+            peers.push(merged.length);
+            titleIndexes.set(title, peers);
             merged.push(match);
             continue;
         }
@@ -1100,6 +1106,73 @@ function parseSelection(value) {
     };
 }
 
+// Only the slow selection preparation needs a defer. Warm selections retain
+// the direct first paint; cold storage/Discord reads cannot expire the callback.
+export async function withBuilderSelectionAcknowledgement(interaction, prepare, delayMs = 600) {
+    let acknowledgement = null;
+    const timer = setTimeout(() => {
+        if (!interaction.deferred && !interaction.replied && interaction.deferReply) {
+            acknowledgement = interaction.deferReply().catch(() => null);
+        }
+    }, delayMs);
+    try {
+        return await prepare();
+    } finally {
+        clearTimeout(timer);
+        if (acknowledgement) await acknowledgement;
+    }
+}
+
+export async function loadEmbedBuilderSearchSelection(interaction) {
+    const selected = parseSelection(interaction.options?.getString?.('search') || '');
+    if (!selected || !interaction.guildId) return null;
+    const findSelected = records => builderSearchDisplayRecords(records).find(item =>
+        String(item.channelId) === selected.channelId
+        && String(item.messageId) === selected.messageId
+        && Number(item.embedIndex || 0) === selected.embedIndex,
+    );
+
+    // Reuse the complete registry/canonical snapshots already used to offer
+    // this result. Only a genuinely missing/cold selection needs full discovery.
+    let records = await loadFastEmbedBuilderSearchRecords(interaction);
+    let selectedRecord = findSelected(records);
+    if (!selectedRecord) {
+        records = await loadEmbedBuilderSearchRecords(interaction);
+        selectedRecord = findSelected(records);
+    }
+    if (!selectedRecord) return null;
+    let record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
+    await warmSavedEmbedTemplateScopes(interaction.guildId, [
+        record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
+    ]);
+    const groupedPreview = record.previewRecord
+        || latestRealPreviewRecord(interaction.guild, records, record)
+        || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
+    const runtimePreview = await hydrateBuilderPreviewRecord(
+        interaction.guild, record, groupedPreview, interaction.user.id,
+    ).catch(() => groupedPreview);
+    const previewRecord = runtimePreview
+        ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
+        : null;
+    // Manual Builder controls are loaded from the selected record. If the live
+    // read found newer buttons on that exact message, keep them in the draft.
+    if (record.source === 'embed-builder' && previewRecord
+        && String(previewRecord.messageId) === String(record.messageId)
+        && String(previewRecord.backingChannelId || previewRecord.channelId)
+            === String(record.backingChannelId || record.channelId)
+        && Number(previewRecord.embedIndex || 0) === Number(record.embedIndex || 0)
+        && Array.isArray(previewRecord.components)) {
+        record = { ...record, components: previewRecord.components };
+    }
+    return {
+        record,
+        previewRecord,
+        previewTitle: recordTitle(record),
+        sourceRecord: record.sourceRecord || null,
+        expiresAt: Date.now() + PENDING_TTL,
+    };
+}
+
 export async function hydrateLiveSearchRecord(guild, record, timeoutMs = 1200) {
     if (!guild || !record || record.detached || String(record.source || '').toLowerCase() === 'system-catalog') {
         return record;
@@ -1249,46 +1322,13 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
     const originalExecute = embedBuilderCommand.execute.bind(embedBuilderCommand);
     embedBuilderCommand.execute = async function executeWithLiveSearch(interaction, ...args) {
         removeExpiredSelections();
-        const rawSelection = interaction.options?.getString?.('search') || '';
-        const selected = parseSelection(rawSelection);
-
-        if (selected && interaction.guildId) {
-            const records = await loadEmbedBuilderSearchRecords(interaction);
-            const displayRecords = builderSearchDisplayRecords(records);
-            const selectedRecord = displayRecords.find(item =>
-                String(item.channelId) === selected.channelId
-                && String(item.messageId) === selected.messageId
-                && Number(item.embedIndex || 0) === selected.embedIndex,
-            );
-            if (selectedRecord) {
-                const record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
-                // Search must open the complete compatible preview for this
-                // response type, while never borrowing data from another
-                // same-title response with different content.
-                const groupedPreview = record.previewRecord
-                    || latestRealPreviewRecord(interaction.guild, records, record)
-                    || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
-                const runtimePreview = await hydrateBuilderPreviewRecord(
-                    interaction.guild,
-                    record,
-                    groupedPreview,
-                    interaction.user.id,
-                ).catch(() => groupedPreview);
-                const previewRecord = runtimePreview
-                    ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
-                    : null;
-
-                const initialSelection = {
-                    record,
-                    previewRecord,
-                    sourceRecord: record.sourceRecord || null,
-                    expiresAt: Date.now() + PENDING_TTL,
-                };
-                pendingSelections.set(selectionKey(interaction), initialSelection);
-                // BUILDER_SEARCH_EDITOR_STATE_V2: Search state is available before the
-                // Builder/editor starts, not only after a later Modify action.
-                interaction.__cloudyInitialBuilderSelection = initialSelection;
-            }
+        const initialSelection = await withBuilderSelectionAcknowledgement(
+            interaction, () => loadEmbedBuilderSearchSelection(interaction),
+        );
+        if (initialSelection) {
+            pendingSelections.set(selectionKey(interaction), initialSelection);
+            // BUILDER_SEARCH_EDITOR_STATE_V2: load before the editor starts.
+            interaction.__cloudyInitialBuilderSelection = initialSelection;
         }
 
         return originalExecute(interaction, ...args);
