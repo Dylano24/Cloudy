@@ -939,7 +939,7 @@ test('embed manager overview live-hydrates channels before showing them as empty
     guildId,
     channelId,
     author: { id: 'cloudy-bot' },
-    embeds: [{ title: 'Already saved', description: 'This embed is live in Discord.' }],
+    embeds: [{ title: 'Already saved', description: 'This embed is live in Discord.', footer: { text: '\u200B' } }],
     components: [],
     createdAt: new Date('2026-10-03T04:00:00.000Z'),
     createdTimestamp: Date.parse('2026-10-03T04:00:00.000Z'),
