@@ -37,7 +37,7 @@ test('Builder Search returns no autocomplete list until text is typed', () => {
   const executeStart = source.indexOf('const originalExecute', autocompleteStart);
   const autocompleteBody = source.slice(autocompleteStart, executeStart);
 
-  assert.match(autocompleteBody, /if \(!normalize\(focused\.value\)\)/);
+  assert.match(autocompleteBody, /focused\?\.name !== 'search' \|\| !normalize\(focused\.value\)/);
   assert.match(autocompleteBody, /interaction\.respond\(\[\]\)/);
 });
 
