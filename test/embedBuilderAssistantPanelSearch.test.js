@@ -75,7 +75,7 @@ test('Search excludes generated Cloudy Fix Guide runtime answer catalogs', () =>
   assert.deepEqual(buildMatches(g, [runtimeAnswer], 'fix guide'), []);
 });
 
-test('Search includes the live FAQ panel and excludes generated FAQ answer catalogs', () => {
+test('Search collapses the fixed FAQ catalog fallback with the complete live panel', () => {
   const g = guild();
   const livePanel = panelRecord({
     messageId: '100000000000000012',
@@ -83,18 +83,19 @@ test('Search includes the live FAQ panel and excludes generated FAQ answer catal
     customId: 'faq_ai_question',
     description: 'The complete FAQ panel.',
   });
-  const runtimeAnswer = panelRecord({
+  const catalogFallback = panelRecord({
     messageId: '100000000000000013',
     title: 'Cloudy Support Assistant',
     source: 'system-catalog',
     customId: null,
-    description: 'Generated answer body.',
+    description: 'The complete FAQ panel.',
   });
 
-  const matches = buildMatches(g, [runtimeAnswer, livePanel], 'support assistant');
+  const matches = buildMatches(g, [catalogFallback, livePanel], 'support assistant');
   assert.equal(matches.length, 1);
-  assert.equal(matches[0].record.messageId, livePanel.messageId);
-  assert.equal(matches[0].record.snapshot.description, 'The complete FAQ panel.');
+  assert.equal(matches[0].record.messageId, catalogFallback.messageId);
+  assert.equal(matches[0].record.previewRecord?.messageId, livePanel.messageId);
+  assert.equal(matches[0].record.previewRecord?.snapshot.description, 'The complete FAQ panel.');
 });
 
 test('Search does not re-introduce runtime ticket control messages as stable panels', () => {
