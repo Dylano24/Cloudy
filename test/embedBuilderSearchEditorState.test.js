@@ -26,7 +26,7 @@ test('slash Search selection is applied before the Builder editor can emit updat
 });
 
 test('Search selection carries preview and source records into initial Builder state', () => {
-  assert.match(searchPatch, /const initialSelection = \{\s*record,\s*previewRecord,/);
+  assert.match(searchPatch, /return \{\s*record,\s*previewRecord,/);
   assert.match(searchPatch, /await hydrateBuilderPreviewRecord\(/);
   assert.match(searchPatch, /await hydrateLiveSearchRecord\(interaction\.guild, runtimePreview\)/);
   assert.match(searchPatch, /sourceRecord:\s*record\.sourceRecord\s*\|\|\s*null/);

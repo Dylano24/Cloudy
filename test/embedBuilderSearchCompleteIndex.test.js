@@ -156,7 +156,7 @@ test('Search keeps a catalog template but removes an inaccessible live preview a
   assert.equal(matches[0].document.title, 'Permission denied');
 });
 
-test('autocomplete stays fast while execution uses the complete Search loader', () => {
+test('autocomplete stays fast while selection retains full discovery for cold results', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
   assert.match(source, /async function loadFastEmbedBuilderSearchRecords\(interaction\)/);
   assert.match(source, /async function loadEmbedBuilderSearchRecords\(interaction\)/);
@@ -171,6 +171,8 @@ test('autocomplete stays fast while execution uses the complete Search loader', 
   assert.doesNotMatch(autocomplete, /filterEmbedBuilderRecords/);
 
   const execute = source.slice(executeStart);
-  assert.match(execute, /await loadEmbedBuilderSearchRecords\(interaction\)/);
+  assert.match(execute, /loadEmbedBuilderSearchSelection\(interaction\)/);
+  const selection = source.slice(source.indexOf('export async function loadEmbedBuilderSearchSelection'), source.indexOf('export async function hydrateLiveSearchRecord'));
+  assert.match(selection, /if \(!selectedRecord\) \{\s*records = await loadEmbedBuilderSearchRecords\(interaction\)/);
   assert.doesNotMatch(execute, /filterEmbedBuilderRecords/);
 });
