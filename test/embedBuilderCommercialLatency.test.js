@@ -54,7 +54,8 @@ test('Modify Search reuses the open manager records before reading the database 
 
 test('slash autocomplete coalesces canonical Builder reads', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-  assert.match(source, /CANONICAL_SEARCH_CACHE_TTL = 1500/);
+  assert.match(source, /CANONICAL_SEARCH_CACHE_TTL = 10_000/);
+  assert.match(source, /getEmbedRegistryGeneration\(key\)/);
   assert.match(source, /async function getFastCanonicalBuilderRecords/);
   assert.match(source, /cached\?\.promise/);
   assert.doesNotMatch(source, /await getCanonicalBuilderRecords\(interaction\.guild\)/);
@@ -152,4 +153,5 @@ test('slash autocomplete uses the non-blocking Search loader and never the full 
   assert.doesNotMatch(fast, /await warmSystemCatalogForSearch/);
   assert.doesNotMatch(fast, /await getFastCanonicalBuilderRecords/);
   assert.match(fast, /cached\?\.records\?\.length/);
+  assert.match(fast, /lastRegistrySearchRefresh/);
 });
