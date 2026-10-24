@@ -7,8 +7,6 @@ const SKIPPED_FILES = new Set([
   'embedbuilder.js',
   '00_embedbuilderSearchSchemaPatch.js',
   'zz_embedbuilderLiveSearchPatch.js',
-  'faqAiService.js',
-  'cloudyOwnerAssistantReady.js',
   'embedManagerService.js',
   'embedDefinitionDiscoveryService.js',
   'embedTemplateService.js',
@@ -185,8 +183,12 @@ function commandLabel(relativePath) {
 
 function plainIntentLabel(content, ordinal = 0) {
   const value = String(content || '')
-    .replace(/<a?:[^:>]+:\d+>/g, '')
-    .replace(/\{dynamic\}/gi, '')
+    // Template literals such as <@&${roleId}> are tokenized to
+    // <@&{dynamic}> during source discovery. Strip Discord mention markup
+    // before choosing the human-facing management label.
+    .replace(/<a?:[^:>]+:(?:\d+|\{dynamic\})>/gi, ' ')
+    .replace(/<[@#][!&]?[^>\s]*>?/g, ' ')
+    .replace(/\{dynamic\}/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
