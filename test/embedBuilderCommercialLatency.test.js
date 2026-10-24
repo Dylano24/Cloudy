@@ -129,3 +129,25 @@ test('editor heartbeat no longer performs a Discord message edit', () => {
   assert.match(block, /touchBuilderSessionMessage\(state\.builderDashboardMessage\)/);
   assert.doesNotMatch(block, /refreshBuilder\(/);
 });
+
+
+test('slash autocomplete never waits for full canonical or catalog hydration', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  const start = source.indexOf('embedBuilderCommand.autocomplete');
+  const end = source.indexOf('const originalExecute', start);
+  assert.ok(start >= 0 && end > start);
+  const autocomplete = source.slice(start, end);
+
+  assert.match(autocomplete, /await loadFastEmbedBuilderSearchRecords\(interaction\)/);
+  assert.doesNotMatch(autocomplete, /await loadEmbedBuilderSearchRecords\(interaction\)/);
+  assert.doesNotMatch(autocomplete, /await getFastCanonicalBuilderRecords/);
+  assert.doesNotMatch(autocomplete, /await warmSystemCatalogForSearch/);
+
+  const fastStart = source.indexOf('async function loadFastEmbedBuilderSearchRecords');
+  const fastEnd = source.indexOf('async function loadEmbedBuilderSearchRecords', fastStart);
+  const fast = source.slice(fastStart, fastEnd);
+  assert.match(fast, /Promise\.race/);
+  assert.match(fast, /250/);
+  assert.match(fast, /void warmSystemCatalogForSearch/);
+  assert.match(fast, /void getFastCanonicalBuilderRecords/);
+});
