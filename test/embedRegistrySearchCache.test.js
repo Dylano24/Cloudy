@@ -5,7 +5,7 @@ import { getEmbedRegistry, removeEmbedRegistryRecord } from '../src/services/emb
 
 test('search cache shares successful reads and is invalidated by a registry mutation', async t => {
   let reads = 0;
-  const record = { guildId: 'search-cache', channelId: 'channel', messageId: 'message', title: 'Saved', source: 'bot-history', snapshot: { title: 'Saved' } };
+  const record = { guildId: 'search-cache', channelId: 'channel', messageId: 'message', title: 'Saved', source: 'embed-builder', snapshot: { title: 'Saved' } };
   let stored = [record];
   t.mock.method(db, 'get', async () => { reads++; return structuredClone(stored); });
   t.mock.method(db, 'set', async (_key, value) => { stored = value; return true; });

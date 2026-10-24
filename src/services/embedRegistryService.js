@@ -704,6 +704,11 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy', opt
 }
 
 function detachedBuilderRecord(record) {
+    // Only a deliberately saved Builder record survives Discord deletion as a
+    // detached template. Runtime mirrors (bot-history, reconciled, system
+    // catalog rows) are invisible once detached, so keeping them only grows the
+    // stored registry with every transient reply that is deleted.
+    if (!isManualBuilderRecord(record) && !record?.manualSaved) return null;
     if (!isFixedCloudyRecord(record)) return null;
     const snapshot = getEmbedRegistrySnapshot(record);
     if (!snapshot) return null;
