@@ -124,3 +124,20 @@ test('Embed Builder UI internals are never source-discovered as reusable respons
     'Embed Builder UI/status internals must never pollute the reusable Search catalog',
   );
 });
+
+
+test('live assistant panels are registry-managed and never duplicated by source discovery', async () => {
+  const definitions = await discoverEmbedDefinitions();
+  const leaked = definitions.filter(definition => {
+    const title = String(definition.title || definition.label || '').trim().toLowerCase();
+    return title === 'cloudy support assistant'
+      || title === 'cloudy assistant • fix guide'
+      || title === 'cloudy assistant fix guide';
+  });
+
+  assert.deepEqual(
+    leaked,
+    [],
+    'FAQ/Fix Guide persistent panels must come from their live registry records, not a second static catalog copy',
+  );
+});
