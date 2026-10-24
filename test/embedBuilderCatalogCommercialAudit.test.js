@@ -46,7 +46,7 @@ test('every built-in system response has one stable identity and a clean commerc
 
   const removed = definitions.find(definition => definition.key === 'builder:removed');
   assert.ok(removed, 'builder:removed must always exist in the built-in catalog');
-  assert.equal(recordTitle(fakeRecord(removed, 999)), 'Deleted from Builder');
+  assert.equal(recordTitle(fakeRecord(removed, 999)), 'Removed from Builder');
 });
 
 test('every source-discovered embed resolves to a clean commercial Search name', async () => {
