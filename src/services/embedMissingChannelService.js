@@ -1,6 +1,7 @@
 import { MessageFlags } from 'discord.js';
 import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
+import { isTransientStatusEmbed } from '../utils/transientResponse.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import {
     getTicketLogTemplate,
@@ -27,16 +28,14 @@ export function isUsableMessage(message, botUserId) {
     // Deliberately posted Builder messages do not have an interaction origin.
     if (message.interaction || message.interactionMetadata) return false;
     if (message.reference?.messageId && !isBuilderMarked(message)) return false;
-    // Unsolicited bot notices, alerts and code-defined replies do not become
-    // saved Builder items just because they are visible in Discord. Explicit
-    // Builder Post is marked at creation; legacy/saved posts are resolved from
-    // their authoritative Builder registry separately.
-    if (!isBuilderMarked(message)
-        && !message.embeds.some(embed => Boolean(getTicketLogTemplate(embed)))) return false;
-
+    // This is discovery of PHYSICALLY POSTED Discord messages, not a Save.
+    // Older Cloudy panels and game/log outputs often predate the Builder footer
+    // marker; hiding them made the channel browser appear empty. Still exclude
+    // ephemeral / command replies and purely transient status notifications.
     return message.embeds.some(embed => {
         const title = String(embed?.title || '').trim().toLowerCase();
-        return !INTERNAL_TITLES.has(title);
+        return !INTERNAL_TITLES.has(title)
+            && (isBuilderMarked(message) || !isTransientStatusEmbed(embed));
     });
 }
 
@@ -80,11 +79,16 @@ function buildRecords(guild, channel, message, guildConfig = null) {
             const title = String(embed?.title || '').trim().toLowerCase();
             if (INTERNAL_TITLES.has(title)) return null;
 
+            const isTicketLogResponse = Boolean(getTicketLogTemplate(embed));
             const isReusableTicketLog = isTicketLogTemplateChannel(guildConfig, channel.id)
-                && Boolean(getTicketLogTemplate(embed));
-            // A template-shaped notification outside configured ticket logs
-            // is not a saved Builder post. Never infer its channel membership.
-            if (!isBuilderMarked(message) && !isReusableTicketLog) return null;
+                && isTicketLogResponse;
+            // A ticket lifecycle reply outside configured ticket log channels is
+            // not a saved panel, even if its snapshot has the same log fields.
+            if (isTicketLogResponse && !isReusableTicketLog && !isBuilderMarked(message)) return null;
+            // A real, persistent bot embed is browseable without a modern
+            // footer marker. This snapshot stays session-only until Save.
+            if (!isBuilderMarked(message) && !isReusableTicketLog
+                && isTransientStatusEmbed(embed)) return null;
 
             return {
                 guildId: String(guild.id),
@@ -119,70 +123,50 @@ function sortedMessages(state) {
     );
 }
 
-async function getRecentUsableMessages(channel, botUserId, { fullHistory = true } = {}) {
+async function getRecentUsableMessages(channel, botUserId, { fullHistory = true, onBatch = null, shouldContinue = null } = {}) {
     const cacheKey = String(channel.id);
-    const state = discoveryCache.get(cacheKey) || {
+    const existing = discoveryCache.get(cacheKey);
+    const reuseNewest = fullHistory && existing?.newestCheckedAt
+        && Date.now() - existing.newestCheckedAt < 5_000;
+    // Every new quick channel selection makes Discord the authority. Historical
+    // cached snapshots from a previous session cannot masquerade as live posts.
+    const newestBatch = reuseNewest ? null
+        : await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE });
+    if (!reuseNewest && !newestBatch?.values) return [];
+    const state = reuseNewest ? existing : {
         messages: new Map(),
-        oldestId: null,
-        complete: false,
+        oldestId: newestBatch?.last?.()?.id || null,
+        complete: (newestBatch?.size || 0) < DISCOVERY_PAGE_SIZE,
+        newestCheckedAt: Date.now(),
     };
-
-    mergeUsableMessages(state.messages, channel.messages.cache?.values?.() || [], botUserId);
-
-    // Always refresh exactly one newest page first. This is the only network
-    // fetch used by live channel switching in the Embed Builder.
-    const newestBatch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE });
-    // A channel picker must be based on messages Discord actually returned.
-    // The discovery cache can contain removed older messages outside the newest
-    // page; never let those cached snapshots appear as live channel entries.
-    if (!fullHistory) {
-        if (!newestBatch?.values) return [];
-        return [...newestBatch.values()]
-            .filter(message => isUsableMessage(message, botUserId))
-            .sort((a, b) => candidatePriority(b) - candidatePriority(a)
-                || Number(b.createdTimestamp || 0) - Number(a.createdTimestamp || 0));
-    }
-
-    if (newestBatch?.size) {
-        const oldestId = String(newestBatch.last()?.id || '');
-        for (const [id, message] of state.messages) {
-            const inRefreshedRange = id.length > oldestId.length || (id.length === oldestId.length && id >= oldestId);
-            if (message.deleted || (inRefreshedRange && !newestBatch.has(id))) state.messages.delete(id);
-        }
-        mergeUsableMessages(state.messages, newestBatch.values(), botUserId);
-        if (!state.oldestId) state.oldestId = newestBatch.last()?.id || null;
-        if (newestBatch.size < DISCOVERY_PAGE_SIZE) state.complete = true;
-    } else if (newestBatch?.size === 0) {
-        state.messages.clear();
-        state.complete = true;
-    }
-
+    if (!reuseNewest) mergeUsableMessages(state.messages, newestBatch.values(), botUserId);
     discoveryCache.set(cacheKey, state);
 
-    // Live Builder selection must never wait for old history. Full-history mode
-    // remains available for background/recovery callers only.
+    // One Discord request for the immediate first paint. Full message history
+    // is paginated by a separate task so switching channels never waits for it.
     if (!fullHistory) return sortedMessages(state);
 
     let before = state.complete ? null : state.oldestId;
-    while (before) {
+    const seen = new Set();
+    while (before && !seen.has(String(before))
+        && (!shouldContinue || shouldContinue())) {
+        seen.add(String(before));
         const batch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE, before }).catch(() => null);
         if (!batch) break;
-        if (!batch.size) {
-            state.complete = true;
-            break;
-        }
-
+        if (!batch.size) { state.complete = true; break; }
         mergeUsableMessages(state.messages, batch.values(), botUserId);
-        const oldest = batch.last();
+        const oldest = batch.last?.();
         state.oldestId = oldest?.id || state.oldestId;
-
+        if (typeof onBatch === 'function') {
+            const valid = [...batch.values()].filter(message => isUsableMessage(message, botUserId));
+            await onBatch(valid);
+        }
         if (!oldest || batch.size < DISCOVERY_PAGE_SIZE) {
             state.complete = true;
             break;
         }
         before = oldest.id;
     }
-
     discoveryCache.set(cacheKey, state);
     return sortedMessages(state);
 }
@@ -209,16 +193,18 @@ export async function discoverRecentChannelEmbeds(guild, channelId, botUserId) {
     return messages.flatMap(message => buildRecords(guild, channel, message, guildConfig));
 }
 
-export async function discoverMissingChannelEmbeds(guild, channelId, botUserId) {
+export async function discoverMissingChannelEmbeds(guild, channelId, botUserId, { onBatch = null, shouldContinue = null } = {}) {
     if (!guild || !channelId || !botUserId) return [];
 
     const channel = await resolveChannel(guild, channelId);
     if (!channel?.messages?.fetch) return [];
 
-    const [messages, guildConfig] = await Promise.all([
-        getRecentUsableMessages(channel, botUserId, { fullHistory: true }),
-        resolveGuildConfig(guild),
-    ]);
+    const guildConfig = await resolveGuildConfig(guild);
+    const messages = await getRecentUsableMessages(channel, botUserId, {
+        fullHistory: true,
+        onBatch: onBatch ? batch => onBatch(batch.flatMap(message => buildRecords(guild, channel, message, guildConfig))) : null,
+        shouldContinue,
+    });
     if (!messages.length) return [];
 
     // Do not persist historical discovery as manual Embed Builder records.

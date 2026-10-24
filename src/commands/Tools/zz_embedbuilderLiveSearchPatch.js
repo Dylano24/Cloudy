@@ -1241,6 +1241,15 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     let records = await loadFastEmbedBuilderSearchRecords(interaction);
     let selectedRecord = findSelected(records);
     if (!selectedRecord) {
+        // A cold Search selection must not block on every saved scope and the
+        // entire canonical catalog. Refresh the registry once, then resolve
+        // this exact choice. Full discovery remains a final fallback only.
+        const freshRegistry = await getEmbedRegistry(interaction.guildId, { cached: true })
+            .catch(() => []);
+        records = mergeSearchRecords(interaction.guildId, freshRegistry);
+        selectedRecord = findSelected(records);
+    }
+    if (!selectedRecord) {
         records = await loadEmbedBuilderSearchRecords(interaction);
         selectedRecord = findSelected(records);
     }
