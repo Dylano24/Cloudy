@@ -1,5 +1,6 @@
 // CLOUDY_INTERACTION_LATENCY_V1
 // BUILDER_SAVED_PARITY_V1
+import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
 import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
@@ -1415,6 +1416,7 @@ function managerRecordKey(record) {
 
 export function isEmbedManagerVisibleRecord(record, { includeBotHistory = true } = {}) {
     if (!record?.messageId) return false;
+    if (isSystemCatalogHiddenFromBuilder(record)) return false;
 
     const source = String(record.source || '').toLowerCase();
     if (record.detached && source !== 'embed-builder') return false;
