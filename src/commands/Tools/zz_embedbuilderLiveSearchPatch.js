@@ -485,56 +485,73 @@ async function warmSystemCatalogForSearch(client) {
     return ready;
 }
 
-const FAST_SEARCH_CACHE_TTL = 30_000;
+const FAST_SEARCH_CACHE_TTL = 10_000;
 const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
     || (globalThis.__cloudyEmbedFastSearchCache = new Map());
 const lastRegistrySearchRefresh = new Map();
 
-async function loadFastEmbedBuilderSearchRecords(interaction) {
+export async function loadFastEmbedBuilderSearchRecords(interaction) {
     const guildId = String(interaction.guildId || '');
+    const now = Date.now();
+    const generation = getEmbedRegistryGeneration(guildId);
     const cached = fastSearchCache.get(guildId);
 
-    // Hidden catalog choices load once per guild; the persisted preference
-    // is never treated as permission to remove an actual Discord message.
-    void ensureHiddenBuilderCatalogLoaded(interaction.guildId).catch(() => {});
+    // Keep visibility and catalog caches warm outside Discord's three-second
+    // autocomplete response window. The Builder's saved archive is unchanged.
+    void ensureHiddenBuilderCatalogLoaded(guildId).catch(() => {});
     void warmSystemCatalogForSearch(interaction.client).catch(() => {});
     void getFastCanonicalBuilderRecords(interaction.guild).catch(() => {});
 
-    // Never enqueue a new storage read for every typed character. Mutations
-    // still invalidate the generation-backed registry cache; cold reads wait.
     const known = peekEmbedRegistry(interaction.guildId);
-    const now = Date.now();
-    if (known && now - (lastRegistrySearchRefresh.get(guildId) || 0) >= 1500) {
+    if (now - (lastRegistrySearchRefresh.get(guildId) || 0) >= 1500) {
         lastRegistrySearchRefresh.set(guildId, now);
-        void getEmbedRegistry(interaction.guildId, { cached: true }).catch(() => {});
+        // Autocomplete must NEVER wait on a cold database read. The live system
+        // catalog and any last-known records can answer the current keystroke;
+        // the read fills the next keystroke's results instead.
+        void getEmbedRegistry(interaction.guildId, { cached: true })
+            .then(() => {
+                const existing = fastSearchCache.get(guildId);
+                if (existing?.generation === generation && existing.registryPending) {
+                    fastSearchCache.delete(guildId);
+                }
+            })
+            .catch(() => {});
     }
-    const registryRecords = known || await getEmbedRegistry(interaction.guildId, { cached: true }).catch(() => []);
 
-    // Builder items are canonical records (same identity, name and snapshot as
-    // the channel browser). Search must see them too, from the cache only.
+    // One autocomplete keystroke must not clone and re-index thousands of
+    // system responses again when neither the registry nor hidden rules changed.
+    if (cached?.generation === generation && cached?.records?.length && cached.expiresAt > now) {
+        return filterEmbedBuilderSearchRecords(
+            interaction.guild, interaction.member, cached.records, { requireSend: true },
+        );
+    }
+
+    // A cold process still serves the independently available catalog; it
+    // never reports an empty Search solely because PostgreSQL is busy.
+    const registryRecords = known || [];
     const canonicalRecords = peekCanonicalBuilderRecords(interaction.guild);
-    const merged = mergeSearchRecords(interaction.guildId, [...registryRecords, ...canonicalRecords]);
+    const merged = mergeSearchRecords(guildId, [...registryRecords, ...canonicalRecords]);
     const filtered = filterEmbedBuilderSearchRecords(
-        interaction.guild,
-        interaction.member,
-        merged,
-        { requireSend: true },
+        interaction.guild, interaction.member, merged, { requireSend: true },
     );
 
     if (filtered.length) {
         fastSearchCache.set(guildId, {
+            generation,
+            registryPending: !known,
             records: filtered,
             expiresAt: Date.now() + FAST_SEARCH_CACHE_TTL,
         });
         return filtered;
     }
 
-    // A cold refresh must never flash "Nothing found" if Search had a valid
-    // result set moments earlier.
-    if (cached?.records?.length && cached.expiresAt > Date.now()) {
-        return filterEmbedBuilderSearchRecords(interaction.guild, interaction.member, cached.records, { requireSend: true });
+    // Stale-while-refresh is preferable to an empty dropdown when catalog
+    // regeneration is underway. Permissions are always checked per user.
+    if (cached?.generation === generation && cached?.records?.length) {
+        return filterEmbedBuilderSearchRecords(
+            interaction.guild, interaction.member, cached.records, { requireSend: true },
+        );
     }
-
     return [];
 }
 
