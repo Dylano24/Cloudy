@@ -6,6 +6,10 @@ import {
     StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import embedBuilderCommand from './embedbuilder.js';
+import {
+    FAQ_AI_BUTTON_ID,
+    FIX_GUIDE_ASK_BUTTON_ID,
+} from '../../config/assistantInteractionIds.js';
 import { canUseEmbedBuilderChannel } from '../../utils/embedBuilderAccess.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
@@ -539,8 +543,8 @@ function hasInteractiveComponents(record) {
 }
 
 const STABLE_PANEL_COMPONENT_IDS = new Set([
-    'faq_ai_question',
-    'cloudy_fix_guide_ask',
+    FAQ_AI_BUTTON_ID,
+    FIX_GUIDE_ASK_BUTTON_ID,
 ]);
 
 function hasStablePanelAction(record) {
