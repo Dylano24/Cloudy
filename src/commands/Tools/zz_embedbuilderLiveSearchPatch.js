@@ -472,6 +472,45 @@ async function warmSystemCatalogForSearch(client) {
     return ready;
 }
 
+const FAST_SEARCH_CACHE_TTL = 30_000;
+const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
+    || (globalThis.__cloudyEmbedFastSearchCache = new Map());
+
+async function loadFastEmbedBuilderSearchRecords(interaction) {
+    const guildId = String(interaction.guildId || '');
+    const cached = fastSearchCache.get(guildId);
+
+    // Kick catalog/canonical refreshes off without blocking Discord autocomplete.
+    void warmSystemCatalogForSearch(interaction.client).catch(() => {});
+    void getFastCanonicalBuilderRecords(interaction.guild).catch(() => {});
+
+    const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true })
+        .catch(() => []);
+    const merged = mergeSearchRecords(interaction.guildId, registryRecords);
+    const filtered = filterEmbedBuilderSearchRecords(
+        interaction.guild,
+        interaction.member,
+        merged,
+        { requireSend: true },
+    );
+
+    if (filtered.length) {
+        fastSearchCache.set(guildId, {
+            records: filtered,
+            expiresAt: Date.now() + FAST_SEARCH_CACHE_TTL,
+        });
+        return filtered;
+    }
+
+    // A cold refresh must never flash "Nothing found" if Search had a valid
+    // result set moments earlier.
+    if (cached?.records?.length && cached.expiresAt > Date.now()) {
+        return cached.records;
+    }
+
+    return [];
+}
+
 async function loadEmbedBuilderSearchRecords(interaction) {
     await warmSystemCatalogForSearch(interaction.client);
     const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
@@ -1179,7 +1218,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             return;
         }
 
-        const records = await loadEmbedBuilderSearchRecords(interaction);
+        const records = await loadFastEmbedBuilderSearchRecords(interaction);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
         const choices = buildSearchChoices(matches);
         await interaction.respond(choices).catch(() => {});
