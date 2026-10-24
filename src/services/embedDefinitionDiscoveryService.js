@@ -604,6 +604,25 @@ async function walk(dir, output = []) {
   return output;
 }
 
+function isUnusableDiscoveredEmbed(definition = {}) {
+  if (String(definition.kind || '').toLowerCase() !== 'embed') return false;
+  const hasTitle = Boolean(String(definition.title || '').trim());
+  const hasDescription = Boolean(String(definition.description || '').trim());
+  const hasFields = Array.isArray(definition.fields)
+    && definition.fields.some(field =>
+      String(field?.name || '').trim() || String(field?.value || '').trim());
+  return !hasTitle && !hasDescription && !hasFields;
+}
+
+function isEphemeralAssistantAnswerEmbed(definition = {}) {
+  if (String(definition.kind || '').toLowerCase() !== 'embed') return false;
+  const context = String(definition.context || '').toLowerCase();
+  const title = String(definition.title || '').trim().toLowerCase();
+
+  return (context === 'faq/faq-ai-interaction' && title === 'cloudy support assistant')
+    || (context === 'botlog/cloudy-fix-guide-interaction' && title === 'cloudy fix guide');
+}
+
 export async function discoverEmbedDefinitions() {
   const files = await walk(SOURCE_ROOT);
   const definitions = [];
@@ -626,6 +645,8 @@ export async function discoverEmbedDefinitions() {
   }));
   for (const row of rows) {
     for (const definition of row || []) {
+      if (isUnusableDiscoveredEmbed(definition) || isEphemeralAssistantAnswerEmbed(definition)) continue;
+
       const identity = `${definition.kind}|${definition.context}|${definition.title || definition.label || ''}|${definition.description || ''}`;
       if (unique.has(identity)) continue;
       unique.add(identity);
