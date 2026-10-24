@@ -133,3 +133,35 @@ test('live channel discovery fetches only the newest page and carries an inline 
   assert.equal(records[0].snapshot?.title, 'Cloudy Assistant');
   assert.equal(records[0].snapshot?.description, 'Latest live preview');
 });
+
+test('live channel discovery never carries a deleted cached embed into Modify', async () => {
+  const message = {
+    id: '300000000000000001', guildId: 'live-recheck-fixture',
+    author: { id: 'bot' },
+    embeds: [{ title: 'Ping!', description: 'Old ping' }],
+    components: [], flags: { has: () => false },
+    createdAt: new Date('2026-10-24T08:55:00Z'),
+    createdTimestamp: Date.parse('2026-10-24T08:55:00Z'),
+  };
+  const first = new Map([[message.id, message]]);
+  const second = new Map();
+  first.last = () => message;
+  second.last = () => undefined;
+  let calls = 0;
+  const channel = {
+    id: 'live-channel-id',
+    messages: {
+      cache: new Map([[message.id, message]]),
+      fetch: async () => (++calls === 1 ? first : second),
+    },
+  };
+  const guild = {
+    id: message.guildId,
+    channels: { cache: new Map([[channel.id, channel]]) },
+  };
+  const before = await discoverRecentChannelEmbeds(guild, channel.id, 'bot');
+  const after = await discoverRecentChannelEmbeds(guild, channel.id, 'bot');
+  assert.equal(before.length, 1);
+  assert.deepEqual(after, [], 'deleted posts may remain in Discord cache but must not be offered by Modify');
+  assert.equal(calls, 2);
+});
