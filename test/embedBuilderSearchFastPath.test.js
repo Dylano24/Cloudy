@@ -51,14 +51,14 @@ test('Search autocomplete fast path merges cached canonical Builder records and 
   assert.ok(fastStart >= 0 && fastEnd > fastStart);
   const fast = source.slice(fastStart, fastEnd);
 
-  assert.match(fast, /peekEmbedRegistry\(interaction\.guildId\)/);
-  assert.match(fast, /const registryRecords = known \|\| \[\]/);
+  assert.match(fast, /peekEmbedRegistry\(guildId\)/);
+  assert.match(fast, /const known = peekEmbedRegistry\(guildId\)/);
   assert.match(fast, /cached\?\.generation === generation/);
   assert.match(fast, /cached\?\.records\?\.length/);
   assert.match(fast, /fastSearchCache\.set\(guildId/);
   assert.doesNotMatch(fast, /await getEmbedRegistry/);
   assert.match(fast, /peekCanonicalBuilderRecords\(interaction\.guild\)/);
-  assert.match(fast, /mergeSearchRecords\(guildId, \[\.\.\.registryRecords, \.\.\.canonicalRecords\]\)/);
+  assert.match(fast, /mergeSearchRecords\(guildId, \[\.\.\.\(known \|\| \[\]\), \.\.\.canonicalRecords\]\)/);
   assert.doesNotMatch(fast, /await getFastCanonicalBuilderRecords/);
   assert.doesNotMatch(fast, /await getCanonicalBuilderRecords/);
 
@@ -86,7 +86,7 @@ test('cold autocomplete never waits for a blocked PostgreSQL read', async t => {
   ]);
   assert.notEqual(result, 'timeout', 'autocomplete must not wait on database storage');
   assert.ok(Array.isArray(result));
-  assert.ok(reads >= 1, 'the registry read still starts in the background');
+  assert.equal(reads, 0, 'a standalone autocomplete loader must not start expensive DB reads before response');
 });
 
 test('warm autocomplete cache serves saved embeds without repeating the expensive catalog merge', async t => {
@@ -108,4 +108,17 @@ test('warm autocomplete cache serves saved embeds without repeating the expensiv
   assert.ok(first.some(x => x.messageId === record.messageId));
   assert.ok(second.some(x => x.messageId === record.messageId));
   assert.equal(first.length, second.length);
+});
+
+test('autocomplete schedules heavyweight catalog/DB work only after responding', () => {
+  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  const start = source.indexOf('embedBuilderCommand.autocomplete');
+  const end = source.indexOf('const originalExecute', start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /buildAutocompleteMatches\(/);
+  assert.match(handler, /await interaction.respond\(choices\)/);
+  assert.match(handler, /scheduleAutocompleteSearchRefresh\(interaction\)/);
+  assert.ok(handler.indexOf('await interaction.respond(choices)') < handler.indexOf('scheduleAutocompleteSearchRefresh(interaction)'));
+  assert.match(handler, /\[EMBED_SEARCH\] Autocomplete failed/);
+  assert.match(handler, /resultCount: count/);
 });
