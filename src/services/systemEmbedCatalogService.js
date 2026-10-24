@@ -112,6 +112,15 @@ export const TICKET_LOG_CATALOG_TEMPLATES = [
   { key: 'ticket-log:feedback', context: 'ticket-logs/feedback', title: '⭐ Feedback received', color: CLOUDY_GREEN_COLOR, fields: [{ name: 'Ticket', value: '#123', inline: true }, { name: 'Rating', value: '⭐⭐⭐⭐⭐', inline: true }] },
 ];
 
+export function getBuiltInSystemCatalogDefinitions() {
+  return [
+    ...DEFAULT_TEMPLATES,
+    TICKET_MAIN_CATALOG_TEMPLATE,
+    ...TICKET_LOG_CATALOG_TEMPLATES,
+  ].map(definition => cloneData(definition));
+}
+
+
 const BLACKJACK_RESULT_STATES = new Set([
   'bust',
   'blackjack',
