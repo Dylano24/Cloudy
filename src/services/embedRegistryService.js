@@ -136,6 +136,11 @@ function cleanStoredRecords(records) {
 
     for (const record of Array.isArray(records) ? records : []) {
         if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record) || !isFixedCloudyRecord(record)) continue;
+        // Keep live discovery and system templates. Deleted runtime copies and
+        // explicitly unsaved Builder posts are not a permanent archive. Legacy
+        // Builder rows without a Save marker are ambiguous, so leave them alone.
+        if (record.detached && !record.manualSaved && record.source !== 'system-catalog'
+            && (record.source !== 'embed-builder' || record.manualSaved === false)) continue;
         unique.set(recordKey(record), record);
     }
 
@@ -545,6 +550,9 @@ function normalizeRecord(record) {
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
+    // Older Builder records predate the Save marker; absence is not proof
+    // that the user never saved them.
+    if (isManualBuilderRecord(record) && !Object.hasOwn(record, 'manualSaved')) delete normalized.manualSaved;
     return isInternalEmbedRecord(normalized) ? null : normalized;
 }
 
@@ -612,6 +620,9 @@ async function saveRecords(guildId, additions) {
             if (!record) continue;
             const key = recordKey(record);
             const existing = next.get(key) || null;
+            if (isManualBuilderRecord(existing) && !Object.hasOwn(existing, 'manualSaved') && !record.manualSaved) {
+                delete record.manualSaved;
+            }
 
             if (
                 record.source === 'bot-history'
@@ -626,7 +637,9 @@ async function saveRecords(guildId, additions) {
                 continue;
             }
 
-            next.set(key, { ...(existing || {}), ...record });
+            const merged = { ...(existing || {}), ...record };
+            if (existing?.manualSaved) merged.manualSaved = true;
+            next.set(key, merged);
         }
 
         const result = sortRecords([...next.values()]);
@@ -713,11 +726,10 @@ export async function registerCloudyEmbedMessage(message, source = 'cloudy', opt
 }
 
 function detachedBuilderRecord(record) {
-    // Only a deliberately saved Builder record survives Discord deletion as a
-    // detached template. Runtime mirrors (bot-history, reconciled, system
-    // catalog rows) are invisible once detached, so keeping them only grows the
-    // stored registry with every transient reply that is deleted.
-    if (!isManualBuilderRecord(record) && !record?.manualSaved) return null;
+    // New posts need an explicit Save for permanent retention. Keep legacy
+    // Builder data whose historical Save status cannot be established.
+    if (!record?.manualSaved
+        && (!isManualBuilderRecord(record) || Object.hasOwn(record, 'manualSaved'))) return null;
     if (!isFixedCloudyRecord(record)) return null;
     const snapshot = getEmbedRegistrySnapshot(record);
     if (!snapshot) return null;
@@ -753,6 +765,7 @@ export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snaps
                 snapshot: normalizedSnapshot,
                 components: normalizedComponents == null ? record.components : normalizedComponents,
                 detached: true,
+                manualSaved: true,
             });
             if (updated) rememberEmbedSnapshot(updated, normalizedSnapshot);
             return updated || record;
@@ -962,6 +975,7 @@ function recordsFromMessage(message, priorRecords = [], { allowManual = false } 
                 messageId: message.id,
                 embedIndex,
                 source: isSystemCatalogMessage(message) ? 'system-catalog' : (prior?.source || 'reconciled'),
+                ...(prior && Object.hasOwn(prior, 'manualSaved') ? { manualSaved: prior.manualSaved } : {}),
                 title: embed?.title || '',
                 name: embedName(embed),
                 channelName: message.channel?.name || prior?.channelName || '',

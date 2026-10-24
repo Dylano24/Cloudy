@@ -631,6 +631,7 @@ function builderSearchDisplayRecords(records) {
         const messageId = String(record?.messageId || '');
         if (!channelId || !messageId) continue;
 
+        if (source === 'embed-builder' && record.manualSaved === false) continue;
         if (['bot-history', 'history'].includes(source) && !isCanonicalLivePanelRecord(record)) continue;
         if (isTransientAssistantCatalogRecord(record)) continue;
         if (record?.detached && !['system-catalog', 'embed-builder'].includes(source)) continue;

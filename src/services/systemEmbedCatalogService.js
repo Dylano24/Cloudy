@@ -1426,6 +1426,10 @@ export function captureSystemEmbedData(embedData, contextSource = null) {
   const guildId = contextGuildId(contextSource);
   if (!guildId && !contextSource?.globalTemplate) return false;
   if (!context || isTicketContext(context)) return false;
+  // Builder drafts/posts are user content, not new built-in response types.
+  // Built-in Builder notices are indexed from source definitions at startup;
+  // explicit Save persists custom content through the registry/template layer.
+  if (/^embed-builder(?:\/|$)/.test(context)) return false;
   const data = isBlackjackContext(context)
     ? stripBlackjackCardsRemaining(sourceData)
     : sourceData;

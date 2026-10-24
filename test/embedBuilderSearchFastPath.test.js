@@ -12,7 +12,7 @@ test('peekEmbedRegistry serves the last read synchronously while a registry writ
   let reads = 0;
   const record = {
     guildId: 'peek-guild', channelId: 'channel', messageId: 'message',
-    title: 'Saved', source: 'embed-builder', snapshot: { title: 'Saved' },
+    title: 'Saved', source: 'embed-builder', manualSaved: true, snapshot: { title: 'Saved' },
   };
   let stored = [record];
   let releaseWrite;
