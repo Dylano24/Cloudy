@@ -1682,7 +1682,11 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         const catalogTemplates = projectCatalogTemplatesToFeatureChannels(guild,
             allStoredRecords.filter(record => record.source === 'system-catalog'),
         );
-        let records = accessibleRecords(mergeEmbedManagerRecords([], catalogTemplates));
+        const savedChannelRecords = allStoredRecords.filter(record =>
+            record.manualSaved === true && record.source === 'embed-builder');
+        let records = accessibleRecords(mergeEmbedManagerRecords(
+            [], [...catalogTemplates, ...savedChannelRecords],
+        ));
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, records);
         const initialPayload = guild.channels.cache.size
             ? channelPage(records, 0, checkingChannelIds)
@@ -1786,27 +1790,67 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     // Builder posts and deliberate saved catalog entries appear
                     // when the channel's live message check completes.
                     records = records.filter(record => String(record.channelId) !== String(channelId)
-                        || record.catalogChannelProjection);
+                        || record.catalogChannelProjection || record.manualSaved === true);
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: true }), state, session);
                     if (selectionVersion !== session.selectionVersion) return;
 
                     void (async () => {
-                        const [discoveredRecords, registeredRecords] = await Promise.all([
-                            discoverRecentChannelEmbeds(guild, channelId, buttonInteraction.client.user.id)
-                                .catch(error => {
-                                    logger.debug('Channel embed discovery skipped: ' + error.message);
-                                    return [];
-                                }),
-                            getEmbedRegistry(guild.id).catch(error => {
+                        const discoveredRecords = await discoverRecentChannelEmbeds(
+                            guild, channelId, buttonInteraction.client.user.id,
+                        ).catch(error => {
+                            logger.debug('Channel embed discovery skipped: ' + error.message);
+                            return [];
+                        });
+                        if (selectionVersion !== session.selectionVersion
+                            || session.closed || state.activeEmbedManager !== session) return;
+
+                        // Present the verified newest Discord page immediately;
+                        // an unrelated registry hydration or historic pagination
+                        // must not hold the user's first visible channel list.
+                        records = accessibleRecords(mergeEmbedManagerRecords(
+                            records, discoveredRecords.filter(record =>
+                                String(record.channelId) === String(channelId)),
+                        ));
+                        await updateEmbedManager(interaction,
+                            buildEmbedPayload(guild, records, channelId, 0), state, session);
+                        if (selectionVersion !== session.selectionVersion) return;
+
+                        // Stream older posted messages without waiting for the
+                        // complete history. Latest selection wins on fast channel
+                        // changes. No item from this read-only scan is saved.
+                        let lastHistoryPaint = 0;
+                        void discoverMissingChannelEmbeds(
+                            guild, channelId, buttonInteraction.client.user.id, {
+                                onBatch: async batch => {
+                                    if (selectionVersion !== session.selectionVersion
+                                        || session.closed || state.activeEmbedManager !== session) return;
+                                    if (!batch.length) return;
+                                    records = accessibleRecords(mergeEmbedManagerRecords(
+                                        records, batch.filter(record =>
+                                            String(record.channelId) === String(channelId)),
+                                    ));
+                                    if (Date.now() - lastHistoryPaint < 400) return;
+                                    lastHistoryPaint = Date.now();
+                                    await updateEmbedManager(interaction,
+                                        buildEmbedPayload(guild, records, channelId, 0), state, session);
+                                },
+                            },
+                        ).then(async () => {
+                            if (selectionVersion !== session.selectionVersion
+                                || session.closed || state.activeEmbedManager !== session) return;
+                            await updateEmbedManager(interaction,
+                                buildEmbedPayload(guild, records, channelId, 0), state, session);
+                        }).catch(error => logger.debug(
+                            'Older channel embed scan skipped: ' + error?.message,
+                        ));
+
+                        const registeredRecords = await getEmbedRegistry(guild.id)
+                            .catch(error => {
                                 logger.debug('Channel registry refresh skipped: ' + error.message);
                                 return [];
-                            }),
-                        ]);
-
+                            });
                         if (selectionVersion !== session.selectionVersion
-                            || session.closed
-                            || state.activeEmbedManager !== session) return;
-
+                            || session.closed || state.activeEmbedManager !== session) return;
                         const liveRecords = await verifyLiveBuilderChannelRecords(
                             guild, channelId, registeredRecords,
                             buttonInteraction.client.user.id, discoveredRecords,
