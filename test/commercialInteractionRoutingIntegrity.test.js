@@ -75,3 +75,11 @@ test('reserved assistant custom IDs have one literal owner and cannot collide wi
     assert.doesNotMatch(source, /['"]create_ticket['"]/, `${file} must never own the ticket-create action`);
   }
 });
+
+
+test('FAQ ready reconciliation re-registers the live panel in the Embed Builder registry', () => {
+  const source = fs.readFileSync('src/services/faqAiService.js', 'utf8');
+
+  assert.match(source, /registerCloudyEmbedMessage/);
+  assert.match(source, /await registerCloudyEmbedMessage\(panelMessage, 'bot-history'\)/);
+});
