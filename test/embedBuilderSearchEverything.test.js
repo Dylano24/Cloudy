@@ -177,8 +177,8 @@ test('Builder Search collapses source-discovery duplicates with the same respons
   });
 
   const matches = buildMatches(guild, [
-    record('100', 'source:aaaa1111', 'First discovered source form'),
-    record('101', 'source:bbbb2222', 'Second discovered source form'),
+    record('100', 'source:aaaa1111', 'Report 123 was deleted by <@111111111111111111>.'),
+    record('101', 'source:bbbb2222', 'Report 456 was deleted by <@222222222222222222>.'),
   ], 'report deleted');
 
   assert.equal(matches.length, 1);
