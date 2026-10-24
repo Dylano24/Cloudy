@@ -172,6 +172,7 @@ export function commercialBuilderTitle(value) {
         .replace(/<[@#&!]?\d+>/g, ' ')
         .replace(/\{dynamic\}/gi, ' ')
         .replace(/[•·|]+/g, ' ')
+        .replace(/[*_`~>#]+/g, ' ')
         .replace(/[-_]+/g, ' ')
         .replace(/\brandomuser\b/gi, 'random user')
         .replace(/\brole\s*selector\b/gi, 'role selector')
