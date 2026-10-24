@@ -11,6 +11,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
     getEmbedRegistry,
     getEmbedRegistrySnapshot,
+    peekEmbedRegistry,
     resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
 import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
@@ -65,8 +66,15 @@ async function getFastCanonicalBuilderRecords(guild) {
             canonicalSearchCache.delete(key);
             throw error;
         });
-    canonicalSearchCache.set(key, { promise, expiresAt: now + CANONICAL_SEARCH_CACHE_TTL });
+    // Keep the last known canonical set while the refresh is in flight so the
+    // autocomplete fast path can read it without waiting.
+    canonicalSearchCache.set(key, { promise, records: cached?.records || null, expiresAt: now + CANONICAL_SEARCH_CACHE_TTL });
     return promise;
+}
+
+function peekCanonicalBuilderRecords(guild) {
+    const cached = canonicalSearchCache.get(String(guild?.id || ''));
+    return Array.isArray(cached?.records) ? cached.records : [];
 }
 
 function normalize(value) {
@@ -484,9 +492,16 @@ async function loadFastEmbedBuilderSearchRecords(interaction) {
     void warmSystemCatalogForSearch(interaction.client).catch(() => {});
     void getFastCanonicalBuilderRecords(interaction.guild).catch(() => {});
 
-    const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true })
+    // Serve the last known registry synchronously; the refresh keeps it current
+    // in the background. Only a cold process waits on the storage read.
+    const known = peekEmbedRegistry(interaction.guildId);
+    const refresh = getEmbedRegistry(interaction.guildId, { cached: true })
         .catch(() => []);
-    const merged = mergeSearchRecords(interaction.guildId, registryRecords);
+    const registryRecords = known || await refresh;
+    // Builder items are canonical records (same identity, name and snapshot as
+    // the channel browser). Search must see them too, from the cache only.
+    const canonicalRecords = peekCanonicalBuilderRecords(interaction.guild);
+    const merged = mergeSearchRecords(interaction.guildId, [...registryRecords, ...canonicalRecords]);
     const filtered = filterEmbedBuilderSearchRecords(
         interaction.guild,
         interaction.member,
