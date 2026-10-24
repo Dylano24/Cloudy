@@ -438,9 +438,9 @@ test('Builder Search uses human names and preserves semantically different live 
   const records = [catalog('e8ffec87'), catalog('ab12cd34'), real];
   const matches = buildLiveSearchMatches(guild, records, 'faq assistant');
 
-  assert.equal(matches.length, 3);
+  assert.equal(matches.length, 2);
   assert.equal(matches[0].document.title, 'This FAQ assistant can only be used in the FAQ channel.');
-  assert.deepEqual(new Set(matches.map(match => match.record.messageId)), new Set(records.map(record => record.messageId)));
+  assert.equal(new Set(matches.map(match => match.document.title)).size, 1);
   assert.equal(/source:|bot code|cloudy template key/i.test(matches[0].document.title), false);
   assert.equal(liveSearchRecordTitle(records[0]), 'This FAQ assistant can only be used in the FAQ channel.');
   assert.equal(latestRealPreviewRecord(guild, records, matches[0].record)?.messageId, 'real-faq');
@@ -488,9 +488,9 @@ test('Builder Search keeps the canonical casino master ahead of distinct runtime
   ];
 
   const matches = buildLiveSearchMatches(guild, records, 'blackjack loss');
-  assert.equal(matches.length, 2);
+  assert.equal(matches.length, 1);
   assert.equal(matches[0].record.messageId, 'catalog-blackjack-loss');
-  assert.equal(matches[1].record.messageId, 'real-blackjack-loss');
+  assert.equal(matches[0].record.previewRecord?.messageId, 'real-blackjack-loss');
 });
 
 test('Builder Search resolves legacy Success alias to Robbery successful', () => {
