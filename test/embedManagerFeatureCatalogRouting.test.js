@@ -24,7 +24,7 @@ function catalog(id, key, context, title) {
   };
 }
 
-test('channel browser routes all source-defined gambling and ticket templates into their actual feature channels without posting ghost messages', () => {
+test('unsaved game, ticket and system responses remain in Search but not in Discord channel menus', () => {
   const guild = {
     id: 'catalog-channel-test',
     channels: { cache: new Map([
@@ -39,38 +39,39 @@ test('channel browser routes all source-defined gambling and ticket templates in
     catalog('102', 'game:roulette:lost', 'gambling/roulette', 'Roulette loss'),
     catalog('103', 'ticket-log:open', 'ticket-logs/open', 'Ticket created'),
     catalog('104', 'builder:removed', 'embed-builder/delete', 'Removed from Builder'),
+    catalog('105', 'notice:too-fast', 'general/rate-limit', 'Too fast'),
   ];
   const original = structuredClone(records);
   const projected = projectCatalogTemplatesToFeatureChannels(guild, records);
-  assert.deepEqual(records, original, 'source records and backing storage must remain unchanged');
-  assert.deepEqual(projected.map(x => [x.messageId, x.channelId]), [
-    ['101', 'gambling-channel'], ['102', 'gambling-channel'], ['103', 'ticket-log-channel'],
-  ]);
-  assert.ok(projected.every(x => x.backingChannelId === 'internal-log'
-    && x.source === 'system-catalog' && x.catalogChannelProjection === true
-    && isEmbedManagerVisibleRecord(x)));
+  assert.deepEqual(records, original);
+  assert.deepEqual(projected, [], 'no implicit channel association from a system template context');
+  assert.ok(records.every(record => !isEmbedManagerVisibleRecord(record)));
+  const options = buildEmbedPayload(guild, records, 'gambling-channel').components;
+  assert.ok(options.every(row => row.components.every(c => c.data?.custom_id !== 'simple_embed_modify_embed:gambling-channel:0')));
   const overview = buildChannelPayload(guild, projected);
-  const options = overview.components[0].components[0].options;
-  assert.ok(options.some(x => x.data.value === 'gambling-channel'
-    && x.data.description !== 'No saved embed yet'));
-  const gambling = buildEmbedPayload(guild, projected, 'gambling-channel');
-  const gamblingOptions = gambling.components[0].components[0].options;
-  assert.deepEqual(gamblingOptions.map(x => x.data.label), ['Roulette win', 'Roulette loss']);
+  const channelOptions = overview.components[0].components[0].options;
+  assert.ok(channelOptions.some(c => c.data.value === 'gambling-channel'
+    && c.data.description === 'No saved embed yet'));
 });
 
-test('catalog mapping does not invent channel messages or leak unrelated source definitions into similarly named channels', () => {
+test('only a deliberately saved catalog entry remains attached to its original channel', () => {
   const guild = {
     id: 'catalog-channel-test',
     channels: { cache: new Map([
       ['general', channel('general', 'general')],
-      ['games', channel('games', 'games')],
+      ['welcome', channel('welcome', 'welcome')],
       ['internal-log', channel('internal-log', 'botlog')],
     ]) },
   };
-  const result = projectCatalogTemplatesToFeatureChannels(guild, [
-    catalog('1', 'game:roulette:won', 'gambling/roulette', 'Roulette win'),
-    catalog('2', 'builder:removed', 'embed-builder/delete', 'Removed from Builder'),
-    catalog('3', 'ticket-log:open', 'ticket-logs/open', 'Ticket created'),
+  const saved = { ...catalog('7', 'saved-example', 'general/example', 'Saved notice'),
+    channelId: 'general', manualSaved: true };
+  const projected = projectCatalogTemplatesToFeatureChannels(guild, [
+    catalog('1', 'notice:too-fast', 'general/rate-limit', 'Too fast'),
+    saved,
   ]);
-  assert.equal(result.length, 0, 'no arbitrary fallback channel may receive a catalog template');
+  assert.deepEqual(projected.map(record => [record.messageId, record.channelId]), [['7', 'general']]);
+  assert.ok(projected[0].catalogChannelProjection);
+  assert.ok(isEmbedManagerVisibleRecord(projected[0]));
+  assert.equal(projected[0].backingChannelId, 'internal-log');
+  assert.ok(!projected.some(record => record.channelId === 'welcome'));
 });
