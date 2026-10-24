@@ -496,7 +496,7 @@ async function loadFastEmbedBuilderSearchRecords(interaction) {
 
     // Hidden catalog choices load once per guild; the persisted preference
     // is never treated as permission to remove an actual Discord message.
-    await ensureHiddenBuilderCatalogLoaded(interaction.guildId);
+    void ensureHiddenBuilderCatalogLoaded(interaction.guildId).catch(() => {});
     void warmSystemCatalogForSearch(interaction.client).catch(() => {});
     void getFastCanonicalBuilderRecords(interaction.guild).catch(() => {});
 
