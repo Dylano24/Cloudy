@@ -14,7 +14,10 @@ test('Embed Builder preloads only registry data and invalidates it after mutatio
 
   const openBody = source.slice(openStart);
   assert.match(openBody, /preparedGeneration === getEmbedRegistryGeneration\(guild\.id\)/);
-  assert.match(openBody, /let records = \[\];/);
+  assert.match(openBody, /let records = accessibleRecords\(mergeEmbedManagerRecords\(\[\], catalogTemplates\)\)/);
+  assert.match(openBody, /projectCatalogTemplatesToFeatureChannels\(guild/);
+  assert.match(openBody, /record\.catalogChannelProjection/,
+    'code-defined templates survive the live-message validation path');
   assert.match(openBody, /verifyLiveBuilderChannelRecords\(/);
   assert.doesNotMatch(openBody, /mergeEmbedManagerRecords\(registeredRecords, discoveredRecords\)/);
 });
