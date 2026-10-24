@@ -51,14 +51,14 @@ test('Search autocomplete fast path merges cached canonical Builder records and 
   const fast = source.slice(fastStart, fastEnd);
 
   assert.match(fast, /peekEmbedRegistry\(interaction\.guildId\)/);
-  assert.match(fast, /known \|\| await refresh/);
+  assert.match(fast, /known \|\| await getEmbedRegistry/);
   assert.match(fast, /peekCanonicalBuilderRecords\(interaction\.guild\)/);
   assert.match(fast, /mergeSearchRecords\(interaction\.guildId, \[\.\.\.registryRecords, \.\.\.canonicalRecords\]\)/);
   assert.doesNotMatch(fast, /await getFastCanonicalBuilderRecords/);
   assert.doesNotMatch(fast, /await getCanonicalBuilderRecords/);
 
   // The canonical cache keeps its last records while a refresh is in flight,
-  // otherwise the 1.5 s TTL would hide Builder items from Search between refreshes.
+  // otherwise the refresh interval would hide Builder items from Search between refreshes.
   const canonicalStart = source.indexOf('async function getFastCanonicalBuilderRecords');
   const canonicalEnd = source.indexOf('function peekCanonicalBuilderRecords', canonicalStart);
   assert.ok(canonicalStart >= 0 && canonicalEnd > canonicalStart);
