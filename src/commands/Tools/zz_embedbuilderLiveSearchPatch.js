@@ -430,19 +430,16 @@ function builderSearchDisplayRecords(records) {
         const stableContext = stableSearchTemplateContext(record);
         const title = normalize(recordTitle(record));
 
-        const protectedCatalogMaster = /^(?:game|ticket-log):/.test(stableKey);
-        const key = source === 'system-catalog' && !protectedCatalogMaster
-            ? ['catalog', stableContext, title].join(':')
-            : stableKey
-                ? ['template', stableKey, stableContext].join(':')
-                : source === 'system-catalog'
-                    ? ['catalog', stableContext, title].join(':')
-                    : [
-                        'physical',
-                        String(record?.backingChannelId || channelId),
-                        messageId,
-                        Number(record?.embedIndex || 0),
-                    ].join(':');
+        const key = stableKey
+            ? ['template', stableKey, stableContext].join(':')
+            : source === 'system-catalog'
+                ? ['catalog', stableContext, title].join(':')
+                : [
+                    'physical',
+                    String(record?.backingChannelId || channelId),
+                    messageId,
+                    Number(record?.embedIndex || 0),
+                ].join(':');
 
         const existing = unique.get(key);
         if (!existing || priority(record) > priority(existing)) {
@@ -649,12 +646,13 @@ export function buildSearchChoices(matches) {
         let name = title;
         if (duplicateCount > 1) {
             const channelName = cleanChoiceText(document?.channel?.name, 28);
-            const detail = choiceDetail(match);
-            if (channelName) name = clean(`${title} in ${channelName}`, 100);
-            if ((usedNames.get(name) || 0) > 0 && detail
+            const detail = commercialBuilderTitle(choiceDetail(match));
+            if (detail
                 && normalize(detail) !== normalize(channelName)
                 && normalize(detail) !== normalize(title)) {
                 name = clean(`${title}: ${detail}`, 100);
+            } else if (channelName) {
+                name = clean(`${title} in ${channelName}`, 100);
             }
         }
 
