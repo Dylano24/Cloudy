@@ -723,6 +723,73 @@ export function getSearchableSystemCatalogRecords(guildId) {
     }));
 }
 
+export async function removeSystemEmbedCatalogMessage(guildId, channelId, messageId) {
+  const guild = String(guildId || '').trim();
+  const channel = String(channelId || '').trim();
+  const message = String(messageId || '').trim();
+  if (!guild || !channel || !message) return false;
+
+  const context = contexts.get(guild);
+  if (context?.channel?.id && String(context.channel.id) !== channel) return false;
+
+  const prefix = `${guild}:${message}:`;
+  let removed = false;
+  for (const key of [...searchableCatalogRecords.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    searchableCatalogRecords.delete(key);
+    removed = true;
+  }
+
+  const storedIds = await getFromDb(storageKey(guild), []);
+  if (Array.isArray(storedIds) && storedIds.map(String).includes(message)) {
+    await setInDb(
+      storageKey(guild),
+      storedIds.map(String).filter(id => id !== message),
+    );
+    removed = true;
+  }
+
+  if (removed) {
+    // Force the next startup/Search warmup to recreate any deleted built-in
+    // catalog rows instead of reusing a previously fulfilled initialization.
+    catalogEnsurePromise = null;
+  }
+
+  return removed;
+}
+
+export function getBuiltInSystemCatalogCoverage(guildId) {
+  const expectedEntries = getBuiltInSystemCatalogDefinitions()
+    .map(definitionToCatalog)
+    .filter(entry => entry?.key && isEditableSystemCatalogTemplate(entry.key, entry.context));
+
+  const indexedIdentities = new Set(
+    getSearchableSystemCatalogRecords(guildId)
+      .map(record => {
+        const metadata = parseTemplateMetadata(record.snapshot);
+        return metadata?.key
+          ? cacheIdentity(metadata.key, metadata.context)
+          : null;
+      })
+      .filter(Boolean),
+  );
+
+  const missing = expectedEntries
+    .filter(entry => !indexedIdentities.has(cacheIdentity(entry.key, entry.context)))
+    .map(entry => ({
+      key: entry.key,
+      context: entry.context,
+      title: String(entry.data?.title || entry.key || 'Cloudy response'),
+    }));
+
+  return {
+    expected: expectedEntries.length,
+    indexed: expectedEntries.length - missing.length,
+    complete: missing.length === 0,
+    missing,
+  };
+}
+
 async function loadCatalogMessages(context) {
   const storedIds = await getFromDb(storageKey(context.guild.id), []);
   const ids = Array.isArray(storedIds) ? storedIds.map(String).filter(Boolean) : [];
@@ -1540,10 +1607,16 @@ async function buildSystemEmbedCatalogs(client) {
 
   let totalAdded = 0;
 
+  const primaryGuildId = String(process.env.GUILD_ID || '').trim();
+
   for (const guild of client.guilds.cache.values()) {
     const channel = findCatalogChannel(guild);
     if (!channel?.messages?.fetch) {
-      logger.warn(`[EMBED_BUILDER] No botlog channel found in guild ${guild.id}; response catalog cannot be indexed.`);
+      const message = `[EMBED_BUILDER] No botlog channel found in guild ${guild.id}; response catalog cannot be indexed.`;
+      if (primaryGuildId && String(guild.id) === primaryGuildId) {
+        throw new Error(message);
+      }
+      logger.warn(message);
       continue;
     }
 
@@ -1573,6 +1646,22 @@ async function buildSystemEmbedCatalogs(client) {
 
     await saveCatalogIds(guild.id, messages);
     await registerCatalogMessages(messages).catch(error => logger.warn(`Failed to register response catalog messages: ${error.message}`));
+
+    const coverage = getBuiltInSystemCatalogCoverage(guild.id);
+    if (!coverage.complete) {
+      const missingNames = coverage.missing
+        .slice(0, 12)
+        .map(entry => `${entry.key}@${entry.context}`)
+        .join(', ');
+      const message = `Embed Builder system catalog incomplete for guild ${guild.id}: `
+        + `${coverage.indexed}/${coverage.expected} built-in responses indexed`
+        + (missingNames ? ` (missing: ${missingNames})` : '');
+
+      if (!primaryGuildId || String(guild.id) === primaryGuildId) {
+        throw new Error(message);
+      }
+      logger.warn(message);
+    }
   }
 
   await flushPendingTemplates();
