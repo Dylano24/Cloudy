@@ -18,6 +18,7 @@ import {
     StringSelectMenuOptionBuilder,
     } from 'discord.js';
 import { getColor } from '../config/bot.js';
+import { isAdditionalStatusTitle } from '../utils/statusReplyPolicy.js';
 import { logger } from '../utils/logger.js';
 import {
     DISCORD_EMBED_TOTAL_TEXT_LIMIT,
@@ -1008,6 +1009,7 @@ export function loadRecordSnapshotIntoState(
     record,
     previewRecord = null,
     sourceRecord = null,
+    previewTitle = null,
 ) {
     const snapshot = record?.snapshot || getEmbedRegistrySnapshot(record);
     if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
@@ -1102,7 +1104,15 @@ export function loadRecordSnapshotIntoState(
             && !['system-catalog', 'runtime-preview'].includes(String(previewRecord.source || '').toLowerCase())
             ? previewRecord : record);
 
-    state.title = templateKind === 'content' ? null : (displayTitle || null);
+    // A catalog preview can match its clean Search label in letter case only.
+    // Never normalize a physical channel embed, saved custom title or guide.
+    const canMatchPreviewCase = record.source === 'system-catalog'
+        && !record.manualSaved && !savedDisplay.matched
+        && (/^botlog(?:\/|$)/.test(stableSystemTemplateContext(data))
+            || isAdditionalStatusTitle(displayTitle)
+            || /^(?:success|failed|error|warning|information|invalid|expired|too fast)$/i.test(displayTitle || ''))
+        && previewTitle && String(displayTitle).toLowerCase() === String(previewTitle).toLowerCase();
+    state.title = templateKind === 'content' ? null : (canMatchPreviewCase ? previewTitle : displayTitle || null);
     state.message = displayDescription || null;
     state.embedFields = Array.isArray(displayFields)
         ? displayFields.map(field => ({
@@ -1241,6 +1251,7 @@ export function applyInitialSearchSelectionToState(interaction, state) {
     const loaded = loadRecordSnapshotIntoState(
         state, interaction.guild, selectedRecord,
         selectedRecord.previewRecord, selectedRecord.sourceRecord,
+        initialSelection.previewTitle,
     );
     if (loaded) delete interaction.__cloudyInitialBuilderSelection;
     return loaded;
@@ -2622,4 +2633,3 @@ export async function saveModifiedEmbed(guild, state) {
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
 }
-

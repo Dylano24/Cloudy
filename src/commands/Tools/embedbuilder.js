@@ -1836,16 +1836,18 @@ export default {
 
             if (builderBotManaged
                 && interaction.channel?.send
-                && !interaction.replied
-                && !interaction.deferred) {
+                && !interaction.replied) {
                 // The global REST footer policy must not secretly add a C
                 // thumbnail that the preview and buttons say is absent.
                 registerBuilderPreviewReplyToken(interaction.token);
-                const previewResponsePromise = interaction.reply({
+                const previewPayload = {
                     embeds: [buildPreviewEmbed(state)],
                     components: getBuilderPreviewComponents(state),
-                    withResponse: true,
-                }).catch(() => null);
+                };
+                const previewResponsePromise = (interaction.deferred
+                    ? interaction.editReply(previewPayload)
+                    : interaction.reply({ ...previewPayload, withResponse: true })
+                ).catch(() => null);
                 const dashboardPromise = interaction.channel.send({
                     embeds: [buildControlEmbed(state)],
                     components: buildControls(state),
@@ -1855,7 +1857,8 @@ export default {
                     previewResponsePromise,
                     dashboardPromise,
                 ]);
-                previewMessage = previewResponse?.resource?.message || null;
+                previewMessage = previewResponse?.resource?.message
+                    || (previewResponse?.id ? previewResponse : null);
                 dashboardMessage = sentDashboard || null;
 
                 if (!previewMessage && interaction.replied) {
