@@ -7,6 +7,8 @@ const SKIPPED_FILES = new Set([
   'embedbuilder.js',
   '00_embedbuilderSearchSchemaPatch.js',
   'zz_embedbuilderLiveSearchPatch.js',
+  'faqAiService.js',
+  'cloudyOwnerAssistantReady.js',
   'embedManagerService.js',
   'embedDefinitionDiscoveryService.js',
   'embedTemplateService.js',
