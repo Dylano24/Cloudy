@@ -7,6 +7,7 @@ import { formatLogLine } from '../utils/logging/logEmbeds.js';
 import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js';
 import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID } from '../services/messageLogDestination.js';
 import { prepareDeletedMessageMedia } from '../services/deletedMessageMediaService.js';
+import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
 
 const MAX_LOGGED_MESSAGE_CONTENT_LENGTH = 1024;
 
@@ -22,8 +23,12 @@ export default {
         || !message.author
         || message.author.id === message.client.user?.id;
       if (mayBeRegisteredEmbed) {
-        await removeEmbedRegistryMessage(message.guild.id, message.channelId, message.id)
-          .catch(error => logger.warn(`Failed to remove deleted message ${message.id} from the embed registry:`, error));
+        await Promise.all([
+          removeEmbedRegistryMessage(message.guild.id, message.channelId, message.id)
+            .catch(error => logger.warn(`Failed to remove deleted message ${message.id} from the embed registry:`, error)),
+          removeSystemEmbedCatalogMessage(message.guild.id, message.id)
+            .catch(error => logger.warn(`Failed to invalidate deleted system catalog message ${message.id}:`, error)),
+        ]);
       }
 
       try {
