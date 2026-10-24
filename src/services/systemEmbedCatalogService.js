@@ -723,6 +723,37 @@ export function getSearchableSystemCatalogRecords(guildId) {
     }));
 }
 
+export async function removeSystemEmbedCatalogMessage(guildId, messageId) {
+  const guild = String(guildId || '').trim();
+  const message = String(messageId || '').trim();
+  if (!guild || !message) return false;
+
+  const prefix = `${guild}:${message}:`;
+  let removed = false;
+  for (const key of [...searchableCatalogRecords.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    searchableCatalogRecords.delete(key);
+    removed = true;
+  }
+
+  const storedIds = await getFromDb(storageKey(guild), []);
+  if (Array.isArray(storedIds) && storedIds.map(String).includes(message)) {
+    await setInDb(
+      storageKey(guild),
+      storedIds.map(String).filter(id => id !== message),
+    );
+    removed = true;
+  }
+
+  if (removed) {
+    // Force the next startup/Search warmup to recreate any deleted built-in
+    // catalog rows instead of reusing a previously fulfilled initialization.
+    catalogEnsurePromise = null;
+  }
+
+  return removed;
+}
+
 export function getBuiltInSystemCatalogCoverage(guildId) {
   const expectedEntries = getBuiltInSystemCatalogDefinitions()
     .map(definitionToCatalog)
