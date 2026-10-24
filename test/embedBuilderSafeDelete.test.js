@@ -23,13 +23,13 @@ test('Delete from Builder is staged first and only purged on Save', () => {
   assert.match(saveBody, /purgeEmbedRegistryRecord\(/);
 });
 
-test('Delete from builder protects live/system catalog records but allows stale templates', () => {
+test('Delete from Builder preserves live messages but can hide catalog rows and remove detached posts', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
 
   const eligibilityStart = source.indexOf('function canDeleteBuilderRecord');
   const eligibilityEnd = source.indexOf('async function inspectBuilderDeleteTarget', eligibilityStart);
   const eligibility = source.slice(eligibilityStart, eligibilityEnd);
-  assert.match(eligibility, /target\?\.source !== 'system-catalog'/);
+  assert.doesNotMatch(eligibility, /target\?\.source !== 'system-catalog'/);
   assert.doesNotMatch(eligibility, /!target\?\.templateMode/);
 
   const inspectStart = source.indexOf('async function inspectBuilderDeleteTarget');
@@ -38,6 +38,8 @@ test('Delete from builder protects live/system catalog records but allows stale 
   assert.match(inspect, /channel\.messages\.fetch\(String\(target\.messageId\)\)/);
   assert.match(inspect, /status: 'exists'/);
   assert.match(inspect, /status: 'missing'/);
+  assert.match(inspect, /target\.source === 'system-catalog'/);
+  assert.match(inspect, /target\.detached && target\.source === 'embed-builder'/);
 });
 
 test('loading another embed or Reset cancels a pending Builder deletion', () => {
@@ -49,4 +51,17 @@ test('loading another embed or Reset cancels a pending Builder deletion', () => 
   const resetEnd = builder.indexOf('break;', resetStart);
   const reset = builder.slice(resetStart, resetEnd);
   assert.match(reset, /state\.pendingBuilderDelete = null/);
+});
+
+test('virtual catalog deletion is saved without touching Discord message or Reappear', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const start = source.indexOf("    if (presence.status === 'catalog') {");
+  const end = source.indexOf('    // Disable Reappear through the canonical index', start);
+  const catalogBranch = source.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  assert.match(catalogBranch, /hideSystemCatalogFromBuilder\(/);
+  assert.match(catalogBranch, /clearBuilderRecordCaches\(/);
+  assert.doesNotMatch(catalogBranch, /purgeEmbedRegistryRecord\(/);
+  assert.doesNotMatch(catalogBranch, /syncExistingEmbedReappearRule\(/);
+  assert.doesNotMatch(catalogBranch, /\.delete\(/);
 });

@@ -10,6 +10,7 @@ import { canUseEmbedBuilderChannel } from '../../utils/embedBuilderAccess.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
     getEmbedRegistry,
+    getEmbedRegistryGeneration,
     getEmbedRegistrySnapshot,
     peekEmbedRegistry,
     resolveEmbedRegistryRecord,
@@ -21,6 +22,8 @@ import { FAQ_AI_BUTTON_ID } from '../../services/faqAiService.js';
 import { FIX_GUIDE_ASK_BUTTON_ID } from '../../events/cloudyOwnerAssistantReady.js';
 import {
     ensureSystemEmbedCatalogs,
+    ensureHiddenBuilderCatalogLoaded,
+    isSystemCatalogHiddenFromBuilder,
     getSearchableSystemCatalogRecords,
     getSystemSourceDefinitionPreview,
     getSystemSourceDefinitionPreviewForEmbed,
@@ -42,7 +45,7 @@ const INTERNAL_SEARCH_TITLES = new Set([
 ]);
 const pendingSelections = globalThis.__cloudyEmbedBuilderSearchSelections
     || (globalThis.__cloudyEmbedBuilderSearchSelections = new Map());
-const CANONICAL_SEARCH_CACHE_TTL = 1500;
+const CANONICAL_SEARCH_CACHE_TTL = 10_000;
 const canonicalSearchCache = globalThis.__cloudyEmbedCanonicalSearchCache
     || (globalThis.__cloudyEmbedCanonicalSearchCache = new Map());
 
@@ -51,12 +54,14 @@ async function getFastCanonicalBuilderRecords(guild) {
     if (!key) return [];
     const now = Date.now();
     const cached = canonicalSearchCache.get(key);
-    if (cached?.records && cached.expiresAt > now) return cached.records;
-    if (cached?.promise) return cached.promise;
+    const generation = getEmbedRegistryGeneration(key);
+    if (cached?.generation === generation && cached?.records && cached.expiresAt > now) return cached.records;
+    if (cached?.generation === generation && cached?.promise) return cached.promise;
 
     const promise = getCanonicalBuilderRecords(guild)
         .then(records => {
             canonicalSearchCache.set(key, {
+                generation,
                 records,
                 expiresAt: Date.now() + CANONICAL_SEARCH_CACHE_TTL,
             });
@@ -68,7 +73,7 @@ async function getFastCanonicalBuilderRecords(guild) {
         });
     // Keep the last known canonical set while the refresh is in flight so the
     // autocomplete fast path can read it without waiting.
-    canonicalSearchCache.set(key, { promise, records: cached?.records || null, expiresAt: now + CANONICAL_SEARCH_CACHE_TTL });
+    canonicalSearchCache.set(key, { generation, promise, records: cached?.records || null, expiresAt: now + CANONICAL_SEARCH_CACHE_TTL });
     return promise;
 }
 
@@ -483,21 +488,28 @@ async function warmSystemCatalogForSearch(client) {
 const FAST_SEARCH_CACHE_TTL = 30_000;
 const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
     || (globalThis.__cloudyEmbedFastSearchCache = new Map());
+const lastRegistrySearchRefresh = new Map();
 
 async function loadFastEmbedBuilderSearchRecords(interaction) {
     const guildId = String(interaction.guildId || '');
     const cached = fastSearchCache.get(guildId);
 
-    // Kick catalog/canonical refreshes off without blocking Discord autocomplete.
+    // Hidden catalog choices load once per guild; the persisted preference
+    // is never treated as permission to remove an actual Discord message.
+    void ensureHiddenBuilderCatalogLoaded(interaction.guildId).catch(() => {});
     void warmSystemCatalogForSearch(interaction.client).catch(() => {});
     void getFastCanonicalBuilderRecords(interaction.guild).catch(() => {});
 
-    // Serve the last known registry synchronously; the refresh keeps it current
-    // in the background. Only a cold process waits on the storage read.
+    // Never enqueue a new storage read for every typed character. Mutations
+    // still invalidate the generation-backed registry cache; cold reads wait.
     const known = peekEmbedRegistry(interaction.guildId);
-    const refresh = getEmbedRegistry(interaction.guildId, { cached: true })
-        .catch(() => []);
-    const registryRecords = known || await refresh;
+    const now = Date.now();
+    if (known && now - (lastRegistrySearchRefresh.get(guildId) || 0) >= 1500) {
+        lastRegistrySearchRefresh.set(guildId, now);
+        void getEmbedRegistry(interaction.guildId, { cached: true }).catch(() => {});
+    }
+    const registryRecords = known || await getEmbedRegistry(interaction.guildId, { cached: true }).catch(() => []);
+
     // Builder items are canonical records (same identity, name and snapshot as
     // the channel browser). Search must see them too, from the cache only.
     const canonicalRecords = peekCanonicalBuilderRecords(interaction.guild);
@@ -527,7 +539,10 @@ async function loadFastEmbedBuilderSearchRecords(interaction) {
 }
 
 async function loadEmbedBuilderSearchRecords(interaction) {
-    await warmSystemCatalogForSearch(interaction.client);
+    await Promise.all([
+        warmSystemCatalogForSearch(interaction.client),
+        ensureHiddenBuilderCatalogLoaded(interaction.guildId),
+    ]);
     const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
     await warmSavedEmbedTemplateScopes(
         interaction.guildId,
@@ -632,6 +647,11 @@ function builderSearchDisplayRecords(records) {
         if (!channelId || !messageId) continue;
 
         if (source === 'embed-builder' && record.manualSaved === false) continue;
+        if (isSystemCatalogHiddenFromBuilder(record)) continue;
+        // The intermediate Pinging... acknowledgement is not another reusable
+        // response type; only the final latency reply is editable in Search.
+        if (source !== 'embed-builder' && /^(?:ping|pong)$/.test(normalize(recordTitle(record)))
+            && /^pinging\.{0,3}$/i.test(String(snapshot(record)?.description || '').trim())) continue;
         if (['bot-history', 'history'].includes(source) && !isCanonicalLivePanelRecord(record)) continue;
         if (isTransientAssistantCatalogRecord(record)) continue;
         if (record?.detached && !['system-catalog', 'embed-builder'].includes(source)) continue;
@@ -778,6 +798,19 @@ function manualSearchIdentity(record) {
 function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return manualSearchIdentity(record);
+
+    // Gateway/API latency changes on every /ping call. Those values must stay
+    // dynamic, not create a new editable template for each invocation.
+    const title = normalize(recordTitle(record));
+    if (title === 'ping' || title === 'pong') {
+        const data = snapshot(record);
+        const fields = (Array.isArray(data?.fields) ? data.fields : [])
+            .map(field => normalize(field?.name));
+        if (fields.some(name => /^(?:bot|api) latency$/.test(name))
+            || /\b(?:bot|api) latency\b/i.test(String(data?.description || ''))) {
+            return 'command:ping:latency';
+        }
+    }
 
     // New report is one automated response family. Case numbers, free-text
     // reasons and optional evidence belong to the report instance, not to a

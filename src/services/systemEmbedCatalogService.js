@@ -31,6 +31,13 @@ const sourceDefinitionKeyCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
 const searchableCatalogRecords = new Map();
+// Builder visibility is independent from runtime template rendering. Removing a
+// virtual response from Search must not delete its source or its botlog message.
+const hiddenBuilderCatalogByGuild = new Map();
+const hiddenBuilderCatalogLoads = new Map();
+const hiddenBuilderCatalogWrites = new Map();
+const HIDDEN_BUILDER_CATALOG_PREFIX = 'cloudy:embed-builder-hidden-catalog:';
+
 const plainSourceAliases = new Map();
 const embedSourceAliases = new Map();
 const embedLegacyKeyAliases = new Map();
@@ -537,6 +544,71 @@ function parseTemplateMetadata(embed) {
   }
 
   return { key: normalize(metadata), context, kind };
+}
+
+function builderCatalogVisibilityId(record) {
+  const data = record?.sourceEmbedData || record?.snapshot || record;
+  if (!data) return null;
+
+  // One Ping action may have multiple historical catalog keys with different
+  // measurements. Hide the entire logical latency reply, not only one old row.
+  const pingTitle = normalize(data.title).replace(/[^a-z0-9]/g, '');
+  const pingFields = (Array.isArray(data.fields) ? data.fields : [])
+    .map(field => normalize(field?.name));
+  if (['ping', 'pong'].includes(pingTitle)
+      && (pingFields.some(name => /^(?:bot|api) latency$/.test(name))
+          || /\b(?:bot|api) latency\b/i.test(String(data.description || '')))) {
+    return 'command|ping|latency';
+  }
+
+  const metadata = parseTemplateMetadata(data);
+  if (!metadata.key) return null;
+  return [metadata.kind || 'embed', metadata.context || '', metadata.key].join('|');
+}
+
+export function isSystemCatalogHiddenFromBuilder(record) {
+  if (String(record?.source || '').toLowerCase() !== 'system-catalog') return false;
+  const identity = builderCatalogVisibilityId(record);
+  if (!identity) return false;
+  return hiddenBuilderCatalogByGuild.get(String(record.guildId || ''))?.has(identity) || false;
+}
+
+export async function ensureHiddenBuilderCatalogLoaded(guildId) {
+  const id = String(guildId || '');
+  if (!id) return new Set();
+  if (hiddenBuilderCatalogByGuild.has(id)) return hiddenBuilderCatalogByGuild.get(id);
+  if (hiddenBuilderCatalogLoads.has(id)) return hiddenBuilderCatalogLoads.get(id);
+  const pending = getFromDb(HIDDEN_BUILDER_CATALOG_PREFIX + id, [])
+    .then(value => {
+      const hidden = new Set(Array.isArray(value) ? value.filter(item => typeof item === 'string') : []);
+      hiddenBuilderCatalogByGuild.set(id, hidden);
+      return hidden;
+    }).finally(() => hiddenBuilderCatalogLoads.delete(id));
+  hiddenBuilderCatalogLoads.set(id, pending);
+  return pending;
+}
+
+export async function hideSystemCatalogFromBuilder(guildId, record) {
+  const id = String(guildId || '');
+  const identity = builderCatalogVisibilityId(record);
+  if (!id || !identity || String(record?.source || '').toLowerCase() !== 'system-catalog') return false;
+
+  // Serialise Save actions to avoid losing one hidden template when two owner
+  // interactions arrive together. Never update memory before the durable write.
+  const previous = hiddenBuilderCatalogWrites.get(id) || Promise.resolve();
+  const pending = previous.catch(() => {}).then(async () => {
+    const existing = await ensureHiddenBuilderCatalogLoaded(id);
+    if (existing.has(identity)) return true;
+    const next = new Set(existing);
+    next.add(identity);
+    const stored = await setInDb(HIDDEN_BUILDER_CATALOG_PREFIX + id, [...next]);
+    if (stored === false) return false;
+    hiddenBuilderCatalogByGuild.set(id, next);
+    return true;
+  });
+  hiddenBuilderCatalogWrites.set(id, pending);
+  try { return await pending; }
+  finally { if (hiddenBuilderCatalogWrites.get(id) === pending) hiddenBuilderCatalogWrites.delete(id); }
 }
 
 function withStableKey(data, key, context = null, kind = 'embed') {
@@ -1656,6 +1728,7 @@ async function buildSystemEmbedCatalogs(client) {
   const primaryGuildId = String(process.env.GUILD_ID || '').trim();
 
   for (const guild of client.guilds.cache.values()) {
+    await ensureHiddenBuilderCatalogLoaded(guild.id);
     const channel = findCatalogChannel(guild);
     if (!channel?.messages?.fetch) {
       const message = `[EMBED_BUILDER] No botlog channel found in guild ${guild.id}; response catalog cannot be indexed.`;

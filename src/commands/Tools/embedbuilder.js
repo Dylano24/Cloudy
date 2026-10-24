@@ -55,6 +55,7 @@ import {
     } from '../../services/embedRegistryService.js';
 import { touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
+import { hideSystemCatalogFromBuilder } from '../../services/systemEmbedCatalogService.js';
 import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord } from '../../utils/embedBuilderAccess.js';
 import { getFromDb,
     setInDb } from '../../utils/database.js';
@@ -261,12 +262,15 @@ function canDeleteBuilderRecord(target) {
     return Boolean(
         target?.messageId
         && target?.channelId
-        && target?.source !== 'system-catalog'
     );
 }
 
 async function inspectBuilderDeleteTarget(guild, target) {
     if (!canDeleteBuilderRecord(target)) return { status: 'protected' };
+    // The catalog itself lives in private storage; hide a virtual Builder row
+    // rather than touching the real catalog message or its runtime template.
+    if (target.source === 'system-catalog') return { status: 'catalog' };
+    if (target.detached && target.source === 'embed-builder') return { status: 'missing' };
 
     const channelId = String(target.backingChannelId || target.channelId || '');
     let channel = guild.channels.cache.get(channelId) || null;
@@ -302,6 +306,7 @@ function clearBuilderRecordCaches(guildId) {
         }
     }
     globalThis.__cloudyEmbedCanonicalSearchCache?.delete?.(String(guildId));
+    globalThis.__cloudyEmbedFastSearchCache?.delete?.(String(guildId));
 }
 
 async function sendBuilderDeleteNotice(interaction, title, description, color = 0xFFFFFF) {
@@ -343,7 +348,7 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
         );
         return;
     }
-    if (presence.status !== 'missing') {
+    if (!['missing', 'catalog'].includes(presence.status)) {
         await sendBuilderDeleteNotice(
             buttonInteraction,
             'Could not verify safely',
@@ -407,7 +412,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         await refreshBuilder(buttonInteraction, state);
         return false;
     }
-    if (presence.status !== 'missing') {
+    if (!['missing', 'catalog'].includes(presence.status)) {
         await sendBuilderDeleteNotice(
             buttonInteraction,
             'Could not verify safely',
@@ -415,6 +420,41 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
             0xED4245,
         );
         return false;
+    }
+
+    if (presence.status === 'catalog') {
+        // A catalog template is a Search/Builder entry, not a live message.
+        // Leave source definitions, existing Discord embeds and botlog intact.
+        let hidden = false;
+        try {
+            hidden = await hideSystemCatalogFromBuilder(guild.id, {
+                ...target,
+                guildId: guild.id,
+            });
+        } catch (error) {
+            logger.error('[EMBED_BUILDER] Could not persist catalog deletion:', error);
+        }
+        if (!hidden) {
+            await sendBuilderDeleteNotice(
+                buttonInteraction,
+                'Delete could not be saved',
+                'Cloudy could not store this Builder-only removal. The template was left unchanged.',
+                0xED4245,
+            );
+            return false;
+        }
+
+        clearBuilderRecordCaches(guild.id);
+        await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
+        resetBuilderAfterRecordDeletion(state);
+        await refreshBuilder(buttonInteraction, state);
+        await sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Removed from Builder',
+            'The catalog entry was removed from Builder Search. No Discord message or bot response was deleted.',
+            0x57F287,
+        );
+        return true;
     }
 
     // Disable Reappear through the canonical index. The visible copy can have
