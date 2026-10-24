@@ -18,9 +18,12 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
   assert.ok(followUp > openStart);
   const firstPaint = source.slice(openStart, followUp);
 
-  // First paint is DB/local only and excludes Search-only archive records.
+  // First paint is DB/local only. It includes source templates routed to
+  // matching feature channels, never stale physical-message history.
   assert.match(firstPaint, /await getEmbedRegistry\(guild\.id\)/);
-  assert.match(firstPaint, /let records = \[\];/);
+  assert.match(firstPaint, /projectCatalogTemplatesToFeatureChannels\(guild/);
+  assert.match(firstPaint, /let records = accessibleRecords\(mergeEmbedManagerRecords\(\[\], catalogTemplates\)\)/);
+  assert.match(firstPaint, /getSearchableSystemCatalogRecords\(guild\.id\)/);
   assert.match(firstPaint, /embedManagerCheckingChannelIds\(guild, records\)/);
   assert.doesNotMatch(firstPaint, /discoverEmbedManagerOverviewRecords\(/);
   assert.doesNotMatch(firstPaint, /reconcileEmbedRegistry\(/);
