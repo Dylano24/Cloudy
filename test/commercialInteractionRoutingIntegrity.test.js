@@ -45,10 +45,10 @@ function walkJs(root) {
 test('reserved assistant custom IDs have one literal owner and cannot collide with ticket routing', () => {
   const files = walkJs('src');
   const reserved = new Map([
-    ['faq_ai_question', new Set(['src/services/faqAiService.js', 'src/utils/interactionLatency.js'])],
-    ['faq_ai_question_modal', new Set(['src/services/faqAiService.js'])],
-    ['cloudy_fix_guide_ask', new Set(['src/events/cloudyOwnerAssistantReady.js'])],
-    ['cloudy_fix_guide_ask_modal', new Set(['src/events/cloudyOwnerAssistantReady.js'])],
+    ['faq_ai_question', new Set(['src/config/assistantInteractionIds.js'])],
+    ['faq_ai_question_modal', new Set(['src/config/assistantInteractionIds.js'])],
+    ['cloudy_fix_guide_ask', new Set(['src/config/assistantInteractionIds.js'])],
+    ['cloudy_fix_guide_ask_modal', new Set(['src/config/assistantInteractionIds.js'])],
   ]);
 
   for (const [customId, allowedReaders] of reserved) {
