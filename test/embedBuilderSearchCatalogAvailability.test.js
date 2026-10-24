@@ -23,5 +23,5 @@ test('Search actively warms the system catalog instead of depending only on star
 test('Search keeps Removed from Builder searchable by both the real and commercial names', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
   assert.match(source, /removed from builder/);
-  assert.match(source, /Deleted from Builder/);
+  assert.match(source, /deleted from builder/);
 });
