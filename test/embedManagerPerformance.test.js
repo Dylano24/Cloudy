@@ -20,7 +20,8 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
 
   // First paint is DB/local only and excludes Search-only archive records.
   assert.match(firstPaint, /await getEmbedRegistry\(guild\.id\)/);
-  assert.match(firstPaint, /filterEmbedManagerRecords\([\s\S]*includeBotHistory: false/);
+  assert.match(firstPaint, /let records = \[\];/);
+  assert.match(firstPaint, /embedManagerCheckingChannelIds\(guild, records\)/);
   assert.doesNotMatch(firstPaint, /discoverEmbedManagerOverviewRecords\(/);
   assert.doesNotMatch(firstPaint, /reconcileEmbedRegistry\(/);
 
@@ -29,7 +30,9 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
   const afterPaint = source.slice(followUp);
   assert.doesNotMatch(afterPaint, /discoverEmbedManagerOverviewRecords\(/);
   assert.match(afterPaint, /discoverRecentChannelEmbeds\(guild, channelId/);
-  assert.match(afterPaint, /loadCurrentRegistry\(guild, buttonInteraction\.client\.user\.id\)/);
+  assert.match(afterPaint, /verifyLiveBuilderChannelRecords\(/);
+  assert.match(afterPaint, /const liveRecords = await verifyLiveBuilderChannelRecords/);
+  assert.doesNotMatch(afterPaint, /mergeEmbedManagerRecords\(registeredRecords, discoveredRecords\)/);
 });
 
 test('full response history sweep is opt-in instead of automatic', () => {
