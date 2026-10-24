@@ -167,7 +167,8 @@ test('Search never invents duplicate suffixes or exposes raw message IDs', () =>
   ], 'custom panel');
 
   const names = buildSearchChoices(matches).map(choice => choice.name);
-  assert.ok(names.some(name => /\(2\)$/i.test(name)));
+  assert.deepEqual(names, ['Custom panel']);
+  assert.ok(names.every(name => !/\(\d+\)$/i.test(name)));
   assert.ok(names.every(name => !/Variant\s+\d+/i.test(name)));
   assert.ok(names.every(name => !/345678/.test(name)));
 });
