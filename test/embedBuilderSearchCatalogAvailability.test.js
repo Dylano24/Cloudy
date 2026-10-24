@@ -7,7 +7,7 @@ test('Search actively warms the system catalog instead of depending only on star
 
   assert.match(source, /ensureSystemEmbedCatalogs/);
   assert.match(source, /warmSystemCatalogForSearch/);
-  assert.match(source, /await warmSystemCatalogForSearch\(interaction\.client\)/);
+  assert.match(source, /warmSystemCatalogForSearch\(interaction\.client\)/);
 
   const loadStart = source.indexOf('async function loadEmbedBuilderSearchRecords');
   const mergeStart = source.indexOf('function mergeSearchRecords', loadStart);
