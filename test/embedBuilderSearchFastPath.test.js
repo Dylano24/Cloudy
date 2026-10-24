@@ -7,6 +7,7 @@ import {
   peekEmbedRegistry,
   removeEmbedRegistryRecord,
 } from '../src/services/embedRegistryService.js';
+import { loadFastEmbedBuilderSearchRecords } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 test('peekEmbedRegistry serves the last read synchronously while a registry write is still queued', async t => {
   let reads = 0;
@@ -51,9 +52,13 @@ test('Search autocomplete fast path merges cached canonical Builder records and 
   const fast = source.slice(fastStart, fastEnd);
 
   assert.match(fast, /peekEmbedRegistry\(interaction\.guildId\)/);
-  assert.match(fast, /known \|\| await getEmbedRegistry/);
+  assert.match(fast, /const registryRecords = known \|\| \[\]/);
+  assert.match(fast, /cached\?\.generation === generation/);
+  assert.match(fast, /cached\?\.records\?\.length/);
+  assert.match(fast, /fastSearchCache\.set\(guildId/);
+  assert.doesNotMatch(fast, /await getEmbedRegistry/);
   assert.match(fast, /peekCanonicalBuilderRecords\(interaction\.guild\)/);
-  assert.match(fast, /mergeSearchRecords\(interaction\.guildId, \[\.\.\.registryRecords, \.\.\.canonicalRecords\]\)/);
+  assert.match(fast, /mergeSearchRecords\(guildId, \[\.\.\.registryRecords, \.\.\.canonicalRecords\]\)/);
   assert.doesNotMatch(fast, /await getFastCanonicalBuilderRecords/);
   assert.doesNotMatch(fast, /await getCanonicalBuilderRecords/);
 
@@ -64,4 +69,43 @@ test('Search autocomplete fast path merges cached canonical Builder records and 
   assert.ok(canonicalStart >= 0 && canonicalEnd > canonicalStart);
   const canonical = source.slice(canonicalStart, canonicalEnd);
   assert.match(canonical, /records: cached\?\.records \|\| null/);
+});
+
+test('cold autocomplete never waits for a blocked PostgreSQL read', async t => {
+  const guildId = 'search-cold-db-does-not-block-20261024';
+  let reads = 0;
+  t.mock.method(db, 'get', async () => {
+    reads += 1;
+    return new Promise(() => {});
+  });
+  const guild = { id: guildId, channels: { cache: new Map() } };
+  const interaction = { guildId, guild, member: { id: 'test-owner' }, client: null };
+  const result = await Promise.race([
+    loadFastEmbedBuilderSearchRecords(interaction),
+    new Promise(resolve => setTimeout(() => resolve('timeout'), 350)),
+  ]);
+  assert.notEqual(result, 'timeout', 'autocomplete must not wait on database storage');
+  assert.ok(Array.isArray(result));
+  assert.ok(reads >= 1, 'the registry read still starts in the background');
+});
+
+test('warm autocomplete cache serves saved embeds without repeating the expensive catalog merge', async t => {
+  const guildId = 'search-fast-index-persistence-20261024';
+  const channelId = '999999999999999991';
+  const record = {
+    guildId, channelId, messageId: '999999999999999992', embedIndex: 0,
+    source: 'embed-builder', manualSaved: true,
+    title: 'Saved rules', snapshot: { title: 'Saved rules', description: 'Full saved content' },
+  };
+  t.mock.method(db, 'get', async () => [record]);
+  const member = { id: 'builder-owner' };
+  const channel = { id: channelId, guildId, permissionsFor: () => ({ has: () => true }) };
+  const guild = { id: guildId, channels: { cache: new Map([[channelId, channel]]) } };
+  await getEmbedRegistry(guildId, { cached: true });
+  const interaction = { guildId, guild, member, client: null };
+  const first = await loadFastEmbedBuilderSearchRecords(interaction);
+  const second = await loadFastEmbedBuilderSearchRecords(interaction);
+  assert.ok(first.some(x => x.messageId === record.messageId));
+  assert.ok(second.some(x => x.messageId === record.messageId));
+  assert.equal(first.length, second.length);
 });
