@@ -67,10 +67,48 @@ export function buildFaqQuestionModal() {
     .addComponents(new ActionRowBuilder().addComponents(questionInput));
 }
 
-function isFaqPanelMessage(message, clientUserId) {
-  return message.author?.id === clientUserId && message.components?.some(row =>
-    row.components?.some(component => component.customId === FAQ_AI_BUTTON_ID)
-  );
+function faqPanelComponents(message) {
+  return (message?.components || []).flatMap(row => row?.components || []);
+}
+
+function hasFaqQuestionAction(message) {
+  return faqPanelComponents(message)
+    .some(component => component?.customId === FAQ_AI_BUTTON_ID);
+}
+
+function looksLikeFaqPanel(message, clientUserId) {
+  if (message?.author?.id !== clientUserId) return false;
+  if (hasFaqQuestionAction(message)) return true;
+
+  const title = String(message?.embeds?.[0]?.title || '').trim().toLowerCase();
+  return title === 'cloudy support assistant';
+}
+
+export function isFaqPanelComponentContractSafe(message, clientUserId) {
+  if (message?.author?.id !== clientUserId) return false;
+
+  const components = faqPanelComponents(message);
+  if (components.length !== 1) return false;
+
+  const only = components[0];
+  return only?.customId === FAQ_AI_BUTTON_ID;
+}
+
+async function repairFaqPanelComponents(message, payload, clientUserId) {
+  if (!message || isFaqPanelComponentContractSafe(message, clientUserId)) return message;
+
+  try {
+    const repaired = await message.edit({ components: payload.components });
+    return repaired || message;
+  } catch (error) {
+    logger.error('Failed to repair FAQ panel components:', {
+      error: error?.message || String(error),
+      guildId: message?.guildId,
+      channelId: message?.channelId,
+      messageId: message?.id,
+    });
+    return null;
+  }
 }
 
 export async function reconcileFaqAiPanel(client) {
@@ -86,12 +124,16 @@ export async function reconcileFaqAiPanel(client) {
 
     if (savedMessageId) {
       panelMessage = await channel.messages.fetch(savedMessageId).catch(() => null);
-      if (panelMessage && !isFaqPanelMessage(panelMessage, client.user.id)) panelMessage = null;
+      if (panelMessage && panelMessage.author?.id !== client.user.id) panelMessage = null;
     }
 
     if (!panelMessage) {
       const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-      panelMessage = recent?.find(message => isFaqPanelMessage(message, client.user.id)) || null;
+      panelMessage = recent?.find(message => looksLikeFaqPanel(message, client.user.id)) || null;
+    }
+
+    if (panelMessage) {
+      panelMessage = await repairFaqPanelComponents(panelMessage, payload, client.user.id);
     }
 
     panelMessage = panelMessage || await channel.send(payload);
