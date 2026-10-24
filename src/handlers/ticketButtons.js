@@ -17,6 +17,7 @@ import { checkRateLimit } from '../utils/rateLimiter.js';
 import { replyUserError, ErrorTypes, createError } from '../utils/errorHandler.js';
 import { getTicketPermissionContext } from '../utils/ticket/ticketPermissions.js';
 import { requireTicketCloseReason } from '../services/ticketActionPolicy.js';
+import { getGuildConfig } from '../services/config/guildConfig.js';
 
 async function ensureGuildContext(interaction) {
   if (interaction.inGuild()) {
@@ -28,6 +29,14 @@ async function ensureGuildContext(interaction) {
   }
 
   return false;
+}
+
+export function matchesConfiguredTicketPanel(interaction, config) {
+  if (!interaction?.guildId || !interaction?.channelId || !interaction?.message?.id) return false;
+  if (!config || config.ticketSystemDisabled === true) return false;
+
+  return String(config.ticketPanelChannelId || '') === String(interaction.channelId)
+    && String(config.ticketPanelMessageId || '') === String(interaction.message.id);
 }
 
 async function assertTicketPermission(interaction, client, actionLabel, options = {}, timeoutMs = 2500) {
@@ -83,6 +92,15 @@ const createTicketHandler = {
   async execute(interaction, client) {
     try {
       if (!(await ensureGuildContext(interaction))) return;
+
+      const config = await getGuildConfig(client, interaction.guildId);
+      if (!matchesConfiguredTicketPanel(interaction, config)) {
+        await replyUserError(interaction, {
+          type: ErrorTypes.VALIDATION,
+          message: 'This ticket button is no longer active. Please use the official support panel.',
+        });
+        return;
+      }
 
       const rateLimitKey = `${interaction.user.id}:create_ticket`;
       const allowed = await checkRateLimit(rateLimitKey, 3, 60000);
