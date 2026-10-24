@@ -6,13 +6,20 @@ import {
   Events,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import {
+  FIX_GUIDE_ASK_BUTTON_ID,
+  FIX_GUIDE_ASK_MODAL_ID,
+  FIX_GUIDE_CHANNEL_ID,
+  FIX_GUIDE_QUESTION_INPUT_ID,
+} from '../config/assistantInteractionIds.js';
+export {
+  FIX_GUIDE_ASK_BUTTON_ID,
+  FIX_GUIDE_ASK_MODAL_ID,
+  FIX_GUIDE_CHANNEL_ID,
+  FIX_GUIDE_QUESTION_INPUT_ID,
+} from '../config/assistantInteractionIds.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
-
-export const FIX_GUIDE_CHANNEL_ID = '1546229542027534478';
-export const FIX_GUIDE_ASK_BUTTON_ID = 'cloudy_fix_guide_ask';
-export const FIX_GUIDE_ASK_MODAL_ID = 'cloudy_fix_guide_ask_modal';
-export const FIX_GUIDE_QUESTION_INPUT_ID = 'cloudy_fix_guide_question';
 
 const panelStateKey = channelId => `global:cloudy-owner-assistant:panel:${channelId}`;
 const PANEL_TITLE = 'Cloudy Assistant • Fix Guide';
