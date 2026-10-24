@@ -186,7 +186,8 @@ export function commercialBuilderTitle(value) {
         .replace(/\breport\s*logs?\b/gi, 'report logs')
         .replace(/\s+/g, ' ')
         .replace(/\s+([:;,.!?])/g, '$1')
-        .replace(/^[\s:;,.!?]+|[\s:;,.!?]+$/g, '')
+        .replace(/^[\s:;,.!?]+/g, '')
+        .replace(/[\s:;]+$/g, '')
         .trim();
 
     if (!text) return '';
