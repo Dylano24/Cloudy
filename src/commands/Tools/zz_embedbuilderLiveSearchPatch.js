@@ -6,7 +6,7 @@ import {
     StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import embedBuilderCommand from './embedbuilder.js';
-import { filterEmbedBuilderRecords } from '../../utils/embedBuilderAccess.js';
+import { canUseEmbedBuilderChannel } from '../../utils/embedBuilderAccess.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
     getEmbedRegistry,
@@ -390,6 +390,80 @@ function chooseBetter(left, right) {
     return { ...chosen, score: bestScore };
 }
 
+function searchRecordRichness(record) {
+    let score = 0;
+    if (record?.canonicalIdentity) score += 8;
+    if (record?.previewRecord) score += 4;
+    if (record?.sourceRecord) score += 2;
+    if (record?.snapshot) score += 1;
+    return score;
+}
+
+function searchRelatedRecordAccessible(guild, member, record, { requireSend = true } = {}) {
+    if (!record || String(record.guildId || '') !== String(guild?.id || '')) return false;
+    const source = String(record.source || '').toLowerCase();
+
+    // System catalog messages are stored in Cloudy's private internal catalog.
+    // That backing channel is implementation detail and must never decide
+    // whether a legitimate Builder Search result exists.
+    if (source === 'system-catalog') return true;
+
+    const logicalChannelId = String(record.channelId || '');
+    if (!logicalChannelId) return false;
+    return canUseEmbedBuilderChannel(guild, member, logicalChannelId, { requireSend });
+}
+
+function sanitizeSearchRecordAccess(guild, member, record, options = {}) {
+    if (!searchRelatedRecordAccessible(guild, member, record, options)) return null;
+
+    const sanitizeRelated = related => {
+        if (!related) return null;
+        return searchRelatedRecordAccessible(guild, member, related, options)
+            ? related
+            : null;
+    };
+
+    const previewRecord = sanitizeRelated(record.previewRecord);
+    const sourceRecord = sanitizeRelated(record.sourceRecord);
+
+    return {
+        ...record,
+        ...(record.previewRecord ? { previewRecord } : {}),
+        ...(record.sourceRecord ? { sourceRecord } : {}),
+    };
+}
+
+export function filterEmbedBuilderSearchRecords(guild, member, records, options = {}) {
+    return (Array.isArray(records) ? records : [])
+        .map(record => sanitizeSearchRecordAccess(guild, member, record, options))
+        .filter(Boolean);
+}
+
+async function loadEmbedBuilderSearchRecords(interaction) {
+    const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
+    await warmSavedEmbedTemplateScopes(
+        interaction.guildId,
+        registryRecords.map(record => record.channelId),
+    );
+
+    // Canonical records carry the same full preview/source pairing used by the
+    // normal Modify browser. Keep the raw registry too so two genuinely
+    // different physical/manual embeds can still be distinguished by content.
+    const canonicalRecords = await getFastCanonicalBuilderRecords(interaction.guild)
+        .catch(() => []);
+
+    const merged = mergeSearchRecords(
+        interaction.guildId,
+        [...registryRecords, ...canonicalRecords],
+    );
+    return filterEmbedBuilderSearchRecords(
+        interaction.guild,
+        interaction.member,
+        merged,
+        { requireSend: true },
+    );
+}
+
 function mergeSearchRecords(guildId, registryRecords) {
     const combined = [
         ...(Array.isArray(registryRecords) ? registryRecords : []),
@@ -403,7 +477,9 @@ function mergeSearchRecords(guildId, registryRecords) {
             Number(record?.embedIndex || 0),
         ].join(':');
         const existing = unique.get(key);
-        if (!existing || String(record?.source || '') === 'system-catalog') {
+        if (!existing
+            || String(record?.source || '') === 'system-catalog'
+            || searchRecordRichness(record) > searchRecordRichness(existing)) {
             unique.set(key, record);
         }
     }
@@ -1030,10 +1106,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             return;
         }
 
-        const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
-        await warmSavedEmbedTemplateScopes(interaction.guildId, registryRecords.map(record => record.channelId));
-        const records = filterEmbedBuilderRecords(interaction.guild, interaction.member,
-            mergeSearchRecords(interaction.guildId, registryRecords), { requireSend: true });
+        const records = await loadEmbedBuilderSearchRecords(interaction);
         const matches = buildMatches(interaction.guild, records, focused.value).slice(0, 25);
         const choices = buildSearchChoices(matches);
         await interaction.respond(choices).catch(() => {});
@@ -1046,9 +1119,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
         const selected = parseSelection(rawSelection);
 
         if (selected && interaction.guildId) {
-            const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
-            const records = filterEmbedBuilderRecords(interaction.guild, interaction.member,
-                mergeSearchRecords(interaction.guildId, registryRecords), { requireSend: true });
+            const records = await loadEmbedBuilderSearchRecords(interaction);
             const displayRecords = builderSearchDisplayRecords(records);
             const selectedRecord = displayRecords.find(item =>
                 String(item.channelId) === selected.channelId
