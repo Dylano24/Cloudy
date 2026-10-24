@@ -550,6 +550,14 @@ function normalizeRecord(record) {
 
 const registryReadLoads = new Map();
 const registrySearchCache = new Map();
+// Last successfully read records per guild. Search autocomplete serves these
+// synchronously and refreshes in the background, so a keystroke never waits on
+// a storage read while a registry write is queued.
+const registryLastKnown = new Map();
+export function peekEmbedRegistry(guildId) {
+    const known = registryLastKnown.get(String(guildId));
+    return known ? structuredClone(known.records) : null;
+}
 export async function getEmbedRegistry(guildId, { cached = false } = {}) {
     const key = String(guildId);
     const generation = getEmbedRegistryGeneration(guildId);
@@ -567,6 +575,7 @@ export async function getEmbedRegistry(guildId, { cached = false } = {}) {
         // Share only in-flight storage work, never mutable records or a stale
         // cross-request cache unless search explicitly opts in. Mutations start fresh reads.
         const records = await pending.promise;
+        registryLastKnown.set(key, { generation, records });
         if (generation === getEmbedRegistryGeneration(guildId) && !registryMutationQueues.has(key)) {
             registrySearchCache.set(key, { generation, records, expiresAt: Date.now() + 5000 });
         }
