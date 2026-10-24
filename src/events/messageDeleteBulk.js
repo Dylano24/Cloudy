@@ -2,6 +2,7 @@ import { logDeletedMessage } from './messageDelete.js';
 import { Events } from 'discord.js';
 import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
+import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
 
 export default {
   name: Events.MessageBulkDelete,
@@ -15,7 +16,10 @@ export default {
       const channelId = message.channelId || message.channel?.id;
       if (!guildId || !channelId || !message.id) continue;
       if (!message.partial && message.author && message.author.id !== message.client.user?.id) continue;
-      removals.push(removeEmbedRegistryMessage(guildId, channelId, message.id));
+      removals.push(Promise.all([
+        removeEmbedRegistryMessage(guildId, channelId, message.id),
+        removeSystemEmbedCatalogMessage(guildId, channelId, message.id),
+      ]));
     }
 
     const results = await Promise.allSettled(removals);
