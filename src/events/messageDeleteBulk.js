@@ -18,7 +18,7 @@ export default {
       if (!message.partial && message.author && message.author.id !== message.client.user?.id) continue;
       removals.push(Promise.all([
         removeEmbedRegistryMessage(guildId, channelId, message.id),
-        removeSystemEmbedCatalogMessage(guildId, message.id),
+        removeSystemEmbedCatalogMessage(guildId, channelId, message.id),
       ]));
     }
 
