@@ -723,6 +723,38 @@ export function getSearchableSystemCatalogRecords(guildId) {
     }));
 }
 
+export function getBuiltInSystemCatalogCoverage(guildId) {
+  const expectedEntries = getBuiltInSystemCatalogDefinitions()
+    .map(definitionToCatalog)
+    .filter(entry => entry?.key && isEditableSystemCatalogTemplate(entry.key, entry.context));
+
+  const indexedIdentities = new Set(
+    getSearchableSystemCatalogRecords(guildId)
+      .map(record => {
+        const metadata = parseTemplateMetadata(record.snapshot);
+        return metadata?.key
+          ? cacheIdentity(metadata.key, metadata.context)
+          : null;
+      })
+      .filter(Boolean),
+  );
+
+  const missing = expectedEntries
+    .filter(entry => !indexedIdentities.has(cacheIdentity(entry.key, entry.context)))
+    .map(entry => ({
+      key: entry.key,
+      context: entry.context,
+      title: String(entry.data?.title || entry.key || 'Cloudy response'),
+    }));
+
+  return {
+    expected: expectedEntries.length,
+    indexed: expectedEntries.length - missing.length,
+    complete: missing.length === 0,
+    missing,
+  };
+}
+
 async function loadCatalogMessages(context) {
   const storedIds = await getFromDb(storageKey(context.guild.id), []);
   const ids = Array.isArray(storedIds) ? storedIds.map(String).filter(Boolean) : [];
@@ -1573,6 +1605,19 @@ async function buildSystemEmbedCatalogs(client) {
 
     await saveCatalogIds(guild.id, messages);
     await registerCatalogMessages(messages).catch(error => logger.warn(`Failed to register response catalog messages: ${error.message}`));
+
+    const coverage = getBuiltInSystemCatalogCoverage(guild.id);
+    if (!coverage.complete) {
+      const missingNames = coverage.missing
+        .slice(0, 12)
+        .map(entry => `${entry.key}@${entry.context}`)
+        .join(', ');
+      throw new Error(
+        `Embed Builder system catalog incomplete for guild ${guild.id}: `
+        + `${coverage.indexed}/${coverage.expected} built-in responses indexed`
+        + (missingNames ? ` (missing: ${missingNames})` : ''),
+      );
+    }
   }
 
   await flushPendingTemplates();
