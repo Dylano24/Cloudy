@@ -149,11 +149,11 @@ test('slash autocomplete uses the non-blocking Search loader and never the full 
   assert.ok(fastStart >= 0 && fastEnd > fastStart);
   const fast = source.slice(fastStart, fastEnd);
 
-  assert.match(fast, /getEmbedRegistry\(interaction\.guildId, \{ cached: true \}\)/);
-  assert.match(fast, /void warmSystemCatalogForSearch\(interaction\.client\)/);
-  assert.match(fast, /void getFastCanonicalBuilderRecords\(interaction\.guild\)/);
-  assert.doesNotMatch(fast, /await warmSystemCatalogForSearch/);
-  assert.doesNotMatch(fast, /await getFastCanonicalBuilderRecords/);
+  assert.match(fast, /peekEmbedRegistry\(guildId\)/);
   assert.match(fast, /cached\?\.records\?\.length/);
-  assert.match(fast, /lastRegistrySearchRefresh/);
+  assert.doesNotMatch(fast, /await getEmbedRegistry/);
+  assert.doesNotMatch(fast, /getFastCanonicalBuilderRecords\(interaction\.guild\)/);
+  assert.match(source, /scheduleAutocompleteSearchRefresh\(interaction\)/);
+  assert.match(source, /lastRegistrySearchRefresh/);
+  assert.match(source, /lastCanonicalSearchRefresh/);
 });
