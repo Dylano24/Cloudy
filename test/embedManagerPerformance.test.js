@@ -22,7 +22,8 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
   // only explicitly saved source masters can be in their recorded channel.
   assert.match(firstPaint, /await getEmbedRegistry\(guild\.id\)/);
   assert.match(firstPaint, /projectCatalogTemplatesToFeatureChannels\(guild/);
-  assert.match(firstPaint, /let records = accessibleRecords\(mergeEmbedManagerRecords\(\[\], catalogTemplates\)\)/);
+  assert.match(firstPaint, /let records = accessibleRecords\(mergeEmbedManagerRecords\(/);
+  assert.match(firstPaint, /\.\.\.savedChannelRecords/);
   assert.doesNotMatch(firstPaint, /getSearchableSystemCatalogRecords\(guild\.id\)/);
   assert.match(firstPaint, /embedManagerCheckingChannelIds\(guild, records\)/);
   assert.doesNotMatch(firstPaint, /discoverEmbedManagerOverviewRecords\(/);
@@ -32,7 +33,8 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
   // never an automatic background sweep of every channel.
   const afterPaint = source.slice(followUp);
   assert.doesNotMatch(afterPaint, /discoverEmbedManagerOverviewRecords\(/);
-  assert.match(afterPaint, /discoverRecentChannelEmbeds\(guild, channelId/);
+  assert.match(afterPaint, /discoverRecentChannelEmbeds\(\s*guild, channelId/);
+  assert.match(afterPaint, /discoverMissingChannelEmbeds\(/);
   assert.match(afterPaint, /verifyLiveBuilderChannelRecords\(/);
   assert.match(afterPaint, /const liveRecords = await verifyLiveBuilderChannelRecords/);
   assert.doesNotMatch(afterPaint, /mergeEmbedManagerRecords\(registeredRecords, discoveredRecords\)/);
