@@ -519,18 +519,18 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
   if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return true;
 
   try {
-    const [stored, sharedStored] = await Promise.all([
-      loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true }),
-      loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true }),
-    ]);
-    if (!Object.keys(stored).length && !Object.keys(sharedStored).length) return false;
+    // Both previous reads used identical scopes and priority. Load the saved
+    // template snapshot once so live responses cannot pay twice for the same
+    // merge (or observe two different revisions of a concurrent Save).
+    const stored = await loadMergedTemplates(message.guildId, message.channelId, { preferGlobal: true });
+    if (!Object.keys(stored).length) return false;
 
     let matched = false;
     let changed = false;
     const embeds = message.embeds.map(embed => {
       const data = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
       const sharedRuntimeBody = isSharedRuntimeBodyTitle(data.title);
-      const source = sharedRuntimeBody ? sharedStored : stored;
+      const source = stored;
       const result = decorateEmbedData(embed, source, {
         preserveRuntimeBody: sharedRuntimeBody,
       });
