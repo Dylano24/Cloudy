@@ -172,6 +172,7 @@ export function commercialBuilderTitle(value) {
 
     // Runtime placeholders are source-discovery metadata, not administrator copy.
     if (/^rolling\b.*\{dynamic\}/i.test(visible)) return 'Rolling dice';
+    if (/^removed from builder$/i.test(visible)) return 'Deleted from Builder';
 
     let text = visible
         .replace(/<a?:[^:>]+:\d+>/g, ' ')
@@ -185,6 +186,7 @@ export function commercialBuilderTitle(value) {
         .replace(/\bbot\s*log\b/gi, 'bot log')
         .replace(/\breport\s*logs?\b/gi, 'report logs')
         .replace(/\s+/g, ' ')
+        .replace(/^(?:bot\s*log|botlog|report\s*logs?)\b(?:\s*[.:]\s*|\s+)/i, '')
         .replace(/\s+([:;,.!?])/g, '$1')
         .replace(/^[\s:;,.!?]+/g, '')
         .replace(/[\s:;]+$/g, '')
@@ -514,9 +516,36 @@ function searchContext(record, document = null) {
         || normalize(record?.channelId);
 }
 
+function manualSearchIdentity(record) {
+    const data = snapshot(record);
+    try {
+        return [
+            'manual',
+            JSON.stringify({
+                title: normalize(data?.title),
+                description: normalize(data?.description),
+                fields: Array.isArray(data?.fields)
+                    ? data.fields.map(field => ({
+                        name: normalize(field?.name),
+                        value: normalize(field?.value),
+                        inline: Boolean(field?.inline),
+                    }))
+                    : [],
+                color: Number.isInteger(data?.color) ? data.color : null,
+                footer: normalize(data?.footer?.text),
+                thumbnail: String(data?.thumbnail?.url || ''),
+                image: String(data?.image?.url || ''),
+                components: Array.isArray(record?.components) ? record.components : [],
+            }),
+        ].join(':');
+    } catch {
+        return '';
+    }
+}
+
 function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
-    if (source === 'embed-builder') return '';
+    if (source === 'embed-builder') return manualSearchIdentity(record);
 
     const stableContext = stableSearchTemplateContext(record);
     const sourceTitle = rawRecordTitle(record);
@@ -529,8 +558,8 @@ function exactAutomatedSearchIdentity(record, document = null) {
         : visibleSearchShape(snapshot(record));
 
     try {
-        // Technical catalog metadata, physical message ids/channels and visual
-        // decoration are not separate Search items. Meaningful text/fields are.
+        // Physical IDs, channel names and decoration do not create another
+        // Search item. Only a genuinely different response shape does.
         return [
             definition ? 'definition' : 'visible',
             normalize(sourceTitle),
@@ -603,28 +632,64 @@ function cleanChoiceText(value, max = 48) {
     );
 }
 
+const PREFERRED_DETAIL_FIELDS = new Set([
+    'audience', 'action', 'status', 'result', 'type', 'reason', 'priority',
+    'category', 'mode', 'method', 'source', 'target', 'role',
+]);
+const GENERIC_DETAIL_FIELDS = new Set([
+    'report', 'ticket', 'case', 'member', 'user', 'id', 'channel', 'server',
+]);
+const TECHNICAL_CHANNEL_NAMES = /^(?:bot\s*log|botlog|report\s*logs?|logs?)$/i;
+
+function searchContextLabel(record) {
+    const context = stableSearchTemplateContext(record);
+    if (!context) return '';
+    const parts = context.split('/').map(part => part.trim()).filter(Boolean);
+    let leaf = parts.at(-1) || '';
+    if (/^(?:botlog|reports?|logs?)$/i.test(leaf) && parts.length > 1) leaf = parts.at(-2);
+    leaf = leaf
+        .replace(/-(?:service|interaction|module|handler|command)$/i, '')
+        .replace(/^(?:botlog|report-?logs?)$/i, '');
+    return commercialBuilderTitle(leaf);
+}
+
 function choiceDetail(match) {
     const { record, document } = match;
     const data = snapshot(record);
+    const fields = Array.isArray(data?.fields) ? data.fields : [];
+
+    // Prefer a field that explains why two same-title responses are genuinely
+    // different. Report cases, for example, become Reporter / Reported member
+    // instead of meaningless (2), (3), ... suffixes.
+    for (const field of fields) {
+        const fieldName = normalize(cleanChoiceText(field?.name, 36));
+        if (!PREFERRED_DETAIL_FIELDS.has(fieldName)) continue;
+        const value = commercialBuilderTitle(cleanChoiceText(field?.value, 48));
+        if (value && normalize(value) !== normalize(document.title)) return value;
+    }
 
     const description = String(data?.description || '')
         .split('\n')
-        .map(line => cleanChoiceText(line, 48))
-        .find(Boolean);
-    if (description && normalize(description) !== normalize(document.title)) return description;
+        .map(line => commercialBuilderTitle(cleanChoiceText(line, 60)))
+        .find(value => value && normalize(value) !== normalize(document.title));
+    if (description) return description;
 
-    const fieldName = (data?.fields || [])
-        .map(field => cleanChoiceText(field?.name, 36))
-        .find(Boolean);
-    if (fieldName && normalize(fieldName) !== normalize(document.title)) return fieldName;
+    for (const field of fields) {
+        const fieldName = commercialBuilderTitle(cleanChoiceText(field?.name, 36));
+        const normalizedName = normalize(fieldName);
+        if (!fieldName || GENERIC_DETAIL_FIELDS.has(normalizedName)) continue;
+        const value = commercialBuilderTitle(cleanChoiceText(field?.value, 42));
+        if (value && normalize(value) !== normalize(fieldName)) {
+            return clean(`${fieldName}: ${value}`, 60);
+        }
+        if (normalize(fieldName) !== normalize(document.title)) return fieldName;
+    }
 
-    const fieldValue = (data?.fields || [])
-        .map(field => cleanChoiceText(field?.value, 42))
-        .find(Boolean);
-    if (fieldValue && normalize(fieldValue) !== normalize(document.title)) return fieldValue;
+    const context = searchContextLabel(record);
+    if (context && normalize(context) !== normalize(document.title)) return context;
 
     const channelName = cleanChoiceText(document?.channel?.name, 30);
-    if (channelName) return channelName;
+    if (channelName && !TECHNICAL_CHANNEL_NAMES.test(channelName)) return commercialBuilderTitle(channelName);
     return '';
 }
 
@@ -638,40 +703,32 @@ export function buildSearchChoices(matches) {
     }
 
     const usedNames = new Map();
+    const choices = [];
 
-    return list.map(match => {
+    for (const match of list) {
         const { record, document } = match;
         const title = commercialBuilderTitle(document?.title || 'Embed') || 'Embed';
         const duplicateCount = titleCounts.get(normalize(title)) || 0;
 
         let name = title;
         if (duplicateCount > 1) {
-            const channelName = cleanChoiceText(document?.channel?.name, 28);
-            const detail = commercialBuilderTitle(choiceDetail(match));
-            if (detail
-                && normalize(detail) !== normalize(channelName)
-                && normalize(detail) !== normalize(title)) {
+            const detail = choiceDetail(match);
+            if (detail && normalize(detail) !== normalize(title)) {
                 name = clean(`${title}: ${detail}`, 100);
-            } else if (channelName) {
-                name = clean(`${title} in ${channelName}`, 100);
             }
         }
 
-        const baseName = name;
-        const seen = usedNames.get(baseName) || 0;
-        usedNames.set(baseName, seen + 1);
-        if (seen > 0) {
-            let suffix = seen + 1;
-            name = clean(`${baseName} (${suffix})`, 100);
-            while (usedNames.has(name)) {
-                suffix += 1;
-                name = clean(`${baseName} (${suffix})`, 100);
-            }
-            usedNames.set(name, 1);
-        }
+        // Search is a clean catalog, not a raw message dump. If two records
+        // still resolve to the same human name, expose only the strongest one
+        // instead of adding Variant/(2)/(3) noise. Modify-by-channel still keeps
+        // access to the physical messages.
+        const nameKey = normalize(name);
+        if (!nameKey || usedNames.has(nameKey)) continue;
+        usedNames.set(nameKey, true);
+        choices.push({ name, value: selectionValue(record) });
+    }
 
-        return { name, value: selectionValue(record) };
-    });
+    return choices;
 }
 
 function selectionValue(record) {
@@ -746,9 +803,12 @@ function isModifyPayload(payload) {
 function buildDirectSelectionPayload(interaction, payload, pending) {
     const record = pending.record;
     const document = recordDocument(interaction.guild, record);
-    const description = document.channel?.name
-        ? `#${document.channel.name}`
-        : 'Saved embed';
+    const source = String(record?.source || '').toLowerCase();
+    const description = record?.detached
+        ? 'Saved embed. Original message is missing'
+        : source === 'embed-builder'
+            ? 'Saved embed'
+            : 'Cloudy response';
 
     const menu = new StringSelectMenuBuilder()
         .setCustomId(`simple_embed_modify_embed:${record.channelId}:0`)
