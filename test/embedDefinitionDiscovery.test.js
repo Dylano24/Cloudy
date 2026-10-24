@@ -140,3 +140,19 @@ test('source discovery still accepts safe member-possessive titles', () => {
     true,
   );
 });
+
+
+test('source discovery strips Discord mention markup from commercial plain-response labels', () => {
+  const source = [
+    "await interaction.reply({",
+    "  content: `<@&${staffRole.id}> <@${member.id}> Ticket support is ready.`,",
+    "});",
+  ].join('\n');
+
+  const definitions = extractDefinitions(source, 'commands/Ticket/ticket.js')
+    .filter(definition => definition.kind === 'content');
+
+  assert.equal(definitions.length, 1);
+  assert.equal(definitions[0].label, 'Ticket: ticket support is ready.');
+  assert.doesNotMatch(definitions[0].label, /<@|\{dynamic\}/);
+});
