@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { buildMatches, buildSearchChoices, commercialBuilderTitle } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
-test('Builder Search keeps user embeds separate but collapses duplicate automated/template peers', () => {
+test('Builder Search collapses duplicate user and automated peers into one catalog result', () => {
   const guild = { channels: { cache: new Map() } };
   const record = (messageId, source) => ({
     guildId: 'search-identity-guild', channelId: 'channel', messageId,
@@ -14,8 +14,7 @@ test('Builder Search keeps user embeds separate but collapses duplicate automate
   assert.equal(automated.length, 1);
   assert.equal(automated[0].record.messageId, 'b');
   const manual = buildMatches(guild, [record('a', 'embed-builder'), record('b', 'embed-builder')], 'identity example');
-  assert.equal(manual.length, 2);
-  assert.deepEqual(new Set(manual.map(match => match.record.messageId)), new Set(['a', 'b']));
+  assert.equal(manual.length, 1);
 });
 
 test('Builder Search excludes runtime history while keeping missing manual Builder embeds', () => {
@@ -72,7 +71,7 @@ test('Search merges direct system catalog records so catalog responses cannot di
   assert.match(source, /mergeSearchRecords\(interaction\.guildId, registryRecords\)/);
 });
 
-test('Removed from Builder is a searchable catalog response', () => {
+test('Deleted from Builder remains backed by the Builder deletion catalog response', () => {
   const source = fs.readFileSync('src/services/systemEmbedCatalogService.js', 'utf8');
   assert.match(source, /title: 'Removed from Builder'/);
   assert.match(source, /context: 'embed-builder\/delete'/);
@@ -136,9 +135,13 @@ test('Builder Search presents commercial sentence-case names without source plac
   assert.equal(commercialBuilderTitle('Discord API Error'), 'Discord API error');
   assert.equal(commercialBuilderTitle('Rolling {dynamic}d{dynamic}{dynamic}'), 'Rolling dice');
   assert.equal(commercialBuilderTitle('Ticket #{dynamic}'), 'Ticket');
+  assert.equal(commercialBuilderTitle('New report #17'), 'New report');
+  assert.equal(commercialBuilderTitle('Report case 42'), 'Report case');
+  assert.equal(commercialBuilderTitle('Botlog • Permission Denied'), 'Permission denied');
+  assert.equal(commercialBuilderTitle('Removed from Builder'), 'Deleted from Builder');
 });
 
-test('Builder Search does not expose bullets, raw channel slugs or Variant labels', () => {
+test('Builder Search does not expose bullets, technical channel slugs, duplicate suffixes or Variant labels', () => {
   const choices = buildSearchChoices([
     {
       record: { channelId: '1', messageId: '10', embedIndex: 0, snapshot: {} },
@@ -151,8 +154,7 @@ test('Builder Search does not expose bullets, raw channel slugs or Variant label
   ]);
 
   assert.deepEqual(choices.map(choice => choice.name), [
-    'Report deleted in report logs',
-    'Report deleted in report logs (2)',
+    'Report deleted',
   ]);
   assert.ok(choices.every(choice => !/[•·]/.test(choice.name)));
   assert.ok(choices.every(choice => !/Variant\s+\d+/i.test(choice.name)));
@@ -183,4 +185,54 @@ test('Builder Search collapses source-discovery duplicates with the same respons
 
   assert.equal(matches.length, 1);
   assert.equal(matches[0].document.title, 'Report deleted');
+});
+
+
+test('Deleted from Builder is discoverable through the commercial Search name', () => {
+  const guild = { channels: { cache: new Map() } };
+  const record = {
+    guildId: 'builder-delete-guild',
+    channelId: 'catalog',
+    messageId: 'builder-delete-record',
+    embedIndex: 0,
+    source: 'system-catalog',
+    snapshot: {
+      title: 'Removed from Builder',
+      description: 'The stale record and its Reappear rule were removed from the Embed Builder.',
+      author: {
+        name: 'Cloudy template key: builder:removed || Cloudy context: embed-builder/delete || Cloudy kind: embed',
+      },
+    },
+  };
+
+  const matches = buildMatches(guild, [record], 'deleted from builder');
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].document.title, 'Deleted from Builder');
+});
+
+test('Search report results remove runtime case numbers and technical channel names', () => {
+  const guild = {
+    channels: {
+      cache: new Map([['report-logs', { id: 'report-logs', name: 'report-logs', parent: null }]]),
+    },
+  };
+  const matches = buildMatches(guild, [{
+    guildId: 'report-guild',
+    channelId: 'report-logs',
+    messageId: 'report-17',
+    embedIndex: 0,
+    source: 'cloudy',
+    snapshot: {
+      title: 'New report #17',
+      fields: [
+        { name: 'Report', value: '#17', inline: true },
+        { name: 'Audience', value: 'Reporter', inline: true },
+      ],
+    },
+  }], 'new report');
+
+  assert.equal(matches.length, 1);
+  const choices = buildSearchChoices(matches);
+  assert.deepEqual(choices.map(choice => choice.name), ['New report']);
+  assert.ok(choices.every(choice => !/botlog|report-logs|#17|(2)|Variant/i.test(choice.name)));
 });
