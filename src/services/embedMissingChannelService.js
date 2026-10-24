@@ -31,7 +31,8 @@ export function isUsableMessage(message, botUserId) {
     // saved Builder items just because they are visible in Discord. Explicit
     // Builder Post is marked at creation; legacy/saved posts are resolved from
     // their authoritative Builder registry separately.
-    if (!isBuilderMarked(message)) return false;
+    if (!isBuilderMarked(message)
+        && !message.embeds.some(embed => Boolean(getTicketLogTemplate(embed)))) return false;
 
     return message.embeds.some(embed => {
         const title = String(embed?.title || '').trim().toLowerCase();
@@ -81,6 +82,9 @@ function buildRecords(guild, channel, message, guildConfig = null) {
 
             const isReusableTicketLog = isTicketLogTemplateChannel(guildConfig, channel.id)
                 && Boolean(getTicketLogTemplate(embed));
+            // A template-shaped notification outside configured ticket logs
+            // is not a saved Builder post. Never infer its channel membership.
+            if (!isBuilderMarked(message) && !isReusableTicketLog) return null;
 
             return {
                 guildId: String(guild.id),
