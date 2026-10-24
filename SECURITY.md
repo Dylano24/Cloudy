@@ -3,7 +3,7 @@
 We take security seriously. If you discover a vulnerability, please follow the policy below so we can triage and address it safely.
 
 ## Summary / Self-hosting clarity
-Cloudy is distributed as open-source software for self-hosting. We (the maintainers) do not operate self-hosted instances and do not have access to user data or configurations on third-party deployments. Self-hosters are responsible for securing and operating their instances. This policy describes how to report vulnerabilities affecting the project code and guidance for self-hosters who discover security issues in their deployment.
+Cloudy's code is published in this repository. This policy explains how to report vulnerabilities affecting that code. Operators of independently hosted instances are responsible for securing their own deployments, credentials and data. The repository maintainers do not automatically have access to data or settings in third-party deployments.
 
 ## Reporting a Vulnerability (preferred)
 - Preferred channel: Open a private GitHub Security Advisory for this repository (recommended).
