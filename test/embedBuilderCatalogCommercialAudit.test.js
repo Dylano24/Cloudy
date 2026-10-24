@@ -99,3 +99,28 @@ test('runtime Builder delete notice and catalog template keep the same commercia
     'The stale record and its Reappear rule were removed from the Embed Builder.',
   );
 });
+
+
+test('Embed Builder UI internals are never source-discovered as reusable responses', async () => {
+  const definitions = await discoverEmbedDefinitions();
+  const forbidden = new Set([
+    'message builder',
+    'modify embed',
+    'embed loaded',
+    'changes saved',
+    'could not load embeds',
+    'use the buttons below to create your message',
+    '(use the buttons below to create your message)',
+  ]);
+
+  const leaked = definitions.filter(definition => {
+    const title = String(definition.title || definition.label || '').trim().toLowerCase();
+    return forbidden.has(title);
+  });
+
+  assert.deepEqual(
+    leaked,
+    [],
+    'Embed Builder UI/status internals must never pollute the reusable Search catalog',
+  );
+});
