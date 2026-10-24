@@ -17,7 +17,7 @@ const INTERNAL_TITLES = new Set([
 ]);
 const discoveryCache = new Map();
 
-function isUsableMessage(message, botUserId) {
+export function isUsableMessage(message, botUserId) {
     if (!message?.guildId || message.author?.id !== botUserId || !message.embeds?.length) return false;
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
     // Reject the entire panel, including its real-looking preview embed.
@@ -27,6 +27,11 @@ function isUsableMessage(message, botUserId) {
     // Deliberately posted Builder messages do not have an interaction origin.
     if (message.interaction || message.interactionMetadata) return false;
     if (message.reference?.messageId && !isBuilderMarked(message)) return false;
+    // Unsolicited bot notices, alerts and code-defined replies do not become
+    // saved Builder items just because they are visible in Discord. Explicit
+    // Builder Post is marked at creation; legacy/saved posts are resolved from
+    // their authoritative Builder registry separately.
+    if (!isBuilderMarked(message)) return false;
 
     return message.embeds.some(embed => {
         const title = String(embed?.title || '').trim().toLowerCase();
