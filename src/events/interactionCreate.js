@@ -82,6 +82,24 @@ export default {
         InteractionHelper.patchInteractionResponses(interaction);
         ResponseCoordinator.attach(interaction);
 
+        // /embedbuilder search can synchronously walk a large saved template
+        // catalog. A delayed timer cannot acknowledge an interaction while
+        // that CPU work is blocking the event loop. Acknowledge immediately,
+        // before configuration, abuse-policy reads or Search hydration.
+        // Preserve the command's existing public preview semantics: the
+        // Builder edits this deferred reply and sends its regular dashboard.
+        if (interaction.isChatInputCommand()
+            && interaction.commandName === 'embedbuilder'
+            && String(interaction.options?.getString?.('search') || '').trim()
+            && !interaction.deferred && !interaction.replied) {
+          try {
+            await interaction.deferReply();
+          } catch (error) {
+            logger.error('[EMBED_BUILDER] Search acknowledgement failed:', error);
+            return;
+          }
+        }
+
         if (interaction.isChatInputCommand() || interaction.isMessageContextMenuCommand()) {
           let cooldownReservation;
           let commandStarted = false;

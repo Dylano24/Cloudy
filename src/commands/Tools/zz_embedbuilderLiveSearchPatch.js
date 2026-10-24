@@ -1143,6 +1143,9 @@ function parseSelection(value) {
 // Only the slow selection preparation needs a defer. Warm selections retain
 // the direct first paint; cold storage/Discord reads cannot expire the callback.
 export async function withBuilderSelectionAcknowledgement(interaction, prepare, delayMs = 600) {
+    // The central router has already acknowledged a selected Search command.
+    // Never start a competing acknowledgement timer while loading its preview.
+    if (interaction.deferred || interaction.replied) return prepare();
     let acknowledgement = null;
     const timer = setTimeout(() => {
         if (!interaction.deferred && !interaction.replied && interaction.deferReply) {
@@ -1160,11 +1163,17 @@ export async function withBuilderSelectionAcknowledgement(interaction, prepare, 
 export async function loadEmbedBuilderSearchSelection(interaction) {
     const selected = parseSelection(interaction.options?.getString?.('search') || '');
     if (!selected || !interaction.guildId) return null;
-    const findSelected = records => builderSearchDisplayRecords(records).find(item =>
-        String(item.channelId) === selected.channelId
-        && String(item.messageId) === selected.messageId
-        && Number(item.embedIndex || 0) === selected.embedIndex,
-    );
+    const findSelected = records => {
+        // Selection values already carry the physical index emitted by Search.
+        // Check only that record's visibility; rebuilding thousands of catalog
+        // choices for one selected ID wastes CPU before the preview appears.
+        const candidate = records.find(item =>
+            String(item.channelId) === selected.channelId
+            && String(item.messageId) === selected.messageId
+            && Number(item.embedIndex || 0) === selected.embedIndex
+        );
+        return candidate ? builderSearchDisplayRecords([candidate])[0] || null : null;
+    };
 
     // Reuse the complete registry/canonical snapshots already used to offer
     // this result. Only a genuinely missing/cold selection needs full discovery.
