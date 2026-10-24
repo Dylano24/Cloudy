@@ -1,6 +1,5 @@
 import { Events, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
-import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 import { deleteFromDb, getFromDb, setInDb } from '../utils/database.js';
 import { getLevelingConfig } from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
@@ -31,13 +30,10 @@ export default {
   async execute(message, client) {
     try {
       if (!message.guild) return;
-      if (message.author.id === client.user?.id) {
-        if (message.embeds?.length) {
-          void registerCloudyEmbedMessage(message, 'bot-history')
-            .catch(error => logger.debug(`Embed Builder live index skipped: ${error?.message || error}`));
-        }
-        return;
-      }
+      // Viewing or running commands must never create persistent Builder items.
+      // Explicit Builder Post/Save and source-catalog registration are handled
+      // by their own workflows; live channel browsing discovers real messages.
+      if (message.author.id === client.user?.id) return;
 
       logger.debug('Message received', {
         event: 'message.received',
