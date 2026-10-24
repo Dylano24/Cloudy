@@ -177,7 +177,6 @@ export function commercialBuilderTitle(value) {
 
     // Runtime placeholders are source-discovery metadata, not administrator copy.
     if (/^rolling\b.*\{dynamic\}/i.test(visible)) return 'Rolling dice';
-    if (/^removed from builder$/i.test(visible)) return 'Deleted from Builder';
 
     let text = visible
         .replace(/<a?:[^:>]+:\d+>/g, ' ')
@@ -255,7 +254,9 @@ function recordDocument(guild, record) {
         ? data.fields.flatMap(field => [field?.name, field?.value])
         : [];
     const title = recordTitle(record);
-    const titleKey = normalize([title, record?.name, record?.title, data?.title].filter(Boolean).join(' '));
+    const rawTitle = normalize([record?.name, record?.title, data?.title].filter(Boolean).join(' '));
+    const aliases = /\bremoved from builder\b/.test(rawTitle) ? ['deleted from builder'] : [];
+    const titleKey = normalize([title, record?.name, record?.title, data?.title, ...aliases].filter(Boolean).join(' '));
     const bodyKey = normalize([
         data?.description,
         data?.author?.name,
