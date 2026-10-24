@@ -22,10 +22,12 @@ function isUsableMessage(message, botUserId) {
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
     // Reject the entire panel, including its real-looking preview embed.
     if (isBuilderSessionMessage(message)) return false;
+    // Command invocations generate live Discord responses, not independent
+    // Builder saves. Their reusable definitions remain in the source catalog.
+    // Deliberately posted Builder messages do not have an interaction origin.
+    if (message.interaction || message.interactionMetadata) return false;
+    if (message.reference?.messageId && !isBuilderMarked(message)) return false;
 
-    // Persistent slash-command replies are normal Cloudy embeds too. Older
-    // discovery code rejected interaction replies, which made whole classes of
-    // game/system embeds impossible to load in the Builder live preview.
     return message.embeds.some(embed => {
         const title = String(embed?.title || '').trim().toLowerCase();
         return !INTERNAL_TITLES.has(title);
