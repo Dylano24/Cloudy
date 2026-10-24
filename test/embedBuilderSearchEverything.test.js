@@ -127,9 +127,9 @@ test('Search hides history mirrors and deduplicates canonical catalog templates'
 
 
 test('Builder Search presents commercial sentence-case names without source placeholders', () => {
-  assert.equal(commercialBuilderTitle('Retention Updated'), 'Retention updated');
-  assert.equal(commercialBuilderTitle('Role Removed'), 'Role removed');
-  assert.equal(commercialBuilderTitle('Random User Selected'), 'Random user selected');
+  assert.equal(commercialBuilderTitle('✅ Retention Updated'), 'Retention updated');
+  assert.equal(commercialBuilderTitle('✅ Role Removed'), 'Role removed');
+  assert.equal(commercialBuilderTitle('🎲 Random User Selected'), 'Random user selected');
   assert.equal(commercialBuilderTitle('Reaction Roles Dashboard'), 'Reaction roles dashboard');
   assert.equal(commercialBuilderTitle('Remove Role Reward'), 'Remove role reward');
   assert.equal(commercialBuilderTitle('Randomuser • Error'), 'Random user error');
