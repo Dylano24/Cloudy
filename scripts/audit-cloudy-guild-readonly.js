@@ -68,6 +68,7 @@ const aliases = {
   botCommands: ['bot-commands'],
   rules: ['rules'],
   faq: ['faq'],
+  fixGuide: ['fix-guide', 'cloudy-fix-guide'],
   welcome: ['welcome'],
   staffList: ['staff-list', 'staff-team'],
   support: ['contact-support', 'contact-us'],
@@ -78,6 +79,8 @@ const legacy = {
   nitradoPatch: '1539397467647377530',
   zorp: '1533212973034770462',
   reports: '1554538663512248350',
+  faq: '1534654577385672917',
+  fixGuide: '1546229542027534478',
 };
 try {
   const user = await get('/users/@me');
@@ -101,6 +104,46 @@ try {
       || channelAudit.find(c => names.includes(c.norm));
     results[key] = entry ? { found: true, name: entry.name, id: entry.id, permissions: entry.permissions } : { found: false };
   }
+  async function inspectPanelChannel(key) {
+    const destination = results[key];
+    if (!destination?.found || !destination.permissions?.view || !destination.permissions?.history) {
+      return { available: false, reason: 'channel_unreadable' };
+    }
+
+    const messages = await get('/channels/' + destination.id + '/messages?limit=100').catch(error => ({
+      __auditError: error?.message || String(error),
+    }));
+    if (!Array.isArray(messages)) {
+      return { available: false, reason: messages?.__auditError || 'message_fetch_failed' };
+    }
+
+    const botMessages = messages
+      .filter(message => String(message.author?.id || '') === String(user.id))
+      .map(message => ({
+        id: message.id,
+        createdAt: message.timestamp,
+        editedAt: message.edited_timestamp || null,
+        embedTitles: (message.embeds || []).map(embed => embed.title || '').filter(Boolean),
+        embedDescriptions: (message.embeds || []).map(embed => String(embed.description || '').slice(0, 240)).filter(Boolean),
+        componentIds: (message.components || []).flatMap(row =>
+          (row.components || []).map(component => component.custom_id).filter(Boolean)),
+        componentLabels: (message.components || []).flatMap(row =>
+          (row.components || []).map(component => component.label).filter(Boolean)),
+      }));
+
+    return {
+      available: true,
+      messageCount: messages.length,
+      botMessageCount: botMessages.length,
+      botMessages,
+    };
+  }
+
+  const livePanels = {
+    faq: await inspectPanelChannel('faq'),
+    fixGuide: await inspectPanelChannel('fixGuide'),
+  };
+
   const unableToRead = channelAudit.filter(c => !c.permissions.view || !c.permissions.history);
   const unableToPost = ['rustPatch', 'nitradoPatch'].filter(key => !results[key].found || !results[key].permissions.view || !results[key].permissions.send || !results[key].permissions.embed);
   const findings = [];
@@ -118,6 +161,7 @@ try {
     unreadableTextChannels: unableToRead.length,
     unreadableNames: unableToRead.map(c => ({ name: c.name, id: c.id })),
     destinations: results,
+    livePanels,
     findings,
   };
   console.log('CLOUDY_READONLY_AUDIT_START');
