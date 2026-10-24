@@ -13,7 +13,7 @@ import {
     getEmbedRegistrySnapshot,
     resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
-import { collapseDisplayRecords, canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
+import { collapseDisplayRecords, canonicalBuilderResponseTitle } from '../../services/embedManagerService.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
 import {
@@ -38,33 +38,6 @@ const INTERNAL_SEARCH_TITLES = new Set([
 ]);
 const pendingSelections = globalThis.__cloudyEmbedBuilderSearchSelections
     || (globalThis.__cloudyEmbedBuilderSearchSelections = new Map());
-const CANONICAL_SEARCH_CACHE_TTL = 1500;
-const canonicalSearchCache = globalThis.__cloudyEmbedCanonicalSearchCache
-    || (globalThis.__cloudyEmbedCanonicalSearchCache = new Map());
-
-async function getFastCanonicalBuilderRecords(guild) {
-    const key = String(guild?.id || '');
-    if (!key) return [];
-    const now = Date.now();
-    const cached = canonicalSearchCache.get(key);
-    if (cached?.records && cached.expiresAt > now) return cached.records;
-    if (cached?.promise) return cached.promise;
-
-    const promise = getCanonicalBuilderRecords(guild)
-        .then(records => {
-            canonicalSearchCache.set(key, {
-                records,
-                expiresAt: Date.now() + CANONICAL_SEARCH_CACHE_TTL,
-            });
-            return records;
-        })
-        .catch(error => {
-            canonicalSearchCache.delete(key);
-            throw error;
-        });
-    canonicalSearchCache.set(key, { promise, expiresAt: now + CANONICAL_SEARCH_CACHE_TTL });
-    return promise;
-}
 
 function normalize(value) {
     return String(value || '')
@@ -406,6 +379,21 @@ function mergeSearchRecords(guildId, registryRecords) {
     return [...unique.values()];
 }
 
+function collapseSearchRecords(records) {
+    const byChannel = new Map();
+
+    for (const record of records || []) {
+        const channelId = String(record?.channelId || '');
+        if (!channelId) continue;
+        if (!byChannel.has(channelId)) byChannel.set(channelId, []);
+        byChannel.get(channelId).push(record);
+    }
+
+    return [...byChannel.entries()].flatMap(([channelId, channelRecords]) =>
+        collapseDisplayRecords(channelRecords, channelId),
+    );
+}
+
 function isInternalSearchRecord(record) {
     const title = normalize(recordTitle(record));
     const name = normalize(record?.name);
@@ -418,7 +406,7 @@ function builderSearchDisplayRecords(records) {
     // Runtime/history mirrors are not separate editable Builder items.
     const unique = new Map();
 
-    for (const rawRecord of records || []) {
+    for (const rawRecord of collapseSearchRecords(records)) {
         const record = sourceResolvedSearchRecord(rawRecord);
         const source = String(record?.source || '').toLowerCase();
         const channelId = String(record?.channelId || '');
@@ -911,11 +899,20 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                 && Number(item.embedIndex || 0) === selected.embedIndex,
             );
             if (record) {
-                const liveCandidate = record.previewRecord
+                // Search must open the exact same complete preview that Modify
+                // would use for this canonical group. Never fall back to a
+                // sparse catalog row when a fuller live/source peer exists.
+                const groupedPreview = record.previewRecord
                     || latestRealPreviewRecord(interaction.guild, records, record)
                     || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
-                const previewRecord = liveCandidate
-                    ? await hydrateLiveSearchRecord(interaction.guild, liveCandidate)
+                const runtimePreview = await hydrateBuilderPreviewRecord(
+                    interaction.guild,
+                    record,
+                    groupedPreview,
+                    interaction.user.id,
+                ).catch(() => groupedPreview);
+                const previewRecord = runtimePreview
+                    ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
                     : null;
 
                 const initialSelection = {
