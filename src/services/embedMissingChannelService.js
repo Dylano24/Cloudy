@@ -79,8 +79,12 @@ function buildRecords(guild, channel, message, guildConfig = null) {
             const title = String(embed?.title || '').trim().toLowerCase();
             if (INTERNAL_TITLES.has(title)) return null;
 
+            const isTicketLogResponse = Boolean(getTicketLogTemplate(embed));
             const isReusableTicketLog = isTicketLogTemplateChannel(guildConfig, channel.id)
-                && Boolean(getTicketLogTemplate(embed));
+                && isTicketLogResponse;
+            // A ticket lifecycle reply outside configured ticket log channels is
+            // not a saved panel, even if its snapshot has the same log fields.
+            if (isTicketLogResponse && !isReusableTicketLog && !isBuilderMarked(message)) return null;
             // A real, persistent bot embed is browseable without a modern
             // footer marker. This snapshot stays session-only until Save.
             if (!isBuilderMarked(message) && !isReusableTicketLog
@@ -119,7 +123,7 @@ function sortedMessages(state) {
     );
 }
 
-async function getRecentUsableMessages(channel, botUserId, { fullHistory = true, onBatch = null } = {}) {
+async function getRecentUsableMessages(channel, botUserId, { fullHistory = true, onBatch = null, shouldContinue = null } = {}) {
     const cacheKey = String(channel.id);
     const existing = discoveryCache.get(cacheKey);
     const reuseNewest = fullHistory && existing?.newestCheckedAt
@@ -144,7 +148,8 @@ async function getRecentUsableMessages(channel, botUserId, { fullHistory = true,
 
     let before = state.complete ? null : state.oldestId;
     const seen = new Set();
-    while (before && !seen.has(String(before))) {
+    while (before && !seen.has(String(before))
+        && (!shouldContinue || shouldContinue())) {
         seen.add(String(before));
         const batch = await channel.messages.fetch({ limit: DISCOVERY_PAGE_SIZE, before }).catch(() => null);
         if (!batch) break;
@@ -188,7 +193,7 @@ export async function discoverRecentChannelEmbeds(guild, channelId, botUserId) {
     return messages.flatMap(message => buildRecords(guild, channel, message, guildConfig));
 }
 
-export async function discoverMissingChannelEmbeds(guild, channelId, botUserId, { onBatch = null } = {}) {
+export async function discoverMissingChannelEmbeds(guild, channelId, botUserId, { onBatch = null, shouldContinue = null } = {}) {
     if (!guild || !channelId || !botUserId) return [];
 
     const channel = await resolveChannel(guild, channelId);
@@ -198,6 +203,7 @@ export async function discoverMissingChannelEmbeds(guild, channelId, botUserId, 
     const messages = await getRecentUsableMessages(channel, botUserId, {
         fullHistory: true,
         onBatch: onBatch ? batch => onBatch(batch.flatMap(message => buildRecords(guild, channel, message, guildConfig))) : null,
+        shouldContinue,
     });
     if (!messages.length) return [];
 
