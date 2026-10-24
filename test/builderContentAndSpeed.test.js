@@ -77,9 +77,9 @@ test('concurrent cold template reads share one read per scope', async () => {
   assert.equal(reads - before, 2);
 });
 
-test('identical preview captures do not repeat database writes', async () => {
+test('preview captures never write to durable storage, even across concurrent responses', async () => {
   const before = writes;
   const payload = { embeds: [{ title: 'Repeated preview', description: 'Same full content', fields }] };
   await Promise.all(Array.from({ length: 20 }, () => rememberBuilderRuntimePreview(payload, { guildId: 'capture-speed', channelId: 'channel' })));
-  assert.equal(writes - before, 1);
+  assert.equal(writes - before, 0);
 });

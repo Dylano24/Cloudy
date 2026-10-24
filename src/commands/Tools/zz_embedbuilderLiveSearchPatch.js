@@ -965,6 +965,10 @@ function mergeCompatibleCatalogPeers(matches) {
 }
 
 function completeSelectedSearchRecord(guild, records, selectedRecord) {
+    // Only catalog templates can have source/runtime peers. A manually saved
+    // embed is its own canonical record: scanning thousands of catalog items
+    // cannot improve it and risks mixing independently saved messages.
+    if (String(selectedRecord?.source || '').toLowerCase() === 'embed-builder') return selectedRecord;
     let selected = {
         record: selectedRecord,
         document: recordDocument(guild, selectedRecord),
@@ -1273,7 +1277,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     };
 }
 
-export async function hydrateLiveSearchRecord(guild, record, timeoutMs = 1200) {
+export async function hydrateLiveSearchRecord(guild, record, timeoutMs = 650) {
     if (!guild || !record || record.detached || String(record.source || '').toLowerCase() === 'system-catalog') {
         return record;
     }

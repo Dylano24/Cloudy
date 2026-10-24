@@ -1,7 +1,6 @@
 import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
-import { registerCloudyEmbedMessage } from '../services/embedRegistryService.js';
 import { formatLogLine } from '../utils/logging/logEmbeds.js';
 
 const MAX_LOGGED_EDIT_CONTENT_LENGTH = 512;
@@ -13,12 +12,9 @@ export default {
   async execute(oldMessage, newMessage) {
     try {
       if (!newMessage.guild) return;
-      if (newMessage.author?.id === newMessage.client.user?.id) {
-        if (newMessage.embeds?.length) {
-          await registerCloudyEmbedMessage(newMessage, 'bot-history');
-        }
-        return;
-      }
+      // Bot edits update their public messages, not durable Builder storage.
+      // Explicit saves persist through the Builder and source catalog owners.
+      if (newMessage.author?.id === newMessage.client.user?.id) return;
       if (newMessage.author?.bot) return;
 
       if (oldMessage.content === newMessage.content) return;

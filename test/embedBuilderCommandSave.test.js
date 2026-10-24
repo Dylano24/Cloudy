@@ -65,7 +65,7 @@ test('Save still refuses private results and the real-looking preview within a B
   }
 });
 
-test('discovery includes public command results but excludes whole Builder preview panels', async () => {
+test('discovery excludes public command instances and whole Builder preview panels', async () => {
   const { message, channel, guild } = fixture({ interactionMetadata: { id: 'command' } });
   const panel = {
     ...message, id: 'builder-panel',
@@ -75,5 +75,6 @@ test('discovery includes public command results but excludes whole Builder previ
   channel.messages.cache = messages;
   channel.messages.fetch = async () => messages;
   const records = await discoverRecentChannelEmbeds(guild, channel.id, 'bot');
-  assert.deepEqual(records.map(record => record.messageId), [message.id]);
+  assert.deepEqual(records.map(record => record.messageId), [],
+    'a command invocation is not a reusable channel embed until explicitly posted or saved');
 });

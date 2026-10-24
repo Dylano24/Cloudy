@@ -11,7 +11,7 @@ import { discoverEmbedDefinitions } from '../src/services/embedDefinitionDiscove
 import { buildGamblingGuideDescription, removeRetiredGamblingGuideCommand, isRetiredGamblingCommand } from '../src/config/gamblingCommands.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 import { createStickyGuideManager } from '../src/services/stickyGuideService.js';
-import { hydrateBuilderPreviewRecord } from '../src/services/builderRuntimePreviewService.js';
+import { hydrateBuilderPreviewRecord, rememberBuilderRuntimePreview } from '../src/services/builderRuntimePreviewService.js';
 
 function storage() {
   const values = new Map();
@@ -102,7 +102,9 @@ test('existing guide removes only the retired command line and preserves custom 
   assert.deepEqual(removeRetiredGamblingGuideCommand(guide), expected);
   const result = await applySavedResponsePayloadTemplates({ embeds: [guide] }, { guildId: 'retired-guide', channelId: 'gambling' });
   assert.deepEqual(result.embeds[0], expected);
-  values.set('cloudy:builder-runtime-preview:retired-guide:gambling:gambling games', guide);
+  // A runtime guide may be previewed but must never be written to Builder storage
+  // without an explicit Save.
+  await rememberBuilderRuntimePreview({ embeds: [guide] }, { guildId: 'retired-guide', channelId: 'gambling' });
   const preview = await hydrateBuilderPreviewRecord({ id: 'retired-guide' },
     { channelId: 'gambling', snapshot: guide }, null, 'user');
   assert.deepEqual(preview.snapshot, expected);

@@ -1537,7 +1537,9 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
   const template = (specificKey ? findTemplate(specificKey, context, guildId) : null) || findTemplate(titleKey, context, guildId);
 
   if (!template) {
-    if (context && specificKey) captureSystemEmbedData(data, contextSource);
+    // A command execution only renders its output. Dynamic responses must not
+    // silently extend the persistent Builder catalog; source-defined templates
+    // and deliberate Builder Save remain the authoritative registration paths.
     return isBlackjackContext(context) ? stripBlackjackCardsRemaining(data) : data;
   }
 
