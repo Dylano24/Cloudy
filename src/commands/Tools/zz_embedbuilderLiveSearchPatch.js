@@ -13,7 +13,7 @@ import {
     getEmbedRegistrySnapshot,
     resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
-import { collapseDisplayRecords, canonicalBuilderResponseTitle } from '../../services/embedManagerService.js';
+import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
 import {
@@ -38,6 +38,33 @@ const INTERNAL_SEARCH_TITLES = new Set([
 ]);
 const pendingSelections = globalThis.__cloudyEmbedBuilderSearchSelections
     || (globalThis.__cloudyEmbedBuilderSearchSelections = new Map());
+const CANONICAL_SEARCH_CACHE_TTL = 1500;
+const canonicalSearchCache = globalThis.__cloudyEmbedCanonicalSearchCache
+    || (globalThis.__cloudyEmbedCanonicalSearchCache = new Map());
+
+async function getFastCanonicalBuilderRecords(guild) {
+    const key = String(guild?.id || '');
+    if (!key) return [];
+    const now = Date.now();
+    const cached = canonicalSearchCache.get(key);
+    if (cached?.records && cached.expiresAt > now) return cached.records;
+    if (cached?.promise) return cached.promise;
+
+    const promise = getCanonicalBuilderRecords(guild)
+        .then(records => {
+            canonicalSearchCache.set(key, {
+                records,
+                expiresAt: Date.now() + CANONICAL_SEARCH_CACHE_TTL,
+            });
+            return records;
+        })
+        .catch(error => {
+            canonicalSearchCache.delete(key);
+            throw error;
+        });
+    canonicalSearchCache.set(key, { promise, expiresAt: now + CANONICAL_SEARCH_CACHE_TTL });
+    return promise;
+}
 
 function normalize(value) {
     return String(value || '')
@@ -383,21 +410,6 @@ function mergeSearchRecords(guildId, registryRecords) {
     return [...unique.values()];
 }
 
-function collapseSearchRecords(records) {
-    const byChannel = new Map();
-
-    for (const record of records || []) {
-        const channelId = String(record?.channelId || '');
-        if (!channelId) continue;
-        if (!byChannel.has(channelId)) byChannel.set(channelId, []);
-        byChannel.get(channelId).push(record);
-    }
-
-    return [...byChannel.entries()].flatMap(([channelId, channelRecords]) =>
-        collapseDisplayRecords(channelRecords, channelId),
-    );
-}
-
 function isInternalSearchRecord(record) {
     const title = normalize(recordTitle(record));
     const name = normalize(record?.name);
@@ -410,7 +422,7 @@ function builderSearchDisplayRecords(records) {
     // Runtime/history mirrors are not separate editable Builder items.
     const unique = new Map();
 
-    for (const rawRecord of collapseSearchRecords(records)) {
+    for (const rawRecord of records || []) {
         const record = sourceResolvedSearchRecord(rawRecord);
         const source = String(record?.source || '').toLowerCase();
         const channelId = String(record?.channelId || '');
@@ -562,6 +574,96 @@ function exactAutomatedSearchIdentity(record, document = null) {
     }
 }
 
+function searchRecordCompleteness(record) {
+    const data = snapshot(record);
+    let score = 0;
+    if (data?.description) score += 1000 + String(data.description).length;
+    if (Array.isArray(data?.fields)) score += data.fields.length * 500;
+    if (data?.footer?.text) score += 250;
+    if (data?.thumbnail?.url) score += 150;
+    if (data?.image?.url) score += 100;
+    if (Array.isArray(record?.components)) score += record.components.length * 200;
+    return score;
+}
+
+function compatibleSearchShape(leftRecord, rightRecord, leftDocument, rightDocument) {
+    if (normalize(leftDocument?.title) !== normalize(rightDocument?.title)) return false;
+
+    const leftSource = String(leftRecord?.source || '').toLowerCase();
+    const rightSource = String(rightRecord?.source || '').toLowerCase();
+    if (leftSource === 'embed-builder' || rightSource === 'embed-builder') return false;
+    if (leftSource !== 'system-catalog' && rightSource !== 'system-catalog') return false;
+
+    const leftContext = stableSearchTemplateContext(leftRecord);
+    const rightContext = stableSearchTemplateContext(rightRecord);
+    if (leftContext && rightContext && leftContext !== rightContext) return false;
+
+    const left = visibleSearchShape(snapshot(leftRecord));
+    const right = visibleSearchShape(snapshot(rightRecord));
+    if (left.description && right.description && left.description !== right.description) return false;
+
+    const fieldMap = fields => new Map((fields || [])
+        .filter(field => field?.name)
+        .map(field => [field.name, field.value || '']));
+    const leftFields = fieldMap(left.fields);
+    const rightFields = fieldMap(right.fields);
+    if (leftFields.size && rightFields.size) {
+        let shared = 0;
+        for (const [name, value] of leftFields) {
+            if (!rightFields.has(name)) continue;
+            shared += 1;
+            const other = rightFields.get(name);
+            if (value && other && value !== other) return false;
+        }
+        if (!shared) return false;
+    }
+
+    return true;
+}
+
+function mergeCompatibleSearchMatch(left, right) {
+    const candidates = [left.record, right.record]
+        .flatMap(record => [record, record?.previewRecord, record?.sourceRecord])
+        .filter(Boolean);
+
+    const catalog = candidates
+        .filter(record => String(record?.source || '').toLowerCase() === 'system-catalog')
+        .sort((a, b) => searchRecordCompleteness(a) - searchRecordCompleteness(b))
+        .at(-1) || null;
+    const live = candidates
+        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog' && !record?.detached)
+        .sort((a, b) => searchRecordCompleteness(a) - searchRecordCompleteness(b)
+            || new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime())
+        .at(-1) || null;
+
+    const selected = catalog || chooseBetter(left, right).record;
+    const record = {
+        ...selected,
+        ...(live ? { previewRecord: live } : {}),
+        ...(catalog ? { sourceRecord: catalog } : {}),
+    };
+
+    return {
+        record,
+        document: left.score >= right.score ? left.document : right.document,
+        score: Math.max(left.score ?? 0, right.score ?? 0),
+    };
+}
+
+function mergeCompatibleCatalogPeers(matches) {
+    const merged = [];
+    for (const match of matches) {
+        const index = merged.findIndex(existing =>
+            compatibleSearchShape(existing.record, match.record, existing.document, match.document));
+        if (index < 0) {
+            merged.push(match);
+            continue;
+        }
+        merged[index] = mergeCompatibleSearchMatch(merged[index], match);
+    }
+    return merged;
+}
+
 export function buildMatches(guild, records, query) {
     const hasQuery = Boolean(normalize(query));
     const matches = [];
@@ -590,7 +692,9 @@ export function buildMatches(guild, records, query) {
         matches[existingIndex] = chooseBetter(matches[existingIndex], match);
     }
 
-    return matches.sort((a, b) => {
+    const uniqueMatches = mergeCompatibleCatalogPeers(matches);
+
+    return uniqueMatches.sort((a, b) => {
         if (hasQuery && b.score !== a.score) return b.score - a.score;
 
         const priorityDelta = priority(b.record) - priority(a.record);
