@@ -490,7 +490,7 @@ const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
     || (globalThis.__cloudyEmbedFastSearchCache = new Map());
 const lastRegistrySearchRefresh = new Map();
 
-async function loadFastEmbedBuilderSearchRecords(interaction) {
+export async function loadFastEmbedBuilderSearchRecords(interaction) {
     const guildId = String(interaction.guildId || '');
     const now = Date.now();
     const generation = getEmbedRegistryGeneration(guildId);
