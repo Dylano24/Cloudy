@@ -64,11 +64,13 @@ test('channel browsing keeps its existing unique-embed grouping', () => {
 });
 
 
-test('Search merges direct system catalog records so catalog responses cannot disappear from autocomplete', () => {
+test('Search merges direct system catalog records through the complete Search loader', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
   assert.match(source, /getSearchableSystemCatalogRecords/);
   assert.match(source, /function mergeSearchRecords\(/);
-  assert.match(source, /mergeSearchRecords\(interaction\.guildId, registryRecords\)/);
+  assert.match(source, /async function loadEmbedBuilderSearchRecords\(interaction\)/);
+  assert.match(source, /mergeSearchRecords\([\s\S]*interaction\.guildId,[\s\S]*registryRecords[\s\S]*canonicalRecords/);
+  assert.match(source, /filterEmbedBuilderSearchRecords\(/);
 });
 
 test('Deleted from Builder remains backed by the Builder deletion catalog response', () => {
