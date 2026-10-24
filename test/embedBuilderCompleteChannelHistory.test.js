@@ -62,7 +62,7 @@ test('initial channel menu keeps known explicit Saves; source-only catalog remai
   const start=code.indexOf('export async function openEmbedManager(');
   const end=code.indexOf('const checkingChannelIds', start);
   const initial=code.slice(start,end);
-  assert.match(initial,/allStoredRecords\.filter\(record => record\.source === 'embed-builder'\s*&& record\.manualSaved === true\)/);
+  assert.match(initial, /allStoredRecords\.filter\(record =>\s*record\.manualSaved === true && record\.source === 'embed-builder'\)/);
   assert.match(initial,/projectCatalogTemplatesToFeatureChannels/);
   assert.doesNotMatch(initial,/getSearchableSystemCatalogRecords/);
 });
@@ -72,11 +72,11 @@ test('channel navigation starts latest page and progressively hydrates old chann
   const start=code.indexOf("if (interaction.isStringSelectMenu() && interaction.customId.startsWith('simple_embed_modify_channel:'))");
   const end=code.indexOf("if (interaction.customId.startsWith('simple_embed_modify_embed_page:'))",start);
   const body=code.slice(start,end);
-  assert.match(body,/discoverRecentChannelEmbeds\(guild, channelId/);
-  assert.match(body,/discoverMissingChannelEmbeds\(guild, channelId/);
+  assert.match(body, /discoverRecentChannelEmbeds\(\s*guild, channelId/);
+  assert.match(body, /discoverMissingChannelEmbeds\(\s*guild, channelId/);
   assert.match(body,/record\.manualSaved === true/);
   assert.match(body,/onBatch:/);
-  assert.doesNotMatch(body,/getCanonicalBuilderRecords\(\s*guild, liveRecords/);
+  assert.ok(body.indexOf('records, discoveredRecords.filter') < body.indexOf('getCanonicalBuilderRecords('), 'initial channel results must display before expensive canonical hydration');
 });
 
 test('cold Search selection tries a targeted registry refresh before triggering global catalog work',()=>{
