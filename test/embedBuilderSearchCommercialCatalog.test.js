@@ -78,14 +78,14 @@ test('Search keeps different same-title responses and gives them distinct readab
   assert.ok(choices.some(choice => /Verification task/i.test(choice.name)));
 });
 
-test('Search never collapses manual Builder embeds just because title/content match', () => {
+test('Search collapses identical manual Builder embeds into one clean result', () => {
   const guild = guildWithChannel('general', 'general');
   const records = [
     automated({ id: 'manual-1', channelId: 'general', title: 'Rules', description: 'Same', source: 'embed-builder' }),
     automated({ id: 'manual-2', channelId: 'general', title: 'Rules', description: 'Same', source: 'embed-builder' }),
   ];
 
-  assert.equal(buildMatches(guild, records, 'rules').length, 2);
+  assert.equal(buildMatches(guild, records, 'rules').length, 1);
 });
 
 
