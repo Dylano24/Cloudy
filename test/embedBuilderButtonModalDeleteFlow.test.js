@@ -38,7 +38,7 @@ test('Delete from builder allows stale template records while preserving live-me
   const eligibility = source.slice(eligibilityStart, eligibilityEnd);
 
   assert.doesNotMatch(eligibility, /!target\?\.templateMode/);
-  assert.match(eligibility, /target\?\.source !== 'system-catalog'/);
+  assert.doesNotMatch(eligibility, /target\?\.source !== 'system-catalog'/);
 
   const inspectStart = source.indexOf('async function inspectBuilderDeleteTarget');
   const inspectEnd = source.indexOf('function clearBuilderRecordCaches', inspectStart);
@@ -46,4 +46,5 @@ test('Delete from builder allows stale template records while preserving live-me
   assert.match(inspect, /channel\.messages\.fetch\(String\(target\.messageId\)\)/);
   assert.match(inspect, /status: 'exists'/);
   assert.match(inspect, /status: 'missing'/);
+  assert.match(inspect, /status: 'catalog'/);
 });
