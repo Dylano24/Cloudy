@@ -617,6 +617,21 @@ export function templateIdentity(channelId, value) {
     return `${fieldShape}::${descriptionShape}`;
 }
 
+function cleanSourceTemplateMenuLabel(value) {
+    const raw = stripCustomEmojiMarkup(value)
+        .replace(/\p{Extended_Pictographic}/gu, ' ')
+        .replace(/[\uFE0F\u200D]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!raw) return 'Embed';
+    const sentence = raw.toLowerCase().replace(/^./u, char => char.toUpperCase());
+    // Admin menu labels are presentation only; the saved source is untouched.
+    return sentence.replace(/\b(?:discord|cloudy|rust|api|faq|ai|id|vip|xp|dm)\b/gi,
+        term => ({ discord: 'Discord', cloudy: 'Cloudy', rust: 'Rust',
+            api: 'API', faq: 'FAQ', ai: 'AI', id: 'ID', vip: 'VIP',
+            xp: 'XP', dm: 'DM' })[term.toLowerCase()]);
+}
+
 export function collapseDisplayRecords(channelRecords, channelId = null) {
     const strictTemplateMode = TEMPLATE_CHANNEL_IDS.has(String(channelId));
     const groups = new Map();
@@ -714,7 +729,8 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
             .find(value => customEmojiOption(value)) || '';
         return {
             ...representative,
-            name: group.label,
+            name: representative.source === 'system-catalog' && !representative.manualSaved
+                ? cleanSourceTemplateMenuLabel(group.label) : group.label,
             displayEmojiSource,
             previewRecord,
             sourceRecord,
