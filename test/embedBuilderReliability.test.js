@@ -1055,7 +1055,8 @@ test('embed manager navigation edits through the fresh component interaction', a
   });
 
   await finished;
-  assert.match(navigationPayload.embeds[0].toJSON().description, /\*\*Embeds:\*\* 1/);
+  assert.match(navigationPayload.embeds[0].toJSON().description, /\*\*Embeds:\*\* 0/);
+  assert.match(navigationPayload.embeds[0].toJSON().description, /Checking current Discord messages/);
   collector.stop('test-complete');
 });
 

@@ -37,7 +37,7 @@ test('Modify renders its unchanged controls in one reply and pagination in one u
   assert.equal(defers, 0);
   assert.equal(follows, 0);
   const serialize = payload => JSON.parse(JSON.stringify(payload));
-  const expected = serialize(buildChannelPayload(guild, [record], 0, new Set()));
+  const expected = serialize(buildChannelPayload(guild, [], 0, new Set()));
   assert.deepEqual(serialize(paint.components), expected.components);
   assert.deepEqual(serialize(paint.embeds), expected.embeds);
   let updates = 0;
@@ -107,7 +107,8 @@ test('registry mutations invalidate the preloaded Modify snapshot without any hi
     webhook: { editMessage: async () => {} },
   }, state, async () => true);
   assert.ok(reads > readsBeforeOpen, 'a mutation requires a fresh storage read');
-  assert.match(paint.embeds[0].toJSON().description, /\*\*Embeds found:\*\* 1/);
+  assert.match(paint.embeds[0].toJSON().description, /\*\*Embeds found:\*\* 0/);
+  assert.match(paint.embeds[0].toJSON().description, /Choose a channel first/);
   assert.equal(state.embedManagerPrepared, undefined);
   collector.stop();
 });
