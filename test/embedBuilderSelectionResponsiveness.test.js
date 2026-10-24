@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { performance } from 'node:perf_hooks';
+import fs from 'node:fs';
+
+function requireEarlyAckSource() {
+  return fs.readFileSync('src/events/interactionCreate.js', 'utf8');
+}
 import { EventEmitter } from 'node:events';
 import embedBuilderCommand from '../src/commands/Tools/embedbuilder.js';
 import { db } from '../src/utils/database.js';
@@ -72,6 +77,35 @@ test('fast selection preparation needs no extra Discord acknowledgement round tr
   const interaction = { deferReply: async () => assert.fail('fast rendering must reply directly') };
   assert.equal(await search.withBuilderSelectionAcknowledgement(interaction, async () => 'ready', 5), 'ready');
   await new Promise(resolve => { setTimeout(resolve, 10); });
+});
+
+test('selected Builder Search is acknowledged before expensive configuration or catalog preparation', () => {
+  const source = requireEarlyAckSource();
+  const begin = source.indexOf('ResponseCoordinator.attach(interaction)');
+  const earlyAck = source.indexOf("interaction.commandName === 'embedbuilder'", begin);
+  const defer = source.indexOf('await interaction.deferReply()', earlyAck);
+  const validations = source.indexOf('validateChatInputPayloadOrThrow(interaction', begin);
+  const guildConfig = source.indexOf('const guildConfigPromise = interaction.guild', begin);
+  const handler = source.indexOf('await command.execute(interaction', begin);
+  assert.ok(begin >= 0 && earlyAck > begin);
+  assert.ok(defer > earlyAck && defer < validations && defer < guildConfig && defer < handler,
+    'Discord must receive the Search acknowledgement before potentially blocking work');
+  assert.match(source.slice(earlyAck, defer), /getString\?\.\('search'\)/);
+});
+
+test('a pre-deferred Search selection does not attempt to acknowledge Discord twice', async () => {
+  const events = [];
+  const interaction = {
+    deferred: true,
+    replied: false,
+    async deferReply() { assert.fail('already deferred by interaction router'); },
+  };
+  const result = await search.withBuilderSelectionAcknowledgement(interaction, async () => {
+    events.push('loaded');
+    return 'ready';
+  }, 1);
+  assert.equal(result, 'ready');
+  assert.deepEqual(events, ['loaded']);
 });
 
 test('automatic botlog template previews use the Search casing without rewriting their source', () => {
