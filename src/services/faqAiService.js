@@ -11,6 +11,7 @@ import { logger } from '../utils/logger.js';
 import { createExplicitAiService } from './explicitAiService.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { buildCloudyPublicKnowledgeEvidence } from './cloudyPublicKnowledgeService.js';
+import { registerCloudyEmbedMessage } from './embedRegistryService.js';
 
 export const FAQ_AI_CHANNEL_ID = '1534654577385672917';
 export const FAQ_AI_BUTTON_ID = 'faq_ai_question';
@@ -137,6 +138,12 @@ export async function reconcileFaqAiPanel(client) {
     }
 
     panelMessage = panelMessage || await channel.send(payload);
+
+    // Reused panels do not emit MessageCreate after a restart. Explicitly
+    // re-register the complete live panel so Search uses the same snapshot and
+    // components as channel Modify.
+    await registerCloudyEmbedMessage(panelMessage, 'bot-history');
+
     if (client.db?.set) await client.db.set(FAQ_PANEL_STATE_KEY, panelMessage.id).catch(() => {});
     return panelMessage;
   } catch (error) {
