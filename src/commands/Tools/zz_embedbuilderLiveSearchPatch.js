@@ -524,6 +524,22 @@ function isInternalSearchRecord(record) {
         || INTERNAL_SEARCH_TITLES.has(name);
 }
 
+function hasInteractiveComponents(record) {
+    return (record?.components || []).some(row =>
+        (row?.components || []).some(component => {
+            const data = component?.toJSON ? component.toJSON() : component?.data || component;
+            return Boolean(data?.custom_id || data?.customId);
+        }),
+    );
+}
+
+function isCanonicalLivePanelRecord(record) {
+    const source = String(record?.source || '').toLowerCase();
+    return ['bot-history', 'history'].includes(source)
+        && Boolean(record?.canonicalIdentity)
+        && hasInteractiveComponents(record);
+}
+
 function builderSearchDisplayRecords(records) {
     // Search stays complete, but a canonical Cloudy template is shown only once.
     // Runtime/history mirrors are not separate editable Builder items.
@@ -536,7 +552,7 @@ function builderSearchDisplayRecords(records) {
         const messageId = String(record?.messageId || '');
         if (!channelId || !messageId) continue;
 
-        if (['bot-history', 'history'].includes(source)) continue;
+        if (['bot-history', 'history'].includes(source) && !isCanonicalLivePanelRecord(record)) continue;
         if (record?.detached && !['system-catalog', 'embed-builder'].includes(source)) continue;
         if (isInternalSearchRecord(record)) continue;
 
