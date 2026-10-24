@@ -604,6 +604,40 @@ async function walk(dir, output = []) {
   return output;
 }
 
+function isUnusableDiscoveredEmbed(definition = {}) {
+  if (String(definition.kind || '').toLowerCase() !== 'embed') return false;
+  const hasTitle = Boolean(String(definition.title || '').trim());
+  const hasDescription = Boolean(String(definition.description || '').trim());
+  const hasFields = Array.isArray(definition.fields)
+    && definition.fields.some(field =>
+      String(field?.name || '').trim() || String(field?.value || '').trim());
+  return !hasTitle && !hasDescription && !hasFields;
+}
+
+function isDynamicOnlyDiscoveredEmbed(definition = {}) {
+  if (String(definition.kind || '').toLowerCase() !== 'embed') return false;
+
+  const title = String(definition.title || '')
+    .replace(/\{dynamic\}/gi, ' ')
+    .replace(/\p{Extended_Pictographic}/gu, ' ')
+    .replace(/[\uFE0F\u200D]/g, ' ')
+    .replace(/[\s\-–—:|•()[\]{}]+/g, ' ')
+    .trim();
+
+  // Keep meaningful dynamic families such as "{dynamic}'s Balance"; only
+  // discard titles whose human-readable part disappears completely.
+  return !title;
+}
+
+function isEphemeralAssistantAnswerEmbed(definition = {}) {
+  if (String(definition.kind || '').toLowerCase() !== 'embed') return false;
+  const context = String(definition.context || '').toLowerCase();
+  const title = String(definition.title || '').trim().toLowerCase();
+
+  return (context === 'faq/faq-ai-interaction' && title === 'cloudy support assistant')
+    || (context === 'botlog/cloudy-fix-guide-interaction' && title === 'cloudy fix guide');
+}
+
 export async function discoverEmbedDefinitions() {
   const files = await walk(SOURCE_ROOT);
   const definitions = [];
@@ -626,6 +660,10 @@ export async function discoverEmbedDefinitions() {
   }));
   for (const row of rows) {
     for (const definition of row || []) {
+      if (isUnusableDiscoveredEmbed(definition)
+        || isDynamicOnlyDiscoveredEmbed(definition)
+        || isEphemeralAssistantAnswerEmbed(definition)) continue;
+
       const identity = `${definition.kind}|${definition.context}|${definition.title || definition.label || ''}|${definition.description || ''}`;
       if (unique.has(identity)) continue;
       unique.add(identity);

@@ -17,6 +17,7 @@ import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../..
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
 import {
+    ensureSystemEmbedCatalogs,
     getSearchableSystemCatalogRecords,
     getSystemSourceDefinitionPreview,
     getSystemSourceDefinitionPreviewForEmbed,
@@ -176,7 +177,6 @@ export function commercialBuilderTitle(value) {
 
     // Runtime placeholders are source-discovery metadata, not administrator copy.
     if (/^rolling\b.*\{dynamic\}/i.test(visible)) return 'Rolling dice';
-    if (/^removed from builder$/i.test(visible)) return 'Deleted from Builder';
 
     let text = visible
         .replace(/<a?:[^:>]+:\d+>/g, ' ')
@@ -254,7 +254,9 @@ function recordDocument(guild, record) {
         ? data.fields.flatMap(field => [field?.name, field?.value])
         : [];
     const title = recordTitle(record);
-    const titleKey = normalize([title, record?.name, record?.title, data?.title].filter(Boolean).join(' '));
+    const rawTitle = normalize([record?.name, record?.title, data?.title].filter(Boolean).join(' '));
+    const aliases = /\bremoved from builder\b/.test(rawTitle) ? ['deleted from builder'] : [];
+    const titleKey = normalize([title, record?.name, record?.title, data?.title, ...aliases].filter(Boolean).join(' '));
     const bodyKey = normalize([
         data?.description,
         data?.author?.name,
@@ -439,7 +441,37 @@ export function filterEmbedBuilderSearchRecords(guild, member, records, options 
         .filter(Boolean);
 }
 
+const SEARCH_CATALOG_WARMUP_WAIT_MS = 700;
+
+async function warmSystemCatalogForSearch(client) {
+    if (!client) return false;
+
+    // Startup normally owns catalog creation. Search also starts/retries it so
+    // ephemeral Builder responses never disappear just because startup catalog
+    // initialization was late or had a transient failure. Bound the wait to
+    // keep Discord autocomplete comfortably inside its response window.
+    const initialization = ensureSystemEmbedCatalogs(client)
+        .then(() => true)
+        .catch(() => false);
+
+    let timer;
+    const ready = await Promise.race([
+        initialization,
+        new Promise(resolve => {
+            timer = setTimeout(() => resolve(false), SEARCH_CATALOG_WARMUP_WAIT_MS);
+            timer.unref?.();
+        }),
+    ]).finally(() => {
+        if (timer) clearTimeout(timer);
+    });
+
+    // If the bounded wait elapsed, initialization intentionally keeps running;
+    // ensureSystemEmbedCatalogs owns/caches that same promise.
+    return ready;
+}
+
 async function loadEmbedBuilderSearchRecords(interaction) {
+    await warmSystemCatalogForSearch(interaction.client);
     const registryRecords = await getEmbedRegistry(interaction.guildId, { cached: true });
     await warmSavedEmbedTemplateScopes(
         interaction.guildId,
@@ -493,6 +525,22 @@ function isInternalSearchRecord(record) {
         || INTERNAL_SEARCH_TITLES.has(name);
 }
 
+function hasInteractiveComponents(record) {
+    return (record?.components || []).some(row =>
+        (row?.components || []).some(component => {
+            const data = component?.toJSON ? component.toJSON() : component?.data || component;
+            return Boolean(data?.custom_id || data?.customId);
+        }),
+    );
+}
+
+function isCanonicalLivePanelRecord(record) {
+    const source = String(record?.source || '').toLowerCase();
+    return ['bot-history', 'history'].includes(source)
+        && Boolean(record?.canonicalIdentity)
+        && hasInteractiveComponents(record);
+}
+
 function builderSearchDisplayRecords(records) {
     // Search stays complete, but a canonical Cloudy template is shown only once.
     // Runtime/history mirrors are not separate editable Builder items.
@@ -505,7 +553,7 @@ function builderSearchDisplayRecords(records) {
         const messageId = String(record?.messageId || '');
         if (!channelId || !messageId) continue;
 
-        if (['bot-history', 'history'].includes(source)) continue;
+        if (['bot-history', 'history'].includes(source) && !isCanonicalLivePanelRecord(record)) continue;
         if (record?.detached && !['system-catalog', 'embed-builder'].includes(source)) continue;
         if (isInternalSearchRecord(record)) continue;
 
