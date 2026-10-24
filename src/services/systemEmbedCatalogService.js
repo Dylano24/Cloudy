@@ -70,7 +70,7 @@ const DEFAULT_TEMPLATES = [
   { key: 'builder:delete-blocked', context: 'embed-builder/delete', kind: 'embed', title: 'Delete blocked', description: 'The real Discord message still exists. Delete that message first; Cloudy will never remove a live embed through **Delete from Builder**.', color: CLOUDY_RED_COLOR },
   { key: 'builder:delete-verify-failed', context: 'embed-builder/delete', kind: 'embed', title: 'Could not verify safely', description: 'Cloudy could not confirm that the original Discord message is gone, so nothing was marked for deletion.', color: CLOUDY_RED_COLOR },
   { key: 'builder:delete-cancelled', context: 'embed-builder/delete', kind: 'embed', title: 'Delete cancelled', description: 'The selected Builder record changed, so the pending deletion was cancelled.', color: CLOUDY_RED_COLOR },
-  { key: 'builder:removed', context: 'embed-builder/delete', kind: 'embed', title: 'Deleted from Builder', description: 'The saved Embed Builder record and its Reappear rule were deleted.', color: CLOUDY_GREEN_COLOR },
+  { key: 'builder:removed', context: 'embed-builder/delete', kind: 'embed', title: 'Removed from Builder', description: 'The stale record and its Reappear rule were removed from the Embed Builder.', color: CLOUDY_GREEN_COLOR },
 ];
 
 const TICKET_MAIN_CATALOG_TEMPLATE = {
@@ -773,27 +773,11 @@ async function registerCatalogMessages(messages) {
 }
 
 function friendlyPlainTitle(context, content) {
-  const normalizedContext = normalize(context);
-  const command = normalizedContext.split('/')[1] || normalizedContext.split('/')[0] || '';
-  const hint = plainManagementHint(content);
-
-  // Generic storage/routing scopes are implementation details, not names an
-  // administrator should see in the commercial Builder catalog.
-  if (!command || /^(?:botlog|bot|logs?|report-?logs?)$/.test(command)) {
-    return hint.slice(0, 256);
-  }
-
+  const command = normalize(context).split('/')[1] || normalize(context).split('/')[0] || 'bot';
   const prefix = command
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .join(' ')
-    .replace(/-(?:service|interaction|module|handler|command)$/i, '')
-    .trim();
-  const displayPrefix = prefix
-    ? prefix.charAt(0).toUpperCase() + prefix.slice(1).toLowerCase()
-    : '';
-  if (!displayPrefix) return hint.slice(0, 256);
-  return `${displayPrefix}: ${hint.charAt(0).toLowerCase() + hint.slice(1)}`.slice(0, 256);
+    ? command.split(/[-_]+/).filter(Boolean).map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+    : 'Bot';
+  return `${prefix} • ${plainManagementHint(content)}`.slice(0, 256);
 }
 
 function definitionToCatalog(definition) {
