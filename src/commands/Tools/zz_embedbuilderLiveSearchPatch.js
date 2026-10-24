@@ -470,15 +470,31 @@ export function latestRealPreviewRecord(guild, records, selectedRecord) {
 
     const selectedDocument = recordDocument(guild, selectedRecord);
     const selectedIdentity = exactAutomatedSearchIdentity(selectedRecord, selectedDocument);
+    const realRecords = records
+        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog' && !record?.detached);
 
-    return records
-        .filter(record => String(record?.source || '').toLowerCase() !== 'system-catalog' && !record?.detached)
+    const compatible = realRecords
         .filter(record => {
             const document = recordDocument(guild, record);
             const identity = exactAutomatedSearchIdentity(record, document);
             return Boolean(selectedIdentity && identity && selectedIdentity === identity)
                 || compatibleSearchShape(selectedRecord, record, selectedDocument, document);
-        })
+        });
+
+    const candidates = compatible.length
+        ? compatible
+        : String(selectedRecord?.source || '').toLowerCase() === 'system-catalog'
+            ? realRecords.filter(record =>
+                logicalKey(record, recordDocument(guild, record))
+                    === logicalKey(selectedRecord, selectedDocument))
+            : [];
+
+    // A catalog row may be sparse while one unique live message contains the
+    // complete embed. Use that single peer. If several same-title peers exist,
+    // refuse to guess which one belongs to the selected Search result.
+    const safeCandidates = compatible.length || candidates.length <= 1 ? candidates : [];
+
+    return safeCandidates
         .sort((left, right) => {
             const completeness = searchRecordCompleteness(left) - searchRecordCompleteness(right);
             if (completeness) return completeness;
