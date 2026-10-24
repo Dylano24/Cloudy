@@ -7,6 +7,7 @@ import { discoverEmbedDefinitions } from './embedDefinitionDiscoveryService.js';
 import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
 import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentation.js';
 import { getGuildConfig } from './config/guildConfig.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import {
   CLOUDY_RED_COLOR,
   CLOUDY_GREEN_COLOR,
@@ -176,10 +177,6 @@ export function isEditableSystemCatalogTemplate(key, context = null) {
       && isValidBlackjackResultSlug(normalizedKey.slice(prefix.length));
   }
   return false;
-}
-
-function compactName(value) {
-  return normalize(value).replace(/[^a-z0-9]/g, '');
 }
 
 function cloneData(value) {
@@ -500,15 +497,6 @@ function contextGuildId(source) {
   if (source?.globalTemplate) return null;
   return source?.guildId || source?.guild?.id || source?.channel?.guild?.id
     || getTraceContext()?.guildId || null;
-}
-
-function findCatalogChannel(guild) {
-  const candidates = [...(guild?.channels?.cache?.values?.() || [])]
-    .filter(channel => channel?.isTextBased?.() && channel?.isSendable?.())
-    .map(channel => ({ channel, compact: compactName(channel.name) }))
-    .filter(item => item.compact === 'botlog' || item.compact === 'botlogs' || item.compact.includes('botlog'))
-    .sort((a, b) => (a.channel.position ?? 0) - (b.channel.position ?? 0));
-  return candidates[0]?.channel || null;
 }
 
 function parseTemplateMetadata(embed) {
@@ -1541,9 +1529,9 @@ async function buildSystemEmbedCatalogs(client) {
   let totalAdded = 0;
 
   for (const guild of client.guilds.cache.values()) {
-    const channel = findCatalogChannel(guild);
-    if (!channel?.messages?.fetch) {
-      logger.warn(`[EMBED_BUILDER] No botlog channel found in guild ${guild.id}; response catalog cannot be indexed.`);
+    const channel = await resolveCloudyChannel(client, 'botlog', { guild, textOnly: true });
+    if (!channel?.messages?.fetch || !channel?.isSendable?.()) {
+      logger.warn(`[EMBED_BUILDER] Catalog channel unavailable in guild ${guild.id}; response catalog cannot be indexed.`);
       continue;
     }
 
