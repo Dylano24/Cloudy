@@ -149,7 +149,7 @@ test('Modify channel excludes removed bot embeds, virtual catalog rows and unsav
   ];
   const requested = [];
   const channel = { id: channelId, messages: {
-    fetch: async id => { requested.push(String(id)); return null; },
+    fetch: async request => { requested.push(String(request.message)); assert.equal(request.force, true); return null; },
   } };
   const guild = { id: guildId, channels: { cache: new Map([[channelId, channel]]) } };
   const visible = await verifyLiveBuilderChannelRecords(guild, channelId, registered, 'bot', []);
@@ -171,7 +171,10 @@ test('Modify channel revalidates older explicitly saved posts and keeps their re
     components: [{ toJSON: () => ({ type: 1, components: [] }) }],
   };
   const channel = { id: channelId, messages: {
-    fetch: async id => id === saved.messageId ? liveMessage : null,
+    fetch: async request => {
+      assert.deepEqual(request, { message: saved.messageId, force: true });
+      return request.message === saved.messageId ? liveMessage : null;
+    },
   } };
   const guild = { id: guildId, channels: { cache: new Map([[channelId, channel]]) } };
   const visible = await verifyLiveBuilderChannelRecords(guild, channelId, [saved], 'bot');
