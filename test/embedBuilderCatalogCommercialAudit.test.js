@@ -126,18 +126,27 @@ test('Embed Builder UI internals are never source-discovered as reusable respons
 });
 
 
-test('live assistant panels are registry-managed and never duplicated by source discovery', async () => {
+test('fixed assistant panels remain complete source fallbacks while generated AI answers stay excluded', async () => {
   const definitions = await discoverEmbedDefinitions();
-  const leaked = definitions.filter(definition => {
-    const title = String(definition.title || definition.label || '').trim().toLowerCase();
-    return title === 'cloudy support assistant'
-      || title === 'cloudy assistant • fix guide'
-      || title === 'cloudy assistant fix guide';
-  });
 
-  assert.deepEqual(
-    leaked,
-    [],
-    'FAQ/Fix Guide persistent panels must come from their live registry records, not a second static catalog copy',
+  const faqPanel = definitions.find(definition =>
+    definition.kind === 'embed'
+    && definition.context === 'faq/faq-ai-service'
+    && definition.title === 'Cloudy Support Assistant');
+  assert.ok(faqPanel);
+  assert.match(faqPanel.description || '', /Click \*\*Ask a question\*\*/);
+
+  const fixGuidePanel = definitions.find(definition =>
+    definition.kind === 'embed'
+    && definition.title === 'Cloudy Assistant • Fix Guide');
+  assert.ok(fixGuidePanel);
+  assert.match(fixGuidePanel.description || '', /Click \*\*❔ Ask\*\*/);
+
+  assert.equal(
+    definitions.some(definition =>
+      definition.kind === 'embed'
+      && /^Cloudy Fix Guide(?: • \d+)?$/.test(String(definition.title || ''))),
+    false,
+    'generated Fix Guide answers must not become reusable templates',
   );
 });
