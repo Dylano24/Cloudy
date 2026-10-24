@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { db } from '../src/utils/database.js';
+import { hideSystemCatalogFromBuilder, isSystemCatalogHiddenFromBuilder } from '../src/services/systemEmbedCatalogService.js';
 
 import {
   buildMatches,
@@ -171,4 +173,62 @@ test('Search never invents duplicate suffixes or exposes raw message IDs', () =>
   assert.ok(names.every(name => !/\(\d+\)$/i.test(name)));
   assert.ok(names.every(name => !/Variant\s+\d+/i.test(name)));
   assert.ok(names.every(name => !/345678/.test(name)));
+});
+
+test('repeated Ping latency responses share one Search template despite changing measurements', () => {
+  const guild = guildWith('botlog');
+  const ping = (id, milliseconds) => record({
+    id,
+    source: 'system-catalog',
+    title: 'Ping!',
+    description: `Bot latency: ${milliseconds}ms\nAPI latency: 24ms`,
+    author: `Cloudy template key: source:ping-${id} || Cloudy context: core/ping || Cloudy kind: embed`,
+  });
+  const matches = buildMatches(guild, [ping('101', 88), ping('102', 99), ping('103', 117)], 'ping');
+  assert.equal(matches.length, 1, 'runtime measurements must not create new Builder options');
+  assert.equal(buildSearchChoices(matches).length, 1);
+});
+
+test('removing a system-catalog entry persists a Builder-only hide without deleting the template source', async t => {
+  const data = new Map();
+  t.mock.method(db, 'get', async key => structuredClone(data.get(key) ?? []));
+  t.mock.method(db, 'set', async (key, value) => {
+    data.set(key, structuredClone(value));
+    return true;
+  });
+
+  const guildId = 'hidden-builder-catalog-test';
+  const item = {
+    guildId,
+    source: 'system-catalog',
+    channelId: '111111111111111111',
+    messageId: '222222222222222222',
+    embedIndex: 0,
+    title: 'Ping!',
+    snapshot: {
+      title: 'Ping!',
+      description: 'Bot latency: 99ms',
+      author: { name: 'Cloudy template key: source:ping-runtime || Cloudy context: core/ping || Cloudy kind: embed' },
+    },
+  };
+
+  assert.equal(isSystemCatalogHiddenFromBuilder(item), false);
+  assert.equal(buildMatches(guildWith('111111111111111111'), [item], 'ping').length, 1);
+  assert.equal(await hideSystemCatalogFromBuilder(guildId, { ...item, sourceEmbedData: item.snapshot }), true);
+  assert.equal(isSystemCatalogHiddenFromBuilder(item), true);
+  const olderPing = {
+    ...item,
+    messageId: '333333333333333333',
+    snapshot: {
+      ...item.snapshot,
+      description: 'Bot latency: 88ms',
+      author: { name: 'Cloudy template key: source:older-ping || Cloudy context: core/ping || Cloudy kind: embed' },
+    },
+  };
+  assert.equal(isSystemCatalogHiddenFromBuilder(olderPing), true,
+    'deleting one Ping result must not expose an older catalog copy');
+  assert.equal(buildMatches(guildWith('111111111111111111'), [item, olderPing], 'ping').length, 0);
+  assert.ok(data.has('cloudy:embed-builder-hidden-catalog:' + guildId),
+    'visibility preference must be stored durably, not only removed from the in-memory Search list');
+  assert.equal(item.snapshot.description, 'Bot latency: 99ms', 'runtime definition remains untouched');
 });
