@@ -77,7 +77,7 @@ function hasFaqQuestionAction(message) {
     .some(component => component?.customId === FAQ_AI_BUTTON_ID);
 }
 
-function looksLikeFaqPanel(message, clientUserId) {
+export function isFaqAiPanelMessage(message, clientUserId) {
   if (message?.author?.id !== clientUserId) return false;
   if (hasFaqQuestionAction(message)) return true;
 
@@ -125,12 +125,12 @@ export async function reconcileFaqAiPanel(client) {
 
     if (savedMessageId) {
       panelMessage = await channel.messages.fetch(savedMessageId).catch(() => null);
-      if (panelMessage && panelMessage.author?.id !== client.user.id) panelMessage = null;
+      if (panelMessage && !isFaqAiPanelMessage(panelMessage, client.user.id)) panelMessage = null;
     }
 
     if (!panelMessage) {
       const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-      panelMessage = recent?.find(message => looksLikeFaqPanel(message, client.user.id)) || null;
+      panelMessage = recent?.find(message => isFaqAiPanelMessage(message, client.user.id)) || null;
     }
 
     if (panelMessage) {
