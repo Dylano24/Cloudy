@@ -1,12 +1,13 @@
 import { performance } from 'node:perf_hooks';
 import { logger } from './logger.js';
+import { FAQ_AI_BUTTON_ID } from '../config/assistantInteractionIds.js';
 
 const observed = Symbol('cloudy.interactionLatency');
 
 // The FAQ assistant is intentionally outside the one-second responsiveness
 // objective; keep its LLM requests and user-facing responses untouched.
 function isFaqInteraction(interaction) {
-  return String(interaction?.customId || '').startsWith('faq_ai_question')
+  return String(interaction?.customId || '').startsWith(FAQ_AI_BUTTON_ID)
     || /^faq(?:_|$)/i.test(String(interaction?.commandName || ''));
 }
 
