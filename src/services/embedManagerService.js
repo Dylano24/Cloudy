@@ -730,6 +730,8 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
         return {
             ...representative,
             name: representative.source === 'system-catalog' && !representative.manualSaved
+                && String(recordEmbedData(representative).title || '').trim()
+                && !isTechnicalBuilderLabel(recordEmbedData(representative).title)
                 ? cleanSourceTemplateMenuLabel(group.label) : group.label,
             displayEmojiSource,
             previewRecord,
