@@ -63,8 +63,8 @@ test('Search exposes system catalog responses even when their private backing ch
   for (const query of ['removed from builder', 'deleted from builder']) {
     const matches = buildMatches(g, filtered, query);
     assert.equal(matches.length, 1, query);
-    assert.equal(matches[0].document.title, 'Deleted from Builder');
-    assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), ['Deleted from Builder']);
+    assert.equal(matches[0].document.title, 'Removed from Builder');
+    assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), ['Removed from Builder']);
   }
 });
 
