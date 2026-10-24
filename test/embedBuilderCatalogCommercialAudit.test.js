@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 
 import { discoverEmbedDefinitions } from '../src/services/embedDefinitionDiscoveryService.js';
@@ -78,5 +79,23 @@ test('ephemeral AI answer files are excluded from reusable Embed Builder templat
     leaked,
     [],
     'user-specific ephemeral AI answers must never compete with the fixed FAQ/Fix Guide panels in Search',
+  );
+});
+
+
+test('runtime Builder delete notice and catalog template keep the same commercial title', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  assert.match(
+    source,
+    /sendBuilderDeleteNotice\([\s\S]*?'Removed from Builder'[\s\S]*?'The stale record and its Reappear rule were removed from the Embed Builder\.'/,
+  );
+
+  const removed = getBuiltInSystemCatalogDefinitions()
+    .find(definition => definition.key === 'builder:removed');
+  assert.ok(removed);
+  assert.equal(removed.title, 'Removed from Builder');
+  assert.equal(
+    removed.description,
+    'The stale record and its Reappear rule were removed from the Embed Builder.',
   );
 });
