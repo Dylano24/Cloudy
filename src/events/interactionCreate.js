@@ -22,11 +22,12 @@ import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
 import { enforceDefaultCommandPermissions } from '../utils/permissionGuard.js';
 import { scheduleTransientInteractionReplyDeletion } from '../utils/transientResponse.js';
-import { FAQ_AI_BUTTON_ID, FAQ_AI_MODAL_ID } from '../services/faqAiService.js';
 import {
+  FAQ_AI_BUTTON_ID,
+  FAQ_AI_MODAL_ID,
   FIX_GUIDE_ASK_BUTTON_ID,
   FIX_GUIDE_ASK_MODAL_ID,
-} from './cloudyOwnerAssistantReady.js';
+} from '../config/assistantInteractionIds.js';
 
 const COMMAND_ERROR_SUBTYPES = {
   warn: 'warn_failed',
