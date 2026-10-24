@@ -3,7 +3,7 @@ import test from 'node:test';
 import { Embed } from 'discord.js';
 import { db } from '../src/utils/database.js';
 import { getEmbedRegistry, registerCloudyEmbedMessage, removeEmbedRegistryMessage, reconcileEmbedRegistry, updateDetachedEmbedRegistrySnapshot } from '../src/services/embedRegistryService.js';
-import { isEmbedManagerVisibleRecord } from '../src/services/embedManagerService.js';
+import { isEmbedManagerVisibleRecord, verifyLiveBuilderChannelRecords } from '../src/services/embedManagerService.js';
 import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 import { captureSystemEmbedData } from '../src/services/systemEmbedCatalogService.js';
 
@@ -131,4 +131,71 @@ test('cleanup removes proven unsaved dead records while preserving live, saved, 
   await registerCloudyEmbedMessage({ ...message, id: 'legacy-unclassified' }, 'bot-history');
   const legacyAfterRefresh = (await getEmbedRegistry(guild.id)).find(record => record.messageId === 'legacy-unclassified');
   assert.equal(Object.hasOwn(legacyAfterRefresh, 'manualSaved'), false, 'an automatic refresh must not classify ambiguous legacy content as unsaved');
+});
+
+test('Modify channel excludes removed bot embeds, virtual catalog rows and unsaved registry snapshots', async () => {
+  const guildId = 'live-only-registry-20261024';
+  const channelId = '999999999999999998';
+  const one = (messageId, source = 'bot-history', manualSaved = false) => ({
+    guildId, channelId, messageId, source, manualSaved,
+    snapshot: { title: 'Ping!', description: 'Old latency: 99ms' },
+    embedIndex: 0,
+  });
+  const registered = [
+    one('101', 'bot-history', false),
+    one('102', 'system-catalog', false),
+    { ...one('103', 'embed-builder', true), detached: true },
+    one('104', 'embed-builder', false),
+  ];
+  const requested = [];
+  const channel = { id: channelId, messages: {
+    fetch: async id => { requested.push(String(id)); return null; },
+  } };
+  const guild = { id: guildId, channels: { cache: new Map([[channelId, channel]]) } };
+  const visible = await verifyLiveBuilderChannelRecords(guild, channelId, registered, 'bot', []);
+  assert.deepEqual(visible, []);
+  assert.deepEqual(requested, [], 'only explicit saved non-detached candidates may need an ID check');
+});
+
+test('Modify channel revalidates older explicitly saved posts and keeps their real buttons', async () => {
+  const guildId = 'live-manual-save-20261024';
+  const channelId = '999999999999999997';
+  const saved = {
+    guildId, channelId, messageId: '120', source: 'embed-builder',
+    manualSaved: true, embedIndex: 0,
+    snapshot: { title: 'Old saved message', description: 'No longer in the latest page' },
+  };
+  const liveMessage = {
+    author: { id: 'bot' },
+    embeds: [{ toJSON: () => ({ title: 'Current title', description: 'Current Discord content' }) }],
+    components: [{ toJSON: () => ({ type: 1, components: [] }) }],
+  };
+  const channel = { id: channelId, messages: {
+    fetch: async id => id === saved.messageId ? liveMessage : null,
+  } };
+  const guild = { id: guildId, channels: { cache: new Map([[channelId, channel]]) } };
+  const visible = await verifyLiveBuilderChannelRecords(guild, channelId, [saved], 'bot');
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].manualSaved, true);
+  assert.equal(visible[0].snapshot.title, 'Current title');
+  assert.equal(visible[0].snapshot.description, 'Current Discord content');
+  assert.deepEqual(visible[0].components, [{ type: 1, components: [] }]);
+  channel.messages.fetch = async () => { throw Object.assign(new Error('Unknown Message'), { code: 10008 }); };
+  assert.deepEqual(await verifyLiveBuilderChannelRecords(guild, channelId, [saved], 'bot'), [],
+    'a deleted saved embed stays in Search but cannot be displayed as a live channel message');
+});
+
+test('Modify channel keeps freshly verified Discord messages without permanently saving them', async () => {
+  const guildId = 'live-temporary-response';
+  const channelId = '999999999999999996';
+  const runtime = {
+    guildId, channelId, messageId: '200', source: 'embed-builder',
+    embedIndex: 0, snapshot: { title: 'Appeal form' },
+  };
+  const channel = { id: channelId, messages: { fetch: async () => assert.fail('fresh result needs no second fetch') } };
+  const guild = { id: guildId, channels: { cache: new Map([[channelId, channel]]) } };
+  const visible = await verifyLiveBuilderChannelRecords(guild, channelId,
+    [{ ...runtime, source: 'bot-history' }], 'bot', [runtime]);
+  assert.deepEqual(visible.map(item => item.messageId), ['200']);
+  assert.equal(visible[0].manualSaved, undefined, 'discovering a message never saves it as a manual template');
 });
