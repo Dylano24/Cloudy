@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 
 import { discoverEmbedDefinitions } from '../src/services/embedDefinitionDiscoveryService.js';
@@ -78,5 +79,74 @@ test('ephemeral AI answer files are excluded from reusable Embed Builder templat
     leaked,
     [],
     'user-specific ephemeral AI answers must never compete with the fixed FAQ/Fix Guide panels in Search',
+  );
+});
+
+
+test('runtime Builder delete notice and catalog template keep the same commercial title', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  assert.match(
+    source,
+    /sendBuilderDeleteNotice\([\s\S]*?'Removed from Builder'[\s\S]*?'The stale record and its Reappear rule were removed from the Embed Builder\.'/,
+  );
+
+  const removed = getBuiltInSystemCatalogDefinitions()
+    .find(definition => definition.key === 'builder:removed');
+  assert.ok(removed);
+  assert.equal(removed.title, 'Removed from Builder');
+  assert.equal(
+    removed.description,
+    'The stale record and its Reappear rule were removed from the Embed Builder.',
+  );
+});
+
+
+test('Embed Builder UI internals are never source-discovered as reusable responses', async () => {
+  const definitions = await discoverEmbedDefinitions();
+  const forbidden = new Set([
+    'message builder',
+    'modify embed',
+    'embed loaded',
+    'changes saved',
+    'could not load embeds',
+    'use the buttons below to create your message',
+    '(use the buttons below to create your message)',
+  ]);
+
+  const leaked = definitions.filter(definition => {
+    const title = String(definition.title || definition.label || '').trim().toLowerCase();
+    return forbidden.has(title);
+  });
+
+  assert.deepEqual(
+    leaked,
+    [],
+    'Embed Builder UI/status internals must never pollute the reusable Search catalog',
+  );
+});
+
+
+test('fixed assistant panels remain complete source fallbacks while generated AI answers stay excluded', async () => {
+  const definitions = await discoverEmbedDefinitions();
+
+  const faqPanel = definitions.find(definition =>
+    definition.kind === 'embed'
+    && definition.context === 'faq/faq-ai-service'
+    && definition.title === 'Cloudy Support Assistant');
+  assert.ok(faqPanel);
+  assert.match(faqPanel.description || '', /Click \*\*Ask a question\*\*/);
+
+  const fixGuidePanel = definitions.find(definition =>
+    definition.kind === 'embed'
+    && definition.title === 'Cloudy Assistant • Fix Guide');
+  assert.ok(fixGuidePanel);
+  assert.match(fixGuidePanel.description || '', /Click \*\*❔ Ask\*\*/);
+
+  assert.equal(
+    definitions.some(definition =>
+      definition.kind === 'embed'
+      && /^Cloudy Fix Guide(?: • \d+)?$/.test(String(definition.title || ''))),
+    false,
+    'generated Fix Guide answers must not become reusable templates',
   );
 });

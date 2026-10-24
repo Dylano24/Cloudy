@@ -6,10 +6,7 @@ import test from 'node:test';
 test('general interaction router reserves FAQ and Fix Guide component ids for their dedicated event handlers', () => {
   const source = fs.readFileSync('src/events/interactionCreate.js', 'utf8');
 
-  assert.match(source, /FAQ_AI_BUTTON_ID/);
-  assert.match(source, /FAQ_AI_MODAL_ID/);
-  assert.match(source, /FIX_GUIDE_ASK_BUTTON_ID/);
-  assert.match(source, /FIX_GUIDE_ASK_MODAL_ID/);
+  assert.match(source, /RESERVED_ASSISTANT_CUSTOM_IDS/);
   assert.match(source, /isDedicatedAssistantInteraction/);
 
   const guardIndex = source.indexOf('isDedicatedAssistantInteraction');
@@ -25,12 +22,17 @@ test('Fix Guide ready reconciliation re-registers the live panel in the Embed Bu
   assert.match(source, /await registerCloudyEmbedMessage\(panelMessage, 'bot-history'\)/);
 });
 
-test('Fix Guide ready reconciliation validates that only its Ask action remains on the panel', () => {
+test('Fix Guide ready reconciliation repairs only components and preserves the existing embed', () => {
   const source = fs.readFileSync('src/events/cloudyOwnerAssistantReady.js', 'utf8');
 
   assert.match(source, /isFixGuidePanelComponentContractSafe/);
   assert.match(source, /FIX_GUIDE_ASK_BUTTON_ID/);
-  assert.match(source, /message\.edit\(\{ components:/);
+
+  const start = source.indexOf('async function repairFixGuideComponents');
+  const end = source.indexOf('\nexport default', start);
+  const repair = source.slice(start, end);
+  assert.match(repair, /message\.edit\(\{ components: payload\.components \}\)/);
+  assert.doesNotMatch(repair, /embeds\s*:|content\s*:/);
 });
 
 
@@ -45,10 +47,10 @@ function walkJs(root) {
 test('reserved assistant custom IDs have one literal owner and cannot collide with ticket routing', () => {
   const files = walkJs('src');
   const reserved = new Map([
-    ['faq_ai_question', new Set(['src/services/faqAiService.js', 'src/utils/interactionLatency.js'])],
-    ['faq_ai_question_modal', new Set(['src/services/faqAiService.js'])],
-    ['cloudy_fix_guide_ask', new Set(['src/events/cloudyOwnerAssistantReady.js'])],
-    ['cloudy_fix_guide_ask_modal', new Set(['src/events/cloudyOwnerAssistantReady.js'])],
+    ['faq_ai_question', new Set(['src/config/assistantInteractionIds.js'])],
+    ['faq_ai_question_modal', new Set(['src/config/assistantInteractionIds.js'])],
+    ['cloudy_fix_guide_ask', new Set(['src/config/assistantInteractionIds.js'])],
+    ['cloudy_fix_guide_ask_modal', new Set(['src/config/assistantInteractionIds.js'])],
   ]);
 
   for (const [customId, allowedReaders] of reserved) {
@@ -82,4 +84,15 @@ test('FAQ ready reconciliation re-registers the live panel in the Embed Builder 
 
   assert.match(source, /registerCloudyEmbedMessage/);
   assert.match(source, /await registerCloudyEmbedMessage\(panelMessage, 'bot-history'\)/);
+});
+
+
+test('FAQ ready reconciliation repairs only components and preserves the existing embed', () => {
+  const source = fs.readFileSync('src/services/faqAiService.js', 'utf8');
+
+  const start = source.indexOf('async function repairFaqPanelComponents');
+  const end = source.indexOf('\nexport async function reconcileFaqAiPanel', start);
+  const repair = source.slice(start, end);
+  assert.match(repair, /message\.edit\(\{ components: payload\.components \}\)/);
+  assert.doesNotMatch(repair, /embeds\s*:|content\s*:/);
 });

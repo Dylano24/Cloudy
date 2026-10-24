@@ -6,6 +6,10 @@ import {
     StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import embedBuilderCommand from './embedbuilder.js';
+import {
+    FAQ_AI_BUTTON_ID,
+    FIX_GUIDE_ASK_BUTTON_ID,
+} from '../../config/assistantInteractionIds.js';
 import { canUseEmbedBuilderChannel } from '../../utils/embedBuilderAccess.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
@@ -525,20 +529,41 @@ function isInternalSearchRecord(record) {
         || INTERNAL_SEARCH_TITLES.has(name);
 }
 
-function hasInteractiveComponents(record) {
-    return (record?.components || []).some(row =>
-        (row?.components || []).some(component => {
+function componentIds(record) {
+    return (record?.components || []).flatMap(row =>
+        (row?.components || []).map(component => {
             const data = component?.toJSON ? component.toJSON() : component?.data || component;
-            return Boolean(data?.custom_id || data?.customId);
-        }),
+            return String(data?.custom_id || data?.customId || '');
+        }).filter(Boolean),
     );
+}
+
+function hasInteractiveComponents(record) {
+    return componentIds(record).length > 0;
+}
+
+const STABLE_PANEL_COMPONENT_IDS = new Set([
+    FAQ_AI_BUTTON_ID,
+    FIX_GUIDE_ASK_BUTTON_ID,
+]);
+
+function hasStablePanelAction(record) {
+    return componentIds(record).some(id => STABLE_PANEL_COMPONENT_IDS.has(id));
 }
 
 function isCanonicalLivePanelRecord(record) {
     const source = String(record?.source || '').toLowerCase();
     return ['bot-history', 'history'].includes(source)
-        && Boolean(record?.canonicalIdentity)
-        && hasInteractiveComponents(record);
+        && hasInteractiveComponents(record)
+        && (Boolean(record?.canonicalIdentity) || hasStablePanelAction(record));
+}
+
+function isTransientAssistantCatalogRecord(record) {
+    if (String(record?.source || '').toLowerCase() !== 'system-catalog') return false;
+    if (hasInteractiveComponents(record)) return false;
+
+    const title = normalize(rawRecordTitle(record));
+    return /^cloudy fix guide(?:\s+\d+)?$/.test(title);
 }
 
 function builderSearchDisplayRecords(records) {
@@ -554,6 +579,7 @@ function builderSearchDisplayRecords(records) {
         if (!channelId || !messageId) continue;
 
         if (['bot-history', 'history'].includes(source) && !isCanonicalLivePanelRecord(record)) continue;
+        if (isTransientAssistantCatalogRecord(record)) continue;
         if (record?.detached && !['system-catalog', 'embed-builder'].includes(source)) continue;
         if (isInternalSearchRecord(record)) continue;
 

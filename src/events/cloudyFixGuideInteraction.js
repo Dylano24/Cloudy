@@ -17,7 +17,7 @@ import {
   FIX_GUIDE_ASK_MODAL_ID,
   FIX_GUIDE_CHANNEL_ID,
   FIX_GUIDE_QUESTION_INPUT_ID,
-} from './cloudyOwnerAssistantReady.js';
+} from '../config/assistantInteractionIds.js';
 import { logger } from '../utils/logger.js';
 import { aiErrorMessage } from '../services/aiSafety.js';
 import { normalizeCloudyChannelName } from '../services/cloudyChannelResolver.js';

@@ -8,14 +8,20 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import {
+  FAQ_AI_BUTTON_ID,
+  FAQ_AI_CHANNEL_ID,
+  FAQ_AI_MODAL_ID,
+} from '../config/assistantInteractionIds.js';
+export {
+  FAQ_AI_BUTTON_ID,
+  FAQ_AI_CHANNEL_ID,
+  FAQ_AI_MODAL_ID,
+} from '../config/assistantInteractionIds.js';
 import { createExplicitAiService } from './explicitAiService.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { buildCloudyPublicKnowledgeEvidence } from './cloudyPublicKnowledgeService.js';
 import { registerCloudyEmbedMessage } from './embedRegistryService.js';
-
-export const FAQ_AI_CHANNEL_ID = '1534654577385672917';
-export const FAQ_AI_BUTTON_ID = 'faq_ai_question';
-export const FAQ_AI_MODAL_ID = 'faq_ai_question_modal';
 
 const FAQ_PANEL_STATE_KEY = `global:faq-ai:panel:${FAQ_AI_CHANNEL_ID}`;
 const QUESTION_COOLDOWN_MS = 20_000;
