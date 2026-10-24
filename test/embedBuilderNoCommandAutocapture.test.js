@@ -15,8 +15,8 @@ test('previewing command responses must not add slash/prefix replies to a featur
   const entries = [
     message('slash-ping', 'Ping!', { interactionMetadata: { id: 'actual-interaction' } }),
     message('prefix-ping', 'Ping!', { reference: { messageId: 'user-command' } }),
-    message('manual', 'House rules'),
-    message('panel', 'Gambling & Games'),
+    message('manual', 'House rules', { embeds: [{ title: 'House rules', description: 'Example body', footer: { text: '\u200B' } }] }),
+    message('panel', 'Gambling & Games', { embeds: [{ title: 'Gambling & Games', description: 'Example body', footer: { text: '\u200B' } }] }),
   ];
   const page = new Map(entries.map(item => [item.id, item]));
   const channel = { id: channelId, name: 'gambling', messages: { fetch: async () => page } };
