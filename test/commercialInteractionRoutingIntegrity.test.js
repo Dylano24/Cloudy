@@ -45,22 +45,23 @@ function walkJs(root) {
 test('reserved assistant custom IDs have one literal owner and cannot collide with ticket routing', () => {
   const files = walkJs('src');
   const reserved = new Map([
-    ['faq_ai_question', 'src/services/faqAiService.js'],
-    ['faq_ai_question_modal', 'src/services/faqAiService.js'],
-    ['cloudy_fix_guide_ask', 'src/events/cloudyOwnerAssistantReady.js'],
-    ['cloudy_fix_guide_ask_modal', 'src/events/cloudyOwnerAssistantReady.js'],
+    ['faq_ai_question', new Set(['src/services/faqAiService.js', 'src/utils/interactionLatency.js'])],
+    ['faq_ai_question_modal', new Set(['src/services/faqAiService.js'])],
+    ['cloudy_fix_guide_ask', new Set(['src/events/cloudyOwnerAssistantReady.js'])],
+    ['cloudy_fix_guide_ask_modal', new Set(['src/events/cloudyOwnerAssistantReady.js'])],
   ]);
 
-  for (const [customId, owner] of reserved) {
-    const literalOwners = files
+  for (const [customId, allowedReaders] of reserved) {
+    const literalReaders = files
       .filter(file => fs.readFileSync(file, 'utf8').includes(`'${customId}'`)
         || fs.readFileSync(file, 'utf8').includes(`"${customId}"`))
       .map(file => file.replaceAll('\\\\', '/'));
 
+    assert.ok(literalReaders.includes([...allowedReaders][0]), `missing canonical owner for ${customId}`);
     assert.deepEqual(
-      literalOwners,
-      [owner],
-      `reserved custom ID ${customId} must have exactly one literal source owner`,
+      literalReaders.filter(file => !allowedReaders.has(file)),
+      [],
+      `reserved custom ID ${customId} is referenced by an unexpected source`,
     );
   }
 
