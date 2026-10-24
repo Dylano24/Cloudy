@@ -1,6 +1,6 @@
 // CLOUDY_INTERACTION_LATENCY_V1
 // BUILDER_SAVED_PARITY_V1
-import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
+import { isSystemCatalogHiddenFromBuilder, getSearchableSystemCatalogRecords } from './systemEmbedCatalogService.js';
 import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
@@ -826,6 +826,48 @@ function builderDisplayChannel(guild, channelId) {
     return guild?.channels?.cache?.get?.(String(channelId)) || null;
 }
 
+// Project source-defined responses into a feature's channel menu without
+// changing where their canonical catalog messages are physically stored.
+// A catalog entry is NOT evidence of a posted Discord message.
+function featureChannelSlug(value) {
+    const name = String(value || '').split('|').at(-1) || '';
+    return name.normalize('NFKD').toLowerCase()
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+}
+
+export function projectCatalogTemplatesToFeatureChannels(guild, records = []) {
+    const byName = new Map();
+    for (const channel of guild?.channels?.cache?.values?.() || []) {
+        if (![0, 5].includes(channel?.type) || !channel?.messages?.fetch) continue;
+        const slug = featureChannelSlug(channel.name);
+        if (slug && !byName.has(slug)) byName.set(slug, channel);
+    }
+
+    const projected = [];
+    for (const record of records) {
+        if (String(record?.guildId || '') !== String(guild?.id || '')
+            || String(record?.source || '') !== 'system-catalog'
+            || !record.messageId || isSystemCatalogHiddenFromBuilder(record)) continue;
+        const context = stableSystemTemplateContext(record.snapshot || getEmbedRegistrySnapshot(record));
+        const root = featureChannelSlug(context.split('/')[0]);
+        // Only unambiguous named destinations. Never put tickets, private logs,
+        // or unrelated response families into an arbitrary fallback channel.
+        if (!root || ['botlog', 'embed-builder'].includes(root)) continue;
+        const channel = byName.get(root);
+        if (!channel || String(channel.id) === String(record.backingChannelId || record.channelId)) continue;
+
+        projected.push({
+            ...record,
+            channelId: String(channel.id),
+            backingChannelId: String(record.backingChannelId || record.channelId),
+            catalogChannelProjection: true,
+        });
+    }
+    return projected;
+}
+
 // BUILDER_DURABLE_SNAPSHOT_V1
 function buildChannelGroups(guild, records, member = undefined) {
     const groups = new Map();
@@ -1602,7 +1644,11 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
     const member = buttonInteraction.member || null;
-    const accessibleRecords = records => filterEmbedBuilderRecords(guild, member, records, { requireSend: true });
+    const accessibleRecords = records => (Array.isArray(records) ? records : [])
+        .filter(record => record?.catalogChannelProjection
+            ? String(record.guildId || '') === String(guild.id)
+                && canUseEmbedBuilderChannel(guild, member, record.channelId, { requireSend: true })
+            : canAccessEmbedBuilderRecord(guild, member, record, { requireSend: true }));
     const channelPage = createEmbedManagerChannelPager(guild, member);
     // Fast opens reply directly. Slow storage must not expire the component:
     // deferUpdate is silent and keeps the exact existing private follow-up flow.
@@ -1633,10 +1679,14 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         const preparedRecords = prepared && await prepared;
         const allStoredRecords = preparedRecords && preparedGeneration === getEmbedRegistryGeneration(guild.id)
             ? preparedRecords : await getEmbedRegistry(guild.id);
-        // Persisted catalog and deleted-message snapshots belong to Search,
-        // not the physical Modify-by-channel list. No channel entry is called
-        // live until Discord confirms the underlying message still exists.
-        let records = [];
+        // Keep actual Discord messages distinct from reusable source definitions.
+        // Source definitions are visible under their matching feature channel,
+        // but they retain their private catalog backing IDs for safe editing.
+        const catalogTemplates = projectCatalogTemplatesToFeatureChannels(guild, [
+            ...getSearchableSystemCatalogRecords(guild.id),
+            ...allStoredRecords.filter(record => record.source === 'system-catalog'),
+        ]);
+        let records = accessibleRecords(mergeEmbedManagerRecords([], catalogTemplates));
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, records);
         const initialPayload = guild.channels.cache.size
             ? channelPage(records, 0, checkingChannelIds)
@@ -1739,7 +1789,8 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     // Never flash old saved/catalog records when switching back
                     // into a channel. The first paint says Checking; Discord's
                     // fresh message fetch replaces it with the verified list.
-                    records = records.filter(record => String(record.channelId) !== String(channelId));
+                    records = records.filter(record => String(record.channelId) !== String(channelId)
+                        || record.catalogChannelProjection);
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: true }), state, session);
                     if (selectionVersion !== session.selectionVersion) return;
 
@@ -1833,6 +1884,24 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     String(item.messageId) === String(messageId) &&
                     Number(item.embedIndex || 0) === embedIndex,
                 );
+
+                // A source-template choice edits its real catalog backing
+                // record. It is not a posted message in the feature channel,
+                // so do not fetch it from that channel or treat it as deleted.
+                if (record?.catalogChannelProjection) {
+                    if (selectionVersion !== session.selectionVersion
+                        || !canUseEmbedBuilderChannel(guild, interaction.member, channelId, { requireSend: true })) return;
+                    const loaded = loadRecordSnapshotIntoState(
+                        state, guild, record, previewRecord, sourceRecord,
+                    );
+                    if (!loaded) return;
+                    await Promise.all([
+                        Promise.resolve(refreshBuilder()).catch(error =>
+                            logger.debug('Catalog preview refresh skipped: ' + error?.message)),
+                        updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session),
+                    ]);
+                    return;
+                }
 
                 // A stale select-menu value must never resurrect a record from
                 // the persistent registry. This menu only represents Discord.
