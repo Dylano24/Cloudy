@@ -63,3 +63,19 @@ test('every source-discovered embed resolves to a clean commercial Search name',
     );
   }
 });
+
+
+test('ephemeral AI answer files are excluded from reusable Embed Builder template discovery', async () => {
+  const definitions = await discoverEmbedDefinitions();
+  const forbiddenContexts = new Set([
+    'faq/faq-ai-interaction',
+    'botlog/cloudy-fix-guide-interaction',
+  ]);
+
+  const leaked = definitions.filter(definition => forbiddenContexts.has(definition.context));
+  assert.deepEqual(
+    leaked,
+    [],
+    'user-specific ephemeral AI answers must never compete with the fixed FAQ/Fix Guide panels in Search',
+  );
+});
