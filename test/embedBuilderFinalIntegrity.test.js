@@ -138,7 +138,7 @@ test('live channel discovery never carries a deleted cached embed into Modify', 
   const message = {
     id: '300000000000000001', guildId: 'live-recheck-fixture',
     author: { id: 'bot' },
-    embeds: [{ title: 'Ping!', description: 'Old ping' }],
+    embeds: [{ title: 'Manually posted ping notice', description: 'Old ping', footer: { text: '\u200B' } }],
     components: [], flags: { has: () => false },
     createdAt: new Date('2026-10-24T08:55:00Z'),
     createdTimestamp: Date.parse('2026-10-24T08:55:00Z'),
