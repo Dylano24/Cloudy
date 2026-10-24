@@ -16,6 +16,8 @@ import {
 import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
+import { FAQ_AI_BUTTON_ID } from '../../services/faqAiService.js';
+import { FIX_GUIDE_ASK_BUTTON_ID } from '../../events/cloudyOwnerAssistantReady.js';
 import {
     ensureSystemEmbedCatalogs,
     getSearchableSystemCatalogRecords,
@@ -539,8 +541,8 @@ function hasInteractiveComponents(record) {
 }
 
 const STABLE_PANEL_COMPONENT_IDS = new Set([
-    'faq_ai_question',
-    'cloudy_fix_guide_ask',
+    FAQ_AI_BUTTON_ID,
+    FIX_GUIDE_ASK_BUTTON_ID,
 ]);
 
 function hasStablePanelAction(record) {
