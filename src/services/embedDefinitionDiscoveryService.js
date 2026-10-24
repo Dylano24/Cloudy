@@ -167,11 +167,15 @@ function inferColor(title, kind = 'embed') {
 
 function commandLabel(relativePath) {
   const file = safeSlug(relativePath.split('/').at(-1));
-  return file
+  const label = file
     .split(/[-_]+/)
     .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ') || 'Bot';
+    .join(' ')
+    .replace(/\brandomuser\b/gi, 'random user')
+    .replace(/\broleselector\b/gi, 'role selector')
+    .replace(/\bbotlog\b/gi, 'bot log')
+    .trim();
+  return label ? label.charAt(0).toUpperCase() + label.slice(1).toLowerCase() : 'Bot';
 }
 
 function plainIntentLabel(content, ordinal = 0) {
@@ -205,7 +209,9 @@ function plainIntentLabel(content, ordinal = 0) {
 }
 
 function plainLabel(relativePath, content, ordinal = 0) {
-  return `${commandLabel(relativePath)} • ${plainIntentLabel(content, ordinal)}`.slice(0, 256);
+  const command = commandLabel(relativePath);
+  const intent = plainIntentLabel(content, ordinal);
+  return `${command}: ${intent.charAt(0).toLowerCase() + intent.slice(1)}`.slice(0, 256);
 }
 
 function findDescription(lines, startIndex) {
