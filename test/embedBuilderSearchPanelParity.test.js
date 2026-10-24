@@ -47,7 +47,7 @@ test('Search includes a canonical live bot panel with components and its complet
   assert.equal(matches[0].record.messageId, panel.messageId);
   assert.equal(matches[0].record.snapshot.description, panel.snapshot.description);
   assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), [
-    'Cloudy Assistant Fix Guide',
+    'Cloudy assistant fix guide',
   ]);
 });
 
