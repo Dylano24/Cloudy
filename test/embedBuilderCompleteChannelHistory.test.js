@@ -62,7 +62,7 @@ test('initial channel menu keeps known explicit Saves; source-only catalog remai
   const start=code.indexOf('export async function openEmbedManager(');
   const end=code.indexOf('const checkingChannelIds', start);
   const initial=code.slice(start,end);
-  assert.match(initial, /allStoredRecords\.filter\(record =>\s*record\.manualSaved === true && record\.source === 'embed-builder'\)/);
+  assert.match(initial, /allStoredRecords\.filter\(record =>\s*record\.source !== 'system-catalog' && !record\.detached/);
   assert.match(initial,/projectCatalogTemplatesToFeatureChannels/);
   assert.doesNotMatch(initial,/getSearchableSystemCatalogRecords/);
 });
