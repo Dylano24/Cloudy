@@ -562,8 +562,13 @@ const registrySearchCache = new Map();
 // synchronously and refreshes in the background, so a keystroke never waits on
 // a storage read while a registry write is queued.
 const registryLastKnown = new Map();
-export function peekEmbedRegistry(guildId) {
-    const known = registryLastKnown.get(String(guildId));
+export function peekEmbedRegistry(guildId, { current = false } = {}) {
+    const key = String(guildId);
+    const known = registryLastKnown.get(key);
+    // A channel menu must not reuse a snapshot from before Save/Delete or an
+    // in-flight mutation. Autocomplete keeps its existing last-known behavior.
+    if (current && (!known || known.generation !== getEmbedRegistryGeneration(key)
+        || registryMutationQueues.has(key))) return null;
     return known ? structuredClone(known.records) : null;
 }
 export async function getEmbedRegistry(guildId, { cached = false } = {}) {

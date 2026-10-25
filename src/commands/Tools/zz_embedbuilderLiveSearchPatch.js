@@ -8,6 +8,7 @@ import {
 import embedBuilderCommand from './embedbuilder.js';
 import { logger } from '../../utils/logger.js';
 import { performance } from 'node:perf_hooks';
+import { createBuilderPerformanceTracker } from '../../utils/interactionLatency.js';
 import { canUseEmbedBuilderChannel } from '../../utils/embedBuilderAccess.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
@@ -1224,6 +1225,7 @@ export async function withBuilderSelectionAcknowledgement(interaction, prepare, 
 export async function loadEmbedBuilderSearchSelection(interaction) {
     const selected = parseSelection(interaction.options?.getString?.('search') || '');
     if (!selected || !interaction.guildId) return null;
+    const markSelection = createBuilderPerformanceTracker('search_selection');
     const findSelected = records => {
         // Selection values already carry the physical index emitted by Search.
         // Check only that record's visibility; rebuilding thousands of catalog
@@ -1255,22 +1257,42 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     }
     if (!selectedRecord) return null;
     let record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
+    markSelection('record_ready');
+    const savedManualSnapshot = record.source === 'embed-builder'
+        && record.manualSaved === true && record.snapshot
+        && Array.isArray(record.components);
+    // Complete manual Saves need no catalog peer scan, but their saved family
+    // overlays are still authoritative. Never guess those from a cold cache.
+    // When no live peer can exist, runtime fallback data is independent of the
+    // overlay read and can load concurrently without changing peer selection.
+    const previewSource = String(record.previewRecord?.source || '').toLowerCase();
+    const independentRuntime = savedManualSnapshot || (
+        (!record.previewRecord || record.previewRecord.detached || previewSource === 'system-catalog')
+        && records.every(candidate => candidate.detached
+            || String(candidate.source || '').toLowerCase() === 'system-catalog')
+    );
+    const runtimePreparation = independentRuntime
+        ? hydrateBuilderPreviewRecord(
+            interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
+        ).catch(() => null)
+        : null;
     await warmSavedEmbedTemplateScopes(interaction.guildId, [
         record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
     ]);
-    const groupedPreview = record.previewRecord
+    markSelection('templates_ready');
+    // Peer matching consults saved overlays, so keep it after authoritative warming.
+    const groupedPreview = savedManualSnapshot ? record : (record.previewRecord
         || latestRealPreviewRecord(interaction.guild, records, record)
-        || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
-    const runtimePreview = await hydrateBuilderPreviewRecord(
-        interaction.guild, record, groupedPreview, interaction.user.id,
-    ).catch(() => groupedPreview);
+        || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null));
+    const runtimePreview = runtimePreparation
+        ? await runtimePreparation || groupedPreview
+        : await hydrateBuilderPreviewRecord(
+            interaction.guild, record, groupedPreview, interaction.user.id,
+        ).catch(() => groupedPreview);
     // An explicit Save already holds the authoritative full snapshot and
     // component rows. Do not wait up to 650ms for a redundant Discord fetch
     // before its Builder preview becomes visible; normal live records still
     // validate/fetch as before.
-    const savedManualSnapshot = record.source === 'embed-builder'
-        && record.manualSaved === true && record.snapshot
-        && Array.isArray(record.components);
     const previewRecord = savedManualSnapshot
         ? record
         : (runtimePreview
@@ -1286,6 +1308,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
         && Array.isArray(previewRecord.components)) {
         record = { ...record, components: previewRecord.components };
     }
+    markSelection('preview_ready');
     return {
         record,
         previewRecord,
@@ -1418,6 +1441,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
 
     embedBuilderCommand.autocomplete = async function liveEmbedAutocomplete(interaction) {
         const started = performance.now();
+        const markAutocomplete = createBuilderPerformanceTracker('search_autocomplete');
         let count = 0;
         try {
             if (!interaction.guildId || !interaction.guild) {
@@ -1434,7 +1458,9 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             const matches = buildAutocompleteMatches(interaction.guild, records, focused.value);
             const choices = buildSearchChoices(matches);
             count = choices.length;
+            markAutocomplete('results_ready');
             await interaction.respond(choices);
+            markAutocomplete('first_visible');
         } catch (error) {
             // Previous handler silently swallowed failed Discord responses,
             // which made actual timeouts indistinguishable from "no embeds".
