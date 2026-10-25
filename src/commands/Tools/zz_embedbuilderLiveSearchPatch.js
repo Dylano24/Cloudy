@@ -1202,6 +1202,25 @@ function parseSelection(value) {
     };
 }
 
+// An immediate static preview must never suppress live dynamic examples
+// (bets, winners, ticket data) or a source title different from the clean
+// Search label. Those continue through the existing runtime hydration path.
+export function canUseImmediateCatalogPreview(record) {
+    if (String(record?.source || '').toLowerCase() !== 'system-catalog'
+        || (record.previewRecord && !record.previewRecord.detached
+            && String(record.previewRecord.source || '').toLowerCase() !== 'system-catalog')) return false;
+    const data = record.snapshot || {};
+    if (!data.description && !data.fields?.length) return false;
+    if (normalize(data.title) !== normalize(recordTitle(record))) return false;
+    const context = stableSearchTemplateContext(record);
+    if (/^(?:gambling|economy|tickets|ticket-logs|ticket-transcripts|reports)(?:\/|$)/.test(context)) return false;
+    const visible = [
+        data.title, data.description,
+        ...(Array.isArray(data.fields) ? data.fields.flatMap(field => [field?.name, field?.value]) : []),
+    ].filter(Boolean).join(' ');
+    return !/\{dynamic\}|<t:\d+|<@!?\d+>|<@&\d+>|<#\d+>/.test(visible);
+}
+
 // The autocomplete result is already permission-scoped and canonicalized.
 // Cache only the exact choices Discord actually showed, never a whole
 // unfiltered registry or another user's search results.
@@ -1318,11 +1337,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // preview. Do not block its first paint on a legacy runtime-example DB
     // lookup that can take over a second. Manual Saves and live peers still
     // follow their existing authoritative preview paths.
-    const readyCatalogSnapshot = fromAutocomplete
-        && String(record.source || '').toLowerCase() === 'system-catalog'
-        && (!record.previewRecord || record.previewRecord.detached
-            || String(record.previewRecord.source || '').toLowerCase() === 'system-catalog')
-        && Boolean(record.snapshot?.description || record.snapshot?.fields?.length);
+    const readyCatalogSnapshot = fromAutocomplete && canUseImmediateCatalogPreview(record);
     const runtimePreparation = readyCatalogSnapshot ? Promise.resolve(record) : independentRuntime
         ? hydrateBuilderPreviewRecord(
             interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
