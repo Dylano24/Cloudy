@@ -7,6 +7,7 @@ function requireEarlyAckSource() {
   return fs.readFileSync('src/events/interactionCreate.js', 'utf8');
 }
 import { EventEmitter } from 'node:events';
+import { MessageFlags } from 'discord.js';
 import embedBuilderCommand from '../src/commands/Tools/embedbuilder.js';
 import { db } from '../src/utils/database.js';
 import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
@@ -84,7 +85,7 @@ test('selected Builder Search is acknowledged before expensive configuration or 
   const source = requireEarlyAckSource();
   const begin = source.indexOf('ResponseCoordinator.attach(interaction)');
   const earlyAck = source.indexOf("interaction.commandName === 'embedbuilder'", begin);
-  const defer = source.indexOf('await interaction.deferReply()', earlyAck);
+  const defer = source.indexOf('await interaction.deferReply({ flags: MessageFlags.Ephemeral })', earlyAck);
   const validations = source.indexOf('validateChatInputPayloadOrThrow(interaction', begin);
   const guildConfig = source.indexOf('const guildConfigPromise = interaction.guild', begin);
   const handler = source.indexOf('await command.execute(interaction', begin);
@@ -139,7 +140,7 @@ test('Search name carries into unsaved automated previews, not manually posted B
   }
 });
 
-test('an acknowledged guild Builder keeps its public preview, dashboard and owner-only controls', async t => {
+test('an acknowledged guild Builder keeps its private preview, dashboard and owner-only controls', async t => {
   t.mock.method(db, 'get', async () => []);
   const collector = new EventEmitter();
   collector.stop = () => { collector.ended = true; collector.emit('end'); };
@@ -154,17 +155,19 @@ test('an acknowledged guild Builder keeps its public preview, dashboard and owne
     id: 'deferred-builder', token: 'test-builder-token', deferred: true, replied: false,
     guildId: 'deferred-builder-guild', guild: { id: 'deferred-builder-guild' },
     user: { id: 'owner' }, options: { getString: () => '' },
-    channel: { async send(payload) { dashboardPayload = payload; return dashboard; } },
+    channel: { async send() { assert.fail('opening Builder must not post in the channel'); } },
     async editReply(payload) { previewPayload = payload; this.replied = true; return preview; },
     reply: async () => assert.fail('an acknowledged command must edit its original response'),
-    followUp: async () => assert.fail('guild dashboard must stay bot-managed in the channel'),
+    followUp: async payload => { dashboardPayload = payload; return dashboard; },
+    fetchReply: async () => preview,
+    webhook: { editMessage: async () => {}, deleteMessage: async () => {} },
     deleteReply: async () => assert.fail('a successful Builder must stay open'),
   };
   await embedBuilderCommand.execute(interaction);
   assert.ok(previewPayload?.embeds?.length);
   assert.equal(previewPayload.flags, undefined);
   assert.equal(dashboardPayload.embeds[0].toJSON().title, 'Message builder');
-  assert.equal(dashboardPayload.flags, undefined);
+  assert.equal(dashboardPayload.flags, MessageFlags.Ephemeral);
   assert.ok(dashboardPayload.components.length);
   assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'owner' }, customId: 'simple_embed_post' }), true);
   assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'other' }, customId: 'simple_embed_post' }), false);
@@ -236,10 +239,10 @@ test('Modify channel overview starts discovery after sending its first response'
   const collector = source.indexOf("collector.on('collect'", start);
   assert.ok(start >= 0 && collector > start);
   const startup = source.slice(start, collector);
-  assert.match(startup, /void discoverEmbedManagerOverviewRecords\(/);
+  assert.match(startup, /void discovery\.then\(async discovered/);
   assert.ok(startup.indexOf('markOpen(\'first_visible\')') <
-    startup.indexOf('void discoverEmbedManagerOverviewRecords('),
-    'channel history scanning must never postpone the first manager response');
+    startup.indexOf('void discovery.then(async discovered'),
+    'channel history results must not postpone the first manager response');
 });
 
 
