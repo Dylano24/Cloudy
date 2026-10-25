@@ -976,12 +976,13 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
                 const count = group.embedCount;
-                const checking = !count && checkingChannelIds?.has?.(String(group.channelId));
+                // A channel is immediately openable. Do not show a
+                // perpetual "Checking embeds…" placeholder while a background
+                // history refresh runs. The choice updates when new posts
+                // arrive; the current known state is shown instantly.
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(name))
-                    .setDescription(count
-                        ? 'Open the saved embed'
-                        : (checking ? 'Checking embeds…' : 'Open to scan older embeds'))
+                    .setDescription(count ? 'Open embeds' : 'No embeds')
                     .setValue(group.channelId);
             }));
         components.push(new ActionRowBuilder().addComponents(select));
