@@ -1167,6 +1167,21 @@ function choiceDetail(match) {
     return '';
 }
 
+// Discord autocomplete choices contain plain text, not rich markdown.
+// Custom emoji markup must never leak as raw <a:name:id> code to the user.
+// For recognisable emoji roles use their Unicode equivalent; the actual saved
+// custom emoji markup remains intact in the Builder preview and saved embed.
+export function humanSearchChoiceTitle(value) {
+    return clean(String(value || '').replace(/<a?:([^:>]+):\d+>/gi, (_, name) => {
+        if (/verified|success|check|tick|approved/i.test(name)) return '✅';
+        if (/fail|error|deny|cross|nope/i.test(name)) return '❌';
+        if (/warn|alert|caution/i.test(name)) return '⚠️';
+        if (/heart|love/i.test(name)) return '❤️';
+        if (/star|favorite/i.test(name)) return '⭐';
+        return '';
+    }).replace(/\s+/g, ' ').trim(), 100);
+}
+
 export function buildSearchChoices(matches) {
     const list = Array.isArray(matches) ? matches : [];
     const titleCounts = new Map();
@@ -1181,7 +1196,11 @@ export function buildSearchChoices(matches) {
 
     for (const match of list) {
         const { record, document } = match;
-        const title = commercialBuilderTitle(document?.title || 'Embed') || 'Embed';
+        const resolved = savedSearchSnapshot(record);
+        const explicitTitle = record?.manualSaved === true || resolved.matched;
+        const title = explicitTitle
+            ? humanSearchChoiceTitle(document?.title || 'Embed')
+            : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
         const duplicateCount = titleCounts.get(normalize(title)) || 0;
 
         let name = title;
