@@ -109,10 +109,19 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
       reason: interaction.fields.getTextInputValue('reason'), targetId: action !== 'deny' && record.scope === 'discord' ? interaction.fields.getTextInputValue('target').trim() : undefined });
     const embeds = message.embeds.map((embed, index) => {
       const data = embed.toJSON();
-      if (index === 0) data.fields = [...(data.fields || []), { name: 'Appeal status', value: 'This appeal has been handled.' }, { name: 'Staff decision', value: `${action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned'} by <@${member.id}>` }, { name: 'Reason', value: decision.reason }];
+      if (index === 0) {
+        data.color = 0x00C49D;
+        data.fields = [
+          ...(data.fields || []),
+          { name: 'This appeal has been handled', value: '\u200B', inline: false },
+          { name: 'Staff decision', value: `${action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned'} by <@${member.id}>` },
+          { name: 'Reason', value: decision.reason },
+        ];
+      }
       return data;
     });
-    await message.edit({ embeds, components: buildAppealActions(decision), allowedMentions: { parse: [] } });
+    // A completed appeal is final: remove its action row instead of disabling it.
+    await message.edit({ embeds, components: [], allowedMentions: { parse: [] } });
     await InteractionHelper.safeEditReply(interaction, { content: 'Success. The appeal has been reviewed.' });
   } catch (error) {
     logger.warn(`Appeal review failed: ${error.message}`);
@@ -138,7 +147,15 @@ export async function ensureAppealActions(client) {
         discordIdentity: embed.fields.find(field => field.name === 'Discord username / ID')?.value || '', gamertag: embed.fields.find(field => field.name === 'Gamertag')?.value || '' };
       await client.db.set(key, record);
     }
-    if (!message.components.some(row => row.components.some(button => button.customId?.startsWith('appeal_action:')))) {
+    const hasAppealActions = message.components.some(row => row.components.some(button => button.customId?.startsWith('appeal_action:')));
+    // Restart recovery must never resurrect a completed appeal's disabled controls.
+    if (record.status !== 'pending') {
+      if (hasAppealActions) {
+        await message.edit({ components: [] }); restored++;
+      }
+      continue;
+    }
+    if (!hasAppealActions) {
       await message.edit({ components: buildAppealActions(record) }); restored++;
     }
   }
