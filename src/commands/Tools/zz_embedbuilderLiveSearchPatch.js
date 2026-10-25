@@ -258,8 +258,10 @@ function rawRecordTitle(record) {
 // Keep every real event and its fields in ticket-logs and the registry; only
 // Search presents one canonical choice per automated event family.
 function automatedTicketLogFamily(record) {
-    if (!record || record.manualSaved === true
-        || String(record.source || '').toLowerCase() === 'embed-builder') return null;
+    // Legacy ticket bot events may have a manualSaved registry flag even
+    // though they were automatically emitted. Only actual Builder-authored
+    // posts are exempt. An explicit saved template overlay is still respected.
+    if (!record || String(record.source || '').toLowerCase() === 'embed-builder') return null;
     const saved = savedSearchSnapshot(record);
     if (saved.matched) return null; // the owner's explicit Save always wins
     const source = record?.snapshot || getEmbedRegistrySnapshot(record) || {};
@@ -281,6 +283,11 @@ function automatedTicketLogFamily(record) {
 }
 
 export function recordTitle(record) {
+    // Automatic ticket instances share one event type in Search, including
+    // legacy bot registrations marked manualSaved. Explicit owner template
+    // overrides and manually posted Builder messages remain untouched.
+    const ticketFamily = automatedTicketLogFamily(record);
+    if (ticketFamily) return ticketFamily.title;
     // A deliberate Save is authoritative. Search must not silently strip
     // custom emojis or change the capitalization the owner just saved.
     const saved = savedSearchSnapshot(record);
@@ -292,8 +299,6 @@ export function recordTitle(record) {
         if (!/^(?:new )?(?:report|ticket|case)\s*#?\d+$/i.test(raw)) return raw;
     }
     if (saved.matched && saved.data?.title) return clean(saved.data.title, 100);
-    const ticketLog = automatedTicketLogFamily(record);
-    if (ticketLog) return ticketLog.title;
     return commercialBuilderTitle(rawRecordTitle(record));
 }
 
@@ -570,6 +575,11 @@ function scheduleAutocompleteSearchRefresh(interaction) {
 
 export async function loadFastEmbedBuilderSearchRecords(interaction) {
     const guildId = String(interaction.guildId || '');
+    // Search must load the durable shared Save overlay before presenting
+    // catalogue titles. Without this, a bot restart can display the original
+    // "Removed from builder" even though Modify loads the saved emoji later.
+    // Template scopes cache/deduplicate this single global read.
+    if (guildId) await warmSavedEmbedTemplateScopes(guildId, []);
     const now = Date.now();
     const generation = getEmbedRegistryGeneration(guildId);
     const cached = fastSearchCache.get(guildId);
