@@ -54,6 +54,25 @@ const CANONICAL_SEARCH_CACHE_TTL = 10_000;
 const canonicalSearchCache = globalThis.__cloudyEmbedCanonicalSearchCache
     || (globalThis.__cloudyEmbedCanonicalSearchCache = new Map());
 
+// An explicit Save changes the title of an existing logical embed, not its
+// identity. Drop stale query/canonical snapshots so the next autocomplete
+// uses the updated registry and persistent title overlay immediately.
+export function invalidateBuilderSearchTitleCache(guildId) {
+    const key = String(guildId || '');
+    if (!key) return;
+    fastSearchCache.delete(key);
+    canonicalSearchCache.delete(key);
+    lastRegistrySearchRefresh.delete(key);
+    lastCanonicalSearchRefresh.delete(key);
+    lastCatalogSearchWarm.delete(key);
+    for (const offeredKey of recentSearchSelections.keys()) {
+        if (offeredKey.startsWith(key + ':')) recentSearchSelections.delete(offeredKey);
+    }
+    for (const offeredKey of pendingSelections.keys()) {
+        if (offeredKey.startsWith(key + ':')) pendingSelections.delete(offeredKey);
+    }
+}
+
 async function getFastCanonicalBuilderRecords(guild) {
     const key = String(guild?.id || '');
     if (!key) return [];
@@ -65,15 +84,21 @@ async function getFastCanonicalBuilderRecords(guild) {
 
     const promise = getCanonicalBuilderRecords(guild)
         .then(records => {
-            canonicalSearchCache.set(key, {
-                generation,
-                records,
-                expiresAt: Date.now() + CANONICAL_SEARCH_CACHE_TTL,
-            });
+            // A Save/Delete can invalidate this cache while the canonical
+            // scan is still running. Do not restore a stale snapshot after
+            // the new title/deletion has already been confirmed.
+            if (generation === getEmbedRegistryGeneration(key)
+                && canonicalSearchCache.get(key)?.promise === promise) {
+                canonicalSearchCache.set(key, {
+                    generation,
+                    records,
+                    expiresAt: Date.now() + CANONICAL_SEARCH_CACHE_TTL,
+                });
+            }
             return records;
         })
         .catch(error => {
-            canonicalSearchCache.delete(key);
+            if (canonicalSearchCache.get(key)?.promise === promise) canonicalSearchCache.delete(key);
             throw error;
         });
     // Keep the last known canonical set while the refresh is in flight so the
@@ -83,8 +108,10 @@ async function getFastCanonicalBuilderRecords(guild) {
 }
 
 function peekCanonicalBuilderRecords(guild) {
-    const cached = canonicalSearchCache.get(String(guild?.id || ''));
-    return Array.isArray(cached?.records) ? cached.records : [];
+    const guildId = String(guild?.id || '');
+    const cached = canonicalSearchCache.get(guildId);
+    return cached?.generation === getEmbedRegistryGeneration(guildId)
+        && Array.isArray(cached.records) ? cached.records : [];
 }
 
 function normalize(value) {
@@ -105,11 +132,20 @@ function clean(value, max = 100) {
         .slice(0, max);
 }
 
-function snapshot(record) {
+function savedSearchSnapshot(record) {
     const raw = record?.snapshot || getEmbedRegistrySnapshot(record) || {};
+    // An explicitly saved manual Builder post owns its exact title. Do not
+    // let a similarly named global bot response overlay rename it in Search.
+    if (record?.manualSaved && String(record.source || '') === 'embed-builder') {
+        return { matched: false, data: raw };
+    }
     const source = getSystemSourceDefinitionPreviewForEmbed(raw) || {};
     const complete = { ...source, ...raw };
-    return getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, complete).data;
+    return getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, complete);
+}
+
+function snapshot(record) {
+    return savedSearchSnapshot(record).data;
 }
 
 function stableSearchTemplateKey(record) {
@@ -182,7 +218,12 @@ function isTechnicalVisibleName(value) {
 }
 
 function rawRecordTitle(record) {
-    const data = snapshot(record);
+    const resolved = savedSearchSnapshot(record);
+    const data = resolved.data;
+    // After an explicit Builder Save the stored title wins over old names
+    // attached to catalog/preview records. This is display-only; physical
+    // message IDs and stable template keys remain untouched.
+    if (resolved.matched && data?.title) return humanizeDynamicTitle(clean(data.title, 100));
     const candidates = [record?.previewRecord ? record?.name : null, data?.title, record?.name, record?.title]
         .map(value => clean(value, 100))
         .filter(Boolean);
@@ -216,7 +257,8 @@ export function recordTitle(record) {
 }
 
 function recordDocument(guild, record) {
-    const data = snapshot(record);
+    const resolved = savedSearchSnapshot(record);
+    const data = resolved.data;
     const channel = guild?.channels?.cache?.get?.(String(record?.channelId || '')) || null;
     const fields = Array.isArray(data.fields)
         ? data.fields.flatMap(field => [field?.name, field?.value])
@@ -224,7 +266,11 @@ function recordDocument(guild, record) {
     const title = recordTitle(record);
     const rawTitle = normalize([record?.name, record?.title, data?.title].filter(Boolean).join(' '));
     const aliases = /\bremoved from builder\b/.test(rawTitle) ? ['deleted from builder'] : [];
-    const titleKey = normalize([title, record?.name, record?.title, data?.title, ...aliases].filter(Boolean).join(' '));
+    // Old aliases are retained internally to match the same saved response
+    // family, but must not appear as a second/current Search title.
+    const titleKey = resolved.matched
+        ? normalize([title, data?.title].filter(Boolean).join(' '))
+        : normalize([title, record?.name, record?.title, data?.title, ...aliases].filter(Boolean).join(' '));
     const bodyKey = normalize([
         data?.description,
         data?.author?.name,
@@ -1002,7 +1048,13 @@ export function buildAutocompleteMatches(guild, records, rawQuery) {
     const candidates = [];
     for (const record of records) {
         const data = record?.snapshot || {};
-        const title = normalize([record?.name, record?.title, data.title].filter(Boolean).join(' '));
+        // The fast candidate shortlist must use the saved title too; otherwise
+        // a renamed catalog result remains undiscoverable for the new name
+        // until a canonical background index refresh.
+        const saved = getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, data);
+        const title = normalize(saved.matched && saved.data?.title
+            ? saved.data.title
+            : [record?.name, record?.title, data.title].filter(Boolean).join(' '));
         const body = normalize([
             data.description,
             ...(Array.isArray(data.fields) ? data.fields.flatMap(f => [f?.name, f?.value]) : []),
