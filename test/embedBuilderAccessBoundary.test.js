@@ -57,6 +57,7 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
   guild.channels.cache.set(channel.id, channel);
   const preview = message('preview');
   const interaction = {
+    id: 'builder-access-' + guildId, createdTimestamp: Date.now(),
     user: owner, member, guild, guildId, channel, client,
     options: { getString: () => null },
     webhook: { async deleteMessage() {}, async editMessage() {} },
