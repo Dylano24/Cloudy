@@ -152,7 +152,7 @@ test('unchecked channels remain selectable while saved embeds are checked', () =
   const payload = buildChannelPayload(guild, [], 0, checking);
   const option = payload.components[0].toJSON().components[0].options[0];
 
-  assert.equal(option.description, 'Checking embeds…');
+  assert.equal(option.description, 'No embeds');
   assert.equal(option.value, channelId);
   assert.doesNotMatch(option.description, /No saved embed/i);
 });
@@ -179,7 +179,7 @@ test('channel browser preloads once per Builder and consumes the snapshot on ope
     deferUpdate: async () => {},
     followUp: async payload => {
       firstPaintReads = [...reads];
-      assert.equal(payload.components[0].toJSON().components[0].options[0].description, 'Checking embeds…');
+      assert.equal(payload.components[0].toJSON().components[0].options[0].description, 'No embeds');
       return { id: 'preloaded-manager', createMessageComponentCollector: () => collector };
     },
     webhook: { editMessage: async () => {}, deleteMessage: async () => {} },
@@ -249,7 +249,7 @@ test('registry reconciliation removes deleted messages and missing embed indexes
   assert.match(payload.embeds[0].toJSON().description, /\*\*Embeds found:\*\* 1/);
   const channelOption = payload.components[0].toJSON().components[0].options[0];
   assert.equal(channelOption.label, '# command-channel');
-  assert.equal(channelOption.description, 'Open the saved embed');
+  assert.equal(channelOption.description, 'Open embeds');
   assert.equal((await getFromDb(registryKey, [])).length, 1);
 });
 
@@ -979,7 +979,7 @@ test('embed manager overview live-hydrates channels before showing them as empty
 
   assert.equal(discovered.length, 1);
   assert.equal(option.label, '# already-saved');
-  assert.equal(option.description, 'Open the saved embed');
+  assert.equal(option.description, 'Open embeds');
   assert.doesNotMatch(option.description, /No saved embed/i);
 });
 
