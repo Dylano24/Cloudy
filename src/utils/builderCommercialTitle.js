@@ -56,3 +56,20 @@ export function commercialBuilderTitle(value) {
     text = text.charAt(0).toUpperCase() + text.slice(1);
     return clean(text, 100);
 }
+
+
+/**
+ * Runtime-only title parity for newly generated, unsaved Cloudy replies.
+ * A dynamic value or numbered identifier in a live title must not be removed
+ * by the Search label formatter. Saved/manual embeds are guarded at the caller.
+ */
+export function commercialUnsavedBotTitle(value) {
+    const original = String(value || '').trim();
+    if (!original || original.length > 100) return original;
+    // Preserve identifiers, amounts, mentions, placeholders and source-owned
+    // guides. These are runtime data, not a stable Search title.
+    if (/\d|\{[^}]+\}|<[^>]+>|\$|https?:\/\/|\bZORP\s+Guide\b/i.test(original)) {
+        return original;
+    }
+    return commercialBuilderTitle(original) || original;
+}
