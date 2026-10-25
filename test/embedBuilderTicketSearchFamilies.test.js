@@ -14,7 +14,7 @@ function log(index, action = 'closed') {
   const title = `Ticket ${action}: Case${index}`;
   return {
     guildId, channelId, messageId: String(111111111111111000n + BigInt(index)),
-    embedIndex: 0, source: 'bot-history', manualSaved: false,
+    embedIndex: 0, source: 'cloudy', manualSaved: false,
     title, name: title, createdAt: new Date(Date.UTC(2026, 9, 25, 16, index % 60)).toISOString(),
     snapshot: {
       title,
