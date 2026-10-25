@@ -724,6 +724,26 @@ function isTransientAssistantCatalogRecord(record) {
         || title === 'cloudy support assistant';
 }
 
+// A removed catalog entry can also have a physical/modified registry mirror.
+// Apply its persisted Builder-only visibility to those Search aliases too;
+// never hide the physical Discord messages from channel history or touch
+// independently authored manual Builder posts.
+function isHiddenBuilderSearchAlias(record) {
+    const source = String(record?.source || '').toLowerCase();
+    if (source === 'embed-builder') return false;
+    return isSystemCatalogHiddenFromBuilder({ ...record, source: 'system-catalog' });
+}
+
+// A content-only bot response has no authored embed title. Its auto-generated
+// "friendly" label is often the first line of its BODY (e.g. Ask Cloudy...).
+// The user explicitly wants Search to contain real embed titles only.
+function isUntitledCatalogContent(record) {
+    if (String(record?.source || '').toLowerCase() === 'embed-builder') return false;
+    const authorName = String(record?.snapshot?.author?.name
+        || record?.sourceRecord?.snapshot?.author?.name || '');
+    return /\|\|\s*Cloudy kind:\s*content\s*$/i.test(authorName);
+}
+
 function builderSearchDisplayRecords(records) {
     // Search stays complete, but a canonical Cloudy template is shown only once.
     // Runtime/history mirrors are not separate editable Builder items.
@@ -737,7 +757,8 @@ function builderSearchDisplayRecords(records) {
         if (!channelId || !messageId) continue;
 
         if (source === 'embed-builder' && record.manualSaved === false) continue;
-        if (isSystemCatalogHiddenFromBuilder(record)) continue;
+        if (isSystemCatalogHiddenFromBuilder(record) || isHiddenBuilderSearchAlias(record)) continue;
+        if (isUntitledCatalogContent(record)) continue;
         // The intermediate Pinging... acknowledgement is not another reusable
         // response type; only the final latency reply is editable in Search.
         if (source !== 'embed-builder' && /^(?:ping|pong)$/.test(normalize(recordTitle(record)))
