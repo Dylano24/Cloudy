@@ -744,7 +744,8 @@ test('exact manually saved title with custom emoji wins over old Search capitali
   const matches = buildMatches(guild, [source, edited], 'removed from builder');
   const choices = buildSearchChoices(matches);
   assert.equal(choices.length, 1, 'the old catalog entry must not create a second visible option');
-  assert.equal(choices[0].name, updated.title);
+  assert.equal(choices[0].name, 'Removed from builder ✅',
+    'Search must render an emoji rather than raw custom markup');
   assert.equal(edited.snapshot.description, original.description);
   assert.equal(source.snapshot.title, 'Removed from Builder', 'physical and canonical sources stay unchanged');
 });
