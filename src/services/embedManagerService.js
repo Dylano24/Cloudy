@@ -2683,6 +2683,24 @@ export async function repostDetachedEmbed(guild, state, member = null) {
     };
 }
 
+// A successfully saved title must be visible on the very next autocomplete,
+// without changing the Search menu or rebuilding all catalog messages.
+async function refreshSearchTitleAfterSave(guildId) {
+    try {
+        // A registry mutation invalidates the generation but its previous
+        // last-known snapshot can still be held by fast autocomplete.
+        await getEmbedRegistry(guildId);
+    } catch (error) {
+        logger.warn('Saved Builder title registry refresh skipped: ' + (error?.message || error));
+    } finally {
+        // A confirmed Save must invalidate cached choices even when the
+        // follow-up registry read fails; never present the old title as new.
+        const { invalidateBuilderSearchTitleCache } =
+            await import('../commands/Tools/zz_embedbuilderLiveSearchPatch.js');
+        invalidateBuilderSearchTitleCache(guildId);
+    }
+}
+
 export async function saveModifiedEmbed(guild, state) {
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
@@ -2710,6 +2728,7 @@ export async function saveModifiedEmbed(guild, state) {
             getBuilderMessageComponents(state),
         );
         if (!persisted) return { ok: false, reason: 'persistence-failed', discordUpdated: true };
+        await refreshSearchTitleAfterSave(guild.id);
 
         state.modifyTarget.sourceEmbedData = current;
         state.modifyTarget.previewSourceData = { ...current };
@@ -2907,6 +2926,7 @@ export async function saveModifiedEmbed(guild, state) {
         });
 
     if (!registered) return { ok: false, reason: 'persistence-failed', discordUpdated: true };
+    await refreshSearchTitleAfterSave(guild.id);
     liveState.logoTouched = false;
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
