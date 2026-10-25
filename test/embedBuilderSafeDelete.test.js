@@ -6,7 +6,7 @@ test('Delete from Builder is staged first and only purged on Save', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
 
   assert.match(source, /simple_embed_delete_from_builder/);
-  assert.match(source, /Save deletion/);
+  assert.match(source, /Confirm delete/);
   assert.match(source, /state\.pendingBuilderDelete/);
   assert.match(source, /togglePendingBuilderDeletion/);
   assert.match(source, /savePendingBuilderDeletion/);
@@ -23,7 +23,7 @@ test('Delete from Builder is staged first and only purged on Save', () => {
   assert.match(saveBody, /purgeEmbedRegistryRecord\(/);
 });
 
-test('Delete from Builder preserves live messages but can hide catalog rows and remove detached posts', () => {
+test('Delete from Builder removes only owner-confirmed Cloudy messages or catalog rows', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
 
   const eligibilityStart = source.indexOf('function canDeleteBuilderRecord');
@@ -64,4 +64,29 @@ test('virtual catalog deletion is saved without touching Discord message or Reap
   assert.doesNotMatch(catalogBranch, /purgeEmbedRegistryRecord\(/);
   assert.doesNotMatch(catalogBranch, /syncExistingEmbedReappearRule\(/);
   assert.doesNotMatch(catalogBranch, /\.delete\(/);
+});
+
+
+test('confirmed Delete physically removes Cloudy posts, then purges the registry and Search index', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const from = source.indexOf('async function savePendingBuilderDeletion');
+  const to = source.indexOf('// Acknowledging the click immediately', from);
+  const body = source.slice(from, to);
+  assert.match(body, /presence\.message\.delete\(\)/);
+  assert.match(body, /String\(presence\.message\?\.author\?\.id \|\| ''\)/);
+  assert.ok(body.indexOf('await presence.message.delete()') < body.indexOf('await purgeEmbedRegistryRecord('),
+    'the record must not be purged before Discord confirms actual deletion');
+  assert.match(body, /invalidateIndexedRecentChannelEmbeds/);
+  assert.match(body, /invalidateBuilderSearchTitleCache/);
+});
+
+test('Delete preserves current draft for re-post while Reset remains an explicit separate action', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const from = source.indexOf('function resetBuilderAfterRecordDeletion(');
+  const to = source.indexOf('async function savePendingBuilderDeletion', from);
+  const body = source.slice(from,to);
+  assert.match(body, /state\.modifyTarget = null/);
+  assert.doesNotMatch(body, /state\.title = null/);
+  assert.doesNotMatch(body, /state\.message = null/);
+  assert.match(source, /simple_embed_post_new/);
 });
