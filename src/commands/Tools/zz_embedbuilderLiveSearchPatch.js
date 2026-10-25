@@ -254,6 +254,17 @@ function rawRecordTitle(record) {
 }
 
 export function recordTitle(record) {
+    // A deliberate Save is authoritative. Search must not silently strip
+    // custom emojis or change the capitalization the owner just saved.
+    const saved = savedSearchSnapshot(record);
+    if (record?.manualSaved && record?.snapshot?.title) {
+        // A Save to an otherwise dynamic numbered response (e.g. New report
+        // #22) does not create an extra Search item per case number. Keep the
+        // generic response family unless its title is an actual custom label.
+        const raw = clean(record.snapshot.title, 100);
+        if (!/^(?:new )?(?:report|ticket|case)\s*#?\d+$/i.test(raw)) return raw;
+    }
+    if (saved.matched && saved.data?.title) return clean(saved.data.title, 100);
     return commercialBuilderTitle(rawRecordTitle(record));
 }
 
@@ -367,6 +378,11 @@ function logicalKey(record, document) {
 }
 
 function priority(record) {
+    // Once a catalog response has been deliberately saved, its edited title
+    // is the one canonical Search entry, not the unsaved code-definition name.
+    if (record?.manualSaved === true
+        && !/^(?:new )?(?:report|ticket|case)\s*#?\d+$/i.test(
+            String(record?.snapshot?.title || record?.title || '').trim())) return 130;
     const source = String(record?.source || '').toLowerCase();
     if (source === 'system-catalog') {
         const key = stableSearchTemplateKey(record);
@@ -1167,7 +1183,11 @@ export function buildSearchChoices(matches) {
 
     for (const match of list) {
         const { record, document } = match;
-        const title = commercialBuilderTitle(document?.title || 'Embed') || 'Embed';
+        const resolved = savedSearchSnapshot(record);
+        const explicitTitle = record?.manualSaved || resolved.matched;
+        const title = explicitTitle
+            ? clean(document?.title || 'Embed', 100)
+            : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
         const duplicateCount = titleCounts.get(normalize(title)) || 0;
 
         let name = title;
@@ -1248,11 +1268,24 @@ function rememberOfferedSearchSelections(interaction, matches, choices) {
         if (offeredValues.has(value)) offeredRecords.set(value, match.record);
     }
     const cacheKey = selectionKey(interaction);
+    const generation = getEmbedRegistryGeneration(interaction.guildId);
+    const previous = recentSearchSelections.get(cacheKey);
+    // Discord may deliver overlapping autocomplete requests out of order.
+    // Keep every recently offered (permission-scoped) choice until clicked:
+    // replacing the entire map on each keystroke made selections miss this
+    // fast path and redo the 1-3 second catalog/runtime lookup.
+    const offered = previous?.generation === generation && previous.expiresAt > now
+        ? new Map(previous.records) : new Map();
+    for (const [value, record] of offeredRecords) {
+        offered.delete(value);
+        offered.set(value, record);
+    }
+    while (offered.size > 125) offered.delete(offered.keys().next().value);
     recentSearchSelections.delete(cacheKey);
     recentSearchSelections.set(cacheKey, {
-        generation: getEmbedRegistryGeneration(interaction.guildId),
+        generation,
         expiresAt: now + 90_000,
-        records: offeredRecords,
+        records: offered,
     });
     while (recentSearchSelections.size > 250) {
         recentSearchSelections.delete(recentSearchSelections.keys().next().value);
@@ -1346,11 +1379,27 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // lookup that can take over a second. Manual Saves and live peers still
     // follow their existing authoritative preview paths.
     const readyCatalogSnapshot = fromAutocomplete && canUseImmediateCatalogPreview(record);
-    const runtimePreparation = readyCatalogSnapshot ? Promise.resolve(record) : independentRuntime
-        ? hydrateBuilderPreviewRecord(
-            interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
-        ).catch(() => null)
-        : null;
+    // A catalog source already contains the complete Preview that Search
+    // offered. The legacy runtime-example DB may stall for multiple seconds.
+    // Use it only when there is no complete offered snapshot or an explicitly
+    // live preview; otherwise first paint stays local and deterministic.
+    const offeredSnapshot = Boolean(fromAutocomplete && (record.snapshot?.description
+        || record.snapshot?.fields?.length));
+    const directPreview = offeredSnapshot && !record.previewRecord
+        && String(record.source || '').toLowerCase() === 'system-catalog'
+        && !/^(?:economy leaderboard|economy dashboard)$/i.test(
+            String(record.snapshot?.title || '').trim())
+        && !/^(?:gambling|economy|tickets|ticket-logs|ticket-transcripts|reports)(?:\/|$)/
+            .test(stableSearchTemplateContext(record))
+        && !/\{dynamic\}|<t:\d+|<@!?\d+>|<@&\d+>|<#\d+>/
+            .test(JSON.stringify(record.snapshot || {}));
+    const runtimePreparation = directPreview || readyCatalogSnapshot
+        ? Promise.resolve(record)
+        : independentRuntime
+            ? hydrateBuilderPreviewRecord(
+                interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
+            ).catch(() => null)
+            : null;
     await warmSavedEmbedTemplateScopes(interaction.guildId, [
         record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
     ]);
@@ -1368,7 +1417,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // component rows. Do not wait up to 650ms for a redundant Discord fetch
     // before its Builder preview becomes visible; normal live records still
     // validate/fetch as before.
-    const previewRecord = savedManualSnapshot
+    const previewRecord = savedManualSnapshot || directPreview
         ? record
         : (runtimePreview
             ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)

@@ -976,12 +976,9 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
             .addOptions(...result.items.map(group => {
                 const name = group.channel?.name ? `# ${group.channel.name}` : 'Unknown channel';
                 const count = group.embedCount;
-                const checking = !count && checkingChannelIds?.has?.(String(group.channelId));
                 return new StringSelectMenuOptionBuilder()
                     .setLabel(shortLabel(name))
-                    .setDescription(count
-                        ? 'Open the saved embed'
-                        : (checking ? 'Checking embeds…' : 'Open to scan older embeds'))
+                    .setDescription(count ? 'Open embeds' : 'No embeds')
                     .setValue(group.channelId);
             }));
         components.push(new ActionRowBuilder().addComponents(select));
@@ -1060,11 +1057,9 @@ export function buildEmbedPayload(guild, records, channelId, page = 0, { checkin
                 strictTemplateMode ? `**Templates:** ${displayRecords.length}` : `**Embeds:** ${displayRecords.length}`,
                 `**Page:** ${result.safePage + 1}/${result.pageCount}`,
                 '',
-                checking
-                    ? 'Checking current Discord messages…'
-                    : strictTemplateMode
-                        ? 'Only real log templates for this channel are shown. Old unrelated embeds and duplicates are ignored.'
-                        : 'Only unique embeds are shown. Repeated Cloudy templates are grouped automatically.',
+                strictTemplateMode
+                    ? 'Only real log templates for this channel are shown. Old unrelated embeds and duplicates are ignored.'
+                    : 'Only unique embeds are shown. Repeated Cloudy templates are grouped automatically.',
             ].join('\n'))
             .setColor(0xFFFFFF)],
         components,
@@ -1741,8 +1736,14 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         const catalogTemplates = projectCatalogTemplatesToFeatureChannels(guild,
             allStoredRecords.filter(record => record.source === 'system-catalog'),
         );
+        // Existing registry rows are already the persistent bot-message index.
+        // Previously only manually saved Builder posts were presented, leaving
+        // real log/game/welcome channel rows incorrectly at "Checking".
+        // Keep physical bot embeds alongside manual Saves; background live
+        // verification prunes entries only if Discord confirms they vanished.
         const savedChannelRecords = allStoredRecords.filter(record =>
-            record.manualSaved === true && record.source === 'embed-builder');
+            record.source !== 'system-catalog' && !record.detached
+            && Boolean(record.channelId) && Boolean(record.messageId));
         // Warmly indexed Discord posts were verified during a read-only scan.
         // Only keep ones still present in the current message cache; Save and
         // Delete remain authoritative and never run while merely browsing.
@@ -1909,7 +1910,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         logger.debug('Channel embed discovery skipped: ' + error.message);
                         return [];
                     });
-                    const initialPainted = await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: !hasKnownEmbeds }), state, session);
+                    const initialPainted = await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0), state, session);
                     if (initialPainted) {
                         markChannel('initial_response');
                         if (hasKnownEmbeds) markChannel('first_visible');
