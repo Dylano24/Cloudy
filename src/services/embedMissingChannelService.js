@@ -20,7 +20,7 @@ const discoveryCache = new Map();
 // Read-only latest verified Discord rows. Never persist these as manual Saves.
 // Opening the Builder or changing channel can reuse a warm snapshot immediately.
 const recentChannelIndex = new Map();
-const RECENT_INDEX_TTL_MS = 90_000;
+const RECENT_INDEX_TTL_MS = 10 * 60_000;
 
 export function peekIndexedRecentChannelEmbeds(guild) {
     const guildId = String(guild?.id || '');
