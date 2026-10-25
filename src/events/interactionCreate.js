@@ -1,4 +1,4 @@
-import { Events } from 'discord.js';
+import { Events, MessageFlags } from 'discord.js';
 import { performance } from 'node:perf_hooks';
 import { recordSlowInteractionCompletion } from '../utils/interactionLatency.js';
 import { logger } from '../utils/logger.js';
@@ -86,14 +86,14 @@ export default {
         // catalog. A delayed timer cannot acknowledge an interaction while
         // that CPU work is blocking the event loop. Acknowledge immediately,
         // before configuration, abuse-policy reads or Search hydration.
-        // Preserve the command's existing public preview semantics: the
-        // Builder edits this deferred reply and sends its regular dashboard.
+        // Always make the deferred Builder preview private. Discord cannot
+        // turn a public defer into an ephemeral reply after acknowledgement.
         if (interaction.isChatInputCommand()
             && interaction.commandName === 'embedbuilder'
             && String(interaction.options?.getString?.('search') || '').trim()
             && !interaction.deferred && !interaction.replied) {
           try {
-            await interaction.deferReply();
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
           } catch (error) {
             logger.error('[EMBED_BUILDER] Search acknowledgement failed:', error);
             return;
