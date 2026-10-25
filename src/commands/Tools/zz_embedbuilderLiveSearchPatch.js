@@ -1287,9 +1287,11 @@ export function buildSearchChoices(matches) {
         }
         usedNames.set(key, { index: choices.length, rank });
         choices.push({ name: title, value });
-        if (choices.length >= 25) break;
     }
-    return choices;
+    // The native Discord autocomplete endpoint allows at most 25 choices;
+    // inspect the full ranked shortlist first so a later saved record can
+    // still replace a stale catalog name before this limit is applied.
+    return choices.slice(0, 25);
 }
 
 function selectionValue(record) {
