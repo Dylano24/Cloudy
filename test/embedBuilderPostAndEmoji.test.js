@@ -54,3 +54,11 @@ test('posting persists the physical message with manualSave=true; explicit Delet
   assert.match(src.slice(buttonStart, buttonStart + 170), /postMessage\(buttonInteraction, state, interaction\.guild, true\)/);
   assert.match(src, /async function postMessage\(buttonInteraction, state, guild, forceNew = false\)/);
 });
+
+
+test('saved Rust game custom emoji uses visual Search icon and leaves preview markup unchanged', () => {
+  const original = 'Removed from builder <a:X89rust10:123456789012345678>';
+  const display = humanSearchChoiceTitle(original);
+  assert.equal(display, 'Removed from builder 🎮');
+  assert.equal(original, 'Removed from builder <a:X89rust10:123456789012345678>');
+});
