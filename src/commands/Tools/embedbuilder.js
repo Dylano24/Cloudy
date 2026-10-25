@@ -50,7 +50,6 @@ import { applyInitialSearchSelectionToState,
     saveModifiedEmbed,
     syncBuilderLogoFromLiveMessage } from '../../services/embedManagerService.js';
 import {
-    getEmbedRegistry,
     purgeEmbedRegistryRecord,
     registerCloudyEmbedMessage,
     } from '../../services/embedRegistryService.js';
@@ -298,7 +297,7 @@ async function inspectBuilderDeleteTarget(guild, target) {
     }
 }
 
-async function clearBuilderRecordCaches(guildId) {
+function clearBuilderRecordCaches(guildId) {
     const prefix = String(guildId) + ':';
     const managerCache = globalThis.__cloudyEmbedManagerRecordCache;
     if (managerCache?.keys) {
@@ -306,19 +305,8 @@ async function clearBuilderRecordCaches(guildId) {
             if (String(key).startsWith(prefix)) managerCache.delete(key);
         }
     }
-    // Refresh last-known registry before the next autocomplete. Old Search
-    // snapshots can otherwise keep a deleted physical message visible.
-    try {
-        await getEmbedRegistry(guildId);
-    } catch (error) {
-        logger.warn('[EMBED_BUILDER] Search registry refresh after Delete failed:', error);
-    } finally {
-        // Hide/purge already succeeded: never leave a deleted Search choice in
-        // memory merely because a follow-up database read was unavailable.
-        const { invalidateBuilderSearchTitleCache } =
-            await import('./zz_embedbuilderLiveSearchPatch.js');
-        invalidateBuilderSearchTitleCache(guildId);
-    }
+    globalThis.__cloudyEmbedCanonicalSearchCache?.delete?.(String(guildId));
+    globalThis.__cloudyEmbedFastSearchCache?.delete?.(String(guildId));
 }
 
 async function sendBuilderDeleteNotice(interaction, title, description, color = 0xFFFFFF) {
@@ -456,7 +444,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
             return false;
         }
 
-        await clearBuilderRecordCaches(guild.id);
+        clearBuilderRecordCaches(guild.id);
         await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
         resetBuilderAfterRecordDeletion(state);
         await refreshBuilder(buttonInteraction, state);
@@ -502,41 +490,14 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         await activeMessage?.delete?.().catch(() => {});
     }
 
-    const purged = await purgeEmbedRegistryRecord(
+    await purgeEmbedRegistryRecord(
         guild.id,
         pending.channelId,
         pending.messageId,
         pending.embedIndex,
     );
 
-    // Some Search entries are logical catalog projections of the physical
-    // bot message the user just removed. Hide that exact catalog identity as
-    // well, but never hide an unrelated response or a manually Builder-posted
-    // message (which has no source template identity).
-    const sourceAuthor = String(target.sourceEmbedData?.author?.name || '');
-    let linkedCatalogHidden = false;
-    if (target.source !== 'embed-builder'
-        && /^Cloudy template key:/i.test(sourceAuthor)) {
-        linkedCatalogHidden = await hideSystemCatalogFromBuilder(guild.id, {
-            ...target,
-            guildId: guild.id,
-            source: 'system-catalog',
-            snapshot: target.sourceEmbedData,
-        }).catch(error => {
-            logger.error('[EMBED_BUILDER] Could not hide linked catalog search result:', error);
-            return false;
-        });
-    }
-    if (!purged && !linkedCatalogHidden) {
-        await sendBuilderDeleteNotice(
-            buttonInteraction, 'Delete could not be saved',
-            'Cloudy could not confirm removal of this Search record. The Builder was left unchanged.',
-            0xED4245,
-        );
-        return false;
-    }
-
-    await clearBuilderRecordCaches(guild.id);
+    clearBuilderRecordCaches(guild.id);
     await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
     resetBuilderAfterRecordDeletion(state);
     await refreshBuilder(buttonInteraction, state);
