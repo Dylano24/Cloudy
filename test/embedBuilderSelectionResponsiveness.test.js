@@ -239,7 +239,7 @@ test('recent autocomplete-selected live embed opens without another physical Dis
   const messageId = '222222222222222319';
   const record = {
     guildId, channelId, messageId, embedIndex: 0,
-    source: 'bot-history', manualSaved: false,
+    source: 'modified', manualSaved: true,
     title: 'Report case created', name: 'Report case created',
     snapshot: {
       title: 'Report case created',
