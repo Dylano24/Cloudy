@@ -143,6 +143,9 @@ test('runtime title formatting does not rewrite ticket identifiers, dynamic wage
     'Blackjack — Bet $100',
     "<@123456789012345678>'s balance",
     'ZORP Guide',
+    'Gambling & Games',
+    'Cloudy FAQ Panel',
+    'Fix Guide',
     'Roll {dynamic}',
   ];
   const payload = { embeds: protectedTitles.map(title => ({ title, description: 'Keep runtime identity' })) };
