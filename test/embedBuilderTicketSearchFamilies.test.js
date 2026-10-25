@@ -61,3 +61,27 @@ test('manual Builder Saves retain their exact specific ticket title', () => {
   assert.deepEqual(buildSearchChoices(buildMatches(guild, [individual], 'Custom owner label'))
     .map(o => o.name), ['Ticket closed: Custom owner label']);
 });
+
+
+test('legacy automatic ticket rows flagged saved by migration do not create per-ticket Search choices', () => {
+  const entries = Array.from({ length: 6 }, (_, i) => ({
+    ...log(i + 500),
+    manualSaved: true,
+    source: 'cloudy',
+  }));
+  const originals = structuredClone(entries);
+  const options = buildSearchChoices(buildMatches(guild, entries, 'ticket'));
+  assert.deepEqual(options.map(choice => choice.name), ['Ticket closed']);
+  assert.deepEqual(entries, originals, 'original logged ticket data remains unchanged');
+});
+
+test('manual Builder-authored ticket titles remain individually searchable', () => {
+  const authored = Array.from({ length: 2 }, (_, i) => ({
+    ...log(i + 700),
+    source: 'embed-builder',
+    manualSaved: true,
+  }));
+  const names = buildSearchChoices(buildMatches(guild, authored, 'ticket')).map(x => x.name);
+  assert.equal(names.length, 2);
+  assert.ok(names.every(x => x.startsWith('Ticket closed:')));
+});
