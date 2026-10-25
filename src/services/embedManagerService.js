@@ -2690,10 +2690,14 @@ async function refreshSearchTitleAfterSave(guildId) {
         // A registry mutation invalidates the generation but its previous
         // last-known snapshot can still be held by fast autocomplete.
         await getEmbedRegistry(guildId);
-        const { invalidateBuilderSearchTitleCache } = await import('../commands/Tools/zz_embedbuilderLiveSearchPatch.js');
-        invalidateBuilderSearchTitleCache(guildId);
     } catch (error) {
-        logger.warn('Saved Builder title Search refresh skipped: ' + (error?.message || error));
+        logger.warn('Saved Builder title registry refresh skipped: ' + (error?.message || error));
+    } finally {
+        // A confirmed Save must invalidate cached choices even when the
+        // follow-up registry read fails; never present the old title as new.
+        const { invalidateBuilderSearchTitleCache } =
+            await import('../commands/Tools/zz_embedbuilderLiveSearchPatch.js');
+        invalidateBuilderSearchTitleCache(guildId);
     }
 }
 
