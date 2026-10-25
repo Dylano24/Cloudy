@@ -283,3 +283,53 @@ test('Search excludes content-only bot templates whose generated labels copy the
   assert.equal(items[0].snapshot.description.includes('troubleshooting'), true,
     'the underlying response content remains untouched');
 });
+
+
+test('Delete hides renamed Builder notice and legacy mirrors but preserves a separate manual embed', async t => {
+  const storage = new Map();
+  t.mock.method(db, 'get', async (key, fallback) => structuredClone(storage.get(key) ?? fallback));
+  t.mock.method(db, 'set', async (key, value) => {
+    storage.set(key, structuredClone(value)); return true;
+  });
+  const guildId = 'deleted-status-family-hidden-20261025';
+  const channelId = '222222222222222411';
+  const source = {
+    title: 'Removed from Builder',
+    description: 'The stale record and its Reappear rule were removed from the Embed Builder.',
+    author: { name: 'Cloudy template key: builder:removed || Cloudy context: embed-builder/delete || Cloudy kind: embed' },
+  };
+  const current = {
+    guildId, channelId, messageId: 'original-builder-status',
+    embedIndex: 0, source: 'system-catalog',
+    snapshot: source, title: source.title,
+  };
+  const edited = {
+    ...current, messageId: 'edited-builder-status',
+    title: 'Removed from builder <a:X89rust10:123456789012345678>',
+    snapshot: { ...source, title: 'Removed from builder <a:X89rust10:123456789012345678>' },
+  };
+  const older = {
+    ...edited, messageId: 'legacy-builder-status',
+    snapshot: { ...edited.snapshot, author: {
+      name: 'Cloudy template key: source:legacy-removed || Cloudy context: embed-builder/delete || Cloudy kind: embed',
+    } },
+  };
+  const manual = { ...edited, messageId: 'owner-manual-copy', source: 'embed-builder', manualSaved: true };
+  const guild = guildWith(channelId);
+  assert.ok(buildMatches(guild, [current, edited, older], 'removed').length > 0,
+    'before Delete the status catalog may still be searchable');
+  assert.equal(await hideSystemCatalogFromBuilder(guildId, {
+    ...edited,
+    sourceEmbedData: source,
+  }), true);
+  assert.equal(isSystemCatalogHiddenFromBuilder(current), true);
+  assert.equal(isSystemCatalogHiddenFromBuilder(edited), true);
+  assert.equal(isSystemCatalogHiddenFromBuilder(older), true,
+    'legacy alternative catalog identities must not resurrect deleted entries');
+  const after = buildMatches(guild, [current, edited, older, manual], 'removed from builder');
+  assert.equal(after.length, 1, 'only independent manual content remains visible');
+  assert.equal(after[0].record.messageId, manual.messageId);
+  assert.deepEqual(source.title, 'Removed from Builder', 'runtime template content is unmodified');
+  assert.ok(storage.has('cloudy:embed-builder-hidden-catalog:' + guildId),
+    'confirmed Delete is persisted across Search cache clears and bot restarts');
+});

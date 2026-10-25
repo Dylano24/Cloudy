@@ -563,6 +563,16 @@ function builderCatalogVisibilityId(record) {
 
   const metadata = parseTemplateMetadata(data);
   if (!metadata.key) return null;
+  // A deleted Builder confirmation may exist as both the source-catalog
+  // definition and an edited/legacy variant with a different visible title
+  // (including custom emoji) or an older source key. These all represent ONE
+  // logical Builder response. Hide that family only after explicit Delete,
+  // never by globally removing the status from Search before deletion.
+  const removedNotice = metadata.context === 'embed-builder/delete'
+    && (metadata.key === 'builder:removed'
+      || /^removed from builder\b/i.test(String(data.title || ''))
+      || /^the stale record and its reappear rule were removed/i.test(String(data.description || '')));
+  if (removedNotice) return 'embed|embed-builder/delete|builder:removed';
   return [metadata.kind || 'embed', metadata.context || '', metadata.key].join('|');
 }
 

@@ -427,6 +427,12 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
             hidden = await hideSystemCatalogFromBuilder(guild.id, {
                 ...target,
                 guildId: guild.id,
+                // The owner may have saved a new title/emoji on this catalog
+                // entry. Prefer its stable original source metadata for the
+                // durable Delete key, not the edited display snapshot.
+                sourceEmbedData: /^Cloudy template key:/i.test(
+                    String(target.templateSourceData?.author?.name || ''),
+                ) ? target.templateSourceData : target.sourceEmbedData,
             });
         } catch (error) {
             logger.error('[EMBED_BUILDER] Could not persist catalog deletion:', error);
@@ -515,6 +521,29 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     for (let index = 0; index < count; index += 1) {
         await purgeEmbedRegistryRecord(guild.id, pending.channelId, pending.messageId, index);
     }
+    // A physical mirror of the Builder's own Delete confirmation can survive
+    // as an independently seeded system-catalog entry after its message is
+    // removed. Hide only that same source family when Delete was explicitly
+    // confirmed; never hide unrelated bot logs or manual Builder posts.
+    const sourceMetadata = [target.templateSourceData, target.sourceEmbedData]
+        .find(data => /^Cloudy template key:\s*builder:removed\b/i.test(
+            String(data?.author?.name || ''),
+        ));
+    if (sourceMetadata && (
+        String(target.source || '').toLowerCase() !== 'embed-builder'
+        || String(target.templateTitle || '').toLowerCase() === 'builder:removed'
+    )) {
+        try {
+            await hideSystemCatalogFromBuilder(guild.id, {
+                ...target, guildId: guild.id, source: 'system-catalog',
+                sourceEmbedData: sourceMetadata,
+            });
+        } catch (error) {
+            logger.warn('[EMBED_BUILDER] Deleted status mirror, but its catalog hide failed: '
+                + error?.message);
+        }
+    }
+
     const { invalidateIndexedRecentChannelEmbeds } =
         await import('../../services/embedMissingChannelService.js');
     invalidateIndexedRecentChannelEmbeds(guild.id, pending.backingChannelId, pending.messageId);
