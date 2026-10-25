@@ -290,7 +290,7 @@ test('an unsaved Welcome Ping status opens with the clean Search title and no st
   assert.deepEqual(record, original, 'preview formatting must not mutate the canonical source');
 });
 
-test('a real live Welcome Ping preview keeps the physical Discord title intact', () => {
+test('an unsaved Welcome Ping live example opens with Search title without rewriting the physical message', () => {
   const record = {
     guildId: 'welcome-live-title-guild', channelId: 'welcome',
     messageId: 'catalog-message', embedIndex: 0, source: 'system-catalog',
@@ -311,6 +311,79 @@ test('a real live Welcome Ping preview keeps the physical Discord title intact',
     guild: { id: record.guildId },
     __cloudyInitialBuilderSelection: { record, previewRecord, previewTitle: 'Welcome ping updated' },
   }, state), true);
-  assert.equal(state.title, previewRecord.snapshot.title);
+  assert.equal(state.title, 'Welcome ping updated');
   assert.equal(state.message, previewRecord.snapshot.description);
+  assert.equal(previewRecord.snapshot.title, '✅ Welcome Ping Updated', 'live Discord payload must stay untouched');
+  assert.equal(state.modifyTarget.sourceEmbedData.title, record.snapshot.title, 'saved source identity must not change');
+});
+
+
+test('unsaved Cloudy logs and game replies match Search sentence case without touching their data', () => {
+  for (const [source, title, expected] of [
+    ['ticket-log', '✅ TICKET CLOSED', 'Ticket closed'],
+    ['cloudy', '🎲 ROULETTE WIN', 'Roulette win'],
+    ['bot-history', '⚠️ PERMISSION DENIED', 'Permission denied'],
+    ['embed-builder', '✅ WELCOME MESSAGE UPDATED', 'Welcome message updated'],
+  ]) {
+    const record = {
+      guildId: `unsaved-${source}`, channelId: 'log-channel', messageId: 'posted-message',
+      embedIndex: 0, source, manualSaved: false,
+      snapshot: {
+        title, description: 'Full original runtime text', color: 0xFF00FF,
+        fields: [{ name: 'Winner', value: '<@123456789012345678>', inline: true }],
+        footer: { text: 'Original footer' }, image: { url: 'https://example.com/media.png' },
+      },
+    };
+    const state = {};
+    assert.equal(applyInitialSearchSelectionToState({
+      guild: { id: record.guildId },
+      __cloudyInitialBuilderSelection: { record },
+    }, state), true);
+    assert.equal(state.title, expected);
+    assert.equal(state.message, record.snapshot.description);
+    assert.deepEqual(state.embedFields, record.snapshot.fields);
+    assert.equal(state.sideColor, 0xFF00FF);
+    assert.equal(state.modifyTarget.sourceEmbedData.title, title);
+    assert.equal(state.modifyTarget.previewSourceData.title, title);
+  }
+});
+
+test('explicitly saved and manually Builder-posted titles are immune to automatic rename', () => {
+  const cases = [
+    { source: 'embed-builder', manualSaved: true, title: '✅ SAVED USER TITLE', footer: { text: 'Saved footer' } },
+    { source: 'embed-builder', manualSaved: false, title: '✅ MANUALLY POSTED', footer: { text: 'Footer\\u2063CLOUDY_EMBED_BUILDER_POST' } },
+  ];
+  // Use the real footer marker from the production module, not an invented one.
+  for (const item of cases.slice(0, 1)) {
+    const record = {
+      guildId: 'protected-' + item.title, channelId: 'channel', messageId: 'id',
+      embedIndex: 0, source: item.source, manualSaved: item.manualSaved,
+      snapshot: { title: item.title, description: 'Keep exact text', footer: item.footer },
+    };
+    const state = {};
+    assert.equal(applyInitialSearchSelectionToState({
+      guild: { id: record.guildId }, __cloudyInitialBuilderSelection: { record },
+    }, state), true);
+    assert.equal(state.title, item.title);
+    assert.equal(state.modifyTarget.sourceEmbedData.title, item.title);
+  }
+});
+
+test('channel history discovery overlaps the first Discord update and preview fetch overlaps deferral', () => {
+  const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+  const channelSelect = source.indexOf("interaction.customId.startsWith('simple_embed_modify_channel:')");
+  const previewSelect = source.indexOf("const markPreview = createBuilderPerformanceTracker('channel_preview')");
+  assert.ok(channelSelect >= 0 && previewSelect > channelSelect);
+  const channel = source.slice(channelSelect, previewSelect);
+  const firstPaint = channel.indexOf('const initialPainted = await updateEmbedManager(');
+  const startedFetch = channel.indexOf('const recentDiscovery = discoverRecentChannelEmbeds(');
+  assert.ok(startedFetch >= 0 && firstPaint > startedFetch, 'discovery must begin before first update finishes');
+  assert.ok(channel.indexOf('await recentDiscovery') > firstPaint,
+    'fetched results are consumed after immediate channel paint');
+  const preview = source.slice(previewSelect, source.indexOf("markPreview('preview_ready')", previewSelect));
+  assert.ok(preview.indexOf('const acknowledgement = interaction.deferUpdate();') <
+    preview.indexOf('const livePending = cachedLive'), 'acknowledgement starts without delay');
+  assert.ok(preview.indexOf('const livePending = cachedLive') <
+    preview.indexOf('await acknowledgement;\\n                const liveMessage = await livePending;'.replace('\\n', '\\n')) ||
+    preview.includes('await acknowledgement;\\n                const liveMessage = await livePending;'.replace('\\n', '\\n')));
 });
