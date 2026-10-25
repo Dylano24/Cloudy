@@ -1637,6 +1637,23 @@ export function prepareEmbedManager(guild, state) {
     });
 }
 
+// Prefer a verified live message page when Discord answers quickly, without
+// ever holding the menu open beyond the small first-paint budget. The slower
+// fetch continues and updates this same session when it finishes.
+export async function preferWarmChannelFirstPage(pending, budgetMs = 160) {
+    let timer;
+    try {
+        return await Promise.race([
+            Promise.resolve(pending).then(found => ({ ready: true, found })),
+            new Promise(resolve => {
+                timer = setTimeout(() => resolve({ ready: false }), budgetMs);
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
+
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
@@ -1801,12 +1818,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         logger.debug('Channel embed discovery skipped: ' + error.message);
                         return [];
                     });
-                    const firstPage = await Promise.race([
-                        firstPagePromise.then(found => ({ ready: true, found })),
-                        new Promise(resolve => {
-                            setTimeout(() => resolve({ ready: false }), 160);
-                        }),
-                    ]);
+                    const firstPage = await preferWarmChannelFirstPage(firstPagePromise);
                     if (selectionVersion !== session.selectionVersion) return;
                     if (firstPage.ready) {
                         records = accessibleRecords(mergeEmbedManagerRecords(
