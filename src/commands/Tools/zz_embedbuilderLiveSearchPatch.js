@@ -974,6 +974,7 @@ function completeSelectedSearchRecord(guild, records, selectedRecord) {
         document: recordDocument(guild, selectedRecord),
         score: 0,
     };
+    const selectedTitleKey = normalize(selected.document.title);
 
     for (const candidate of builderSearchDisplayRecords(records)) {
         if (candidate === selectedRecord
@@ -982,6 +983,11 @@ function completeSelectedSearchRecord(guild, records, selectedRecord) {
                 && Number(candidate?.embedIndex || 0) === Number(selectedRecord?.embedIndex || 0))) {
             continue;
         }
+        // compatibleSearchShape requires identical normalized display titles.
+        // Checking that inexpensive value before constructing the full search
+        // document avoids loading fields, descriptions and template decorations
+        // for thousands of unrelated Search records on every selection.
+        if (normalize(recordTitle(candidate)) !== selectedTitleKey) continue;
         const document = recordDocument(guild, candidate);
         if (!compatibleSearchShape(selected.record, candidate, selected.document, document)) continue;
         selected = mergeCompatibleSearchMatch(selected, { record: candidate, document, score: 0 });
