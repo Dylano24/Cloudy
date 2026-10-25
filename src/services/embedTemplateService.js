@@ -127,14 +127,15 @@ function dynamicParts(value = '', { literalCustomEmoji = false } = {}) {
 function renderDynamic(template, runtime, {
   fallbackToRuntimeOnMismatch = false,
   preserveRuntimeWhenNoDynamic = false,
+  literalCustomEmoji = false,
 } = {}) {
   const source = String(runtime || '');
   const templateSource = String(template || '');
   // A wholly variable body represents the complete response, including text.
   if (templateSource.trim().toLowerCase() === '{dynamic}') return source;
-  const hasSavedEmoji = /<a?:[^:>]+:\d+>/i.test(templateSource);
+  const hasSavedEmoji = literalCustomEmoji && /<a?:[^:>]+:\d+>/i.test(templateSource);
   const runtimeParts = dynamicParts(source, { literalCustomEmoji: hasSavedEmoji });
-  const templateParts = dynamicParts(templateSource, { literalCustomEmoji: true });
+  const templateParts = dynamicParts(templateSource, { literalCustomEmoji });
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
 
   if (!placeholders.length) {
@@ -362,6 +363,7 @@ function decorateEmbedData(embed, stored, options = {}) {
       ? possessive[1] + template.title : template.title;
     data.title = renderDynamic(title, original.title || '', {
       fallbackToRuntimeOnMismatch: true,
+      literalCustomEmoji: true,
     });
   } else {
     delete data.title;
@@ -374,6 +376,7 @@ function decorateEmbedData(embed, stored, options = {}) {
     if (template.description) {
       const description = renderDynamic(template.description, original.description || '', {
         fallbackToRuntimeOnMismatch: true,
+        literalCustomEmoji: true,
       });
       if (description) data.description = description;
       else delete data.description;
@@ -395,6 +398,7 @@ function decorateEmbedData(embed, stored, options = {}) {
         return {
           name: renderDynamic(templateField.name, runtimeField.name || templateField.name, {
             fallbackToRuntimeOnMismatch: true,
+            literalCustomEmoji: true,
           }).slice(0, 256),
           value: template.preserveRuntimeFieldValues && runtimeField.value != null
             ? String(runtimeField.value).slice(0, 1024)
@@ -417,6 +421,7 @@ function decorateEmbedData(embed, stored, options = {}) {
       ...template.footer,
       text: renderDynamic(template.footer.text, original.footer?.text || template.footer.text, {
         fallbackToRuntimeOnMismatch: true,
+        literalCustomEmoji: true,
       }),
     };
   } else if (template.schemaVersion >= 3) {
