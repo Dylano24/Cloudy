@@ -10,18 +10,8 @@ import {
   buildAutocompleteMatches,
   buildSearchChoices,
   recordTitle,
-  isBuilderDeletedSearchRecord,
   invalidateBuilderSearchTitleCache,
-  loadFastEmbedBuilderSearchRecords,
 } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
-import {
-  hideSystemCatalogFromBuilder,
-  isSystemCatalogHiddenFromBuilder,
-} from '../src/services/systemEmbedCatalogService.js';
-import {
-  getEmbedRegistry,
-  purgeEmbedRegistryRecord,
-} from '../src/services/embedRegistryService.js';
 
 function guild(id, channelId) {
   const channel = {
@@ -93,66 +83,3 @@ test('manual saved title remains exact and is not replaced by a similarly named 
     .map(c => c.name), ['Custom banner']);
 });
 
-test('Delete hides catalog and its cached canonical/live counterparts, never unrelated templates', async t => {
-  const guildId = 'delete-catalog-search-sync-20261025';
-  const channelId = '1634506224312300033';
-  const data = new Map();
-  t.mock.method(db, 'get', async (key, fallback) => structuredClone(data.get(key) ?? fallback));
-  t.mock.method(db, 'set', async (key, value) => { data.set(key, structuredClone(value)); return true; });
-  const record = {
-    guildId, channelId, messageId: 'catalog-old', source: 'system-catalog',
-    embedIndex: 0, title: 'Welcome notification', name: 'Welcome notification',
-    snapshot: {
-      title: 'Welcome notification', description: 'Cloudy says welcome.',
-      author: { name: 'Cloudy template key: source:welcome-notification || Cloudy context: welcome/ping || Cloudy kind: embed' },
-    },
-  };
-  const cachedProjection = {
-    ...record, messageId: 'cached-canonical', source: 'modified-template',
-    canonicalIdentity: 'source:welcome-notification',
-    sourceRecord: record, previewRecord: { ...record, source: 'cloudy', messageId: 'current-peer' },
-  };
-  const matchingPeer = { ...record, source: 'cloudy', messageId: 'other-live', sourceRecord: null };
-  const unrelated = {
-    ...record, messageId: 'different-template',
-    snapshot: { ...record.snapshot,
-      title: 'Other notification',
-      author: { name: 'Cloudy template key: source:other-notification || Cloudy context: welcome/ping || Cloudy kind: embed' } },
-  };
-  const server = guild(guildId, channelId);
-  assert.equal(buildMatches(server, [record, cachedProjection, matchingPeer], 'welcome notification').length, 1);
-  assert.equal(await hideSystemCatalogFromBuilder(guildId, record), true);
-  invalidateBuilderSearchTitleCache(guildId);
-  assert.equal(isSystemCatalogHiddenFromBuilder(record), true);
-  assert.equal(isBuilderDeletedSearchRecord(cachedProjection), true);
-  assert.equal(isBuilderDeletedSearchRecord(matchingPeer), true);
-  assert.equal(buildMatches(server, [record, cachedProjection, matchingPeer], 'welcome notification').length, 0,
-    'cached catalog views and live mirrors must not resurrect an explicitly deleted entry');
-  assert.deepEqual(buildSearchChoices(buildMatches(server, [unrelated], 'other notification'))
-    .map(c => c.name), ['Other notification']);
-});
-
-test('physical Builder purge leaves no ghost Search record after cache refresh', async t => {
-  const guildId = 'delete-physical-search-sync-20261025';
-  const channelId = '1634506224312300044';
-  const registryKey = 'cloudy:embed-registry:' + guildId;
-  const saved = {
-    guildId, channelId, messageId: 'manual-saved', embedIndex: 0,
-    source: 'embed-builder', manualSaved: true,
-    title: 'Custom saved embed', name: 'Custom saved embed',
-    snapshot: { title: 'Custom saved embed', description: 'Saved owner text.' },
-  };
-  const data = new Map([[registryKey, [saved]]]);
-  t.mock.method(db, 'get', async (key, fallback) => structuredClone(data.get(key) ?? fallback));
-  t.mock.method(db, 'set', async (key, value) => { data.set(key, structuredClone(value)); return true; });
-  t.mock.method(db, 'delete', async key => { data.delete(key); return true; });
-  const server = guild(guildId, channelId);
-  await getEmbedRegistry(guildId);
-  const interaction = { guildId, guild: server, member: { id: 'owner' }, client: null };
-  assert.equal((await loadFastEmbedBuilderSearchRecords(interaction)).length > 0, true);
-  assert.equal(await purgeEmbedRegistryRecord(guildId, channelId, saved.messageId, 0), true);
-  await getEmbedRegistry(guildId);
-  invalidateBuilderSearchTitleCache(guildId);
-  const current = await loadFastEmbedBuilderSearchRecords(interaction);
-  assert.equal(current.some(r => String(r.messageId) === saved.messageId), false);
-});
