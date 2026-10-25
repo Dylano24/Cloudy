@@ -1212,6 +1212,11 @@ export function canUseImmediateCatalogPreview(record) {
     const data = record.snapshot || {};
     if (!data.description && !data.fields?.length) return false;
     if (normalize(data.title) !== normalize(recordTitle(record))) return false;
+    // The displayed Search identity can be cleaner than a stale catalog title.
+    // A mismatch cannot safely take the static shortcut: the existing source
+    // resolution remains responsible for choosing the authoritative preview.
+    const offeredTitle = commercialBuilderTitle(record.name || record.title);
+    if (offeredTitle && normalize(offeredTitle) !== normalize(recordTitle(record))) return false;
     const context = stableSearchTemplateContext(record);
     if (/^(?:gambling|economy|tickets|ticket-logs|ticket-transcripts|reports)(?:\/|$)/.test(context)) return false;
     const visible = [
