@@ -1,4 +1,5 @@
 import { commercialBuilderTitle } from '../../utils/builderCommercialTitle.js';
+import { getTicketLogTemplate } from '../../utils/ticket/ticketLogTemplates.js';
 export { commercialBuilderTitle } from '../../utils/builderCommercialTitle.js';
 // CLOUDY_INTERACTION_LATENCY_V1
 // BUILDER_SAVED_PARITY_V1
@@ -253,6 +254,32 @@ function rawRecordTitle(record) {
     return '';
 }
 
+// Ticket names/IDs are runtime instance data, not new editable templates.
+// Keep every real event and its fields in ticket-logs and the registry; only
+// Search presents one canonical choice per automated event family.
+function automatedTicketLogFamily(record) {
+    if (!record || record.manualSaved === true
+        || String(record.source || '').toLowerCase() === 'embed-builder') return null;
+    const saved = savedSearchSnapshot(record);
+    if (saved.matched) return null; // the owner's explicit Save always wins
+    const source = record?.snapshot || getEmbedRegistrySnapshot(record) || {};
+    const structured = getTicketLogTemplate(source);
+    if (structured) return { key: structured.key, title: structured.label };
+
+    // Older emitted ticket logs had the ticket's name appended to the title
+    // and sometimes lacked stable field metadata. Restrict this fallback
+    // to automatic bot records; never collapse manually posted Builder embeds.
+    const title = String(source.title || record.title || record.name || '').trim();
+    const match = title.match(/^Ticket (created|closed|deleted|claimed|unclaimed|pinned|unpinned|reopened):\s*\S/i);
+    if (!match) return null;
+    const key = match[1].toLowerCase();
+    return { key: key === 'created' ? 'open' : key === 'closed' ? 'close'
+        : key === 'deleted' ? 'delete' : key === 'claimed' ? 'claim'
+        : key === 'unclaimed' ? 'unclaim' : key === 'pinned' ? 'pin'
+        : key === 'unpinned' ? 'unpin' : 'reopen',
+    title: 'Ticket ' + key };
+}
+
 export function recordTitle(record) {
     // A deliberate Save is authoritative. Search must not silently strip
     // custom emojis or change the capitalization the owner just saved.
@@ -265,6 +292,8 @@ export function recordTitle(record) {
         if (!/^(?:new )?(?:report|ticket|case)\s*#?\d+$/i.test(raw)) return raw;
     }
     if (saved.matched && saved.data?.title) return clean(saved.data.title, 100);
+    const ticketLog = automatedTicketLogFamily(record);
+    if (ticketLog) return ticketLog.title;
     return commercialBuilderTitle(rawRecordTitle(record));
 }
 
@@ -838,6 +867,8 @@ function manualSearchIdentity(record) {
 function exactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return manualSearchIdentity(record);
+    const ticketLog = automatedTicketLogFamily(record);
+    if (ticketLog) return 'ticket-log:' + ticketLog.key;
 
     // Gateway/API latency changes on every /ping call. Those values must stay
     // dynamic, not create a new editable template for each invocation.
@@ -1078,9 +1109,10 @@ export function buildAutocompleteMatches(guild, records, rawQuery) {
         // a renamed catalog result remains undiscoverable for the new name
         // until a canonical background index refresh.
         const saved = getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, data);
-        const title = normalize(saved.matched && saved.data?.title
+        const family = automatedTicketLogFamily(record);
+        const title = normalize(family?.title || (saved.matched && saved.data?.title
             ? saved.data.title
-            : [record?.name, record?.title, data.title].filter(Boolean).join(' '));
+            : [record?.name, record?.title, data.title].filter(Boolean).join(' ')));
         const body = normalize([
             data.description,
             ...(Array.isArray(data.fields) ? data.fields.flatMap(f => [f?.name, f?.value]) : []),
@@ -1095,7 +1127,18 @@ export function buildAutocompleteMatches(guild, records, rawQuery) {
     }
 
     candidates.sort((a, b) => b.rank - a.rank);
-    return buildMatches(guild, candidates.slice(0, 80).map(item => item.record), query).slice(0, 25);
+    const shortlist = [];
+    const ticketFamilies = new Set();
+    for (const candidate of candidates) {
+        const family = automatedTicketLogFamily(candidate.record);
+        if (family) {
+            if (ticketFamilies.has(family.key)) continue;
+            ticketFamilies.add(family.key);
+        }
+        shortlist.push(candidate.record);
+        if (shortlist.length === 80) break;
+    }
+    return buildMatches(guild, shortlist, query).slice(0, 25);
 }
 
 function cleanChoiceText(value, max = 48) {
