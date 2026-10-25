@@ -2,7 +2,7 @@ import { MessageFlags } from 'discord.js';
 import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import { isTransientStatusEmbed } from '../utils/transientResponse.js';
-import { getGuildConfig } from './config/guildConfig.js';
+import { getGuildConfig, peekGuildConfigCache } from './config/guildConfig.js';
 import {
     getTicketLogTemplate,
     isTicketLogTemplateChannel,
@@ -137,6 +137,24 @@ function buildRecords(guild, channel, message, guildConfig = null) {
             };
         })
         .filter(Boolean);
+}
+
+// Synchronous, read-only view of already cached physical Cloudy posts.
+// New channels are included automatically via guild.channels.cache. Never
+// block the initial channel menu on REST or PostgreSQL.
+export function peekCachedPhysicalChannelEmbeds(guild, botUserId) {
+    if (!guild?.id || !botUserId) return [];
+    const guildConfig = peekGuildConfigCache(guild.id);
+    const rows = [];
+    for (const channel of guild.channels?.cache?.values?.() || []) {
+        if (![0, 5].includes(channel?.type) || !channel?.messages?.cache) continue;
+        for (const message of channel.messages.cache.values()) {
+            if (isUsableMessage(message, botUserId)) {
+                rows.push(...buildRecords(guild, channel, message, guildConfig));
+            }
+        }
+    }
+    return rows;
 }
 
 function mergeUsableMessages(target, messages, botUserId) {
