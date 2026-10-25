@@ -944,7 +944,16 @@ function mergeCompatibleSearchMatch(left, right) {
             || new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime())
         .at(-1) || null;
 
-    const selected = catalog || chooseBetter(left, right).record;
+    // A successfully saved title is the canonical display identity, even
+    // when an older catalog record belongs to the same response family.
+    // Keep the catalog attached as sourceRecord, never as the winner over Save.
+    const saved = [left, right].filter(match =>
+        match.record?.manualSaved === true || savedSearchSnapshot(match.record).matched
+    ).sort((a, b) =>
+        Number(Boolean(a.record.manualSaved)) - Number(Boolean(b.record.manualSaved))
+        || new Date(a.record.updatedAt || 0) - new Date(b.record.updatedAt || 0)
+    ).at(-1) || null;
+    const selected = saved?.record || catalog || chooseBetter(left, right).record;
     const record = {
         ...selected,
         ...(live ? { previewRecord: live } : {}),
@@ -953,7 +962,7 @@ function mergeCompatibleSearchMatch(left, right) {
 
     return {
         record,
-        document: left.score >= right.score ? left.document : right.document,
+        document: saved?.document || (left.score >= right.score ? left.document : right.document),
         score: Math.max(left.score ?? 0, right.score ?? 0),
     };
 }
