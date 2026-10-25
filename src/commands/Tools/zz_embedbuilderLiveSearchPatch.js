@@ -1255,22 +1255,40 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     }
     if (!selectedRecord) return null;
     let record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
-    await warmSavedEmbedTemplateScopes(interaction.guildId, [
+    // For an existing complete preview the scope warm-up and preview read
+    // are independent. Run them together rather than paying two successive
+    // network/DB waits before the Builder can paint. Unresolved source records
+    // still warm first because their peer matching uses cached decorations.
+    const savedManualSnapshot = record.source === 'embed-builder'
+        && record.manualSaved === true && record.snapshot
+        && Array.isArray(record.components);
+    const stablePreview = record.previewRecord
+        || (savedManualSnapshot ? record : null);
+    const templateWarm = warmSavedEmbedTemplateScopes(interaction.guildId, [
         record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
     ]);
-    const groupedPreview = record.previewRecord
-        || latestRealPreviewRecord(interaction.guild, records, record)
-        || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
-    const runtimePreview = await hydrateBuilderPreviewRecord(
-        interaction.guild, record, groupedPreview, interaction.user.id,
-    ).catch(() => groupedPreview);
+    let groupedPreview;
+    let runtimePreview;
+    if (stablePreview) {
+        groupedPreview = stablePreview;
+        [, runtimePreview] = await Promise.all([
+            templateWarm,
+            hydrateBuilderPreviewRecord(
+                interaction.guild, record, groupedPreview, interaction.user.id,
+            ).catch(() => groupedPreview),
+        ]);
+    } else {
+        await templateWarm;
+        groupedPreview = latestRealPreviewRecord(interaction.guild, records, record)
+            || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
+        runtimePreview = await hydrateBuilderPreviewRecord(
+            interaction.guild, record, groupedPreview, interaction.user.id,
+        ).catch(() => groupedPreview);
+    }
     // An explicit Save already holds the authoritative full snapshot and
     // component rows. Do not wait up to 650ms for a redundant Discord fetch
     // before its Builder preview becomes visible; normal live records still
     // validate/fetch as before.
-    const savedManualSnapshot = record.source === 'embed-builder'
-        && record.manualSaved === true && record.snapshot
-        && Array.isArray(record.components);
     const previewRecord = savedManualSnapshot
         ? record
         : (runtimePreview
