@@ -75,3 +75,40 @@ export function observeInteractionLatency(interaction, {
     };
   }
 }
+
+const builderStageSamples = new Map();
+const BUILDER_SAMPLE_WINDOW = 200;
+const BUILDER_STAGE_LIMIT = 64;
+
+// These bounded, process-local windows include fast and slow successful samples.
+// Existing slow-interaction logs alone cannot establish a meaningful p50/p95.
+export function createBuilderPerformanceTracker(action, {
+  now = () => performance.now(),
+  report = data => logger.warn(`[BUILDER_PERFORMANCE] ${JSON.stringify(data)}`),
+} = {}) {
+  const started = now();
+  const marked = new Set();
+  return phase => {
+    try {
+      if (marked.has(phase)) return;
+      const elapsedMs = Math.max(0, now() - started);
+      if (!Number.isFinite(elapsedMs)) return;
+      marked.add(phase);
+      const key = action + ':' + phase;
+      const samples = builderStageSamples.get(key) || [];
+      samples.push(elapsedMs);
+      if (samples.length > BUILDER_SAMPLE_WINDOW) samples.shift();
+      builderStageSamples.set(key, samples);
+      if (builderStageSamples.size > BUILDER_STAGE_LIMIT) {
+        builderStageSamples.delete(builderStageSamples.keys().next().value);
+      }
+      const sorted = [...samples].sort((a, b) => a - b);
+      report({
+        event: 'builder.stage.latency', action, phase,
+        elapsedMs: Math.round(elapsedMs), sampleCount: samples.length,
+        p50Ms: Math.round(sorted[Math.ceil(sorted.length * 0.5) - 1]),
+        p95Ms: Math.round(sorted[Math.ceil(sorted.length * 0.95) - 1]),
+      });
+    } catch { /* Monitoring must never block a successful Builder interaction. */ }
+  };
+}

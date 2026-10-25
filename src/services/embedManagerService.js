@@ -21,6 +21,7 @@ import {
 import { getColor } from '../config/bot.js';
 import { isAdditionalStatusTitle } from '../utils/statusReplyPolicy.js';
 import { logger } from '../utils/logger.js';
+import { createBuilderPerformanceTracker } from '../utils/interactionLatency.js';
 import {
     DISCORD_EMBED_TOTAL_TEXT_LIMIT,
     getEmbedsTextLength,
@@ -28,6 +29,7 @@ import {
 import {
     getEmbedRegistry,
     getEmbedRegistryGeneration,
+    peekEmbedRegistry,
     getEmbedRegistrySnapshot,
     reconcileEmbedRegistry,
     relinkDetachedEmbedRegistryMessage,
@@ -56,7 +58,8 @@ import { hydrateBuilderPreviewRecord } from './builderRuntimePreviewService.js';
 import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord, filterEmbedBuilderRecords } from '../utils/embedBuilderAccess.js';
 import { discoverMissingChannelEmbed,
     discoverMissingChannelEmbeds,
-    discoverRecentChannelEmbeds } from './embedMissingChannelService.js';
+    discoverRecentChannelEmbeds,
+    isUsableMessage } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
     getBuilderMessageComponents,
@@ -1495,6 +1498,19 @@ export function mergeEmbedManagerRecords(baseRecords = [], additions = []) {
     return [...merged.values()];
 }
 
+// Only the current Discord message cache can validate an unsaved session row.
+// A registry/history snapshot by itself is never proof that a post still exists.
+function cachedBuilderChannelMessage(guild, record, botUserId) {
+    if (guild?.client?.isReady?.() === false) return null;
+    const channelId = String(record?.backingChannelId || record?.channelId || '');
+    const message = guild?.channels?.cache?.get?.(channelId)
+        ?.messages?.cache?.get?.(String(record?.messageId || ''));
+    if (!message || message.partial || message.deleted
+        || String(message.author?.id || '') !== String(botUserId || '')
+        || !message.embeds?.[Math.max(0, Number(record?.embedIndex) || 0)]) return null;
+    return message;
+}
+
 function channelHasVisibleManagerRecord(records, channelId) {
     const relevant = records.filter(record =>
         String(record?.channelId || '') === String(channelId)
@@ -1631,7 +1647,8 @@ export function prepareEmbedManager(guild, state) {
     // Preserve the existing live-only channel browser contents. Only prefetch its
     // persisted records; no Discord history scan or catalog rewrite is involved.
     state.embedManagerPreparedGeneration = getEmbedRegistryGeneration(guild.id);
-    state.embedManagerPrepared = getEmbedRegistry(guild.id).catch(error => {
+    const currentRecords = peekEmbedRegistry(guild.id, { current: true });
+    state.embedManagerPrepared = currentRecords ? Promise.resolve(currentRecords) : getEmbedRegistry(guild.id).catch(error => {
         logger.debug(`Channel browser preload skipped: ${error?.message || error}`);
         return null;
     });
@@ -1640,6 +1657,7 @@ export function prepareEmbedManager(guild, state) {
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
+    const markOpen = createBuilderPerformanceTracker('manager_open');
     const member = buttonInteraction.member || null;
     const accessibleRecords = records => (Array.isArray(records) ? records : [])
         .filter(record => record?.catalogChannelProjection
@@ -1673,9 +1691,12 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         delete state.embedManagerPrepared;
         const preparedGeneration = state.embedManagerPreparedGeneration;
         delete state.embedManagerPreparedGeneration;
-        const preparedRecords = prepared && await prepared;
-        const allStoredRecords = preparedRecords && preparedGeneration === getEmbedRegistryGeneration(guild.id)
-            ? preparedRecords : await getEmbedRegistry(guild.id);
+        const currentRecords = peekEmbedRegistry(guild.id, { current: true });
+        const preparedRecords = currentRecords || (prepared && await prepared);
+        const allStoredRecords = currentRecords || (
+            preparedRecords && preparedGeneration === getEmbedRegistryGeneration(guild.id)
+                ? preparedRecords : await getEmbedRegistry(guild.id));
+        markOpen('registry_ready');
         // An unsaved source definition belongs to Search, not a channel menu.
         // Saved catalog records retain their explicit logical origin and their
         // private backing message independently of where this Builder opened.
@@ -1716,6 +1737,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             });
         }
         if (!managerMessage) return;
+        markOpen('first_visible');
         // Direct callback replies bypass InteractionWebhook.send, so retain
         // the exact existing ownership, inactivity and ephemeral cleanup hooks.
         linkBuilderSessionMessages(buttonInteraction.message, managerMessage);
@@ -1786,12 +1808,28 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         return;
                     }
 
-                    // Never display unsaved source definitions. Only actual
-                    // Builder posts and deliberate saved catalog entries appear
-                    // when the channel's live message check completes.
-                    records = records.filter(record => String(record.channelId) !== String(channelId)
-                        || record.catalogChannelProjection || record.manualSaved === true);
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: true }), state, session);
+                    const markChannel = createBuilderPerformanceTracker('channel_list');
+                    // Keep current session posts on a revisit only while their
+                    // actual Discord cache entries still exist. Saved templates
+                    // keep their existing independent lifetime and ownership.
+                    const currentChannelRecords = () => records.flatMap(record => {
+                        if (String(record.channelId) !== String(channelId)
+                            || record.catalogChannelProjection || record.manualSaved === true) return [record];
+                        const message = cachedBuilderChannelMessage(guild, record, buttonInteraction.client.user.id);
+                        if (!message || !isUsableMessage(message, buttonInteraction.client.user.id)) return [];
+                        const embed = message.embeds[Math.max(0, Number(record.embedIndex) || 0)];
+                        return [{
+                            ...record, snapshot: embed.toJSON?.() || embed,
+                            components: (message.components || []).map(row => row.toJSON?.() || row),
+                        }];
+                    });
+                    records = currentChannelRecords();
+                    const hasKnownEmbeds = channelHasVisibleManagerRecord(records, channelId);
+                    const initialPainted = await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: !hasKnownEmbeds }), state, session);
+                    if (initialPainted) {
+                        markChannel('initial_response');
+                        if (hasKnownEmbeds) markChannel('first_visible');
+                    }
                     if (selectionVersion !== session.selectionVersion) return;
 
                     void (async () => {
@@ -1804,6 +1842,11 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         if (selectionVersion !== session.selectionVersion
                             || session.closed || state.activeEmbedManager !== session) return;
 
+                        markChannel('recent_history_ready');
+                        // A retained post may disappear while the first Discord
+                        // edit or history request is pending. Prune it again
+                        // before merging freshly fetched/deep-history records.
+                        records = currentChannelRecords();
                         // Present the verified newest Discord page immediately;
                         // an unrelated registry hydration or historic pagination
                         // must not hold the user's first visible channel list.
@@ -1811,8 +1854,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                             records, discoveredRecords.filter(record =>
                                 String(record.channelId) === String(channelId)),
                         ));
-                        await updateEmbedManager(interaction,
+                        const recentPainted = await updateEmbedManager(interaction,
                             buildEmbedPayload(guild, records, channelId, 0), state, session);
+                        if (recentPainted) markChannel('first_visible');
                         if (selectionVersion !== session.selectionVersion) return;
 
                         // Stream older posted messages without waiting for the
@@ -1840,6 +1884,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                         ).then(async () => {
                             if (selectionVersion !== session.selectionVersion
                                 || session.closed || state.activeEmbedManager !== session) return;
+                            markChannel('full_history_ready');
                             await updateEmbedManager(interaction,
                                 buildEmbedPayload(guild, records, channelId, 0), state, session);
                         }).catch(error => logger.debug(
@@ -1903,6 +1948,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     return;
                 }
 
+                const markPreview = createBuilderPerformanceTracker('channel_preview');
                 await interaction.deferUpdate();
                 const parts = interaction.customId.split(':');
                 const channelId = parts[1];
@@ -1952,13 +1998,17 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     return;
                 }
                 const liveChannel = guild.channels.cache.get(String(channelId));
-                const liveMessage = await liveChannel?.messages?.fetch?.({ message: String(record.messageId), force: true }).catch(() => null);
+                const liveMessage = cachedBuilderChannelMessage(guild, record, buttonInteraction.client.user.id)
+                    || await liveChannel?.messages?.fetch?.({ message: String(record.messageId), force: true }).catch(() => null);
+                if (selectionVersion !== session.selectionVersion
+                    || session.closed || state.activeEmbedManager !== session) return;
                 const liveEmbed = liveMessage?.embeds?.[embedIndex];
                 if (!liveEmbed || String(liveMessage.author?.id || '') !== String(buttonInteraction.client.user.id)) {
                     records = records.filter(item => managerRecordKey(item) !== managerRecordKey(record));
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
                     return;
                 }
+                markPreview('message_ready');
                 record = {
                     ...record,
                     snapshot: liveEmbed.toJSON?.() || liveEmbed,
@@ -1969,6 +2019,8 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     ...record, previewRecord, sourceRecord,
                 }, { requireSend: true })) return;
                 if (record) previewRecord = await hydrateBuilderPreviewRecord(guild, record, previewRecord, interaction.user.id).catch(() => previewRecord);
+                if (selectionVersion !== session.selectionVersion
+                    || session.closed || state.activeEmbedManager !== session) return;
                 let loaded = record ? loadRecordSnapshotIntoState(state, guild, record, previewRecord, sourceRecord) : false;
                 const loadedFromSnapshot = loaded;
                 if (!loaded) {
@@ -1982,17 +2034,20 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     loaded = true;
                 }
 
+                markPreview('preview_ready');
                 // The manager selection and the Builder preview are separate
                 // Discord messages. Update both concurrently so one REST edit
                 // cannot delay the other; the same payloads and state are used.
                 await Promise.all([
-                    Promise.resolve(refreshBuilder()).catch(error => {
+                    Promise.resolve(refreshBuilder()).then(() => markPreview('first_visible')).catch(error => {
                         logger.debug(`Embed preview refresh skipped: ${error?.message || error}`);
                     }),
                     updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session),
                 ]);
                 if (selectionVersion !== session.selectionVersion) return;
-                if (loadedFromSnapshot) {
+                if (loadedFromSnapshot && record.source !== 'embed-builder') {
+                    // Manual channel records already loaded the current message's
+                    // logo and components above, so no duplicate reads are needed.
                     // A registry snapshot may be older than the actual visible
                     // thumbnail. Update only this Builder's logo, never its
                     // other fields or any saved Discord embed.
