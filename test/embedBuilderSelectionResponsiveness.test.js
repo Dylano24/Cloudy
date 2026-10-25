@@ -122,19 +122,20 @@ test('automatic botlog template previews use the Search casing without rewriting
   assert.deepEqual(record, original);
 });
 
-test('preview casing never changes manual/channel embeds, guides or anything except letter case', () => {
-  for (const [source, context, title, previewTitle] of [
-    ['embed-builder', 'botlog/role', 'Role Removed', 'Role removed'],
-    ['cloudy', 'botlog/role', 'Role Removed', 'Role removed'],
-    ['system-catalog', 'faq/panel', 'Cloudy FAQ Panel', 'Cloudy FAQ panel'],
-    ['system-catalog', 'botlog/report', 'New report #17', 'New report'],
+test('Search name carries into unsaved automated previews, not manually posted Builder messages', () => {
+  for (const [source, context, title, previewTitle, expected] of [
+    ['embed-builder', 'botlog/role', 'Role Removed', 'Role removed', 'Role Removed'],
+    ['cloudy', 'botlog/role', 'Role Removed', 'Role removed', 'Role removed'],
+    ['system-catalog', 'faq/panel', 'Cloudy FAQ Panel', 'Cloudy FAQ panel', 'Cloudy FAQ panel'],
+    ['system-catalog', 'botlog/report', 'New report #17', 'New report', 'New report'],
   ]) {
     const record = { guildId: 'protected-case', channelId: 'channel', messageId: 'source', source,
       snapshot: { title, description: 'Untouched', author: { name: `Cloudy template key: source:test || Cloudy context: ${context}` } } };
     const state = {};
     applyInitialSearchSelectionToState({ guild: { id: record.guildId },
       __cloudyInitialBuilderSelection: { record, previewTitle } }, state);
-    assert.equal(state.title, title);
+    assert.equal(state.title, expected);
+    assert.equal(state.modifyTarget.sourceEmbedData.title, title, 'source identity stays intact');
   }
 });
 
@@ -324,7 +325,7 @@ test('unsaved Cloudy logs and game replies match Search sentence case without to
     ['ticket-log', '✅ TICKET CLOSED', 'Ticket closed'],
     ['cloudy', '🎲 ROULETTE WIN', 'Roulette win'],
     ['bot-history', '⚠️ PERMISSION DENIED', 'Permission denied'],
-    ['embed-builder', '✅ WELCOME MESSAGE UPDATED', 'Welcome message updated'],
+    ['system-catalog', '✅ WELCOME MESSAGE UPDATED', 'Welcome message updated'],
   ]) {
     const record = {
       guildId: `unsaved-${source}`, channelId: 'log-channel', messageId: 'posted-message',
