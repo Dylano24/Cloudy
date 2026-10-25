@@ -6,6 +6,7 @@ import {
     balanceResponseIdentity,
     isLegacyBalanceParserArtifact } from './balanceResponseIdentity.js';
 import { normalizeManualIndent } from '../utils/manualEmbedIndent.js';
+import { commercialBuilderTitle } from '../utils/builderCommercialTitle.js';
 import { stampTermsFooterOnSave } from './termsWebsiteFooterService.js';
 import { withManualBuilderPostLogoChoice, withManualBuilderSaveLogoChoice } from '../utils/cloudyFooter.js';
 import { isBuilderSessionMessage, linkBuilderSessionMessages, registerBuilderSessionCollector, touchBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
@@ -1149,25 +1150,24 @@ export function loadRecordSnapshotIntoState(
             && !['system-catalog', 'runtime-preview'].includes(String(previewRecord.source || '').toLowerCase())
             ? previewRecord : record);
 
-    // A catalog preview can match its clean Search label in letter case only.
-    // Never normalize a physical channel embed, saved custom title or guide.
-    const sourceContext = stableSystemTemplateContext(data);
-    const hasPhysicalPreview = Boolean(previewRecord && !previewRecord.detached
-        && !['system-catalog', 'runtime-preview'].includes(String(previewRecord.source || '').toLowerCase()));
-    // The clean Search title is also the preview title for unsaved botlog and
-    // welcome status templates when differences are only casing/decorative
-    // emojis. Never rewrite the source, a manual Save, or a real Discord post.
-    const comparableTitle = stripCustomEmojiMarkup(displayTitle || '')
-        .replace(/\p{Extended_Pictographic}/gu, ' ')
-        .replace(/[\uFE0F\u200D]/g, ' ')
-        .replace(/\s+/g, ' ').trim();
-    const canMatchPreviewCase = record.source === 'system-catalog'
-        && !record.manualSaved && !savedDisplay.matched && !hasPhysicalPreview
-        && (/^(?:botlog|welcome)(?:\/|$)/.test(sourceContext)
-            || isAdditionalStatusTitle(displayTitle)
-            || /^(?:success|failed|error|warning|information|invalid|expired|too fast)$/i.test(displayTitle || ''))
-        && previewTitle && comparableTitle.toLowerCase() === String(previewTitle).toLowerCase();
-    state.title = templateKind === 'content' ? null : (canMatchPreviewCase ? previewTitle : displayTitle || null);
+    // The same canonical title must appear in Search and the editable preview
+    // for any unmodified Cloudy response or log. A deliberate Builder post,
+    // saved user template or saved overlay is not ours to rename.
+    const sourceType = String(record.source || '').toLowerCase();
+    const builderPosted = [data, previewData].some(item =>
+        String(item?.footer?.text || '').endsWith(MESSAGE_BUILDER_FOOTER_MARKER));
+    const unsavedBotResponse = !record.manualSaved && !savedDisplay.matched
+        && sourceType !== 'modified-template'
+        && (sourceType === 'system-catalog' || sourceType === 'ticket-log'
+            || sourceType === 'cloudy' || sourceType === 'bot-history'
+            || (sourceType === 'embed-builder' && !builderPosted));
+    // Search already supplies this name. A channel-selected, non-saved bot
+    // response derives it from exactly the same formatter. Only state/title
+    // presentation is normalized; original source/live snapshots are untouched.
+    const cleanBotTitle = unsavedBotResponse
+        ? (previewTitle || commercialBuilderTitle(displayTitle))
+        : '';
+    state.title = templateKind === 'content' ? null : (cleanBotTitle || displayTitle || null);
     state.message = displayDescription || null;
     state.embedFields = Array.isArray(displayFields)
         ? displayFields.map(field => ({
@@ -1863,6 +1863,16 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     });
                     records = currentChannelRecords();
                     const hasKnownEmbeds = channelHasVisibleManagerRecord(records, channelId);
+                    // Start the read-only Discord discovery alongside the
+                    // immediate "Checking" update. The previous sequential
+                    // fetch added one entire Discord round trip before the
+                    // channel's first real embeds could be displayed.
+                    const recentDiscovery = discoverRecentChannelEmbeds(
+                        guild, channelId, buttonInteraction.client.user.id,
+                    ).catch(error => {
+                        logger.debug('Channel embed discovery skipped: ' + error.message);
+                        return [];
+                    });
                     const initialPainted = await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: !hasKnownEmbeds }), state, session);
                     if (initialPainted) {
                         markChannel('initial_response');
@@ -1871,12 +1881,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     if (selectionVersion !== session.selectionVersion) return;
 
                     void (async () => {
-                        const discoveredRecords = await discoverRecentChannelEmbeds(
-                            guild, channelId, buttonInteraction.client.user.id,
-                        ).catch(error => {
-                            logger.debug('Channel embed discovery skipped: ' + error.message);
-                            return [];
-                        });
+                        const discoveredRecords = await recentDiscovery;
                         if (selectionVersion !== session.selectionVersion
                             || session.closed || state.activeEmbedManager !== session) return;
 
@@ -1987,13 +1992,16 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 }
 
                 const markPreview = createBuilderPerformanceTracker('channel_preview');
-                await interaction.deferUpdate();
+                const acknowledgement = interaction.deferUpdate();
                 const parts = interaction.customId.split(':');
                 const channelId = parts[1];
                 const page = Number(parts[2]) || 0;
                 const [messageId, embedIndexRaw] = String(interaction.values?.[0] || '').split(':');
                 const embedIndex = Number(embedIndexRaw) || 0;
-                if (!canUseEmbedBuilderChannel(guild, interaction.member, channelId, { requireSend: true })) return;
+                if (!canUseEmbedBuilderChannel(guild, interaction.member, channelId, { requireSend: true })) {
+                    await acknowledgement;
+                    return;
+                }
 
                 const selectedDisplayRecord = collapseDisplayRecords(
                     records.filter(item => builderDisplayChannelId(guild, item) === String(channelId)),
@@ -2036,8 +2044,15 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     return;
                 }
                 const liveChannel = guild.channels.cache.get(String(channelId));
-                const liveMessage = cachedBuilderChannelMessage(guild, record, buttonInteraction.client.user.id)
-                    || await liveChannel?.messages?.fetch?.({ message: String(record.messageId), force: true }).catch(() => null);
+                // Overlap the interaction acknowledgement with the existing
+                // authoritative live-message lookup. No extra request is sent.
+                const cachedLive = cachedBuilderChannelMessage(guild, record, buttonInteraction.client.user.id);
+                const livePending = cachedLive
+                    ? Promise.resolve(cachedLive)
+                    : liveChannel?.messages?.fetch?.({ message: String(record.messageId), force: true })
+                        .catch(() => null);
+                await acknowledgement;
+                const liveMessage = await livePending;
                 if (selectionVersion !== session.selectionVersion
                     || session.closed || state.activeEmbedManager !== session) return;
                 const liveEmbed = liveMessage?.embeds?.[embedIndex];
