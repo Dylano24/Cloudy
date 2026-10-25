@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { Collection } from 'discord.js';
+import { Collection, Embed } from 'discord.js';
+import { performance } from 'node:perf_hooks';
 import { db } from '../src/utils/database.js';
 import {
   getEmbedRegistry, peekEmbedRegistry, removeEmbedRegistryRecord,
 } from '../src/services/embedRegistryService.js';
-import { openEmbedManager, prepareEmbedManager } from '../src/services/embedManagerService.js';
-import { loadEmbedBuilderSearchSelection } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { openEmbedManager, prepareEmbedManager, applyInitialSearchSelectionToState, saveModifiedEmbed } from '../src/services/embedManagerService.js';
+import { warmSavedEmbedTemplateScopes } from '../src/services/embedTemplateService.js';
+import { loadEmbedBuilderSearchSelection, loadFastEmbedBuilderSearchRecords } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 import * as latency from '../src/utils/interactionLatency.js';
 
 const settle = async () => { for (let i = 0; i < 100; i++) await Promise.resolve(); };
@@ -47,6 +49,7 @@ function managerFixture(t, record) {
   let pageGate = null;
   let messageGate = null;
   let messageReads = 0;
+  let updateGate = null;
   const channel = {
     id: record.channelId, guildId: record.guildId, name: 'rules', type: 0,
     rawPosition: 0, toString: () => '#rules', permissionsFor: () => ({ has: () => true }),
@@ -89,7 +92,11 @@ function managerFixture(t, record) {
       customId, values: value == null ? [] : [value], deferred: false, replied: false,
       isStringSelectMenu: () => value != null,
       async deferUpdate() { this.deferred = true; },
-      async update(payload) { this.replied = true; payloads.push(payload); },
+      async update(payload) {
+        this.replied = true; payloads.push(payload);
+        const gate = updateGate; updateGate = null;
+        if (gate) await gate.promise;
+      },
       async editReply(payload) { payloads.push(payload); },
     };
     collector.emit('collect', interaction);
@@ -105,6 +112,7 @@ function managerFixture(t, record) {
     preview: () => preview,
     messageReads: () => messageReads,
     stallPage: gate => { pageGate = gate; },
+    stallUpdate: gate => { updateGate = gate; },
     stallMessage: gate => { messageGate = gate; },
     chooseChannel: () => click('simple_embed_modify_channel:0', channel.id),
     chooseEmbed: () => click('simple_embed_modify_embed:' + channel.id + ':0', message.id + ':0'),
@@ -226,24 +234,165 @@ test('an older pending preview cannot overwrite a newer manager selection', asyn
   assert.equal(fixture.state.title, 'Newer draft');
 });
 
-test('complete saved Search preview does not wait for cold template scopes or scan unrelated previews', async t => {
-  const record = savedRecord('search-saved-cold-scopes');
+test('cold and warm saved Search selections preserve the latest saved family overlay', async t => {
+  const record = savedRecord('search-cold-family-authority');
   t.mock.method(db, 'get', async () => [record]);
   await getEmbedRegistry(record.guildId);
-  const gate = deferred();
-  t.after(() => gate.resolve({}));
-  t.mock.method(db, 'get', async () => gate.promise);
+  const scopeGate = deferred();
+  t.after(() => scopeGate.resolve({}));
+  const family = {
+    schemaVersion: 3, title: 'Rules panel', description: 'Latest saved family body',
+    color: 0x654321, fields: [{ name: 'Rules', value: 'Latest saved field', inline: true }],
+  };
+  t.mock.method(db, 'get', async key =>
+    key.endsWith(':__global__') ? scopeGate.promise : {});
   t.mock.method(db, 'set', async () => assert.fail('Search preview must not save data'));
+  const fixture = managerFixture(t, record);
+  const interaction = {
+    ...fixture.opening, options: { getString: () => record.channelId + ':' + record.messageId + ':0' },
+  };
+  let cold;
+  const pending = loadEmbedBuilderSearchSelection(interaction).then(value => { cold = value; return value; });
+  await settle();
+  assert.equal(cold, undefined, 'unknown saved overlays cannot be bypassed based on snapshot completeness');
+  scopeGate.resolve({ 'rules panel': family });
+  await pending;
+  const coldState = {};
+  applyInitialSearchSelectionToState({ ...interaction, __cloudyInitialBuilderSelection: cold }, coldState);
+  assert.equal(coldState.message, 'Latest saved family body');
+  assert.equal(coldState.sideColor, 0x654321);
+  assert.deepEqual(coldState.embedFields, family.fields);
+  t.mock.method(db, 'get', async () => assert.fail('warm selection must not repeat storage reads'));
+  const warm = await loadEmbedBuilderSearchSelection(interaction);
+  const warmState = {};
+  applyInitialSearchSelectionToState({ ...interaction, __cloudyInitialBuilderSelection: warm }, warmState);
+  assert.equal(warmState.message, coldState.message);
+  assert.equal(warmState.sideColor, coldState.sideColor);
+  assert.deepEqual(warmState.embedFields, coldState.embedFields);
+});
+
+test('independent runtime preview and saved-scope reads start together for one selected source', async t => {
+  const record = {
+    ...savedRecord('search-independent-preview-reads'), source: 'system-catalog', manualSaved: false,
+    snapshot: { title: 'Parallel preview example', description: 'Complete source content',
+      author: { name: 'Cloudy template key: performance-parallel || Cloudy context: general/notices || Cloudy kind: embed' } },
+  };
+  t.mock.method(db, 'get', async () => [record]);
+  await getEmbedRegistry(record.guildId);
+  const scopeGate = deferred();
+  const runtimeGate = deferred();
+  t.after(() => { scopeGate.resolve({}); runtimeGate.resolve(null); });
+  let runtimeStarted = false;
+  t.mock.method(db, 'get', async key => {
+    if (key.startsWith('cloudy:builder-runtime-preview:')) {
+      runtimeStarted = true;
+      return runtimeGate.promise;
+    }
+    return scopeGate.promise;
+  });
   const fixture = managerFixture(t, record);
   const pending = loadEmbedBuilderSearchSelection({
     ...fixture.opening, options: { getString: () => record.channelId + ':' + record.messageId + ':0' },
   });
-  let selection;
-  pending.then(value => { selection = value; });
   await settle();
-  assert.ok(selection, 'the authoritative complete Save needs no template-scope database read');
-  assert.deepEqual(selection.record.snapshot, record.snapshot);
-  assert.deepEqual(selection.previewRecord.components, record.components);
+  assert.equal(runtimeStarted, true, 'runtime fallback must not wait for independent saved-scope storage');
+  scopeGate.resolve({});
+  runtimeGate.resolve(null);
+  assert.ok(await pending);
+});
+
+test('a message deleted during the first channel update is absent after fresh history resolves', async t => {
+  const record = savedRecord('manager-delete-during-update', false);
+  t.mock.method(db, 'get', async () => []);
+  const fixture = managerFixture(t, record);
+  await openEmbedManager(fixture.opening, fixture.state, fixture.refresh);
+  fixture.chooseChannel();
+  await settle();
+  const updateGate = deferred();
+  const pageGate = deferred();
+  t.after(() => { updateGate.resolve(); pageGate.resolve(new Collection()); });
+  fixture.stallUpdate(updateGate);
+  fixture.stallPage(pageGate);
+  const payloads = fixture.chooseChannel();
+  await settle();
+  assert.ok(embedChoices(payloads[0]).some(option => option.value === record.messageId + ':0'));
+  fixture.channel.messages.cache.delete(record.messageId);
+  pageGate.resolve(new Collection());
+  updateGate.resolve();
+  await settle();
+  assert.ok(payloads.length > 1, 'fresh Discord history must repaint the channel');
+  assert.deepEqual(embedChoices(payloads.at(-1)), [],
+    'a retained cache row cannot survive a fresh response after its deletion');
+});
+
+test('first Save preserves another embed after selected message cache replacement', async t => {
+  const record = savedRecord('manager-save-cache-replacement', false);
+  t.mock.method(db, 'get', async () => []);
+  t.mock.method(db, 'set', async () => true);
+  const fixture = managerFixture(t, record);
+  const oldSibling = { title: 'Sibling panel', description: 'Old sibling body' };
+  const newSibling = { title: 'Sibling panel', description: 'New legitimate sibling body' };
+  const edits = [];
+  Object.assign(fixture.message, {
+    channel: fixture.channel, client: fixture.guild.client,
+    embeds: [new Embed(record.snapshot), new Embed(oldSibling)],
+    async edit(payload) {
+      edits.push(structuredClone(payload));
+      this.embeds = payload.embeds.map(data => new Embed(data));
+      return this;
+    },
+  });
+  await openEmbedManager(fixture.opening, fixture.state, fixture.refresh);
+  fixture.chooseChannel();
+  await settle();
+  fixture.chooseEmbed();
+  await settle();
+  assert.equal(fixture.state.modifyTarget?.messageId, record.messageId);
+  const current = { ...fixture.message, embeds: [new Embed(record.snapshot), new Embed(newSibling)] };
+  fixture.channel.messages.cache.delete(record.messageId);
+  fixture.channel.messages.cache.set(record.messageId, current);
+  t.mock.method(fixture.channel.messages, 'fetch', async options =>
+    options?.limit ? new Collection([[current.id, current]]) : current);
+  fixture.state.message = 'Administrator edited selected body';
+  assert.equal((await saveModifiedEmbed(fixture.guild, fixture.state)).ok, true);
+  assert.equal(edits[0].embeds[0].description, 'Administrator edited selected body');
+  assert.deepEqual(edits[0].embeds[1], newSibling);
+});
+
+test('warm saved Search retains 3000 results while one selected preview avoids stalled storage', async t => {
+  const record = savedRecord('search-large-complete-warm-index');
+  const records = Array.from({ length: 3000 }, (_, index) => ({
+    ...record, messageId: String(222222222222220000n + BigInt(index)),
+  }));
+  t.mock.method(db, 'get', async key => key.startsWith('cloudy:embed-registry:') ? records : {});
+  await getEmbedRegistry(record.guildId);
+  await warmSavedEmbedTemplateScopes(record.guildId, [record.channelId]);
+  const fixture = managerFixture(t, record);
+  const selected = records.at(-1);
+  const interaction = {
+    ...fixture.opening, options: { getString: () => record.channelId + ':' + selected.messageId + ':0' },
+  };
+  const complete = await loadFastEmbedBuilderSearchRecords(interaction);
+  const ids = new Set(complete.map(item => item.messageId));
+  assert.ok(records.every(item => ids.has(item.messageId)), 'the complete catalog must remain available');
+  const gate = deferred();
+  t.after(() => gate.resolve({}));
+  t.mock.method(db, 'get', async () => gate.promise);
+  const durations = [];
+  for (let index = 0; index < 20; index++) {
+    const started = performance.now();
+    let selection;
+    const pending = loadEmbedBuilderSearchSelection(interaction).then(value => { selection = value; return value; });
+    await settle();
+    assert.equal(selection?.record.messageId, selected.messageId);
+    assert.deepEqual(selection.previewRecord.components, record.components);
+    await pending;
+    durations.push(performance.now() - started);
+  }
+  const sorted = durations.sort((a, b) => a - b);
+  t.diagnostic('Controlled warm saved Search: 3000 records, 20 samples, p50='
+    + sorted[9].toFixed(2) + 'ms, p95=' + sorted[18].toFixed(2)
+    + 'ms; excludes Discord transport and cold storage.');
 });
 
 test('Builder stage telemetry includes fast samples in p50/p95 and records each stage once', () => {
