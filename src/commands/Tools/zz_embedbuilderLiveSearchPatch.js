@@ -258,8 +258,10 @@ function rawRecordTitle(record) {
 // Keep every real event and its fields in ticket-logs and the registry; only
 // Search presents one canonical choice per automated event family.
 function automatedTicketLogFamily(record) {
-    if (!record || record.manualSaved === true
-        || String(record.source || '').toLowerCase() === 'embed-builder') return null;
+    // Legacy ticket bot events may have a manualSaved registry flag even
+    // though they were automatically emitted. Only actual Builder-authored
+    // posts are exempt. An explicit saved template overlay is still respected.
+    if (!record || String(record.source || '').toLowerCase() === 'embed-builder') return null;
     const saved = savedSearchSnapshot(record);
     if (saved.matched) return null; // the owner's explicit Save always wins
     const source = record?.snapshot || getEmbedRegistrySnapshot(record) || {};
@@ -281,9 +283,22 @@ function automatedTicketLogFamily(record) {
 }
 
 export function recordTitle(record) {
+    // Automatic ticket instances share one event type in Search, including
+    // legacy bot registrations marked manualSaved. Explicit owner template
+    // overrides and manually posted Builder messages remain untouched.
+    const ticketFamily = automatedTicketLogFamily(record);
+    if (ticketFamily) return ticketFamily.title;
     // A deliberate Save is authoritative. Search must not silently strip
     // custom emojis or change the capitalization the owner just saved.
     const saved = savedSearchSnapshot(record);
+    // On a bot-owned reusable template, the latest durable Save overlay wins
+    // over legacy registry rows whose manualSaved flag and original snapshot
+    // were never refreshed. Genuine Builder-authored posts retain their exact
+    // individual physical titles.
+    if (saved.matched && saved.data?.title
+        && String(record?.source || '').toLowerCase() !== 'embed-builder') {
+        return clean(saved.data.title, 100);
+    }
     if (record?.manualSaved && record?.snapshot?.title) {
         // A Save to an otherwise dynamic numbered response (e.g. New report
         // #22) does not create an extra Search item per case number. Keep the
@@ -292,8 +307,6 @@ export function recordTitle(record) {
         if (!/^(?:new )?(?:report|ticket|case)\s*#?\d+$/i.test(raw)) return raw;
     }
     if (saved.matched && saved.data?.title) return clean(saved.data.title, 100);
-    const ticketLog = automatedTicketLogFamily(record);
-    if (ticketLog) return ticketLog.title;
     return commercialBuilderTitle(rawRecordTitle(record));
 }
 
@@ -547,6 +560,14 @@ function scheduleAutocompleteSearchRefresh(interaction) {
     lastCatalogSearchWarm.set(guildId, now);
 
     const timer = setTimeout(() => {
+        // Cold autocomplete may never await PostgreSQL. Warm the saved shared
+        // title overlay *after* responding so the next query sees the owner's
+        // last Save, including its emoji, without breaking the fast path.
+        void warmSavedEmbedTemplateScopes(guildId, []).then(() => {
+            fastSearchCache.delete(guildId);
+        }).catch(error => logger.debug(
+            '[EMBED_SEARCH] Saved title background warm skipped: ' + (error?.message || error),
+        ));
         void ensureHiddenBuilderCatalogLoaded(guildId).catch(error =>
             logger.warn('[EMBED_SEARCH] Hidden templates refresh failed: ' + error?.message));
         void warmSystemCatalogForSearch(interaction.client).catch(error =>
