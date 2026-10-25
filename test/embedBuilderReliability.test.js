@@ -438,11 +438,12 @@ test('Builder Search uses human names and preserves semantically different live 
   const records = [catalog('e8ffec87'), catalog('ab12cd34'), real];
   const matches = buildLiveSearchMatches(guild, records, 'faq assistant');
 
-  assert.equal(matches.length, 2);
+  // The plain-text catalog mirrors have generated labels derived from their
+  // response body, not authored embed titles. The real titled FAQ embed stays.
+  assert.equal(matches.length, 1);
   assert.equal(matches[0].document.title, 'This FAQ assistant can only be used in the FAQ channel.');
-  assert.equal(new Set(matches.map(match => match.document.title)).size, 1);
+  assert.equal(matches[0].record.messageId, 'real-faq');
   assert.equal(/source:|bot code|cloudy template key/i.test(matches[0].document.title), false);
-  assert.equal(liveSearchRecordTitle(records[0]), 'This FAQ assistant can only be used in the FAQ channel.');
   assert.equal(latestRealPreviewRecord(guild, records, matches[0].record)?.messageId, 'real-faq');
 });
 
