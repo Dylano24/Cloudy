@@ -233,6 +233,53 @@ test('clicking an offered catalog result uses its complete preview while unrelat
   assert.equal(state.message, record.snapshot.description);
 });
 
+test('recent autocomplete-selected live embed opens without another physical Discord fetch', async t => {
+  const guildId = 'live-choice-under-one-second-20261025';
+  const channelId = '111111111111111318';
+  const messageId = '222222222222222319';
+  const record = {
+    guildId, channelId, messageId, embedIndex: 0,
+    source: 'modified', manualSaved: true,
+    title: 'Report case created', name: 'Report case created',
+    snapshot: {
+      title: 'Report case created',
+      description: 'The full original report contents',
+      fields: [{ name: 'Member', value: '<@123456789012345678>' }],
+      color: 0xFFFFFF,
+    },
+    createdAt: '2026-10-25T12:00:00Z',
+  };
+  t.mock.method(db, 'get', async (key, fallback) =>
+    String(key).startsWith('cloudy:embed-registry:') ? [record] : fallback);
+  await getEmbedRegistry(guildId);
+  await warmSavedEmbedTemplateScopes(guildId, [channelId]);
+  let physicalFetches = 0;
+  const channel = { id: channelId, guildId, name: 'report-logs', type: 0,
+    permissionsFor: () => ({ has: () => true }),
+    messages: { fetch: async () => { physicalFetches++; return new Promise(() => {}); } },
+  };
+  const guild = { id: guildId, client: { user: { id: 'cloudy' } },
+    channels: { cache: new Map([[channelId, channel]]) } };
+  const interaction = { guildId, guild, client: guild.client,
+    member: { id: 'owner' }, user: { id: 'owner' },
+    options: { getFocused: () => ({ name: 'search', value: 'Report case created' }),
+      getString: () => `${channelId}:${messageId}:0` },
+    respond: async choices => { interaction.choices = choices; },
+  };
+  await embedBuilderCommand.autocomplete(interaction);
+  assert.ok(interaction.choices.some(choice => choice.value === `${channelId}:${messageId}:0`));
+  const started = performance.now();
+  const selected = await Promise.race([
+    search.loadEmbedBuilderSearchSelection(interaction),
+    new Promise(resolve => setTimeout(() => resolve(null), 500)),
+  ]);
+  assert.ok(selected, 'complete offered live preview must not repeat runtime hydration');
+  assert.ok(performance.now() - started < 500);
+  assert.equal(selected.previewRecord.snapshot.description, record.snapshot.description);
+  assert.equal(physicalFetches, 0, 'no redundant physical fetch just to preview');
+  assert.equal(selected.previewRecord.snapshot.fields[0].name, 'Member');
+});
+
 test('Modify channel overview starts discovery after sending its first response', () => {
   const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
   const start = source.indexOf('export async function openEmbedManager');
