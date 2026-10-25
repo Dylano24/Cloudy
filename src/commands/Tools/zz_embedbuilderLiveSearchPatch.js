@@ -1325,9 +1325,31 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     const selectedValue = [selected.channelId, selected.messageId, selected.embedIndex].join(':');
     let record = null;
     let records = [];
-    if (offered?.generation === getEmbedRegistryGeneration(interaction.guildId)
-        && offered.expiresAt > Date.now()) {
-        const candidate = offered.records.get(selectedValue);
+    if (offered?.expiresAt > Date.now()) {
+        let candidate = offered.records.get(selectedValue);
+        if (candidate && offered.generation !== getEmbedRegistryGeneration(interaction.guildId)) {
+            // New bot logs/registry registrations can advance the generation
+            // while the user selects an option just offered by autocomplete.
+            // Verify this exact record still exists in the hot registry/catalog
+            // before reusing it; explicit Save/Delete also clear offered maps.
+            const latest = peekEmbedRegistry(interaction.guildId, { current: true })
+                ?.find(item => String(item.channelId) === selected.channelId
+                    && String(item.messageId) === selected.messageId
+                    && Number(item.embedIndex || 0) === selected.embedIndex);
+            if (latest) {
+                candidate = { ...candidate, ...latest,
+                    previewRecord: candidate.previewRecord || latest.previewRecord,
+                    sourceRecord: candidate.sourceRecord || latest.sourceRecord };
+            } else if (String(candidate.source || '').toLowerCase() === 'system-catalog') {
+                const exists = getSearchableSystemCatalogRecords(interaction.guildId).some(item =>
+                    String(item.channelId) === selected.channelId
+                    && String(item.messageId) === selected.messageId
+                    && Number(item.embedIndex || 0) === selected.embedIndex);
+                if (!exists) candidate = null;
+            } else {
+                candidate = null;
+            }
+        }
         record = candidate
             ? sanitizeSearchRecordAccess(interaction.guild, interaction.member, candidate, { requireSend: true })
             : null;
