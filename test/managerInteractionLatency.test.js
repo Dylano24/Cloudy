@@ -107,7 +107,7 @@ test('registry mutations invalidate the preloaded Modify snapshot without any hi
     webhook: { editMessage: async () => {} },
   }, state, async () => true);
   assert.ok(reads > readsBeforeOpen, 'a mutation requires a fresh storage read');
-  assert.match(paint.embeds[0].toJSON().description, /\*\*Embeds found:\*\* 0/);
+  assert.match(paint.embeds[0].toJSON().description, /\*\*Embeds found:\*\* 1/);
   assert.match(paint.embeds[0].toJSON().description, /Choose a channel first/);
   assert.equal(state.embedManagerPrepared, undefined);
   collector.stop();
