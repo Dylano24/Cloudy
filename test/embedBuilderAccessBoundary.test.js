@@ -60,7 +60,14 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
     id: 'builder-access-' + guildId, createdTimestamp: Date.now(),
     user: owner, member, guild, guildId, channel, client,
     options: { getString: () => null },
-    webhook: { async deleteMessage() {}, async editMessage() {} },
+    webhook: {
+      async deleteMessage() {},
+      async editMessage(messageId, payload) {
+        if (String(messageId) === String(preview.id)) return preview.edit(payload);
+        if (String(messageId) === String(this.lastDashboard?.id)) return this.lastDashboard.edit(payload);
+        return null;
+      },
+    },
     async deleteReply() {}, async fetchReply() { return preview; },
     async reply(payload) {
       privatePayloads.push(payload); this.replied = true; preview.embeds = payload.embeds || [];
