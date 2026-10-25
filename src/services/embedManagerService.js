@@ -2023,6 +2023,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 // record. It is not a posted message in the feature channel,
                 // so do not fetch it from that channel or treat it as deleted.
                 if (record?.catalogChannelProjection) {
+                    await acknowledgement;
                     if (selectionVersion !== session.selectionVersion
                         || !canUseEmbedBuilderChannel(guild, interaction.member, channelId, { requireSend: true })) return;
                     const loaded = loadRecordSnapshotIntoState(
@@ -2040,6 +2041,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 // A stale select-menu value must never resurrect a record from
                 // the persistent registry. This menu only represents Discord.
                 if (!record) {
+                    await acknowledgement;
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, page), state, session);
                     return;
                 }
