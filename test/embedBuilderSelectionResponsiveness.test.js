@@ -13,6 +13,7 @@ import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
 import { warmSavedEmbedTemplateScopes } from '../src/services/embedTemplateService.js';
 import * as search from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 import { applyInitialSearchSelectionToState } from '../src/services/embedManagerService.js';
+import { MESSAGE_BUILDER_FOOTER_MARKER } from '../src/services/cloudyBrandingService.js';
 
 test('a warm Search selection opens its complete snapshot without waiting for registry storage', async t => {
   assert.equal(typeof search.loadEmbedBuilderSearchSelection, 'function');
@@ -351,10 +352,9 @@ test('unsaved Cloudy logs and game replies match Search sentence case without to
 test('explicitly saved and manually Builder-posted titles are immune to automatic rename', () => {
   const cases = [
     { source: 'embed-builder', manualSaved: true, title: '✅ SAVED USER TITLE', footer: { text: 'Saved footer' } },
-    { source: 'embed-builder', manualSaved: false, title: '✅ MANUALLY POSTED', footer: { text: 'Footer\\u2063CLOUDY_EMBED_BUILDER_POST' } },
+    { source: 'embed-builder', manualSaved: false, title: '✅ MANUALLY POSTED', footer: { text: 'Footer' + MESSAGE_BUILDER_FOOTER_MARKER } },
   ];
-  // Use the real footer marker from the production module, not an invented one.
-  for (const item of cases.slice(0, 1)) {
+  for (const item of cases) {
     const record = {
       guildId: 'protected-' + item.title, channelId: 'channel', messageId: 'id',
       embedIndex: 0, source: item.source, manualSaved: item.manualSaved,
@@ -383,7 +383,6 @@ test('channel history discovery overlaps the first Discord update and preview fe
   const preview = source.slice(previewSelect, source.indexOf("markPreview('preview_ready')", previewSelect));
   assert.ok(preview.indexOf('const acknowledgement = interaction.deferUpdate();') <
     preview.indexOf('const livePending = cachedLive'), 'acknowledgement starts without delay');
-  assert.ok(preview.indexOf('const livePending = cachedLive') <
-    preview.indexOf('await acknowledgement;\\n                const liveMessage = await livePending;'.replace('\\n', '\\n')) ||
-    preview.includes('await acknowledgement;\\n                const liveMessage = await livePending;'.replace('\\n', '\\n')));
+  assert.ok(preview.indexOf('const livePending = cachedLive') < preview.indexOf('const liveMessage = await livePending'),
+    'the live-message lookup must start before the acknowledgement finishes');
 });
