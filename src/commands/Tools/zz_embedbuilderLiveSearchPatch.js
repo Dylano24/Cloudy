@@ -3,6 +3,7 @@ export { commercialBuilderTitle } from '../../utils/builderCommercialTitle.js';
 // CLOUDY_INTERACTION_LATENCY_V1
 // BUILDER_SAVED_PARITY_V1
 import {
+    MessageFlags,
     ActionRowBuilder,
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
@@ -1267,7 +1268,7 @@ export async function withBuilderSelectionAcknowledgement(interaction, prepare, 
     let acknowledgement = null;
     const timer = setTimeout(() => {
         if (!interaction.deferred && !interaction.replied && interaction.deferReply) {
-            acknowledgement = interaction.deferReply().catch(() => null);
+            acknowledgement = interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => null);
         }
     }, delayMs);
     try {
