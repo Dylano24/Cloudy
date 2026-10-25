@@ -1151,12 +1151,22 @@ export function loadRecordSnapshotIntoState(
 
     // A catalog preview can match its clean Search label in letter case only.
     // Never normalize a physical channel embed, saved custom title or guide.
+    const sourceContext = stableSystemTemplateContext(data);
+    const hasPhysicalPreview = Boolean(previewRecord && !previewRecord.detached
+        && !['system-catalog', 'runtime-preview'].includes(String(previewRecord.source || '').toLowerCase()));
+    // The clean Search title is also the preview title for unsaved botlog and
+    // welcome status templates when differences are only casing/decorative
+    // emojis. Never rewrite the source, a manual Save, or a real Discord post.
+    const comparableTitle = stripCustomEmojiMarkup(displayTitle || '')
+        .replace(/\p{Extended_Pictographic}/gu, ' ')
+        .replace(/[\uFE0F\u200D]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
     const canMatchPreviewCase = record.source === 'system-catalog'
-        && !record.manualSaved && !savedDisplay.matched
-        && (/^botlog(?:\/|$)/.test(stableSystemTemplateContext(data))
+        && !record.manualSaved && !savedDisplay.matched && !hasPhysicalPreview
+        && (/^(?:botlog|welcome)(?:\/|$)/.test(sourceContext)
             || isAdditionalStatusTitle(displayTitle)
             || /^(?:success|failed|error|warning|information|invalid|expired|too fast)$/i.test(displayTitle || ''))
-        && previewTitle && String(displayTitle).toLowerCase() === String(previewTitle).toLowerCase();
+        && previewTitle && comparableTitle.toLowerCase() === String(previewTitle).toLowerCase();
     state.title = templateKind === 'content' ? null : (canMatchPreviewCase ? previewTitle : displayTitle || null);
     state.message = displayDescription || null;
     state.embedFields = Array.isArray(displayFields)
