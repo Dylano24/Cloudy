@@ -14,7 +14,7 @@ import {
   primeSystemEmbedTemplateData,
   primeSystemSourceDefinitionPreview,
 } from '../src/services/systemEmbedCatalogService.js';
-import { buildMatches, buildAutocompleteMatches, buildSearchChoices } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { buildMatches, buildAutocompleteMatches, buildSearchChoices, recordTitle } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 const values = new Map();
 db.initialized = true;
@@ -728,4 +728,29 @@ test('second title Save replaces the prior display name, retaining template iden
   assert.equal(matches[0].record.messageId, record.messageId);
   assert.equal(record.snapshot.description, source.description);
   assert.deepEqual(record.snapshot.fields, source.fields);
+});
+
+
+test('exact manually saved title with custom emoji wins over old Search capitalization', () => {
+  const original = { title: 'Removed from Builder', description: 'The stale record was removed' };
+  const updated = { ...original, title: 'Removed from builder <a:W81yesverifiedblue:123456789012345678>' };
+  const source = record('removed-master-new', original, { source: 'system-catalog' });
+  const edited = record('removed-post-new', updated, {
+    source: 'modified-template', manualSaved: true, updatedAt: '2026-10-25T16:00:00Z',
+  });
+  assert.equal(recordTitle(edited), updated.title);
+  assert.equal(recordTitle(source), 'Removed from Builder');
+  const guild = { id: guildId, channels: { cache: new Map([[channelId, { id: channelId, name: 'general' }]]) } };
+  const matches = buildMatches(guild, [source, edited], 'removed from builder');
+  const choices = buildSearchChoices(matches);
+  assert.equal(choices.length, 1, 'the old catalog entry must not create a second visible option');
+  assert.equal(choices[0].name, updated.title);
+  assert.equal(edited.snapshot.description, original.description);
+  assert.equal(source.snapshot.title, 'Removed from Builder', 'physical and canonical sources stay unchanged');
+});
+
+test('sentence case still applies to unmodified system catalog titles', () => {
+  assert.equal(recordTitle(record('catalog-only-new', {
+    title: '✅ Welcome Ping Updated', description: 'Welcome',
+  })), 'Welcome ping updated');
 });
