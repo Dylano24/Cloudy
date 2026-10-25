@@ -102,3 +102,24 @@ test('Next Save can change or REMOVE previously saved emoji without resurrecting
   assert.equal(options[0].name.includes('W81yesverifiedblue'), false);
   assert.equal(options[0].name.includes('{dynamic}'), false);
 });
+
+
+test('saved hammer emoji wins even when a legacy catalog row still has manualSaved and old title', async () => {
+  const { guildId, channelId, original, record, guild } = sample();
+  const updated = { ...original, title: 'Removed from builder 🔨',
+    description: 'The latest saved description 🔨' };
+  assert.equal(await saveEmbedTemplateDecoration(guildId, channelId,
+    [original.title, 'builder:removed'], updated,
+    { sharedScope: true, canonicalIdentity: 'builder:removed',
+      baseEmbedData: original, editedEmbedData: updated }), true);
+  await warmSavedEmbedTemplateScopes(guildId, [channelId]);
+  const legacy = { ...record, manualSaved: true, source: 'system-catalog' };
+  assert.equal(recordTitle(legacy), updated.title);
+  const choices = buildSearchChoices(buildMatches(guild, [legacy], 'removed from builder'));
+  assert.deepEqual(choices.map(item => item.name), [updated.title]);
+  assert.equal(legacy.snapshot.title, original.title, 'never rewrite the original Discord/canonical snapshot');
+
+  const userPost = { ...legacy, source: 'embed-builder', manualSaved: true };
+  assert.equal(recordTitle(userPost), original.title,
+    'an owner-authored physical Builder message retains its exact title');
+});
