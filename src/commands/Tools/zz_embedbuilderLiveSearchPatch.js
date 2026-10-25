@@ -126,6 +126,11 @@ function clean(value, max = 100) {
 
 function savedSearchSnapshot(record) {
     const raw = record?.snapshot || getEmbedRegistrySnapshot(record) || {};
+    // An explicitly saved manual Builder post owns its exact title. Do not
+    // let a similarly named global bot response overlay rename it in Search.
+    if (record?.manualSaved && String(record.source || '') === 'embed-builder') {
+        return { matched: false, data: raw };
+    }
     const source = getSystemSourceDefinitionPreviewForEmbed(raw) || {};
     const complete = { ...source, ...raw };
     return getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, complete);
