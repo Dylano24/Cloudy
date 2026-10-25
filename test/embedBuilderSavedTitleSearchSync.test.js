@@ -83,3 +83,32 @@ test('manual saved title remains exact and is not replaced by a similarly named 
     .map(c => c.name), ['Custom banner']);
 });
 
+
+
+test('a saved Removed from Builder title is the only Search name, with its exact edited emoji and casing', () => {
+  const guildId = 'builder-removed-name-parity-20261025';
+  const channelId = '1666666666666666123';
+  const sourceTitle = 'Removed from Builder';
+  const savedTitle = 'Removed from builder <a:W81yesverifiedblue:123456789012345678>';
+  const source = { title: sourceTitle, description: 'The stale record and its Reappear rule were removed from the Embed Builder.',
+    author: { name: 'Cloudy template key: builder:removed || Cloudy context: embed-builder/delete || Cloudy kind: embed' } };
+  const original = { guildId, channelId, messageId: 'old-catalog', embedIndex: 0,
+    source: 'system-catalog', name: sourceTitle, title: sourceTitle, snapshot: source };
+  const saved = { ...original, messageId: 'user-edited-catalog', manualSaved: true,
+    title: savedTitle, name: savedTitle, snapshot: { ...source, title: savedTitle } };
+  const server = guild(guildId, channelId);
+  const matches = buildMatches(server, [original, saved], 'removed from builder');
+  assert.equal(matches.length, 1, 'the catalog and saved response remain one canonical Search item');
+  assert.equal(matches[0].record.messageId, saved.messageId, 'the saved physical message is the primary editor target');
+  assert.equal(recordTitle(saved), savedTitle, 'Search must not strip a deliberately saved custom emoji');
+  assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), [savedTitle]);
+  assert.equal(buildAutocompleteMatches(server, [
+    ...Array.from({ length: 85 }, (_, i) => ({
+      ...original, messageId: 'noise-' + i, name: 'Other response ' + i,
+      title: 'Other response ' + i, snapshot: { title: 'Other response ' + i, description: 'noise ' + i },
+    })),
+    original, saved,
+  ], 'removed from builder').length, 1,
+  'shortlisted autocomplete must still find the saved title when the catalog is large');
+  assert.equal(source.title, sourceTitle, 'the underlying code template remains unchanged');
+});
