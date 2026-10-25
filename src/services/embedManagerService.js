@@ -60,6 +60,7 @@ import { discoverMissingChannelEmbed,
     discoverMissingChannelEmbeds,
     discoverRecentChannelEmbeds,
     peekIndexedRecentChannelEmbeds,
+    peekCachedPhysicalChannelEmbeds,
     isUsableMessage } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
@@ -1747,8 +1748,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         // Warmly indexed Discord posts were verified during a read-only scan.
         // Only keep ones still present in the current message cache; Save and
         // Delete remain authoritative and never run while merely browsing.
-        const knownPhysical = peekIndexedRecentChannelEmbeds(guild)
-            .filter(record => cachedBuilderChannelMessage(guild, record, buttonInteraction.client.user.id));
+        const knownPhysical = [
+            ...peekIndexedRecentChannelEmbeds(guild),
+            ...peekCachedPhysicalChannelEmbeds(guild, buttonInteraction.client.user.id),
+        ].filter(record => cachedBuilderChannelMessage(guild, record, buttonInteraction.client.user.id));
         let records = accessibleRecords(mergeEmbedManagerRecords(
             [], [...catalogTemplates, ...savedChannelRecords, ...knownPhysical],
         ));
