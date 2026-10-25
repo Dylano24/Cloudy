@@ -55,5 +55,6 @@ test('custom buttons are not part of Message builder controls', () => {
   assert.doesNotMatch(body, /previewRows/);
   assert.doesNotMatch(body, /buttonPreviewComponents/);
   assert.match(body, /Delete from builder/);
-  assert.match(body, /Save deletion/);
+  assert.match(body, /Confirm delete/);
+  assert.match(body, /simple_embed_post_new/);
 });
