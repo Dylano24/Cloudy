@@ -493,6 +493,31 @@ const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
 const lastRegistrySearchRefresh = new Map();
 const lastCanonicalSearchRefresh = new Map();
 const lastCatalogSearchWarm = new Map();
+const lastSearchScopeWarm = new Map();
+
+// Prefetch only the channels in the displayed Search shortlist, after Discord
+// has received its autocomplete response. The selected embed then finds its
+// saved template decoration already in memory rather than awaiting DB scopes.
+function scheduleSearchSelectionScopeWarm(guildId, matches = []) {
+    const id = String(guildId || '');
+    if (!id) return;
+    const now = Date.now();
+    const channels = [...new Set(matches.slice(0, 12)
+        .map(match => String(match.record?.channelId || ''))
+        .filter(Boolean))].slice(0, 6)
+        .filter(channelId => {
+            const key = id + ':' + channelId;
+            if (now - (lastSearchScopeWarm.get(key) || 0) < 15_000) return false;
+            lastSearchScopeWarm.set(key, now);
+            return true;
+        });
+    if (!channels.length) return;
+    const timer = setTimeout(() => {
+        void warmSavedEmbedTemplateScopes(id, channels).catch(error =>
+            logger.debug('[EMBED_SEARCH] Scope prewarm skipped: ' + error?.message));
+    }, 0);
+    timer.unref?.();
+}
 
 // Discord autocomplete has a short, non-deferable deadline. Database and
 // full-catalog refreshes are scheduled AFTER replying, never per keystroke.
@@ -974,6 +999,7 @@ function completeSelectedSearchRecord(guild, records, selectedRecord) {
         document: recordDocument(guild, selectedRecord),
         score: 0,
     };
+    const selectedTitleKey = normalize(selected.document.title);
 
     for (const candidate of builderSearchDisplayRecords(records)) {
         if (candidate === selectedRecord
@@ -982,6 +1008,9 @@ function completeSelectedSearchRecord(guild, records, selectedRecord) {
                 && Number(candidate?.embedIndex || 0) === Number(selectedRecord?.embedIndex || 0))) {
             continue;
         }
+        // Compatible Search peers must share the same display title.
+        // Skip unrelated candidates without building their full field/body documents.
+        if (normalize(recordTitle(candidate)) !== selectedTitleKey) continue;
         const document = recordDocument(guild, candidate);
         if (!compatibleSearchShape(selected.record, candidate, selected.document, document)) continue;
         selected = mergeCompatibleSearchMatch(selected, { record: candidate, document, score: 0 });
@@ -1255,22 +1284,39 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     }
     if (!selectedRecord) return null;
     let record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
-    await warmSavedEmbedTemplateScopes(interaction.guildId, [
+    // For an already known preview, scope warming and preview hydration are
+    // independent; overlap them. Ambiguous source definitions retain the
+    // original sequential ordering for accurate source identity matching.
+    const savedManualSnapshot = record.source === 'embed-builder'
+        && record.manualSaved === true && record.snapshot
+        && Array.isArray(record.components);
+    const stablePreview = record.previewRecord
+        || (savedManualSnapshot ? record : null);
+    const templateWarm = warmSavedEmbedTemplateScopes(interaction.guildId, [
         record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
     ]);
-    const groupedPreview = record.previewRecord
-        || latestRealPreviewRecord(interaction.guild, records, record)
-        || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
-    const runtimePreview = await hydrateBuilderPreviewRecord(
-        interaction.guild, record, groupedPreview, interaction.user.id,
-    ).catch(() => groupedPreview);
+    let groupedPreview;
+    let runtimePreview;
+    if (stablePreview) {
+        groupedPreview = stablePreview;
+        [, runtimePreview] = await Promise.all([
+            templateWarm,
+            hydrateBuilderPreviewRecord(
+                interaction.guild, record, groupedPreview, interaction.user.id,
+            ).catch(() => groupedPreview),
+        ]);
+    } else {
+        await templateWarm;
+        groupedPreview = latestRealPreviewRecord(interaction.guild, records, record)
+            || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null);
+        runtimePreview = await hydrateBuilderPreviewRecord(
+            interaction.guild, record, groupedPreview, interaction.user.id,
+        ).catch(() => groupedPreview);
+    }
     // An explicit Save already holds the authoritative full snapshot and
     // component rows. Do not wait up to 650ms for a redundant Discord fetch
     // before its Builder preview becomes visible; normal live records still
     // validate/fetch as before.
-    const savedManualSnapshot = record.source === 'embed-builder'
-        && record.manualSaved === true && record.snapshot
-        && Array.isArray(record.components);
     const previewRecord = savedManualSnapshot
         ? record
         : (runtimePreview
@@ -1419,6 +1465,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
     embedBuilderCommand.autocomplete = async function liveEmbedAutocomplete(interaction) {
         const started = performance.now();
         let count = 0;
+        let visibleMatches = [];
         try {
             if (!interaction.guildId || !interaction.guild) {
                 await interaction.respond([]);
@@ -1433,6 +1480,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             const records = await loadFastEmbedBuilderSearchRecords(interaction);
             const matches = buildAutocompleteMatches(interaction.guild, records, focused.value);
             const choices = buildSearchChoices(matches);
+            visibleMatches = matches.slice(0, 12);
             count = choices.length;
             await interaction.respond(choices);
         } catch (error) {
@@ -1452,7 +1500,13 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                     guildId: interaction.guildId, elapsedMs, resultCount: count,
                 });
             }
-            if (interaction.guild) scheduleAutocompleteSearchRefresh(interaction);
+            if (interaction.guild) {
+                scheduleAutocompleteSearchRefresh(interaction);
+                // Read-ahead happens only after replying; never delay typing.
+                if (visibleMatches.length) {
+                    scheduleSearchSelectionScopeWarm(interaction.guildId, visibleMatches);
+                }
+            }
         }
     };
 

@@ -1637,6 +1637,23 @@ export function prepareEmbedManager(guild, state) {
     });
 }
 
+// Prefer a verified live message page when Discord answers quickly, without
+// ever holding the menu open beyond the small first-paint budget. The slower
+// fetch continues and updates this same session when it finishes.
+export async function preferWarmChannelFirstPage(pending, budgetMs = 160) {
+    let timer;
+    try {
+        return await Promise.race([
+            Promise.resolve(pending).then(found => ({ ready: true, found })),
+            new Promise(resolve => {
+                timer = setTimeout(() => resolve({ ready: false }), budgetMs);
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
+
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
     const guild = buttonInteraction.guild;
     if (!guild || !buttonInteraction.client.user?.id) return;
@@ -1791,29 +1808,50 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     // when the channel's live message check completes.
                     records = records.filter(record => String(record.channelId) !== String(channelId)
                         || record.catalogChannelProjection || record.manualSaved === true);
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: true }), state, session);
+                    // Start the real Discord read in parallel with the first
+                    // response. If it is already warm, render its embeds in the
+                    // first paint rather than flashing "Checking..." and then
+                    // sending a second identical menu edit.
+                    const firstPagePromise = discoverRecentChannelEmbeds(
+                        guild, channelId, buttonInteraction.client.user.id,
+                    ).catch(error => {
+                        logger.debug('Channel embed discovery skipped: ' + error.message);
+                        return [];
+                    });
+                    const firstPage = await preferWarmChannelFirstPage(firstPagePromise);
+                    if (selectionVersion !== session.selectionVersion) return;
+                    if (firstPage.ready) {
+                        records = accessibleRecords(mergeEmbedManagerRecords(
+                            records, firstPage.found.filter(record =>
+                                String(record.channelId) === String(channelId)),
+                        ));
+                    }
+                    const hasKnownRecords = records.some(record =>
+                        String(record.channelId) === String(channelId)
+                        && (record.catalogChannelProjection || record.manualSaved === true));
+                    await updateEmbedManager(interaction,
+                        buildEmbedPayload(guild, records, channelId, 0, {
+                            checking: !firstPage.ready && !hasKnownRecords,
+                        }), state, session);
                     if (selectionVersion !== session.selectionVersion) return;
 
                     void (async () => {
-                        const discoveredRecords = await discoverRecentChannelEmbeds(
-                            guild, channelId, buttonInteraction.client.user.id,
-                        ).catch(error => {
-                            logger.debug('Channel embed discovery skipped: ' + error.message);
-                            return [];
-                        });
+                        const discoveredRecords = firstPage.ready
+                            ? firstPage.found : await firstPagePromise;
                         if (selectionVersion !== session.selectionVersion
                             || session.closed || state.activeEmbedManager !== session) return;
 
-                        // Present the verified newest Discord page immediately;
-                        // an unrelated registry hydration or historic pagination
-                        // must not hold the user's first visible channel list.
-                        records = accessibleRecords(mergeEmbedManagerRecords(
-                            records, discoveredRecords.filter(record =>
-                                String(record.channelId) === String(channelId)),
-                        ));
-                        await updateEmbedManager(interaction,
-                            buildEmbedPayload(guild, records, channelId, 0), state, session);
-                        if (selectionVersion !== session.selectionVersion) return;
+                        // Only a cold Discord fetch needs a second paint. Warm
+                        // records and saved templates already appeared above.
+                        if (!firstPage.ready) {
+                            records = accessibleRecords(mergeEmbedManagerRecords(
+                                records, discoveredRecords.filter(record =>
+                                    String(record.channelId) === String(channelId)),
+                            ));
+                            await updateEmbedManager(interaction,
+                                buildEmbedPayload(guild, records, channelId, 0), state, session);
+                            if (selectionVersion !== session.selectionVersion) return;
+                        }
 
                         // Stream older posted messages without waiting for the
                         // complete history. Latest selection wins on fast channel
