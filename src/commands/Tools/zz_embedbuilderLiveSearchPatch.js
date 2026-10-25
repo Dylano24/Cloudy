@@ -372,6 +372,9 @@ function logicalKey(record, document) {
 }
 
 function priority(record) {
+    // Once a catalog response has been deliberately saved, its edited title
+    // is the one canonical Search entry, not the unsaved code-definition name.
+    if (record?.manualSaved === true) return 130;
     const source = String(record?.source || '').toLowerCase();
     if (source === 'system-catalog') {
         const key = stableSearchTemplateKey(record);
