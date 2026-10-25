@@ -1260,11 +1260,24 @@ function rememberOfferedSearchSelections(interaction, matches, choices) {
         if (offeredValues.has(value)) offeredRecords.set(value, match.record);
     }
     const cacheKey = selectionKey(interaction);
+    const generation = getEmbedRegistryGeneration(interaction.guildId);
+    const previous = recentSearchSelections.get(cacheKey);
+    // Discord may deliver overlapping autocomplete requests out of order.
+    // Keep every recently offered (permission-scoped) choice until clicked:
+    // replacing the entire map on each keystroke made selections miss this
+    // fast path and redo the 1-3 second catalog/runtime lookup.
+    const offered = previous?.generation === generation && previous.expiresAt > now
+        ? new Map(previous.records) : new Map();
+    for (const [value, record] of offeredRecords) {
+        offered.delete(value);
+        offered.set(value, record);
+    }
+    while (offered.size > 125) offered.delete(offered.keys().next().value);
     recentSearchSelections.delete(cacheKey);
     recentSearchSelections.set(cacheKey, {
-        generation: getEmbedRegistryGeneration(interaction.guildId),
+        generation,
         expiresAt: now + 90_000,
-        records: offeredRecords,
+        records: offered,
     });
     while (recentSearchSelections.size > 250) {
         recentSearchSelections.delete(recentSearchSelections.keys().next().value);
