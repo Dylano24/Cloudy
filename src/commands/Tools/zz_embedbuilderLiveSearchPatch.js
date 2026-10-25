@@ -254,6 +254,11 @@ function rawRecordTitle(record) {
 }
 
 export function recordTitle(record) {
+    // A deliberate Save is authoritative. Search must not silently strip
+    // custom emojis or change the capitalization the owner just saved.
+    const saved = savedSearchSnapshot(record);
+    if (record?.manualSaved && record?.snapshot?.title) return clean(record.snapshot.title, 100);
+    if (saved.matched && saved.data?.title) return clean(saved.data.title, 100);
     return commercialBuilderTitle(rawRecordTitle(record));
 }
 
@@ -1167,7 +1172,11 @@ export function buildSearchChoices(matches) {
 
     for (const match of list) {
         const { record, document } = match;
-        const title = commercialBuilderTitle(document?.title || 'Embed') || 'Embed';
+        const resolved = savedSearchSnapshot(record);
+        const explicitTitle = record?.manualSaved || resolved.matched;
+        const title = explicitTitle
+            ? clean(document?.title || 'Embed', 100)
+            : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
         const duplicateCount = titleCounts.get(normalize(title)) || 0;
 
         let name = title;
@@ -1346,11 +1355,22 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // lookup that can take over a second. Manual Saves and live peers still
     // follow their existing authoritative preview paths.
     const readyCatalogSnapshot = fromAutocomplete && canUseImmediateCatalogPreview(record);
-    const runtimePreparation = readyCatalogSnapshot ? Promise.resolve(record) : independentRuntime
-        ? hydrateBuilderPreviewRecord(
-            interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
-        ).catch(() => null)
-        : null;
+    // A catalog source already contains the complete Preview that Search
+    // offered. The legacy runtime-example DB may stall for multiple seconds.
+    // Use it only when there is no complete offered snapshot or an explicitly
+    // live preview; otherwise first paint stays local and deterministic.
+    const offeredSnapshot = Boolean(fromAutocomplete && (record.snapshot?.description
+        || record.snapshot?.fields?.length));
+    const directPreview = offeredSnapshot && !record.previewRecord
+        && !/^(?:economy leaderboard|economy dashboard)$/i.test(
+            String(record.snapshot?.title || '').trim());
+    const runtimePreparation = directPreview || readyCatalogSnapshot
+        ? Promise.resolve(record)
+        : independentRuntime
+            ? hydrateBuilderPreviewRecord(
+                interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
+            ).catch(() => null)
+            : null;
     await warmSavedEmbedTemplateScopes(interaction.guildId, [
         record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
     ]);
@@ -1368,7 +1388,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // component rows. Do not wait up to 650ms for a redundant Discord fetch
     // before its Builder preview becomes visible; normal live records still
     // validate/fetch as before.
-    const previewRecord = savedManualSnapshot
+    const previewRecord = savedManualSnapshot || directPreview
         ? record
         : (runtimePreview
             ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
