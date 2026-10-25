@@ -291,6 +291,14 @@ export function recordTitle(record) {
     // A deliberate Save is authoritative. Search must not silently strip
     // custom emojis or change the capitalization the owner just saved.
     const saved = savedSearchSnapshot(record);
+    // On a bot-owned reusable template, the latest durable Save overlay wins
+    // over legacy registry rows whose manualSaved flag and original snapshot
+    // were never refreshed. Genuine Builder-authored posts retain their exact
+    // individual physical titles.
+    if (saved.matched && saved.data?.title
+        && String(record?.source || '').toLowerCase() !== 'embed-builder') {
+        return clean(saved.data.title, 100);
+    }
     if (record?.manualSaved && record?.snapshot?.title) {
         // A Save to an otherwise dynamic numbered response (e.g. New report
         // #22) does not create an extra Search item per case number. Keep the
