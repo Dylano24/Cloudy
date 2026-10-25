@@ -321,15 +321,17 @@ test('an unsaved Welcome Ping live example opens with Search title without rewri
 
 
 test('unsaved Cloudy logs and game replies match Search sentence case without touching their data', () => {
-  for (const [source, title, expected] of [
+  for (const [source, title, expected, discoveryPriority] of [
     ['ticket-log', '✅ TICKET CLOSED', 'Ticket closed'],
     ['cloudy', '🎲 ROULETTE WIN', 'Roulette win'],
     ['bot-history', '⚠️ PERMISSION DENIED', 'Permission denied'],
     ['system-catalog', '✅ WELCOME MESSAGE UPDATED', 'Welcome message updated'],
+    ['embed-builder', '⚠️ MODERATION ACTION', 'Moderation action', 0],
   ]) {
     const record = {
       guildId: `unsaved-${source}`, channelId: 'log-channel', messageId: 'posted-message',
       embedIndex: 0, source, manualSaved: false,
+      ...(discoveryPriority === undefined ? {} : { discoveryPriority }),
       snapshot: {
         title, description: 'Full original runtime text', color: 0xFF00FF,
         fields: [{ name: 'Winner', value: '<@123456789012345678>', inline: true }],
