@@ -1804,8 +1804,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     const firstPage = await Promise.race([
                         firstPagePromise.then(found => ({ ready: true, found })),
                         new Promise(resolve => {
-                            const timer = setTimeout(() => resolve({ ready: false }), 160);
-                            timer.unref?.();
+                            setTimeout(() => resolve({ ready: false }), 160);
                         }),
                     ]);
                     if (selectionVersion !== session.selectionVersion) return;
