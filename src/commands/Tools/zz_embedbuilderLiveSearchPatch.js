@@ -254,6 +254,13 @@ function rawRecordTitle(record) {
 }
 
 export function recordTitle(record) {
+    // Save means the owner's title becomes the display identity everywhere.
+    // The automated unsaved catalog still follows the agreed clean Search
+    // casing, but that formatter must never re-capitalize "builder" or strip
+    // a custom emoji that the owner deliberately saved.
+    const selected = savedSearchSnapshot(record);
+    if ((selected.matched || record?.manualSaved === true)
+        && selected.data?.title) return clean(selected.data.title, 100);
     return commercialBuilderTitle(rawRecordTitle(record));
 }
 
