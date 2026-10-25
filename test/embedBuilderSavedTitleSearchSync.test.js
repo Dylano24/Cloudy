@@ -67,8 +67,9 @@ test('saved title replaces old Search label without making a second result, whil
   assert.equal(selected.length, 1);
   assert.deepEqual(buildSearchChoices(selected).map(c => c.name), [updated]);
   assert.equal(buildAutocompleteMatches(server, [catalog, runtime], 'welcome notification updated').length, 1);
-  assert.equal(buildMatches(server, [catalog, runtime], 'welcome ping').length, 0,
-    'the old name must not remain a separate Search result');
+  assert.ok(buildSearchChoices(buildMatches(server, [catalog, runtime], 'welcome ping'))
+    .every(choice => choice.name !== 'Welcome ping updated'),
+    'the old title is never offered, even when a description/context search finds this same record');
   assert.equal(catalog.messageId, 'catalog-master');
   assert.equal(catalog.snapshot.title, original, 'a Search rename must not rewrite the source catalog');
 });
