@@ -85,7 +85,7 @@ test('manual saved title remains exact and is not replaced by a similarly named 
 
 
 
-test('a saved delete confirmation keeps its exact source title but is not a reusable Search choice', () => {
+test('a saved Removed from Builder title is the only Search name, with its exact edited emoji and casing', () => {
   const guildId = 'builder-removed-name-parity-20261025';
   const channelId = '1666666666666666123';
   const sourceTitle = 'Removed from Builder';
@@ -97,16 +97,19 @@ test('a saved delete confirmation keeps its exact source title but is not a reus
   const saved = { ...original, messageId: 'user-edited-catalog', manualSaved: true,
     title: savedTitle, name: savedTitle, snapshot: { ...source, title: savedTitle } };
   const server = guild(guildId, channelId);
-  assert.equal(recordTitle(saved), savedTitle,
-    'the saved raw title and its custom emoji must never be rewritten');
-  assert.deepEqual(buildSearchChoices(buildMatches(server, [original, saved], 'removed from builder')), [],
-    'ephemeral Builder Delete success notices never masquerade as deleted reusable embeds');
+  const matches = buildMatches(server, [original, saved], 'removed from builder');
+  assert.equal(matches.length, 1, 'the catalog and saved response remain one canonical Search item');
+  assert.equal(matches[0].record.messageId, saved.messageId, 'the saved physical message is the primary editor target');
+  assert.equal(recordTitle(saved), savedTitle, 'Search must not strip a deliberately saved custom emoji');
+  assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), ['Removed from builder ✅'],
+    'Discord autocomplete displays a visual Unicode emoji; the saved embed retains its custom emoji markup');
   assert.equal(buildAutocompleteMatches(server, [
     ...Array.from({ length: 85 }, (_, i) => ({
       ...original, messageId: 'noise-' + i, name: 'Other response ' + i,
       title: 'Other response ' + i, snapshot: { title: 'Other response ' + i, description: 'noise ' + i },
     })),
     original, saved,
-  ], 'removed from builder').length, 0);
-  assert.equal(source.title, sourceTitle, 'the underlying runtime status remains intact');
+  ], 'removed from builder').length, 1,
+  'shortlisted autocomplete must still find the saved title when the catalog is large');
+  assert.equal(source.title, sourceTitle, 'the underlying code template remains unchanged');
 });
