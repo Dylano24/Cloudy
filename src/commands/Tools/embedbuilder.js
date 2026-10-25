@@ -339,16 +339,13 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
     }
 
     const presence = await inspectBuilderDeleteTarget(guild, target);
-    if (presence.status === 'exists') {
-        await sendBuilderDeleteNotice(
-            buttonInteraction,
-            'Delete blocked',
-            'The real Discord message still exists. Delete that message first; Cloudy will never remove a live embed through **Delete from Builder**.',
-            0xED4245,
-        );
+    if (presence.status === 'exists'
+        && String(presence.message?.author?.id || '') !== String(guild.client?.user?.id || '')) {
+        await sendBuilderDeleteNotice(buttonInteraction, 'Permission denied',
+            'Cloudy can only remove its own Discord messages through the Builder.', 0xED4245);
         return;
     }
-    if (!['missing', 'catalog'].includes(presence.status)) {
+    if (!['exists', 'missing', 'catalog'].includes(presence.status)) {
         await sendBuilderDeleteNotice(
             buttonInteraction,
             'Could not verify safely',
@@ -369,20 +366,12 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
 }
 
 function resetBuilderAfterRecordDeletion(state) {
-    state.title = null;
-    state.message = null;
-    state.embedFields = [];
-    state.sideColor = 0xFFFFFF;
-    state.showLogo = true;
-    state.removeExistingLogo = false;
-    state.logoTouched = false;
-    state.bottomLine = DEFAULT_FOOTER_TEXT;
-    state.mediaUrl = null;
-    state.mediaBuffer = null;
-    state.mediaName = null;
-    state.mediaConvertedFromVideo = false;
+    // Delete removes the selected post/record, never the owner's open draft.
+    // The separate Post button can immediately publish this preview again.
     state.modifyTarget = null;
     state.pendingBuilderDelete = null;
+    state.reappearAfter = null;
+    state.reappearTouched = true;
 }
 
 async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
@@ -401,18 +390,13 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
 
     // Re-check on Save. The first Delete click only arms the operation.
     const presence = await inspectBuilderDeleteTarget(guild, target);
-    if (presence.status === 'exists') {
-        state.pendingBuilderDelete = null;
-        await sendBuilderDeleteNotice(
-            buttonInteraction,
-            'Delete blocked',
-            'The real Discord message exists again, so the Builder record was not removed.',
-            0xED4245,
-        );
-        await refreshBuilder(buttonInteraction, state);
+    if (presence.status === 'exists'
+        && String(presence.message?.author?.id || '') !== String(guild.client?.user?.id || '')) {
+        await sendBuilderDeleteNotice(buttonInteraction, 'Permission denied',
+            'The selected Discord message is not owned by Cloudy.', 0xED4245);
         return false;
     }
-    if (!['missing', 'catalog'].includes(presence.status)) {
+    if (!['exists', 'missing', 'catalog'].includes(presence.status)) {
         await sendBuilderDeleteNotice(
             buttonInteraction,
             'Could not verify safely',
@@ -490,12 +474,34 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         await activeMessage?.delete?.().catch(() => {});
     }
 
-    await purgeEmbedRegistryRecord(
-        guild.id,
-        pending.channelId,
-        pending.messageId,
-        pending.embedIndex,
-    );
+    if (presence.status === 'exists') {
+        // The owner confirmed Delete. Delete the actual Cloudy-owned Discord
+        // message first. Never claim success if REST deletion is denied.
+        try {
+            await presence.message.delete();
+            presence.message.channel?.messages?.cache?.delete?.(String(pending.messageId));
+        } catch (error) {
+            logger.warn('[EMBED_BUILDER] Physical message deletion failed: ' + error?.message);
+            await sendBuilderDeleteNotice(buttonInteraction, 'Delete failed',
+                'Discord did not allow Cloudy to delete the original message. The record was preserved.',
+                0xED4245);
+            return false;
+        }
+    }
+
+    // A Discord message can contain multiple embeds. Its deletion invalidates
+    // all the sibling indices as well; otherwise ghost choices survive Search.
+    const count = Math.max(1, presence.status === 'exists'
+        ? (presence.message.embeds?.length || 1) : pending.embedIndex + 1);
+    for (let index = 0; index < count; index += 1) {
+        await purgeEmbedRegistryRecord(guild.id, pending.channelId, pending.messageId, index);
+    }
+    const { invalidateIndexedRecentChannelEmbeds } =
+        await import('../../services/embedMissingChannelService.js');
+    invalidateIndexedRecentChannelEmbeds(guild.id, pending.backingChannelId, pending.messageId);
+    const { invalidateBuilderSearchTitleCache } =
+        await import('./zz_embedbuilderLiveSearchPatch.js');
+    invalidateBuilderSearchTitleCache(guild.id);
 
     clearBuilderRecordCaches(guild.id);
     await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
@@ -504,7 +510,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     await sendBuilderDeleteNotice(
         buttonInteraction,
         'Removed from Builder',
-        'The stale record and its Reappear rule were removed from the Embed Builder.',
+        'The Discord message, saved Builder record and Reappear rule were removed. You can use Post to publish this draft again.',
         0x57F287,
     );
     return true;
@@ -783,7 +789,12 @@ async function postBuiltMessage(channel, state, guild, member) {
         const sentEntry = { message: sent, registered: false };
         sentMessages.push(sentEntry);
 
-        const registered = await registerCloudyEmbedMessage(sent, 'embed-builder');
+        // Posting is an explicit durable Save too: keep its exact snapshot,
+        // buttons and identity in the registry even if Discord later removes
+        // the physical message. Delete from Builder is separately permanent.
+        const registered = await registerCloudyEmbedMessage(sent, 'embed-builder', {
+            manualSave: true, manualSaveIndex: 0,
+        });
         if (!registered) {
             await rollbackPost();
             return { ok: false, reason: 'persistence-failed' };
@@ -939,11 +950,15 @@ export function buildControls(state) {
     const saveButtons = [
         new ButtonBuilder()
             .setCustomId('simple_embed_post')
-            .setLabel(state.pendingBuilderDelete
-                ? 'Save deletion'
-                : (state.modifyTarget ? 'Save changes' : 'Post message'))
+            .setLabel(state.pendingBuilderDelete ? 'Confirm delete' : 'Save changes')
             .setStyle(state.pendingBuilderDelete ? ButtonStyle.Danger : ButtonStyle.Success)
-            .setEmoji(state.pendingBuilderDelete ? '🗑️' : (state.modifyTarget ? '💾' : '📤')),
+            .setEmoji(state.pendingBuilderDelete ? '🗑️' : '💾')
+            .setDisabled(!state.modifyTarget),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_post_new')
+            .setLabel('Post')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('📤'),
         new ButtonBuilder()
             .setCustomId('simple_embed_close')
             .setLabel('Close message')
@@ -963,14 +978,15 @@ export function buildControls(state) {
             .setDisabled(!state.modifyTarget),
     ];
 
-    if (!state.pendingBuilderDelete && state.modifyTarget?.detached && state.modifyTarget?.source === 'embed-builder') {
-        saveButtons.push(
-            new ButtonBuilder()
-                .setCustomId('simple_embed_repost')
-                .setLabel('Repost')
-                .setStyle(ButtonStyle.Success)
-                .setEmoji('📤'),
-        );
+    // Discord allows at most five buttons per row. Keep Repost available for
+    // legacy detached messages without removing the permanent separate Post.
+    if (!state.pendingBuilderDelete && state.modifyTarget?.detached
+        && state.modifyTarget?.source === 'embed-builder') {
+        editRow.addComponents(new ButtonBuilder()
+            .setCustomId('simple_embed_repost')
+            .setLabel('Repost')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('📤'));
     }
 
     const saveRow = new ActionRowBuilder().addComponents(...saveButtons);
@@ -1628,8 +1644,8 @@ async function openPrivateBuilderEditor(buttonInteraction, state, mode) {
     if (message?.id) state.builderChildMessages.set(message.id, message);
 }
 
-async function postMessage(buttonInteraction, state, guild) {
-    if (state.modifyTarget) {
+async function postMessage(buttonInteraction, state, guild, forceNew = false) {
+    if (state.modifyTarget && !forceNew) {
         await buttonInteraction.deferUpdate().catch(() => {});
         await saveExistingEmbed(buttonInteraction, guild, state);
         return;
@@ -2034,6 +2050,9 @@ export default {
                                 break;
                             }
                             await postMessage(buttonInteraction, state, interaction.guild);
+                            break;
+                        case 'simple_embed_post_new':
+                            await postMessage(buttonInteraction, state, interaction.guild, true);
                             break;
                         case 'simple_embed_reappear': {
                             const modal = new ModalBuilder().setCustomId(`simple_embed_reappear_modal:${Date.now()}`).setTitle('Reappear').addComponents(
