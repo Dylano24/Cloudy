@@ -1751,13 +1751,11 @@ export default {
             // Do not spend a Discord round-trip on a defer before rendering a
             // panel that can be built locally. The first panel is sent directly.
 
-            // EMBED_BUILDER_BOT_MANAGED_ALL_GUILD_V2: every guild Builder is a normal bot-managed temporary
-            // message. Discord explicitly allows ephemeral responses to disappear
-            // client-side after a while, so public-channel Builders must not depend
-            // on an ephemeral interaction response for their lifetime. The existing
-            // collector still restricts controls to the invoking user and the same
-            // five-minute inactivity cleanup still owns deletion.
-            const builderBotManaged = Boolean(interaction.guild && interaction.channel);
+            // A read-only Builder preview is private UI, never a physical
+            // Discord post. Previous guild bot-managed previews were public,
+            // so opening a report in another channel leaked its full embed.
+            // Explicit Post/Save routes remain the only physical mutations.
+            const builderBotManaged = false;
 
             const state = {
                 builderBotManaged,
@@ -1868,61 +1866,29 @@ export default {
             state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
             state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
 
-            // BUILDER_NATIVE_COLOR_INSTANT_V1: for guild Builders, launch the preview interaction reply and
-            // the normal bot-managed dashboard send in the same turn. They are independent
-            // Discord requests, so neither waits on a second follow-up round-trip.
+            // Both original preview and controls are ephemeral interaction
+            // responses. Never call channel.send while merely opening or
+            // browsing an embed. A 5-minute session still uses the existing
+            // collector, color editor, cleanup, and fixed webhook message IDs.
             let previewMessage = null;
             let dashboardMessage = null;
-
-            if (builderBotManaged
-                && interaction.channel?.send
-                && !interaction.replied) {
-                // The global REST footer policy must not secretly add a C
-                // thumbnail that the preview and buttons say is absent.
-                registerBuilderPreviewReplyToken(interaction.token);
-                const previewPayload = {
-                    embeds: [buildPreviewEmbed(state)],
-                    components: getBuilderPreviewComponents(state),
-                };
-                const previewResponsePromise = (interaction.deferred
-                    ? interaction.editReply(previewPayload)
-                    : interaction.reply({ ...previewPayload, withResponse: true })
-                ).catch(() => null);
-                const dashboardPromise = interaction.channel.send({
+            registerBuilderPreviewReplyToken(interaction.token);
+            const initialShown = await InteractionHelper.safeReply(interaction, {
+                embeds: [buildPreviewEmbed(state)],
+                components: getBuilderPreviewComponents(state),
+                flags: MessageFlags.Ephemeral,
+            });
+            if (initialShown) {
+                const dashboardPromise = interaction.followUp({
                     embeds: [buildControlEmbed(state)],
                     components: buildControls(state),
+                    flags: MessageFlags.Ephemeral,
+                    fetchReply: true,
                 }).catch(() => null);
-
-                const [previewResponse, sentDashboard] = await Promise.all([
-                    previewResponsePromise,
+                [previewMessage, dashboardMessage] = await Promise.all([
+                    interaction.fetchReply().catch(() => null),
                     dashboardPromise,
                 ]);
-                previewMessage = previewResponse?.resource?.message
-                    || (previewResponse?.id ? previewResponse : null);
-                dashboardMessage = sentDashboard || null;
-
-                if (!previewMessage && interaction.replied) {
-                    previewMessage = await interaction.fetchReply().catch(() => null);
-                }
-            } else {
-                registerBuilderPreviewReplyToken(interaction.token);
-                const initialShown = await InteractionHelper.safeReply(interaction, {
-                    embeds: [buildPreviewEmbed(state)],
-                    components: getBuilderPreviewComponents(state),
-                    flags: MessageFlags.Ephemeral,
-                });
-                if (initialShown) {
-                    const dashboardPromise = interaction.followUp({
-                        embeds: [buildControlEmbed(state)],
-                        components: buildControls(state),
-                        flags: MessageFlags.Ephemeral,
-                        fetchReply: true,
-                    }).catch(() => null);
-                    [previewMessage, dashboardMessage] = await Promise.all([
-                        interaction.fetchReply().catch(() => null),
-                        dashboardPromise,
-                    ]);
-                }
             }
 
             if (!previewMessage || !dashboardMessage) {
