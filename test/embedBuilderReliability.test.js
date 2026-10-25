@@ -691,7 +691,7 @@ test('sparse catalog template preview falls back to the full source embed withou
   const state = {};
 
   assert.equal(loadRecordSnapshotIntoState(state, { id: guildId }, record), true);
-  assert.equal(state.title, 'Cloudy Support Assistant');
+  assert.equal(state.title, 'Cloudy support assistant', 'unsaved source title matches the Search sentence case');
   assert.equal(state.message, description);
   assert.equal(state.modifyTarget.sourceEmbedData.description, undefined);
   assert.equal(state.modifyTarget.previewSourceData.description, description);
