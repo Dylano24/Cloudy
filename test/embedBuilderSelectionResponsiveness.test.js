@@ -167,3 +167,150 @@ test('an acknowledged guild Builder keeps its public preview, dashboard and owne
   assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'owner' }, customId: 'simple_embed_post' }), true);
   assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'other' }, customId: 'simple_embed_post' }), false);
 });
+
+
+test('clicking an offered catalog result uses its complete preview while unrelated storage is stalled', async t => {
+  const guildId = 'offered-search-fast-preview';
+  const channelId = '111111111111111177';
+  const messageId = '222222222222222277';
+  const record = {
+    guildId, channelId, messageId, embedIndex: 0,
+    source: 'system-catalog', manualSaved: false,
+    title: 'Rare fast preview example', name: 'Rare fast preview example',
+    snapshot: {
+      title: 'Rare fast preview example',
+      description: 'This complete catalog body must be visible on the first paint.',
+      color: 0xFFFFFF,
+      author: { name: 'Cloudy template key: source:rare-preview || Cloudy context: general/rare-preview || Cloudy kind: embed' },
+    },
+    createdAt: '2026-10-25T00:00:00Z',
+  };
+  let stallStorage = false;
+  t.mock.method(db, 'get', async (key, fallback) => {
+    if (stallStorage) return new Promise(() => {});
+    return String(key).startsWith('cloudy:embed-registry:') ? [record] : fallback;
+  });
+  await getEmbedRegistry(guildId);
+  await warmSavedEmbedTemplateScopes(guildId, [channelId]);
+
+  const channel = {
+    id: channelId, guildId, name: 'rare-previews',
+    permissionsFor: () => ({ has: () => true }),
+  };
+  const guild = { id: guildId, client: { user: { id: 'cloudy' } },
+    channels: { cache: new Map([[channelId, channel]]) } };
+  let choices = [];
+  const interaction = {
+    guildId, guild, client: guild.client,
+    user: { id: 'owner' }, member: { id: 'owner' },
+    options: {
+      getFocused: () => ({ name: 'search', value: 'Rare fast preview example' }),
+      getString: () => `${channelId}:${messageId}:0`,
+    },
+    respond: async offered => { choices = offered; },
+  };
+  await embedBuilderCommand.autocomplete(interaction);
+  assert.ok(choices.some(choice => choice.value === `${channelId}:${messageId}:0`),
+    'autocomplete must actually offer the record before it can be reused');
+  stallStorage = true;
+
+  const selected = await Promise.race([
+    search.loadEmbedBuilderSearchSelection(interaction),
+    new Promise(resolve => setTimeout(() => resolve(null), 500)),
+  ]);
+  assert.ok(selected, 'opening an offered complete preview must not wait on stalled storage');
+  assert.equal(selected.record.messageId, messageId);
+  assert.equal(selected.previewRecord.snapshot.description, record.snapshot.description);
+  const state = {};
+  assert.equal(applyInitialSearchSelectionToState({
+    ...interaction, __cloudyInitialBuilderSelection: selected,
+  }, state), true);
+  assert.equal(state.message, record.snapshot.description);
+});
+
+test('Modify channel overview starts discovery after sending its first response', () => {
+  const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+  const start = source.indexOf('export async function openEmbedManager');
+  const collector = source.indexOf("collector.on('collect'", start);
+  assert.ok(start >= 0 && collector > start);
+  const startup = source.slice(start, collector);
+  assert.match(startup, /void discoverEmbedManagerOverviewRecords\(/);
+  assert.ok(startup.indexOf('markOpen(\'first_visible\')') <
+    startup.indexOf('void discoverEmbedManagerOverviewRecords('),
+    'channel history scanning must never postpone the first manager response');
+});
+
+
+test('immediate catalog previews retain dynamic values, live peers, and real source titles', () => {
+  const base = {
+    guildId: 'static-vs-dynamic', channelId: '111111111111111177',
+    messageId: '222222222222222277', embedIndex: 0, source: 'system-catalog',
+    name: 'Static notice', title: 'Static notice',
+    snapshot: {
+      title: 'Static notice', description: 'Full static response.',
+      author: { name: 'Cloudy template key: source:static-notice || Cloudy context: general/notice' },
+    },
+  };
+  assert.equal(search.canUseImmediateCatalogPreview(base), true);
+  assert.equal(search.canUseImmediateCatalogPreview({
+    ...base, previewRecord: { source: 'bot-history', snapshot: { title: 'Static notice', description: 'Actual posted text' } },
+  }), false, 'a real posted preview wins over an abstract source snapshot');
+  assert.equal(search.canUseImmediateCatalogPreview({
+    ...base, snapshot: { ...base.snapshot, description: 'You won {dynamic} cash' },
+  }), false, 'a dynamic response must retain its runtime preview');
+  assert.equal(search.canUseImmediateCatalogPreview({
+    ...base, snapshot: { ...base.snapshot, title: 'Updated notice' },
+  }), false, 'a Search label must not silently open a differently titled preview');
+  assert.equal(search.canUseImmediateCatalogPreview({
+    ...base, snapshot: { ...base.snapshot, author: { name: 'Cloudy template key: game:roulette:won || Cloudy context: gambling/roulette' } },
+  }), false, 'gambling examples are runtime-owned even when their sample body is static');
+});
+
+
+test('an unsaved Welcome Ping status opens with the clean Search title and no stray emoji', () => {
+  const record = {
+    guildId: 'welcome-title-guild', channelId: 'welcome',
+    messageId: 'catalog-message', embedIndex: 0, source: 'system-catalog',
+    manualSaved: false,
+    name: '✅ Welcome Ping Updated',
+    snapshot: {
+      title: '✅ Welcome Ping Updated', description: 'Original welcome ping instructions',
+      author: { name: 'Cloudy template key: source:welcome-ping || Cloudy context: welcome/ping' },
+    },
+  };
+  const state = {};
+  const original = structuredClone(record);
+  assert.equal(applyInitialSearchSelectionToState({
+    guild: { id: record.guildId },
+    __cloudyInitialBuilderSelection: { record, previewTitle: 'Welcome ping updated' },
+  }, state), true);
+  assert.equal(state.title, 'Welcome ping updated');
+  assert.equal(state.message, record.snapshot.description);
+  assert.equal(state.modifyTarget.sourceEmbedData.title, original.snapshot.title);
+  assert.deepEqual(record, original, 'preview formatting must not mutate the canonical source');
+});
+
+test('a real live Welcome Ping preview keeps the physical Discord title intact', () => {
+  const record = {
+    guildId: 'welcome-live-title-guild', channelId: 'welcome',
+    messageId: 'catalog-message', embedIndex: 0, source: 'system-catalog',
+    manualSaved: false,
+    snapshot: {
+      title: '✅ Welcome Ping Updated', description: 'Source description',
+      author: { name: 'Cloudy template key: source:welcome-ping || Cloudy context: welcome/ping' },
+    },
+  };
+  const previewRecord = {
+    guildId: record.guildId, channelId: 'welcome', messageId: 'live-message',
+    embedIndex: 0, source: 'cloudy', snapshot: {
+      title: '✅ Welcome Ping Updated', description: 'Live Discord description',
+    },
+  };
+  const state = {};
+  assert.equal(applyInitialSearchSelectionToState({
+    guild: { id: record.guildId },
+    __cloudyInitialBuilderSelection: { record, previewRecord, previewTitle: 'Welcome ping updated' },
+  }, state), true);
+  assert.equal(state.title, previewRecord.snapshot.title);
+  assert.equal(state.message, previewRecord.snapshot.description);
+});
