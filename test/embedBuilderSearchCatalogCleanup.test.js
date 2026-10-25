@@ -61,7 +61,7 @@ test('Search collapses automated peers that differ only by technical catalog met
   assert.equal(matches.length, 1);
 });
 
-test('Search keeps different bot messages but gives them unique descriptive names', () => {
+test('Search shows only one title for different bot messages with the same title', () => {
   const guild = guildWith('botlog');
   const matches = buildMatches(guild, [
     record({ id: '10', description: 'Scheduled task removed from #botlog.' }),
@@ -69,15 +69,11 @@ test('Search keeps different bot messages but gives them unique descriptive name
     record({ id: '12', description: 'Role reward task removed from #botlog.' }),
   ], 'task removed');
 
-  assert.equal(matches.length, 3);
-
+  assert.equal(matches.length, 3, 'underlying message/preview records must be retained');
   const choices = buildSearchChoices(matches);
-  const names = choices.map(choice => choice.name);
-  assert.equal(new Set(names).size, 3);
-  assert.ok(names.every(name => name.startsWith('Task removed')));
-  assert.ok(names.some(name => /Scheduled task/i.test(name)));
-  assert.ok(names.some(name => /Verification task/i.test(name)));
-  assert.ok(names.some(name => /Role reward task/i.test(name)));
+  assert.deepEqual(choices.map(choice => choice.name), ['Task removed']);
+  assert.ok(choices.every(choice => !/Scheduled|Verification|Role reward/i.test(choice.name)));
+  assert.equal(matches[0].record.snapshot.description, 'Scheduled task removed from #botlog.');
 });
 
 test('Search shows one result for two identical manual embeds', () => {
