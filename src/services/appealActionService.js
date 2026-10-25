@@ -109,7 +109,7 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
       reason: interaction.fields.getTextInputValue('reason'), targetId: action !== 'deny' && record.scope === 'discord' ? interaction.fields.getTextInputValue('target').trim() : undefined });
     const embeds = message.embeds.map((embed, index) => {
       const data = embed.toJSON();
-      if (index === 0) data.fields = [...(data.fields || []), { name: 'Staff decision', value: `${action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned'} by <@${member.id}>` }, { name: 'Reason', value: decision.reason }];
+      if (index === 0) data.fields = [...(data.fields || []), { name: 'Appeal status', value: 'This appeal has been handled.' }, { name: 'Staff decision', value: `${action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned'} by <@${member.id}>` }, { name: 'Reason', value: decision.reason }];
       return data;
     });
     await message.edit({ embeds, components: buildAppealActions(decision), allowedMentions: { parse: [] } });
