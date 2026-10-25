@@ -22,6 +22,16 @@ const discoveryCache = new Map();
 const recentChannelIndex = new Map();
 const RECENT_INDEX_TTL_MS = 10 * 60_000;
 
+// Remove all ghost references when a confirmed Delete physically removes a
+// Cloudy post. A warm read-only scan cannot resurrect it in channel lists.
+export function invalidateIndexedRecentChannelEmbeds(guildId, channelId, messageId) {
+    const key = String(guildId) + ':' + String(channelId);
+    const indexed = recentChannelIndex.get(key);
+    if (indexed) indexed.records = indexed.records.filter(record =>
+        String(record.messageId) !== String(messageId));
+    discoveryCache.get(String(channelId))?.messages?.delete?.(String(messageId));
+}
+
 export function peekIndexedRecentChannelEmbeds(guild) {
     const guildId = String(guild?.id || '');
     if (!guildId) return [];

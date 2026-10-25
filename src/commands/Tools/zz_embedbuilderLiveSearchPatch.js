@@ -1169,6 +1169,20 @@ function choiceDetail(match) {
     return '';
 }
 
+// Discord autocomplete titles are plain strings and do not render custom
+// Discord emoji markup. Use a recognisable Unicode equivalent in the native
+// dropdown while the actual custom emoji stays unmodified in the embed.
+export function humanSearchChoiceTitle(value) {
+    return clean(String(value || '').replace(/<a?:([^:>]+):\d+>/gi, (_, name) => {
+        if (/verified|success|check|tick|approved/i.test(name)) return '✅';
+        if (/fail|error|deny|cross|nope/i.test(name)) return '❌';
+        if (/warn|alert|caution/i.test(name)) return '⚠️';
+        if (/heart|love/i.test(name)) return '❤️';
+        if (/star|favorite/i.test(name)) return '⭐';
+        return '';
+    }).replace(/\s+/g, ' ').trim(), 100);
+}
+
 export function buildSearchChoices(matches) {
     const list = Array.isArray(matches) ? matches : [];
     const titleCounts = new Map();
@@ -1186,7 +1200,7 @@ export function buildSearchChoices(matches) {
         const resolved = savedSearchSnapshot(record);
         const explicitTitle = record?.manualSaved || resolved.matched;
         const title = explicitTitle
-            ? clean(document?.title || 'Embed', 100)
+            ? humanSearchChoiceTitle(document?.title || 'Embed')
             : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
         const duplicateCount = titleCounts.get(normalize(title)) || 0;
 

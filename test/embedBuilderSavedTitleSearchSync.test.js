@@ -101,7 +101,8 @@ test('a saved Removed from Builder title is the only Search name, with its exact
   assert.equal(matches.length, 1, 'the catalog and saved response remain one canonical Search item');
   assert.equal(matches[0].record.messageId, saved.messageId, 'the saved physical message is the primary editor target');
   assert.equal(recordTitle(saved), savedTitle, 'Search must not strip a deliberately saved custom emoji');
-  assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), [savedTitle]);
+  assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), ['Removed from builder ✅'],
+    'Discord autocomplete displays a visual Unicode emoji; the saved embed retains its custom emoji markup');
   assert.equal(buildAutocompleteMatches(server, [
     ...Array.from({ length: 85 }, (_, i) => ({
       ...original, messageId: 'noise-' + i, name: 'Other response ' + i,
