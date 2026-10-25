@@ -167,3 +167,75 @@ test('an acknowledged guild Builder keeps its public preview, dashboard and owne
   assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'owner' }, customId: 'simple_embed_post' }), true);
   assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'other' }, customId: 'simple_embed_post' }), false);
 });
+
+
+test('clicking an offered catalog result uses its complete preview while unrelated storage is stalled', async t => {
+  const guildId = 'offered-search-fast-preview';
+  const channelId = '111111111111111177';
+  const messageId = '222222222222222277';
+  const record = {
+    guildId, channelId, messageId, embedIndex: 0,
+    source: 'system-catalog', manualSaved: false,
+    title: 'Rare fast preview example', name: 'Rare fast preview example',
+    snapshot: {
+      title: 'Rare fast preview example',
+      description: 'This complete catalog body must be visible on the first paint.',
+      color: 0xFFFFFF,
+      author: { name: 'Cloudy template key: source:rare-preview || Cloudy context: general/rare-preview || Cloudy kind: embed' },
+    },
+    createdAt: '2026-10-25T00:00:00Z',
+  };
+  let stallStorage = false;
+  t.mock.method(db, 'get', async (key, fallback) => {
+    if (stallStorage) return new Promise(() => {});
+    return String(key).startsWith('cloudy:embed-registry:') ? [record] : fallback;
+  });
+  await getEmbedRegistry(guildId);
+  await warmSavedEmbedTemplateScopes(guildId, [channelId]);
+
+  const channel = {
+    id: channelId, guildId, name: 'rare-previews',
+    permissionsFor: () => ({ has: () => true }),
+  };
+  const guild = { id: guildId, client: { user: { id: 'cloudy' } },
+    channels: { cache: new Map([[channelId, channel]]) } };
+  let choices = [];
+  const interaction = {
+    guildId, guild, client: guild.client,
+    user: { id: 'owner' }, member: { id: 'owner' },
+    options: {
+      getFocused: () => ({ name: 'search', value: 'Rare fast preview example' }),
+      getString: () => `${channelId}:${messageId}:0`,
+    },
+    respond: async offered => { choices = offered; },
+  };
+  await embedBuilderCommand.autocomplete(interaction);
+  assert.ok(choices.some(choice => choice.value === `${channelId}:${messageId}:0`),
+    'autocomplete must actually offer the record before it can be reused');
+  stallStorage = true;
+
+  const selected = await Promise.race([
+    search.loadEmbedBuilderSearchSelection(interaction),
+    new Promise(resolve => setTimeout(() => resolve(null), 500)),
+  ]);
+  assert.ok(selected, 'opening an offered complete preview must not wait on stalled storage');
+  assert.equal(selected.record.messageId, messageId);
+  assert.equal(selected.previewRecord.snapshot.description, record.snapshot.description);
+  const state = {};
+  assert.equal(applyInitialSearchSelectionToState({
+    ...interaction, __cloudyInitialBuilderSelection: selected,
+  }, state), true);
+  assert.equal(state.message, record.snapshot.description);
+});
+
+test('Modify channel overview starts discovery after sending its first response', () => {
+  const source = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
+  const start = source.indexOf('export async function openEmbedManager');
+  const collector = source.indexOf("collector.on('collect'", start);
+  assert.ok(start >= 0 && collector > start);
+  const startup = source.slice(start, collector);
+  assert.match(startup, /void discoverEmbedManagerOverviewRecords\(/);
+  assert.ok(startup.indexOf('markOpen(\'first_visible\')') <
+    startup.indexOf('void discoverEmbedManagerOverviewRecords('),
+    'channel history scanning must never postpone the first manager response');
+});
