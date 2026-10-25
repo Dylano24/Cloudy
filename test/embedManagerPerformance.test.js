@@ -29,10 +29,11 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
   assert.doesNotMatch(firstPaint, /discoverEmbedManagerOverviewRecords\(/);
   assert.doesNotMatch(firstPaint, /reconcileEmbedRegistry\(/);
 
-  // Preserve current live-only behavior: history discovery is user-selected,
-  // never an automatic background sweep of every channel.
+  // The first paint stays registry-first. A bounded read-only recent-history
+  // sweep now fills channel counts after the initial Discord response, without
+  // persisting messages or rewriting templates.
   const afterPaint = source.slice(followUp);
-  assert.doesNotMatch(afterPaint, /discoverEmbedManagerOverviewRecords\(/);
+  assert.match(afterPaint, /void discoverEmbedManagerOverviewRecords\(/);
   assert.match(afterPaint, /discoverRecentChannelEmbeds\(\s*guild, channelId/);
   assert.match(afterPaint, /discoverMissingChannelEmbeds\(/);
   assert.match(afterPaint, /verifyLiveBuilderChannelRecords\(/);
