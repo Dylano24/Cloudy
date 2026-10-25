@@ -152,7 +152,7 @@ test('unchecked channels remain selectable while saved embeds are checked', () =
   const payload = buildChannelPayload(guild, [], 0, checking);
   const option = payload.components[0].toJSON().components[0].options[0];
 
-  assert.equal(option.description, 'Checking saved embeds…');
+  assert.equal(option.description, 'Checking embeds…');
   assert.equal(option.value, channelId);
   assert.doesNotMatch(option.description, /No saved embed/i);
 });
@@ -179,7 +179,7 @@ test('channel browser preloads once per Builder and consumes the snapshot on ope
     deferUpdate: async () => {},
     followUp: async payload => {
       firstPaintReads = [...reads];
-      assert.equal(payload.components[0].toJSON().components[0].options[0].description, 'Checking saved embeds…');
+      assert.equal(payload.components[0].toJSON().components[0].options[0].description, 'Checking embeds…');
       return { id: 'preloaded-manager', createMessageComponentCollector: () => collector };
     },
     webhook: { editMessage: async () => {}, deleteMessage: async () => {} },
