@@ -783,7 +783,12 @@ async function postBuiltMessage(channel, state, guild, member) {
         const sentEntry = { message: sent, registered: false };
         sentMessages.push(sentEntry);
 
-        const registered = await registerCloudyEmbedMessage(sent, 'embed-builder');
+        // Posting is an explicit durable Save too: keep its exact snapshot,
+        // buttons and identity in the registry even if Discord later removes
+        // the physical message. Delete from Builder is separately permanent.
+        const registered = await registerCloudyEmbedMessage(sent, 'embed-builder', {
+            manualSave: true, manualSaveIndex: 0,
+        });
         if (!registered) {
             await rollbackPost();
             return { ok: false, reason: 'persistence-failed' };
@@ -939,11 +944,15 @@ export function buildControls(state) {
     const saveButtons = [
         new ButtonBuilder()
             .setCustomId('simple_embed_post')
-            .setLabel(state.pendingBuilderDelete
-                ? 'Save deletion'
-                : (state.modifyTarget ? 'Save changes' : 'Post message'))
+            .setLabel(state.pendingBuilderDelete ? 'Confirm delete' : 'Save changes')
             .setStyle(state.pendingBuilderDelete ? ButtonStyle.Danger : ButtonStyle.Success)
-            .setEmoji(state.pendingBuilderDelete ? '🗑️' : (state.modifyTarget ? '💾' : '📤')),
+            .setEmoji(state.pendingBuilderDelete ? '🗑️' : '💾')
+            .setDisabled(!state.modifyTarget),
+        new ButtonBuilder()
+            .setCustomId('simple_embed_post_new')
+            .setLabel('Post')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('📤'),
         new ButtonBuilder()
             .setCustomId('simple_embed_close')
             .setLabel('Close message')
@@ -963,14 +972,15 @@ export function buildControls(state) {
             .setDisabled(!state.modifyTarget),
     ];
 
-    if (!state.pendingBuilderDelete && state.modifyTarget?.detached && state.modifyTarget?.source === 'embed-builder') {
-        saveButtons.push(
-            new ButtonBuilder()
-                .setCustomId('simple_embed_repost')
-                .setLabel('Repost')
-                .setStyle(ButtonStyle.Success)
-                .setEmoji('📤'),
-        );
+    // Discord allows at most five buttons per row. Keep Repost available for
+    // legacy detached messages without removing the permanent separate Post.
+    if (!state.pendingBuilderDelete && state.modifyTarget?.detached
+        && state.modifyTarget?.source === 'embed-builder') {
+        editRow.addComponents(new ButtonBuilder()
+            .setCustomId('simple_embed_repost')
+            .setLabel('Repost')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('📤'));
     }
 
     const saveRow = new ActionRowBuilder().addComponents(...saveButtons);
@@ -1628,8 +1638,8 @@ async function openPrivateBuilderEditor(buttonInteraction, state, mode) {
     if (message?.id) state.builderChildMessages.set(message.id, message);
 }
 
-async function postMessage(buttonInteraction, state, guild) {
-    if (state.modifyTarget) {
+async function postMessage(buttonInteraction, state, guild, forceNew = false) {
+    if (state.modifyTarget && !forceNew) {
         await buttonInteraction.deferUpdate().catch(() => {});
         await saveExistingEmbed(buttonInteraction, guild, state);
         return;
@@ -2034,6 +2044,9 @@ export default {
                                 break;
                             }
                             await postMessage(buttonInteraction, state, interaction.guild);
+                            break;
+                        case 'simple_embed_post_new':
+                            await postMessage(buttonInteraction, state, interaction.guild, true);
                             break;
                         case 'simple_embed_reappear': {
                             const modal = new ModalBuilder().setCustomId(`simple_embed_reappear_modal:${Date.now()}`).setTitle('Reappear').addComponents(
