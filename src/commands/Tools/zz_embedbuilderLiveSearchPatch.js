@@ -1353,11 +1353,25 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // lookup that can take over a second. Manual Saves and live peers still
     // follow their existing authoritative preview paths.
     const readyCatalogSnapshot = fromAutocomplete && canUseImmediateCatalogPreview(record);
-    const runtimePreparation = readyCatalogSnapshot ? Promise.resolve(record) : independentRuntime
-        ? hydrateBuilderPreviewRecord(
-            interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
-        ).catch(() => null)
-        : null;
+    // A complete record just offered by autocomplete needs no second DB
+    // hydration and no 650ms physical REST lookup just to paint its preview.
+    // The actual Save still rechecks the exact Discord message.
+    const offeredLive = record.previewRecord
+        && !record.previewRecord.detached
+        && String(record.previewRecord.source || '').toLowerCase() !== 'system-catalog'
+        ? record.previewRecord : null;
+    const quickSource = offeredLive || (
+        String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null
+    );
+    const readyLiveSnapshot = Boolean(fromAutocomplete && quickSource?.snapshot
+        && (quickSource.snapshot.description || quickSource.snapshot.fields?.length)
+        && (quickSource.snapshot.title || quickSource.title || quickSource.name));
+    const runtimePreparation = readyLiveSnapshot ? Promise.resolve(quickSource)
+        : readyCatalogSnapshot ? Promise.resolve(record) : independentRuntime
+            ? hydrateBuilderPreviewRecord(
+                interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
+            ).catch(() => null)
+            : null;
     await warmSavedEmbedTemplateScopes(interaction.guildId, [
         record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
     ]);
@@ -1377,6 +1391,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // validate/fetch as before.
     const previewRecord = savedManualSnapshot
         ? record
+        : readyLiveSnapshot ? quickSource
         : (runtimePreview
             ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
             : null);
