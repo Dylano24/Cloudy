@@ -1531,7 +1531,7 @@ export function embedManagerCheckingChannelIds(guild, records) {
     );
 }
 
-export async function discoverEmbedManagerOverviewRecords(guild, records, botUserId) {
+export async function discoverEmbedManagerOverviewRecords(guild, records, botUserId, { shouldContinue = null } = {}) {
     if (!guild || !botUserId) return [];
 
     const channels = [...guild.channels.cache.values()].filter(channel =>
@@ -1547,7 +1547,7 @@ export async function discoverEmbedManagerOverviewRecords(guild, records, botUse
     const workers = Array.from(
         { length: Math.min(OVERVIEW_DISCOVERY_CONCURRENCY, channels.length) },
         async () => {
-            while (cursor < channels.length) {
+            while (cursor < channels.length && (!shouldContinue || shouldContinue())) {
                 const channel = channels[cursor++];
                 const found = await discoverRecentChannelEmbeds(
                     guild,
@@ -1784,7 +1784,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         // requests) in the background; never delay the manager's first paint.
         // Keep discovered records in this session, not in permanent storage.
         void discoverEmbedManagerOverviewRecords(
-            guild, records, buttonInteraction.client.user.id,
+            guild, records, buttonInteraction.client.user.id, {
+                shouldContinue: () => !session.closed && state.activeEmbedManager === session,
+            },
         ).then(async discovered => {
             if (session.closed || state.activeEmbedManager !== session) return;
             // Do not issue a redundant Discord edit when no channel was
