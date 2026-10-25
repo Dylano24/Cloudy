@@ -14,7 +14,7 @@ import {
   primeSystemEmbedTemplateData,
   primeSystemSourceDefinitionPreview,
 } from '../src/services/systemEmbedCatalogService.js';
-import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { buildMatches, buildAutocompleteMatches, buildSearchChoices } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 const values = new Map();
 db.initialized = true;
@@ -654,4 +654,78 @@ test('Builder hides stale dynamic source-parser artifacts but keeps current dyna
   const shown = collapseDisplayRecords([valid], channelId);
   assert.equal(shown.length, 1);
   assert.equal(shown[0].name, 'Balance');
+});
+
+
+test('renaming an existing unsaved bot catalog title by Save immediately renames Search and does not duplicate the embed', async () => {
+  const guild = 'saved-title-search-sync-guild';
+  const channel = 'saved-title-search-sync-channel';
+  const original = {
+    title: '✅ Welcome Ping Updated',
+    description: 'Original user-facing welcome text.',
+    color: 0xFFFFFF,
+    author: {
+      name: 'Cloudy template key: source:welcome-title-sync || Cloudy context: welcome/ping || Cloudy kind: embed',
+    },
+  };
+  const catalog = {
+    guildId: guild, channelId: channel, messageId: 'catalog-title-sync', embedIndex: 0,
+    source: 'system-catalog', name: original.title, title: original.title,
+    snapshot: original, createdAt: '2026-10-25T08:00:00Z',
+  };
+  const live = {
+    ...catalog, messageId: 'runtime-title-sync', source: 'modified-template',
+    snapshot: { ...original, description: 'Original user-facing welcome text.' },
+  };
+  const fakeGuild = { id: guild, channels: { cache: new Map([[channel, { id: channel, name: 'welcome' }]]) } };
+  const initial = buildMatches(fakeGuild, [catalog, live], 'Welcome ping updated');
+  assert.equal(initial.length, 1);
+
+  await saveEmbedTemplateDecoration(
+    guild, channel, [original.title, 'source:welcome-title-sync'],
+    { ...original, title: 'Community welcome notification' },
+    { sharedScope: true, canonicalIdentity: 'source:welcome-title-sync' },
+  );
+  await warmSavedEmbedTemplateScopes(guild, [channel]);
+
+  const renamed = buildMatches(fakeGuild, [catalog, live], 'Community welcome notification');
+  assert.equal(renamed.length, 1, 'old catalog and newer preview resolve to one saved template');
+  assert.deepEqual(buildSearchChoices(renamed).map(choice => choice.name), ['Community welcome notification']);
+  assert.equal(buildMatches(fakeGuild, [catalog, live], 'Welcome ping updated').length, 0,
+    'an old title does not continue to appear as a second current name');
+
+  const autocomplete = buildAutocompleteMatches(fakeGuild, [catalog, live], 'Community welcome');
+  assert.equal(autocomplete.length, 1, 'shortlisted autocomplete also searches the freshly saved title');
+  assert.equal(autocomplete[0].document.title, 'Community welcome notification');
+  assert.equal(original.title, '✅ Welcome Ping Updated', 'catalog source identity and metadata remain unchanged');
+  assert.equal(catalog.snapshot.description, 'Original user-facing welcome text.');
+});
+
+test('second title Save replaces the prior display name, retaining template identity and other embed fields', async () => {
+  const guildId = 'saved-title-second-save-guild';
+  const channelId = 'saved-title-second-save-channel';
+  const source = {
+    title: 'Role Removed',
+    description: 'Original role removed message.',
+    fields: [{ name: 'Role', value: '{dynamic}', inline: true }],
+    footer: { text: 'Cloudy footer' },
+    color: 0xFFFFFF,
+    author: { name: 'Cloudy template key: source:role-removed-renamed || Cloudy context: botlog/role' },
+  };
+  const record = { guildId, channelId, messageId: 'original-title-message',
+    embedIndex: 0, source: 'system-catalog',
+    title: source.title, name: source.title, snapshot: source };
+  const guild = { id: guildId, channels: { cache: new Map([[channelId, { id: channelId, name: 'bot-logs' }]]) } };
+  await saveEmbedTemplateDecoration(guildId, channelId, [source.title, 'source:role-removed-renamed'],
+    { ...source, title: 'Role removal completed' },
+    { sharedScope: true, canonicalIdentity: 'source:role-removed-renamed' });
+  await saveEmbedTemplateDecoration(guildId, channelId, [source.title, 'Role removal completed', 'source:role-removed-renamed'],
+    { ...source, title: 'Role removal confirmed' },
+    { sharedScope: true, canonicalIdentity: 'source:role-removed-renamed' });
+  const matches = buildMatches(guild, [record], 'Role removal confirmed');
+  assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name), ['Role removal confirmed']);
+  assert.equal(buildMatches(guild, [record], 'Role removal completed').length, 0);
+  assert.equal(matches[0].record.messageId, record.messageId);
+  assert.equal(record.snapshot.description, source.description);
+  assert.deepEqual(record.snapshot.fields, source.fields);
 });
