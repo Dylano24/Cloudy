@@ -1252,50 +1252,46 @@ export function humanSearchChoiceTitle(value) {
         if (/warn|alert|caution/i.test(name)) return '⚠️';
         if (/heart|love/i.test(name)) return '❤️';
         if (/star|favorite/i.test(name)) return '⭐';
-        return '';
+        // Discord autocomplete names are plain strings; custom artwork
+        // cannot be rendered here. Keep the emoji recognizable by its source
+        // name rather than silently dropping an owner's saved title symbol.
+        return ':' + name + ':';
     }).replace(/\s+/g, ' ').trim(), 100);
 }
 
 export function buildSearchChoices(matches) {
     const list = Array.isArray(matches) ? matches : [];
-    const titleCounts = new Map();
-
-    for (const { document } of list) {
-        const key = normalize(document?.title);
-        titleCounts.set(key, (titleCounts.get(key) || 0) + 1);
-    }
-
-    const usedNames = new Map();
     const choices = [];
+    const usedNames = new Map();
 
-    for (const match of list) {
-        const { record, document } = match;
+    for (const { record, document } of list) {
         const resolved = savedSearchSnapshot(record);
         const explicitTitle = record?.manualSaved || resolved.matched;
+        // Discord's native autocomplete menu must show the embed title ONLY.
+        // No description, member, ticket, channel or preview body is part of
+        // the choice label; all those details remain in the live preview.
         const title = explicitTitle
             ? humanSearchChoiceTitle(document?.title || 'Embed')
             : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
-        const duplicateCount = titleCounts.get(normalize(title)) || 0;
-
-        let name = title;
-        if (duplicateCount > 1) {
-            const detail = choiceDetail(match);
-            if (detail && normalize(detail) !== normalize(title)) {
-                name = clean(`${title}: ${detail}`, 100);
+        const key = normalize(title);
+        if (!key) continue;
+        const value = selectionValue(record);
+        const existing = usedNames.get(key);
+        const rank = Number(Boolean(record?.manualSaved)) * 2 + Number(Boolean(resolved.matched));
+        if (existing) {
+            if (rank > existing.rank) {
+                choices[existing.index] = { name: title, value };
+                usedNames.set(key, { index: existing.index, rank });
             }
+            continue;
         }
-
-        // Search is a clean catalog, not a raw message dump. If two records
-        // still resolve to the same human name, expose only the strongest one
-        // instead of adding Variant/(2)/(3) noise. Modify-by-channel still keeps
-        // access to the physical messages.
-        const nameKey = normalize(name);
-        if (!nameKey || usedNames.has(nameKey)) continue;
-        usedNames.set(nameKey, true);
-        choices.push({ name, value: selectionValue(record) });
+        usedNames.set(key, { index: choices.length, rank });
+        choices.push({ name: title, value });
     }
-
-    return choices;
+    // The native Discord autocomplete endpoint allows at most 25 choices;
+    // inspect the full ranked shortlist first so a later saved record can
+    // still replace a stale catalog name before this limit is applied.
+    return choices.slice(0, 25);
 }
 
 function selectionValue(record) {
