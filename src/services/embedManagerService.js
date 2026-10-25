@@ -20,7 +20,6 @@ import {
     StringSelectMenuOptionBuilder,
     } from 'discord.js';
 import { getColor } from '../config/bot.js';
-import { isAdditionalStatusTitle } from '../utils/statusReplyPolicy.js';
 import { logger } from '../utils/logger.js';
 import { createBuilderPerformanceTracker } from '../utils/interactionLatency.js';
 import {
@@ -1160,7 +1159,11 @@ export function loadRecordSnapshotIntoState(
         && sourceType !== 'modified-template'
         && !builderPosted
         && (sourceType === 'system-catalog' || sourceType === 'ticket-log'
-            || sourceType === 'cloudy' || sourceType === 'bot-history');
+            || sourceType === 'cloudy' || sourceType === 'bot-history'
+            // Read-only discovery labels physical bot/log posts as embed-builder.
+            // Its marker-free session records may be displayed cleanly, while
+            // real manually posted Builder messages and registry Saves cannot.
+            || (sourceType === 'embed-builder' && Number.isInteger(record.discoveryPriority)));
     // Search already supplies this name. A channel-selected, non-saved bot
     // response derives it from exactly the same formatter. Only state/title
     // presentation is normalized; original source/live snapshots are untouched.
