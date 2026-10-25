@@ -1393,13 +1393,30 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
             .test(stableSearchTemplateContext(record))
         && !/\{dynamic\}|<t:\d+|<@!?\d+>|<@&\d+>|<#\d+>/
             .test(JSON.stringify(record.snapshot || {}));
-    const runtimePreparation = directPreview || readyCatalogSnapshot
-        ? Promise.resolve(record)
-        : independentRuntime
-            ? hydrateBuilderPreviewRecord(
-                interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
-            ).catch(() => null)
-            : null;
+    // Autocomplete already delivered this complete, permission-checked live
+    // snapshot to the same user. Don't repeat the runtime DB lookup and a
+    // 650ms Discord REST fetch just to paint the read-only editor preview.
+    // On Save the physical message is still verified by saveModifiedEmbed.
+    const offeredLive = record.previewRecord
+        && !record.previewRecord.detached
+        && String(record.previewRecord.source || '').toLowerCase() !== 'system-catalog'
+        ? record.previewRecord : null;
+    const quickLive = offeredLive || (
+        String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null
+    );
+    const readyLiveSnapshot = Boolean(fromAutocomplete && quickLive?.snapshot
+        && (quickLive.snapshot.description || quickLive.snapshot.fields?.length)
+        && (quickLive.snapshot.title || quickLive.title || quickLive.name)
+        && !quickLive.detached);
+    const runtimePreparation = readyLiveSnapshot
+        ? Promise.resolve(quickLive)
+        : directPreview || readyCatalogSnapshot
+            ? Promise.resolve(record)
+            : independentRuntime
+                ? hydrateBuilderPreviewRecord(
+                    interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
+                ).catch(() => null)
+                : null;
     await warmSavedEmbedTemplateScopes(interaction.guildId, [
         record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
     ]);
@@ -1419,6 +1436,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // validate/fetch as before.
     const previewRecord = savedManualSnapshot || directPreview
         ? record
+        : readyLiveSnapshot ? quickLive
         : (runtimePreview
             ? await hydrateLiveSearchRecord(interaction.guild, runtimePreview)
             : null);
