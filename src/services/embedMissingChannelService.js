@@ -17,6 +17,25 @@ const INTERNAL_TITLES = new Set([
     'could not load embeds',
 ]);
 const discoveryCache = new Map();
+// Read-only latest verified Discord rows. Never persist these as manual Saves.
+// Opening the Builder or changing channel can reuse a warm snapshot immediately.
+const recentChannelIndex = new Map();
+const RECENT_INDEX_TTL_MS = 90_000;
+
+export function peekIndexedRecentChannelEmbeds(guild) {
+    const guildId = String(guild?.id || '');
+    if (!guildId) return [];
+    const now = Date.now();
+    const records = [];
+    for (const [key, value] of recentChannelIndex) {
+        if (now - value.timestamp >= RECENT_INDEX_TTL_MS) {
+            recentChannelIndex.delete(key);
+            continue;
+        }
+        if (key.startsWith(guildId + ':')) records.push(...value.records);
+    }
+    return records;
+}
 
 export function isUsableMessage(message, botUserId) {
     if (!message?.guildId || message.author?.id !== botUserId || !message.embeds?.length) return false;
@@ -190,7 +209,11 @@ export async function discoverRecentChannelEmbeds(guild, channelId, botUserId) {
         getRecentUsableMessages(channel, botUserId, { fullHistory: false }),
         resolveGuildConfig(guild),
     ]);
-    return messages.flatMap(message => buildRecords(guild, channel, message, guildConfig));
+    const records = messages.flatMap(message => buildRecords(guild, channel, message, guildConfig));
+    recentChannelIndex.set(String(guild.id) + ':' + String(channel.id), {
+        timestamp: Date.now(), records,
+    });
+    return records;
 }
 
 export async function discoverMissingChannelEmbeds(guild, channelId, botUserId, { onBatch = null, shouldContinue = null } = {}) {

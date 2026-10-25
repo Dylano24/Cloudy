@@ -85,7 +85,7 @@ async function openManager(t, guildId, beforeBackgroundPaint = async () => {}, v
       },
     };
     const channel = channels.get('0');
-    channel.send = async () => dashboard;
+    channel.send = async () => assert.fail('preview/controls must never post publicly');
     const slashInteraction = {
       ...openingInteraction, channel, options: { getString: () => null },
       reply: async payload => {
@@ -94,7 +94,7 @@ async function openManager(t, guildId, beforeBackgroundPaint = async () => {}, v
         return { resource: { message: preview } };
       },
       fetchReply: async () => preview, deleteReply: async () => {},
-      editReply: async () => preview, followUp: async () => assert.fail('the normal Builder opens through its existing reply'),
+      editReply: async () => preview, followUp: async () => dashboard,
     };
     InteractionHelper.patchInteractionResponses(slashInteraction);
     await embedBuilder.execute(slashInteraction);

@@ -2,28 +2,41 @@ import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-test('every guild Embed Builder uses a bot-managed preview message', () => {
+test('opening any Embed Builder preview or controls never publishes channel messages', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
-  assert.match(source, /EMBED_BUILDER_BOT_MANAGED_ALL_GUILD_V2/);
-  assert.match(source, /builderBotManaged = Boolean\(interaction\.guild && interaction\.channel\)/);
-  assert.doesNotMatch(source, /!isPublicToEveryone\(interaction\.guild, interaction\.channel\)/);
-  assert.match(source, /interaction\.reply\(\{ \.\.\.previewPayload, withResponse: true \}\)/);
-  assert.match(source, /const dashboardPromise = interaction\.channel\.send\(\{/);
-  assert.match(source, /withResponse: true/);
-  assert.match(source, /state\.builderMessage\s*=\s*previewMessage/);
-  assert.match(source, /touchBuilderSessionMessage\(state\.builderMessage\)/);
-  assert.match(source, /await state\.builderMessage\.edit\(payload\)/);
+  const start = source.indexOf('async execute(interaction) {');
+  const end = source.indexOf('const collector = dashboardMessage.createMessageComponentCollector(', start);
+  const execute = source.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(execute, /const builderBotManaged = false/);
+  assert.match(execute, /InteractionHelper\.safeReply\(interaction, \{[\s\S]*flags: MessageFlags\.Ephemeral/);
+  assert.match(execute, /interaction\.followUp\(\{[\s\S]*flags: MessageFlags\.Ephemeral/);
+  assert.doesNotMatch(execute, /interaction\.channel\.send\(/,
+    'opening a report must never post its preview in the current channel');
+  assert.match(execute, /state\.builderMessage\s*=\s*previewMessage/);
+  assert.match(execute, /state\.builderDashboardWebhook = builderBotManaged \? null : interaction\.webhook/);
 });
 
-test('guild Builder no longer depends on the ephemeral webhook path', () => {
+test('both immediate and slow slash Search acknowledgements are ephemeral', () => {
+  const router = fs.readFileSync('src/events/interactionCreate.js', 'utf8');
+  const patch = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
+  assert.match(router, /commandName === 'embedbuilder'[\s\S]*?interaction\.deferReply\(\{ flags: MessageFlags\.Ephemeral \}\)/);
+  assert.match(patch, /acknowledgement = interaction\.deferReply\(\{ flags: MessageFlags\.Ephemeral \}\)/);
+});
+
+test('a Builder preview stays attached to its original webhook message and cannot spawn a replacement', () => {
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
-  assert.match(source, /guild Builders are edited through the bot-managed Message object/i);
-  assert.match(source, /Non-guild contexts keep the interaction-response fallback/);
   assert.match(source, /state\.builderWebhook\?\.editMessage/);
   assert.match(source, /state\.builderWebhook\.editMessage\(state\.builderMessageId, payload\)/);
+  assert.match(source, /state\.builderDashboardWebhook\?\.editMessage/);
+  const start = source.indexOf('export async function editBuilderPreviewMessage');
+  const end = source.indexOf('async function deliverBuilderPreviewUpdate', start);
+  assert.doesNotMatch(source.slice(start, end), /followUp\(/);
+  assert.match(source, /deleteBuilderPreviewMessage\(state\)/);
+  assert.match(source, /deleteBuilderDashboardMessage\(state\)/);
 });
 
-test('bot-managed Builder durability is committed rather than rewritten at startup', () => {
+test('Builder preview fix is committed instead of rewritten by startup patches', () => {
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
   assert.equal(pkg.startupPatches, undefined);
   assert.doesNotMatch(pkg.scripts.start, /patch/);

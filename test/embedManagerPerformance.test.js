@@ -33,7 +33,8 @@ test('Embed Manager normal open path stays registry-first and live-only', () => 
   // sweep now fills channel counts after the initial Discord response, without
   // persisting messages or rewriting templates.
   const afterPaint = source.slice(followUp);
-  assert.match(afterPaint, /void discoverEmbedManagerOverviewRecords\(/);
+  assert.match(afterPaint, /void discovery\.then\(async discovered/);
+  assert.match(source, /prewarmEmbedManagerOverview\(guild, guild\.client\?\.user\?\.id\)/);
   assert.match(afterPaint, /discoverRecentChannelEmbeds\(\s*guild, channelId/);
   assert.match(afterPaint, /discoverMissingChannelEmbeds\(/);
   assert.match(afterPaint, /verifyLiveBuilderChannelRecords\(/);
