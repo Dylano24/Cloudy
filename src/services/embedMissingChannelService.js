@@ -2,7 +2,7 @@ import { MessageFlags } from 'discord.js';
 import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import { isTransientStatusEmbed } from '../utils/transientResponse.js';
-import { getGuildConfig } from './config/guildConfig.js';
+import { getGuildConfig, peekGuildConfigCache } from './config/guildConfig.js';
 import {
     getTicketLogTemplate,
     isTicketLogTemplateChannel,
@@ -127,6 +127,24 @@ function buildRecords(guild, channel, message, guildConfig = null) {
             };
         })
         .filter(Boolean);
+}
+
+// No network or database read: show existing physical bot embeds on the very
+// first Modify channel page using discord.js's already populated message cache.
+// New channels naturally enter the listing through guild.channels.cache;
+// subsequent history discovery fills in any uncached older messages.
+export function peekCachedPhysicalChannelEmbeds(guild, botUserId) {
+    if (!guild?.id || !botUserId) return [];
+    const guildConfig = peekGuildConfigCache(guild.id);
+    const records = [];
+    for (const channel of guild.channels?.cache?.values?.() || []) {
+        if (![0, 5].includes(channel?.type) || !channel?.messages?.cache) continue;
+        for (const message of channel.messages.cache.values()) {
+            if (!isUsableMessage(message, botUserId)) continue;
+            records.push(...buildRecords(guild, channel, message, guildConfig));
+        }
+    }
+    return records;
 }
 
 function mergeUsableMessages(target, messages, botUserId) {
