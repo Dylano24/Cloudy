@@ -1386,8 +1386,13 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     const offeredSnapshot = Boolean(fromAutocomplete && (record.snapshot?.description
         || record.snapshot?.fields?.length));
     const directPreview = offeredSnapshot && !record.previewRecord
+        && String(record.source || '').toLowerCase() === 'system-catalog'
         && !/^(?:economy leaderboard|economy dashboard)$/i.test(
-            String(record.snapshot?.title || '').trim());
+            String(record.snapshot?.title || '').trim())
+        && !/^(?:gambling|economy|tickets|ticket-logs|ticket-transcripts|reports)(?:\/|$)/
+            .test(stableSearchTemplateContext(record))
+        && !/\{dynamic\}|<t:\d+|<@!?\d+>|<@&\d+>|<#\d+>/
+            .test(JSON.stringify(record.snapshot || {}));
     const runtimePreparation = directPreview || readyCatalogSnapshot
         ? Promise.resolve(record)
         : independentRuntime
