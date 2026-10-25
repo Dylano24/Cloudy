@@ -1261,20 +1261,34 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     const savedManualSnapshot = record.source === 'embed-builder'
         && record.manualSaved === true && record.snapshot
         && Array.isArray(record.components);
-    // A complete explicit Save already owns its contents and component rows.
-    // Loading unrelated template scopes/peers cannot improve that snapshot.
-    if (!savedManualSnapshot) {
-        await warmSavedEmbedTemplateScopes(interaction.guildId, [
-            record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
-        ]);
-    }
+    // Complete manual Saves need no catalog peer scan, but their saved family
+    // overlays are still authoritative. Never guess those from a cold cache.
+    // When no live peer can exist, runtime fallback data is independent of the
+    // overlay read and can load concurrently without changing peer selection.
+    const previewSource = String(record.previewRecord?.source || '').toLowerCase();
+    const independentRuntime = savedManualSnapshot || (
+        (!record.previewRecord || record.previewRecord.detached || previewSource === 'system-catalog')
+        && records.every(candidate => candidate.detached
+            || String(candidate.source || '').toLowerCase() === 'system-catalog')
+    );
+    const runtimePreparation = independentRuntime
+        ? hydrateBuilderPreviewRecord(
+            interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
+        ).catch(() => null)
+        : null;
+    await warmSavedEmbedTemplateScopes(interaction.guildId, [
+        record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
+    ]);
     markSelection('templates_ready');
+    // Peer matching consults saved overlays, so keep it after authoritative warming.
     const groupedPreview = savedManualSnapshot ? record : (record.previewRecord
         || latestRealPreviewRecord(interaction.guild, records, record)
         || (String(record.source || '').toLowerCase() !== 'system-catalog' ? record : null));
-    const runtimePreview = await hydrateBuilderPreviewRecord(
-        interaction.guild, record, groupedPreview, interaction.user.id,
-    ).catch(() => groupedPreview);
+    const runtimePreview = runtimePreparation
+        ? await runtimePreparation || groupedPreview
+        : await hydrateBuilderPreviewRecord(
+            interaction.guild, record, groupedPreview, interaction.user.id,
+        ).catch(() => groupedPreview);
     // An explicit Save already holds the authoritative full snapshot and
     // component rows. Do not wait up to 650ms for a redundant Discord fetch
     // before its Builder preview becomes visible; normal live records still

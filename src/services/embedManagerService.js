@@ -1812,7 +1812,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     // Keep current session posts on a revisit only while their
                     // actual Discord cache entries still exist. Saved templates
                     // keep their existing independent lifetime and ownership.
-                    records = records.flatMap(record => {
+                    const currentChannelRecords = () => records.flatMap(record => {
                         if (String(record.channelId) !== String(channelId)
                             || record.catalogChannelProjection || record.manualSaved === true) return [record];
                         const message = cachedBuilderChannelMessage(guild, record, buttonInteraction.client.user.id);
@@ -1823,6 +1823,7 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                             components: (message.components || []).map(row => row.toJSON?.() || row),
                         }];
                     });
+                    records = currentChannelRecords();
                     const hasKnownEmbeds = channelHasVisibleManagerRecord(records, channelId);
                     await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: !hasKnownEmbeds }), state, session);
                     markChannel('initial_response');
@@ -1840,6 +1841,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                             || session.closed || state.activeEmbedManager !== session) return;
 
                         markChannel('recent_history_ready');
+                        // A retained post may disappear while the first Discord
+                        // edit or history request is pending. Prune it again
+                        // before merging freshly fetched/deep-history records.
+                        records = currentChannelRecords();
                         // Present the verified newest Discord page immediately;
                         // an unrelated registry hydration or historic pagination
                         // must not hold the user's first visible channel list.
@@ -2016,7 +2021,6 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     || session.closed || state.activeEmbedManager !== session) return;
                 let loaded = record ? loadRecordSnapshotIntoState(state, guild, record, previewRecord, sourceRecord) : false;
                 const loadedFromSnapshot = loaded;
-                if (loaded) state.modifyTarget.cachedMessage = liveMessage;
                 if (!loaded) {
                     const resolved = record ? await resolveEmbedRegistryRecord(guild, record) : null;
                     if (selectionVersion !== session.selectionVersion) return;
