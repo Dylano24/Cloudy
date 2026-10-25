@@ -935,7 +935,14 @@ function mergeCompatibleSearchMatch(left, right) {
             || new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime())
         .at(-1) || null;
 
-    const selected = catalog || chooseBetter(left, right).record;
+    // A confirmed manual Save owns the visible title, even when an earlier
+    // catalog master carries an old label for the very same response family.
+    // Keep the canonical catalog as sourceRecord to preserve Save identity.
+    const explicit = [left, right]
+        .filter(match => match.record?.manualSaved === true || savedSearchSnapshot(match.record).matched)
+        .sort((a, b) => new Date(a.record.updatedAt || 0).getTime()
+            - new Date(b.record.updatedAt || 0).getTime()).at(-1) || null;
+    const selected = explicit?.record || catalog || chooseBetter(left, right).record;
     const record = {
         ...selected,
         ...(live ? { previewRecord: live } : {}),
@@ -944,7 +951,7 @@ function mergeCompatibleSearchMatch(left, right) {
 
     return {
         record,
-        document: left.score >= right.score ? left.document : right.document,
+        document: explicit?.document || (left.score >= right.score ? left.document : right.document),
         score: Math.max(left.score ?? 0, right.score ?? 0),
     };
 }
@@ -1190,8 +1197,17 @@ export function buildSearchChoices(matches) {
         // instead of adding Variant/(2)/(3) noise. Modify-by-channel still keeps
         // access to the physical messages.
         const nameKey = normalize(name);
-        if (!nameKey || usedNames.has(nameKey)) continue;
-        usedNames.set(nameKey, true);
+        if (!nameKey) continue;
+        const explicitRank = record.manualSaved === true || resolved.matched ? 2 : 0;
+        const existing = usedNames.get(nameKey);
+        if (existing) {
+            if (explicitRank > existing.rank) {
+                choices[existing.index] = { name, value: selectionValue(record) };
+                usedNames.set(nameKey, { index: existing.index, rank: explicitRank });
+            }
+            continue;
+        }
+        usedNames.set(nameKey, { index: choices.length, rank: explicitRank });
         choices.push({ name, value: selectionValue(record) });
     }
 
