@@ -93,7 +93,7 @@ async function mutateTemplates(guildId, channelId, operation) {
   }
 }
 
-function dynamicParts(value = '') {
+function dynamicParts(value = '', { literalCustomEmoji = false } = {}) {
   const values = [];
   const sentinel = '\u0000CLOUDY_DYNAMIC\u0000';
   let text = String(value || '').replace(/\{dynamic\}/gi, sentinel);
@@ -106,6 +106,11 @@ function dynamicParts(value = '') {
   text = text.replace(
     /<t:\d+(?::[tTdDfFR])?>|<@!?\d+>|<@&\d+>|<#\d+>|<a?:[^:>]+:\d+>|https?:\/\/\S+|\$[\d,.]+|\b\d{1,3}(?:\.\d+)?%\b|\b\d{17,20}\b|\b(?:red|black|green|even|odd|player|banker|tie)\b|\b\d+(?:\.\d+)?\b/gi,
     match => {
+      // A custom emoji deliberately saved by the owner is literal styling,
+      // not a runtime interpolation slot. Otherwise its <a:name:id> markup
+      // gets converted to {dynamic}, and rendering against the old title
+      // silently drops the emoji (or leaks a raw placeholder).
+      if (literalCustomEmoji && /^<a?:[^:>]+:\d+>$/i.test(match)) return match;
       values.push(match);
       return '{dynamic}';
     },
@@ -127,8 +132,9 @@ function renderDynamic(template, runtime, {
   const templateSource = String(template || '');
   // A wholly variable body represents the complete response, including text.
   if (templateSource.trim().toLowerCase() === '{dynamic}') return source;
-  const runtimeParts = dynamicParts(source);
-  const templateParts = dynamicParts(templateSource);
+  const hasSavedEmoji = /<a?:[^:>]+:\d+>/i.test(templateSource);
+  const runtimeParts = dynamicParts(source, { literalCustomEmoji: hasSavedEmoji });
+  const templateParts = dynamicParts(templateSource, { literalCustomEmoji: true });
   const placeholders = templateParts.tokenized.match(/\{dynamic\}/gi) || [];
 
   if (!placeholders.length) {
