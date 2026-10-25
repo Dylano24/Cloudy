@@ -89,7 +89,8 @@ test('Discord autocomplete produces unique human-readable names without raw temp
   assert.match(source, /const choices = buildSearchChoices\(matches\)/);
 
   const choiceStart = source.indexOf('function choiceDetail');
-  const choiceEnd = source.indexOf('function shortRecordId', choiceStart);
+  const choiceEnd = source.indexOf('export function buildSearchChoices', choiceStart);
+  assert.ok(choiceStart >= 0 && choiceEnd > choiceStart, 'scope the assertion to choiceDetail, not unrelated helpers');
   const choiceBody = source.slice(choiceStart, choiceEnd);
   assert.doesNotMatch(choiceBody, /stableSearchTemplateContext\(record\)/);
 });
