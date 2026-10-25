@@ -68,7 +68,7 @@ export function commercialUnsavedBotTitle(value) {
     if (!original || original.length > 100) return original;
     // Preserve identifiers, amounts, mentions, placeholders and source-owned
     // guides. These are runtime data, not a stable Search title.
-    if (/\d|\{[^}]+\}|<[^>]+>|\$|https?:\/\/|\bZORP\s+Guide\b/i.test(original)) {
+    if (/\d|\{[^}]+\}|<[^>]+>|\$|https?:\/\/|\bZORP\s+Guide\b|\bGambling\s*&\s*Games\b|\b(?:guide|panel|dashboard)\s*$/i.test(original)) {
         return original;
     }
     return commercialBuilderTitle(original) || original;
