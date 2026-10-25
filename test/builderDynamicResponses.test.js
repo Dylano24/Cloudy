@@ -12,6 +12,7 @@ import {
 import { db } from '../src/utils/database.js';
 import { saveEmbedTemplateDecoration } from '../src/services/embedTemplateService.js';
 import { applySavedResponsePayloadTemplates } from '../src/events/fullResponseCatalogReady.js';
+import { MESSAGE_BUILDER_FOOTER_MARKER } from '../src/services/cloudyBrandingService.js';
 import { rememberBuilderRuntimePreview, hydrateBuilderPreviewRecord } from '../src/services/builderRuntimePreviewService.js';
 import { collapseDisplayRecords, loadRecordSnapshotIntoState } from '../src/services/embedManagerService.js';
 import { buildMatches } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
@@ -113,4 +114,45 @@ test('saved Insufficient funds styling appears once in search and in the full li
   assert.equal(data.description, original.description);
   assert.deepEqual(data.fields, original.fields);
   assert.equal(data.color, 0x7A1712);
+});
+
+
+test('new unsaved Cloudy replies and logs share Search title casing without changing body or decoration', async () => {
+  const source = { guildId: 'title-parity-outgoing-guild', channelId: 'title-parity-outgoing-channel', commandName: 'welcome' };
+  const original = {
+    title: '✅ Welcome Ping Updated',
+    description: 'Keep every original value and <@123456789012345678> mention',
+    fields: [{ name: 'Member', value: '<@123456789012345678>', inline: true }],
+    color: 0xFFFFFF,
+    footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+  };
+  const output = await applySavedResponsePayloadTemplates({ embeds: [original] }, source);
+  assert.equal(output.embeds[0].title, 'Welcome ping updated');
+  assert.deepEqual({ ...output.embeds[0], title: original.title }, original);
+
+  const log = await applySavedResponsePayloadTemplates({
+    embeds: [{ title: '⚠️ PERMISSION DENIED', description: 'Action denied' }],
+  }, { ...source, commandName: 'moderation' });
+  assert.equal(log.embeds[0].title, 'Permission denied');
+});
+
+test('runtime title formatting does not rewrite ticket identifiers, dynamic wagers or manually Builder-posted embeds', async () => {
+  const source = { guildId: 'title-parity-protected-guild', channelId: 'title-parity-protected-channel', commandName: 'ticket' };
+  const protectedTitles = [
+    'Ticket #123',
+    'Blackjack — Bet $100',
+    "<@123456789012345678>'s balance",
+    'ZORP Guide',
+    'Roll {dynamic}',
+  ];
+  const payload = { embeds: protectedTitles.map(title => ({ title, description: 'Keep runtime identity' })) };
+  const output = await applySavedResponsePayloadTemplates(payload, source);
+  assert.deepEqual(output.embeds.map(embed => embed.title), protectedTitles);
+
+  const ownerTitle = '✅ OWNER CUSTOM TITLE';
+  const manuallyPosted = { title: ownerTitle, description: 'Owner content',
+    footer: { text: 'Own footer' + MESSAGE_BUILDER_FOOTER_MARKER } };
+  const post = await applySavedResponsePayloadTemplates({ embeds: [manuallyPosted] }, source);
+  assert.equal(post.embeds[0].title, ownerTitle, 'Builder-authored posts retain exact user styling');
+  assert.deepEqual(post.embeds[0], manuallyPosted);
 });
