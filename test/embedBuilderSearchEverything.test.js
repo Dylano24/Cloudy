@@ -100,7 +100,7 @@ test('Modify browser shows every real channel while keeping Search-only archive 
   const service = fs.readFileSync('src/services/embedManagerService.js', 'utf8');
   assert.match(service, /verifyLiveBuilderChannelRecords/);
   assert.match(service, /const liveRecords = await verifyLiveBuilderChannelRecords/);
-  assert.match(service, /Checking current Discord messages/);
+  assert.doesNotMatch(service, /Checking current Discord messages/);
   assert.doesNotMatch(service.slice(service.indexOf('export async function openEmbedManager')),
     /mergeEmbedManagerRecords\(registeredRecords, discoveredRecords\)/);
 

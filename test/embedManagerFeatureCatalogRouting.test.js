@@ -55,7 +55,7 @@ test('unsaved game, ticket and system responses remain in Search but not in Disc
   const overview = buildChannelPayload(guild, projected);
   const channelOptions = overview.components[0].components[0].options;
   assert.ok(channelOptions.some(c => c.data.value === 'gambling-channel'
-    && c.data.description === 'Open to scan older embeds'));
+    && c.data.description === 'No embeds'));
 });
 
 test('only a deliberately saved catalog entry remains attached to its original channel', () => {
