@@ -69,6 +69,10 @@ test('Search autocomplete fast path merges cached canonical Builder records and 
   assert.ok(canonicalStart >= 0 && canonicalEnd > canonicalStart);
   const canonical = source.slice(canonicalStart, canonicalEnd);
   assert.match(canonical, /records: cached\?\.records \|\| null/);
+  assert.match(canonical, /generation === getEmbedRegistryGeneration\(key\)/,
+    'in-flight Search refresh cannot publish records from before Save/Delete');
+  assert.match(canonical, /canonicalSearchCache\.get\(key\)\?\.promise === promise/,
+    'an invalidated promise cannot overwrite the post-Save or post-Delete cache');
 });
 
 test('cold autocomplete never waits for a blocked PostgreSQL read', async t => {
