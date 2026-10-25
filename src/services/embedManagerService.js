@@ -958,7 +958,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
                     .setLabel(shortLabel(name))
                     .setDescription(count
                         ? 'Open the saved embed'
-                        : (checking ? 'Checking saved embeds…' : 'No saved embed yet'))
+                        : (checking ? 'Checking embeds…' : 'Open to scan older embeds'))
                     .setValue(group.channelId);
             }));
         components.push(new ActionRowBuilder().addComponents(select));
@@ -1779,6 +1779,28 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             }
         });
 
+        // A saved registry does not include every historical physical bot post.
+        // Scan only the newest Discord page per channel (three concurrent
+        // requests) in the background; never delay the manager's first paint.
+        // Keep discovered records in this session, not in permanent storage.
+        void discoverEmbedManagerOverviewRecords(
+            guild, records, buttonInteraction.client.user.id,
+        ).then(async discovered => {
+            if (session.closed || state.activeEmbedManager !== session) return;
+            records = accessibleRecords(mergeEmbedManagerRecords(records, discovered));
+            checkingChannelIds.clear();
+            if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
+            await queueEmbedManagerUpdate(
+                state, session,
+                () => buttonInteraction.webhook.editMessage(
+                    managerMessage.id, channelPage(records, 0, checkingChannelIds),
+                ),
+                () => shouldApplyBackgroundRegistryRefresh(state, session),
+            );
+        }).catch(error => logger.debug(
+            'Background channel discovery skipped: ' + (error?.message || error),
+        ));
+
         collector.on('collect', async interaction => {
             touchBuilderSessionMessage(managerMessage);
             session.hasInteracted = true;
@@ -1791,13 +1813,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 if (selectionVersion !== session.selectionVersion) return;
 
                 if (interaction.customId === 'simple_embed_modify_back') {
-                    await updateEmbedManager(interaction, channelPage(records, 0), state, session);
+                    await updateEmbedManager(interaction, channelPage(records, 0, checkingChannelIds), state, session);
                     return;
                 }
 
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
-                    await updateEmbedManager(interaction, channelPage(records, page), state, session);
+                    await updateEmbedManager(interaction, channelPage(records, page, checkingChannelIds), state, session);
                     return;
                 }
 
