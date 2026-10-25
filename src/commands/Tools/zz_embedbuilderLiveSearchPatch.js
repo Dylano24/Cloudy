@@ -1202,6 +1202,60 @@ function parseSelection(value) {
     };
 }
 
+// An immediate static preview must never suppress live dynamic examples
+// (bets, winners, ticket data) or a source title different from the clean
+// Search label. Those continue through the existing runtime hydration path.
+export function canUseImmediateCatalogPreview(record) {
+    if (String(record?.source || '').toLowerCase() !== 'system-catalog'
+        || (record.previewRecord && !record.previewRecord.detached
+            && String(record.previewRecord.source || '').toLowerCase() !== 'system-catalog')) return false;
+    const data = record.snapshot || {};
+    if (!data.description && !data.fields?.length) return false;
+    if (normalize(data.title) !== normalize(recordTitle(record))) return false;
+    // The displayed Search identity can be cleaner than a stale catalog title.
+    // A mismatch cannot safely take the static shortcut: the existing source
+    // resolution remains responsible for choosing the authoritative preview.
+    const offeredTitle = commercialBuilderTitle(record.name || record.title);
+    if (offeredTitle && normalize(offeredTitle) !== normalize(recordTitle(record))) return false;
+    const context = stableSearchTemplateContext(record);
+    if (/^(?:gambling|economy|tickets|ticket-logs|ticket-transcripts|reports)(?:\/|$)/.test(context)) return false;
+    const visible = [
+        data.title, data.description,
+        ...(Array.isArray(data.fields) ? data.fields.flatMap(field => [field?.name, field?.value]) : []),
+    ].filter(Boolean).join(' ');
+    return !/\{dynamic\}|<t:\d+|<@!?\d+>|<@&\d+>|<#\d+>/.test(visible);
+}
+
+// The autocomplete result is already permission-scoped and canonicalized.
+// Cache only the exact choices Discord actually showed, never a whole
+// unfiltered registry or another user's search results.
+const recentSearchSelections = new Map();
+function rememberOfferedSearchSelections(interaction, matches, choices) {
+    // This is only an ephemeral click-through cache, not a durable search
+    // archive. Prune expired sessions and cap distinct users to avoid retaining
+    // large snapshots indefinitely on a commercial multi-server bot.
+    const now = Date.now();
+    for (const [key, offered] of recentSearchSelections) {
+        if (offered.expiresAt <= now) recentSearchSelections.delete(key);
+    }
+    const offeredValues = new Set(choices.map(choice => choice.value));
+    const offeredRecords = new Map();
+    for (const match of matches) {
+        const value = selectionValue(match.record);
+        if (offeredValues.has(value)) offeredRecords.set(value, match.record);
+    }
+    const cacheKey = selectionKey(interaction);
+    recentSearchSelections.delete(cacheKey);
+    recentSearchSelections.set(cacheKey, {
+        generation: getEmbedRegistryGeneration(interaction.guildId),
+        expiresAt: now + 90_000,
+        records: offeredRecords,
+    });
+    while (recentSearchSelections.size > 250) {
+        recentSearchSelections.delete(recentSearchSelections.keys().next().value);
+    }
+}
+
 // Only the slow selection preparation needs a defer. Warm selections retain
 // the direct first paint; cold storage/Discord reads cannot expire the callback.
 export async function withBuilderSelectionAcknowledgement(interaction, prepare, delayMs = 600) {
@@ -1226,37 +1280,50 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     const selected = parseSelection(interaction.options?.getString?.('search') || '');
     if (!selected || !interaction.guildId) return null;
     const markSelection = createBuilderPerformanceTracker('search_selection');
-    const findSelected = records => {
-        // Selection values already carry the physical index emitted by Search.
-        // Check only that record's visibility; rebuilding thousands of catalog
-        // choices for one selected ID wastes CPU before the preview appears.
-        const candidate = records.find(item =>
-            String(item.channelId) === selected.channelId
-            && String(item.messageId) === selected.messageId
-            && Number(item.embedIndex || 0) === selected.embedIndex
-        );
-        return candidate ? builderSearchDisplayRecords([candidate])[0] || null : null;
-    };
-
-    // Reuse the complete registry/canonical snapshots already used to offer
-    // this result. Only a genuinely missing/cold selection needs full discovery.
-    let records = await loadFastEmbedBuilderSearchRecords(interaction);
-    let selectedRecord = findSelected(records);
-    if (!selectedRecord) {
-        // A cold Search selection must not block on every saved scope and the
-        // entire canonical catalog. Refresh the registry once, then resolve
-        // this exact choice. Full discovery remains a final fallback only.
-        const freshRegistry = await getEmbedRegistry(interaction.guildId, { cached: true })
-            .catch(() => []);
-        records = mergeSearchRecords(interaction.guildId, freshRegistry);
-        selectedRecord = findSelected(records);
+    // Discord already received the exact, canonical Search record during
+    // autocomplete. Reuse it for the same user and registry generation instead
+    // of scanning and merging the entire catalog again after their click.
+    // Access is revalidated at selection time; a Save/Delete invalidates this
+    // snapshot through the registry generation guard.
+    const offered = recentSearchSelections.get(selectionKey(interaction));
+    const selectedValue = [selected.channelId, selected.messageId, selected.embedIndex].join(':');
+    let record = null;
+    let records = [];
+    if (offered?.generation === getEmbedRegistryGeneration(interaction.guildId)
+        && offered.expiresAt > Date.now()) {
+        const candidate = offered.records.get(selectedValue);
+        record = candidate
+            ? sanitizeSearchRecordAccess(interaction.guild, interaction.member, candidate, { requireSend: true })
+            : null;
+        if (record) records = [record, record.previewRecord, record.sourceRecord].filter(Boolean);
     }
-    if (!selectedRecord) {
-        records = await loadEmbedBuilderSearchRecords(interaction);
-        selectedRecord = findSelected(records);
+    const fromAutocomplete = Boolean(record);
+    if (!record) {
+        const findSelected = items => {
+            const candidate = items.find(item =>
+                String(item.channelId) === selected.channelId
+                && String(item.messageId) === selected.messageId
+                && Number(item.embedIndex || 0) === selected.embedIndex
+            );
+            return candidate ? builderSearchDisplayRecords([candidate])[0] || null : null;
+        };
+        // A cold or expired selection retains the complete original resolution
+        // path. No saved record or Source/Save pairing is discarded.
+        records = await loadFastEmbedBuilderSearchRecords(interaction);
+        let selectedRecord = findSelected(records);
+        if (!selectedRecord) {
+            const freshRegistry = await getEmbedRegistry(interaction.guildId, { cached: true })
+                .catch(() => []);
+            records = mergeSearchRecords(interaction.guildId, freshRegistry);
+            selectedRecord = findSelected(records);
+        }
+        if (!selectedRecord) {
+            records = await loadEmbedBuilderSearchRecords(interaction);
+            selectedRecord = findSelected(records);
+        }
+        if (!selectedRecord) return null;
+        record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
     }
-    if (!selectedRecord) return null;
-    let record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
     markSelection('record_ready');
     const savedManualSnapshot = record.source === 'embed-builder'
         && record.manualSaved === true && record.snapshot
@@ -1271,7 +1338,12 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
         && records.every(candidate => candidate.detached
             || String(candidate.source || '').toLowerCase() === 'system-catalog')
     );
-    const runtimePreparation = independentRuntime
+    // A complete source snapshot offered by autocomplete is already a valid
+    // preview. Do not block its first paint on a legacy runtime-example DB
+    // lookup that can take over a second. Manual Saves and live peers still
+    // follow their existing authoritative preview paths.
+    const readyCatalogSnapshot = fromAutocomplete && canUseImmediateCatalogPreview(record);
+    const runtimePreparation = readyCatalogSnapshot ? Promise.resolve(record) : independentRuntime
         ? hydrateBuilderPreviewRecord(
             interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
         ).catch(() => null)
@@ -1457,6 +1529,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             const records = await loadFastEmbedBuilderSearchRecords(interaction);
             const matches = buildAutocompleteMatches(interaction.guild, records, focused.value);
             const choices = buildSearchChoices(matches);
+            rememberOfferedSearchSelections(interaction, matches, choices);
             count = choices.length;
             markAutocomplete('results_ready');
             await interaction.respond(choices);

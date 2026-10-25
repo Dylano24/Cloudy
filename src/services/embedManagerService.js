@@ -958,7 +958,7 @@ export function buildChannelPayload(guild, records, page = 0, checkingChannelIds
                     .setLabel(shortLabel(name))
                     .setDescription(count
                         ? 'Open the saved embed'
-                        : (checking ? 'Checking saved embeds…' : 'No saved embed yet'))
+                        : (checking ? 'Checking embeds…' : 'Open to scan older embeds'))
                     .setValue(group.channelId);
             }));
         components.push(new ActionRowBuilder().addComponents(select));
@@ -1151,12 +1151,22 @@ export function loadRecordSnapshotIntoState(
 
     // A catalog preview can match its clean Search label in letter case only.
     // Never normalize a physical channel embed, saved custom title or guide.
+    const sourceContext = stableSystemTemplateContext(data);
+    const hasPhysicalPreview = Boolean(previewRecord && !previewRecord.detached
+        && !['system-catalog', 'runtime-preview'].includes(String(previewRecord.source || '').toLowerCase()));
+    // The clean Search title is also the preview title for unsaved botlog and
+    // welcome status templates when differences are only casing/decorative
+    // emojis. Never rewrite the source, a manual Save, or a real Discord post.
+    const comparableTitle = stripCustomEmojiMarkup(displayTitle || '')
+        .replace(/\p{Extended_Pictographic}/gu, ' ')
+        .replace(/[\uFE0F\u200D]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
     const canMatchPreviewCase = record.source === 'system-catalog'
-        && !record.manualSaved && !savedDisplay.matched
-        && (/^botlog(?:\/|$)/.test(stableSystemTemplateContext(data))
+        && !record.manualSaved && !savedDisplay.matched && !hasPhysicalPreview
+        && (/^(?:botlog|welcome)(?:\/|$)/.test(sourceContext)
             || isAdditionalStatusTitle(displayTitle)
             || /^(?:success|failed|error|warning|information|invalid|expired|too fast)$/i.test(displayTitle || ''))
-        && previewTitle && String(displayTitle).toLowerCase() === String(previewTitle).toLowerCase();
+        && previewTitle && comparableTitle.toLowerCase() === String(previewTitle).toLowerCase();
     state.title = templateKind === 'content' ? null : (canMatchPreviewCase ? previewTitle : displayTitle || null);
     state.message = displayDescription || null;
     state.embedFields = Array.isArray(displayFields)
@@ -1531,7 +1541,7 @@ export function embedManagerCheckingChannelIds(guild, records) {
     );
 }
 
-export async function discoverEmbedManagerOverviewRecords(guild, records, botUserId) {
+export async function discoverEmbedManagerOverviewRecords(guild, records, botUserId, { shouldContinue = null } = {}) {
     if (!guild || !botUserId) return [];
 
     const channels = [...guild.channels.cache.values()].filter(channel =>
@@ -1547,7 +1557,7 @@ export async function discoverEmbedManagerOverviewRecords(guild, records, botUse
     const workers = Array.from(
         { length: Math.min(OVERVIEW_DISCOVERY_CONCURRENCY, channels.length) },
         async () => {
-            while (cursor < channels.length) {
+            while (cursor < channels.length && (!shouldContinue || shouldContinue())) {
                 const channel = channels[cursor++];
                 const found = await discoverRecentChannelEmbeds(
                     guild,
@@ -1779,6 +1789,34 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             }
         });
 
+        // A saved registry does not include every historical physical bot post.
+        // Scan only the newest Discord page per channel (three concurrent
+        // requests) in the background; never delay the manager's first paint.
+        // Keep discovered records in this session, not in permanent storage.
+        void discoverEmbedManagerOverviewRecords(
+            guild, records, buttonInteraction.client.user.id, {
+                shouldContinue: () => !session.closed && state.activeEmbedManager === session,
+            },
+        ).then(async discovered => {
+            if (session.closed || state.activeEmbedManager !== session) return;
+            // Do not issue a redundant Discord edit when no channel was
+            // pending and discovery found nothing. That update can race with
+            // the user's first navigation and force an unnecessary defer.
+            if (!discovered.length && !checkingChannelIds.size) return;
+            records = accessibleRecords(mergeEmbedManagerRecords(records, discovered));
+            checkingChannelIds.clear();
+            if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
+            await queueEmbedManagerUpdate(
+                state, session,
+                () => buttonInteraction.webhook.editMessage(
+                    managerMessage.id, channelPage(records, 0, checkingChannelIds),
+                ),
+                () => shouldApplyBackgroundRegistryRefresh(state, session),
+            );
+        }).catch(error => logger.debug(
+            'Background channel discovery skipped: ' + (error?.message || error),
+        ));
+
         collector.on('collect', async interaction => {
             touchBuilderSessionMessage(managerMessage);
             session.hasInteracted = true;
@@ -1791,13 +1829,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                 if (selectionVersion !== session.selectionVersion) return;
 
                 if (interaction.customId === 'simple_embed_modify_back') {
-                    await updateEmbedManager(interaction, channelPage(records, 0), state, session);
+                    await updateEmbedManager(interaction, channelPage(records, 0, checkingChannelIds), state, session);
                     return;
                 }
 
                 if (interaction.customId.startsWith('simple_embed_modify_channel_page:')) {
                     const page = Number(interaction.customId.split(':').at(-1)) || 0;
-                    await updateEmbedManager(interaction, channelPage(records, page), state, session);
+                    await updateEmbedManager(interaction, channelPage(records, page, checkingChannelIds), state, session);
                     return;
                 }
 
