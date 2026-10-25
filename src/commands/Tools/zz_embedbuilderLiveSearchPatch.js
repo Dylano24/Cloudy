@@ -657,26 +657,6 @@ function isTransientAssistantCatalogRecord(record) {
         || title === 'cloudy support assistant';
 }
 
-// Builder Delete is authoritative for Search visibility. Canonical source
-// projections and pre-existing physical peers must not resurrect the deleted
-// logical catalog item via a different Search record type.
-export function isBuilderDeletedSearchRecord(record) {
-    if (!record) return false;
-    const peers = [record, record.sourceRecord, record.previewRecord].filter(Boolean);
-    for (const peer of peers) {
-        if (isSystemCatalogHiddenFromBuilder(peer)) return true;
-        // A catalog-backed projection can be labeled modified-template/cloudy,
-        // but its embedded author still carries the same durable catalog key.
-        if (String(peer.source || '').toLowerCase() === 'embed-builder') continue;
-        const raw = peer.snapshot || getEmbedRegistrySnapshot(peer);
-        if (!/^Cloudy template key:/i.test(String(raw?.author?.name || ''))) continue;
-        if (isSystemCatalogHiddenFromBuilder({
-            ...peer, source: 'system-catalog', snapshot: raw,
-        })) return true;
-    }
-    return false;
-}
-
 function builderSearchDisplayRecords(records) {
     // Search stays complete, but a canonical Cloudy template is shown only once.
     // Runtime/history mirrors are not separate editable Builder items.
@@ -690,7 +670,7 @@ function builderSearchDisplayRecords(records) {
         if (!channelId || !messageId) continue;
 
         if (source === 'embed-builder' && record.manualSaved === false) continue;
-        if (isBuilderDeletedSearchRecord(record)) continue;
+        if (isSystemCatalogHiddenFromBuilder(record)) continue;
         // The intermediate Pinging... acknowledgement is not another reusable
         // response type; only the final latency reply is editable in Search.
         if (source !== 'embed-builder' && /^(?:ping|pong)$/.test(normalize(recordTitle(record)))
