@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { Collection, Embed } from 'discord.js';
 import { performance } from 'node:perf_hooks';
 import { db } from '../src/utils/database.js';
+import { logger } from '../src/utils/logger.js';
 import {
   getEmbedRegistry, peekEmbedRegistry, removeEmbedRegistryRecord,
 } from '../src/services/embedRegistryService.js';
@@ -412,4 +413,34 @@ test('Builder stage telemetry includes fast samples in p50/p95 and records each 
   assert.equal(reports[19].sampleCount, 20);
   assert.equal(reports[19].p50Ms, 10);
   assert.equal(reports[19].p95Ms, 19);
+});
+
+test('abandoned queued channel updates are excluded from visible latency samples', async t => {
+  const record = savedRecord('manager-abandoned-visibility-samples');
+  t.mock.method(db, 'get', async () => [record]);
+  const visible = [];
+  t.mock.method(logger, 'warn', message => {
+    if (typeof message !== 'string' || !message.startsWith('[BUILDER_PERFORMANCE] ')) return;
+    const sample = JSON.parse(message.slice(message.indexOf('{')));
+    if (sample.action === 'channel_list' && sample.phase === 'first_visible') visible.push(sample);
+  });
+  const fixture = managerFixture(t, record);
+  await openEmbedManager(fixture.opening, fixture.state, fixture.refresh);
+  await settle();
+  const updateGate = deferred();
+  const pageGate = deferred();
+  t.after(() => { updateGate.resolve(); pageGate.resolve(new Collection()); });
+  fixture.stallUpdate(updateGate);
+  fixture.stallPage(pageGate);
+  const first = fixture.chooseChannel();
+  await settle();
+  const abandoned = fixture.chooseChannel();
+  await settle();
+  const latest = fixture.chooseChannel();
+  await settle();
+  updateGate.resolve();
+  await settle();
+  assert.equal(abandoned.length, 0, 'a superseded queued selection must not reach Discord');
+  assert.equal(first.length + latest.length, 2);
+  assert.equal(visible.length, 2, 'only the two delivered paints count toward p50/p95');
 });
