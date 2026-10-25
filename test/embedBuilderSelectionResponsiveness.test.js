@@ -265,3 +265,52 @@ test('immediate catalog previews retain dynamic values, live peers, and real sou
     ...base, snapshot: { ...base.snapshot, author: { name: 'Cloudy template key: game:roulette:won || Cloudy context: gambling/roulette' } },
   }), false, 'gambling examples are runtime-owned even when their sample body is static');
 });
+
+
+test('an unsaved Welcome Ping status opens with the clean Search title and no stray emoji', () => {
+  const record = {
+    guildId: 'welcome-title-guild', channelId: 'welcome',
+    messageId: 'catalog-message', embedIndex: 0, source: 'system-catalog',
+    manualSaved: false,
+    name: '✅ Welcome Ping Updated',
+    snapshot: {
+      title: '✅ Welcome Ping Updated', description: 'Original welcome ping instructions',
+      author: { name: 'Cloudy template key: source:welcome-ping || Cloudy context: welcome/ping' },
+    },
+  };
+  const state = {};
+  const original = structuredClone(record);
+  assert.equal(applyInitialSearchSelectionToState({
+    guild: { id: record.guildId },
+    __cloudyInitialBuilderSelection: { record, previewTitle: 'Welcome ping updated' },
+  }, state), true);
+  assert.equal(state.title, 'Welcome ping updated');
+  assert.equal(state.message, record.snapshot.description);
+  assert.equal(state.modifyTarget.sourceEmbedData.title, original.snapshot.title);
+  assert.deepEqual(record, original, 'preview formatting must not mutate the canonical source');
+});
+
+test('a real live Welcome Ping preview keeps the physical Discord title intact', () => {
+  const record = {
+    guildId: 'welcome-live-title-guild', channelId: 'welcome',
+    messageId: 'catalog-message', embedIndex: 0, source: 'system-catalog',
+    manualSaved: false,
+    snapshot: {
+      title: '✅ Welcome Ping Updated', description: 'Source description',
+      author: { name: 'Cloudy template key: source:welcome-ping || Cloudy context: welcome/ping' },
+    },
+  };
+  const previewRecord = {
+    guildId: record.guildId, channelId: 'welcome', messageId: 'live-message',
+    embedIndex: 0, source: 'cloudy', snapshot: {
+      title: '✅ Welcome Ping Updated', description: 'Live Discord description',
+    },
+  };
+  const state = {};
+  assert.equal(applyInitialSearchSelectionToState({
+    guild: { id: record.guildId },
+    __cloudyInitialBuilderSelection: { record, previewRecord, previewTitle: 'Welcome ping updated' },
+  }, state), true);
+  assert.equal(state.title, previewRecord.snapshot.title);
+  assert.equal(state.message, previewRecord.snapshot.description);
+});
