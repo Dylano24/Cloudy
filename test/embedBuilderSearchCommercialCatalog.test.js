@@ -64,20 +64,19 @@ test('Search hides Builder/internal UI records even if they leak into a source l
   assert.deepEqual(matches.map(match => match.document.title), ['Invalid code']);
 });
 
-test('Search keeps different same-title responses and gives them distinct readable names', () => {
+test('Search dropdown shows only the embed title even when same-title previews have different bodies', () => {
   const guild = guildWithChannel();
   const matches = buildMatches(guild, [
     automated({ id: '1', description: 'Scheduled task was removed.' }),
     automated({ id: '2', description: 'Verification task was removed.' }),
   ], 'task removed');
 
-  assert.equal(matches.length, 2);
-
+  assert.equal(matches.length, 2, 'different original response bodies remain available to the underlying system');
   const choices = buildSearchChoices(matches);
-  assert.equal(new Set(choices.map(choice => choice.name)).size, 2);
-  assert.ok(choices.every(choice => !/Variant \d+/i.test(choice.name)));
-  assert.ok(choices.some(choice => /Scheduled task/i.test(choice.name)));
-  assert.ok(choices.some(choice => /Verification task/i.test(choice.name)));
+  assert.deepEqual(choices.map(choice => choice.name), ['Task removed']);
+  assert.ok(choices.every(choice => !/Scheduled|Verification|Variant|\{dynamic\}/i.test(choice.name)));
+  assert.equal(matches[0].record.snapshot.description, 'Scheduled task was removed.');
+  assert.equal(matches[1].record.snapshot.description, 'Verification task was removed.');
 });
 
 test('Search collapses identical manual Builder embeds into one clean result', () => {
