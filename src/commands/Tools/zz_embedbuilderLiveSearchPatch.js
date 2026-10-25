@@ -493,6 +493,31 @@ const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
 const lastRegistrySearchRefresh = new Map();
 const lastCanonicalSearchRefresh = new Map();
 const lastCatalogSearchWarm = new Map();
+const lastSearchScopeWarm = new Map();
+
+// Prefetch only the channels in the displayed Search shortlist, after Discord
+// has received its autocomplete response. The selected embed then finds its
+// saved template decoration already in memory rather than awaiting DB scopes.
+function scheduleSearchSelectionScopeWarm(guildId, matches = []) {
+    const id = String(guildId || '');
+    if (!id) return;
+    const now = Date.now();
+    const channels = [...new Set(matches.slice(0, 12)
+        .map(match => String(match.record?.channelId || ''))
+        .filter(Boolean))].slice(0, 6)
+        .filter(channelId => {
+            const key = id + ':' + channelId;
+            if (now - (lastSearchScopeWarm.get(key) || 0) < 15_000) return false;
+            lastSearchScopeWarm.set(key, now);
+            return true;
+        });
+    if (!channels.length) return;
+    const timer = setTimeout(() => {
+        void warmSavedEmbedTemplateScopes(id, channels).catch(error =>
+            logger.debug('[EMBED_SEARCH] Scope prewarm skipped: ' + error?.message));
+    }, 0);
+    timer.unref?.();
+}
 
 // Discord autocomplete has a short, non-deferable deadline. Database and
 // full-catalog refreshes are scheduled AFTER replying, never per keystroke.
@@ -1419,6 +1444,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
     embedBuilderCommand.autocomplete = async function liveEmbedAutocomplete(interaction) {
         const started = performance.now();
         let count = 0;
+        let visibleMatches = [];
         try {
             if (!interaction.guildId || !interaction.guild) {
                 await interaction.respond([]);
@@ -1433,6 +1459,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             const records = await loadFastEmbedBuilderSearchRecords(interaction);
             const matches = buildAutocompleteMatches(interaction.guild, records, focused.value);
             const choices = buildSearchChoices(matches);
+            visibleMatches = matches.slice(0, 12);
             count = choices.length;
             await interaction.respond(choices);
         } catch (error) {
@@ -1452,7 +1479,13 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                     guildId: interaction.guildId, elapsedMs, resultCount: count,
                 });
             }
-            if (interaction.guild) scheduleAutocompleteSearchRefresh(interaction);
+            if (interaction.guild) {
+                scheduleAutocompleteSearchRefresh(interaction);
+                // Read-ahead happens only after replying; never delay typing.
+                if (visibleMatches.length) {
+                    scheduleSearchSelectionScopeWarm(interaction.guildId, visibleMatches);
+                }
+            }
         }
     };
 
