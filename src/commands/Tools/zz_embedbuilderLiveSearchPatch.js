@@ -1207,17 +1207,29 @@ function parseSelection(value) {
 // unfiltered registry or another user's search results.
 const recentSearchSelections = new Map();
 function rememberOfferedSearchSelections(interaction, matches, choices) {
+    // This is only an ephemeral click-through cache, not a durable search
+    // archive. Prune expired sessions and cap distinct users to avoid retaining
+    // large snapshots indefinitely on a commercial multi-server bot.
+    const now = Date.now();
+    for (const [key, offered] of recentSearchSelections) {
+        if (offered.expiresAt <= now) recentSearchSelections.delete(key);
+    }
     const offeredValues = new Set(choices.map(choice => choice.value));
     const offeredRecords = new Map();
     for (const match of matches) {
         const value = selectionValue(match.record);
         if (offeredValues.has(value)) offeredRecords.set(value, match.record);
     }
-    recentSearchSelections.set(selectionKey(interaction), {
+    const cacheKey = selectionKey(interaction);
+    recentSearchSelections.delete(cacheKey);
+    recentSearchSelections.set(cacheKey, {
         generation: getEmbedRegistryGeneration(interaction.guildId),
-        expiresAt: Date.now() + 90_000,
+        expiresAt: now + 90_000,
         records: offeredRecords,
     });
+    while (recentSearchSelections.size > 250) {
+        recentSearchSelections.delete(recentSearchSelections.keys().next().value);
+    }
 }
 
 // Only the slow selection preparation needs a defer. Warm selections retain
