@@ -59,6 +59,7 @@ import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord, filterEmbedBuil
 import { discoverMissingChannelEmbed,
     discoverMissingChannelEmbeds,
     discoverRecentChannelEmbeds,
+    peekIndexedRecentChannelEmbeds,
     isUsableMessage } from './embedMissingChannelService.js';
 import { discardPendingEmbedEditorUpdates } from './embedColorPickerSessionService.js';
 import {
@@ -82,6 +83,28 @@ const CLOSED_MANAGER_ERROR_CODES = new Set([10008, 10062, 50027]);
 const OVERVIEW_DISCOVERY_CONCURRENCY = 3;
 const historyScanTimes = new Map();
 const historyScanJobs = new Map();
+const overviewPrewarmJobs = new Map();
+const OVERVIEW_PREWARM_INTERVAL_MS = 90_000;
+
+// Prime only read-only physical snapshots while the user is opening the
+// Builder, before they request Modify. Never Save, Post, or move any message.
+function prewarmEmbedManagerOverview(guild, botUserId) {
+    if (!guild?.id || !botUserId) return Promise.resolve([]);
+    const guildId = String(guild.id);
+    const existing = overviewPrewarmJobs.get(guildId);
+    if (existing && Date.now() - existing.startedAt < OVERVIEW_PREWARM_INTERVAL_MS) {
+        return existing.promise;
+    }
+    const job = discoverEmbedManagerOverviewRecords(
+        guild, [], botUserId,
+    ).catch(error => {
+        logger.debug('Builder channel prewarm unavailable: ' + (error?.message || error));
+        return [];
+    });
+    overviewPrewarmJobs.set(guildId, { startedAt: Date.now(), promise: job });
+    return job;
+}
+
 const activeEmbedManagerSaves = new Set();
 const TEMPLATE_CHANNEL_IDS = new Set([
     '1539375620885323826',
@@ -1657,14 +1680,16 @@ export async function verifyLiveBuilderChannelRecords(
 
 export function prepareEmbedManager(guild, state) {
     if (!guild?.id || state.embedManagerPrepared) return;
-    // Preserve the existing live-only channel browser contents. Only prefetch its
-    // persisted records; no Discord history scan or catalog rewrite is involved.
+    // Populate both the stable saved registry and short-lived *read-only*
+    // physical Discord index before the user enters Modify. Cold Discord
+    // reads continue asynchronously; prior warm sessions open immediately.
     state.embedManagerPreparedGeneration = getEmbedRegistryGeneration(guild.id);
     const currentRecords = peekEmbedRegistry(guild.id, { current: true });
     state.embedManagerPrepared = currentRecords ? Promise.resolve(currentRecords) : getEmbedRegistry(guild.id).catch(error => {
         logger.debug(`Channel browser preload skipped: ${error?.message || error}`);
         return null;
     });
+    state.embedManagerDiscovery = prewarmEmbedManagerOverview(guild, guild.client?.user?.id);
 }
 
 export async function openEmbedManager(buttonInteraction, state, refreshBuilder) {
@@ -1718,8 +1743,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         );
         const savedChannelRecords = allStoredRecords.filter(record =>
             record.manualSaved === true && record.source === 'embed-builder');
+        // Warmly indexed Discord posts were verified during a read-only scan.
+        // Only keep ones still present in the current message cache; Save and
+        // Delete remain authoritative and never run while merely browsing.
+        const knownPhysical = peekIndexedRecentChannelEmbeds(guild)
+            .filter(record => cachedBuilderChannelMessage(guild, record, buttonInteraction.client.user.id));
         let records = accessibleRecords(mergeEmbedManagerRecords(
-            [], [...catalogTemplates, ...savedChannelRecords],
+            [], [...catalogTemplates, ...savedChannelRecords, ...knownPhysical],
         ));
         const checkingChannelIds = embedManagerCheckingChannelIds(guild, records);
         const initialPayload = guild.channels.cache.size
@@ -1796,11 +1826,14 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         // Scan only the newest Discord page per channel (three concurrent
         // requests) in the background; never delay the manager's first paint.
         // Keep discovered records in this session, not in permanent storage.
-        void discoverEmbedManagerOverviewRecords(
-            guild, records, buttonInteraction.client.user.id, {
-                shouldContinue: () => !session.closed && state.activeEmbedManager === session,
-            },
-        ).then(async discovered => {
+        const discovery = state.embedManagerDiscovery
+            || discoverEmbedManagerOverviewRecords(
+                guild, records, buttonInteraction.client.user.id, {
+                    shouldContinue: () => !session.closed && state.activeEmbedManager === session,
+                },
+            );
+        delete state.embedManagerDiscovery;
+        void discovery.then(async discovered => {
             if (session.closed || state.activeEmbedManager !== session) return;
             // Do not issue a redundant Discord edit when no channel was
             // pending and discovery found nothing. That update can race with

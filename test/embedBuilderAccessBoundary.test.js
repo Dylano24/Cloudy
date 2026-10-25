@@ -15,6 +15,7 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
   const bot = { id: 'bot' };
   const member = { id: owner.id, user: owner };
   const publicPayloads = [];
+  const privatePayloads = [];
   const childPayloads = [];
   const childMessages = [];
   function message(id, payload = {}) {
@@ -56,13 +57,26 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
   guild.channels.cache.set(channel.id, channel);
   const preview = message('preview');
   const interaction = {
+    id: 'builder-access-' + guildId, createdTimestamp: Date.now(),
     user: owner, member, guild, guildId, channel, client,
     options: { getString: () => null },
-    webhook: { async deleteMessage() {}, async editMessage() {} },
+    webhook: {
+      async deleteMessage() {},
+      async editMessage(messageId, payload) {
+        if (String(messageId) === String(preview.id)) return preview.edit(payload);
+        if (String(messageId) === String(this.lastDashboard?.id)) return this.lastDashboard.edit(payload);
+        return null;
+      },
+    },
     async deleteReply() {}, async fetchReply() { return preview; },
     async reply(payload) {
-      publicPayloads.push(payload); this.replied = true; preview.embeds = payload.embeds || [];
+      privatePayloads.push(payload); this.replied = true; preview.embeds = payload.embeds || [];
       return { resource: { message: preview } };
+    },
+    async followUp(payload) {
+      privatePayloads.push(payload);
+      this.lastDashboard = message('dashboard', payload);
+      return this.lastDashboard;
     },
   };
   t.mock.method(db, 'get', async (_key, fallback) => fallback);
@@ -77,23 +91,24 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
       async update() {}, async editReply() {},
     };
   }
-  return { guild, member, channel, client, preview, interaction, publicPayloads, childPayloads, childMessages, component };
+  return { guild, member, channel, client, preview, interaction, publicPayloads, privatePayloads, childPayloads, childMessages, component };
 }
 function buttons(payload) { return (payload.components || []).flatMap(row => (row.toJSON?.() || row).components || []); }
 async function open(t, options) {
   const f = fixture(t, options);
   await builder.execute(f.interaction);
-  // The root dashboard is the last public send, and owns every owner-gated control.
-  const dashboard = f.publicPayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title and message'));
+  // Both preview and dashboard stay private to the Builder owner.
+  const dashboard = f.privatePayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title and message'));
   assert.ok(dashboard);
-  t.after(() => f.channel.lastMessage.collector.stop('test-ended'));
+  t.after(() => f.interaction.lastDashboard?.collector.stop('test-ended'));
   return { ...f, dashboard };
 }
 
-test('public Builder keeps its layout with direct content and color links', async t => {
+test('private Builder keeps its layout with direct content and color links', async t => {
   const f = await open(t);
-  assert.equal(f.publicPayloads.length, 2);
-  assert.ok(f.publicPayloads.every(payload => !(Number(payload.flags || 0) & MessageFlags.Ephemeral)));
+  assert.equal(f.publicPayloads.length, 0);
+  assert.equal(f.privatePayloads.length, 2);
+  assert.ok(f.privatePayloads.every(payload => Number(payload.flags || 0) & MessageFlags.Ephemeral));
   assert.equal(f.dashboard.components.length, 5);
   const launchButtons = buttons(f.dashboard).filter(button => ['Edit title and message', 'Set side color'].includes(button.label));
   assert.equal(launchButtons.length, 2);
@@ -103,20 +118,14 @@ test('public Builder keeps its layout with direct content and color links', asyn
 
 test('direct content and color editors still update the preview without private launch replies', async t => {
   const f = fixture(t);
-  let rootCollector;
-  const originalSend = f.channel.send;
-  f.channel.send = async payload => {
-    const dashboard = await originalSend.call(f.channel, payload);
-    const originalCreate = dashboard.createMessageComponentCollector;
-    dashboard.createMessageComponentCollector = options => { rootCollector = originalCreate.call(dashboard, options); return rootCollector; };
-    return dashboard;
-  };
   await builder.execute(f.interaction);
+  const rootCollector = f.interaction.lastDashboard.collector;
   t.after(() => rootCollector.stop('test-ended'));
+  assert.equal(f.publicPayloads.length, 0);
   assert.equal(rootCollector.options.filter(f.component('simple_embed_open_content', { id: 'another-viewer' })), false);
   assert.equal(f.childPayloads.length, 0);
-  const contentUrl = new URL(buttons(f.channel.lastMessage).find(button => button.label === 'Edit title and message').url);
-  const colorUrl = new URL(buttons(f.channel.lastMessage).find(button => button.label === 'Set side color').url);
+  const contentUrl = new URL(buttons(f.interaction.lastDashboard).find(button => button.label === 'Edit title and message').url);
+  const colorUrl = new URL(buttons(f.interaction.lastDashboard).find(button => button.label === 'Set side color').url);
   assert.equal(contentUrl.searchParams.get('mode'), 'content');
   assert.equal(contentUrl.searchParams.get('session'), colorUrl.searchParams.get('session'));
   const token = contentUrl.searchParams.get('session');
@@ -168,18 +177,19 @@ test('selected or stale pending private search records never enter the public pr
     if (pending) f.interaction.__cloudyInitialBuilderSelection = { record };
     else f.interaction.options.getString = () => `${record.channelId}:${record.messageId}:0`;
     await builder.execute(f.interaction);
-    t.after(() => f.channel.lastMessage.collector.stop('test-ended'));
-    assert.ok(f.publicPayloads.every(payload => (payload.embeds || []).every(embed => !JSON.stringify(embed.toJSON()).includes('Private draft'))));
+    t.after(() => f.interaction.lastDashboard?.collector.stop('test-ended'));
+    assert.equal(f.publicPayloads.length, 0);
+    assert.ok(f.privatePayloads.every(payload => (payload.embeds || []).every(embed => !JSON.stringify(embed.toJSON()).includes('Private draft'))));
   }
 });
 
 test('forged Post selection cannot use bot-only permissions, while an allowed channel still posts', async t => {
   const f = fixture(t);
   await builder.execute(f.interaction);
-  const rootCollector = f.channel.lastMessage.collector;
+  const rootCollector = f.interaction.lastDashboard.collector;
   t.after(() => rootCollector.stop('test-ended'));
   await rootCollector.listeners('collect')[0](f.component('simple_embed_open_content'));
-  const launchPayload = f.childPayloads.at(-1) || f.publicPayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title and message'));
+  const launchPayload = f.childPayloads.at(-1) || f.privatePayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title and message'));
   const token = new URL(buttons(launchPayload).find(button => button.url)?.url).searchParams.get('session');
   await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'message', value: 'Owner post' }));
   await flushPendingEmbedEditorUpdates(token);
@@ -206,7 +216,7 @@ test('Save rechecks member access before resolving or mutating a previously sele
   const record = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000009', embedIndex: 0, source: 'embed-builder', snapshot: { title: 'Existing title', description: 'Existing text' } };
   f.interaction.__cloudyInitialBuilderSelection = { record };
   await builder.execute(f.interaction);
-  const collector = f.channel.lastMessage.collector;
+  const collector = f.interaction.lastDashboard.collector;
   t.after(() => collector.stop('test-ended'));
   f.channel.permissionsFor = actor => ({ has: () => actor.id === 'bot' });
   let fetches = 0;
