@@ -1158,9 +1158,9 @@ export function loadRecordSnapshotIntoState(
         String(item?.footer?.text || '').endsWith(MESSAGE_BUILDER_FOOTER_MARKER));
     const unsavedBotResponse = !record.manualSaved && !savedDisplay.matched
         && sourceType !== 'modified-template'
+        && !builderPosted
         && (sourceType === 'system-catalog' || sourceType === 'ticket-log'
-            || sourceType === 'cloudy' || sourceType === 'bot-history'
-            || (sourceType === 'embed-builder' && !builderPosted));
+            || sourceType === 'cloudy' || sourceType === 'bot-history');
     // Search already supplies this name. A channel-selected, non-saved bot
     // response derives it from exactly the same formatter. Only state/title
     // presentation is normalized; original source/live snapshots are untouched.
