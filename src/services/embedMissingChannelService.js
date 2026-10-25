@@ -22,6 +22,19 @@ const discoveryCache = new Map();
 const recentChannelIndex = new Map();
 const RECENT_INDEX_TTL_MS = 90_000;
 
+// Explicit user Delete wins over recently scanned history. Never allow the
+// 10-minute read-only index to resurrect a physically removed message.
+export function invalidateIndexedRecentChannelEmbeds(guildId, channelId, messageId) {
+    const key = String(guildId) + ':' + String(channelId);
+    const indexed = recentChannelIndex.get(key);
+    if (indexed) {
+        indexed.records = indexed.records.filter(record =>
+            String(record.messageId) !== String(messageId));
+    }
+    const history = discoveryCache.get(String(channelId));
+    history?.messages?.delete?.(String(messageId));
+}
+
 export function peekIndexedRecentChannelEmbeds(guild) {
     const guildId = String(guild?.id || '');
     if (!guildId) return [];
