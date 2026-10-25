@@ -682,6 +682,19 @@ function mergeSearchRecords(guildId, registryRecords) {
 function isInternalSearchRecord(record) {
     const title = normalize(recordTitle(record));
     const name = normalize(record?.name);
+    // "Removed from Builder" is an ephemeral success notice emitted by the
+    // Delete action, NOT a reusable embed. It has its own always-seeded
+    // catalog definition, so a deleted embed looked as if it reappeared in
+    // Search even after the registry and recent choices were invalidated.
+    // Never filter an independently authored, manually saved Builder post.
+    const automatic = String(record?.source || '').toLowerCase() !== 'embed-builder';
+    const templateKey = stableSearchTemplateKey(record);
+    const templateContext = stableSearchTemplateContext(record);
+    if (automatic && (templateKey === 'builder:removed'
+        || (templateContext === 'embed-builder/delete'
+            && (title === 'removed from builder' || name === 'removed from builder')))) {
+        return true;
+    }
     return INTERNAL_SEARCH_TITLES.has(title)
         || INTERNAL_SEARCH_TITLES.has(name);
 }
