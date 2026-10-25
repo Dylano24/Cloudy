@@ -442,6 +442,12 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         }
 
         clearBuilderRecordCaches(guild.id);
+        // Hidden catalog rows must also disappear from recent autocomplete
+        // choices and pending Search selections in the *same interaction*.
+        // This does not delete any physical Discord message.
+        const { invalidateBuilderSearchTitleCache } =
+            await import('./zz_embedbuilderLiveSearchPatch.js');
+        invalidateBuilderSearchTitleCache(guild.id);
         await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
         resetBuilderAfterRecordDeletion(state);
         await refreshBuilder(buttonInteraction, state);
