@@ -1825,9 +1825,11 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                     });
                     records = currentChannelRecords();
                     const hasKnownEmbeds = channelHasVisibleManagerRecord(records, channelId);
-                    await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: !hasKnownEmbeds }), state, session);
-                    markChannel('initial_response');
-                    if (hasKnownEmbeds) markChannel('first_visible');
+                    const initialPainted = await updateEmbedManager(interaction, buildEmbedPayload(guild, records, channelId, 0, { checking: !hasKnownEmbeds }), state, session);
+                    if (initialPainted) {
+                        markChannel('initial_response');
+                        if (hasKnownEmbeds) markChannel('first_visible');
+                    }
                     if (selectionVersion !== session.selectionVersion) return;
 
                     void (async () => {
@@ -1852,9 +1854,9 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
                             records, discoveredRecords.filter(record =>
                                 String(record.channelId) === String(channelId)),
                         ));
-                        await updateEmbedManager(interaction,
+                        const recentPainted = await updateEmbedManager(interaction,
                             buildEmbedPayload(guild, records, channelId, 0), state, session);
-                        markChannel('first_visible');
+                        if (recentPainted) markChannel('first_visible');
                         if (selectionVersion !== session.selectionVersion) return;
 
                         // Stream older posted messages without waiting for the
