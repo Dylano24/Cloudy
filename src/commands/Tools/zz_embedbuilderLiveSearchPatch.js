@@ -84,15 +84,21 @@ async function getFastCanonicalBuilderRecords(guild) {
 
     const promise = getCanonicalBuilderRecords(guild)
         .then(records => {
-            canonicalSearchCache.set(key, {
-                generation,
-                records,
-                expiresAt: Date.now() + CANONICAL_SEARCH_CACHE_TTL,
-            });
+            // A Save/Delete can invalidate this cache while the canonical
+            // scan is still running. Do not restore a stale snapshot after
+            // the new title/deletion has already been confirmed.
+            if (generation === getEmbedRegistryGeneration(key)
+                && canonicalSearchCache.get(key)?.promise === promise) {
+                canonicalSearchCache.set(key, {
+                    generation,
+                    records,
+                    expiresAt: Date.now() + CANONICAL_SEARCH_CACHE_TTL,
+                });
+            }
             return records;
         })
         .catch(error => {
-            canonicalSearchCache.delete(key);
+            if (canonicalSearchCache.get(key)?.promise === promise) canonicalSearchCache.delete(key);
             throw error;
         });
     // Keep the last known canonical set while the refresh is in flight so the
@@ -102,8 +108,10 @@ async function getFastCanonicalBuilderRecords(guild) {
 }
 
 function peekCanonicalBuilderRecords(guild) {
-    const cached = canonicalSearchCache.get(String(guild?.id || ''));
-    return Array.isArray(cached?.records) ? cached.records : [];
+    const guildId = String(guild?.id || '');
+    const cached = canonicalSearchCache.get(guildId);
+    return cached?.generation === getEmbedRegistryGeneration(guildId)
+        && Array.isArray(cached.records) ? cached.records : [];
 }
 
 function normalize(value) {
