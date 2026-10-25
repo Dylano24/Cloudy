@@ -308,10 +308,17 @@ async function clearBuilderRecordCaches(guildId) {
     }
     // Refresh last-known registry before the next autocomplete. Old Search
     // snapshots can otherwise keep a deleted physical message visible.
-    await getEmbedRegistry(guildId);
-    const { invalidateBuilderSearchTitleCache } =
-        await import('./zz_embedbuilderLiveSearchPatch.js');
-    invalidateBuilderSearchTitleCache(guildId);
+    try {
+        await getEmbedRegistry(guildId);
+    } catch (error) {
+        logger.warn('[EMBED_BUILDER] Search registry refresh after Delete failed:', error);
+    } finally {
+        // Hide/purge already succeeded: never leave a deleted Search choice in
+        // memory merely because a follow-up database read was unavailable.
+        const { invalidateBuilderSearchTitleCache } =
+            await import('./zz_embedbuilderLiveSearchPatch.js');
+        invalidateBuilderSearchTitleCache(guildId);
+    }
 }
 
 async function sendBuilderDeleteNotice(interaction, title, description, color = 0xFFFFFF) {
