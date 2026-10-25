@@ -239,3 +239,29 @@ test('Modify channel overview starts discovery after sending its first response'
     startup.indexOf('void discoverEmbedManagerOverviewRecords('),
     'channel history scanning must never postpone the first manager response');
 });
+
+
+test('immediate catalog previews retain dynamic values, live peers, and real source titles', () => {
+  const base = {
+    guildId: 'static-vs-dynamic', channelId: '111111111111111177',
+    messageId: '222222222222222277', embedIndex: 0, source: 'system-catalog',
+    name: 'Static notice', title: 'Static notice',
+    snapshot: {
+      title: 'Static notice', description: 'Full static response.',
+      author: { name: 'Cloudy template key: source:static-notice || Cloudy context: general/notice' },
+    },
+  };
+  assert.equal(search.canUseImmediateCatalogPreview(base), true);
+  assert.equal(search.canUseImmediateCatalogPreview({
+    ...base, previewRecord: { source: 'bot-history', snapshot: { title: 'Static notice', description: 'Actual posted text' } },
+  }), false, 'a real posted preview wins over an abstract source snapshot');
+  assert.equal(search.canUseImmediateCatalogPreview({
+    ...base, snapshot: { ...base.snapshot, description: 'You won {dynamic} cash' },
+  }), false, 'a dynamic response must retain its runtime preview');
+  assert.equal(search.canUseImmediateCatalogPreview({
+    ...base, snapshot: { ...base.snapshot, title: 'Updated notice' },
+  }), false, 'a Search label must not silently open a differently titled preview');
+  assert.equal(search.canUseImmediateCatalogPreview({
+    ...base, snapshot: { ...base.snapshot, author: { name: 'Cloudy template key: game:roulette:won || Cloudy context: gambling/roulette' } },
+  }), false, 'gambling examples are runtime-owned even when their sample body is static');
+});
