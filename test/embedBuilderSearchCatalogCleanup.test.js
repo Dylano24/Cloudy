@@ -228,3 +228,58 @@ test('removing a system-catalog entry persists a Builder-only hide without delet
     'visibility preference must be stored durably, not only removed from the in-memory Search list');
   assert.equal(item.snapshot.description, 'Bot latency: 99ms', 'runtime definition remains untouched');
 });
+
+
+test('a deleted catalog response does not reappear through modified or physical Search mirrors', async t => {
+  const storage = new Map();
+  t.mock.method(db, 'get', async key => structuredClone(storage.get(key) || []));
+  t.mock.method(db, 'set', async (key, value) => {
+    storage.set(key, structuredClone(value));
+    return true;
+  });
+  const guildId = 'hidden-catalog-mirror-search-20261025';
+  const author = 'Cloudy template key: source:assistant-visible || Cloudy context: faq/assistant || Cloudy kind: embed';
+  const catalog = {
+    ...record({ id: '100000000000000111', source: 'system-catalog', title: 'Ask Cloudy',
+      description: 'An assistance message', author }),
+    guildId,
+  };
+  const other = {
+    ...catalog,
+    messageId: '100000000000000112', source: 'modified-template',
+    manualSaved: true, snapshot: { ...catalog.snapshot },
+  };
+  const separateManual = {
+    ...catalog,
+    messageId: '100000000000000113', source: 'embed-builder',
+    manualSaved: true, snapshot: { ...catalog.snapshot },
+  };
+  const guild = guildWith('botlog');
+  assert.equal(await hideSystemCatalogFromBuilder(guildId, catalog), true);
+  assert.equal(isSystemCatalogHiddenFromBuilder(catalog), true);
+  const matches = buildMatches(guild, [catalog, other, separateManual], 'ask cloudy');
+  assert.equal(matches.length, 1, 'catalog and modified mirrors must stay hidden');
+  assert.equal(matches[0].record.messageId, separateManual.messageId,
+    'an independent manually posted embed is not deleted or hidden');
+});
+
+test('Search excludes content-only bot templates whose generated labels copy their body', () => {
+  const guild = guildWith('botlog');
+  const items = [
+    record({ id: '100000000000001111', source: 'system-catalog',
+      title: 'Ask Cloudy anything from technical Cloudy problems and bot errors to programming',
+      description: 'Ask Cloudy anything from technical Cloudy problems and bot errors to programming, troubleshooting.',
+      author: 'Cloudy template key: source:plain-assistant || Cloudy context: assistant/ask || Cloudy kind: content' }),
+    record({ id: '100000000000001112', source: 'modified-template',
+      title: 'Ask Cloudy anything from technical Cloudy problems and bot errors to programming',
+      author: 'Cloudy template key: source:plain-assistant || Cloudy context: assistant/ask || Cloudy kind: content' }),
+    record({ id: '100000000000001113', source: 'system-catalog',
+      title: 'Permission denied', description: 'You cannot do that.',
+      author: 'Cloudy template key: permission-denied || Cloudy context: botlog || Cloudy kind: embed' }),
+  ];
+  assert.equal(buildMatches(guild, items, 'ask cloudy').length, 0);
+  assert.deepEqual(buildSearchChoices(buildMatches(guild, items, 'permission denied')).map(x => x.name),
+    ['Permission denied']);
+  assert.equal(items[0].snapshot.description.includes('troubleshooting'), true,
+    'the underlying response content remains untouched');
+});
