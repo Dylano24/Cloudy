@@ -119,6 +119,12 @@ function shortValue(value, maxLength) {
     return `\`${value.length > maxLength ? `${value.slice(0, maxLength)}…` : value}\``;
 }
 
+// Discord does not render <a:name:id> inside backticks. A normal description
+// line displays the actual saved custom emoji, not its raw markup.
+function visibleBuilderTitle(value) {
+    return value ? String(value).replace(/`/g, '') : '`Not set`';
+}
+
 function isPublicToEveryone(guild, channel) {
     try {
         return Boolean(channel.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel));
@@ -839,7 +845,7 @@ function buildControlEmbed(state) {
         .setTitle('Message builder')
         .setDescription([
             `**Mode** › ${state.modifyTarget ? 'Editing existing embed' : 'New embed'}`,
-            `**Title** › ${shortValue(state.title, 40)}`,
+            `**Title** › ${visibleBuilderTitle(state.title)}`,
             `**Message** › ${state.message ? `${state.message.length} character(s)` : '`Not set`'}`,
             `**Side color** › \`${colorToHex(state.sideColor)}\``,
             `**Logo** › ${buildPreviewEmbed(state).toJSON().thumbnail?.url ? 'Enabled' : 'Disabled'}`,
