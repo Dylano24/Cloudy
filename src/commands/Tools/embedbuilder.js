@@ -361,6 +361,13 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
         return;
     }
 
+    if (presence.status === 'exists' && presence.message.embeds?.length > 1) {
+        await sendBuilderDeleteNotice(
+            buttonInteraction, 'Confirm message deletion',
+            `This Discord message contains ${presence.message.embeds.length} embeds. Confirm delete removes the ENTIRE message, including the other embeds. Use Cancel to keep it.`,
+            0xED4245,
+        );
+    }
     state.pendingBuilderDelete = {
         key,
         channelId: String(target.channelId),
