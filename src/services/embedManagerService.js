@@ -1787,6 +1787,10 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
             guild, records, buttonInteraction.client.user.id,
         ).then(async discovered => {
             if (session.closed || state.activeEmbedManager !== session) return;
+            // Do not issue a redundant Discord edit when no channel was
+            // pending and discovery found nothing. That update can race with
+            // the user's first navigation and force an unnecessary defer.
+            if (!discovered.length && !checkingChannelIds.size) return;
             records = accessibleRecords(mergeEmbedManagerRecords(records, discovered));
             checkingChannelIds.clear();
             if (!shouldApplyBackgroundRegistryRefresh(state, session)) return;
