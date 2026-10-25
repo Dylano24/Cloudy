@@ -1,0 +1,42 @@
+name: Cloudy Builder before-after benchmark
+on:
+  push:
+    branches: [perf/embed-builder-benchmark-evidence-2026-10-25]
+    paths: [.github/workflows/cloudy-builder-benchmark-evidence.yml]
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout production baseline
+        uses: actions/checkout@v5
+        with:
+          ref: 535412775395f9643d496b2e60a11625d5eb0e31
+          path: baseline
+          persist-credentials: false
+      - name: Checkout candidate
+        uses: actions/checkout@v5
+        with:
+          ref: 26c858b11b29bf9511715648dbe3de9dd21c4852
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+      - name: Install identical dependencies
+        working-directory: candidate
+        run: npm ci --prefer-offline --no-audit
+      - name: Prepare identical benchmark fixtures
+        run: |
+          ln -s ../candidate/node_modules baseline/node_modules
+          cp candidate/test/embedBuilderConsistentLoading.test.js baseline/test/embedBuilderConsistentLoading.test.js
+      - name: Production code benchmark
+        working-directory: baseline
+        run: node --test --test-name-pattern="warm saved Search retains 3000" test/embedBuilderConsistentLoading.test.js
+      - name: Candidate code benchmark
+        working-directory: candidate
+        run: node --test --test-name-pattern="warm saved Search retains 3000" test/embedBuilderConsistentLoading.test.js
