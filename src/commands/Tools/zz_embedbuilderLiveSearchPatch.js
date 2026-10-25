@@ -257,7 +257,13 @@ export function recordTitle(record) {
     // A deliberate Save is authoritative. Search must not silently strip
     // custom emojis or change the capitalization the owner just saved.
     const saved = savedSearchSnapshot(record);
-    if (record?.manualSaved && record?.snapshot?.title) return clean(record.snapshot.title, 100);
+    if (record?.manualSaved && record?.snapshot?.title) {
+        // A Save to an otherwise dynamic numbered response (e.g. New report
+        // #22) does not create an extra Search item per case number. Keep the
+        // generic response family unless its title is an actual custom label.
+        const raw = clean(record.snapshot.title, 100);
+        if (!/^(?:new )?(?:report|ticket|case)\s*#?\d+$/i.test(raw)) return raw;
+    }
     if (saved.matched && saved.data?.title) return clean(saved.data.title, 100);
     return commercialBuilderTitle(rawRecordTitle(record));
 }
@@ -374,7 +380,9 @@ function logicalKey(record, document) {
 function priority(record) {
     // Once a catalog response has been deliberately saved, its edited title
     // is the one canonical Search entry, not the unsaved code-definition name.
-    if (record?.manualSaved === true) return 130;
+    if (record?.manualSaved === true
+        && !/^(?:new )?(?:report|ticket|case)\s*#?\d+$/i.test(
+            String(record?.snapshot?.title || record?.title || '').trim())) return 130;
     const source = String(record?.source || '').toLowerCase();
     if (source === 'system-catalog') {
         const key = stableSearchTemplateKey(record);
