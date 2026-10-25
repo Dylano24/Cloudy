@@ -560,6 +560,14 @@ function scheduleAutocompleteSearchRefresh(interaction) {
     lastCatalogSearchWarm.set(guildId, now);
 
     const timer = setTimeout(() => {
+        // Cold autocomplete may never await PostgreSQL. Warm the saved shared
+        // title overlay *after* responding so the next query sees the owner's
+        // last Save, including its emoji, without breaking the fast path.
+        void warmSavedEmbedTemplateScopes(guildId, []).then(() => {
+            fastSearchCache.delete(guildId);
+        }).catch(error => logger.debug(
+            '[EMBED_SEARCH] Saved title background warm skipped: ' + (error?.message || error),
+        ));
         void ensureHiddenBuilderCatalogLoaded(guildId).catch(error =>
             logger.warn('[EMBED_SEARCH] Hidden templates refresh failed: ' + error?.message));
         void warmSystemCatalogForSearch(interaction.client).catch(error =>
@@ -583,11 +591,6 @@ function scheduleAutocompleteSearchRefresh(interaction) {
 
 export async function loadFastEmbedBuilderSearchRecords(interaction) {
     const guildId = String(interaction.guildId || '');
-    // Search must load the durable shared Save overlay before presenting
-    // catalogue titles. Without this, a bot restart can display the original
-    // "Removed from builder" even though Modify loads the saved emoji later.
-    // Template scopes cache/deduplicate this single global read.
-    if (guildId) await warmSavedEmbedTemplateScopes(guildId, []);
     const now = Date.now();
     const generation = getEmbedRegistryGeneration(guildId);
     const cached = fastSearchCache.get(guildId);
