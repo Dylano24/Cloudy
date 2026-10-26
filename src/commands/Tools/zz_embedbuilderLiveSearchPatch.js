@@ -63,9 +63,11 @@ const canonicalSearchCache = globalThis.__cloudyEmbedCanonicalSearchCache
 const hiddenSearchDeleteTargets = new Map();
 const CONFIRMED_DELETE_SEARCH_GUARD_MS = 5 * 60_000;
 
+function searchDeleteMessageKey(guildId, messageId) {
+    return String(guildId) + ':' + String(messageId);
+}
+
 function pendingSearchDeleteMatches(record, target) {
-    if (String(record?.guildId || '') !== target.guildId
-        || String(record?.messageId || '') !== target.messageId) return false;
     const backing = String(record?.backingChannelId || record?.channelId || '');
     if (backing !== target.backingChannelId
         && String(record?.channelId || '') !== target.channelId) return false;
@@ -73,16 +75,31 @@ function pendingSearchDeleteMatches(record, target) {
         || Number(record.embedIndex || 0) === target.embedIndex;
 }
 
-function isSearchDeleteHidden(record) {
+function pruneExpiredSearchDeletes() {
     const now = Date.now();
-    for (const [token, target] of hiddenSearchDeleteTargets) {
-        if (target.expiresAt && target.expiresAt <= now) {
-            hiddenSearchDeleteTargets.delete(token);
-            continue;
+    for (const [key, targets] of hiddenSearchDeleteTargets) {
+        for (const [token, target] of targets) {
+            if (target.expiresAt && target.expiresAt <= now) targets.delete(token);
         }
-        if (pendingSearchDeleteMatches(record, target)) return true;
+        if (!targets.size) hiddenSearchDeleteTargets.delete(key);
     }
-    return false;
+}
+
+function isSearchDeleteHidden(record) {
+    const key = searchDeleteMessageKey(record?.guildId || '', record?.messageId || '');
+    const targets = hiddenSearchDeleteTargets.get(key);
+    if (!targets) return false;
+    const now = Date.now();
+    let hidden = false;
+    for (const [token, target] of targets) {
+        if (target.expiresAt && target.expiresAt <= now) {
+            targets.delete(token);
+        } else if (pendingSearchDeleteMatches(record, target)) {
+            hidden = true;
+        }
+    }
+    if (!targets.size) hiddenSearchDeleteTargets.delete(key);
+    return hidden;
 }
 
 export function beginBuilderSearchDeletion(guildId, selected) {
@@ -90,24 +107,30 @@ export function beginBuilderSearchDeletion(guildId, selected) {
     const messageId = String(selected?.messageId || '');
     const channelId = String(selected?.channelId || '');
     if (!id || !messageId || !channelId) return () => {};
+    pruneExpiredSearchDeletes();
+    const key = searchDeleteMessageKey(id, messageId);
+    const targets = hiddenSearchDeleteTargets.get(key) || new Map();
+    hiddenSearchDeleteTargets.set(key, targets);
     const token = Symbol('builder-confirm-delete');
-    hiddenSearchDeleteTargets.set(token, {
-        guildId: id, messageId, channelId,
+    targets.set(token, {
+        channelId,
         backingChannelId: String(selected.backingChannelId || channelId),
-        // Catalog Delete hides only this one virtual definition. Deleting a
-        // real Discord message also removes all of its sibling embed indices.
+        // Catalog Delete hides only one virtual definition. Deleting a real
+        // Discord message removes all of its sibling embed indices.
         embedIndex: selected.source === 'system-catalog'
             ? Math.max(0, Number(selected.embedIndex) || 0) : null,
         expiresAt: null,
     });
     invalidateBuilderSearchTitleCache(id);
     return (committed = false) => {
-        const target = hiddenSearchDeleteTargets.get(token);
+        const current = hiddenSearchDeleteTargets.get(key);
+        const target = current?.get(token);
         if (!target) return;
         if (committed) {
             target.expiresAt = Date.now() + CONFIRMED_DELETE_SEARCH_GUARD_MS;
         } else {
-            hiddenSearchDeleteTargets.delete(token);
+            current.delete(token);
+            if (!current.size) hiddenSearchDeleteTargets.delete(key);
         }
         invalidateBuilderSearchTitleCache(id);
     };
