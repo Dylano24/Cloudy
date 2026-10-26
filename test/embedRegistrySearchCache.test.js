@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { db } from '../src/utils/database.js';
-import { getEmbedRegistry, removeEmbedRegistryRecord } from '../src/services/embedRegistryService.js';
+import { getEmbedRegistry, removeEmbedRegistryRecord, registerCloudyEmbedMessage, peekEmbedRegistry } from '../src/services/embedRegistryService.js';
 
 test('search cache shares successful reads and is invalidated by a registry mutation', async t => {
   let reads = 0;
@@ -17,6 +17,25 @@ test('search cache shares successful reads and is invalidated by a registry muta
   const afterRemoval = await getEmbedRegistry(record.guildId, { cached: true });
   assert.equal(afterRemoval[0].detached, true, 'saved snapshot stays available as a detached template');
   assert.equal(reads, 3);
+});
+
+test('an old in-flight registry read cannot replace a successfully saved Search snapshot', async t => {
+  const guildId = 'search-delayed-read-after-save';
+  let resolveRead;
+  const oldRead = new Promise(resolve => { resolveRead = resolve; });
+  let reads = 0;
+  t.mock.method(db, 'get', async (_key, fallback) => ++reads === 1 ? oldRead : fallback);
+  t.mock.method(db, 'set', async () => true);
+  const pending = getEmbedRegistry(guildId);
+  const embed = { title: 'New saved title', description: 'Saved content' };
+  assert.equal(await registerCloudyEmbedMessage({
+    id: 'saved-message', guildId, channelId: 'channel',
+    author: { id: 'bot' }, embeds: [embed], components: [],
+  }, 'embed-builder'), true);
+  assert.equal(peekEmbedRegistry(guildId, { current: true })[0].title, 'New saved title');
+  resolveRead([]);
+  await pending;
+  assert.equal(peekEmbedRegistry(guildId, { current: true })?.[0]?.title, 'New saved title');
 });
 
 test('search never caches a failed registry read', async t => {

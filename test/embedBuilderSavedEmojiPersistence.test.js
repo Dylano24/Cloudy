@@ -74,7 +74,7 @@ test('Save treats the exact custom emoji in title AND message as literal, not {d
   assert.equal(matches.length, 1);
   assert.equal(recordTitle(record), saved.title);
   assert.deepEqual(buildSearchChoices(matches).map(choice => choice.name),
-    ['Removed from builder ✅'], 'Search shows a visual emoji rather than raw custom markup');
+    ['Removed from builder ' + emoji], 'Search retains the original custom emoji code in the saved title');
   assert.equal(buildAutocompleteMatches(guild, [record], 'removed successfully').length, 1,
     'saved description is searchable too');
   assert.equal(record.snapshot.title, original.title, 'original catalog identity remains intact');

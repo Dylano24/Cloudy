@@ -588,9 +588,11 @@ export async function getEmbedRegistry(guildId, { cached = false } = {}) {
         // Share only in-flight storage work, never mutable records or a stale
         // cross-request cache unless search explicitly opts in. Mutations start fresh reads.
         const records = await pending.promise;
-        registryLastKnown.set(key, { generation, records });
-        if (generation === getEmbedRegistryGeneration(guildId) && !registryMutationQueues.has(key)) {
-            registrySearchCache.set(key, { generation, records, expiresAt: Date.now() + 5000 });
+        if (generation === getEmbedRegistryGeneration(guildId)) {
+            registryLastKnown.set(key, { generation, records });
+            if (!registryMutationQueues.has(key)) {
+                registrySearchCache.set(key, { generation, records, expiresAt: Date.now() + 5000 });
+            }
         }
         return structuredClone(records);
     } finally {
@@ -614,6 +616,7 @@ async function saveRecords(guildId, additions) {
         return pending.promise;
     }
     const batch = { additions: [...additions], promise: null };
+    let committedRecords = null;
     batch.promise = mutateRegistry(guildId, async () => {
         if (registryWriteBatches.get(key) === batch) registryWriteBatches.delete(key);
         const stored = await readStoredRecords(guildId);
@@ -650,8 +653,20 @@ async function saveRecords(guildId, additions) {
         const result = sortRecords([...next.values()]);
         // Gateway updates can arrive from several listeners with the same payload.
         // Avoid rewriting a large JSON document for an updatedAt-only difference.
-        if (registryContent(stored) === registryContent(result)) return true;
-        return setInDb(registryKey(guildId), result);
+        const saved = registryContent(stored) === registryContent(result)
+            || await setInDb(registryKey(guildId), result);
+        if (saved) committedRecords = result;
+        return saved;
+    }).then(saved => {
+        // Publish only a durable registration after the mutation queue has
+        // drained. Search and Save can use this exact snapshot immediately
+        // instead of reading the same large registry back from the database.
+        if (saved && committedRecords && !registryMutationQueues.has(key)) {
+            const generation = getEmbedRegistryGeneration(key);
+            registryLastKnown.set(key, { generation, records: committedRecords });
+            registrySearchCache.set(key, { generation, records: committedRecords, expiresAt: Date.now() + 5000 });
+        }
+        return saved;
     });
     registryWriteBatches.set(key, batch);
     return batch.promise;

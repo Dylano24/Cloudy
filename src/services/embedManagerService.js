@@ -74,7 +74,6 @@ import {
     getSystemSourceDefinitionPreviewForEmbed,
     primeSystemEmbedCatalogMessage,
     primeSystemEmbedTemplateData,
-    syncSystemEmbedCatalogMessage,
 } from './systemEmbedCatalogService.js';
 
 const PAGE_SIZE = 25;
@@ -1265,7 +1264,7 @@ export function loadRecordSnapshotIntoState(
  * Search snapshots can lag a user-saved embed. Never write to Discord here.
  * Never override an explicit Add/Remove decision in this Builder session.
  */
-export async function syncBuilderLogoFromLiveMessage(guild, state) {
+export async function syncBuilderLogoFromLiveMessage(guild, state, { cacheTargetMessage = false } = {}) {
     const target = state?.modifyTarget;
     const location = target?.liveLogoSource;
     if (!guild || !location?.channelId || !location?.messageId
@@ -1298,6 +1297,14 @@ export async function syncBuilderLogoFromLiveMessage(guild, state) {
 
     const selectedEmbed = message?.embeds?.[location.embedIndex] || null;
     if (!selectedEmbed || target !== state.modifyTarget || state.logoTouched) return false;
+
+    // Save can reuse this just-verified physical target. A logo preview peer
+    // may be a different log message, so never cache it as the edit target.
+    if (cacheTargetMessage && String(message.id) === String(target.messageId)
+        && String(location.channelId) === String(target.backingChannelId || target.channelId)
+        && message.author?.id === guild.client?.user?.id) {
+        target.cachedMessage = message;
+    }
 
     const embedData = selectedEmbed.toJSON?.() || selectedEmbed;
     const logoUrl = embedData?.thumbnail?.url || null;
@@ -2726,7 +2733,7 @@ async function refreshSearchTitleAfterSave(guildId) {
     try {
         // A registry mutation invalidates the generation but its previous
         // last-known snapshot can still be held by fast autocomplete.
-        await getEmbedRegistry(guildId);
+        await getEmbedRegistry(guildId, { cached: true });
     } catch (error) {
         logger.warn('Saved Builder title registry refresh skipped: ' + (error?.message || error));
     } finally {
@@ -2761,6 +2768,7 @@ async function saveMissingSearchCatalogTemplate(guild, state, target) {
             sharedScope: true,
             canonicalIdentity: target.templateTitle || templateIdentity(target.channelId, original),
             baseEmbedData: target.previewSourceData || original,
+            staticSourceData: original,
             editedEmbedData: { description: state.message || undefined, fields: state.embedFields || [] },
             applyFields: true,
             preserveRuntimeFieldValues: String(target.templateTitle || '').startsWith('ticket-log:'),
@@ -2780,14 +2788,17 @@ async function saveMissingSearchCatalogTemplate(guild, state, target) {
 }
 
 export async function saveModifiedEmbed(guild, state) {
+    const markSave = createBuilderPerformanceTracker('existing_save');
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
+    markSave('editor_ready');
     // Read the actual selected message before Save when no logo button was
     // pressed. This prevents a stale registry thumbnail being restored by a
     // seemingly unrelated Save.
     if (state?.modifyTarget && !state.logoTouched) {
-        await syncBuilderLogoFromLiveMessage(guild, state);
+        await syncBuilderLogoFromLiveMessage(guild, state, { cacheTargetMessage: true });
     }
+    markSave('logo_ready');
     const liveState = state;
     state = { ...state, embedFields: state.embedFields?.map(field => ({ ...field })) };
     const target = state.modifyTarget;
@@ -2807,6 +2818,7 @@ export async function saveModifiedEmbed(guild, state) {
         );
         if (!persisted) return { ok: false, reason: 'persistence-failed', discordUpdated: true };
         await refreshSearchTitleAfterSave(guild.id);
+        markSave('persisted');
 
         state.modifyTarget.sourceEmbedData = current;
         state.modifyTarget.previewSourceData = { ...current };
@@ -2843,9 +2855,11 @@ export async function saveModifiedEmbed(guild, state) {
         // Only Discord's definitive Unknown Message code proves the old
         // catalog post is gone. Permission failures and transient network
         // errors must not silently fall back to a template-only Save.
-        return target.source === 'system-catalog' && Number(fetchError?.code) === 10008
+        const result = await (target.source === 'system-catalog' && Number(fetchError?.code) === 10008
             ? saveMissingSearchCatalogTemplate(guild, state, target)
-            : { ok: false, reason: 'message-missing' };
+            : { ok: false, reason: 'message-missing' });
+        if (result.ok) markSave('persisted');
+        return result;
     }
     if (message.author?.id !== guild.client.user?.id) {
         return { ok: false, reason: 'message-missing' };
@@ -2855,6 +2869,7 @@ export async function saveModifiedEmbed(guild, state) {
     if (message.flags?.has?.(MessageFlags.Ephemeral) || isBuilderSessionMessage(message)) {
         return { ok: false, reason: 'control-message' };
     }
+    markSave('message_ready');
 
     const index = Number(target.embedIndex || 0);
     if (!message.embeds?.[index]) return { ok: false, reason: 'embed-missing' };
@@ -2895,6 +2910,7 @@ export async function saveModifiedEmbed(guild, state) {
     const releaseSaveGuard = setTimeout(() => activeEmbedManagerSaves.delete(String(message.id)), 2_000);
     releaseSaveGuard.unref?.();
     if (!edited) return { ok: false, reason: 'edit-failed' };
+    markSave('discord_updated');
     if (state.componentsDirty) {
         state.componentRows = getBuilderMessageComponents(state);
         state.componentRowsSourceMessageId = String(edited.id);
@@ -2946,6 +2962,8 @@ export async function saveModifiedEmbed(guild, state) {
                 // Ticket fields contain event data and must never be replaced
                 // by the fixed examples shown in the durable catalog master.
                 baseEmbedData: target.previewSourceData || target.sourceEmbedData,
+                staticSourceData: [target.templateSourceData, sourceData]
+                    .find(data => stableSystemTemplateKey(data)),
                 editedEmbedData: { description: state.message || undefined, fields: state.embedFields || [] },
                 applyFields: true,
                 preserveRuntimeFieldValues: String(target.templateTitle || '').startsWith('ticket-log:'),
@@ -2960,14 +2978,15 @@ export async function saveModifiedEmbed(guild, state) {
             logger.error('Failed to persist saved embed template before confirming Builder Save.');
             return { ok: false, reason: 'persistence-failed', discordUpdated: true };
         }
+        markSave('template_persisted');
 
         if (target.source === 'system-catalog') {
             // Keep the catalog cache in sync in the same tick as Save. Gateway
             // MessageUpdate events arrive later and previously caused a race
             // where the first new game used the old blue template.
             primeSystemEmbedCatalogMessage(edited);
-            await syncSystemEmbedCatalogMessage(edited)
-                .catch(error => logger.error('Failed to sync saved system embed template:', error));
+            // The manual registration below durably saves this same catalog
+            // message once. Calling catalog sync here would register it twice.
         }
 
         if (String(target.templateTitle || '') === 'ticket-main') {
@@ -3020,7 +3039,9 @@ export async function saveModifiedEmbed(guild, state) {
         });
 
     if (!registered) return { ok: false, reason: 'persistence-failed', discordUpdated: true };
+    markSave('registry_persisted');
     await refreshSearchTitleAfterSave(guild.id);
+    markSave('persisted');
     liveState.logoTouched = false;
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
