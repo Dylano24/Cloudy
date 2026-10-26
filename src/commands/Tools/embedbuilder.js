@@ -149,7 +149,7 @@ function buildChannelOption(guild, channel) {
         .setValue(channel.id);
 }
 
-function buildChannelPicker(guild, page = 0, member = null) {
+function buildChannelPicker(guild, page = 0, member = null, isRepost = false) {
     const channels = getEveryGuildChannel(guild)
         .filter(channel => canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true }));
     const pageCount = Math.max(1, Math.ceil(channels.length / CHANNEL_PAGE_SIZE));
@@ -192,9 +192,11 @@ function buildChannelPicker(guild, page = 0, member = null) {
     return {
         embeds: [
             new EmbedBuilder()
-                .setTitle('Post message')
+                .setTitle(isRepost ? 'Repost message' : 'Post message')
                 .setDescription([
-                    'Select the channel where the message should be posted.',
+                    isRepost
+                        ? 'Select the channel where the message should be reposted.'
+                        : 'Select the channel where the message should be posted.',
                     '',
                     `**Text channels loaded:** ${channels.length}`,
                     `**Showing:** ${channels.length ? `${pageStart + 1}-${pageEnd}` : '0'} of ${channels.length} • Page ${safePage + 1}/${pageCount}`,
@@ -1072,8 +1074,12 @@ export function buildControls(state) {
             .setEmoji(state.pendingBuilderDelete ? '🗑️' : '💾')
             .setDisabled(!canSaveBuilderState(state)),
         new ButtonBuilder()
-            .setCustomId('simple_embed_post_new')
-            .setLabel('Post')
+            .setCustomId(state.modifyTarget?.detached
+                && state.modifyTarget?.source === 'embed-builder'
+                && !String(state.modifyTarget.messageId).startsWith('draft-')
+                ? 'simple_embed_repost'
+                : 'simple_embed_post_new')
+            .setLabel(state.modifyTarget ? 'Repost' : 'Post')
             .setStyle(ButtonStyle.Success)
             .setEmoji('📤'),
         new ButtonBuilder()
@@ -1094,18 +1100,6 @@ export function buildControls(state) {
             .setEmoji(state.pendingBuilderDelete ? '↩️' : '🗑️')
             .setDisabled(!state.modifyTarget),
     ];
-
-    // Discord allows at most five buttons per row. Keep Repost available for
-    // legacy detached messages without removing the permanent separate Post.
-    if (!state.pendingBuilderDelete && state.modifyTarget?.detached
-        && state.modifyTarget?.source === 'embed-builder'
-        && !String(state.modifyTarget.messageId).startsWith('draft-')) {
-        editRow.addComponents(new ButtonBuilder()
-            .setCustomId('simple_embed_repost')
-            .setLabel('Repost')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('📤'));
-    }
 
     const saveRow = new ActionRowBuilder().addComponents(...saveButtons);
 
@@ -1770,6 +1764,7 @@ async function openPrivateBuilderEditor(buttonInteraction, state, mode) {
 }
 
 async function postMessage(buttonInteraction, state, guild, forceNew = false) {
+    const isRepost = Boolean(state.modifyTarget);
     if (state.modifyTarget && !forceNew) {
         await buttonInteraction.deferUpdate().catch(() => {});
         await saveExistingEmbed(buttonInteraction, guild, state);
@@ -1792,7 +1787,7 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
     // channel metadata is maintenance work and must not block this click.
     void refreshAllTicketChannels(guild, true).catch(() => {});
 
-    const initialPicker = buildChannelPicker(guild, 0, buttonInteraction.member);
+    const initialPicker = buildChannelPicker(guild, 0, buttonInteraction.member, isRepost);
     const channelPickerMessage = await buttonInteraction.followUp({
         embeds: initialPicker.embeds,
         components: initialPicker.components,
@@ -1820,7 +1815,7 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
     collector.on('collect', async channelInteraction => {
         if (channelInteraction.customId.startsWith('simple_embed_channel_page:')) {
             const page = Number(channelInteraction.customId.split(':')[1]) || 0;
-            const picker = buildChannelPicker(guild, page, channelInteraction.member);
+            const picker = buildChannelPicker(guild, page, channelInteraction.member, isRepost);
             await channelInteraction.update({
                 embeds: picker.embeds,
                 components: picker.components,
@@ -1872,7 +1867,9 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
         const sentMessage = await channelInteraction.followUp(markBotResponsePayload({
-            embeds: [successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
+            embeds: [isRepost
+                ? successEmbed('Message reposted', `Your message has been reposted to ${posted.destination}.`)
+                : successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
             flags: MessageFlags.Ephemeral,
         }));
         removeTransientMessage(channelInteraction, sentMessage);
