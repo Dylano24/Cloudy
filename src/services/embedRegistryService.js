@@ -20,6 +20,33 @@ const joinToCreateCatalogChannels = new Map();
 const registryMutationQueues = new Map();
 const registryWriteBatches = new Map();
 const registryGenerations = new Map();
+// A late gateway event can reach the registry after an owner has confirmed
+// Delete. Discord snowflake IDs are immutable, so ignore delayed registrations
+// of that exact deleted message without suppressing any other saved embed.
+const recentlyPurgedMessages = new Map();
+const RECENT_PURGE_TTL = 30 * 60_000;
+function purgedMessageKey(guildId, channelId, messageId) {
+    return [String(guildId), String(channelId), String(messageId)].join(':');
+}
+function rememberPurgedMessage(guildId, channelIds, messageId) {
+    const now = Date.now();
+    for (const [key, expiresAt] of recentlyPurgedMessages) {
+        if (expiresAt <= now) recentlyPurgedMessages.delete(key);
+    }
+    for (const channelId of channelIds) {
+        recentlyPurgedMessages.set(purgedMessageKey(guildId, channelId, messageId), now + RECENT_PURGE_TTL);
+    }
+}
+function isRecentlyPurgedMessage(record) {
+    const key = purgedMessageKey(record.guildId, physicalChannelId(record), record.messageId);
+    const expiresAt = recentlyPurgedMessages.get(key);
+    if (!expiresAt) return false;
+    if (expiresAt <= Date.now()) {
+        recentlyPurgedMessages.delete(key);
+        return false;
+    }
+    return true;
+}
 export function getEmbedRegistryGeneration(guildId) {
     return registryGenerations.get(String(guildId)) || 0;
 }
@@ -634,9 +661,15 @@ async function saveRecords(guildId, additions) {
 
         for (const addition of batch.additions) {
             const record = normalizeRecord(addition);
-            if (!record) continue;
+            if (!record || isRecentlyPurgedMessage(record)) continue;
             const key = recordKey(record);
             const existing = next.get(key) || null;
+            // A delayed gateway/history registration can carry the *old*
+            // title and body after Save has already updated the exact manual
+            // Builder post. Only an explicit Builder Save/Post may replace a
+            // manually saved snapshot, not an unsolicited background scan.
+            if (existing?.source === 'embed-builder' && existing.manualSaved === true
+                && !record.manualSaved) continue;
             if (isManualBuilderRecord(existing) && !Object.hasOwn(existing, 'manualSaved') && !record.manualSaved) {
                 delete record.manualSaved;
             }
@@ -905,6 +938,9 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
         const next = records.filter(item => !matchesTarget(item));
         if (removed.length && !await setInDb(registryKey(guildId), sortRecords(next))) return false;
         committedRecords = next;
+        rememberPurgedMessage(guildId, new Set([
+            String(channelId), ...removed.map(record => physicalChannelId(record)),
+        ]), messageId);
         for (const record of removed) embedSnapshotCache.delete(recordKey(record));
         // A queued registration may still be pending when this Delete ends.
         // Keep the last-known list free of this target in that interval too.
