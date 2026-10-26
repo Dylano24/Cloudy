@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { Collection, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { Collection, Embed, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { db } from '../src/utils/database/wrapper.js';
 import builder from '../src/commands/Tools/embedbuilder.js';
 import '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
@@ -20,9 +20,15 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
   const childMessages = [];
   function message(id, payload = {}) {
     return {
-      id, guildId, channelId: '100000000000000001', embeds: payload.embeds || [],
+      id, guildId, channelId: '100000000000000001',
+      embeds: (payload.embeds || []).map(embed => new Embed(embed.toJSON?.() || embed)),
       components: payload.components || [], edits: [],
-      async edit(next) { this.edits.push(next); this.embeds = next.embeds || this.embeds; return this; },
+      async edit(next) {
+        this.edits.push(next);
+        if (next.embeds) this.embeds = next.embeds.map(embed => new Embed(embed.toJSON?.() || embed));
+        this.components = next.components || this.components;
+        return this;
+      },
       async delete() {},
       createMessageComponentCollector(options) {
         const collector = new EventEmitter();
@@ -79,8 +85,10 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
       return this.lastDashboard;
     },
   };
-  t.mock.method(db, 'get', async (_key, fallback) => fallback);
-  t.mock.method(db, 'set', async () => true);
+  const storage = new Map();
+  t.mock.method(db, 'get', async (key, fallback) => structuredClone(storage.get(key) ?? fallback));
+  t.mock.method(db, 'set', async (key, value) => { storage.set(key, structuredClone(value)); return true; });
+  t.mock.method(db, 'delete', async key => { storage.delete(key); return true; });
   function component(customId, user = owner) {
     return {
       ...interaction, user, customId, replied: false, deferred: false,
@@ -91,7 +99,7 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
       async update() {}, async editReply() {},
     };
   }
-  return { guild, member, channel, client, preview, interaction, publicPayloads, privatePayloads, childPayloads, childMessages, component };
+  return { guild, member, channel, client, preview, interaction, publicPayloads, privatePayloads, childPayloads, childMessages, component, storage };
 }
 function buttons(payload) { return (payload.components || []).flatMap(row => (row.toJSON?.() || row).components || []); }
 async function open(t, options) {
@@ -147,6 +155,104 @@ test('autocomplete does not reveal a bot-readable channel denied to the invoking
   assert.deepEqual(choices, []);
 });
 
+test('editing a new embed enables Save and saving twice creates one private durable Builder record', async t => {
+  const f = await open(t);
+  const dashboard = f.interaction.lastDashboard;
+  const content = buttons(dashboard).find(button => button.label === 'Edit title and message');
+  const token = new URL(content.url).searchParams.get('session');
+  const options = { editorInstanceId: 'draft-owner-editor' };
+  await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_OPEN__:draft-owner-editor', options);
+  await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'title', value: 'My saved draft' }), options);
+  await flushPendingEmbedEditorUpdates(token);
+  for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(buttons(dashboard).find(button => button.label === 'Save changes').disabled, false);
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
+  let records = f.storage.get('cloudy:embed-registry:' + f.guild.id) || [];
+  assert.equal(records.length, 1);
+  assert.equal(records[0].snapshot.title, 'My saved draft');
+  assert.equal(records[0].manualSaved, true);
+  assert.equal(records[0].detached, true);
+  await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'message', value: 'Second saved contents' }), options);
+  await flushPendingEmbedEditorUpdates(token);
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
+  records = f.storage.get('cloudy:embed-registry:' + f.guild.id) || [];
+  assert.equal(records.length, 1);
+  assert.equal(records[0].snapshot.description, 'Second saved contents');
+  assert.equal(f.publicPayloads.length, 0, 'only Post may publish a Discord message');
+});
+
+test('Post publishes a saved new draft once and replaces its private draft identity', async t => {
+  const f = await open(t);
+  const dashboard = f.interaction.lastDashboard;
+  const token = new URL(buttons(dashboard).find(button => button.label === 'Edit title and message').url).searchParams.get('session');
+  await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'message', value: 'Saved then posted' }));
+  await flushPendingEmbedEditorUpdates(token);
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
+  assert.equal(f.publicPayloads.length, 0);
+  const key = 'cloudy:embed-registry:' + f.guild.id;
+  const draftId = f.storage.get(key)[0].messageId;
+  assert.ok(draftId.startsWith('draft-'));
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post_new'));
+  const picker = f.childMessages.at(-1);
+  await picker.collector.listeners('collect')[0]({ ...f.component('simple_embed_post_channel:0:0'), values: [f.channel.id] });
+  assert.equal(picker.collector.ended, true);
+  assert.equal(f.publicPayloads.length, 1);
+  const records = f.storage.get(key);
+  assert.equal(records.length, 1, 'posting a saved new draft must not leave a duplicate in Search');
+  assert.equal(records[0].detached, false);
+  assert.notEqual(records[0].messageId, draftId);
+  assert.equal(records[0].snapshot.description, 'Saved then posted');
+  assert.equal(records[0].draftData, undefined);
+});
+
+test('Delete removes only the saved private draft without requesting a Discord message', async t => {
+  const f = await open(t);
+  const dashboard = f.interaction.lastDashboard;
+  const token = new URL(buttons(dashboard).find(button => button.label === 'Edit title and message').url).searchParams.get('session');
+  await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'title', value: 'Private draft to delete' }));
+  await flushPendingEmbedEditorUpdates(token);
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
+  let fetches = 0;
+  f.channel.messages.fetch = async () => { fetches++; throw new Error('A private draft has no Discord message'); };
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_delete_from_builder'));
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
+  assert.equal((f.storage.get('cloudy:embed-registry:' + f.guild.id) || []).length, 0);
+  assert.equal(fetches, 0);
+  assert.equal(f.publicPayloads.length, 0);
+});
+
+test('a failed Post relink preserves the saved private draft and rolls back its public message', async t => {
+  const f = await open(t);
+  const dashboard = f.interaction.lastDashboard;
+  const token = new URL(buttons(dashboard).find(button => button.label === 'Edit title and message').url).searchParams.get('session');
+  await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'message', value: 'Keep my saved draft' }));
+  await flushPendingEmbedEditorUpdates(token);
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
+  const key = 'cloudy:embed-registry:' + f.guild.id;
+  const draftId = f.storage.get(key)[0].messageId;
+  t.mock.method(db, 'set', async (name, value) => {
+    if (name === key && !value.some(record => record.messageId === draftId)) return false;
+    f.storage.set(name, structuredClone(value));
+    return true;
+  });
+  let deleted = 0;
+  const send = f.channel.send;
+  f.channel.send = async payload => {
+    const message = await send.call(f.channel, payload);
+    message.delete = async () => { deleted++; };
+    return message;
+  };
+  await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post_new'));
+  const picker = f.childMessages.at(-1);
+  await picker.collector.listeners('collect')[0]({ ...f.component('simple_embed_post_channel:0:0'), values: [f.channel.id] });
+  assert.equal(picker.collector.ended, false);
+  assert.equal(deleted, 1);
+  const records = f.storage.get(key);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].messageId, draftId);
+  assert.equal(records[0].snapshot.description, 'Keep my saved draft');
+});
+
 test('Modify channel navigation excludes channels without member ViewChannel or SendMessages', t => {
   const hidden = fixture(t, { hidden: true });
   const readOnly = fixture(t, { readOnly: true });
@@ -196,7 +302,7 @@ test('forged Post selection cannot use bot-only permissions, while an allowed ch
   let deniedSends = 0;
   const denied = { ...f.channel, id: '100000000000000002', name: 'private', async send() { deniedSends++; }, permissionsFor: actor => ({ has: () => actor.id === 'bot' }) };
   f.guild.channels.cache.set(denied.id, denied);
-  await rootCollector.listeners('collect')[0](f.component('simple_embed_post'));
+  await rootCollector.listeners('collect')[0](f.component('simple_embed_post_new'));
   const picker = f.childMessages.at(-1);
   assert.ok(picker.collector);
   assert.ok(buttons(f.childPayloads.at(-1)).flatMap(item => item.options || []).every(option => option.value !== denied.id));

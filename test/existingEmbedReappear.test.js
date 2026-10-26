@@ -132,7 +132,7 @@ test('existing Builder save path keeps Reappear persistence after startup patche
     source.indexOf('async function saveExistingEmbed('),
   );
   const saveBody = source.slice(saveStart, saveStart + 9000);
-  assert.match(saveBody, /if \(state\.reappearTouched\)/);
+  assert.match(saveBody, /if \(state\.reappearTouched && !saved\.draft\)/);
   assert.match(saveBody, /syncExistingEmbedReappearRule\(\{/);
   assert.match(saveBody, /state\.reappearTouched\s*=\s*false/);
 });

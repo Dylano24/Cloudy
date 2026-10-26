@@ -5,6 +5,7 @@ import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { db, deleteFromDb, getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
+import { randomUUID } from 'node:crypto';
 import { peekGuildConfigCache } from './config/guildConfig.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
@@ -547,6 +548,8 @@ function normalizeRecord(record) {
         snapshot: normalizeEmbedSnapshot(record.snapshot),
         components: normalizeMessageComponents(record.components),
         detached: Boolean(record.detached),
+        ...(String(record.messageId).startsWith('draft-') && record.detached && record.draftData
+            ? { draftData: structuredClone(record.draftData) } : {}),
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
@@ -763,7 +766,18 @@ function detachedBuilderRecord(record) {
     return detached;
 }
 
-export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snapshot, components = null) {
+export async function saveNewBuilderDraftRecord(guildId, channelId, snapshot, components, draftData) {
+    const record = normalizeRecord({
+        guildId, channelId, messageId: 'draft-' + randomUUID(), embedIndex: 0,
+        source: 'embed-builder', manualSaved: true, detached: true,
+        title: snapshot.title || '', name: embedName(snapshot), snapshot, components, draftData,
+    });
+    if (!record || !await saveRecords(guildId, [record])) return null;
+    rememberEmbedSnapshot(record, snapshot);
+    return record;
+}
+
+export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snapshot, components = null, draftData = undefined) {
     const normalizedSnapshot = normalizeEmbedSnapshot(snapshot);
     const normalizedComponents = components == null ? null : normalizeMessageComponents(components);
     if (!guildId || !target?.messageId || !normalizedSnapshot) return false;
@@ -786,6 +800,7 @@ export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snaps
                 components: normalizedComponents == null ? record.components : normalizedComponents,
                 detached: true,
                 manualSaved: true,
+                ...(draftData !== undefined ? { draftData } : {}),
             });
             if (updated) rememberEmbedSnapshot(updated, normalizedSnapshot);
             return updated || record;
@@ -1012,6 +1027,7 @@ function recordsFromMessage(message, priorRecords = [], { allowManual = false } 
 
 async function resolveRegistryMessage(guild, records) {
     const first = records[0];
+    if (first.detached && String(first.messageId).startsWith('draft-')) return { status: 'resolved', records };
     const sourceChannelId = physicalChannelId(first);
     let channel = guild.channels.cache.get(sourceChannelId) || null;
 

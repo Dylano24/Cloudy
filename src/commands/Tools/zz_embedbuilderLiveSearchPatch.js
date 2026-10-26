@@ -75,7 +75,7 @@ export function invalidateBuilderSearchTitleCache(guildId) {
     }
 }
 
-async function getFastCanonicalBuilderRecords(guild) {
+async function getFastCanonicalBuilderRecords(guild, suppliedRecords = null) {
     const key = String(guild?.id || '');
     if (!key) return [];
     const now = Date.now();
@@ -84,7 +84,7 @@ async function getFastCanonicalBuilderRecords(guild) {
     if (cached?.generation === generation && cached?.records && cached.expiresAt > now) return cached.records;
     if (cached?.generation === generation && cached?.promise) return cached.promise;
 
-    const promise = getCanonicalBuilderRecords(guild)
+    const promise = getCanonicalBuilderRecords(guild, suppliedRecords)
         .then(records => {
             // A Save/Delete can invalidate this cache while the canonical
             // scan is still running. Do not restore a stale snapshot after
@@ -134,16 +134,24 @@ function clean(value, max = 100) {
         .slice(0, max);
 }
 
+let autocompleteSnapshots = null;
+
 function savedSearchSnapshot(record) {
+    const remembered = record && autocompleteSnapshots?.get(record);
+    if (remembered) return remembered;
     const raw = record?.snapshot || getEmbedRegistrySnapshot(record) || {};
     // An explicitly saved manual Builder post owns its exact title. Do not
     // let a similarly named global bot response overlay rename it in Search.
     if (record?.manualSaved && String(record.source || '') === 'embed-builder') {
-        return { matched: false, data: raw };
+        const result = { matched: false, data: raw };
+        autocompleteSnapshots?.set(record, result);
+        return result;
     }
     const source = getSystemSourceDefinitionPreviewForEmbed(raw) || {};
     const complete = { ...source, ...raw };
-    return getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, complete);
+    const result = getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, complete);
+    if (record) autocompleteSnapshots?.set(record, result);
+    return result;
 }
 
 function snapshot(record) {
@@ -549,6 +557,19 @@ const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
 const lastRegistrySearchRefresh = new Map();
 const lastCanonicalSearchRefresh = new Map();
 const lastCatalogSearchWarm = new Map();
+
+// Load the saved index and title scopes at startup, rather than making the
+// owner's first Search query discover them after an empty/partial response.
+export async function prewarmEmbedBuilderSearch(guild) {
+    const records = await getEmbedRegistry(guild.id, { cached: true });
+    await Promise.all([
+        warmSavedEmbedTemplateScopes(guild.id, records.map(record => record.channelId)),
+        ensureHiddenBuilderCatalogLoaded(guild.id),
+    ]);
+    await getFastCanonicalBuilderRecords(guild, records);
+    fastSearchCache.delete(String(guild.id));
+    return loadFastEmbedBuilderSearchRecords({ guild, guildId: guild.id, member: guild.members?.me });
+}
 
 // Discord autocomplete has a short, non-deferable deadline. Database and
 // full-catalog refreshes are scheduled AFTER replying, never per keystroke.
@@ -1152,9 +1173,46 @@ export function buildMatches(guild, records, query) {
 // Title and body terms are both considered, including errors whose title is
 // generic but whose description names the underlying response.
 export function buildAutocompleteMatches(guild, records, rawQuery) {
+    // One synchronous list build consults the same snapshot repeatedly for
+    // labels, grouping and ranking. Reuse that resolution only for this call;
+    // the next query must see any Save immediately, even on the same record.
+    const previous = autocompleteSnapshots;
+    autocompleteSnapshots = new WeakMap();
+    try {
+        return autocompleteMatches(guild, records, rawQuery);
+    } finally {
+        autocompleteSnapshots = previous;
+    }
+}
+
+function autocompleteMatches(guild, records, rawQuery) {
     const query = normalize(rawQuery);
-    if (!query) return [];
     if (records.length <= 80) return buildMatches(guild, records, query).slice(0, 25);
+    if (!query) {
+        // Opening the list needs 25 suggestions, not full preview/peer
+        // preparation for every catalog row. Expand only when filtering or
+        // deduplication leaves fewer choices. Typed searches retain all rows.
+        const ranked = records.map(record => ({ record, title: recordTitle(record), priority: priority(record) }))
+            .filter(candidate => candidate.title)
+            .sort((a, b) => b.priority - a.priority
+                || a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+        const shortlist = [];
+        const identities = new Set();
+        for (const candidate of ranked) {
+            const key = stableSearchTemplateKey(candidate.record);
+            const family = automatedTicketLogFamily(candidate.record);
+            const identity = key ? 'template:' + key + ':' + stableSearchTemplateContext(candidate.record)
+                : family ? 'ticket:' + family.key : null;
+            if (identity && identities.has(identity)) continue;
+            if (identity) identities.add(identity);
+            shortlist.push(candidate.record);
+            if (shortlist.length % 80 === 0) {
+                const matches = buildMatches(guild, shortlist, '');
+                if (matches.length >= 25) return matches.slice(0, 25);
+            }
+        }
+        return buildMatches(guild, shortlist, '').slice(0, 25);
+    }
 
     const tokens = query.split(' ').filter(Boolean);
     const candidates = [];
@@ -1163,9 +1221,9 @@ export function buildAutocompleteMatches(guild, records, rawQuery) {
         // The fast candidate shortlist must use the saved title too; otherwise
         // a renamed catalog result remains undiscoverable for the new name
         // until a canonical background index refresh.
-        const saved = getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, data);
+        const saved = savedSearchSnapshot(record);
         const family = automatedTicketLogFamily(record);
-        const title = normalize(family?.title || (saved.matched && saved.data?.title
+        const title = normalize(family?.title || ((saved.matched || record.manualSaved) && saved.data?.title
             ? saved.data.title
             : [record?.name, record?.title, data.title].filter(Boolean).join(' ')));
         const body = normalize([
@@ -1322,7 +1380,7 @@ function selectionValue(record) {
 }
 
 function parseSelection(value) {
-    const match = String(value || '').match(/^(\d+):(\d+):(\d+)$/);
+    const match = String(value || '').match(/^(\d+):(\d+|draft-[a-f0-9-]+):(\d+)$/);
     if (!match) return null;
     return {
         channelId: match[1],
@@ -1536,7 +1594,9 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
         && (quickLive.snapshot.description || quickLive.snapshot.fields?.length)
         && (quickLive.snapshot.title || quickLive.title || quickLive.name)
         && !quickLive.detached);
-    const runtimePreparation = readyLiveSnapshot
+    const runtimePreparation = savedManualSnapshot
+        ? Promise.resolve(record)
+        : readyLiveSnapshot
         ? Promise.resolve(quickLive)
         : directPreview || readyCatalogSnapshot
             ? Promise.resolve(record)
@@ -1719,7 +1779,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                 return;
             }
             const focused = interaction.options.getFocused(true);
-            if (focused?.name !== 'search' || !normalize(focused.value)) {
+            if (focused?.name !== 'search') {
                 await interaction.respond([]);
                 return;
             }
