@@ -119,7 +119,7 @@ test('autocomplete schedules heavyweight catalog/DB work only after responding',
   const start = source.indexOf('embedBuilderCommand.autocomplete');
   const end = source.indexOf('const originalExecute', start);
   const handler = source.slice(start, end);
-  assert.match(handler, /buildAutocompleteMatches\(/);
+  assert.match(handler, /buildIndexedAutocompleteMatches\(/);
   assert.match(handler, /await interaction.respond\(choices\)/);
   assert.match(handler, /scheduleAutocompleteSearchRefresh\(interaction\)/);
   assert.ok(handler.indexOf('await interaction.respond(choices)') < handler.indexOf('scheduleAutocompleteSearchRefresh(interaction)'));
