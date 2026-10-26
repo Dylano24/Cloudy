@@ -77,6 +77,19 @@ test('staff must enter reason; Discord unban/unmute actually run once and persis
   }
 });
 
+test('completed Deny removes buttons and uses the same handled status for Discord and Rust', async t => {
+  t.mock.method(InteractionHelper, 'safeEditReply', async () => {});
+  for (const scope of ['discord', 'rust']) {
+    const f = fixture('Ban', scope);
+    await handleAppealDecision(f.interaction, f.client, ['deny', f.record.id]);
+    assert.equal(f.values.get(appealReviewKey(f.guild.id, f.record.id)).status, 'denied');
+    assert.equal(f.message.updated.embeds[0].color, 0x00C49D);
+    assert.deepEqual(f.message.updated.components, []);
+    assert.equal(f.message.updated.embeds[0].fields[0].name, 'This appeal has been handled');
+    assert.match(f.message.updated.embeds[0].fields[1].value, /Denied by/);
+  }
+});
+
 test('deny stores a mandatory reason for Discord/Rust, and wrong Discord targets cannot be acted on', async () => {
   for (const scope of ['discord', 'rust']) {
     const f = fixture('Ban', scope);
