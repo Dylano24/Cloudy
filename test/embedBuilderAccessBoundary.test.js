@@ -7,6 +7,11 @@ import builder from '../src/commands/Tools/embedbuilder.js';
 import '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 import { applyEmbedColorPickerSession, flushPendingEmbedEditorUpdates } from '../src/services/embedColorPickerSessionService.js';
 import { createEmbedManagerChannelPager } from '../src/services/embedManagerService.js';
+import { loadRecordSnapshotIntoState, saveModifiedEmbed } from '../src/services/embedManagerService.js';
+import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
+import { prewarmEmbedBuilderSearch, loadEmbedBuilderSearchSelection } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import fullResponseCatalog from '../src/events/fullResponseCatalogReady.js';
+import { InteractionHelper } from '../src/utils/interactionHelper.js';
 
 let serial = 0;
 function fixture(t, { hidden = false, readOnly = false } = {}) {
@@ -329,4 +334,60 @@ test('Save rechecks member access before resolving or mutating a previously sele
   f.channel.messages.fetch = async () => { fetches++; return null; };
   await collector.listeners('collect')[0](f.component('simple_embed_post'));
   assert.equal(fetches, 0, 'revoked access must stop Save before bot-only REST lookup');
+});
+
+test('Search Save is used by the next real Builder deletion response with exact owner title and emoji', async t => {
+  const f = fixture(t);
+  fullResponseCatalog.execute({ on() {} });
+  const source = { title: 'Removed from Builder', description: 'Original deletion response.', color: 0xffffff,
+    author: { name: 'Cloudy template key: builder:removed || Cloudy context: embed-builder/delete || Cloudy kind: embed' } };
+  const catalog = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000029',
+    embedIndex: 0, source: 'system-catalog', title: source.title, snapshot: source, components: [] };
+  f.storage.set('cloudy:embed-registry:' + f.guild.id, [catalog]);
+  const message = { id: catalog.messageId, guildId: f.guild.id, channelId: f.channel.id,
+    channel: f.channel, author: { id: 'bot' }, content: 'System & error embed templates',
+    embeds: [new Embed(source)], components: [], flags: { has: () => false },
+    async edit(payload) { this.embeds = payload.embeds.map(embed => new Embed(embed)); return this; } };
+  f.channel.messages.fetch = async () => message;
+  await getEmbedRegistry(f.guild.id);
+  await prewarmEmbedBuilderSearch(f.guild);
+  const search = { ...f.interaction, options: {
+    getFocused: () => ({ name: 'search', value: 'removed from builder' }),
+    getString: () => `${f.channel.id}:${catalog.messageId}:0`,
+  }, async respond(choices) { this.choices = choices; } };
+  await builder.autocomplete(search);
+  assert.ok(search.choices.some(choice => choice.value === search.options.getString()));
+  const selected = await loadEmbedBuilderSearchSelection(search);
+  const state = {};
+  loadRecordSnapshotIntoState(state, f.guild, selected.record, selected.previewRecord, selected.sourceRecord);
+  state.title = 'Removed by builder 🔨 <:cloudy:123456789012345678>';
+  state.message = 'The owner saved this exact response.';
+  assert.equal((await saveModifiedEmbed(f.guild, state)).ok, true);
+
+  const removed = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000039',
+    embedIndex: 0, source: 'embed-builder', manualSaved: true, detached: true,
+    title: 'Independent item to remove', snapshot: { title: 'Independent item to remove', description: 'Delete only this item' }, components: [] };
+  const key = 'cloudy:embed-registry:' + f.guild.id;
+  f.storage.set(key, [...f.storage.get(key), removed]);
+  f.interaction.commandName = 'embedbuilder';
+  f.interaction.__cloudyInitialBuilderSelection = { record: removed };
+  InteractionHelper.patchInteractionResponses(f.interaction);
+  await builder.execute(f.interaction);
+  const dashboard = f.interaction.lastDashboard;
+  t.after(() => dashboard.collector.stop('test-ended'));
+  function component(id) {
+    const interaction = f.component(id);
+    interaction.__cloudyFullResponseCatalogPatched = false;
+    interaction.__titanResponsePatched = false;
+    InteractionHelper.patchInteractionResponses(interaction);
+    return interaction;
+  }
+  await dashboard.collector.listeners('collect')[0](component('simple_embed_delete_from_builder'));
+  await dashboard.collector.listeners('collect')[0](component('simple_embed_post'));
+  const notice = f.childPayloads.at(-1).embeds[0];
+  const data = notice.toJSON?.() || notice;
+  assert.equal(data.title, state.title, 'the actual bot notification must reuse the title saved through Search');
+  assert.equal(data.description, state.message);
+  assert.equal(f.publicPayloads.length, 0);
+  assert.equal(f.storage.get(key).some(record => record.messageId === removed.messageId), false);
 });

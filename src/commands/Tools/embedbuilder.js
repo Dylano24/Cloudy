@@ -26,6 +26,7 @@ import { TitanBotError,
     replyUserError,
     ErrorTypes } from '../../utils/errorHandler.js';
 import { getColor } from '../../config/bot.js';
+import { markBotResponsePayload } from '../../utils/botResponseIntent.js';
 import {
     createEmbedColorPickerSession,
     deleteEmbedColorPickerSession,
@@ -319,11 +320,11 @@ function clearBuilderRecordCaches(guildId) {
 }
 
 async function sendBuilderDeleteNotice(interaction, title, description, color = 0xFFFFFF) {
-    const message = await interaction.followUp({
+    const message = await interaction.followUp(markBotResponsePayload({
         embeds: [new EmbedBuilder().setTitle(title).setDescription(description).setColor(color)],
         flags: MessageFlags.Ephemeral,
         fetchReply: true,
-    }).catch(() => null);
+    })).catch(() => null);
     if (message) removeTransientMessage(interaction, message);
 }
 
@@ -603,7 +604,7 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
             : !state.modifyTarget || String(state.modifyTarget.messageId).startsWith('draft-')
                 ? 'The embed could not be saved permanently. Your draft is still open. Please try Save again.'
                 : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
-        const failure = await buttonInteraction.followUp({
+        const failure = await buttonInteraction.followUp(markBotResponsePayload({
             content: null,
             embeds: [new EmbedBuilder()
                 .setTitle('Could not save changes')
@@ -611,7 +612,7 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
                 .setColor(getColor('error'))],
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
-        }).catch(() => null);
+        })).catch(() => null);
         if (failure) removeTransientMessage(buttonInteraction, failure);
         else {
             await replyUserError(buttonInteraction, {
@@ -657,14 +658,14 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
     }
 
     void refreshBuilder(buttonInteraction, state).catch(() => {});
-    const confirmation = await buttonInteraction.followUp({
+    const confirmation = await buttonInteraction.followUp(markBotResponsePayload({
         content: null,
         embeds: [successEmbed('Changes saved', saved.draft
             ? 'The embed was saved to the Builder. Use Post to publish it.'
             : `The existing embed in ${saved.channel} was updated.`)],
         flags: MessageFlags.Ephemeral,
         fetchReply: true,
-    }).catch(() => null);
+    })).catch(() => null);
     if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
     return saved;
 }
@@ -1485,7 +1486,7 @@ async function editMedia(buttonInteraction, state) {
     const mediaKind = getMediaKind(uploadedMedia);
 
     if (!mediaKind) {
-        const invalidMediaMessage = await submitted.reply({
+        const invalidMediaMessage = await submitted.reply(markBotResponsePayload({
             embeds: [
                 new EmbedBuilder({
                     title: 'Invalid media file',
@@ -1495,7 +1496,7 @@ async function editMedia(buttonInteraction, state) {
             ],
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
-        }).catch(() => null);
+        })).catch(() => null);
         if (invalidMediaMessage) removeTransientMessage(submitted, invalidMediaMessage);
         return;
     }
@@ -1522,7 +1523,7 @@ async function editMedia(buttonInteraction, state) {
                         ? 'The converted GIF is too large. Try a shorter video.'
                         : 'Cloudy could not convert that video to a GIF.';
 
-            const failedMessage = await submitted.followUp({
+            const failedMessage = await submitted.followUp(markBotResponsePayload({
                 embeds: [
                     new EmbedBuilder()
                         .setTitle('Video conversion failed')
@@ -1531,7 +1532,7 @@ async function editMedia(buttonInteraction, state) {
                 ],
                 flags: MessageFlags.Ephemeral,
                 fetchReply: true,
-            }).catch(() => null);
+            })).catch(() => null);
             if (failedMessage) removeTransientMessage(submitted, failedMessage);
         }
         return;
@@ -1631,7 +1632,7 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
     const sharedGuilds = await getSharedOwnerGuilds(buttonInteraction.client, buttonInteraction.user.id);
 
     if (!sharedGuilds.length) {
-        const noServersMessage = await buttonInteraction.followUp({
+        const noServersMessage = await buttonInteraction.followUp(markBotResponsePayload({
             embeds: [
                 new EmbedBuilder()
                     .setTitle('No shared servers found')
@@ -1640,7 +1641,7 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
             ],
             flags: MessageFlags.Ephemeral,
             fetchReply: true,
-        }).catch(() => null);
+        })).catch(() => null);
         if (noServersMessage) removeTransientMessage(buttonInteraction, noServersMessage);
         return;
     }
@@ -1854,10 +1855,10 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         }
         state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
-        const sentMessage = await channelInteraction.followUp({
+        const sentMessage = await channelInteraction.followUp(markBotResponsePayload({
             embeds: [successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
             flags: MessageFlags.Ephemeral,
-        });
+        }));
         removeTransientMessage(channelInteraction, sentMessage);
         state.finishBuilder?.('posted');
     });
@@ -2194,7 +2195,7 @@ export default {
                                 buttonInteraction.member,
                             );
                             if (!reposted.ok) {
-                                const failure = await buttonInteraction.followUp({
+                                const failure = await buttonInteraction.followUp(markBotResponsePayload({
                                     embeds: [new EmbedBuilder()
                                         .setTitle('Something went wrong')
                                         .setDescription(
@@ -2211,16 +2212,16 @@ export default {
                                         .setColor(getColor('error'))],
                                     flags: MessageFlags.Ephemeral,
                                     fetchReply: true,
-                                }).catch(() => null);
+                                })).catch(() => null);
                                 if (failure) removeTransientMessage(buttonInteraction, failure);
                                 break;
                             }
 
-                            const confirmation = await buttonInteraction.followUp({
+                            const confirmation = await buttonInteraction.followUp(markBotResponsePayload({
                                 embeds: [successEmbed('Message reposted', `The embed was reposted to ${reposted.channel} and saved automatically.`)],
                                 flags: MessageFlags.Ephemeral,
                                 fetchReply: true,
-                            }).catch(() => null);
+                            })).catch(() => null);
                             if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
                             await refreshBuilder(buttonInteraction, state);
                             break;
@@ -2269,14 +2270,14 @@ export default {
                             message: 'The message builder could not complete that action.',
                         }).catch(() => {});
                     } else {
-                        const errorMessage = await buttonInteraction.followUp({
+                        const errorMessage = await buttonInteraction.followUp(markBotResponsePayload({
                             embeds: [new EmbedBuilder()
                                 .setTitle('Something went wrong')
                                 .setDescription('The message builder could not complete that action. The builder is still open.')
                                 .setColor(getColor('error'))],
                             flags: MessageFlags.Ephemeral,
                             fetchReply: true,
-                        }).catch(() => null);
+                        })).catch(() => null);
                         if (errorMessage) removeTransientMessage(buttonInteraction, errorMessage);
                     }
                     // Best effort: keep the canonical builder dashboard rendered after any
