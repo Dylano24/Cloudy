@@ -8,16 +8,32 @@ function buttonIds(rows) {
   return rows.flatMap(row => row.components.map(button => button.data?.custom_id || button.customId));
 }
 
-test('Builder always keeps Save and Post as separate visible controls', () => {
+test('Builder shows Post for new drafts and Repost for Modify, without duplicates', () => {
   const newDraft = { title: 'Draft', message: 'Test', sideColor: 0xFFFFFF };
   const editing = { ...newDraft, modifyTarget: { messageId: 'existing', channelId: 'general' } };
-  const deleted = { ...newDraft, pendingBuilderDelete: null };
-  for (const draft of [newDraft, editing, deleted]) {
-    const rows = buildControls(draft);
+  const detached = {
+    ...newDraft,
+    modifyTarget: { messageId: 'detached-record', channelId: 'general', detached: true, source: 'embed-builder' },
+  };
+  const savedDraft = {
+    ...newDraft,
+    modifyTarget: { messageId: 'draft-123', channelId: 'general', detached: true, source: 'embed-builder' },
+  };
+  for (const [state, actionId, label] of [
+    [newDraft, 'simple_embed_post_new', 'Post'],
+    [editing, 'simple_embed_post_new', 'Repost'],
+    [detached, 'simple_embed_repost', 'Repost'],
+    [savedDraft, 'simple_embed_post_new', 'Repost'],
+  ]) {
+    const rows = buildControls(state);
     const ids = buttonIds(rows);
+    const publish = rows.flatMap(row => row.components)
+      .filter(button => ['simple_embed_post_new', 'simple_embed_repost'].includes(button.data?.custom_id));
     assert.ok(ids.includes('simple_embed_post'), 'Save must remain present');
-    assert.ok(ids.includes('simple_embed_post_new'), 'Post must remain separately present');
     assert.ok(ids.includes('simple_embed_delete_from_builder'), 'Delete must remain present');
+    assert.equal(publish.length, 1, 'only one Post/Repost action must exist');
+    assert.equal(publish[0].data.custom_id, actionId);
+    assert.equal(publish[0].data.label, label);
     assert.equal(rows.length, 5, 'preserve existing five-row Builder');
     assert.ok(rows.every(row => row.components.length <= 5), 'Discord permits five buttons per row');
   }
