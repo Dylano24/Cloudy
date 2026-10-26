@@ -111,9 +111,21 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
       const data = embed.toJSON();
       if (index === 0) {
         data.color = 0x00C49D;
+        // Render the handled notice as a bold line after the existing final answer.
+        // An otherwise empty Discord embed field creates disproportionate whitespace
+        // between this notice and Staff decision.
+        const previousFields = [...(data.fields || [])];
+        const notice = '\n\n**This appeal has been handled**';
+        const lastIndex = previousFields.length - 1;
+        const lastField = previousFields[lastIndex];
+        if (lastField && lastField.inline !== true && String(lastField.value || '').length + notice.length <= 1024) {
+          previousFields[lastIndex] = { ...lastField, value: `${lastField.value}${notice}` };
+        } else {
+          // Preserve existing text even if a field is too long to append safely.
+          previousFields.push({ name: 'This appeal has been handled', value: '\u200B', inline: false });
+        }
         data.fields = [
-          ...(data.fields || []),
-          { name: 'This appeal has been handled', value: '\u200B', inline: false },
+          ...previousFields,
           { name: 'Staff decision', value: `${action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned'} by <@${member.id}>` },
           { name: 'Reason', value: decision.reason },
         ];
