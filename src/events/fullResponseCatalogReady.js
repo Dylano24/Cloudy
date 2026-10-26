@@ -25,6 +25,7 @@ import { rememberBuilderRuntimePreview } from '../services/builderRuntimePreview
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
+import { isBotResponsePayload } from '../utils/botResponseIntent.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
@@ -491,7 +492,8 @@ function seedKnownGameResponses() {
 }
 
 export async function applySavedResponsePayloadTemplates(payload, source) {
-  if (isPrivateReportCasePayload(payload) || isBuilderAuthoredInteraction(source)) return payload;
+  const builderInteraction = isBuilderAuthoredInteraction(source);
+  if (isPrivateReportCasePayload(payload) || (builderInteraction && !isBotResponsePayload(payload))) return payload;
   if (!payload || typeof payload !== 'object' || !Array.isArray(payload.embeds)) return payload;
   const guildId = source?.guildId || source?.channel?.guild?.id;
   const channelId = source?.channelId || source?.channel?.id;
@@ -512,6 +514,7 @@ export async function applySavedResponsePayloadTemplates(payload, source) {
       || String(data.footer?.text || '').endsWith(MESSAGE_BUILDER_FOOTER_MARKER)) {
       return overlay.data;
     }
+    if (builderInteraction) return embed;
     const formattedTitle = commercialUnsavedBotTitle(overlay.data.title);
     return formattedTitle && formattedTitle !== overlay.data.title
       ? { ...overlay.data, title: formattedTitle }
@@ -535,7 +538,11 @@ function patchInteractionCapture() {
       interaction[method] = async (payload, ...args) => {
         let outgoing = payload;
         try {
-          if (isBuilderAuthoredInteraction(source)) return original(payload, ...args);
+          if (isBuilderAuthoredInteraction(source)) {
+            if (!isBotResponsePayload(payload)) return original(payload, ...args);
+            outgoing = await applySavedResponsePayloadTemplates(payload, source);
+            return original(rememberTransientPayloadIntent(payload, outgoing), ...args);
+          }
           capturePayload(payload, source);
           outgoing = applyPayloadTemplates(payload, source);
           outgoing = await applySavedResponsePayloadTemplates(outgoing, source);

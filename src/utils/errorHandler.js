@@ -23,6 +23,7 @@ import { getErrorMetadata, getDefaultErrorCodeByType, resolveErrorCode, ErrorCod
 import { InteractionHelper } from './interactionHelper.js';
 import { buildCloseButtonRow } from './closableResponse.js';
 import { getGamblingResponsePolicy } from '../services/dedicatedChannelPolicy.js';
+import { markBotResponsePayload } from './botResponseIntent.js';
 
 // Re-export so consumers only ever need to import from errorHandler.js
 export { ErrorCodes, getErrorMetadata, resolveErrorCode, getDefaultErrorCodeByType } from './errorRegistry.js';
@@ -317,12 +318,12 @@ async function sendErrorResponse(interaction, embed, context = {}) {
         const showCloseButton = autoDelete
             ? false
             : (ticketPermissionDenied ? false : gamblingPolicy?.showCloseButton ?? context.showCloseButton);
-        const errorMessage = {
+        const errorMessage = markBotResponsePayload({
             embeds: [embed],
             components: showCloseButton !== false && interaction.user?.id
                 ? [buildCloseButtonRow(interaction.user.id)]
                 : [],
-        };
+        });
 
         if (interaction._isPrefixCommand) {
             if (coordinator?.hasResponded()) {
