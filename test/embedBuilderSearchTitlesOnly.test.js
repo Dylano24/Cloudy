@@ -28,13 +28,13 @@ test('autocomplete shows ONLY the saved title, never body, fields, channel or co
   assert.ok(choices.every(x => !/Sensitive|Other private|ticket-logs|Variant/i.test(x.name)));
 });
 
-test('custom emoji artwork is preserved in the saved title, while native Search shows a Unicode symbol, not a shortcode', () => {
+test('native Search keeps the exact saved custom emoji code in the title', () => {
   const raw = 'Removed from builder <:cloudyCustom:123456789012345678>';
   const choice = buildSearchChoices([
     option('123456789012345681', raw, 'An owner-edited body that must remain in the full preview.'),
   ]);
-  assert.equal(choice[0].name, 'Removed from builder ☁️');
-  assert.equal(humanSearchChoiceTitle('Welcome <:verified:123456789012345678>'), 'Welcome ✅');
+  assert.equal(choice[0].name, raw);
+  assert.equal(humanSearchChoiceTitle('Welcome <:verified:123456789012345678>'), 'Welcome <:verified:123456789012345678>');
   assert.equal(raw, 'Removed from builder <:cloudyCustom:123456789012345678>');
 });
 
@@ -50,22 +50,20 @@ test('same name gives owner-saved version priority, without displaying details',
   assert.equal(changed.record.snapshot.description, 'Owner saved description');
 });
 
-test('Rust-style custom emoji IDs and shortcodes never leak into Search choice titles', () => {
+test('Rust-style custom emoji codes and iOS shortcodes remain literal in Search titles', () => {
   const original = 'Removed from builder <a:X89rust10:123456789012345678>';
   const choices = buildSearchChoices([option('123456789012345684', original, 'Private description only')]);
-  assert.equal(choices[0].name, 'Removed from builder 🎮');
-  assert.equal(humanSearchChoiceTitle('Removed from builder :X89rust10:'), 'Removed from builder 🎮');
-  assert.ok(!choices[0].name.includes('X89rust10'));
-  assert.ok(!choices[0].name.includes('123456789012345678'));
+  assert.equal(choices[0].name, original);
+  assert.equal(humanSearchChoiceTitle('Removed from builder :X89rust10:'), 'Removed from builder :X89rust10:');
   assert.equal(choices[0].name.includes('Private description'), false);
   assert.equal(original, 'Removed from builder <a:X89rust10:123456789012345678>',
     'the real saved Discord emoji is preserved for the embed preview');
 });
 
-test('a custom emoji with no Unicode equivalent becomes a real emoji, not an ID or code', () => {
+test('unknown custom emoji codes are preserved without inventing replacement symbols', () => {
   const title = 'Custom brand <:unknownUniqueLogo:123456789012345678>';
   const native = humanSearchChoiceTitle(title);
-  assert.equal(native, 'Custom brand 🔹');
-  assert.equal(native.includes('unknownUniqueLogo'), false);
+  assert.equal(native, title);
+  assert.equal(native.includes('unknownUniqueLogo'), true);
   assert.equal(title.includes('unknownUniqueLogo'), true);
 });

@@ -128,6 +128,7 @@ function renderDynamic(template, runtime, {
   fallbackToRuntimeOnMismatch = false,
   preserveRuntimeWhenNoDynamic = false,
   literalCustomEmoji = false,
+  literalOnEmptyRuntime = false,
 } = {}) {
   const source = String(runtime || '');
   const templateSource = String(template || '');
@@ -145,7 +146,16 @@ function renderDynamic(template, runtime, {
 
   const runtimeSlots = source.match(/\{dynamic\}/gi) || [];
   if (!runtimeParts.values.length && runtimeSlots.length === placeholders.length) return templateParts.tokenized;
-  if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) return source;
+  if (fallbackToRuntimeOnMismatch && runtimeParts.values.length !== placeholders.length) {
+    // An owner can add a literal number/URL to a static response. There are
+    // no runtime slots in that source to interpolate; returning it here would
+    // discard the saved title/body when Search reopens the original catalog.
+    if (literalOnEmptyRuntime && source && !runtimeParts.values.length
+        && !/\{dynamic\}/i.test(source + templateSource)) {
+      return templateSource;
+    }
+    return source;
+  }
 
   let runtimeIndex = 0;
   let templateIndex = 0;
@@ -185,6 +195,12 @@ function pickTemplate(data = {}, options = {}) {
   const applyFields = options.applyFields !== false;
   const hasDescription = Object.prototype.hasOwnProperty.call(data, 'description');
   const edited = options.editedEmbedData || data;
+  // Only Save can supply an identified catalog source. Do not infer that a
+  // runtime field such as "Not claimed" is static just because it has no ID.
+  const source = metadataAlias(options.staticSourceData || {}) ? options.staticSourceData : null;
+  const staticText = value => typeof value === 'string' && Boolean(value)
+    && !/\{dynamic\}/i.test(value)
+    && !dynamicParts(value, { literalCustomEmoji: true }).values.length;
   const fields = applyFields && Array.isArray(data.fields)
     ? data.fields.slice(0, 25).map(field => ({
         name: String(field?.name || '\u200B').slice(0, 256),
@@ -196,6 +212,8 @@ function pickTemplate(data = {}, options = {}) {
   return {
     schemaVersion: options.canonicalIdentity === BALANCE_RESPONSE_KEY ? 4 : 3,
     canonicalIdentity: options.canonicalIdentity || null,
+    literalTitle: Boolean(source && staticText(source.title)),
+    literalDescription: Boolean(source && staticText(source.description)),
     preserveRuntimeFieldValues: options.preserveRuntimeFieldValues === true,
     applyDescription: options.baseEmbedData
       ? (edited.description ?? null) !== (options.baseEmbedData.description ?? null)
@@ -246,7 +264,7 @@ function primeTemplateOverlay(key, prepared) {
   for (const alias of prepared.aliases) {
     const previous = current[alias] || templateCache.get(key)?.[alias];
     const template = { ...prepared.template, updatedAt: prepared.updatedAt, overlayRevision: prepared.revision };
-    for (const flag of ['applyDescription', 'applyFields', 'applyFooter']) {
+    for (const flag of ['applyDescription', 'applyFields', 'applyFooter', 'literalTitle', 'literalDescription']) {
       template[flag] ||= previous?.[flag] === true;
     }
     for (const [flag, property] of [['applyThumbnail', 'thumbnail'], ['applyImage', 'image']]) {
@@ -285,7 +303,7 @@ async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, opt
       const previous = prepared.aliases.map(alias => stored[alias]).find(Boolean);
       const template = { ...prepared.template, updatedAt: prepared.updatedAt };
       // A second Save must retain earlier edits when only another property changed.
-      for (const flag of ['applyDescription', 'applyFields', 'applyFooter']) {
+      for (const flag of ['applyDescription', 'applyFields', 'applyFooter', 'literalTitle', 'literalDescription']) {
         template[flag] ||= previous?.[flag] === true;
       }
       for (const [flag, property] of [['applyThumbnail', 'thumbnail'], ['applyImage', 'image']]) {
@@ -364,6 +382,7 @@ function decorateEmbedData(embed, stored, options = {}) {
     data.title = renderDynamic(title, original.title || '', {
       fallbackToRuntimeOnMismatch: true,
       literalCustomEmoji: true,
+      literalOnEmptyRuntime: template.literalTitle === true,
     });
   } else {
     delete data.title;
@@ -377,6 +396,7 @@ function decorateEmbedData(embed, stored, options = {}) {
       const description = renderDynamic(template.description, original.description || '', {
         fallbackToRuntimeOnMismatch: true,
         literalCustomEmoji: true,
+        literalOnEmptyRuntime: template.literalDescription === true,
       });
       if (description) data.description = description;
       else delete data.description;
