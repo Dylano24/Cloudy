@@ -2,6 +2,7 @@ import { Events } from 'discord.js';
 import { ensureSystemEmbedCatalogs } from '../services/systemEmbedCatalogService.js';
 import { reconcileEmbedRegistry } from '../services/embedRegistryService.js';
 import { logger } from '../utils/logger.js';
+import { prewarmEmbedBuilderSearch } from '../commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 const CATALOG_READY_ATTEMPTS = 3;
 const CATALOG_READY_RETRY_MS = 1500;
@@ -40,6 +41,10 @@ export default {
   once: true,
 
   async execute(client) {
+    for (const guild of client.guilds.cache.values()) {
+      void prewarmEmbedBuilderSearch(guild).catch(error =>
+        logger.warn(`[EMBED_BUILDER] Initial Search index warmup failed: ${error.message}`));
+    }
     const timer = setTimeout(async () => {
       const ready = await ensureCatalogReadyWithRetry(client);
 
@@ -49,6 +54,8 @@ export default {
         await reconcileEmbedRegistry(guild).catch(error => {
           logger.warn(`[EMBED_BUILDER] Registry sync after catalog cleanup failed for ${guild.id}: ${error.message}`);
         });
+        await prewarmEmbedBuilderSearch(guild).catch(error =>
+          logger.warn(`[EMBED_BUILDER] Complete Search index warmup failed: ${error.message}`));
       }
     }, 3500);
 
