@@ -31,6 +31,18 @@ const sourceDefinitionKeyCache = new Map();
 const catalogEntries = new Set();
 const pendingTemplates = new Map();
 const searchableCatalogRecords = new Map();
+const searchableCatalogRevisionByGuild = new Map();
+
+export function getSearchableSystemCatalogRevision(guildId) {
+  return searchableCatalogRevisionByGuild.get(String(guildId || '')) || 0;
+}
+
+function bumpSearchCatalogRevision(guildId) {
+  const key = String(guildId || '');
+  if (key) searchableCatalogRevisionByGuild.set(
+    key, getSearchableSystemCatalogRevision(key) + 1,
+  );
+}
 // Builder visibility is independent from runtime template rendering. Removing a
 // virtual response from Search must not delete its source or its botlog message.
 const hiddenBuilderCatalogByGuild = new Map();
@@ -809,6 +821,7 @@ export function primeSystemSourceDefinitionPreview(definition = {}) {
 
 function rememberCatalogMessage(message) {
   if (!message?.guildId || !message?.channelId || !message?.id) return;
+  bumpSearchCatalogRevision(message.guildId);
 
   const messagePrefix = `${message.guildId}:${message.id}:`;
   for (const key of [...searchableCatalogRecords.keys()]) {
@@ -878,6 +891,7 @@ export async function removeSystemEmbedCatalogMessage(guildId, channelId, messag
     searchableCatalogRecords.delete(key);
     removed = true;
   }
+  if (removed) bumpSearchCatalogRevision(guild);
 
   const storedIds = await getFromDb(storageKey(guild), []);
   if (Array.isArray(storedIds) && storedIds.map(String).includes(message)) {
