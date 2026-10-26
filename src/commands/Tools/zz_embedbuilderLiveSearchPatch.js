@@ -33,6 +33,7 @@ import {
     isSystemCatalogHiddenFromBuilder,
     isBuilderSearchTitleHiddenFromBuilder,
     getSearchableSystemCatalogRecords,
+    getSearchableSystemCatalogRevision,
     getSystemSourceDefinitionPreview,
     getSystemSourceDefinitionPreviewForEmbed,
 } from '../../services/systemEmbedCatalogService.js';
@@ -686,7 +687,8 @@ async function warmSystemCatalogForSearch(client) {
     return ready;
 }
 
-const FAST_SEARCH_CACHE_TTL = 90_000;
+// The registry generation and source-catalog revision are precise invalidation
+// keys. No time-based purge should cause a 4,000-record rebuild mid-typing.
 const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
     || (globalThis.__cloudyEmbedFastSearchCache = new Map());
 const lastRegistrySearchRefresh = new Map();
@@ -753,11 +755,12 @@ export async function loadFastEmbedBuilderSearchRecords(interaction, { raw = fal
     const guildId = String(interaction.guildId || '');
     const now = Date.now();
     const generation = getEmbedRegistryGeneration(guildId);
+    const catalogRevision = getSearchableSystemCatalogRevision(guildId);
     const cached = fastSearchCache.get(guildId);
 
     // First reuse the indexed source list: do not clone 3,000+ registry rows or
     // warm a Discord catalog while somebody types the next character.
-    if (cached?.generation === generation && cached?.records?.length && cached.expiresAt > now) {
+    if (cached?.generation === generation && cached?.catalogRevision === catalogRevision && cached?.records?.length) {
         if (unfiltered) return cached.records;
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, cached.records, { requireSend: true },
@@ -771,10 +774,9 @@ export async function loadFastEmbedBuilderSearchRecords(interaction, { raw = fal
         // Store unfiltered records to avoid one member's permission set hiding
         // results from another. Check each requesting user's access on return.
         fastSearchCache.set(guildId, {
-            generation,
+            generation, catalogRevision,
             registryPending: !known,
             records: raw,
-            expiresAt: now + FAST_SEARCH_CACHE_TTL,
         });
         if (unfiltered) return raw;
         return filterEmbedBuilderSearchRecords(
@@ -782,7 +784,7 @@ export async function loadFastEmbedBuilderSearchRecords(interaction, { raw = fal
         );
     }
 
-    if (cached?.generation === generation && cached?.records?.length) {
+    if (cached?.generation === generation && cached?.catalogRevision === catalogRevision && cached?.records?.length) {
         if (unfiltered) return cached.records;
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, cached.records, { requireSend: true },
