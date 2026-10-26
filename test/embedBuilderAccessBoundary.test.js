@@ -476,3 +476,34 @@ test('a denied Discord deletion preserves the saved record and pending confirmat
   const notice = f.childPayloads.at(-1).embeds[0];
   assert.equal((notice.toJSON?.() || notice).title, 'Delete failed');
 });
+
+
+test('successful Confirm delete notifies the owner before the private Builder redraw', async t => {
+  const f = fixture(t);
+  const record = { guildId: f.guild.id, channelId: f.channel.id,
+    messageId: '100000000000000089', embedIndex: 0, source: 'embed-builder',
+    manualSaved: true, detached: true, title: 'Notice ordering check',
+    snapshot: { title: 'Notice ordering check', description: 'Already saved privately' }, components: [] };
+  const key = 'cloudy:embed-registry:' + f.guild.id;
+  f.storage.set(key, [record]);
+  f.interaction.__cloudyInitialBuilderSelection = { record };
+  await builder.execute(f.interaction);
+  const dashboard = f.interaction.lastDashboard;
+  t.after(() => dashboard.collector.stop('test-ended'));
+  const collect = dashboard.collector.listeners('collect')[0];
+  await collect(f.component('simple_embed_delete_from_builder'));
+
+  const originalEdit = f.preview.edit.bind(f.preview);
+  let notifiedBeforeRedraw = null;
+  f.preview.edit = async payload => {
+    notifiedBeforeRedraw = f.childPayloads.some(reply => reply.embeds?.some(embed =>
+      (embed.toJSON?.() || embed)?.title === 'Removed from Builder'));
+    return originalEdit(payload);
+  };
+
+  await collect(f.component('simple_embed_post'));
+  assert.equal((f.storage.get(key) || []).length, 0, 'the saved registry record must be gone');
+  assert.equal(notifiedBeforeRedraw, true, 'confirmation should arrive before the slower dashboard/preview refresh');
+  assert.ok(f.preview.edits.length > 0, 'the existing Builder preview still refreshes');
+  assert.ok(buttons(dashboard).some(button => button.label === 'Save changes'), 'existing controls remain usable');
+});
