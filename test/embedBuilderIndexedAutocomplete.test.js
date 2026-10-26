@@ -15,8 +15,7 @@ test('indexed Search keeps saved titles, permissions, and Delete filtering with 
   const allowedChannel = { id: visible, name: 'botlog',
     permissionsFor: () => ({ has: () => true }) };
   const deniedChannel = { id: privateId, name: 'private',
-    permissionsFor: () => ({ has: permission => ![PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages].flat()
-      .includes(permission) }) };
+    permissionsFor: () => ({ has: () => false }) };
   const guild = { id: guildId, channels: { cache: new Map([
     [visible, allowedChannel], [privateId, deniedChannel],
   ]) } };
