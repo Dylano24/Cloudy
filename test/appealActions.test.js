@@ -71,7 +71,7 @@ test('staff must enter reason; Discord unban/unmute actually run once and persis
     assert.equal(decided.moderatorId, 'staff');
     assert.deepEqual(f.message.updated.components, []);
     assert.equal(f.message.updated.embeds[0].color, 0x00C49D);
-    assert.equal(f.message.updated.embeds[0].fields[0].name, '\u2003'.repeat(9) + 'This appeal has been handled');
+    assert.equal(f.message.updated.embeds[0].fields[0].name, 'This appeal has been handled');
     assert.equal(f.message.updated.embeds[0].fields[0].value, '\u200B');
     await handleAppealDecision(f.interaction, f.client, [command, f.record.id]);
     assert.equal(calls.length, count + 1);
@@ -86,7 +86,7 @@ test('completed Deny removes buttons and uses the same handled status for Discor
     assert.equal(f.values.get(appealReviewKey(f.guild.id, f.record.id)).status, 'denied');
     assert.equal(f.message.updated.embeds[0].color, 0x00C49D);
     assert.deepEqual(f.message.updated.components, []);
-    assert.equal(f.message.updated.embeds[0].fields[0].name, '\u2003'.repeat(9) + 'This appeal has been handled');
+    assert.equal(f.message.updated.embeds[0].fields[0].name, 'This appeal has been handled');
     assert.equal(f.message.updated.embeds[0].fields[0].value, '\u200B');
     assert.match(f.message.updated.embeds[0].fields[1].value, /Denied by/);
   }
