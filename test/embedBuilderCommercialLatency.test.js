@@ -145,7 +145,8 @@ test('slash autocomplete uses the non-blocking Search loader and never the full 
   assert.ok(start >= 0 && end > start);
   const autocomplete = source.slice(start, end);
 
-  assert.match(autocomplete, /await loadFastEmbedBuilderSearchRecords\(interaction\)/);
+  assert.match(autocomplete, /await loadFastEmbedBuilderSearchRecords\(interaction, \{ unfiltered: true \}\)/);
+  assert.match(autocomplete, /buildIndexedAutocompleteMatches\(/);
   assert.doesNotMatch(autocomplete, /await loadEmbedBuilderSearchRecords\(interaction\)/);
 
   const fastStart = source.indexOf('async function loadFastEmbedBuilderSearchRecords');
