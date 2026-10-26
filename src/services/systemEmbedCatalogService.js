@@ -598,6 +598,61 @@ export async function ensureHiddenBuilderCatalogLoaded(guildId) {
   return pending;
 }
 
+// Delete in the Builder removes a searchable *response type*, not merely one
+// physical instance. The same title may exist in the private source catalog,
+// several existing logs and later runtime records under different message IDs.
+// This persisted visibility is Search-only: runtime templates and audit history
+// must continue working normally.
+const HIDDEN_BUILDER_SEARCH_TITLE_PREFIX = 'search-title|';
+const HIDDEN_BUILDER_SEARCH_CATALOG_TITLE_PREFIX = 'search-catalog-title|';
+
+function builderSearchTitleIdentity(title, catalog = false) {
+  const normalized = String(title || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/<a?:[^:>]+:\d+>/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized ? (catalog
+    ? HIDDEN_BUILDER_SEARCH_CATALOG_TITLE_PREFIX : HIDDEN_BUILDER_SEARCH_TITLE_PREFIX) + normalized : '';
+}
+
+export function isBuilderSearchTitleHiddenFromBuilder(guildId, title, { catalog = false } = {}) {
+  const id = builderSearchTitleIdentity(title, catalog);
+  return Boolean(id && hiddenBuilderCatalogByGuild.get(String(guildId || ''))?.has(id));
+}
+
+export async function hideBuilderSearchTitlesFromBuilder(guildId, titles, { includeCatalog = false } = {}) {
+  const id = String(guildId || '');
+  const values = Array.isArray(titles) ? titles : [titles];
+  // Removing one *catalog definition* must not hide its sibling embeds in
+  // the same catalog message. Deleting a physical automated log response,
+  // however, hides the equivalent catalog Search aliases as well.
+  const identities = [...new Set([
+    ...values.map(title => builderSearchTitleIdentity(title)),
+    ...(includeCatalog ? values.map(title => builderSearchTitleIdentity(title, true)) : []),
+  ].filter(Boolean))];
+  if (!id || !identities.length) return false;
+  // Share the catalog visibility write queue: concurrent Deletes must never
+  // overwrite one another or resurrect entries on the next bot restart.
+  const previous = hiddenBuilderCatalogWrites.get(id) || Promise.resolve();
+  const pending = previous.catch(() => {}).then(async () => {
+    const existing = await ensureHiddenBuilderCatalogLoaded(id);
+    if (identities.every(identity => existing.has(identity))) return true;
+    const next = new Set(existing);
+    for (const identity of identities) next.add(identity);
+    const stored = await setInDb(HIDDEN_BUILDER_CATALOG_PREFIX + id, [...next]);
+    if (stored === false) return false;
+    hiddenBuilderCatalogByGuild.set(id, next);
+    return true;
+  });
+  hiddenBuilderCatalogWrites.set(id, pending);
+  try { return await pending; }
+  finally { if (hiddenBuilderCatalogWrites.get(id) === pending) hiddenBuilderCatalogWrites.delete(id); }
+}
+
 export async function hideSystemCatalogFromBuilder(guildId, record) {
   const id = String(guildId || '');
   const identity = builderCatalogVisibilityId(record);
