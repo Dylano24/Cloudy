@@ -69,7 +69,9 @@ test('staff must enter reason; Discord unban/unmute actually run once and persis
     const decided = f.values.get(appealReviewKey(f.guild.id, f.record.id));
     assert.equal(decided.status, 'approved');
     assert.equal(decided.moderatorId, 'staff');
-    assert.equal(f.message.updated.components[0].toJSON().components.every(button => button.disabled), true);
+    assert.deepEqual(f.message.updated.components, []);
+    assert.equal(f.message.updated.embeds[0].color, 0x00C49D);
+    assert.equal(f.message.updated.embeds[0].fields[0].name, 'This appeal has been handled');
     await handleAppealDecision(f.interaction, f.client, [command, f.record.id]);
     assert.equal(calls.length, count + 1);
   }
