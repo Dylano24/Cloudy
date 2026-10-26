@@ -158,7 +158,7 @@ test('Search keeps a catalog template but removes an inaccessible live preview a
 
 test('autocomplete stays fast while selection retains full discovery for cold results', () => {
   const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-  assert.match(source, /async function loadFastEmbedBuilderSearchRecords\(interaction\)/);
+  assert.match(source, /async function loadFastEmbedBuilderSearchRecords\(interaction, \{ unfiltered = false \} = \{\}\)/);
   assert.match(source, /async function loadEmbedBuilderSearchRecords\(interaction\)/);
   assert.match(source, /getFastCanonicalBuilderRecords\(interaction\.guild\)/);
   assert.match(source, /filterEmbedBuilderSearchRecords\(/);
@@ -166,7 +166,7 @@ test('autocomplete stays fast while selection retains full discovery for cold re
   const autocompleteStart = source.indexOf('embedBuilderCommand.autocomplete');
   const executeStart = source.indexOf('const originalExecute', autocompleteStart);
   const autocomplete = source.slice(autocompleteStart, executeStart);
-  assert.match(autocomplete, /await loadFastEmbedBuilderSearchRecords\(interaction\)/);
+  assert.match(autocomplete, /await loadFastEmbedBuilderSearchRecords\(interaction, \{ unfiltered: true \}\)/);
   assert.doesNotMatch(autocomplete, /await loadEmbedBuilderSearchRecords\(interaction\)/);
   assert.doesNotMatch(autocomplete, /filterEmbedBuilderRecords/);
 

@@ -477,6 +477,43 @@ for (const mode of ['live', 'missing', 'deleted-between-clicks']) {
   });
 }
 
+test('catalog Search Delete removes its selected actual Discord log message, preserving the catalog source', async t => {
+  const f = fixture(t);
+  const author = { name: 'Cloudy template key: ticket-log:close || Cloudy context: ticket-logs/close || Cloudy kind: embed' };
+  const source = { title: 'Ticket closed', description: 'A ticket closed', author };
+  const catalog = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000201',
+    embedIndex: 0, source: 'system-catalog', title: source.title, snapshot: source, components: [] };
+  const real = { ...catalog, messageId: '100000000000000202', source: 'cloudy',
+    snapshot: { title: 'Ticket closed', description: 'Real botlog instance' } };
+  const keep = { ...catalog, messageId: '100000000000000203', source: 'cloudy',
+    snapshot: { title: 'Unrelated log', description: 'Keep this post' } };
+  const key = 'cloudy:embed-registry:' + f.guild.id;
+  f.storage.set(key, [catalog, real, keep]);
+  let deletedLogs = 0;
+  f.channel.messages.fetch = async id => {
+    if (String(id) !== real.messageId) throw Object.assign(new Error('Unknown message'), { code: 10008 });
+    return {
+      id: real.messageId, channel: f.channel, author: { id: 'bot' }, embeds: [new Embed(real.snapshot)],
+      components: [], async delete() { deletedLogs++; },
+    };
+  };
+  await getEmbedRegistry(f.guild.id);
+  f.interaction.__cloudyInitialBuilderSelection = { record: catalog, previewRecord: real };
+  await builder.execute(f.interaction);
+  const dashboard = f.interaction.lastDashboard;
+  t.after(() => dashboard.collector.stop('test-ended'));
+  const collect = dashboard.collector.listeners('collect')[0];
+  await collect(f.component('simple_embed_delete_from_builder'));
+  await collect(f.component('simple_embed_post'));
+  assert.equal(deletedLogs, 1, 'Confirm delete should remove the linked real log message');
+  assert.ok(f.storage.get(key).some(row => row.messageId === catalog.messageId),
+    'the reusable system catalog master cannot be physically deleted');
+  assert.ok(f.storage.get(key).some(row => row.messageId === keep.messageId),
+    'unrelated log posts are untouched');
+  assert.ok(!f.storage.get(key).some(row => row.messageId === real.messageId),
+    'the deleted physical log ID must also leave the durable index');
+});
+
 test('overlapping Confirm delete clicks perform one deletion and cannot save a new private draft', async t => {
   const f = fixture(t);
   const record = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000069',

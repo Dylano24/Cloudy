@@ -61,9 +61,14 @@ test('virtual catalog deletion is saved without touching Discord message or Reap
   assert.ok(start > 0 && end > start);
   assert.match(catalogBranch, /hideSystemCatalogFromBuilder\(/);
   assert.match(catalogBranch, /clearBuilderRecordCaches\(/);
-  assert.doesNotMatch(catalogBranch, /purgeEmbedRegistryRecord\(/);
+  assert.match(catalogBranch, /if \(logTarget && logPresence\?\.status === 'exists'\)/,
+    'only a separately verified physical log peer may be deleted');
+  assert.match(catalogBranch, /logPresence\.message\.delete\(\)/);
+  assert.match(catalogBranch, /hideSystemCatalogFromBuilder\(/);
   assert.doesNotMatch(catalogBranch, /syncExistingEmbedReappearRule\(/);
-  assert.doesNotMatch(catalogBranch, /\.delete\(/);
+  const virtualOnly = catalogBranch.slice(catalogBranch.indexOf('let hidden = false'));
+  assert.doesNotMatch(virtualOnly, /purgeEmbedRegistryRecord\(/);
+  assert.doesNotMatch(virtualOnly, /\.delete\(\)/);
 });
 
 
@@ -74,7 +79,7 @@ test('confirmed Delete physically removes Cloudy posts, then purges the registry
   const body = source.slice(from, to);
   assert.match(body, /presence\.message\.delete\(\)/);
   assert.match(body, /String\(presence\.message\?\.author\?\.id \|\| ''\)/);
-  assert.ok(body.indexOf('await presence.message.delete()') < body.indexOf('await purgeEmbedRegistryRecord('),
+  assert.ok(body.indexOf('await presence.message.delete()') < body.lastIndexOf('await purgeEmbedRegistryRecord('),
     'the record must not be purged before Discord confirms actual deletion');
   assert.match(body, /invalidateIndexedRecentChannelEmbeds/);
   assert.match(body, /invalidateBuilderSearchTitleCache/);

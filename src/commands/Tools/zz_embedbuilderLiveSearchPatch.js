@@ -33,6 +33,7 @@ import {
     isSystemCatalogHiddenFromBuilder,
     isBuilderSearchTitleHiddenFromBuilder,
     getSearchableSystemCatalogRecords,
+    getSearchableSystemCatalogRevision,
     getSystemSourceDefinitionPreview,
     getSystemSourceDefinitionPreviewForEmbed,
 } from '../../services/systemEmbedCatalogService.js';
@@ -686,7 +687,8 @@ async function warmSystemCatalogForSearch(client) {
     return ready;
 }
 
-const FAST_SEARCH_CACHE_TTL = 30_000;
+// The registry generation and source-catalog revision are precise invalidation
+// keys. No time-based purge should cause a 4,000-record rebuild mid-typing.
 const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
     || (globalThis.__cloudyEmbedFastSearchCache = new Map());
 const lastRegistrySearchRefresh = new Map();
@@ -703,7 +705,13 @@ export async function prewarmEmbedBuilderSearch(guild) {
     ]);
     await getFastCanonicalBuilderRecords(guild, records);
     fastSearchCache.delete(String(guild.id));
-    return loadFastEmbedBuilderSearchRecords({ guild, guildId: guild.id, member: guild.members?.me });
+    const raw = await loadFastEmbedBuilderSearchRecords(
+        { guild, guildId: guild.id, member: guild.members?.me }, { unfiltered: true },
+    );
+    // Normalize thousands of names/bodies once on startup, not on each key
+    // pressed by the owner while Discord's non-deferable clock is running.
+    indexedAutocompleteCandidates(raw);
+    return filterEmbedBuilderSearchRecords(guild, guild.members?.me, raw, { requireSend: true });
 }
 
 // Discord autocomplete has a short, non-deferable deadline. Database and
@@ -719,9 +727,7 @@ function scheduleAutocompleteSearchRefresh(interaction) {
         // Cold autocomplete may never await PostgreSQL. Warm the saved shared
         // title overlay *after* responding so the next query sees the owner's
         // last Save, including its emoji, without breaking the fast path.
-        void warmSavedEmbedTemplateScopes(guildId, []).then(() => {
-            fastSearchCache.delete(guildId);
-        }).catch(error => logger.debug(
+        void warmSavedEmbedTemplateScopes(guildId, []).catch(error => logger.debug(
             '[EMBED_SEARCH] Saved title background warm skipped: ' + (error?.message || error),
         ));
         void ensureHiddenBuilderCatalogLoaded(guildId).catch(error =>
@@ -745,15 +751,16 @@ function scheduleAutocompleteSearchRefresh(interaction) {
     timer.unref?.();
 }
 
-export async function loadFastEmbedBuilderSearchRecords(interaction) {
+export async function loadFastEmbedBuilderSearchRecords(interaction, { unfiltered = false } = {}) {
     const guildId = String(interaction.guildId || '');
-    const now = Date.now();
     const generation = getEmbedRegistryGeneration(guildId);
+    const catalogRevision = getSearchableSystemCatalogRevision(guildId);
     const cached = fastSearchCache.get(guildId);
 
     // First reuse the indexed source list: do not clone 3,000+ registry rows or
     // warm a Discord catalog while somebody types the next character.
-    if (cached?.generation === generation && cached?.records?.length && cached.expiresAt > now) {
+    if (cached?.generation === generation && cached?.catalogRevision === catalogRevision && cached?.records?.length) {
+        if (unfiltered) return cached.records;
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, cached.records, { requireSend: true },
         );
@@ -766,17 +773,18 @@ export async function loadFastEmbedBuilderSearchRecords(interaction) {
         // Store unfiltered records to avoid one member's permission set hiding
         // results from another. Check each requesting user's access on return.
         fastSearchCache.set(guildId, {
-            generation,
+            generation, catalogRevision,
             registryPending: !known,
             records: raw,
-            expiresAt: now + FAST_SEARCH_CACHE_TTL,
         });
+        if (unfiltered) return raw;
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, raw, { requireSend: true },
         );
     }
 
-    if (cached?.generation === generation && cached?.records?.length) {
+    if (cached?.generation === generation && cached?.catalogRevision === catalogRevision && cached?.records?.length) {
+        if (unfiltered) return cached.records;
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, cached.records, { requireSend: true },
         );
@@ -1403,6 +1411,69 @@ function autocompleteMatches(guild, records, rawQuery) {
     return buildMatches(guild, shortlist, query).slice(0, 25);
 }
 
+// Each unique merged record array is immutable for the lifetime of a fast
+// Search cache. Reuse expensive title/overlay/text normalization across all
+// keystrokes; avoid rehydrating 3,000+ registry/catalog rows every time.
+const indexedAutocompleteCache = new WeakMap();
+
+function indexedAutocompleteCandidates(records) {
+    if (!Array.isArray(records) || !records.length) return [];
+    const existing = indexedAutocompleteCache.get(records);
+    if (existing) return existing;
+    const entries = records.map(record => {
+        const saved = savedSearchSnapshot(record);
+        const family = automatedTicketLogFamily(record);
+        const data = record?.snapshot || {};
+        const title = normalize(family?.title || ((saved.matched || record.manualSaved)
+            && saved.data?.title ? saved.data.title
+            : [record?.name, record?.title, data.title].filter(Boolean).join(' ')));
+        const body = normalize([
+            data.description,
+            ...(Array.isArray(data.fields) ? data.fields.flatMap(field => [field?.name, field?.value]) : []),
+        ].filter(Boolean).join(' '));
+        return { record, title, body, all: title + ' ' + body,
+            rank: priority(record), family: family?.key || '' };
+    });
+    indexedAutocompleteCache.set(records, entries);
+    return entries;
+}
+
+export function buildIndexedAutocompleteMatches(guild, member, records, rawQuery) {
+    const entries = indexedAutocompleteCandidates(records);
+    const query = normalize(rawQuery);
+    const tokens = query.split(' ').filter(Boolean);
+    const matching = [];
+    for (const entry of entries) {
+        if (tokens.length && !tokens.every(token => entry.all.includes(token))) continue;
+        const score = !query ? entry.rank
+            : entry.title === query ? 10000
+            : entry.title.startsWith(query) ? 9000
+            : entry.title.includes(query) ? 8000
+            : entry.body.includes(query) ? 3500 : 1000;
+        matching.push({ entry, score });
+    }
+    matching.sort((a, b) => b.score - a.score ||
+        b.entry.rank - a.entry.rank ||
+        a.entry.title.localeCompare(b.entry.title, undefined, { sensitivity: 'base' }));
+
+    const shortlist = [];
+    const families = new Set();
+    for (const candidate of matching) {
+        const { entry } = candidate;
+        if (entry.family && families.has(entry.family)) continue;
+        // Never expose an otherwise hidden or inaccessible result: owner and
+        // channel permissions are checked after the cheap in-memory ranking.
+        const accessible = sanitizeSearchRecordAccess(guild, member, entry.record, { requireSend: true });
+        if (!accessible) continue;
+        if (entry.family) families.add(entry.family);
+        shortlist.push(accessible);
+        if (shortlist.length >= 120) break;
+    }
+    // The unchanged canonical pipeline still owns preview, dedup, title and
+    // choice identity; it now sees <=120 verified candidates, never 4000+.
+    return buildMatches(guild, shortlist, query).slice(0, 25);
+}
+
 function cleanChoiceText(value, max = 48) {
     return clean(
         String(value || '')
@@ -1939,8 +2010,10 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                 return;
             }
 
-            const records = await loadFastEmbedBuilderSearchRecords(interaction);
-            const matches = buildAutocompleteMatches(interaction.guild, records, focused.value);
+            const records = await loadFastEmbedBuilderSearchRecords(interaction, { unfiltered: true });
+            const matches = buildIndexedAutocompleteMatches(
+                interaction.guild, interaction.member, records, focused.value,
+            );
             const choices = buildSearchChoices(matches);
             rememberOfferedSearchSelections(interaction, matches, choices);
             count = choices.length;

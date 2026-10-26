@@ -376,8 +376,31 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
             0xED4245,
         );
     }
+    // The catalog itself is a shared multi-embed source message and must not
+    // be deleted. Its selected real preview can nevertheless be a separate
+    // bot-owned log post. Verify that exact log ID before offering Confirm.
+    let logPresence = null;
+    if (presence.status === 'catalog' && target.deleteLogTarget) {
+        logPresence = await inspectBuilderDeleteTarget(guild, target.deleteLogTarget);
+        if (logPresence.status === 'exists' && (
+            String(logPresence.message?.author?.id || '') !== String(guild.client?.user?.id || '')
+            || logPresence.message.embeds?.length !== 1
+        )) {
+            await sendBuilderDeleteNotice(buttonInteraction, 'Delete unavailable',
+                'The linked log message is not an individual Cloudy-owned embed. Other log entries were preserved.',
+                0xED4245);
+            return;
+        }
+        if (!['exists', 'missing'].includes(logPresence.status)) {
+            await sendBuilderDeleteNotice(buttonInteraction, 'Could not verify safely',
+                'The linked Discord log message could not be verified. Nothing was deleted.',
+                0xED4245);
+            return;
+        }
+    }
     state.pendingBuilderDelete = {
         key,
+        logPresence,
         channelId: String(target.channelId),
         backingChannelId: String(target.backingChannelId || target.channelId),
         messageId: String(target.messageId),
@@ -446,8 +469,36 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     }
 
     if (presence.status === 'catalog') {
-        // A catalog template is a Search/Builder entry, not a live message.
-        // Leave source definitions, existing Discord embeds and botlog intact.
+        // A shared catalog message can contain ten unrelated response types.
+        // Keep that source intact, but Delete must also remove the specific
+        // real log post chosen as the catalog preview, when one exists.
+        const logTarget = target.deleteLogTarget;
+        const logPresence = pending.logPresence;
+        if (logTarget && logPresence?.status === 'exists') {
+            try {
+                await logPresence.message.delete();
+                logPresence.message.channel?.messages?.cache?.delete?.(String(logTarget.messageId));
+            } catch (error) {
+                if (!BUILDER_DELETE_MISSING_CODES.has(error?.code)) {
+                    logger.warn('[EMBED_BUILDER] Linked log delete failed: ' + error?.message);
+                    await sendBuilderDeleteNotice(buttonInteraction, 'Delete failed',
+                        'Cloudy could not delete the selected Discord log message. Nothing was removed from Search.',
+                        0xED4245);
+                    return false;
+                }
+            }
+        }
+        if (logTarget && ['exists', 'missing'].includes(logPresence?.status)) {
+            const removed = await purgeEmbedRegistryRecord(
+                guild.id, logTarget.channelId, logTarget.messageId, null,
+            );
+            if (!removed) {
+                await sendBuilderDeleteNotice(buttonInteraction, 'Delete could not be saved',
+                    'The log message was deleted, but its registry cleanup failed.',
+                    0xED4245);
+                return false;
+            }
+        }
         let hidden = false;
         try {
             hidden = await hideSystemCatalogFromBuilder(guild.id, {
@@ -495,7 +546,9 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         await sendBuilderDeleteNotice(
             buttonInteraction,
             'Removed from Builder',
-            'The catalog entry was removed from Builder Search. No Discord message or bot response was deleted.',
+            logTarget && ['exists', 'missing'].includes(logPresence?.status)
+                ? 'The selected Discord log message and its Builder Search entry were removed. Shared response templates remain operational.'
+                : 'The virtual catalog entry was removed from Builder Search. No separate physical log message was attached.',
             0x57F287,
         );
         markDelete('first_visible');
