@@ -37,7 +37,8 @@ test('Search autocomplete uses rendered Unicode emoji for known roles but never 
   const original = 'Removed from builder <a:W81yesverifiedblue:123456789012345678>';
   assert.equal(humanSearchChoiceTitle(original), 'Removed from builder ✅');
   assert.equal(original, 'Removed from builder <a:W81yesverifiedblue:123456789012345678>');
-  assert.ok(!humanSearchChoiceTitle('Hello <a:unknown:123456789012345678>').includes('<a:'));
+  assert.equal(humanSearchChoiceTitle('Hello <a:unknown:123456789012345678>'), 'Hello 🔹');
+  assert.equal(humanSearchChoiceTitle('Hello <a:X89rust10:123456789012345678>'), 'Hello 🎮');
 });
 
 test('posting persists the physical message with manualSave=true; explicit Delete is the only purge', () => {
