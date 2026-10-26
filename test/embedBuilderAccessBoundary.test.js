@@ -476,3 +476,79 @@ test('a denied Discord deletion preserves the saved record and pending confirmat
   const notice = f.childPayloads.at(-1).embeds[0];
   assert.equal((notice.toJSON?.() || notice).title, 'Delete failed');
 });
+
+test('Builder Delete Confirm removes an old Reappear source and newer saved copy, not an independent embed', async t => {
+  const f = fixture(t);
+  const sourceId = '100000000000000089';
+  const movedId = '100000000000000099';
+  const independentId = '100000000000000109';
+  const record = { guildId: f.guild.id, channelId: f.channel.id, messageId: sourceId,
+    source: 'embed-builder', manualSaved: true, detached: true, embedIndex: 0,
+    title: 'Test 1', snapshot: { title: 'Test 1', description: 'Old saved copy' }, components: [] };
+  const moved = { ...record, messageId: movedId, detached: false,
+    title: 'Test 1 moved', snapshot: { title: 'Test 1 moved', description: 'A moved Reappear copy' } };
+  const other = { ...record, messageId: independentId,
+    title: 'Independent message', snapshot: { title: 'Independent message' } };
+  const key = 'cloudy:embed-registry:' + f.guild.id;
+  f.storage.set(key, [record, moved, other]);
+  f.storage.set('cloudy:embed-reappear-index:' + f.guild.id + ':' + f.channel.id, [sourceId]);
+  f.storage.set('cloudy:embed-reappear:' + f.guild.id + ':' + f.channel.id + ':' + sourceId, {
+    guildId: f.guild.id, channelId: f.channel.id, originMessageId: sourceId,
+    messageId: movedId, embedIndex: 0, every: 2, count: 0,
+    embed: moved.snapshot, components: [],
+  });
+  let movedDeletes = 0;
+  f.channel.messages.fetch = async id => {
+    if (String(id) !== movedId) throw Object.assign(new Error('Unknown Message'), { code: 10008 });
+    return { id: movedId, author: { id: 'bot' }, channel: f.channel,
+      embeds: [new Embed(moved.snapshot)], async delete() { movedDeletes++; } };
+  };
+  await getEmbedRegistry(f.guild.id);
+  f.interaction.__cloudyInitialBuilderSelection = { record };
+  await builder.execute(f.interaction);
+  const dashboard = f.interaction.lastDashboard;
+  t.after(() => dashboard.collector.stop('test-ended'));
+  const collect = dashboard.collector.listeners('collect')[0];
+  await collect(f.component('simple_embed_delete_from_builder'));
+  await collect(f.component('simple_embed_post'));
+  assert.equal(movedDeletes, 1);
+  assert.deepEqual(f.storage.get(key).map(entry => entry.messageId), [independentId]);
+  const search = { ...f.interaction,
+    options: { getFocused: () => ({ name: 'search', value: 'test 1' }) },
+    async respond(choices) { this.choices = choices; } };
+  await builder.autocomplete(search);
+  assert.ok(!search.choices?.some(choice => [sourceId, movedId]
+    .some(id => String(choice.value).includes(id))));
+  assert.ok(f.storage.get(key).some(entry => entry.messageId === independentId));
+});
+
+test('Builder deletion does not silently erase a linked saved copy if Discord denies deleting it', async t => {
+  const f = fixture(t);
+  const sourceId = '100000000000000119', movedId = '100000000000000129';
+  const record = { guildId: f.guild.id, channelId: f.channel.id, messageId: sourceId,
+    source: 'embed-builder', manualSaved: true, detached: true, embedIndex: 0,
+    title: 'Preserve linked', snapshot: { title: 'Preserve linked' }, components: [] };
+  const moved = { ...record, messageId: movedId, detached: false };
+  const key = 'cloudy:embed-registry:' + f.guild.id;
+  f.storage.set(key, [record, moved]);
+  f.storage.set('cloudy:embed-reappear-index:' + f.guild.id + ':' + f.channel.id, [sourceId]);
+  f.storage.set('cloudy:embed-reappear:' + f.guild.id + ':' + f.channel.id + ':' + sourceId, {
+    guildId: f.guild.id, channelId: f.channel.id, originMessageId: sourceId,
+    messageId: movedId, embedIndex: 0, every: 2, embed: moved.snapshot, components: [],
+  });
+  f.channel.messages.fetch = async () => ({
+    id: movedId, author: { id: 'bot' }, embeds: [new Embed(moved.snapshot)],
+    async delete() { throw Object.assign(new Error('Missing Permissions'), { code: 50013 }); },
+  });
+  f.interaction.__cloudyInitialBuilderSelection = { record };
+  await builder.execute(f.interaction);
+  const dashboard = f.interaction.lastDashboard;
+  t.after(() => dashboard.collector.stop('test-ended'));
+  const collect = dashboard.collector.listeners('collect')[0];
+  await collect(f.component('simple_embed_delete_from_builder'));
+  await collect(f.component('simple_embed_post'));
+  assert.equal(f.storage.get(key).length, 2);
+  assert.ok(buttons(dashboard).some(button => button.label === 'Confirm delete'));
+  const notice = f.childPayloads.at(-1).embeds[0];
+  assert.equal((notice.toJSON?.() || notice).title, 'Delete failed');
+});
