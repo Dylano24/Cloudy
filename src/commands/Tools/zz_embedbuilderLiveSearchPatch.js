@@ -62,6 +62,9 @@ const canonicalSearchCache = globalThis.__cloudyEmbedCanonicalSearchCache
 // if a previous Search snapshot is still cached. Failed Delete rolls back.
 // Keep a short post-commit guard against in-flight stale canonical scans.
 const hiddenSearchDeleteTargets = new Map();
+// Index pending named response deletions independently from their physical
+// message IDs: the system catalog or an older log can have another ID.
+const pendingSearchResponseNames = new Map();
 const CONFIRMED_DELETE_SEARCH_GUARD_MS = 5 * 60_000;
 
 function searchDeleteMessageKey(guildId, messageId) {
@@ -74,6 +77,22 @@ function pendingSearchDeleteMatches(record, target) {
         && String(record?.channelId || '') !== target.channelId) return false;
     return target.embedIndex === null
         || Number(record.embedIndex || 0) === target.embedIndex;
+}
+
+function isPendingSearchResponseNameHidden(guildId, title) {
+    const normalizedTitle = normalize(title);
+    const titles = pendingSearchResponseNames.get(String(guildId || ''));
+    const pending = titles?.get(normalizedTitle);
+    if (!pending) return false;
+    const now = Date.now();
+    for (const [token, expiresAt] of pending) {
+        if (expiresAt && expiresAt <= now) pending.delete(token);
+    }
+    if (!pending.size) {
+        titles.delete(normalizedTitle);
+        if (!titles.size) pendingSearchResponseNames.delete(String(guildId || ''));
+    }
+    return pending.size > 0;
 }
 
 function pruneExpiredSearchDeletes() {
@@ -113,6 +132,23 @@ export function beginBuilderSearchDeletion(guildId, selected) {
     const targets = hiddenSearchDeleteTargets.get(key) || new Map();
     hiddenSearchDeleteTargets.set(key, targets);
     const token = Symbol('builder-confirm-delete');
+    const responseNames = String(selected?.source || '').toLowerCase() === 'embed-builder'
+        ? [] : [...new Set([
+            selected?.sourceEmbedData?.title,
+            selected?.previewSourceData?.title,
+            selected?.templateSourceData?.title,
+            selected?.catalogTitle,
+            selected?.snapshot?.title,
+        ].map(normalize).filter(Boolean))];
+    if (responseNames.length) {
+        const names = pendingSearchResponseNames.get(id) || new Map();
+        pendingSearchResponseNames.set(id, names);
+        for (const name of responseNames) {
+            const pending = names.get(name) || new Map();
+            pending.set(token, null);
+            names.set(name, pending);
+        }
+    }
     targets.set(token, {
         channelId,
         backingChannelId: String(selected.backingChannelId || channelId),
@@ -132,6 +168,17 @@ export function beginBuilderSearchDeletion(guildId, selected) {
         } else {
             current.delete(token);
             if (!current.size) hiddenSearchDeleteTargets.delete(key);
+        }
+        const names = pendingSearchResponseNames.get(id);
+        if (names) {
+            for (const name of responseNames) {
+                const pending = names.get(name);
+                if (!pending) continue;
+                if (committed) pending.set(token, Date.now() + CONFIRMED_DELETE_SEARCH_GUARD_MS);
+                else pending.delete(token);
+                if (!pending.size) names.delete(name);
+            }
+            if (!names.size) pendingSearchResponseNames.delete(id);
         }
         invalidateBuilderSearchTitleCache(id);
     };
@@ -869,7 +916,8 @@ function isBuilderSearchFamilyHidden(record) {
     const guildId = record?.guildId;
     if (!guildId) return false;
     return [recordTitle(record), record?.snapshot?.title, record?.title, record?.name]
-        .some(title => isBuilderSearchTitleHiddenFromBuilder(guildId, title));
+        .some(title => isBuilderSearchTitleHiddenFromBuilder(guildId, title)
+            || isPendingSearchResponseNameHidden(guildId, title));
 }
 
 function builderSearchDisplayRecords(records) {
