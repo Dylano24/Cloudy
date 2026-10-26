@@ -501,11 +501,16 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
 
     const activeReappearMessageId = reappear.activeMessageId
         ? String(reappear.activeMessageId)
-        : null;
+        : (pending.activeReappearMessageId || null);
     // A Reappear copy has its own physical ID and can have its own saved Search
-    // record. Both IDs belong to the one owner-confirmed logical deletion.
-    const relatedReappearIds = [...new Set([reappear.originMessageId, activeReappearMessageId]
-        .filter(id => id && String(id) !== String(pending.messageId)).map(String))];
+    // record. Preserve the verified link within this Confirm session so a
+    // temporary Discord permission/network failure can be retried safely, even
+    // after the canonical Reappear rule has already been disabled.
+    const relatedReappearIds = [...new Set([
+        ...(pending.relatedReappearIds || []), reappear.originMessageId, activeReappearMessageId,
+    ].filter(id => id && String(id) !== String(pending.messageId)).map(String))];
+    pending.activeReappearMessageId = activeReappearMessageId;
+    pending.relatedReappearIds = relatedReappearIds;
     if (activeReappearMessageId && activeReappearMessageId !== String(pending.messageId)) {
         const reappearChannel = guild.channels.cache.get(String(pending.channelId))
             || await guild.channels.fetch(String(pending.channelId)).catch(() => null);
