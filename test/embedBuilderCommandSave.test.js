@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, Embed, MessageFlags } from 'discord.js';
-import { saveModifiedEmbed } from '../src/services/embedManagerService.js';
+import { saveModifiedEmbed, loadRecordSnapshotIntoState } from '../src/services/embedManagerService.js';
+import { getCachedSavedEmbedTemplateData } from '../src/services/embedTemplateService.js';
+import { recordTitle } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 import { discoverRecentChannelEmbeds } from '../src/services/embedMissingChannelService.js';
 import { db } from '../src/utils/database.js';
 
@@ -77,4 +79,41 @@ test('discovery excludes public command instances and whole Builder preview pane
   const records = await discoverRecentChannelEmbeds(guild, channel.id, 'bot');
   assert.deepEqual(records.map(record => record.messageId), [],
     'a command invocation is not a reusable channel embed until explicitly posted or saved');
+});
+
+
+test('Search Save persists an owner-edited system template when its catalog message no longer exists', async () => {
+  const guildId = 'search-save-virtual-catalog-20261026';
+  const channelId = 'botlog-missing-original';
+  const key = 'source:missing-catalog-test';
+  const original = {
+    title: 'Removed from Builder',
+    description: 'Original response.',
+    color: 0xFFFFFF,
+    author: { name: 'Cloudy template key: source:missing-catalog-test || Cloudy context: embed-builder/delete || Cloudy kind: embed' },
+  };
+  const record = { guildId, channelId, backingChannelId: channelId,
+    messageId: 'deleted-catalog-master', embedIndex: 0, source: 'system-catalog',
+    title: original.title, snapshot: original };
+  const storage = new Map();
+  db.initialized = true; db.useFallback = false;
+  db.db = {
+    get: async (k, fallback) => structuredClone(storage.get(k) ?? fallback),
+    set: async (k, value) => { storage.set(k, structuredClone(value)); return true; },
+  };
+  let physicalEdits = 0;
+  const channel = { id: channelId, messages: {
+    fetch: async () => { throw Object.assign(new Error('Unknown Message'), { code: 10008 }); },
+  } };
+  const guild = { id: guildId, client: { user: { id: 'cloudy-bot' } },
+    channels: { cache: new Map([[channelId, channel]]) } };
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, guild, record), true);
+  state.title = 'Removed from builder ✅';
+  state.message = 'Updated by owner';
+  const saved = await saveModifiedEmbed(guild, state);
+  assert.equal(saved.ok, true, 'a missing catalog post should still Save its reusable response');
+  assert.equal(physicalEdits, 0, 'do not recreate, post or edit a deleted catalog message');
+  assert.equal(getCachedSavedEmbedTemplateData(guildId, channelId, original).data.title, state.title);
+  assert.equal(recordTitle(record), state.title, 'Search reads the same saved title immediately');
 });
