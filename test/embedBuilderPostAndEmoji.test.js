@@ -33,12 +33,12 @@ test('Builder title displays literal Discord custom emoji markup without backtic
   assert.ok(!line.includes('`' + name + '`'), 'backticks would show the emoji markup as raw code');
 });
 
-test('Search autocomplete uses rendered Unicode emoji for known roles but never edits the original title', () => {
+test('Search autocomplete preserves custom emoji codes for every name without changing the preview title', () => {
   const original = 'Removed from builder <a:W81yesverifiedblue:123456789012345678>';
-  assert.equal(humanSearchChoiceTitle(original), 'Removed from builder ✅');
+  assert.equal(humanSearchChoiceTitle(original), original);
   assert.equal(original, 'Removed from builder <a:W81yesverifiedblue:123456789012345678>');
-  assert.equal(humanSearchChoiceTitle('Hello <a:unknown:123456789012345678>'), 'Hello 🔹');
-  assert.equal(humanSearchChoiceTitle('Hello <a:X89rust10:123456789012345678>'), 'Hello 🎮');
+  assert.equal(humanSearchChoiceTitle('Hello <a:unknown:123456789012345678>'), 'Hello <a:unknown:123456789012345678>');
+  assert.equal(humanSearchChoiceTitle('Hello <a:X89rust10:123456789012345678>'), 'Hello <a:X89rust10:123456789012345678>');
 });
 
 test('posting persists the physical message with manualSave=true; explicit Delete is the only purge', () => {
