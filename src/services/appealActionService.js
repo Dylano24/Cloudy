@@ -113,7 +113,7 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
         data.color = 0x00C49D;
         data.fields = [
           ...(data.fields || []),
-          { name: '\u200B', value: '\u200B\n**\u2003\u2003\u2003\u2003This appeal has been handled**\n\u200B', inline: false },
+          { name: '\u2003\u2003\u2003\u2003\u2003\u2003\u2003\u2003\u2003This appeal has been handled', value: '\u200B', inline: false },
           { name: 'Staff decision', value: `${action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned'} by <@${member.id}>` },
           { name: 'Reason', value: decision.reason },
         ];
