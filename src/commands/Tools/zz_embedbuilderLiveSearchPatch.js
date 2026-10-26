@@ -730,8 +730,21 @@ function isTransientAssistantCatalogRecord(record) {
 // independently authored manual Builder posts.
 function isHiddenBuilderSearchAlias(record) {
     const source = String(record?.source || '').toLowerCase();
+    // Independently posted manual Builder embeds are the user's own records
+    // and must never disappear because a system response was hidden.
     if (source === 'embed-builder') return false;
-    return isSystemCatalogHiddenFromBuilder({ ...record, source: 'system-catalog' });
+    // A Search choice can contain a physical or modified mirror whose own
+    // author metadata was stripped after Save. Its attached sourceRecord
+    // still identifies the hidden catalog family; check that identity too
+    // instead of resurrecting the deleted Search choice through this mirror.
+    for (const candidate of [record, record?.sourceRecord, record?.previewRecord]) {
+        if (!candidate) continue;
+        if (isSystemCatalogHiddenFromBuilder({
+            ...candidate, guildId: record.guildId || candidate.guildId,
+            source: 'system-catalog',
+        })) return true;
+    }
+    return false;
 }
 
 // A content-only bot response has no authored embed title. Its auto-generated
