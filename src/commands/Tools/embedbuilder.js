@@ -48,16 +48,19 @@ import { applyInitialSearchSelectionToState,
     prepareEmbedManager,
     repostDetachedEmbed,
     saveModifiedEmbed,
+    saveNewBuilderDraft,
     syncBuilderLogoFromLiveMessage } from '../../services/embedManagerService.js';
 import {
     purgeEmbedRegistryRecord,
     registerCloudyEmbedMessage,
+    relinkDetachedEmbedRegistryMessage,
     } from '../../services/embedRegistryService.js';
 import { touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { hideSystemCatalogFromBuilder } from '../../services/systemEmbedCatalogService.js';
 import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord } from '../../utils/embedBuilderAccess.js';
 import { getFromDb,
+    deleteFromDb,
     setInDb } from '../../utils/database.js';
 import {
     cleanupBuilderButtonUi,
@@ -582,12 +585,24 @@ export async function saveExistingEmbed(buttonInteraction, guild, state) {
 }
 
 async function finishExistingEmbedSave(buttonInteraction, guild, state) {
-    const saved = await saveModifiedEmbed(guild, state);
+    const channelId = buttonInteraction.channelId || buttonInteraction.channel?.id;
+    if (!state.modifyTarget && !canUseEmbedBuilderChannel(guild, buttonInteraction.member, channelId, { requireSend: true })) {
+        await replyUserError(buttonInteraction, {
+            type: ErrorTypes.PERMISSION,
+            message: 'You need permission to view and send messages in the selected channel.',
+        });
+        return { ok: false, reason: 'permission-denied' };
+    }
+    const saved = state.modifyTarget
+        ? await saveModifiedEmbed(guild, state)
+        : await saveNewBuilderDraft(guild, state, channelId);
 
     if (!saved.ok) {
         const failureMessage = saved.discordUpdated
             ? 'The Discord message was updated, but the changes could not be saved permanently. Please try Save again.'
-            : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
+            : !state.modifyTarget || String(state.modifyTarget.messageId).startsWith('draft-')
+                ? 'The embed could not be saved permanently. Your draft is still open. Please try Save again.'
+                : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
         const failure = await buttonInteraction.followUp({
             content: null,
             embeds: [new EmbedBuilder()
@@ -609,7 +624,7 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
 
     // BUILDER_EXISTING_REAPPEAR_SAVE_V1: Save Reappear for the existing canonical
     // embed too. Previously this only happened when posting a brand-new embed.
-    if (state.reappearTouched) {
+    if (state.reappearTouched && !saved.draft) {
         const targetIndex = Math.max(0, Number(state.modifyTarget?.embedIndex) || 0);
         const activeEmbed = saved.message?.embeds?.[targetIndex]?.toJSON?.() || null;
         const activeComponents = (saved.message?.components || []).map(row =>
@@ -644,7 +659,9 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
     void refreshBuilder(buttonInteraction, state).catch(() => {});
     const confirmation = await buttonInteraction.followUp({
         content: null,
-        embeds: [successEmbed('Changes saved', `The existing embed in ${saved.channel} was updated.`)],
+        embeds: [successEmbed('Changes saved', saved.draft
+            ? 'The embed was saved to the Builder. Use Post to publish it.'
+            : `The existing embed in ${saved.channel} was updated.`)],
         flags: MessageFlags.Ephemeral,
         fetchReply: true,
     }).catch(() => null);
@@ -659,16 +676,25 @@ function buildSingleEmbed(state, description = null, options = {}) {
         includeLogo = true,
         includeFooter = true,
         includeMedia = true,
+        includeFields = false,
+        includeBuilderMarker = true,
         posted = false,
     } = options;
     const data = { color: state.sideColor };
 
     if (includeTitle && state.title) data.title = state.title.slice(0, 256);
     if (description) data.description = description.slice(0, DISCORD_EMBED_DESCRIPTION_LIMIT);
+    if (includeFields && state.embedFields?.length) {
+        data.fields = state.embedFields.slice(0, 25).map(field => ({
+            name: String(field.name || '\u200B').slice(0, 256),
+            value: String(field.value || '\u200B').slice(0, 1024),
+            inline: Boolean(field.inline),
+        }));
+    }
     if (includeLogo && state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
     if (includeFooter && state.bottomLine) {
-        const footerLimit = posted ? 2047 : 2048;
-        const marker = posted ? MESSAGE_BUILDER_FOOTER_MARKER : '';
+        const marker = posted && includeBuilderMarker ? MESSAGE_BUILDER_FOOTER_MARKER : '';
+        const footerLimit = marker ? 2047 : 2048;
         data.footer = { text: `${state.bottomLine.slice(0, footerLimit)}${marker}` };
     }
     if (includeMedia && state.mediaBuffer && state.mediaName) {
@@ -757,7 +783,13 @@ function buildPreviewEmbed(state) {
 }
 
 export function buildPostedEmbeds(state) {
-    const baseEmbed = buildSingleEmbed(state, null, { posted: true });
+    const privateDraft = Boolean(state.modifyTarget?.detached && String(state.modifyTarget.messageId).startsWith('draft-'));
+    const unmarkedBase = privateDraft ? buildSingleEmbed(state, null, {
+        posted: true, includeFields: true, includeBuilderMarker: false,
+    }) : null;
+    const includeBuilderMarker = !privateDraft || (String(state.bottomLine || '').length < 2048
+        && getEmbedTextLength(unmarkedBase) + (state.message ? 1 : 0) + MESSAGE_BUILDER_FOOTER_MARKER.length <= DISCORD_EMBED_TOTAL_TEXT_LIMIT);
+    const baseEmbed = buildSingleEmbed(state, null, { posted: true, includeFields: privateDraft, includeBuilderMarker });
     const descriptionLimit = Math.max(
         1,
         Math.min(
@@ -776,6 +808,8 @@ export function buildPostedEmbeds(state) {
             includeLogo: isFirst,
             includeFooter: isLast,
             includeMedia: isLast,
+            includeFields: privateDraft && isFirst,
+            includeBuilderMarker,
             posted: true,
         });
     });
@@ -798,9 +832,17 @@ async function postBuiltMessage(channel, state, guild, member) {
 
     const embeds = buildPostedEmbeds(state);
     const sentMessages = [];
+    const draftTarget = state.modifyTarget?.detached
+        && String(state.modifyTarget.messageId).startsWith('draft-') ? { ...state.modifyTarget } : null;
 
     const rollbackPost = async () => {
         for (const entry of [...sentMessages].reverse()) {
+            if (entry.reappearKey) {
+                await deleteFromDb(entry.reappearKey).catch(() => {});
+                const indexKey = `cloudy:embed-reappear-index:${guild.id}:${channel.id}`;
+                const ids = await getFromDb(indexKey, []);
+                await setInDb(indexKey, (Array.isArray(ids) ? ids : []).filter(id => id !== entry.message.id));
+            }
             if (entry.registered) {
                 await purgeEmbedRegistryRecord(
                     guild.id,
@@ -850,6 +892,7 @@ async function postBuiltMessage(channel, state, guild, member) {
         sentEntry.registered = true;
         if (state.reappearAfter) {
             const reappearKey = `cloudy:embed-reappear:${guild.id}:${channel.id}:${sent.id}`;
+            sentEntry.reappearKey = reappearKey;
             const ruleSaved = await setInDb(reappearKey, {
                 guildId: guild.id,
                 channelId: channel.id,
@@ -870,6 +913,15 @@ async function postBuiltMessage(channel, state, guild, member) {
                 await rollbackPost();
                 return { ok: false, reason: 'persistence-failed' };
             }
+        }
+    }
+
+    if (draftTarget) {
+        const relinked = await relinkDetachedEmbedRegistryMessage(guild.id, draftTarget, sentMessages[0].message)
+            .catch(() => false);
+        if (!relinked) {
+            await rollbackPost();
+            return { ok: false, reason: 'persistence-failed' };
         }
     }
 
@@ -1001,7 +1053,7 @@ export function buildControls(state) {
             .setLabel(state.pendingBuilderDelete ? 'Confirm delete' : 'Save changes')
             .setStyle(state.pendingBuilderDelete ? ButtonStyle.Danger : ButtonStyle.Success)
             .setEmoji(state.pendingBuilderDelete ? '🗑️' : '💾')
-            .setDisabled(!state.modifyTarget),
+            .setDisabled(!canSaveBuilderState(state)),
         new ButtonBuilder()
             .setCustomId('simple_embed_post_new')
             .setLabel('Post')
@@ -1029,7 +1081,8 @@ export function buildControls(state) {
     // Discord allows at most five buttons per row. Keep Repost available for
     // legacy detached messages without removing the permanent separate Post.
     if (!state.pendingBuilderDelete && state.modifyTarget?.detached
-        && state.modifyTarget?.source === 'embed-builder') {
+        && state.modifyTarget?.source === 'embed-builder'
+        && !String(state.modifyTarget.messageId).startsWith('draft-')) {
         editRow.addComponents(new ButtonBuilder()
             .setCustomId('simple_embed_repost')
             .setLabel('Repost')
@@ -1221,7 +1274,14 @@ async function deleteBuilderPreviewMessage(state) {
 }
 
 // BUILDER_PREVIEW_BUTTON_PLACEMENT_V1
+function canSaveBuilderState(state) {
+    return Boolean(state.modifyTarget || state.title || state.message || state.embedFields?.length || hasMedia(state));
+}
+
 export function queueBuilderRefresh(interaction, state, includeDashboard = true, preferOriginalReply = false) {
+    const saveEnabled = canSaveBuilderState(state);
+    if (state.lastRenderedSaveEnabled !== undefined && state.lastRenderedSaveEnabled !== saveEnabled) includeDashboard = true;
+    state.lastRenderedSaveEnabled = saveEnabled;
     if (state.colorSessionToken) {
         state.colorPickerUrl = COLOR_PICKER_URL + '/embed-color?session=' + state.colorSessionToken + '&color=' + encodeURIComponent(colorToHex(state.sideColor));
     }
@@ -1864,6 +1924,7 @@ export default {
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
             const initialSavedRecordLoaded = applyInitialSearchSelectionToState(interaction, state);
+            state.lastRenderedSaveEnabled = canSaveBuilderState(state);
             if (initialSavedRecordLoaded) {
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
@@ -2097,7 +2158,7 @@ export default {
                                 await saveExistingEmbed(buttonInteraction, interaction.guild, state);
                                 break;
                             }
-                            await postMessage(buttonInteraction, state, interaction.guild);
+                            await saveExistingEmbed(buttonInteraction, interaction.guild, state);
                             break;
                         case 'simple_embed_post_new':
                             await postMessage(buttonInteraction, state, interaction.guild, true);
