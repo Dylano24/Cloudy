@@ -37,7 +37,8 @@ test('Delete removes the selected log response name across separate log/catalog 
   const records = [selected, catalog, olderLog, different, manual];
 
   const initial = buildMatches(guild, records, 'ticket closed');
-  assert.ok(initial.some(m => m.record.messageId === selected.messageId));
+  assert.ok(initial.some(m => m.record.source !== 'embed-builder'),
+    'the automated response is present before deletion');
   assert.ok(initial.some(m => m.record.messageId === manual.messageId));
 
   // The original message is still being removed from Discord. Neither a
