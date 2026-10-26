@@ -20,6 +20,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { registerBuilderPreviewMessage,
     unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
+import { commercialBuilderTitle } from '../../utils/builderCommercialTitle.js';
 import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
 import { createBuilderPerformanceTracker } from '../../utils/interactionLatency.js';
@@ -386,15 +387,18 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
     await refreshBuilder(buttonInteraction, state);
 }
 
-function deletedBuilderSearchTitles(target) {
-    // Use the selected persisted template/preview identities, not a generic
-    // response title such as the temporary "Removed from Builder" notice.
-    return [...new Set([
+function deletedBuilderSearchTitles(target, state = null) {
+    // A Search label may be humanized from the actual log title, and an
+    // automated template can have a separate original/catalog title. Hide
+    // both presentations, never a generic Builder success notification.
+    const rawTitles = [
         target?.sourceEmbedData?.title,
         target?.previewSourceData?.title,
         target?.templateSourceData?.title,
         target?.catalogTitle,
-    ].map(value => String(value || '').trim()).filter(Boolean))];
+        state?.title,
+    ].map(value => String(value || '').trim()).filter(Boolean);
+    return [...new Set([...rawTitles, ...rawTitles.map(commercialBuilderTitle).filter(Boolean)])];
 }
 
 function resetBuilderAfterRecordDeletion(state) {
@@ -459,9 +463,9 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         } catch (error) {
             logger.error('[EMBED_BUILDER] Could not persist catalog deletion:', error);
         }
-        if (hidden && deletedBuilderSearchTitles(target).length) {
+        if (hidden && deletedBuilderSearchTitles(target, state).length) {
             hidden = await hideBuilderSearchTitlesFromBuilder(
-                guild.id, deletedBuilderSearchTitles(target),
+                guild.id, deletedBuilderSearchTitles(target, state),
             ).catch(error => {
                 logger.error('[EMBED_BUILDER] Could not hide deleted response name:', error);
                 return false;
@@ -565,7 +569,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     // This affects Builder Search only, not real Discord audit logs or runtime
     // response templates. Manually posted Builder embeds remain individual.
     if (String(target.source || '').toLowerCase() !== 'embed-builder') {
-        const searchTitles = deletedBuilderSearchTitles(target);
+        const searchTitles = deletedBuilderSearchTitles(target, state);
         if (searchTitles.length) {
             const namesHidden = await hideBuilderSearchTitlesFromBuilder(guild.id, searchTitles)
                 .catch(error => {
@@ -2218,7 +2222,10 @@ export default {
                                         const { beginBuilderSearchDeletion } =
                                             await import('./zz_embedbuilderLiveSearchPatch.js');
                                         finishSearchDelete = beginBuilderSearchDeletion(
-                                            interaction.guild.id, state.modifyTarget,
+                                            interaction.guild.id, {
+                                                ...state.modifyTarget,
+                                                deleteSearchTitle: state.title,
+                                            },
                                         );
                                         await buttonInteraction.deferUpdate().catch(() => {});
                                         deleted = await savePendingBuilderDeletion(
