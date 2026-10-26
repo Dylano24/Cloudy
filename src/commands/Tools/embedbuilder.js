@@ -59,7 +59,7 @@ import {
     } from '../../services/embedRegistryService.js';
 import { touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
-import { hideSystemCatalogFromBuilder } from '../../services/systemEmbedCatalogService.js';
+import { hideSystemCatalogFromBuilder, hideBuilderSearchTitlesFromBuilder } from '../../services/systemEmbedCatalogService.js';
 import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord } from '../../utils/embedBuilderAccess.js';
 import { getFromDb,
     deleteFromDb,
@@ -386,6 +386,17 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
     await refreshBuilder(buttonInteraction, state);
 }
 
+function deletedBuilderSearchTitles(target) {
+    // Use the selected persisted template/preview identities, not a generic
+    // response title such as the temporary "Removed from Builder" notice.
+    return [...new Set([
+        target?.sourceEmbedData?.title,
+        target?.previewSourceData?.title,
+        target?.templateSourceData?.title,
+        target?.catalogTitle,
+    ].map(value => String(value || '').trim()).filter(Boolean))];
+}
+
 function resetBuilderAfterRecordDeletion(state) {
     // Delete removes the selected post/record, never the owner's open draft.
     // The separate Post button can immediately publish this preview again.
@@ -447,6 +458,14 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
             });
         } catch (error) {
             logger.error('[EMBED_BUILDER] Could not persist catalog deletion:', error);
+        }
+        if (hidden && deletedBuilderSearchTitles(target).length) {
+            hidden = await hideBuilderSearchTitlesFromBuilder(
+                guild.id, deletedBuilderSearchTitles(target),
+            ).catch(error => {
+                logger.error('[EMBED_BUILDER] Could not hide deleted response name:', error);
+                return false;
+            });
         }
         if (!hidden) {
             await sendBuilderDeleteNotice(
@@ -540,6 +559,26 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         await sendBuilderDeleteNotice(buttonInteraction, 'Delete could not be saved',
             'The saved Builder record could not be removed permanently. Please try Confirm delete again.', 0xED4245);
         return false;
+    }
+    // A bot-generated response may exist in the source catalog and other log
+    // messages with DIFFERENT Discord IDs. Remove its logical Search name too.
+    // This affects Builder Search only, not real Discord audit logs or runtime
+    // response templates. Manually posted Builder embeds remain individual.
+    if (String(target.source || '').toLowerCase() !== 'embed-builder') {
+        const searchTitles = deletedBuilderSearchTitles(target);
+        if (searchTitles.length) {
+            const namesHidden = await hideBuilderSearchTitlesFromBuilder(guild.id, searchTitles)
+                .catch(error => {
+                    logger.error('[EMBED_BUILDER] Could not persist deleted response name:', error);
+                    return false;
+                });
+            if (!namesHidden) {
+                await sendBuilderDeleteNotice(buttonInteraction, 'Delete could not be saved',
+                    'The message was deleted, but Cloudy could not persist its Search removal. Confirm delete again.',
+                    0xED4245);
+                return false;
+            }
+        }
     }
     // A physical mirror of the Builder's own Delete confirmation can survive
     // as an independently seeded system-catalog entry after its message is
