@@ -13,8 +13,11 @@ test('Reappear deletion is isolated to the exact embed rule', () => {
   const registry = fs.readFileSync('src/services/embedRegistryService.js', 'utf8');
   assert.match(
     registry,
-    /embed-reappear-disabled:\$\{guildId\}:\$\{channelId\}:\$\{messageId\}:\$\{index\}/,
+    /embed-reappear-disabled:\$\{guildId\}:\$\{channelId\}:\$\{id\}:\$\{index\}/,
   );
+
+  assert.match(registry, /const messageIds = new Set\(/);
+  assert.match(registry, /messageIds\.has\(String\(item\.messageId\)\)/);
 
   const builder = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   assert.match(builder, /purgeEmbedRegistryRecord/);
