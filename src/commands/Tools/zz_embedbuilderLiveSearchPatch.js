@@ -1276,21 +1276,39 @@ function choiceDetail(match) {
     return '';
 }
 
-// Discord autocomplete titles are plain strings and do not render custom
-// Discord emoji markup. Use a recognisable Unicode equivalent in the native
-// dropdown while the actual custom emoji stays unmodified in the embed.
+// Discord slash-command autocomplete is a native plain-text UI: unlike an
+// embed preview, it cannot draw a guild's <:name:id> artwork. Return genuine
+// Unicode glyphs instead of leaking ':X89rust10:' or numeric emoji IDs into
+// the title. The underlying saved title / Builder preview remains untouched.
+function searchEmojiUnicode(name) {
+    const value = String(name || '').toLowerCase();
+    if (/verified|success|check|tick|approved/.test(value)) return '✅';
+    if (/fail|error|deny|cross|nope/.test(value)) return '❌';
+    if (/warn|alert|caution/.test(value)) return '⚠️';
+    if (/heart|love/.test(value)) return '❤️';
+    if (/star|favorite/.test(value)) return '⭐';
+    if (/rust|gaming|game|controller|playstation|xbox/.test(value)) return '🎮';
+    if (/cloudy|cloud|weather/.test(value)) return '☁️';
+    if (/discord|chat|message/.test(value)) return '💬';
+    if (/ticket|support|help/.test(value)) return '🎫';
+    if (/robot|bot|assistant/.test(value)) return '🤖';
+    if (/music|song|sound/.test(value)) return '🎵';
+    if (/crown|owner|king/.test(value)) return '👑';
+    if (/fire|flame/.test(value)) return '🔥';
+    if (/money|coin|cash/.test(value)) return '💰';
+    if (/trash|remove|delete/.test(value)) return '🗑️';
+    // An unknown guild emoji has no genuine Unicode counterpart. Still show
+    // an actual emoji symbol, never its raw shortcode or internal ID.
+    return '🔹';
+}
+
 export function humanSearchChoiceTitle(value) {
-    return clean(String(value || '').replace(/<a?:([^:>]+):\d+>/gi, (_, name) => {
-        if (/verified|success|check|tick|approved/i.test(name)) return '✅';
-        if (/fail|error|deny|cross|nope/i.test(name)) return '❌';
-        if (/warn|alert|caution/i.test(name)) return '⚠️';
-        if (/heart|love/i.test(name)) return '❤️';
-        if (/star|favorite/i.test(name)) return '⭐';
-        // Discord autocomplete names are plain strings; custom artwork
-        // cannot be rendered here. Keep the emoji recognizable by its source
-        // name rather than silently dropping an owner's saved title symbol.
-        return ':' + name + ':';
-    }).replace(/\s+/g, ' ').trim(), 100);
+    return clean(String(value || '')
+        .replace(/<a?:([a-z0-9_]+):\d+>/gi, (_, name) => searchEmojiUnicode(name))
+        // Some Discord iOS custom-emoji inputs reach storage as shortcodes.
+        // Only replace shaped emoji shortcodes, not ordinary punctuation.
+        .replace(/:([a-z][a-z0-9_]{1,39}):/gi, (_, name) => searchEmojiUnicode(name))
+        .replace(/\s+/g, ' ').trim(), 100);
 }
 
 export function buildSearchChoices(matches) {
