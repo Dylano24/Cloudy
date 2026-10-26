@@ -751,9 +751,8 @@ function scheduleAutocompleteSearchRefresh(interaction) {
     timer.unref?.();
 }
 
-export async function loadFastEmbedBuilderSearchRecords(interaction, { raw = false } = {}) {
+export async function loadFastEmbedBuilderSearchRecords(interaction, { unfiltered = false } = {}) {
     const guildId = String(interaction.guildId || '');
-    const now = Date.now();
     const generation = getEmbedRegistryGeneration(guildId);
     const catalogRevision = getSearchableSystemCatalogRevision(guildId);
     const cached = fastSearchCache.get(guildId);
