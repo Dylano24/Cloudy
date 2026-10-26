@@ -2165,26 +2165,30 @@ export default {
                             if (state.modifyTarget) {
                                 if (state.pendingBuilderDelete) {
                                     const alreadyDeleting = Boolean(state.saveInFlight);
-                                    if (!alreadyDeleting) state.saveInFlight = true;
-                                    await buttonInteraction.deferUpdate().catch(() => {});
-                                    if (alreadyDeleting) break;
-                                    // Make the exact confirmed Delete invisible
-                                    // to new Search requests immediately. A slow
-                                    // Discord delete or registry write must not
-                                    // keep its old title in autocomplete.
-                                    const { beginBuilderSearchDeletion } =
-                                        await import('./zz_embedbuilderLiveSearchPatch.js');
-                                    const finishSearchDelete = beginBuilderSearchDeletion(
-                                        interaction.guild.id, state.modifyTarget,
-                                    );
+                                    if (alreadyDeleting) {
+                                        await buttonInteraction.deferUpdate().catch(() => {});
+                                        break;
+                                    }
+                                    state.saveInFlight = true;
+                                    let finishSearchDelete = null;
                                     let deleted = false;
                                     try {
-                                        deleted = await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
+                                        // Hide the selected physical message from
+                                        // autocomplete before awaiting Discord's
+                                        // acknowledgement or registry/REST IO.
+                                        const { beginBuilderSearchDeletion } =
+                                            await import('./zz_embedbuilderLiveSearchPatch.js');
+                                        finishSearchDelete = beginBuilderSearchDeletion(
+                                            interaction.guild.id, state.modifyTarget,
+                                        );
+                                        await buttonInteraction.deferUpdate().catch(() => {});
+                                        deleted = await savePendingBuilderDeletion(
+                                            buttonInteraction, interaction.guild, state,
+                                        );
                                     } finally {
-                                        // A denied/failed Delete restores Search;
-                                        // a committed Delete keeps a bounded
-                                        // safeguard against stale cached choices.
-                                        finishSearchDelete(deleted);
+                                        // On failure restore the Search choice;
+                                        // after success guard against stale scans.
+                                        finishSearchDelete?.(deleted);
                                         state.saveInFlight = false;
                                     }
                                     break;
