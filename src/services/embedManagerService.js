@@ -2831,14 +2831,19 @@ export async function saveModifiedEmbed(guild, state) {
         || guild.channels.cache.get(backingChannelId)
         || await guild.channels.fetch(backingChannelId).catch(() => null);
     if (!cachedMessage && !channel?.messages?.fetch) {
-        return target.source === 'system-catalog'
-            ? saveMissingSearchCatalogTemplate(guild, state, target)
-            : { ok: false, reason: 'channel-missing' };
+        return { ok: false, reason: 'channel-missing' };
     }
 
-    const message = cachedMessage || await channel.messages.fetch(target.messageId).catch(() => null);
+    let fetchError = null;
+    const message = cachedMessage || await channel.messages.fetch(target.messageId).catch(error => {
+        fetchError = error;
+        return null;
+    });
     if (!message) {
-        return target.source === 'system-catalog'
+        // Only Discord's definitive Unknown Message code proves the old
+        // catalog post is gone. Permission failures and transient network
+        // errors must not silently fall back to a template-only Save.
+        return target.source === 'system-catalog' && Number(fetchError?.code) === 10008
             ? saveMissingSearchCatalogTemplate(guild, state, target)
             : { ok: false, reason: 'message-missing' };
     }
