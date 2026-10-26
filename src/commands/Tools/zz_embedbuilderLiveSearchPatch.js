@@ -56,6 +56,63 @@ const CANONICAL_SEARCH_CACHE_TTL = 10_000;
 const canonicalSearchCache = globalThis.__cloudyEmbedCanonicalSearchCache
     || (globalThis.__cloudyEmbedCanonicalSearchCache = new Map());
 
+// A confirmed Delete starts before Discord REST and durable registry writes.
+// Exclude its exact message from *every* autocomplete path immediately, even
+// if a previous Search snapshot is still cached. Failed Delete rolls back.
+// Keep a short post-commit guard against in-flight stale canonical scans.
+const hiddenSearchDeleteTargets = new Map();
+const CONFIRMED_DELETE_SEARCH_GUARD_MS = 5 * 60_000;
+
+function pendingSearchDeleteMatches(record, target) {
+    if (String(record?.guildId || '') !== target.guildId
+        || String(record?.messageId || '') !== target.messageId) return false;
+    const backing = String(record?.backingChannelId || record?.channelId || '');
+    if (backing !== target.backingChannelId
+        && String(record?.channelId || '') !== target.channelId) return false;
+    return target.embedIndex === null
+        || Number(record.embedIndex || 0) === target.embedIndex;
+}
+
+function isSearchDeleteHidden(record) {
+    const now = Date.now();
+    for (const [token, target] of hiddenSearchDeleteTargets) {
+        if (target.expiresAt && target.expiresAt <= now) {
+            hiddenSearchDeleteTargets.delete(token);
+            continue;
+        }
+        if (pendingSearchDeleteMatches(record, target)) return true;
+    }
+    return false;
+}
+
+export function beginBuilderSearchDeletion(guildId, selected) {
+    const id = String(guildId || '');
+    const messageId = String(selected?.messageId || '');
+    const channelId = String(selected?.channelId || '');
+    if (!id || !messageId || !channelId) return () => {};
+    const token = Symbol('builder-confirm-delete');
+    hiddenSearchDeleteTargets.set(token, {
+        guildId: id, messageId, channelId,
+        backingChannelId: String(selected.backingChannelId || channelId),
+        // Catalog Delete hides only this one virtual definition. Deleting a
+        // real Discord message also removes all of its sibling embed indices.
+        embedIndex: selected.source === 'system-catalog'
+            ? Math.max(0, Number(selected.embedIndex) || 0) : null,
+        expiresAt: null,
+    });
+    invalidateBuilderSearchTitleCache(id);
+    return (committed = false) => {
+        const target = hiddenSearchDeleteTargets.get(token);
+        if (!target) return;
+        if (committed) {
+            target.expiresAt = Date.now() + CONFIRMED_DELETE_SEARCH_GUARD_MS;
+        } else {
+            hiddenSearchDeleteTargets.delete(token);
+        }
+        invalidateBuilderSearchTitleCache(id);
+    };
+}
+
 // An explicit Save changes the title of an existing logical embed, not its
 // identity. Drop stale query/canonical snapshots so the next autocomplete
 // uses the updated registry and persistent title overlay immediately.
@@ -497,7 +554,8 @@ function searchRelatedRecordAccessible(guild, member, record, { requireSend = tr
 }
 
 function sanitizeSearchRecordAccess(guild, member, record, options = {}) {
-    if (!searchRelatedRecordAccessible(guild, member, record, options)) return null;
+    if (isSearchDeleteHidden(record)
+        || !searchRelatedRecordAccessible(guild, member, record, options)) return null;
 
     const sanitizeRelated = related => {
         if (!related) return null;
@@ -1479,6 +1537,11 @@ export async function withBuilderSelectionAcknowledgement(interaction, prepare, 
 export async function loadEmbedBuilderSearchSelection(interaction) {
     const selected = parseSelection(interaction.options?.getString?.('search') || '');
     if (!selected || !interaction.guildId) return null;
+    // A stale Discord suggestion clicked during Delete cannot reopen it.
+    if (isSearchDeleteHidden({
+        guildId: interaction.guildId,
+        ...selected,
+    })) return null;
     const markSelection = createBuilderPerformanceTracker('search_selection');
     // Discord already received the exact, canonical Search record during
     // autocomplete. Reuse it for the same user and registry generation instead
@@ -1543,9 +1606,10 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
             records = await loadEmbedBuilderSearchRecords(interaction);
             selectedRecord = findSelected(records);
         }
-        if (!selectedRecord) return null;
+        if (!selectedRecord || isSearchDeleteHidden(selectedRecord)) return null;
         record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
     }
+    if (isSearchDeleteHidden(record)) return null;
     markSelection('record_ready');
     const savedManualSnapshot = record.source === 'embed-builder'
         && record.manualSaved === true && record.snapshot
