@@ -132,13 +132,17 @@ export function beginBuilderSearchDeletion(guildId, selected) {
     const targets = hiddenSearchDeleteTargets.get(key) || new Map();
     hiddenSearchDeleteTargets.set(key, targets);
     const token = Symbol('builder-confirm-delete');
+    const rawResponseNames = [
+        selected?.sourceEmbedData?.title,
+        selected?.previewSourceData?.title,
+        selected?.templateSourceData?.title,
+        selected?.catalogTitle,
+        selected?.snapshot?.title,
+        selected?.deleteSearchTitle,
+    ].filter(Boolean);
     const responseNames = String(selected?.source || '').toLowerCase() === 'embed-builder'
         ? [] : [...new Set([
-            selected?.sourceEmbedData?.title,
-            selected?.previewSourceData?.title,
-            selected?.templateSourceData?.title,
-            selected?.catalogTitle,
-            selected?.snapshot?.title,
+            ...rawResponseNames, ...rawResponseNames.map(commercialBuilderTitle),
         ].map(normalize).filter(Boolean))];
     if (responseNames.length) {
         const names = pendingSearchResponseNames.get(id) || new Map();
