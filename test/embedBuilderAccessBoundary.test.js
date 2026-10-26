@@ -522,7 +522,7 @@ test('Builder Delete Confirm removes an old Reappear source and newer saved copy
   assert.ok(f.storage.get(key).some(entry => entry.messageId === independentId));
 });
 
-test('Builder deletion does not silently erase a linked saved copy if Discord denies deleting it', async t => {
+test('Builder deletion safely retries a temporarily denied linked copy using its original confirmed identity', async t => {
   const f = fixture(t);
   const sourceId = '100000000000000119', movedId = '100000000000000129';
   const record = { guildId: f.guild.id, channelId: f.channel.id, messageId: sourceId,
@@ -536,9 +536,12 @@ test('Builder deletion does not silently erase a linked saved copy if Discord de
     guildId: f.guild.id, channelId: f.channel.id, originMessageId: sourceId,
     messageId: movedId, embedIndex: 0, every: 2, embed: moved.snapshot, components: [],
   });
+  let deletionAttempts = 0;
   f.channel.messages.fetch = async () => ({
     id: movedId, author: { id: 'bot' }, embeds: [new Embed(moved.snapshot)],
-    async delete() { throw Object.assign(new Error('Missing Permissions'), { code: 50013 }); },
+    async delete() {
+      if (++deletionAttempts === 1) throw Object.assign(new Error('Missing Permissions'), { code: 50013 });
+    },
   });
   f.interaction.__cloudyInitialBuilderSelection = { record };
   await builder.execute(f.interaction);
@@ -551,4 +554,7 @@ test('Builder deletion does not silently erase a linked saved copy if Discord de
   assert.ok(buttons(dashboard).some(button => button.label === 'Confirm delete'));
   const notice = f.childPayloads.at(-1).embeds[0];
   assert.equal((notice.toJSON?.() || notice).title, 'Delete failed');
+  await collect(f.component('simple_embed_post'));
+  assert.equal(deletionAttempts, 2, 'Retry must reuse the verified active ID after its Reappear rule is disabled');
+  assert.deepEqual(f.storage.get(key), [], 'Retry permanently removes both linked records');
 });
