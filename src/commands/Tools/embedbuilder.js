@@ -22,6 +22,7 @@ import { registerBuilderPreviewMessage,
 import { successEmbed } from '../../utils/embeds.js';
 import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
+import { createBuilderPerformanceTracker } from '../../utils/interactionLatency.js';
 import { TitanBotError,
     replyUserError,
     ErrorTypes } from '../../utils/errorHandler.js';
@@ -378,6 +379,7 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
         backingChannelId: String(target.backingChannelId || target.channelId),
         messageId: String(target.messageId),
         embedIndex: Math.max(0, Number(target.embedIndex) || 0),
+        presence,
     };
     await refreshBuilder(buttonInteraction, state);
 }
@@ -392,6 +394,7 @@ function resetBuilderAfterRecordDeletion(state) {
 }
 
 async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
+    const markDelete = createBuilderPerformanceTracker('confirmed_delete');
     const target = state.modifyTarget;
     const pending = state.pendingBuilderDelete;
     if (!target || !pending || pending.key !== builderDeleteTargetKey(target)) {
@@ -405,8 +408,10 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         return false;
     }
 
-    // Re-check on Save. The first Delete click only arms the operation.
-    const presence = await inspectBuilderDeleteTarget(guild, target);
+    // Delete already checked this exact immutable message ID and its author.
+    // Confirm can delete it directly; a concurrent Discord deletion is success.
+    const presence = pending.presence || await inspectBuilderDeleteTarget(guild, target);
+    markDelete('target_ready');
     if (presence.status === 'exists'
         && String(presence.message?.author?.id || '') !== String(guild.client?.user?.id || '')) {
         await sendBuilderDeleteNotice(buttonInteraction, 'Permission denied',
@@ -458,6 +463,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         const { invalidateBuilderSearchTitleCache } =
             await import('./zz_embedbuilderLiveSearchPatch.js');
         invalidateBuilderSearchTitleCache(guild.id);
+        markDelete('search_updated');
         await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
         resetBuilderAfterRecordDeletion(state);
         await refreshBuilder(buttonInteraction, state);
@@ -467,6 +473,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
             'The catalog entry was removed from Builder Search. No Discord message or bot response was deleted.',
             0x57F287,
         );
+        markDelete('first_visible');
         return true;
     }
 
@@ -490,6 +497,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         );
         return false;
     }
+    markDelete('reappear_disabled');
 
     const activeReappearMessageId = reappear.activeMessageId
         ? String(reappear.activeMessageId)
@@ -510,20 +518,26 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
             await presence.message.delete();
             presence.message.channel?.messages?.cache?.delete?.(String(pending.messageId));
         } catch (error) {
-            logger.warn('[EMBED_BUILDER] Physical message deletion failed: ' + error?.message);
-            await sendBuilderDeleteNotice(buttonInteraction, 'Delete failed',
-                'Discord did not allow Cloudy to delete the original message. The record was preserved.',
-                0xED4245);
-            return false;
+            if (BUILDER_DELETE_MISSING_CODES.has(error?.code)) {
+                presence.message.channel?.messages?.cache?.delete?.(String(pending.messageId));
+            } else {
+                logger.warn('[EMBED_BUILDER] Physical message deletion failed: ' + error?.message);
+                await sendBuilderDeleteNotice(buttonInteraction, 'Delete failed',
+                    'Discord did not allow Cloudy to delete the original message. The record was preserved.',
+                    0xED4245);
+                return false;
+            }
         }
     }
 
+    markDelete('discord_deleted');
     // A Discord message can contain multiple embeds. Its deletion invalidates
     // all the sibling indices as well; otherwise ghost choices survive Search.
-    const count = Math.max(1, presence.status === 'exists'
-        ? (presence.message.embeds?.length || 1) : pending.embedIndex + 1);
-    for (let index = 0; index < count; index += 1) {
-        await purgeEmbedRegistryRecord(guild.id, pending.channelId, pending.messageId, index);
+    const purged = await purgeEmbedRegistryRecord(guild.id, pending.channelId, pending.messageId, null);
+    if (!purged) {
+        await sendBuilderDeleteNotice(buttonInteraction, 'Delete could not be saved',
+            'The saved Builder record could not be removed permanently. Please try Confirm delete again.', 0xED4245);
+        return false;
     }
     // A physical mirror of the Builder's own Delete confirmation can survive
     // as an independently seeded system-catalog entry after its message is
@@ -554,6 +568,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     const { invalidateBuilderSearchTitleCache } =
         await import('./zz_embedbuilderLiveSearchPatch.js');
     invalidateBuilderSearchTitleCache(guild.id);
+    markDelete('search_updated');
 
     clearBuilderRecordCaches(guild.id);
     await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
@@ -565,6 +580,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         'The Discord message, saved Builder record and Reappear rule were removed. You can use Post to publish this draft again.',
         0x57F287,
     );
+    markDelete('first_visible');
     return true;
 }
 
@@ -2151,8 +2167,15 @@ export default {
                         case 'simple_embed_post':
                             if (state.modifyTarget) {
                                 if (state.pendingBuilderDelete) {
+                                    const alreadyDeleting = Boolean(state.saveInFlight);
+                                    if (!alreadyDeleting) state.saveInFlight = true;
                                     await buttonInteraction.deferUpdate().catch(() => {});
-                                    await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
+                                    if (alreadyDeleting) break;
+                                    try {
+                                        await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
+                                    } finally {
+                                        state.saveInFlight = false;
+                                    }
                                     break;
                                 }
                                 await buttonInteraction.deferUpdate().catch(() => {});
