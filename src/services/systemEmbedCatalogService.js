@@ -627,13 +627,23 @@ function builderSearchTitleIdentity(title, catalog = false) {
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return normalized ? (catalog
-    ? HIDDEN_BUILDER_SEARCH_CATALOG_TITLE_PREFIX : HIDDEN_BUILDER_SEARCH_TITLE_PREFIX) + normalized : '';
+  // Historical ticket priority replies can be labelled "Ticket priority"
+  // while the canonical log template is "Priority updated". They are one
+  // automated response family in Builder Search, not two deletable copies.
+  const family = normalized === 'ticket priority' ? 'priority updated' : normalized;
+  return family ? (catalog
+    ? HIDDEN_BUILDER_SEARCH_CATALOG_TITLE_PREFIX : HIDDEN_BUILDER_SEARCH_TITLE_PREFIX) + family : '';
 }
 
 export function isBuilderSearchTitleHiddenFromBuilder(guildId, title, { catalog = false } = {}) {
-  const id = builderSearchTitleIdentity(title, catalog);
-  return Boolean(id && hiddenBuilderCatalogByGuild.get(String(guildId || ''))?.has(id));
+  const hidden = hiddenBuilderCatalogByGuild.get(String(guildId || ''));
+  if (!hidden) return false;
+  const ownId = builderSearchTitleIdentity(title, catalog);
+  // Before the fix, deleting a virtual catalog entry persisted only the
+  // shared search-title identity. Read it for catalog peers too, including
+  // removals already stored before this deployment; no DB migration required.
+  const sharedId = catalog ? builderSearchTitleIdentity(title) : '';
+  return Boolean((ownId && hidden.has(ownId)) || (sharedId && hidden.has(sharedId)));
 }
 
 export async function hideBuilderSearchTitlesFromBuilder(guildId, titles, { includeCatalog = false } = {}) {
