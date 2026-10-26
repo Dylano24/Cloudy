@@ -604,8 +604,9 @@ export async function ensureHiddenBuilderCatalogLoaded(guildId) {
 // This persisted visibility is Search-only: runtime templates and audit history
 // must continue working normally.
 const HIDDEN_BUILDER_SEARCH_TITLE_PREFIX = 'search-title|';
+const HIDDEN_BUILDER_SEARCH_CATALOG_TITLE_PREFIX = 'search-catalog-title|';
 
-function builderSearchTitleIdentity(title) {
+function builderSearchTitleIdentity(title, catalog = false) {
   const normalized = String(title || '')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -614,18 +615,25 @@ function builderSearchTitleIdentity(title) {
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return normalized ? HIDDEN_BUILDER_SEARCH_TITLE_PREFIX + normalized : '';
+  return normalized ? (catalog
+    ? HIDDEN_BUILDER_SEARCH_CATALOG_TITLE_PREFIX : HIDDEN_BUILDER_SEARCH_TITLE_PREFIX) + normalized : '';
 }
 
-export function isBuilderSearchTitleHiddenFromBuilder(guildId, title) {
-  const id = builderSearchTitleIdentity(title);
+export function isBuilderSearchTitleHiddenFromBuilder(guildId, title, { catalog = false } = {}) {
+  const id = builderSearchTitleIdentity(title, catalog);
   return Boolean(id && hiddenBuilderCatalogByGuild.get(String(guildId || ''))?.has(id));
 }
 
-export async function hideBuilderSearchTitlesFromBuilder(guildId, titles) {
+export async function hideBuilderSearchTitlesFromBuilder(guildId, titles, { includeCatalog = false } = {}) {
   const id = String(guildId || '');
   const values = Array.isArray(titles) ? titles : [titles];
-  const identities = [...new Set(values.map(builderSearchTitleIdentity).filter(Boolean))];
+  // Removing one *catalog definition* must not hide its sibling embeds in
+  // the same catalog message. Deleting a physical automated log response,
+  // however, hides the equivalent catalog Search aliases as well.
+  const identities = [...new Set([
+    ...values.map(title => builderSearchTitleIdentity(title)),
+    ...(includeCatalog ? values.map(title => builderSearchTitleIdentity(title, true)) : []),
+  ].filter(Boolean))];
   if (!id || !identities.length) return false;
   // Share the catalog visibility write queue: concurrent Deletes must never
   // overwrite one another or resurrect entries on the next bot restart.
