@@ -2165,12 +2165,30 @@ export default {
                             if (state.modifyTarget) {
                                 if (state.pendingBuilderDelete) {
                                     const alreadyDeleting = Boolean(state.saveInFlight);
-                                    if (!alreadyDeleting) state.saveInFlight = true;
-                                    await buttonInteraction.deferUpdate().catch(() => {});
-                                    if (alreadyDeleting) break;
+                                    if (alreadyDeleting) {
+                                        await buttonInteraction.deferUpdate().catch(() => {});
+                                        break;
+                                    }
+                                    state.saveInFlight = true;
+                                    let finishSearchDelete = null;
+                                    let deleted = false;
                                     try {
-                                        await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
+                                        // Hide the selected physical message from
+                                        // autocomplete before awaiting Discord's
+                                        // acknowledgement or registry/REST IO.
+                                        const { beginBuilderSearchDeletion } =
+                                            await import('./zz_embedbuilderLiveSearchPatch.js');
+                                        finishSearchDelete = beginBuilderSearchDeletion(
+                                            interaction.guild.id, state.modifyTarget,
+                                        );
+                                        await buttonInteraction.deferUpdate().catch(() => {});
+                                        deleted = await savePendingBuilderDeletion(
+                                            buttonInteraction, interaction.guild, state,
+                                        );
                                     } finally {
+                                        // On failure restore the Search choice;
+                                        // after success guard against stale scans.
+                                        finishSearchDelete?.(deleted);
                                         state.saveInFlight = false;
                                     }
                                     break;

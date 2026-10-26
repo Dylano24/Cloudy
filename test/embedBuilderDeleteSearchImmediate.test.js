@@ -1,8 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { db } from '../src/utils/database.js';
-import { getEmbedRegistry, peekEmbedRegistry, purgeEmbedRegistryRecord } from '../src/services/embedRegistryService.js';
-import { loadFastEmbedBuilderSearchRecords, invalidateBuilderSearchTitleCache } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { getEmbedRegistry, getEmbedRegistryGeneration, peekEmbedRegistry, purgeEmbedRegistryRecord } from '../src/services/embedRegistryService.js';
+import {
+  beginBuilderSearchDeletion,
+  filterEmbedBuilderSearchRecords,
+  loadFastEmbedBuilderSearchRecords,
+  invalidateBuilderSearchTitleCache,
+} from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 function fixture(t, suffix) {
   const guildId = 'delete-search-immediate-' + suffix;
@@ -97,5 +102,62 @@ test('a registry refresh started during Delete cannot restore its old Search sna
     releaseRead(oldRecords);
     releaseCleanup();
     await deleting;
+  }
+});
+
+test('Confirm delete hides the selected name instantly even from warm and stale Search caches', async t => {
+  const f = fixture(t, 'optimistic-suppression');
+  await getEmbedRegistry(f.guildId);
+  assert.deepEqual(
+    (await loadFastEmbedBuilderSearchRecords(f.interaction)).map(record => record.messageId),
+    [f.selected.messageId, f.other.messageId],
+  );
+
+  // The Discord delete and PostgreSQL write are still in progress.
+  const finish = beginBuilderSearchDeletion(f.guildId, f.selected);
+  assert.deepEqual(
+    (await loadFastEmbedBuilderSearchRecords(f.interaction)).map(record => record.messageId),
+    [f.other.messageId],
+    'the chosen title is hidden before the first database or Discord operation finishes',
+  );
+
+  // Never silently lose a record if Discord denies Delete.
+  finish(false);
+  assert.deepEqual(
+    (await loadFastEmbedBuilderSearchRecords(f.interaction)).map(record => record.messageId),
+    [f.selected.messageId, f.other.messageId],
+  );
+
+  const commit = beginBuilderSearchDeletion(f.guildId, f.selected);
+  assert.equal(await purgeEmbedRegistryRecord(f.guildId, f.channelId, f.selected.messageId, null), true);
+  commit(true);
+  // Simulate an old canonical scan returning after Delete. Even this hot
+  // cache with a current generation cannot make the removed title appear.
+  globalThis.__cloudyEmbedFastSearchCache.set(f.guildId, {
+    generation: getEmbedRegistryGeneration(f.guildId),
+    records: [f.selected, f.other],
+    expiresAt: Date.now() + 30_000,
+  });
+  assert.deepEqual(
+    (await loadFastEmbedBuilderSearchRecords(f.interaction)).map(record => record.messageId),
+    [f.other.messageId],
+  );
+});
+
+test('deleting one catalog definition never hides its sibling in the same source message', () => {
+  const guildId = 'delete-catalog-single-index';
+  const shared = { guildId, channelId: '1777777777777777771',
+    backingChannelId: '1777777777777777771', messageId: '1777777777777777772',
+    source: 'system-catalog', snapshot: { title: 'Source catalog' } };
+  const first = { ...shared, embedIndex: 0, title: 'Delete only first' };
+  const second = { ...shared, embedIndex: 1, title: 'Keep second' };
+  const guild = { id: guildId };
+  const member = { id: 'owner' };
+  const finish = beginBuilderSearchDeletion(guildId, first);
+  try {
+    const visible = filterEmbedBuilderSearchRecords(guild, member, [first, second]);
+    assert.deepEqual(visible.map(record => record.embedIndex), [1]);
+  } finally {
+    finish(false);
   }
 });
