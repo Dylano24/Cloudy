@@ -140,7 +140,8 @@ export function beginBuilderSearchDeletion(guildId, selected) {
         selected?.snapshot?.title,
         selected?.deleteSearchTitle,
     ].filter(Boolean);
-    const responseNames = String(selected?.source || '').toLowerCase() === 'embed-builder'
+    const sourceType = String(selected?.source || '').toLowerCase();
+    const responseNames = ['embed-builder', 'system-catalog'].includes(sourceType)
         ? [] : [...new Set([
             ...rawResponseNames, ...rawResponseNames.map(commercialBuilderTitle),
         ].map(normalize).filter(Boolean))];
@@ -920,8 +921,9 @@ function isBuilderSearchFamilyHidden(record) {
     const guildId = record?.guildId;
     if (!guildId) return false;
     return [recordTitle(record), record?.snapshot?.title, record?.title, record?.name]
-        .some(title => isBuilderSearchTitleHiddenFromBuilder(guildId, title)
-            || isPendingSearchResponseNameHidden(guildId, title));
+        .some(title => isBuilderSearchTitleHiddenFromBuilder(guildId, title, {
+            catalog: source === 'system-catalog',
+        }) || isPendingSearchResponseNameHidden(guildId, title));
 }
 
 function builderSearchDisplayRecords(records) {
