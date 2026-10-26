@@ -2743,9 +2743,9 @@ async function refreshSearchTitleAfterSave(guildId) {
 // message to edit, but its template overlay must still be Save-able. Do not
 // create another Discord post or treat a different physical message as it.
 async function saveMissingSearchCatalogTemplate(guild, state, target) {
-    const original = target?.templateSourceData || target?.sourceEmbedData || {};
-    if (target?.source !== 'system-catalog' || !target.templateMode
-        || !/^Cloudy template key:/i.test(String(original.author?.name || ''))) {
+    const original = [target?.templateSourceData, target?.sourceEmbedData]
+        .find(data => /^Cloudy template key:/i.test(String(data?.author?.name || ''))) || null;
+    if (target?.source !== 'system-catalog' || !target.templateMode || !original) {
         return { ok: false, reason: 'message-missing' };
     }
     const current = applyStateToExistingEmbed(state);
