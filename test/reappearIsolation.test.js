@@ -13,7 +13,7 @@ test('Reappear deletion is isolated to the exact embed rule', () => {
   const registry = fs.readFileSync('src/services/embedRegistryService.js', 'utf8');
   assert.match(
     registry,
-    /embed-reappear-disabled:\$\{guildId\}:\$\{channelId\}:\$\{messageId\}:\$\{Math\.max\(0, Number\(embedIndex\) \|\| 0\)\}/,
+    /embed-reappear-disabled:\$\{guildId\}:\$\{channelId\}:\$\{messageId\}:\$\{index\}/,
   );
 
   const builder = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
