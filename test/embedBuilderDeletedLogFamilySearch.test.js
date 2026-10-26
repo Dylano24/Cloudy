@@ -46,20 +46,25 @@ test('Delete removes the selected log response name across separate log/catalog 
   const finishFailed = beginBuilderSearchDeletion(guildId, {
     ...selected, sourceEmbedData: selected.snapshot, deleteSearchTitle: 'Ticket closed',
   });
-  assert.deepEqual(buildMatches(guild, records, 'ticket closed').map(m => m.record.messageId), [manual.messageId]);
+  assert.deepEqual(buildMatches(guild, records, 'ticket closed')
+    .filter(m => /ticket closed/i.test(m.document.title))
+    .map(m => m.record.messageId), [manual.messageId]);
   finishFailed(false);
-  assert.ok(buildMatches(guild, records, 'ticket closed').some(m => m.record.messageId === catalog.messageId),
+  assert.ok(buildMatches(guild, records, 'ticket closed').some(m =>
+    /ticket closed/i.test(m.document.title) && m.record.source !== 'embed-builder'),
     'a failed Delete restores the original response');
 
   const finishCommitted = beginBuilderSearchDeletion(guildId, {
     ...selected, sourceEmbedData: selected.snapshot, deleteSearchTitle: 'Ticket closed',
   });
-  assert.equal(await hideBuilderSearchTitlesFromBuilder(guildId, ['Ticket closed']), true);
+  assert.equal(await hideBuilderSearchTitlesFromBuilder(guildId, ['Ticket closed'], { includeCatalog: true }), true);
   finishCommitted(true);
   invalidateBuilderSearchTitleCache(guildId);
 
   assert.equal(isBuilderSearchTitleHiddenFromBuilder(guildId, 'ticket CLOSED'), true);
-  assert.deepEqual(buildMatches(guild, records, 'ticket closed').map(m => m.record.messageId), [manual.messageId]);
+  assert.deepEqual(buildMatches(guild, records, 'ticket closed')
+    .filter(m => /ticket closed/i.test(m.document.title))
+    .map(m => m.record.messageId), [manual.messageId]);
   assert.ok(buildMatches(guild, records, 'ticket opened').some(m => m.record.messageId === different.messageId),
     'unrelated response types must remain searchable');
 
@@ -69,7 +74,8 @@ test('Delete removes the selected log response name across separate log/catalog 
   assert.equal(filtered.some(r => r.messageId === manual.messageId), true,
     'an independently posted manual Builder embed must keep its own identity');
   const choices = buildSearchChoices(buildMatches(guild, records, 'ticket closed'));
-  assert.deepEqual(choices.map(choice => choice.value), [channelId + ':' + manual.messageId + ':0']);
+  assert.deepEqual(choices.filter(choice => /ticket closed/i.test(choice.name))
+    .map(choice => choice.value), [channelId + ':' + manual.messageId + ':0']);
 
   const storedIds = saved.get('cloudy:embed-builder-hidden-catalog:' + guildId);
   assert.ok(storedIds.some(value => value.startsWith('search-title|')));
@@ -77,6 +83,8 @@ test('Delete removes the selected log response name across separate log/catalog 
   await cold.ensureHiddenBuilderCatalogLoaded(guildId);
   assert.equal(cold.isBuilderSearchTitleHiddenFromBuilder(guildId, 'Ticket closed'), true,
     'deleted response visibility must survive a process restart');
+  assert.equal(cold.isBuilderSearchTitleHiddenFromBuilder(guildId, 'Ticket closed', { catalog: true }), true,
+    'the separate catalog alias must also remain hidden after restart');
 });
 
 test('separate response titles survive concurrent durable deletions', async t => {
