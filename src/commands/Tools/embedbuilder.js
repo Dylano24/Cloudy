@@ -516,7 +516,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         }
         if (hidden && deletedBuilderSearchTitles(target, state).length) {
             hidden = await hideBuilderSearchTitlesFromBuilder(
-                guild.id, deletedBuilderSearchTitles(target, state),
+                guild.id, deletedBuilderSearchTitles(target, state), { includeCatalog: true },
             ).catch(error => {
                 logger.error('[EMBED_BUILDER] Could not hide deleted response name:', error);
                 return false;

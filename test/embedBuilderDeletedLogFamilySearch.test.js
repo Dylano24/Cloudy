@@ -87,6 +87,49 @@ test('Delete removes the selected log response name across separate log/catalog 
     'the separate catalog alias must also remain hidden after restart');
 });
 
+test('previously deleted Priority updated cannot reappear through its catalog or Ticket priority alias', async t => {
+  const guildId = 'search-priority-catalog-alias-20261027';
+  const channelId = '1777777777777777890';
+  const saved = new Map();
+  t.mock.method(db, 'get', async (key, fallback) => structuredClone(saved.get(key) ?? fallback));
+  t.mock.method(db, 'set', async (key, value) => { saved.set(key, structuredClone(value)); return true; });
+  const guild = { id: guildId, channels: { cache: new Map([[channelId, {
+    id: channelId, name: 'ticket-logs', permissionsFor: () => ({ has: () => true }),
+  }]]) } };
+  const member = { id: 'owner' };
+  const item = (messageId, source, title) => ({
+    guildId, channelId, messageId, embedIndex: 0,
+    source, title, name: title, snapshot: { title, description: 'Ticket priority updated' },
+    manualSaved: source === 'embed-builder',
+  });
+  const canonicalCatalog = item('1777777777777777891', 'system-catalog', 'Priority updated');
+  const aliasCatalog = item('1777777777777777892', 'system-catalog', 'Ticket priority');
+  const oldLog = item('1777777777777777893', 'cloudy', 'Priority updated');
+  const unrelated = item('1777777777777777894', 'system-catalog', 'Ticket closed');
+  const manual = item('1777777777777777895', 'embed-builder', 'Priority updated');
+  const records = [canonicalCatalog, aliasCatalog, oldLog, unrelated, manual];
+
+  assert.ok(filterEmbedBuilderSearchRecords(guild, member, records).some(record =>
+    record.messageId === aliasCatalog.messageId));
+
+  // This is exactly the legacy catalog-Delete write: no catalog-specific
+  // identity was persisted, so catalog variants used to return after Delete.
+  assert.equal(await hideBuilderSearchTitlesFromBuilder(guildId, ['Priority updated']), true);
+  invalidateBuilderSearchTitleCache(guildId);
+
+  const visible = filterEmbedBuilderSearchRecords(guild, member, records);
+  assert.deepEqual(visible.map(record => record.messageId).sort(),
+    [manual.messageId, unrelated.messageId].sort());
+  assert.equal(buildSearchChoices(buildMatches(guild, records, 'priority'))
+    .some(choice => choice.name === 'Ticket priority'), false);
+  assert.equal(isBuilderSearchTitleHiddenFromBuilder(guildId, 'Ticket priority', { catalog: true }), true);
+
+  const cold = await import('../src/services/systemEmbedCatalogService.js?priority-alias-delete-cold');
+  await cold.ensureHiddenBuilderCatalogLoaded(guildId);
+  assert.equal(cold.isBuilderSearchTitleHiddenFromBuilder(guildId, 'Priority updated', { catalog: true }), true);
+  assert.equal(cold.isBuilderSearchTitleHiddenFromBuilder(guildId, 'Ticket priority', { catalog: true }), true);
+});
+
 test('separate response titles survive concurrent durable deletions', async t => {
   const guildId = 'search-family-concurrent-deletes';
   const storage = new Map();
