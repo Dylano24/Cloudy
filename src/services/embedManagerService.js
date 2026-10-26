@@ -2738,6 +2738,47 @@ async function refreshSearchTitleAfterSave(guildId) {
     }
 }
 
+// A Search choice can be backed by a reusable system catalog entry whose
+// original Discord message has since been deleted. Such a source has no live
+// message to edit, but its template overlay must still be Save-able. Do not
+// create another Discord post or treat a different physical message as it.
+async function saveMissingSearchCatalogTemplate(guild, state, target) {
+    const original = [target?.templateSourceData, target?.sourceEmbedData]
+        .find(data => /^Cloudy template key:/i.test(String(data?.author?.name || ''))) || null;
+    if (target?.source !== 'system-catalog' || !target.templateMode || !original) {
+        return { ok: false, reason: 'message-missing' };
+    }
+    const current = applyStateToExistingEmbed(state);
+    if (getEmbedsTextLength([current]) > DISCORD_EMBED_TOTAL_TEXT_LIMIT) {
+        return { ok: false, reason: 'embed-too-large' };
+    }
+    const aliases = [
+        target.templateTitle, stableSystemTemplateKey(original),
+        target.catalogTitle, original.title, current.title,
+    ].filter(Boolean);
+    const saved = await saveEmbedTemplateDecoration(
+        guild.id, target.channelId, aliases, current, {
+            sharedScope: true,
+            canonicalIdentity: target.templateTitle || templateIdentity(target.channelId, original),
+            baseEmbedData: target.previewSourceData || original,
+            editedEmbedData: { description: state.message || undefined, fields: state.embedFields || [] },
+            applyFields: true,
+            preserveRuntimeFieldValues: String(target.templateTitle || '').startsWith('ticket-log:'),
+            applyThumbnail: Boolean(state.logoTouched),
+            applyImage: Boolean(state.mediaBuffer || state.mediaUrl !== (original.image?.url || null)),
+        },
+    ).catch(error => {
+        logger.error('Could not save missing Search catalog template:', error);
+        return false;
+    });
+    if (!saved) return { ok: false, reason: 'persistence-failed' };
+    target.sourceEmbedData = current;
+    target.previewSourceData = { ...current };
+    state.logoTouched = false;
+    await refreshSearchTitleAfterSave(guild.id);
+    return { ok: true, channel: 'Saved templates', message: null, updatedCount: 1, detached: true };
+}
+
 export async function saveModifiedEmbed(guild, state) {
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
@@ -2789,10 +2830,26 @@ export async function saveModifiedEmbed(guild, state) {
     const channel = cachedMessage?.channel
         || guild.channels.cache.get(backingChannelId)
         || await guild.channels.fetch(backingChannelId).catch(() => null);
-    if (!cachedMessage && !channel?.messages?.fetch) return { ok: false, reason: 'channel-missing' };
+    if (!cachedMessage && !channel?.messages?.fetch) {
+        return { ok: false, reason: 'channel-missing' };
+    }
 
-    const message = cachedMessage || await channel.messages.fetch(target.messageId).catch(() => null);
-    if (!message || message.author?.id !== guild.client.user?.id) return { ok: false, reason: 'message-missing' };
+    let fetchError = null;
+    const message = cachedMessage || await channel.messages.fetch(target.messageId).catch(error => {
+        fetchError = error;
+        return null;
+    });
+    if (!message) {
+        // Only Discord's definitive Unknown Message code proves the old
+        // catalog post is gone. Permission failures and transient network
+        // errors must not silently fall back to a template-only Save.
+        return target.source === 'system-catalog' && Number(fetchError?.code) === 10008
+            ? saveMissingSearchCatalogTemplate(guild, state, target)
+            : { ok: false, reason: 'message-missing' };
+    }
+    if (message.author?.id !== guild.client.user?.id) {
+        return { ok: false, reason: 'message-missing' };
+    }
     // Public command responses are editable bot messages. Only temporary
     // Builder panels and private responses must be excluded from Save.
     if (message.flags?.has?.(MessageFlags.Ephemeral) || isBuilderSessionMessage(message)) {
