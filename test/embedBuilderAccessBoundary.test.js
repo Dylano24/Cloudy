@@ -438,10 +438,12 @@ test('overlapping Confirm delete clicks perform one deletion and cannot save a n
     source: 'embed-builder', manualSaved: true, embedIndex: 0, detached: false,
     title: 'Delete once', snapshot: { title: 'Delete once', description: 'Owner saved content' }, components: [] };
   f.storage.set('cloudy:embed-registry:' + f.guild.id, [record]);
-  let deletes = 0, releaseDelete;
+  let deletes = 0, releaseDelete, signalDeleteStarted;
   const gate = new Promise(resolve => { releaseDelete = resolve; });
+  const deleteStarted = new Promise(resolve => { signalDeleteStarted = resolve; });
   f.channel.messages.fetch = async () => ({ id: record.messageId, channel: f.channel, author: { id: 'bot' },
-    embeds: [new Embed(record.snapshot)], async delete() { deletes++; await gate; } });
+    embeds: [new Embed(record.snapshot)], async delete() { deletes++; signalDeleteStarted(); await gate; } });
+  await getEmbedRegistry(f.guild.id);
   f.interaction.__cloudyInitialBuilderSelection = { record };
   await builder.execute(f.interaction);
   const dashboard = f.interaction.lastDashboard;
@@ -450,7 +452,17 @@ test('overlapping Confirm delete clicks perform one deletion and cannot save a n
   await collect(f.component('simple_embed_delete_from_builder'));
   const first = collect(f.component('simple_embed_post'));
   const second = collect(f.component('simple_embed_post'));
-  releaseDelete();
+  try {
+    await deleteStarted;
+    const search = { ...f.interaction, options: {
+      getFocused: () => ({ name: 'search', value: 'delete once' }),
+    }, async respond(choices) { this.choices = choices; } };
+    await builder.autocomplete(search);
+    assert.equal(search.choices.some(choice => choice.value.includes(record.messageId)), false,
+      'the title must disappear from Search while Discord deletion is still pending');
+  } finally {
+    releaseDelete();
+  }
   await Promise.all([first, second]);
   assert.equal(deletes, 1);
   assert.deepEqual(f.storage.get('cloudy:embed-registry:' + f.guild.id), []);
@@ -472,6 +484,12 @@ test('a denied Discord deletion preserves the saved record and pending confirmat
   await collect(f.component('simple_embed_delete_from_builder'));
   await collect(f.component('simple_embed_post'));
   assert.equal(f.storage.get('cloudy:embed-registry:' + f.guild.id).length, 1);
+  const search = { ...f.interaction, options: {
+    getFocused: () => ({ name: 'search', value: 'preserve on denied delete' }),
+  }, async respond(choices) { this.choices = choices; } };
+  await builder.autocomplete(search);
+  assert.ok(search.choices.some(choice => choice.value.includes(record.messageId)),
+    'a failed Discord delete must immediately restore Search');
   assert.ok(buttons(dashboard).some(button => button.label === 'Confirm delete'));
   const notice = f.childPayloads.at(-1).embeds[0];
   assert.equal((notice.toJSON?.() || notice).title, 'Delete failed');
