@@ -20,6 +20,7 @@ import {
     StringSelectMenuOptionBuilder,
     } from 'discord.js';
 import { getColor } from '../config/bot.js';
+import { markBotResponsePayload } from '../utils/botResponseIntent.js';
 import { logger } from '../utils/logger.js';
 import { createBuilderPerformanceTracker } from '../utils/interactionLatency.js';
 import {
@@ -2192,13 +2193,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
         const errorResponse = (!buttonInteraction.deferred && !buttonInteraction.replied && buttonInteraction.reply)
             ? buttonInteraction.reply.bind(buttonInteraction)
             : buttonInteraction.followUp.bind(buttonInteraction);
-        await errorResponse({
+        await errorResponse(markBotResponsePayload({
             embeds: [new EmbedBuilder()
                 .setTitle('Could not load embeds')
                 .setDescription('The embeds could not be loaded right now.')
                 .setColor(getColor('error'))],
             flags: MessageFlags.Ephemeral,
-        }).catch(() => {});
+        })).catch(() => {});
     }
 }
 
