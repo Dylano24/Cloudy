@@ -1239,9 +1239,27 @@ export function loadRecordSnapshotIntoState(
     }
     if (record.draftData) state.reappearAfter = record.draftData.reappearAfter || null;
     state.pendingBuilderDelete = null;
+    // A catalog entry may be paired with an actual bot log message in its
+    // live preview. Save still targets its reusable catalog definition, but
+    // Delete can separately remove this *specific* physical log message.
+    // Never target the shared multi-embed source catalog itself.
+    const physicalLogPeer = String(record.source || '').toLowerCase() === 'system-catalog'
+        && previewRecord && !previewRecord.detached
+        && !['system-catalog', 'runtime-preview'].includes(
+            String(previewRecord.source || '').toLowerCase(),
+        )
+        && String(previewRecord.messageId || '')
+        && String(previewRecord.messageId) !== String(record.messageId)
+        ? {
+            channelId: String(previewRecord.backingChannelId || previewRecord.channelId || ''),
+            messageId: String(previewRecord.messageId),
+            embedIndex: Math.max(0, Number(previewRecord.embedIndex) || 0),
+            source: String(previewRecord.source || 'cloudy'),
+        } : null;
     state.modifyTarget = {
         guildId: guild.id,
         channelId: logicalChannelId,
+        deleteLogTarget: physicalLogPeer,
         backingChannelId,
         messageId: String(record.messageId),
         embedIndex: Number(record.embedIndex || 0),
