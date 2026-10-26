@@ -686,7 +686,7 @@ async function warmSystemCatalogForSearch(client) {
     return ready;
 }
 
-const FAST_SEARCH_CACHE_TTL = 30_000;
+const FAST_SEARCH_CACHE_TTL = 90_000;
 const fastSearchCache = globalThis.__cloudyEmbedFastSearchCache
     || (globalThis.__cloudyEmbedFastSearchCache = new Map());
 const lastRegistrySearchRefresh = new Map();
@@ -725,9 +725,7 @@ function scheduleAutocompleteSearchRefresh(interaction) {
         // Cold autocomplete may never await PostgreSQL. Warm the saved shared
         // title overlay *after* responding so the next query sees the owner's
         // last Save, including its emoji, without breaking the fast path.
-        void warmSavedEmbedTemplateScopes(guildId, []).then(() => {
-            fastSearchCache.delete(guildId);
-        }).catch(error => logger.debug(
+        void warmSavedEmbedTemplateScopes(guildId, []).catch(error => logger.debug(
             '[EMBED_SEARCH] Saved title background warm skipped: ' + (error?.message || error),
         ));
         void ensureHiddenBuilderCatalogLoaded(guildId).catch(error =>
