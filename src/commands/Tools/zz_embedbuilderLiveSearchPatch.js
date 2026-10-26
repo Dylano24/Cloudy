@@ -704,7 +704,7 @@ export async function prewarmEmbedBuilderSearch(guild) {
     await getFastCanonicalBuilderRecords(guild, records);
     fastSearchCache.delete(String(guild.id));
     const raw = await loadFastEmbedBuilderSearchRecords(
-        { guild, guildId: guild.id, member: guild.members?.me }, { raw: true },
+        { guild, guildId: guild.id, member: guild.members?.me }, { unfiltered: true },
     );
     // Normalize thousands of names/bodies once on startup, not on each key
     // pressed by the owner while Discord's non-deferable clock is running.
@@ -760,7 +760,7 @@ export async function loadFastEmbedBuilderSearchRecords(interaction, { raw = fal
     // First reuse the indexed source list: do not clone 3,000+ registry rows or
     // warm a Discord catalog while somebody types the next character.
     if (cached?.generation === generation && cached?.records?.length && cached.expiresAt > now) {
-        if (raw) return cached.records;
+        if (unfiltered) return cached.records;
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, cached.records, { requireSend: true },
         );
@@ -778,14 +778,14 @@ export async function loadFastEmbedBuilderSearchRecords(interaction, { raw = fal
             records: raw,
             expiresAt: now + FAST_SEARCH_CACHE_TTL,
         });
-        if (arguments[1]?.raw) return raw;
+        if (unfiltered) return raw;
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, raw, { requireSend: true },
         );
     }
 
     if (cached?.generation === generation && cached?.records?.length) {
-        if (raw) return cached.records;
+        if (unfiltered) return cached.records;
         return filterEmbedBuilderSearchRecords(
             interaction.guild, interaction.member, cached.records, { requireSend: true },
         );
@@ -2011,7 +2011,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                 return;
             }
 
-            const records = await loadFastEmbedBuilderSearchRecords(interaction, { raw: true });
+            const records = await loadFastEmbedBuilderSearchRecords(interaction, { unfiltered: true });
             const matches = buildIndexedAutocompleteMatches(
                 interaction.guild, interaction.member, records, focused.value,
             );
