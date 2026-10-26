@@ -501,14 +501,50 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
 
     const activeReappearMessageId = reappear.activeMessageId
         ? String(reappear.activeMessageId)
-        : null;
+        : (pending.activeReappearMessageId || null);
+    // A Reappear copy has its own physical ID and can have its own saved Search
+    // record. Preserve the verified link within this Confirm session so a
+    // temporary Discord permission/network failure can be retried safely, even
+    // after the canonical Reappear rule has already been disabled.
+    const relatedReappearIds = [...new Set([
+        ...(pending.relatedReappearIds || []), reappear.originMessageId, activeReappearMessageId,
+    ].filter(id => id && String(id) !== String(pending.messageId)).map(String))];
+    pending.activeReappearMessageId = activeReappearMessageId;
+    pending.relatedReappearIds = relatedReappearIds;
     if (activeReappearMessageId && activeReappearMessageId !== String(pending.messageId)) {
         const reappearChannel = guild.channels.cache.get(String(pending.channelId))
             || await guild.channels.fetch(String(pending.channelId)).catch(() => null);
-        const activeMessage = reappearChannel?.messages?.fetch
-            ? await reappearChannel.messages.fetch(activeReappearMessageId).catch(() => null)
-            : null;
-        await activeMessage?.delete?.().catch(() => {});
+        if (!reappearChannel?.messages?.fetch) {
+            await sendBuilderDeleteNotice(buttonInteraction, 'Delete failed',
+                'Cloudy could not verify the linked Reappear message. The saved records were preserved.', 0xED4245);
+            return false;
+        }
+        let activeMessage = null;
+        try {
+            activeMessage = await reappearChannel.messages.fetch(activeReappearMessageId);
+        } catch (error) {
+            if (!BUILDER_DELETE_MISSING_CODES.has(error?.code)) {
+                await sendBuilderDeleteNotice(buttonInteraction, 'Delete failed',
+                    'Cloudy could not verify the linked Reappear message. The saved records were preserved.', 0xED4245);
+                return false;
+            }
+        }
+        if (activeMessage) {
+            if (String(activeMessage.author?.id || '') !== String(guild.client?.user?.id || '')) {
+                await sendBuilderDeleteNotice(buttonInteraction, 'Permission denied',
+                    'Cloudy can only remove its own Discord messages through the Builder.', 0xED4245);
+                return false;
+            }
+            try {
+                await activeMessage.delete();
+            } catch (error) {
+                if (!BUILDER_DELETE_MISSING_CODES.has(error?.code)) {
+                    await sendBuilderDeleteNotice(buttonInteraction, 'Delete failed',
+                        'Discord did not allow Cloudy to remove the linked Reappear copy. The saved records were preserved.', 0xED4245);
+                    return false;
+                }
+            }
+        }
     }
 
     if (presence.status === 'exists') {
@@ -533,7 +569,9 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     markDelete('discord_deleted');
     // A Discord message can contain multiple embeds. Its deletion invalidates
     // all the sibling indices as well; otherwise ghost choices survive Search.
-    const purged = await purgeEmbedRegistryRecord(guild.id, pending.channelId, pending.messageId, null);
+    const purged = await purgeEmbedRegistryRecord(
+        guild.id, pending.channelId, pending.messageId, null, relatedReappearIds,
+    );
     if (!purged) {
         await sendBuilderDeleteNotice(buttonInteraction, 'Delete could not be saved',
             'The saved Builder record could not be removed permanently. Please try Confirm delete again.', 0xED4245);

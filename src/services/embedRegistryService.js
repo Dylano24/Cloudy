@@ -889,14 +889,17 @@ export async function removeEmbedRegistryRecord(guildId, channelId, messageId, e
     });
 }
 
-export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
-    // null targets the entire physical message, including stored sibling
-    // embeds whose Discord message may already be gone.
+export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0, relatedMessageIds = []) {
+    // null targets the entire physical message. Confirmed deletion may also
+    // include linked Reappear copies with different Discord message IDs.
+    // Only the caller that verified and disabled that exact rule supplies aliases.
     const allEmbeds = embedIndex === null;
+    const messageIds = new Set([String(messageId), ...(allEmbeds && Array.isArray(relatedMessageIds)
+        ? relatedMessageIds.map(String) : [])]);
     let committedRecords = null;
     const matchesTarget = item => (
         (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
-        && String(item.messageId) === String(messageId)
+        && messageIds.has(String(item.messageId))
         && (allEmbeds || Number(item.embedIndex || 0) === Number(embedIndex || 0))
     );
     return mutateRegistry(guildId, async () => {
@@ -914,20 +917,26 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
         // Disable only this exact Reappear owner. The tombstone closes the race
         // where a message event is already processing this rule while Delete is
         // being saved; unrelated embeds keep their own independent rule.
-        const indices = allEmbeds ? [...new Set([0, ...removed.map(record => Number(record.embedIndex) || 0)])]
-            : [Math.max(0, Number(embedIndex) || 0)];
-        await Promise.all(indices.map(index => setInDb(`cloudy:embed-reappear-disabled:${guildId}:${channelId}:${messageId}:${index}`, {
-            disabled: true, deletedAt: new Date().toISOString(),
-        })));
+        const disabledPairs = [...messageIds].flatMap(id => {
+            const indices = allEmbeds
+                ? [...new Set([0, ...removed.filter(record => String(record.messageId) === id)
+                    .map(record => Number(record.embedIndex) || 0)])]
+                : [Math.max(0, Number(embedIndex) || 0)];
+            return indices.map(index => ({ id, index }));
+        });
+        await Promise.all(disabledPairs.map(({ id, index }) =>
+            setInDb(`cloudy:embed-reappear-disabled:${guildId}:${channelId}:${id}:${index}`, {
+                disabled: true, deletedAt: new Date().toISOString(),
+            })));
 
-        const reappearKey = `cloudy:embed-reappear:${guildId}:${channelId}:${messageId}`;
-        await deleteFromDb(reappearKey);
+        await Promise.all([...messageIds].map(id =>
+            deleteFromDb(`cloudy:embed-reappear:${guildId}:${channelId}:${id}`)));
 
         const reappearIndexKey = `cloudy:embed-reappear-index:${guildId}:${channelId}`;
         const reappearIndex = await getFromDb(reappearIndexKey, []);
         if (Array.isArray(reappearIndex)) {
             const nextReappearIndex = reappearIndex.filter(
-                id => String(id) !== String(messageId),
+                id => !messageIds.has(String(id)),
             );
             if (nextReappearIndex.length !== reappearIndex.length) {
                 await setInDb(reappearIndexKey, nextReappearIndex);
