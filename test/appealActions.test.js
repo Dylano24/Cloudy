@@ -14,7 +14,7 @@ function fixture(action = 'Ban', scope = 'discord') {
   const member = { id: 'staff', user: { id: 'staff' }, roles: { cache: new Collection([['staff-role', {}]]) }, permissions: new PermissionsBitField(0n) };
   const visitor = { id: 'visitor', roles: { cache: new Collection() }, permissions: new PermissionsBitField(0n) };
   const target = { id: record.discordIdentity };
-  const message = { id: 'message', author: { id: 'bot' }, components: buildAppealActions(record).map(row => ({ components: row.toJSON().components.map(button => ({ customId: button.custom_id })) })), embeds: [{ toJSON: () => ({ title: `${scope} appeal`, fields: [] }) }], edit: async payload => { message.updated = payload; } };
+  const message = { id: 'message', author: { id: 'bot' }, components: buildAppealActions(record).map(row => ({ components: row.toJSON().components.map(button => ({ customId: button.custom_id })) })), embeds: [{ toJSON: () => ({ title: `${scope} appeal`, fields: [{ name: 'Additional information', value: 'Original details', inline: false }] }) }], edit: async payload => { message.updated = payload; } };
   const channel = { id: 'appeals', messages: { fetch: async () => message } };
   const guild = { id: record.guildId, ownerId: 'owner', members: { fetch: async id => id === 'staff' ? member : id === 'visitor' ? visitor : target } };
   const client = { user: { id: 'bot' }, db: storage, users: { fetch: async id => ({ id }) } };
@@ -71,8 +71,9 @@ test('staff must enter reason; Discord unban/unmute actually run once and persis
     assert.equal(decided.moderatorId, 'staff');
     assert.deepEqual(f.message.updated.components, []);
     assert.equal(f.message.updated.embeds[0].color, 0x00C49D);
-    assert.equal(f.message.updated.embeds[0].fields[0].name, 'This appeal has been handled');
-    assert.equal(f.message.updated.embeds[0].fields[0].value, '\u200B');
+    assert.equal(f.message.updated.embeds[0].fields[0].name, 'Additional information');
+    assert.equal(f.message.updated.embeds[0].fields[0].value, 'Original details\n\n**This appeal has been handled**');
+    assert.equal(f.message.updated.embeds[0].fields[1].name, 'Staff decision');
     await handleAppealDecision(f.interaction, f.client, [command, f.record.id]);
     assert.equal(calls.length, count + 1);
   }
@@ -86,10 +87,20 @@ test('completed Deny removes buttons and uses the same handled status for Discor
     assert.equal(f.values.get(appealReviewKey(f.guild.id, f.record.id)).status, 'denied');
     assert.equal(f.message.updated.embeds[0].color, 0x00C49D);
     assert.deepEqual(f.message.updated.components, []);
-    assert.equal(f.message.updated.embeds[0].fields[0].name, 'This appeal has been handled');
-    assert.equal(f.message.updated.embeds[0].fields[0].value, '\u200B');
+    assert.equal(f.message.updated.embeds[0].fields[0].name, 'Additional information');
+    assert.equal(f.message.updated.embeds[0].fields[0].value, 'Original details\n\n**This appeal has been handled**');
+    assert.equal(f.message.updated.embeds[0].fields[1].name, 'Staff decision');
     assert.match(f.message.updated.embeds[0].fields[1].value, /Denied by/);
   }
+});
+
+test('handled notice keeps a separate field if there is no existing answer to append it to', async t => {
+  t.mock.method(InteractionHelper, 'safeEditReply', async () => {});
+  const f = fixture('Ban', 'discord');
+  f.message.embeds[0].toJSON = () => ({ title: 'Discord appeal', fields: [] });
+  await handleAppealDecision(f.interaction, f.client, ['deny', f.record.id]);
+  assert.equal(f.message.updated.embeds[0].fields[0].name, 'This appeal has been handled');
+  assert.equal(f.message.updated.embeds[0].fields[1].name, 'Staff decision');
 });
 
 test('deny stores a mandatory reason for Discord/Rust, and wrong Discord targets cannot be acted on', async () => {
