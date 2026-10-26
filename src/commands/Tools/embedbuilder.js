@@ -2168,9 +2168,23 @@ export default {
                                     if (!alreadyDeleting) state.saveInFlight = true;
                                     await buttonInteraction.deferUpdate().catch(() => {});
                                     if (alreadyDeleting) break;
+                                    // Make the exact confirmed Delete invisible
+                                    // to new Search requests immediately. A slow
+                                    // Discord delete or registry write must not
+                                    // keep its old title in autocomplete.
+                                    const { beginBuilderSearchDeletion } =
+                                        await import('./zz_embedbuilderLiveSearchPatch.js');
+                                    const finishSearchDelete = beginBuilderSearchDeletion(
+                                        interaction.guild.id, state.modifyTarget,
+                                    );
+                                    let deleted = false;
                                     try {
-                                        await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
+                                        deleted = await savePendingBuilderDeletion(buttonInteraction, interaction.guild, state);
                                     } finally {
+                                        // A denied/failed Delete restores Search;
+                                        // a committed Delete keeps a bounded
+                                        // safeguard against stale cached choices.
+                                        finishSearchDelete(deleted);
                                         state.saveInFlight = false;
                                     }
                                     break;
