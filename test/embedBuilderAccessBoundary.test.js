@@ -392,6 +392,51 @@ test('Search Save is used by the next real Builder deletion response with exact 
   assert.equal(f.storage.get(key).some(record => record.messageId === removed.messageId), false);
 });
 
+test('one Confirm delete removes the named log response from Search despite another matching log ID', async t => {
+  const f = fixture(t);
+  const selected = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000109',
+    embedIndex: 0, source: 'modified-template', manualSaved: true,
+    title: 'Ticket closed', snapshot: { title: 'Ticket closed', description: 'Original closed event' }, components: [] };
+  const sibling = { ...selected, messageId: '100000000000000119',
+    snapshot: { title: 'Ticket closed', description: 'Older event still in audit history' } };
+  const unrelated = { ...selected, messageId: '100000000000000129',
+    title: 'Ticket opened', snapshot: { title: 'Ticket opened', description: 'Independent event' } };
+  const key = 'cloudy:embed-registry:' + f.guild.id;
+  f.storage.set(key, [selected, sibling, unrelated]);
+  let removed = 0;
+  f.channel.messages.fetch = async id => {
+    if (String(id) !== selected.messageId) throw Object.assign(new Error('Unknown Message'), { code: 10008 });
+    return { id: selected.messageId, channelId: f.channel.id, channel: f.channel,
+      author: { id: 'bot' }, embeds: [new Embed(selected.snapshot)], components: [],
+      async delete() { removed++; } };
+  };
+  await getEmbedRegistry(f.guild.id);
+  f.interaction.__cloudyInitialBuilderSelection = { record: selected };
+  await builder.execute(f.interaction);
+  const dashboard = f.interaction.lastDashboard;
+  t.after(() => dashboard.collector.stop('test-ended'));
+  const collect = dashboard.collector.listeners('collect')[0];
+  await collect(f.component('simple_embed_delete_from_builder'));
+  await collect(f.component('simple_embed_post'));
+  assert.equal(removed, 1);
+  assert.deepEqual(f.storage.get(key).map(r => r.messageId).sort(),
+    [sibling.messageId, unrelated.messageId].sort(),
+    'Discord audit history and independent messages must be preserved');
+  const search = async title => {
+    const interaction = { ...f.interaction,
+      options: { getFocused: () => ({ name: 'search', value: title }) },
+      async respond(choices) { this.choices = choices; } };
+    await builder.autocomplete(interaction);
+    return interaction.choices;
+  };
+  const closed = await search('ticket closed');
+  assert.ok(!closed.some(choice => /ticket closed/i.test(choice.name)),
+    'deleting one Builder response must immediately hide same-title log aliases');
+  const opened = await search('ticket opened');
+  assert.ok(opened.some(choice => /ticket opened/i.test(choice.name)),
+    'unrelated logs remain searchable');
+});
+
 for (const mode of ['live', 'missing', 'deleted-between-clicks']) {
   test(`Delete and one Confirm delete remove a ${mode} message and its Search entry immediately`, async t => {
     const f = fixture(t);
