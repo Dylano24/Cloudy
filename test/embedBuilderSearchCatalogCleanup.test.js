@@ -333,3 +333,28 @@ test('Delete hides renamed Builder notice and legacy mirrors but preserves a sep
   assert.ok(storage.has('cloudy:embed-builder-hidden-catalog:' + guildId),
     'confirmed Delete is persisted across Search cache clears and bot restarts');
 });
+
+
+test('confirmed catalog Delete hides a live Search mirror that has only sourceRecord metadata', async t => {
+  const storage = new Map();
+  t.mock.method(db, 'get', async (key, fallback) => structuredClone(storage.get(key) ?? fallback));
+  t.mock.method(db, 'set', async (key, value) => {
+    storage.set(key, structuredClone(value)); return true;
+  });
+  const guildId = 'search-delete-source-peer-20261026';
+  const author = 'Cloudy template key: builder:removed || Cloudy context: embed-builder/delete || Cloudy kind: embed';
+  const source = { guildId, channelId: 'botlog', messageId: 'source-100', embedIndex: 0,
+    source: 'system-catalog', snapshot: {
+      title: 'Removed from Builder', description: 'Source notice',
+      author: { name: author },
+    } };
+  const physical = { guildId, channelId: 'botlog', messageId: 'log-200', embedIndex: 0,
+    source: 'modified-template', title: 'Removed from builder ✅', manualSaved: false,
+    snapshot: { title: 'Removed from builder ✅', description: 'Runtime response after previous Save.' },
+    sourceRecord: source };
+  assert.equal(await hideSystemCatalogFromBuilder(guildId, source), true);
+  assert.deepEqual(buildMatches(guildWith('botlog'), [source, physical], 'removed from builder'), [],
+    'an underlying modified runtime mirror must not resurrect the deleted Search choice');
+  assert.equal(physical.snapshot.description, 'Runtime response after previous Save.',
+    'this Search-only hide must not delete an actual log message');
+});
