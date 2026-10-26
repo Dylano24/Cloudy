@@ -35,6 +35,7 @@ import {
     relinkDetachedEmbedRegistryMessage,
     removeEmbedRegistryRecord,
     updateDetachedEmbedRegistrySnapshot,
+    saveNewBuilderDraftRecord,
     registerCloudyEmbedMessage,
     resolveEmbedRegistryRecord,
     scanGuildForCloudyEmbeds,
@@ -785,7 +786,11 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
     }
     await warmSavedEmbedTemplateScopes(guild.id, records.map(record => record.channelId));
     const groups = new Map();
+    const privateDrafts = [];
     for (const record of records) {
+        // Owner-authored drafts are individual saved embeds. A title matching
+        // a bot response must not apply that response's shared template.
+        if (record.draftData) { privateDrafts.push(record); continue; }
         if (isLegacyHelperParserArtifactRecord(record) || isStaleDynamicSourceArtifactRecord(record)) continue;
         const raw = record.snapshot || getEmbedRegistrySnapshot(record) || recordEmbedData(record);
         if (isRetiredGamblingEmbed(raw)) continue;
@@ -796,7 +801,7 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
         if (!groups.has(groupKey)) groups.set(groupKey, []);
         groups.get(groupKey).push(record);
     }
-    return [...groups.entries()].map(([groupKey, peers]) => {
+    return [...privateDrafts, ...[...groups.entries()].map(([groupKey, peers]) => {
         const identity = perChannel ? groupKey.slice(groupKey.indexOf('|') + 1) : groupKey;
         const catalogs = peers.filter(record => record.source === 'system-catalog');
         const live = peers.filter(record => record.source !== 'system-catalog' && !record.detached)
@@ -817,7 +822,7 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
         canonical.sourceRecord = { ...master, snapshot };
         canonical.previewRecord = { ...master, snapshot };
         return canonical;
-    });
+    })];
 }
 
 function channelOrderTuple(channel) {
@@ -1091,7 +1096,7 @@ export function loadRecordSnapshotIntoState(
     const sourceData = sourceSnapshot && typeof sourceSnapshot === 'object' && Object.keys(sourceSnapshot).length
         ? recordEmbedData(effectiveSourceRecord)
         : null;
-    const sourcePreviewData = getSystemSourceDefinitionPreviewForEmbed(
+    const sourcePreviewData = record.draftData ? null : getSystemSourceDefinitionPreviewForEmbed(
         sourceData && Object.keys(sourceData).length ? sourceData : data,
     );
     const templateSourceData = {
@@ -1139,7 +1144,9 @@ export function loadRecordSnapshotIntoState(
         ...(displayImage ? { image: displayImage } : {}),
         ...(displayThumbnail ? { thumbnail: displayThumbnail } : {}),
     };
-    const savedDisplay = getCachedSavedEmbedTemplateData(guild.id, String(record.channelId || ''), displaySourceData);
+    const savedDisplay = record.draftData
+        ? { matched: false, data: displaySourceData }
+        : getCachedSavedEmbedTemplateData(guild.id, String(record.channelId || ''), displaySourceData);
     if (savedDisplay.matched) {
         Object.assign(displaySourceData, savedDisplay.data);
         for (const key of ['title', 'description', 'fields', 'footer', 'image', 'thumbnail']) {
@@ -1189,7 +1196,7 @@ export function loadRecordSnapshotIntoState(
         ? (previewTitle || commercialBuilderTitle(displayTitle))
         : '';
     state.title = templateKind === 'content' ? null : (cleanBotTitle || displayTitle || null);
-    state.message = displayDescription || null;
+    state.message = record.draftData?.message ?? displayDescription ?? null;
     state.embedFields = Array.isArray(displayFields)
         ? displayFields.map(field => ({
             name: String(field.name || '').slice(0, 256),
@@ -1224,6 +1231,12 @@ export function loadRecordSnapshotIntoState(
     state.mediaBuffer = null;
     state.mediaName = null;
     state.mediaConvertedFromVideo = false;
+    if (record.draftData?.mediaData && record.draftData?.mediaName) {
+        state.mediaBuffer = Buffer.from(record.draftData.mediaData, 'base64');
+        state.mediaName = record.draftData.mediaName;
+        state.mediaUrl = null;
+    }
+    if (record.draftData) state.reappearAfter = record.draftData.reappearAfter || null;
     state.pendingBuilderDelete = null;
     state.modifyTarget = {
         guildId: guild.id,
@@ -1267,6 +1280,7 @@ export function loadRecordSnapshotIntoState(
 export async function syncBuilderLogoFromLiveMessage(guild, state, { cacheTargetMessage = false } = {}) {
     const target = state?.modifyTarget;
     const location = target?.liveLogoSource;
+    if (target?.detached && String(target.messageId).startsWith('draft-')) return false;
     if (!guild || !location?.channelId || !location?.messageId
         || state.logoTouched || target.savedLogoPreference) return false;
 
@@ -2787,6 +2801,38 @@ async function saveMissingSearchCatalogTemplate(guild, state, target) {
     return { ok: true, channel: 'Saved templates', message: null, updatedCount: 1, detached: true };
 }
 
+function savedDraftData(state) {
+    return {
+        message: state.message || null,
+        reappearAfter: state.reappearAfter || null,
+        ...(state.mediaBuffer && state.mediaName
+            ? { mediaName: state.mediaName, mediaData: state.mediaBuffer.toString('base64') } : {}),
+    };
+}
+
+export async function saveNewBuilderDraft(guild, state, channelId) {
+    const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
+    await flushPendingEmbedEditorUpdates(state.colorSessionToken);
+    if (!guild || !channelId || state.modifyTarget) return { ok: false, reason: 'missing-target' };
+    if (!state.title && !state.message && !state.embedFields?.length && !state.mediaUrl && !state.mediaBuffer) {
+        return { ok: false, reason: 'empty-draft' };
+    }
+    const current = applyStateToExistingEmbed(state);
+    if (state.showLogo && !state.removeExistingLogo) current.thumbnail = { url: CLOUDY_LOGO_URL };
+    if (getEmbedsTextLength([current]) > DISCORD_EMBED_TOTAL_TEXT_LIMIT) return { ok: false, reason: 'embed-too-large' };
+    const components = getBuilderMessageComponents(state);
+    const record = await saveNewBuilderDraftRecord(guild.id, channelId, current, components, savedDraftData(state));
+    if (!record) return { ok: false, reason: 'persistence-failed' };
+    // The editor can change while persistence is pending. Select the saved
+    // identity without replacing those newer unsaved edits with the snapshot.
+    const savedState = {};
+    loadRecordSnapshotIntoState(savedState, guild, record);
+    if (!state.modifyTarget) state.modifyTarget = savedState.modifyTarget;
+    if (state.reappearAfter === record.draftData?.reappearAfter) state.reappearTouched = false;
+    await refreshSearchTitleAfterSave(guild.id);
+    return { ok: true, draft: true, detached: true, channel: 'Saved templates', message: null };
+}
+
 export async function saveModifiedEmbed(guild, state) {
     const markSave = createBuilderPerformanceTracker('existing_save');
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
@@ -2815,8 +2861,9 @@ export async function saveModifiedEmbed(guild, state) {
             target,
             current,
             getBuilderMessageComponents(state),
+            String(target.messageId).startsWith('draft-') ? savedDraftData(state) : undefined,
         );
-        if (!persisted) return { ok: false, reason: 'persistence-failed', discordUpdated: true };
+        if (!persisted) return { ok: false, reason: 'persistence-failed' };
         await refreshSearchTitleAfterSave(guild.id);
         markSave('persisted');
 
@@ -2830,6 +2877,7 @@ export async function saveModifiedEmbed(guild, state) {
             message: null,
             updatedCount: 1,
             detached: true,
+            draft: String(target.messageId).startsWith('draft-'),
         };
     }
 

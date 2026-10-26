@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { buildMatches, buildSearchChoices, commercialBuilderTitle } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { buildAutocompleteMatches, buildMatches, buildSearchChoices, commercialBuilderTitle } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 test('Builder Search collapses duplicate user and automated peers into one catalog result', () => {
   const guild = { channels: { cache: new Map() } };
@@ -31,14 +31,11 @@ test('Builder Search excludes runtime history while keeping missing manual Build
   assert.match(displayBody, /stableSearchTemplateContext\(record\)/);
 });
 
-test('Builder Search returns no autocomplete list until text is typed', () => {
-  const source = fs.readFileSync('src/commands/Tools/zz_embedbuilderLiveSearchPatch.js', 'utf8');
-  const autocompleteStart = source.indexOf('embedBuilderCommand.autocomplete');
-  const executeStart = source.indexOf('const originalExecute', autocompleteStart);
-  const autocompleteBody = source.slice(autocompleteStart, executeStart);
-
-  assert.match(autocompleteBody, /focused\?\.name !== 'search' \|\| !normalize\(focused\.value\)/);
-  assert.match(autocompleteBody, /interaction\.respond\(\[\]\)/);
+test('Builder Search offers a title list immediately before text is typed', () => {
+  const record = { guildId: 'initial-title-list', channelId: '123456789012345678', messageId: '123456789012345679',
+    source: 'embed-builder', manualSaved: true, snapshot: { title: 'Owner saved notice', description: 'Preview only' } };
+  const choices = buildSearchChoices(buildAutocompleteMatches({}, [record], ''));
+  assert.deepEqual(choices.map(choice => choice.name), ['Owner saved notice']);
 });
 
 test('Search still scores every remaining unique result after duplicate cleanup', () => {

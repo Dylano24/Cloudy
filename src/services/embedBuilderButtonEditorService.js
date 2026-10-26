@@ -104,6 +104,7 @@ export async function hydrateBuilderMessageComponents(guild, state) {
   const target = state?.modifyTarget;
   const targetId = target?.messageId ? String(target.messageId) : '';
   if (!guild || !targetId || state.componentsDirty) return false;
+  if (target.detached && targetId.startsWith('draft-')) return false;
 
   if (state.componentRowsSourceMessageId === targetId && Array.isArray(state.componentRows)) {
     return false;
