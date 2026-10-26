@@ -99,3 +99,30 @@ test('a registry refresh started during Delete cannot restore its old Search sna
     await deleting;
   }
 });
+
+test('one confirmed purge removes the original and verified moved Reappear Search copies in one registry write', async t => {
+  const f = fixture(t, 'linked-copy');
+  const key = 'cloudy:embed-registry:' + f.guildId;
+  const moved = f.record('123456789012345694', 'Old Reappear copy');
+  f.storage.get(key).push(moved);
+  const indexKey = 'cloudy:embed-reappear-index:' + f.guildId + ':' + f.channelId;
+  f.storage.set(indexKey, [f.selected.messageId, moved.messageId, f.other.messageId]);
+  let registryWrites = 0;
+  t.mock.method(db, 'set', async (name, value) => {
+    if (name === key) registryWrites++;
+    f.storage.set(name, structuredClone(value));
+    return true;
+  });
+  await getEmbedRegistry(f.guildId);
+  assert.equal((await loadFastEmbedBuilderSearchRecords(f.interaction)).length, 3);
+  assert.equal(await purgeEmbedRegistryRecord(
+    f.guildId, f.channelId, f.selected.messageId, null, [moved.messageId],
+  ), true);
+  invalidateBuilderSearchTitleCache(f.guildId);
+  assert.equal(registryWrites, 1);
+  assert.deepEqual(f.storage.get(key).map(record => record.messageId), [f.other.messageId]);
+  assert.deepEqual((await loadFastEmbedBuilderSearchRecords(f.interaction))
+    .map(record => record.messageId), [f.other.messageId]);
+  assert.deepEqual(f.storage.get(indexKey), [f.other.messageId]);
+  assert.ok(f.storage.get('cloudy:embed-reappear-disabled:' + f.guildId + ':' + f.channelId + ':' + moved.messageId + ':0'));
+});
