@@ -31,6 +31,7 @@ import {
     ensureSystemEmbedCatalogs,
     ensureHiddenBuilderCatalogLoaded,
     isSystemCatalogHiddenFromBuilder,
+    isBuilderSearchTitleHiddenFromBuilder,
     getSearchableSystemCatalogRecords,
     getSystemSourceDefinitionPreview,
     getSystemSourceDefinitionPreviewForEmbed,
@@ -577,7 +578,8 @@ function searchRelatedRecordAccessible(guild, member, record, { requireSend = tr
 }
 
 function sanitizeSearchRecordAccess(guild, member, record, options = {}) {
-    if (isSearchDeleteHidden(record)
+    if (isBuilderSearchFamilyHidden(record)
+        || isSearchDeleteHidden(record)
         || !searchRelatedRecordAccessible(guild, member, record, options)) return null;
 
     const sanitizeRelated = related => {
@@ -859,6 +861,17 @@ function isUntitledCatalogContent(record) {
     return /\|\|\s*Cloudy kind:\s*content\s*$/i.test(authorName);
 }
 
+function isBuilderSearchFamilyHidden(record) {
+    const source = String(record?.source || '').toLowerCase();
+    // An individually posted/saved manual Builder embed must keep its own
+    // lifetime, even if an automatic Cloudy response shares the same title.
+    if (source === 'embed-builder' && record?.discoveryPriority == null) return false;
+    const guildId = record?.guildId;
+    if (!guildId) return false;
+    return [recordTitle(record), record?.snapshot?.title, record?.title, record?.name]
+        .some(title => isBuilderSearchTitleHiddenFromBuilder(guildId, title));
+}
+
 function builderSearchDisplayRecords(records) {
     // Search stays complete, but a canonical Cloudy template is shown only once.
     // Runtime/history mirrors are not separate editable Builder items.
@@ -872,7 +885,8 @@ function builderSearchDisplayRecords(records) {
         if (!channelId || !messageId) continue;
 
         if (source === 'embed-builder' && record.manualSaved === false) continue;
-        if (isSystemCatalogHiddenFromBuilder(record) || isHiddenBuilderSearchAlias(record)) continue;
+        if (isBuilderSearchFamilyHidden(record)
+            || isSystemCatalogHiddenFromBuilder(record) || isHiddenBuilderSearchAlias(record)) continue;
         if (isUntitledCatalogContent(record)) continue;
         // The intermediate Pinging... acknowledgement is not another reusable
         // response type; only the final latency reply is editable in Search.
