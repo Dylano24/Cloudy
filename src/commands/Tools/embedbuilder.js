@@ -571,7 +571,9 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     if (String(target.source || '').toLowerCase() !== 'embed-builder') {
         const searchTitles = deletedBuilderSearchTitles(target, state);
         if (searchTitles.length) {
-            const namesHidden = await hideBuilderSearchTitlesFromBuilder(guild.id, searchTitles)
+            const namesHidden = await hideBuilderSearchTitlesFromBuilder(
+                guild.id, searchTitles, { includeCatalog: true },
+            )
                 .catch(error => {
                     logger.error('[EMBED_BUILDER] Could not persist deleted response name:', error);
                     return false;
