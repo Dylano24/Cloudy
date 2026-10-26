@@ -466,7 +466,8 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         markDelete('search_updated');
         await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
         resetBuilderAfterRecordDeletion(state);
-        await refreshBuilder(buttonInteraction, state);
+        // Search is already updated durably. Do not make the owner wait for
+        // two private dashboard edits before seeing the deletion result.
         await sendBuilderDeleteNotice(
             buttonInteraction,
             'Removed from Builder',
@@ -474,6 +475,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
             0x57F287,
         );
         markDelete('first_visible');
+        await refreshBuilder(buttonInteraction, state);
         return true;
     }
 
@@ -573,7 +575,8 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     clearBuilderRecordCaches(guild.id);
     await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
     resetBuilderAfterRecordDeletion(state);
-    await refreshBuilder(buttonInteraction, state);
+    // The physical deletion, durable purge and Search invalidation have
+    // completed. Show success before refreshing the private Builder UI.
     await sendBuilderDeleteNotice(
         buttonInteraction,
         'Removed from Builder',
@@ -581,6 +584,7 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         0x57F287,
     );
     markDelete('first_visible');
+    await refreshBuilder(buttonInteraction, state);
     return true;
 }
 
