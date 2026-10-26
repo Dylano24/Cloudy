@@ -20,6 +20,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { registerBuilderPreviewMessage,
     unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
+import { commercialBuilderTitle } from '../../utils/builderCommercialTitle.js';
 import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
 import { createBuilderPerformanceTracker } from '../../utils/interactionLatency.js';
@@ -59,7 +60,7 @@ import {
     } from '../../services/embedRegistryService.js';
 import { touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
-import { hideSystemCatalogFromBuilder } from '../../services/systemEmbedCatalogService.js';
+import { hideSystemCatalogFromBuilder, hideBuilderSearchTitlesFromBuilder } from '../../services/systemEmbedCatalogService.js';
 import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord } from '../../utils/embedBuilderAccess.js';
 import { getFromDb,
     deleteFromDb,
@@ -386,6 +387,20 @@ async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
     await refreshBuilder(buttonInteraction, state);
 }
 
+function deletedBuilderSearchTitles(target, state = null) {
+    // A Search label may be humanized from the actual log title, and an
+    // automated template can have a separate original/catalog title. Hide
+    // both presentations, never a generic Builder success notification.
+    const rawTitles = [
+        target?.sourceEmbedData?.title,
+        target?.previewSourceData?.title,
+        target?.templateSourceData?.title,
+        target?.catalogTitle,
+        state?.title,
+    ].map(value => String(value || '').trim()).filter(Boolean);
+    return [...new Set([...rawTitles, ...rawTitles.map(commercialBuilderTitle).filter(Boolean)])];
+}
+
 function resetBuilderAfterRecordDeletion(state) {
     // Delete removes the selected post/record, never the owner's open draft.
     // The separate Post button can immediately publish this preview again.
@@ -447,6 +462,14 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
             });
         } catch (error) {
             logger.error('[EMBED_BUILDER] Could not persist catalog deletion:', error);
+        }
+        if (hidden && deletedBuilderSearchTitles(target, state).length) {
+            hidden = await hideBuilderSearchTitlesFromBuilder(
+                guild.id, deletedBuilderSearchTitles(target, state),
+            ).catch(error => {
+                logger.error('[EMBED_BUILDER] Could not hide deleted response name:', error);
+                return false;
+            });
         }
         if (!hidden) {
             await sendBuilderDeleteNotice(
@@ -540,6 +563,28 @@ async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
         await sendBuilderDeleteNotice(buttonInteraction, 'Delete could not be saved',
             'The saved Builder record could not be removed permanently. Please try Confirm delete again.', 0xED4245);
         return false;
+    }
+    // A bot-generated response may exist in the source catalog and other log
+    // messages with DIFFERENT Discord IDs. Remove its logical Search name too.
+    // This affects Builder Search only, not real Discord audit logs or runtime
+    // response templates. Manually posted Builder embeds remain individual.
+    if (String(target.source || '').toLowerCase() !== 'embed-builder') {
+        const searchTitles = deletedBuilderSearchTitles(target, state);
+        if (searchTitles.length) {
+            const namesHidden = await hideBuilderSearchTitlesFromBuilder(
+                guild.id, searchTitles, { includeCatalog: true },
+            )
+                .catch(error => {
+                    logger.error('[EMBED_BUILDER] Could not persist deleted response name:', error);
+                    return false;
+                });
+            if (!namesHidden) {
+                await sendBuilderDeleteNotice(buttonInteraction, 'Delete could not be saved',
+                    'The message was deleted, but Cloudy could not persist its Search removal. Confirm delete again.',
+                    0xED4245);
+                return false;
+            }
+        }
     }
     // A physical mirror of the Builder's own Delete confirmation can survive
     // as an independently seeded system-catalog entry after its message is
@@ -2179,7 +2224,10 @@ export default {
                                         const { beginBuilderSearchDeletion } =
                                             await import('./zz_embedbuilderLiveSearchPatch.js');
                                         finishSearchDelete = beginBuilderSearchDeletion(
-                                            interaction.guild.id, state.modifyTarget,
+                                            interaction.guild.id, {
+                                                ...state.modifyTarget,
+                                                deleteSearchTitle: state.title,
+                                            },
                                         );
                                         await buttonInteraction.deferUpdate().catch(() => {});
                                         deleted = await savePendingBuilderDeletion(
