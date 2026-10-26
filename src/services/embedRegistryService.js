@@ -159,7 +159,7 @@ function cleanStoredRecords(records) {
     return cleaned;
 }
 
-async function mutateRegistry(guildId, operation) {
+async function mutateRegistry(guildId, operation, committedSnapshot = null) {
     const queueKey = String(guildId);
     // Other mutations are ordering barriers for pending registration batches.
     registryWriteBatches.delete(queueKey);
@@ -176,6 +176,12 @@ async function mutateRegistry(guildId, operation) {
         registryGenerations.set(queueKey, getEmbedRegistryGeneration(queueKey) + 1);
         if (registryMutationQueues.get(queueKey) === current) {
             registryMutationQueues.delete(queueKey);
+            const records = committedSnapshot?.();
+            if (records) {
+                const generation = getEmbedRegistryGeneration(queueKey);
+                registryLastKnown.set(queueKey, { generation, records });
+                registrySearchCache.set(queueKey, { generation, records, expiresAt: Date.now() + 5000 });
+            }
         }
     }
 }
@@ -591,7 +597,7 @@ export async function getEmbedRegistry(guildId, { cached = false } = {}) {
         // Share only in-flight storage work, never mutable records or a stale
         // cross-request cache unless search explicitly opts in. Mutations start fresh reads.
         const records = await pending.promise;
-        if (generation === getEmbedRegistryGeneration(guildId)) {
+        if (generation === getEmbedRegistryGeneration(guildId) && !registryMutationQueues.has(key)) {
             registryLastKnown.set(key, { generation, records });
             if (!registryMutationQueues.has(key)) {
                 registrySearchCache.set(key, { generation, records, expiresAt: Date.now() + 5000 });
@@ -884,34 +890,35 @@ export async function removeEmbedRegistryRecord(guildId, channelId, messageId, e
 }
 
 export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
+    // null targets the entire physical message, including stored sibling
+    // embeds whose Discord message may already be gone.
+    const allEmbeds = embedIndex === null;
+    let committedRecords = null;
+    const matchesTarget = item => (
+        (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
+        && String(item.messageId) === String(messageId)
+        && (allEmbeds || Number(item.embedIndex || 0) === Number(embedIndex || 0))
+    );
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
-        let changed = false;
-        const next = records.filter(item => {
-            const matches = (
-                (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
-                && String(item.messageId) === String(messageId)
-                && Number(item.embedIndex || 0) === Number(embedIndex || 0)
-            );
-            if (!matches) return true;
-
-            changed = true;
-            embedSnapshotCache.delete(recordKey(item));
-            return false;
-        });
-
-        if (changed) {
-            await setInDb(registryKey(guildId), sortRecords(next));
-        }
+        const removed = records.filter(matchesTarget);
+        const next = records.filter(item => !matchesTarget(item));
+        if (removed.length && !await setInDb(registryKey(guildId), sortRecords(next))) return false;
+        committedRecords = next;
+        for (const record of removed) embedSnapshotCache.delete(recordKey(record));
+        // A queued registration may still be pending when this Delete ends.
+        // Keep the last-known list free of this target in that interval too.
+        const known = registryLastKnown.get(String(guildId));
+        if (known) registryLastKnown.set(String(guildId), { ...known, records: known.records.filter(item => !matchesTarget(item)) });
 
         // Disable only this exact Reappear owner. The tombstone closes the race
         // where a message event is already processing this rule while Delete is
         // being saved; unrelated embeds keep their own independent rule.
-        const reappearDisableKey = `cloudy:embed-reappear-disabled:${guildId}:${channelId}:${messageId}:${Math.max(0, Number(embedIndex) || 0)}`;
-        await setInDb(reappearDisableKey, {
-            disabled: true,
-            deletedAt: new Date().toISOString(),
-        });
+        const indices = allEmbeds ? [...new Set([0, ...removed.map(record => Number(record.embedIndex) || 0)])]
+            : [Math.max(0, Number(embedIndex) || 0)];
+        await Promise.all(indices.map(index => setInDb(`cloudy:embed-reappear-disabled:${guildId}:${channelId}:${messageId}:${index}`, {
+            disabled: true, deletedAt: new Date().toISOString(),
+        })));
 
         const reappearKey = `cloudy:embed-reappear:${guildId}:${channelId}:${messageId}`;
         await deleteFromDb(reappearKey);
@@ -927,8 +934,8 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
             }
         }
 
-        return changed;
-    });
+        return allEmbeds || removed.length > 0;
+    }, () => committedRecords);
 }
 
 export async function removeEmbedRegistryMessage(guildId, channelId, messageId) {

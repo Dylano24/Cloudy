@@ -391,3 +391,88 @@ test('Search Save is used by the next real Builder deletion response with exact 
   assert.equal(f.publicPayloads.length, 0);
   assert.equal(f.storage.get(key).some(record => record.messageId === removed.messageId), false);
 });
+
+for (const mode of ['live', 'missing', 'deleted-between-clicks']) {
+  test(`Delete and one Confirm delete remove a ${mode} message and its Search entry immediately`, async t => {
+    const f = fixture(t);
+    const record = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000049',
+      source: 'embed-builder', manualSaved: true, embedIndex: 0, detached: false,
+      title: 'Selected message', snapshot: { title: 'Selected message', description: 'Owner saved content' }, components: [] };
+    const other = { ...record, messageId: '100000000000000059', title: 'Independent message', snapshot: { title: 'Independent message' } };
+    f.storage.set('cloudy:embed-registry:' + f.guild.id, [record, other]);
+    let fetches = 0;
+    let deletes = 0;
+    const message = { id: record.messageId, channelId: f.channel.id, channel: f.channel, author: { id: 'bot' },
+      embeds: [new Embed(record.snapshot)], async delete() {
+        deletes++;
+        if (mode === 'deleted-between-clicks') throw Object.assign(new Error('Unknown Message'), { code: 10008 });
+      } };
+    f.channel.messages.fetch = async () => {
+      fetches++;
+      if (mode === 'missing') throw Object.assign(new Error('Unknown Message'), { code: 10008 });
+      return message;
+    };
+    await getEmbedRegistry(f.guild.id);
+    await prewarmEmbedBuilderSearch(f.guild);
+    f.interaction.__cloudyInitialBuilderSelection = { record };
+    await builder.execute(f.interaction);
+    const dashboard = f.interaction.lastDashboard;
+    t.after(() => dashboard.collector.stop('test-ended'));
+    await dashboard.collector.listeners('collect')[0](f.component('simple_embed_delete_from_builder'));
+    const beforeConfirm = fetches;
+    await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
+    assert.equal(f.storage.get('cloudy:embed-registry:' + f.guild.id).some(item => item.messageId === record.messageId), false);
+    const search = { ...f.interaction, options: { getFocused: () => ({ name: 'search', value: 'selected message' }) },
+      async respond(choices) { this.choices = choices; } };
+    await builder.autocomplete(search);
+    assert.equal(search.choices.some(choice => choice.value.includes(record.messageId)), false);
+    assert.equal(fetches, beforeConfirm, 'Confirm should reuse the exact target already checked on Delete');
+    assert.equal(deletes, mode === 'missing' ? 0 : 1);
+    assert.ok(f.storage.get('cloudy:embed-registry:' + f.guild.id).some(item => item.messageId === other.messageId));
+  });
+}
+
+test('overlapping Confirm delete clicks perform one deletion and cannot save a new private draft', async t => {
+  const f = fixture(t);
+  const record = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000069',
+    source: 'embed-builder', manualSaved: true, embedIndex: 0, detached: false,
+    title: 'Delete once', snapshot: { title: 'Delete once', description: 'Owner saved content' }, components: [] };
+  f.storage.set('cloudy:embed-registry:' + f.guild.id, [record]);
+  let deletes = 0, releaseDelete;
+  const gate = new Promise(resolve => { releaseDelete = resolve; });
+  f.channel.messages.fetch = async () => ({ id: record.messageId, channel: f.channel, author: { id: 'bot' },
+    embeds: [new Embed(record.snapshot)], async delete() { deletes++; await gate; } });
+  f.interaction.__cloudyInitialBuilderSelection = { record };
+  await builder.execute(f.interaction);
+  const dashboard = f.interaction.lastDashboard;
+  t.after(() => dashboard.collector.stop('test-ended'));
+  const collect = dashboard.collector.listeners('collect')[0];
+  await collect(f.component('simple_embed_delete_from_builder'));
+  const first = collect(f.component('simple_embed_post'));
+  const second = collect(f.component('simple_embed_post'));
+  releaseDelete();
+  await Promise.all([first, second]);
+  assert.equal(deletes, 1);
+  assert.deepEqual(f.storage.get('cloudy:embed-registry:' + f.guild.id), []);
+});
+
+test('a denied Discord deletion preserves the saved record and pending confirmation', async t => {
+  const f = fixture(t);
+  const record = { guildId: f.guild.id, channelId: f.channel.id, messageId: '100000000000000079',
+    source: 'embed-builder', manualSaved: true, embedIndex: 0, detached: false,
+    title: 'Preserve on denied delete', snapshot: { title: 'Preserve on denied delete' }, components: [] };
+  f.storage.set('cloudy:embed-registry:' + f.guild.id, [record]);
+  f.channel.messages.fetch = async () => ({ id: record.messageId, author: { id: 'bot' }, embeds: [new Embed(record.snapshot)],
+    async delete() { throw Object.assign(new Error('Missing Permissions'), { code: 50013 }); } });
+  f.interaction.__cloudyInitialBuilderSelection = { record };
+  await builder.execute(f.interaction);
+  const dashboard = f.interaction.lastDashboard;
+  t.after(() => dashboard.collector.stop('test-ended'));
+  const collect = dashboard.collector.listeners('collect')[0];
+  await collect(f.component('simple_embed_delete_from_builder'));
+  await collect(f.component('simple_embed_post'));
+  assert.equal(f.storage.get('cloudy:embed-registry:' + f.guild.id).length, 1);
+  assert.ok(buttons(dashboard).some(button => button.label === 'Confirm delete'));
+  const notice = f.childPayloads.at(-1).embeds[0];
+  assert.equal((notice.toJSON?.() || notice).title, 'Delete failed');
+});
