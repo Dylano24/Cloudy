@@ -664,6 +664,12 @@ async function saveRecords(guildId, additions) {
             if (!record || isRecentlyPurgedMessage(record)) continue;
             const key = recordKey(record);
             const existing = next.get(key) || null;
+            // A delayed gateway/history registration can carry the *old*
+            // title and body after Save has already updated the exact manual
+            // Builder post. Only an explicit Builder Save/Post may replace a
+            // manually saved snapshot, not an unsolicited background scan.
+            if (existing?.source === 'embed-builder' && existing.manualSaved === true
+                && !record.manualSaved) continue;
             if (isManualBuilderRecord(existing) && !Object.hasOwn(existing, 'manualSaved') && !record.manualSaved) {
                 delete record.manualSaved;
             }
