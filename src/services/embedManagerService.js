@@ -214,8 +214,8 @@ export function canonicalBuilderResponseTitle(value) {
 
 function recordEmbedData(record) {
     const original = migrateCloudyLogoEmbedData(record?.snapshot || getEmbedRegistrySnapshot(record) || {}).data || {};
-    // Owner-authored physical Save owns the complete snapshot. Global bot
-    // response aliases must never reintroduce an earlier title or banner.
+    // A manual Save has one authoritative physical snapshot; do not restore
+    // old text or banners through shared bot-response template aliases.
     const snapshot = record?.source === 'embed-builder' && record?.manualSaved
         ? original
         : getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, original).data;
@@ -727,9 +727,7 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
         const name = stableKey === 'ticket-main'
             ? 'Ticket'
             : (humanTemplateRecordName(record) || 'Embed');
-        // An owner's saved Post is a single physical message, not a shared
-        // response type. Two separate posts may share a title but must not
-        // edit each other or turn one Save into a template-wide PATCH.
+        // A saved owner Post owns one physical message, not a reusable response.
         const key = record.source === 'embed-builder' && record.manualSaved === true
             ? `manual:${record.backingChannelId || record.channelId}:${record.messageId}:${record.embedIndex || 0}`
             : `template:${templateIdentity(channelId, recordData)}`;
@@ -3067,13 +3065,8 @@ export async function saveModifiedEmbed(guild, state) {
     const embeds = message.embeds.map((embed, embedIndex) =>
         embedIndex === index ? applyStateToExistingEmbed(state) : embed.toJSON(),
     );
-    // The live physical message owns its existing banner unless the owner
-    // explicitly added or removed media. An old Search/Modify session can
-    // contain an expired or differently signed CDN URL for the same GIF.
-    // Sending that stale URL makes Discord detach or duplicate the image.
-    // External editors may set mediaUrl directly without setting mediaTouched.
-    // Compare it with this session's loaded media as well: a new URL must
-    // still replace the old banner, while stale Search CDN signatures don't.
+    // Keep the most recent live Discord attachment for text/color-only edits.
+    // Older Search snapshots can contain another CDN signature for the same GIF.
     const selectedMediaUrl = target.previewSourceData?.image?.url
         || target.sourceEmbedData?.image?.url || null;
     const mediaChanged = state.mediaTouched === true || Boolean(state.mediaBuffer)
@@ -3170,8 +3163,6 @@ export async function saveModifiedEmbed(guild, state) {
         liveState.mediaName = null;
         liveState.mediaConvertedFromVideo = false;
     } else if (!state.mediaBuffer) {
-        // The next Save must start from Discord's just-confirmed image, not
-        // from the CDN URL the user initially selected in Search.
         liveState.mediaUrl = currentImageUrl || null;
     }
     if (termsFooterUpdated) {
@@ -3260,7 +3251,12 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     state.modifyTarget.sourceEmbedData = current;
-    if (state.modifyTarget.previewSourceData) {
+    if (target.source === 'embed-builder' && !target.templateMode) {
+        // The edited Discord embed is the single canonical physical record.
+        // Rebuilding its preview from old selection data left stale colors and
+        // removed fields behind after Save, until another Search/Save cycle.
+        state.modifyTarget.previewSourceData = { ...current };
+    } else if (state.modifyTarget.previewSourceData) {
         const nextPreview = { ...state.modifyTarget.previewSourceData };
         if (state.title) nextPreview.title = state.title;
         else delete nextPreview.title;
