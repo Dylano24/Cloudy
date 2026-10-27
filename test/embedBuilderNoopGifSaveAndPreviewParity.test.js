@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, Embed } from 'discord.js';
+import { buildUserErrorEmbed } from '../src/utils/embeds.js';
 import { db } from '../src/utils/database.js';
 import {
-  saveModifiedEmbed, loadRecordSnapshotIntoState,
+  saveModifiedEmbed, loadRecordSnapshotIntoState, getCanonicalBuilderRecords, collapseDisplayRecords,
 } from '../src/services/embedManagerService.js';
 import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
 import { buildMatches, buildSearchChoices } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
@@ -169,4 +170,82 @@ test('real repeated Save updates one physical embed with full current preview an
   assert.equal(records[0].snapshot.color, 0x100000 + 11 * 12345);
   assert.deepEqual(buildSearchChoices(buildMatches(guild, records, 'Latest edition 11'))
     .map(x => x.name), ['Latest edition 11']);
+});
+
+test('editing text keeps the live inline GIF when Search holds an old CDN signature', async t => {
+  const { state, message, guild } = fixture(t);
+  state.message = 'A longer updated message that should not detach the banner.';
+  state.sideColor = 0x556677;
+  state.mediaUrl = 'https://cdn.discordapp.com/attachments/'
+    + channelId + '/' + attachmentId + '/' + attachmentName + '?ex=old-signature';
+  state.mediaTouched = false;
+  state.modifyTarget.previewSourceData = {
+    ...state.modifyTarget.previewSourceData, image: { url: state.mediaUrl },
+  };
+  state.modifyTarget.sourceEmbedData = {
+    ...state.modifyTarget.sourceEmbedData, image: { url: state.mediaUrl },
+  };
+  const result = await saveModifiedEmbed(guild, state);
+  assert.equal(result.ok, true);
+  assert.equal(message.editCalls.length, 1);
+  assert.equal(message.editCalls[0].embeds[0].description, state.message);
+  assert.equal(message.editCalls[0].embeds[0].image.url, 'attachment://' + attachmentName);
+  assert.deepEqual(message.editCalls[0].attachments, [{ id: attachmentId }]);
+  assert.equal(state.mediaUrl, imageUrl);
+  assert.equal(state.mediaTouched, false);
+  // Repeated unchanged Save must not PATCH or restore the old signed URL.
+  for (let i = 0; i < 5; i++) assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.equal(message.editCalls.length, 1);
+  const records = await getEmbedRegistry(guildId);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].snapshot.description, state.message);
+  assert.equal(records[0].snapshot.image.url, imageUrl);
+});
+
+test('explicit Remove media clears the banner rather than restoring the old GIF', async t => {
+  const { state, message, guild } = fixture(t);
+  state.mediaUrl = null;
+  state.mediaTouched = true;
+  const result = await saveModifiedEmbed(guild, state);
+  assert.equal(result.ok, true);
+  assert.equal(message.editCalls.length, 1);
+  assert.equal(message.editCalls[0].embeds[0].image, undefined);
+  assert.equal(state.mediaUrl, null);
+  assert.equal(state.mediaTouched, false);
+});
+
+test('Builder unknown error has the original generic title and does not substitute ticket text', () => {
+  const error = buildUserErrorEmbed('unknown', 'The message builder could not complete that action.', {
+    preserveText: true,
+  });
+  assert.equal(error.toJSON().title, 'Something went wrong');
+  assert.equal(error.toJSON().description, 'The message builder could not complete that action.');
+});
+
+test('Search opens saved manual GIF as one physical embed, never a shared template', async t => {
+  const { state, message, guild } = fixture(t);
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  const registered = await getEmbedRegistry(guildId);
+  const canonical = await getCanonicalBuilderRecords(guild, registered);
+  assert.equal(canonical.length, 1);
+  assert.equal(canonical[0].messageId, messageId);
+  assert.equal(canonical[0].templateMode, false);
+  const fromSearch = {};
+  assert.equal(loadRecordSnapshotIntoState(fromSearch, guild, canonical[0],
+    canonical[0].previewRecord, canonical[0].sourceRecord), true);
+  assert.equal(fromSearch.modifyTarget.templateMode, false);
+  assert.equal(fromSearch.mediaUrl, imageUrl);
+  for (let i = 0; i < 10; i++) assert.equal((await saveModifiedEmbed(guild, fromSearch)).ok, true);
+  assert.equal(message.editCalls.length, 0);
+});
+
+test('distinct owner posts with an identical title remain distinct physical choices', () => {
+  const snapshot = { title: 'My banner', description: 'Saved', color: 0xAA0011 };
+  const records = ['187777777777777772', '187777777777777779'].map(messageId => ({
+    guildId, channelId, messageId, source: 'embed-builder', manualSaved: true,
+    snapshot, name: 'My banner', title: 'My banner',
+  }));
+  const collapsed = collapseDisplayRecords(records, channelId);
+  assert.equal(collapsed.length, 2);
+  assert.ok(collapsed.every(record => !record.templateMode));
 });
