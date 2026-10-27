@@ -173,6 +173,7 @@ test('guide setup uses stored IDs and preserves the current embed and attachment
     sentPayload = payload;
     const message = {
       id: '200000000000000003', author: f.guild.client.user, embeds: [embed],
+      components: [{ components: [{ customId: 'dedicated_commands:gambling' }] }],
       delete: async () => history.delete(message.id),
     };
     f.gambling.lastMessageId = message.id;
