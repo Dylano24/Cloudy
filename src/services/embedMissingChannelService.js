@@ -3,6 +3,7 @@ import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 import { isTransientStatusEmbed } from '../utils/transientResponse.js';
 import { getGuildConfig, peekGuildConfigCache } from './config/guildConfig.js';
+import { isRecentlyPurgedMessage } from './embedRegistryService.js';
 import {
     getTicketLogTemplate,
     isTicketLogTemplateChannel,
@@ -42,7 +43,7 @@ export function peekIndexedRecentChannelEmbeds(guild) {
             recentChannelIndex.delete(key);
             continue;
         }
-        if (key.startsWith(guildId + ':')) records.push(...value.records);
+        if (key.startsWith(guildId + ':')) records.push(...value.records.filter(record => !isRecentlyPurgedMessage(record)));
     }
     return records;
 }
@@ -103,6 +104,9 @@ function embedSnapshot(embed) {
 }
 
 function buildRecords(guild, channel, message, guildConfig = null) {
+    // A history request can finish after Confirm delete. The registry's
+    // exact-message tombstone also governs these read-only channel snapshots.
+    if (isRecentlyPurgedMessage({ guildId: guild.id, channelId: channel.id, messageId: message.id })) return [];
     return message.embeds
         .map((embed, embedIndex) => {
             const title = String(embed?.title || '').trim().toLowerCase();

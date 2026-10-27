@@ -35,6 +35,7 @@ import {
     reconcileEmbedRegistry,
     relinkDetachedEmbedRegistryMessage,
     removeEmbedRegistryRecord,
+    isRecentlyPurgedMessage,
     updateDetachedEmbedRegistrySnapshot,
     saveNewBuilderDraftRecord,
     registerCloudyEmbedMessage,
@@ -1532,6 +1533,7 @@ function managerRecordKey(record) {
 
 export function isEmbedManagerVisibleRecord(record, { includeBotHistory = true } = {}) {
     if (!record?.messageId) return false;
+    if (isRecentlyPurgedMessage(record)) return false;
     if (isSystemCatalogHiddenFromBuilder(record)) return false;
 
     const source = String(record.source || '').toLowerCase();
@@ -1565,7 +1567,12 @@ export function filterEmbedManagerRecords(records = [], options = {}) {
 export function mergeEmbedManagerRecords(baseRecords = [], additions = []) {
     const merged = new Map();
     for (const record of filterEmbedManagerRecords([...baseRecords, ...additions])) {
-        merged.set(managerRecordKey(record), record);
+        const key = managerRecordKey(record);
+        const existing = merged.get(key);
+        // A read-only history page may have started before a manual Save.
+        // It cannot replace the same identity's committed snapshot or marker.
+        if (existing?.manualSaved === true && record.manualSaved !== true) continue;
+        merged.set(key, record);
     }
     return [...merged.values()];
 }
