@@ -375,3 +375,46 @@ test('Save does not resurrect a deleted physical Discord embed as a detached dra
   assert.equal(message.editCalls.length, 0);
   assert.equal((await getEmbedRegistry(guildId)).length, 0);
 });
+
+
+test('an already hosted banner cleans its known former loose GIF without deleting sibling files', async t => {
+  const { state, message, guild, data } = fixture(t);
+  const permanent = 'https://cloudy.example.com/cloudy-embed-media/'
+    + 'b'.repeat(64) + '.gif';
+  const siblingId = '187777777777777778';
+  message.embeds = [new Embed({ ...data, image: { url: permanent } })];
+  message.attachments.set(siblingId, {
+    id: siblingId, name: 'keep.pdf',
+    url: 'https://cdn.discordapp.com/attachments/x/y/keep.pdf',
+  });
+  const originalEdit = message.edit;
+  message.edit = async payload => {
+    const edited = await originalEdit(payload);
+    if (payload.attachments) {
+      const keep = new Set(payload.attachments.map(file => String(file.id)));
+      message.attachments = new Collection(
+        [...message.attachments].filter(([id]) => keep.has(String(id))));
+    }
+    return edited;
+  };
+  // The physical message has a permanent image, but the Search source still
+  // knows exactly which former Discord attachment was its banner.
+  // A plain Save must clean that orphan without introducing a second message.
+  const first = await saveModifiedEmbed(guild, state);
+  assert.equal(first.ok, true);
+  assert.equal(first.message.id, messageId);
+  assert.equal(message.editCalls.length, 1);
+  assert.deepEqual(message.editCalls[0].attachments, [{ id: siblingId }]);
+  assert.equal(message.attachments.has(attachmentId), false);
+  assert.equal(message.attachments.has(siblingId), true);
+  assert.equal(message.embeds[0].image.url, permanent);
+  assert.equal(state.mediaUrl, permanent);
+  const again = await saveModifiedEmbed(guild, state);
+  assert.equal(again.ok, true);
+  assert.equal(again.updatedCount, 0);
+  assert.equal(message.editCalls.length, 1);
+  const records = await getEmbedRegistry(guildId);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].messageId, messageId);
+  assert.equal(records[0].snapshot.image.url, permanent);
+});
