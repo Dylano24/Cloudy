@@ -3232,8 +3232,16 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     }
 
     const original = message.embeds[index]?.toJSON?.() || message.embeds[index];
+    // A content no-op can still carry a necessary cleanup of an old banner
+    // attachment. Never skip that Discord edit just because the embed text,
+    // footer, logo and permanent image URL already match.
+    const attachmentRetentionChanged = Array.isArray(payload.attachments)
+        && (payload.attachments.length !== originalAttachments.length
+            || payload.attachments.some(file =>
+                !originalAttachments.some(previous => String(previous.id) === String(file.id))));
     if (target.source === 'embed-builder' && !target.templateMode
         && !state.componentsDirty && !payload.files?.length
+        && !attachmentRetentionChanged
         && sameManualBuilderEmbed(original, payload.embeds[index],
             [...(message.attachments?.values?.() || [])])) {
         // A Save with no changes must NEVER call message.edit on an uploaded
