@@ -39,6 +39,7 @@ const PROTECTED_PARTS = /(https?:\/\/[^\s]+|<[^>]+>|\x60[^\x60]*\x60)/g;
 const WORD = /[\p{L}]+(?:['’][\p{L}]+)?/gu;
 const ERROR_TITLE = /\b(?:error|failed|failure|lost|loss|bust|blocked|denied|invalid|insufficient|rejected|unsuccessful|too fast|cooldown|not enough|unable)\b/i;
 const SUCCESS_TITLE = /\b(?:success|successful|won|win|winning|completed|earned|received|deposited|withdrawn|paid|reward claimed)\b/i;
+const NEUTRAL_TITLE = /\b(?:balance|inventory|leaderboard|bet|bets|overview|information|guide)\b/i;
 const RED_COLORS = new Set([0x7A1712, 0xED4245, 0x670102, 0xFF0000]);
 const GREEN_COLORS = new Set([0x00C49D, 0x57F287, 0x00FF00, 0x2ECC71]);
 
@@ -68,6 +69,9 @@ function statusColor(source) {
   // The outcome name is stronger evidence than a stale saved template color.
   if (ERROR_TITLE.test(title)) return CLOUDY_RED_COLOR;
   if (SUCCESS_TITLE.test(title)) return CLOUDY_GREEN_COLOR;
+  // Checking an account or placing an unresolved bet is neutral, even when
+  // an old saved response reused a colored status template.
+  if (NEUTRAL_TITLE.test(title)) return CLOUDY_NEUTRAL_COLOR;
   const color = Number(source.color);
   if (RED_COLORS.has(color)) return CLOUDY_RED_COLOR;
   if (GREEN_COLORS.has(color)) return CLOUDY_GREEN_COLOR;
