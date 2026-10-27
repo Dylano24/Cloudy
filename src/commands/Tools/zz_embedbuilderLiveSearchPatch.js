@@ -467,7 +467,7 @@ function recordDocument(guild, record) {
     const aliases = /\bremoved from builder\b/.test(rawTitle) ? ['deleted from builder'] : [];
     // Old aliases are retained internally to match the same saved response
     // family, but must not appear as a second/current Search title.
-    const titleKey = resolved.matched
+    const titleKey = resolved.matched || (record?.manualSaved && record?.source === 'embed-builder')
         ? normalize([title, data?.title].filter(Boolean).join(' '))
         : normalize([title, record?.name, record?.title, data?.title, ...aliases].filter(Boolean).join(' '));
     const bodyKey = normalize([

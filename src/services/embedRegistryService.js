@@ -872,6 +872,7 @@ export async function relinkDetachedEmbedRegistryMessage(guildId, target, messag
     const postedEmbed = message?.embeds?.[0] || null;
     if (!guildId || !target?.messageId || !message?.id || !message?.channelId || !postedEmbed) return false;
 
+    let committedRecords = null;
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
         let sourceRecord = null;
@@ -909,14 +910,21 @@ export async function relinkDetachedEmbedRegistryMessage(guildId, target, messag
         });
         if (!replacement) return false;
 
-        rememberEmbedSnapshot(replacement, postedEmbed);
+        // Once a saved draft is posted its physical Discord message is the
+        // *same* Builder item. Never carry its private pre-post draftData to
+        // the live registry row or retain both identities in warm Search.
+        delete replacement.draftData;
         const next = remaining.filter(record =>
             !(String(record.messageId) === String(message.id)
                 && Number(record.embedIndex || 0) === 0)
         );
         next.push(replacement);
-        return setInDb(registryKey(guildId), sortRecords(next));
-    });
+        const result = sortRecords(next);
+        if (!await setInDb(registryKey(guildId), result)) return false;
+        committedRecords = result;
+        rememberEmbedSnapshot(replacement, postedEmbed);
+        return true;
+    }, () => committedRecords);
 }
 
 export async function removeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
