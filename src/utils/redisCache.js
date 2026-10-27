@@ -230,8 +230,20 @@ export function isRedisConfigured() {
   return Boolean(REDIS_URL);
 }
 
+// Share only pending wire reads; completed values are never cached in-process.
+// Parse separately below so one caller cannot mutate another caller's result.
+const pendingJsonReads = new Map();
+
 export async function redisGetJson(name) {
-  const raw = await command(['GET', key(name)]);
+  const cacheKey = key(name);
+  let read = pendingJsonReads.get(cacheKey);
+  if (!read) {
+    read = command(['GET', cacheKey]).finally(() => {
+      if (pendingJsonReads.get(cacheKey) === read) pendingJsonReads.delete(cacheKey);
+    });
+    pendingJsonReads.set(cacheKey, read);
+  }
+  const raw = await read;
   if (typeof raw !== 'string') return null;
   try {
     return JSON.parse(raw);
@@ -242,12 +254,18 @@ export async function redisGetJson(name) {
 
 export async function redisSetJson(name, value, ttlMs = 60_000) {
   const ttl = Math.max(1_000, Number(ttlMs) || 60_000);
-  const result = await command(['SET', key(name), JSON.stringify(value), 'PX', ttl]);
+  const cacheKey = key(name);
+  pendingJsonReads.delete(cacheKey);
+  const result = await command(['SET', cacheKey, JSON.stringify(value), 'PX', ttl]);
+  pendingJsonReads.delete(cacheKey);
   return result === 'OK';
 }
 
 export async function redisDelete(name) {
-  const result = await command(['DEL', key(name)]);
+  const cacheKey = key(name);
+  pendingJsonReads.delete(cacheKey);
+  const result = await command(['DEL', cacheKey]);
+  pendingJsonReads.delete(cacheKey);
   return Number(result) >= 0;
 }
 

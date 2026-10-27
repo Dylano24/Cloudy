@@ -268,6 +268,7 @@ function clean(value, max = 100) {
         .slice(0, max);
 }
 
+const searchTitleCollator = new Intl.Collator(undefined, { sensitivity: 'base' });
 let autocompleteSnapshots = null;
 
 function savedSearchSnapshot(record) {
@@ -1313,11 +1314,7 @@ export function buildMatches(guild, records, query) {
         const priorityDelta = priority(b.record) - priority(a.record);
         if (priorityDelta) return priorityDelta;
 
-        const titleDelta = a.document.title.localeCompare(
-            b.document.title,
-            undefined,
-            { sensitivity: 'base' },
-        );
+        const titleDelta = searchTitleCollator.compare(a.document.title, b.document.title);
         if (titleDelta) return titleDelta;
 
         return new Date(b.record?.updatedAt || b.record?.createdAt || 0).getTime()
@@ -1352,7 +1349,7 @@ function autocompleteMatches(guild, records, rawQuery) {
         const ranked = records.map(record => ({ record, title: recordTitle(record), priority: priority(record) }))
             .filter(candidate => candidate.title)
             .sort((a, b) => b.priority - a.priority
-                || a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+                || searchTitleCollator.compare(a.title, b.title));
         const shortlist = [];
         const identities = new Set();
         for (const candidate of ranked) {
@@ -1454,7 +1451,7 @@ export function buildIndexedAutocompleteMatches(guild, member, records, rawQuery
     }
     matching.sort((a, b) => b.score - a.score ||
         b.entry.rank - a.entry.rank ||
-        a.entry.title.localeCompare(b.entry.title, undefined, { sensitivity: 'base' }));
+        searchTitleCollator.compare(a.entry.title, b.entry.title));
 
     const shortlist = [];
     const families = new Set();
