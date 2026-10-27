@@ -558,10 +558,12 @@ class PostgreSQLDatabase {
                 }
             }
 
-            for (const staticKey of plan.staticKeys ?? []) {
-                if (!staticKey.startsWith(prefix)) continue;
-                if (await this.exists(staticKey)) {
-                    keys.add(staticKey);
+            const staticKeys = (plan.staticKeys ?? []).filter(key => key.startsWith(prefix));
+            for (let offset = 0; offset < staticKeys.length; offset += 4) {
+                const batch = staticKeys.slice(offset, offset + 4);
+                const present = await Promise.all(batch.map(key => this.exists(key)));
+                for (let index = 0; index < batch.length; index++) {
+                    if (present[index]) keys.add(batch[index]);
                 }
             }
 
@@ -607,6 +609,28 @@ class PostgreSQLDatabase {
         try {
             if (!this.isAvailable()) {
                 return false;
+            }
+
+            const canonicalKey = canonicalizeKey(key);
+            const parsedKey = parseKey(canonicalKey);
+            const tempBacked = parsedKey.type === 'temp' || isTempBackedType(parsedKey.type);
+            if (tempBacked || parsedKey.type === 'cache') {
+                const candidateKeys = tempBacked ? [...new Set([
+                    parsedKey.fullKey,
+                    ...(canonicalKey !== key ? [key] : []),
+                    ...getLegacyVariantsForCanonical(parsedKey.fullKey),
+                ])] : [parsedKey.fullKey];
+                const table = tempBacked ? pgConfig.tables.temp_data : pgConfig.tables.cache_data;
+                // Existence needs one boolean, not a potentially large JSON document.
+                // JSON null must remain absent, while false, zero and empty values exist.
+                const result = await this.pool.query(
+                    `SELECT EXISTS (SELECT 1 FROM ${table}
+                     WHERE key = ANY($1::text[])
+                     AND (expires_at IS NULL OR expires_at > NOW())
+                     AND value <> 'null'::jsonb) AS present`,
+                    [candidateKeys],
+                );
+                return result.rows[0]?.present === true;
             }
 
             const value = await this.get(key);
