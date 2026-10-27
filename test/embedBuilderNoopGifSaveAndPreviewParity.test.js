@@ -4,7 +4,7 @@ import { Collection, Embed } from 'discord.js';
 import { buildUserErrorEmbed } from '../src/utils/embeds.js';
 import { db } from '../src/utils/database.js';
 import {
-  saveModifiedEmbed, loadRecordSnapshotIntoState,
+  saveModifiedEmbed, loadRecordSnapshotIntoState, getCanonicalBuilderRecords, collapseDisplayRecords,
 } from '../src/services/embedManagerService.js';
 import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
 import { buildMatches, buildSearchChoices } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
@@ -189,4 +189,32 @@ test('Builder unknown error has the original generic title and does not substitu
   });
   assert.equal(error.toJSON().title, 'Something went wrong');
   assert.equal(error.toJSON().description, 'The message builder could not complete that action.');
+});
+
+test('Search opens saved manual GIF as one physical embed, never a shared template', async t => {
+  const { state, message, guild } = fixture(t);
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  const registered = await getEmbedRegistry(guildId);
+  const canonical = await getCanonicalBuilderRecords(guild, registered);
+  assert.equal(canonical.length, 1);
+  assert.equal(canonical[0].messageId, messageId);
+  assert.equal(canonical[0].templateMode, false);
+  const fromSearch = {};
+  assert.equal(loadRecordSnapshotIntoState(fromSearch, guild, canonical[0],
+    canonical[0].previewRecord, canonical[0].sourceRecord), true);
+  assert.equal(fromSearch.modifyTarget.templateMode, false);
+  assert.equal(fromSearch.mediaUrl, imageUrl);
+  for (let i = 0; i < 10; i++) assert.equal((await saveModifiedEmbed(guild, fromSearch)).ok, true);
+  assert.equal(message.editCalls.length, 0);
+});
+
+test('distinct owner posts with an identical title remain distinct physical choices', () => {
+  const snapshot = { title: 'My banner', description: 'Saved', color: 0xAA0011 };
+  const records = ['187777777777777772', '187777777777777779'].map(messageId => ({
+    guildId, channelId, messageId, source: 'embed-builder', manualSaved: true,
+    snapshot, name: 'My banner', title: 'My banner',
+  }));
+  const collapsed = collapseDisplayRecords(records, channelId);
+  assert.equal(collapsed.length, 2);
+  assert.ok(collapsed.every(record => !record.templateMode));
 });
