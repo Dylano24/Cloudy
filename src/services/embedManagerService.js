@@ -2859,6 +2859,59 @@ export async function saveNewBuilderDraft(guild, state, channelId) {
     return { ok: true, draft: true, detached: true, channel: 'Saved templates', message: null };
 }
 
+// Discord can show an already uploaded GIF as a loose attachment above
+// the embed after Modify Save if an edit resends its resolved CDN URL.
+// Keep the *same* attachment and reference it by its original filename.
+function isInlineEmbedAttachment(attachment, imageUrl) {
+    const url = String(imageUrl || '');
+    const fileName = String(attachment?.name || attachment?.filename || '');
+    const fileId = String(attachment?.id || '');
+    if (!url || !fileId || !fileName) return false;
+    if (url.startsWith('attachment://')) {
+        try { return decodeURIComponent(url.slice('attachment://'.length)) === fileName; }
+        catch { return false; }
+    }
+    const withoutQuery = value => String(value || '').split('?')[0];
+    if (withoutQuery(attachment.url) === withoutQuery(url)
+        || withoutQuery(attachment.proxyURL) === withoutQuery(url)) return true;
+    try {
+        const parts = new URL(url).pathname.split('/').filter(Boolean);
+        return parts.some((part, i) => part === fileId
+            && i >= 2 && /^(?:ephemeral-)?attachments$/.test(parts[i - 2]));
+    } catch {
+        return false;
+    }
+}
+
+export function preserveExistingEmbedBannerAttachment(message, payload, embedIndex, { newUpload = false } = {}) {
+    const attachments = [...(message?.attachments?.values?.() || [])];
+    const originalImage = message?.embeds?.[embedIndex]?.image?.url;
+    if (!originalImage || !attachments.length || !Array.isArray(payload?.embeds)) return payload;
+    const originalFile = attachments.find(file => isInlineEmbedAttachment(file, originalImage));
+    if (!originalFile) return payload;
+
+    const requestedImage = String(payload.embeds[embedIndex]?.image?.url || '');
+    const unchangedImage = !newUpload && Boolean(requestedImage)
+        && (requestedImage === originalImage || isInlineEmbedAttachment(originalFile, requestedImage));
+    const retained = attachments.filter(file =>
+        file.id !== originalFile.id || unchangedImage
+        || payload.embeds.some((embed, index) => index !== embedIndex
+            && isInlineEmbedAttachment(file, embed?.image?.url)));
+    // Discord API v10 needs explicit retained attachment IDs on edits.
+    // Never upload a duplicate GIF just to update its title or text.
+    payload.attachments = retained.map(file => ({ id: String(file.id) }));
+    if (unchangedImage) {
+        payload.embeds[embedIndex] = {
+            ...payload.embeds[embedIndex],
+            image: {
+                ...payload.embeds[embedIndex].image,
+                url: 'attachment://' + (originalFile.name || originalFile.filename),
+            },
+        };
+    }
+    return payload;
+}
+
 export async function saveModifiedEmbed(guild, state) {
     const markSave = createBuilderPerformanceTracker('existing_save');
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
@@ -2965,6 +3018,11 @@ export async function saveModifiedEmbed(guild, state) {
     const payload = { embeds };
     if (state.componentsDirty) payload.components = getBuilderMessageComponents(state);
     if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
+    // A content-only Save must not turn the original embedded GIF into
+    // a second loose image above the message.
+    preserveExistingEmbedBannerAttachment(message, payload, index, {
+        newUpload: Boolean(state.mediaBuffer && state.mediaName),
+    });
 
     // Catalog identity is internal; it must never become a public embed author.
     if (target.source !== 'system-catalog' && String(message.content || '').trim() !== 'System & error embed templates') {
