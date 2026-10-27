@@ -3171,11 +3171,18 @@ async function saveModifiedEmbedUnlocked(guild, state) {
         // Remove an embedded banner's old physical attachment when it has
         // been replaced, removed or safely moved to durable media storage.
         // Other real attachments are preserved byte-for-byte by their IDs.
-        if (originalAttachment && (durableUrl
-            || (!payload.embeds[index]?.image && !payload.files)
-            || (mediaChanged && !payload.files))) {
+        // Discord sometimes omits inline-used attachments from the returned
+        // Message.attachments collection. Still send an explicit attachments
+        // array when moving/removing that image: otherwise Discord may keep
+        // the previously embedded file and render it as a loose attachment.
+        const originalWasInlineDiscordMedia = originalBannerUrl.startsWith('attachment://')
+            || /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/(?:ephemeral-)?attachments\//i.test(originalBannerUrl);
+        const removeInlineAttachment = originalWasInlineDiscordMedia && !payload.files
+            && (Boolean(durableUrl) || !payload.embeds[index]?.image
+                || (mediaChanged && !payload.files));
+        if (removeInlineAttachment) {
             payload.attachments = files
-                .filter(file => String(file.id) !== String(originalAttachment.id))
+                .filter(file => !originalAttachment || String(file.id) !== String(originalAttachment.id))
                 .map(file => ({ id: String(file.id) }));
         }
     }

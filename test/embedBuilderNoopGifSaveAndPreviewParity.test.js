@@ -249,3 +249,68 @@ test('distinct owner posts with an identical title remain distinct physical choi
   assert.equal(collapsed.length, 2);
   assert.ok(collapsed.every(record => !record.templateMode));
 });
+
+test('S3 migration never leaves a loose physical attachment after a title or logo Save', async t => {
+  const { state, message, guild } = fixture(t);
+  const keys = {
+    CLOUDY_MEDIA_S3_ENDPOINT: 'https://t3.storageapi.dev',
+    CLOUDY_MEDIA_S3_BUCKET: 'cloudy-mock-bucket-123',
+    CLOUDY_MEDIA_S3_ACCESS_KEY_ID: 'mock-key',
+    CLOUDY_MEDIA_S3_SECRET_ACCESS_KEY: 'mock-secret',
+    CLOUDY_MEDIA_S3_REGION: 'auto',
+    CLOUDY_MEDIA_S3_URL_STYLE: 'virtual',
+  };
+  const previous = Object.fromEntries(Object.keys(keys).map(key => [key, process.env[key]]));
+  Object.assign(process.env, keys);
+  t.after(() => { for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  } });
+  const gif = Buffer.from('GIF89a' + '1234567890');
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (options?.method === 'PUT') return { ok: true, status: 200 };
+    assert.match(String(url), /^https:\/\/cdn\.discordapp\.com\/attachments\//);
+    return {
+      ok: true, status: 200,
+      headers: new Headers({ 'content-length': String(gif.length) }),
+      arrayBuffer: async () => gif.buffer.slice(gif.byteOffset, gif.byteOffset + gif.byteLength),
+    };
+  });
+  state.title = 'Edited title, intact banner';
+  state.logoTouched = true;
+  state.showLogo = false;
+  const result = await saveModifiedEmbed(guild, state);
+  assert.equal(result.ok, true);
+  assert.equal(message.editCalls.length, 1);
+  assert.deepEqual(message.editCalls[0].attachments, []);
+  assert.equal(message.editCalls[0].files, undefined);
+  assert.match(message.editCalls[0].embeds[0].image.url, /\/embed-media\/[a-f0-9]{64}\.gif$/);
+  assert.equal(message.editCalls[0].embeds[0].thumbnail, undefined);
+});
+
+test('S3 migration sends an explicit empty retention list even if Discord hides inline attachment metadata', async t => {
+  const { state, message, guild } = fixture(t);
+  message.attachments.clear();
+  const keys = {
+    CLOUDY_MEDIA_S3_ENDPOINT: 'https://t3.storageapi.dev',
+    CLOUDY_MEDIA_S3_BUCKET: 'cloudy-mock-bucket-123',
+    CLOUDY_MEDIA_S3_ACCESS_KEY_ID: 'mock-key',
+    CLOUDY_MEDIA_S3_SECRET_ACCESS_KEY: 'mock-secret',
+    CLOUDY_MEDIA_S3_REGION: 'auto',
+  };
+  const previous = Object.fromEntries(Object.keys(keys).map(key => [key, process.env[key]]));
+  Object.assign(process.env, keys);
+  t.after(() => { for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  } });
+  const gif = Buffer.from('GIF89a' + '0123456789');
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (options?.method === 'PUT') return { ok: true, status: 200 };
+    return { ok: true, status: 200,
+      headers: new Headers({ 'content-length': String(gif.length) }),
+      arrayBuffer: async () => gif.buffer.slice(gif.byteOffset, gif.byteOffset + gif.byteLength) };
+  });
+  state.title = 'Newer title';
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.deepEqual(message.editCalls[0].attachments, []);
+  assert.match(message.editCalls[0].embeds[0].image.url, /\/embed-media\//);
+});
