@@ -1,3 +1,4 @@
+import { gameHelpRow } from '../../services/gameHelpService.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { normalizeEconomyPayload } from '../../utils/economyGamblingPresentation.js';
@@ -37,7 +38,7 @@ function controls(state, ended = false) {
       new ButtonBuilder().setCustomId(`casino_blackjack:double:${state.id}`).setLabel('Double Down').setStyle(ButtonStyle.Secondary).setDisabled(ended || !canDouble),
       new ButtonBuilder().setCustomId(`casino_blackjack:split:${state.id}`).setLabel('Split').setStyle(ButtonStyle.Secondary).setDisabled(ended || !canSplit),
     ),
-    new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`casino_blackjack:help:${state.id}`).setLabel('Help').setEmoji('❔').setStyle(ButtonStyle.Secondary).setDisabled(ended)),
+    gameHelpRow('blackjack'),
   ];
 }
 
@@ -182,7 +183,6 @@ export default {
       if (busy || state.finished) return; busy = true;
       try {
         const action = component.customId.split(':')[1];
-        if (action === 'help') { await component.reply({ ephemeral: true, content: '**Hit:** draw a card. **Stand:** finish your hand. **Double Down:** double your bet, draw once, then stand. **Split:** play two hands when your first two cards match.' }); return; }
         const hand = state.hands[state.current];
         if (action === 'hit') hand.cards.push(draw(state));
         if (action === 'stand') hand.done = true;

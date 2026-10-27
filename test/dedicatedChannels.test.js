@@ -82,7 +82,7 @@ for (const [name, command] of Object.entries({ shop: shopCommand, buy })) {
     const payload = f.sent[0].payload;
     assert.equal(payload.embeds[0].toJSON().title, 'Wrong channel');
     assert.equal(payload.embeds[0].toJSON().description,
-      `This command can only be used in the dedicated channel. Please use <#${f.shop.id}> to play.`);
+      `This command can only be used in the dedicated channel. Please use <#${f.shop.id}> for your purchases.`);
     assert.deepEqual(payload.components, []);
     assert.equal(payload.flags, MessageFlags.Ephemeral);
   });
@@ -126,7 +126,7 @@ test('auto-deleting validation and wrong-channel errors have no Close button', a
   await handleInteractionError(f.interaction, thrown);
   assert.equal(f.sent[1].payload.embeds[0].toJSON().title, 'Wrong channel');
   assert.equal(f.sent[1].payload.embeds[0].toJSON().description,
-    `This command can only be used in the dedicated channel. Please use <#${f.shop.id}> to play.`);
+    `This command can only be used in the dedicated channel. Please use <#${f.shop.id}> for your purchases.`);
   assert.deepEqual(f.sent[1].payload.components, []);
   assert.equal(f.sent[1].payload.flags, MessageFlags.Ephemeral);
 });
@@ -153,7 +153,7 @@ test('guide setup uses stored IDs and preserves the current embed and attachment
   f.gambling.guild = f.guild;
   f.gambling.client = f.guild.client;
   const embed = new Embed({
-    title: 'Gambling & games', description: 'Custom text', color: 0x123456,
+    title: 'Games & Economy', description: 'Custom text', color: 0x123456,
     footer: { text: 'Custom footer' }, thumbnail: { url: 'attachment://custom.png' },
   });
   const old = {
@@ -312,5 +312,32 @@ for (const entry of gameCases) {
     t.mock.timers.tick(60000);
     await settle();
     assert.deepEqual(f.deleted, []);
+  });
+}
+
+for (const commandName of ['balance', 'deposit', 'withdraw', 'pay', 'inventory', 'leaderboard']) {
+  test(`${commandName} works in gambling and shop and mentions both elsewhere`, async () => {
+    const f = fixture();
+    f.interaction.commandName = commandName;
+    for (const channel of [f.gambling, f.shop]) {
+      f.interaction.channelId = channel.id;
+      assert.equal(await enforceDedicatedCommandChannel(f.interaction, 'gambling'), true);
+    }
+    f.interaction.channelId = 'general';
+    await assert.rejects(enforceDedicatedCommandChannel(f.interaction, 'gambling'), error => {
+      assert.equal(error.userMessage, `This command can only be used in the dedicated channel. Please use <#${f.gambling.id}> or <#${f.shop.id}> to use economy commands.`);
+      return true;
+    });
+  });
+}
+for (const commandName of ['beg', 'crime', 'daily', 'rob', 'work']) {
+  test(`${commandName} stays gambling only with earn money guidance`, async () => {
+    const f = fixture();
+    f.interaction.commandName = commandName;
+    f.interaction.channelId = f.shop.id;
+    await assert.rejects(enforceDedicatedCommandChannel(f.interaction, 'gambling'), error => {
+      assert.equal(error.userMessage, `This command can only be used in the dedicated channel. Please use <#${f.gambling.id}> to earn money.`);
+      return true;
+    });
   });
 }

@@ -1,3 +1,4 @@
+import { gameHelpRow } from '../../services/gameHelpService.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { normalizeEconomyPayload } from '../../utils/economyGamblingPresentation.js';
@@ -24,7 +25,7 @@ function choices(id, disabled = false) {
     new ButtonBuilder().setCustomId(`casino_baccarat:player:${id}`).setLabel('Player').setStyle(ButtonStyle.Primary).setDisabled(disabled),
     new ButtonBuilder().setCustomId(`casino_baccarat:banker:${id}`).setLabel('Banker').setStyle(ButtonStyle.Danger).setDisabled(disabled),
     new ButtonBuilder().setCustomId(`casino_baccarat:tie:${id}`).setLabel('Tie').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-  )];
+  ), gameHelpRow('baccarat')];
 }
 async function gameEmbed(client, user, amount, player = null, banker = null, result = null, outcome = null) {
   const fields = player?.length && banker?.length ? [
