@@ -1643,14 +1643,24 @@ export function buildSearchChoices(matches) {
         const value = selectionValue(record);
         const existing = usedNames.get(key);
         const rank = Number(Boolean(record?.manualSaved)) * 2 + Number(Boolean(resolved.matched));
+        // When two real saved posts share a title (for example "test"),
+        // Search keeps one label but must select the newest physical post,
+        // never an older post whose name happens to match. Message snowflakes
+        // are chronological when older registry rows lack updatedAt.
+        const savedAt = Date.parse(record?.updatedAt || record?.createdAt || '') || 0;
+        const messageId = String(record?.messageId || '');
+        const snowflake = /^\d{17,20}$/.test(messageId) ? BigInt(messageId) : 0n;
+        const choiceMetadata = { rank, savedAt, snowflake };
         if (existing) {
-            if (rank > existing.rank) {
+            const newer = savedAt > existing.savedAt
+                || (savedAt === existing.savedAt && snowflake > existing.snowflake);
+            if (rank > existing.rank || (rank === existing.rank && newer)) {
                 choices[existing.index] = { name: title, value };
-                usedNames.set(key, { index: existing.index, rank });
+                usedNames.set(key, { index: existing.index, ...choiceMetadata });
             }
             continue;
         }
-        usedNames.set(key, { index: choices.length, rank });
+        usedNames.set(key, { index: choices.length, ...choiceMetadata });
         choices.push({ name: title, value });
     }
     // The native Discord autocomplete endpoint allows at most 25 choices;
