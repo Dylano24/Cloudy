@@ -3148,9 +3148,10 @@ async function saveModifiedEmbedUnlocked(guild, state) {
         isInlineEmbedAttachment(file, originalImageUrl));
     const requestedImage = String(payload.embeds[index]?.image?.url || '');
     const ownerPhysical = target.source === 'embed-builder' && !target.templateMode;
-    const mediaUnchanged = !mediaChanged
-        && (!requestedImage || requestedImage === originalImageUrl
-            || (oldInlineFile && isInlineEmbedAttachment(oldInlineFile, requestedImage)));
+    const mediaUnchanged = !state.mediaTouched && !state.mediaBuffer
+        && (requestedImage === originalImageUrl
+            || (oldInlineFile && isInlineEmbedAttachment(oldInlineFile, requestedImage))
+            || (oldInlineFile && !mediaChanged));
     if (ownerPhysical && embedMediaStorageEnabled()) {
         try {
             if (state.mediaBuffer && state.mediaName) {
@@ -3159,6 +3160,12 @@ async function saveModifiedEmbedUnlocked(guild, state) {
             } else if (oldInlineFile && mediaUnchanged && requestedImage) {
                 payload.embeds[index].image = {
                     url: await storeExistingDiscordEmbedMedia(oldInlineFile.url),
+                };
+            } else if (state.mediaTouched && requestedImage
+                && /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(requestedImage)) {
+                // Modal-uploaded images are also temporary signed Discord URLs.
+                payload.embeds[index].image = {
+                    url: await storeExistingDiscordEmbedMedia(requestedImage),
                 };
             }
         } catch (error) {

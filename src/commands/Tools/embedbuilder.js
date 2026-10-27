@@ -950,11 +950,18 @@ export function buildPostedEmbeds(state) {
 
 async function postBuiltMessage(channel, state, guild, member) {
     if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false };
-    if (state.mediaBuffer && state.mediaName && embedMediaStorageEnabled()) {
-        // GIFs generated from video are now immutable public image URLs, not
-        // Discord message attachments that can escape an embed during PATCH.
+    if (embedMediaStorageEnabled() && (
+        (state.mediaBuffer && state.mediaName)
+        || /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(
+            String(state.mediaUrl || '')))) {
+        // Both converted videos and modal-uploaded images are served from an
+        // immutable URL; nothing gets attached to the mutable Discord message.
         try {
-            const url = await storeEmbedMediaBuffer(state.mediaBuffer);
+            const { storeExistingDiscordEmbedMedia } =
+                await import('../../services/embedMediaStorageService.js');
+            const url = state.mediaBuffer
+                ? await storeEmbedMediaBuffer(state.mediaBuffer)
+                : await storeExistingDiscordEmbedMedia(state.mediaUrl);
             state.mediaUrl = url;
             state.mediaBuffer = null;
             state.mediaName = null;
