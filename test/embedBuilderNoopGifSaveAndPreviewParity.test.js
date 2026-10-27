@@ -249,3 +249,40 @@ test('distinct owner posts with an identical title remain distinct physical choi
   assert.equal(collapsed.length, 2);
   assert.ok(collapsed.every(record => !record.templateMode));
 });
+
+test('two sessions never overwrite a newer physical Save with stale editor state', async t => {
+  const { state, message, guild } = fixture(t);
+  const another = {
+    ...state,
+    modifyTarget: {
+      ...state.modifyTarget,
+      sourceEmbedData: structuredClone(state.modifyTarget.sourceEmbedData),
+      previewSourceData: structuredClone(state.modifyTarget.previewSourceData),
+    },
+  };
+  state.title = 'Latest title';
+  state.message = 'Latest saved body';
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  another.title = 'Stale draft title';
+  const stale = await saveModifiedEmbed(guild, another);
+  assert.equal(stale.ok, false);
+  assert.equal(stale.reason, 'stale-editor');
+  assert.equal(message.embeds[0].title, 'Latest title');
+  assert.equal(message.editCalls.length, 1);
+});
+
+test('simultaneous Saves of the same message cannot send a stale second PATCH', async t => {
+  const { state, message, guild } = fixture(t);
+  const stale = {
+    ...state, title: 'Stale parallel change',
+    modifyTarget: { ...state.modifyTarget,
+      sourceEmbedData: structuredClone(state.modifyTarget.sourceEmbedData),
+      previewSourceData: structuredClone(state.modifyTarget.previewSourceData) },
+  };
+  state.title = 'First committed change';
+  const results = await Promise.all([saveModifiedEmbed(guild, state), saveModifiedEmbed(guild, stale)]);
+  assert.equal(results[0].ok, true);
+  assert.equal(results[1].reason, 'stale-editor');
+  assert.equal(message.editCalls.length, 1);
+  assert.equal(message.embeds[0].title, 'First committed change');
+});
