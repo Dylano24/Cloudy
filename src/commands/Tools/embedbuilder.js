@@ -47,6 +47,7 @@ import {
     refreshAllTicketChannels,
     } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
+import { embedMediaStorageEnabled, storeEmbedMediaBuffer } from '../../services/embedMediaStorageService.js';
 import { applyInitialSearchSelectionToState,
     openEmbedManager,
     prepareEmbedManager,
@@ -949,6 +950,21 @@ export function buildPostedEmbeds(state) {
 
 async function postBuiltMessage(channel, state, guild, member) {
     if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false };
+    if (state.mediaBuffer && state.mediaName && embedMediaStorageEnabled()) {
+        // GIFs generated from video are now immutable public image URLs, not
+        // Discord message attachments that can escape an embed during PATCH.
+        try {
+            const url = await storeEmbedMediaBuffer(state.mediaBuffer);
+            state.mediaUrl = url;
+            state.mediaBuffer = null;
+            state.mediaName = null;
+            state.mediaConvertedFromVideo = false;
+            state.mediaTouched = false;
+        } catch (error) {
+            logger.error('Embed media could not be durably stored before Post:', error);
+            return { ok: false, reason: 'media-persistence-failed' };
+        }
+    }
     const permissions = channel.permissionsFor(guild.members.me);
     const requiredPermissions = [
         PermissionFlagsBits.ViewChannel,
