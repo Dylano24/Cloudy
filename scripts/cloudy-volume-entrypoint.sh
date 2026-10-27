@@ -13,7 +13,7 @@ if [ -n "${CLOUDY_EMBED_MEDIA_DIR:-}" ]; then
       chown node:node /cloudy-media
       mkdir -p "$CLOUDY_EMBED_MEDIA_DIR"
       chown node:node "$CLOUDY_EMBED_MEDIA_DIR"
-      if ! su-exec node test -w "$CLOUDY_EMBED_MEDIA_DIR"; then
+      if ! su-exec node sh -c '[ -w "$CLOUDY_EMBED_MEDIA_DIR" ]'; then
         echo "[EMBED_MEDIA] Media storage is not writable as the node user." >&2
         exit 1
       fi
