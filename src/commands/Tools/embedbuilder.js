@@ -47,6 +47,7 @@ import {
     refreshAllTicketChannels,
     } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
+import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from '../../services/embedMediaStorageService.js';
 import { applyInitialSearchSelectionToState,
     openEmbedManager,
     prepareEmbedManager,
@@ -971,6 +972,27 @@ async function postBuiltMessage(channel, state, guild, member) {
 
     if (!permissions?.has(requiredPermissions)) {
         return { ok: false };
+    }
+
+    // Never publish another attachment-backed banner that can jump outside
+    // an edited embed. A permanent URL is reused on every future Save.
+    if (embedMediaStorageEnabled() && (
+        (state.mediaBuffer && state.mediaName)
+        || /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(String(state.mediaUrl || ''))
+    )) {
+        try {
+            const url = state.mediaBuffer
+                ? await storeEmbedMediaBuffer(state.mediaBuffer)
+                : await storeExistingDiscordEmbedMedia(state.mediaUrl);
+            state.mediaUrl = url;
+            state.mediaBuffer = null;
+            state.mediaName = null;
+            state.mediaConvertedFromVideo = false;
+            state.mediaTouched = false;
+        } catch (error) {
+            logger.error('Could not store permanent Builder banner before Post:', error);
+            return { ok: false, reason: 'media-persistence-failed' };
+        }
     }
 
     const embeds = buildPostedEmbeds(state);
