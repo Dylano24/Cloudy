@@ -47,7 +47,7 @@ test('ranked index preserves exact, prefix, substring, body and multiword search
 
 test('large index keeps all 25 unique choices and reuses index safely on every letter', () => {
   const records = Array.from({ length: 4000 }, (_, index) =>
-    record(index, 'Cloudy result ' + index, 'General command logs'));
+    record(index, 'Cloudy result ' + index, 'The quick brown fox jumps over the lazy dog'));
   for (const letter of 'abcdefghijklmnopqrstuvwxyz') {
     const choices = buildSearchChoices(buildIndexedAutocompleteMatches(
       guild, member, records, letter,
