@@ -59,7 +59,7 @@ export async function storeExistingDiscordEmbedMedia(url) {
   const address = new URL(String(url || ''));
   if (address.protocol !== 'https:'
     || !['cdn.discordapp.com', 'media.discordapp.net'].includes(address.hostname)
-    || !/^\\/(?:ephemeral-)?attachments\\/\\d+\\/\\d+\\//.test(address.pathname)) {
+    || !/^\/(?:ephemeral-)?attachments\/\d+\/\d+\//.test(address.pathname)) {
     throw new Error('Media migration only accepts Discord attachment CDN URLs');
   }
   const response = await fetch(address, {
