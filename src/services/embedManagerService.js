@@ -3057,7 +3057,14 @@ export async function saveModifiedEmbed(guild, state) {
     // explicitly added or removed media. An old Search/Modify session can
     // contain an expired or differently signed CDN URL for the same GIF.
     // Sending that stale URL makes Discord detach or duplicate the image.
-    if (target.source === 'embed-builder' && !state.mediaTouched && !state.mediaBuffer) {
+    // External editors may set mediaUrl directly without setting mediaTouched.
+    // Compare it with this session's loaded media as well: a new URL must
+    // still replace the old banner, while stale Search CDN signatures don't.
+    const selectedMediaUrl = target.previewSourceData?.image?.url
+        || target.sourceEmbedData?.image?.url || null;
+    const mediaChanged = state.mediaTouched === true || Boolean(state.mediaBuffer)
+        || String(state.mediaUrl || '') !== String(selectedMediaUrl || '');
+    if (target.source === 'embed-builder' && !mediaChanged) {
         const liveImageUrl = message.embeds[index]?.image?.url;
         if (liveImageUrl) embeds[index].image = { url: liveImageUrl };
         else delete embeds[index].image;
