@@ -2,6 +2,7 @@
 // BUILDER_SAVED_PARITY_V1
 import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
 import { withEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
+import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from './embedMediaStorageService.js';
 import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
@@ -3137,11 +3138,54 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     const payload = { embeds };
     if (state.componentsDirty) payload.components = getBuilderMessageComponents(state);
     if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
-    // A content-only Save must not turn the original embedded GIF into
-    // a second loose image above the message.
-    preserveExistingEmbedBannerAttachment(message, payload, index, {
-        newUpload: Boolean(state.mediaBuffer && state.mediaName),
-    });
+    // Discord has a documented duplicate-render bug for PATCH of attachments
+    // referenced by attachment:// inside a modified embed. Rehost the bytes
+    // on Cloudy's durable media volume and remove ONLY the inline original
+    // attachment. Other message attachments remain untouched.
+    const originalImageUrl = message.embeds[index]?.image?.url || '';
+    const originalAttachments = [...(message.attachments?.values?.() || [])];
+    const oldInlineFile = originalAttachments.find(file =>
+        isInlineEmbedAttachment(file, originalImageUrl));
+    const requestedImage = String(payload.embeds[index]?.image?.url || '');
+    const ownerPhysical = target.source === 'embed-builder' && !target.templateMode;
+    const mediaUnchanged = !state.mediaTouched && !state.mediaBuffer
+        && (requestedImage === originalImageUrl
+            || (oldInlineFile && isInlineEmbedAttachment(oldInlineFile, requestedImage))
+            || (oldInlineFile && !mediaChanged));
+    if (ownerPhysical && embedMediaStorageEnabled()) {
+        try {
+            if (state.mediaBuffer && state.mediaName) {
+                payload.embeds[index].image = { url: await storeEmbedMediaBuffer(state.mediaBuffer) };
+                delete payload.files;
+            } else if (oldInlineFile && mediaUnchanged && requestedImage) {
+                payload.embeds[index].image = {
+                    url: await storeExistingDiscordEmbedMedia(oldInlineFile.url),
+                };
+            } else if (state.mediaTouched && requestedImage
+                && /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(requestedImage)) {
+                // Modal-uploaded images are also temporary signed Discord URLs.
+                payload.embeds[index].image = {
+                    url: await storeExistingDiscordEmbedMedia(requestedImage),
+                };
+            }
+        } catch (error) {
+            logger.warn('Could not migrate Embed Builder image to durable storage: '
+                + (error?.message || error));
+            return { ok: false, reason: 'media-persistence-failed' };
+        }
+    }
+    const nowExternalOrRemoved = !payload.embeds[index]?.image?.url
+        || (oldInlineFile && !isInlineEmbedAttachment(
+            oldInlineFile, payload.embeds[index].image?.url));
+    if (ownerPhysical && oldInlineFile && nowExternalOrRemoved) {
+        payload.attachments = originalAttachments
+            .filter(file => String(file.id) !== String(oldInlineFile.id))
+            .map(file => ({ id: String(file.id) }));
+    } else {
+        preserveExistingEmbedBannerAttachment(message, payload, index, {
+            newUpload: Boolean(payload.files?.length),
+        });
+    }
 
     // Catalog identity is internal; it must never become a public embed author.
     if (target.source !== 'system-catalog' && String(message.content || '').trim() !== 'System & error embed templates') {

@@ -47,6 +47,7 @@ import {
     refreshAllTicketChannels,
     } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
+import { embedMediaStorageEnabled, storeEmbedMediaBuffer } from '../../services/embedMediaStorageService.js';
 import { applyInitialSearchSelectionToState,
     openEmbedManager,
     prepareEmbedManager,
@@ -949,6 +950,28 @@ export function buildPostedEmbeds(state) {
 
 async function postBuiltMessage(channel, state, guild, member) {
     if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false };
+    if (embedMediaStorageEnabled() && (
+        (state.mediaBuffer && state.mediaName)
+        || /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(
+            String(state.mediaUrl || '')))) {
+        // Both converted videos and modal-uploaded images are served from an
+        // immutable URL; nothing gets attached to the mutable Discord message.
+        try {
+            const { storeExistingDiscordEmbedMedia } =
+                await import('../../services/embedMediaStorageService.js');
+            const url = state.mediaBuffer
+                ? await storeEmbedMediaBuffer(state.mediaBuffer)
+                : await storeExistingDiscordEmbedMedia(state.mediaUrl);
+            state.mediaUrl = url;
+            state.mediaBuffer = null;
+            state.mediaName = null;
+            state.mediaConvertedFromVideo = false;
+            state.mediaTouched = false;
+        } catch (error) {
+            logger.error('Embed media could not be durably stored before Post:', error);
+            return { ok: false, reason: 'media-persistence-failed' };
+        }
+    }
     const permissions = channel.permissionsFor(guild.members.me);
     const requiredPermissions = [
         PermissionFlagsBits.ViewChannel,
