@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, Embed } from 'discord.js';
+import { buildUserErrorEmbed } from '../src/utils/embeds.js';
 import { db } from '../src/utils/database.js';
 import {
   saveModifiedEmbed, loadRecordSnapshotIntoState,
@@ -174,4 +175,12 @@ test('explicit Remove media clears the banner rather than restoring the old GIF'
   assert.equal(message.editCalls[0].embeds[0].image, undefined);
   assert.equal(state.mediaUrl, null);
   assert.equal(state.mediaTouched, false);
+});
+
+test('Builder unknown error has the original generic title and does not substitute ticket text', () => {
+  const error = buildUserErrorEmbed('unknown', 'The message builder could not complete that action.', {
+    preserveText: true,
+  });
+  assert.equal(error.toJSON().title, 'Something went wrong');
+  assert.equal(error.toJSON().description, 'The message builder could not complete that action.');
 });
