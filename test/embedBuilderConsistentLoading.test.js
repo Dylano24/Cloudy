@@ -444,3 +444,27 @@ test('abandoned queued channel updates are excluded from visible latency samples
   assert.equal(first.length + latest.length, 2);
   assert.equal(visible.length, 2, 'only the two delivered paints count toward p50/p95');
 });
+
+test('a current manual Search selection opens immediately without slow full-record lookups', async t => {
+  const record = savedRecord('manual-search-current-generation-fast-path');
+  t.mock.method(db, 'get', async key =>
+    key.startsWith('cloudy:embed-registry:') ? [record] : {});
+  await getEmbedRegistry(record.guildId);
+  const fixture = managerFixture(t, record);
+  const gate = deferred();
+  t.after(() => gate.resolve([]));
+  t.mock.method(db, 'get', async () => gate.promise);
+  const interaction = {
+    ...fixture.opening,
+    options: { getString: () => record.channelId + ':' + record.messageId + ':0' },
+  };
+  let selected = null;
+  const pending = loadEmbedBuilderSearchSelection(interaction)
+    .then(value => { selected = value; return value; });
+  await settle();
+  assert.equal(selected?.record.messageId, record.messageId,
+    'a current saved physical post must not wait for a slow template DB read');
+  assert.equal(selected.previewRecord.snapshot.description, 'Exact saved body');
+  gate.resolve([]);
+  await pending;
+});
