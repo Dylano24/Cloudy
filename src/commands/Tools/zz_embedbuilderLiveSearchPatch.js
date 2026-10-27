@@ -535,6 +535,16 @@ function searchScore(document, rawQuery) {
     if (document.titleKey === query) return 100000;
     if (document.titleKey.startsWith(query)) return 90000;
 
+    // Autocomplete permits single-letter input. The hot index intentionally
+    // matches substrings anywhere in a title, but the older word-only scoring
+    // rejected a letter in the middle of a word. Keep these stages aligned.
+    // This fast path also avoids tokenizing large descriptions for every match.
+    if (query.length === 1) {
+        if (document.titleKey.includes(query)) return 35000;
+        if (document.bodyKey.includes(query)) return 3500;
+        return null;
+    }
+
     const queryTokens = query.split(' ').filter(Boolean);
     const titleTokens = document.titleKey.split(' ').filter(Boolean);
     const bodyTokens = document.bodyKey.split(' ').filter(Boolean);
@@ -1455,6 +1465,11 @@ export function buildIndexedAutocompleteMatches(guild, member, records, rawQuery
 
     const shortlist = [];
     const families = new Set();
+    // Complete the expensive preview/dedup stage on a small, highest-ranked
+    // batch. Only expand when duplicate/hidden titles leave fewer than 25
+    // selectable choices. This prevents a single character from forcing
+    // heavy processing of 120 records before Discord's 3s deadline.
+    let matches = [];
     for (const candidate of matching) {
         const { entry } = candidate;
         if (entry.family && families.has(entry.family)) continue;
@@ -1464,11 +1479,18 @@ export function buildIndexedAutocompleteMatches(guild, member, records, rawQuery
         if (!accessible) continue;
         if (entry.family) families.add(entry.family);
         shortlist.push(accessible);
+        if (shortlist.length % 32 === 0) {
+            matches = buildMatches(guild, shortlist, query).slice(0, 25);
+            if (buildSearchChoices(matches).length >= 25) return matches;
+        }
         if (shortlist.length >= 120) break;
     }
-    // The unchanged canonical pipeline still owns preview, dedup, title and
-    // choice identity; it now sees <=120 verified candidates, never 4000+.
-    return buildMatches(guild, shortlist, query).slice(0, 25);
+    // Keep every reachable candidate when the result set is small and only
+    // rebuild if any records were added after the previous 32-item batch.
+    if (shortlist.length % 32 !== 0 || !matches.length) {
+        matches = buildMatches(guild, shortlist, query).slice(0, 25);
+    }
+    return matches;
 }
 
 function cleanChoiceText(value, max = 48) {
@@ -1996,6 +2018,7 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
         const started = performance.now();
         const markAutocomplete = createBuilderPerformanceTracker('search_autocomplete');
         let count = 0;
+        let phase = 'start';
         try {
             if (!interaction.guildId || !interaction.guild) {
                 await interaction.respond([]);
@@ -2007,7 +2030,9 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
                 return;
             }
 
+            phase = 'load';
             const records = await loadFastEmbedBuilderSearchRecords(interaction, { unfiltered: true });
+            phase = 'rank';
             const matches = buildIndexedAutocompleteMatches(
                 interaction.guild, interaction.member, records, focused.value,
             );
@@ -2015,15 +2040,19 @@ if (!embedBuilderCommand[RUNTIME_PATCH]) {
             rememberOfferedSearchSelections(interaction, matches, choices);
             count = choices.length;
             markAutocomplete('results_ready');
+            phase = 'discord_respond';
             await interaction.respond(choices);
             markAutocomplete('first_visible');
         } catch (error) {
             // Previous handler silently swallowed failed Discord responses,
             // which made actual timeouts indistinguishable from "no embeds".
-            logger.error('[EMBED_SEARCH] Autocomplete failed:', {
-                guildId: interaction.guildId, elapsedMs: Math.round(performance.now() - started),
-                error: error?.message || String(error),
-            });
+            // The console transport prints only the primary log message.
+            // Include a bounded error and phase so Railway can distinguish
+            // local search failures from Discord rejecting an expired callback.
+            logger.error('[EMBED_SEARCH] Autocomplete failed: '
+                + String(error?.message || error).slice(0, 180)
+                + ' phase=' + phase
+                + ' elapsedMs=' + Math.round(performance.now() - started));
             if (!interaction.responded) {
                 await interaction.respond([]).catch(() => {});
             }
