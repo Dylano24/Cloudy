@@ -1085,6 +1085,17 @@ export function loadRecordSnapshotIntoState(
     if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
 
     const data = migrateCloudyLogoEmbedData(snapshot).data || {};
+    // A posted owner-authored Builder message is authoritative after Save.
+    // Search may still offer an older runtime preview or a shared template
+    // with the same name; neither may replace the saved physical snapshot.
+    // Legacy records lacking a Save revision keep their existing overlay path.
+    const savedPhysicalBuilder = record.source === 'embed-builder'
+        && record.manualSaved === true && Boolean(record.updatedAt)
+        && !record.detached;
+    if (savedPhysicalBuilder) {
+        previewRecord = null;
+        sourceRecord = null;
+    }
     const previewSnapshot = previewRecord
         ? (previewRecord?.snapshot || getEmbedRegistrySnapshot(previewRecord))
         : null;
@@ -1146,7 +1157,7 @@ export function loadRecordSnapshotIntoState(
         ...(displayImage ? { image: displayImage } : {}),
         ...(displayThumbnail ? { thumbnail: displayThumbnail } : {}),
     };
-    const savedDisplay = record.draftData
+    const savedDisplay = record.draftData || savedPhysicalBuilder
         ? { matched: false, data: displaySourceData }
         : getCachedSavedEmbedTemplateData(guild.id, String(record.channelId || ''), displaySourceData);
     if (savedDisplay.matched) {
@@ -2493,6 +2504,39 @@ function applyStateToTemplatePeer(state, peerData, savedData, mediaChanges) {
     return data;
 }
 
+// Discord can expose an attachment-backed embed GIF twice after *any*
+// PATCH, even when the title and all other fields are unchanged. A genuine
+// no-op Save should not PATCH the physical message at all. This comparison
+// is used only for owner-posted Builder messages, never dynamic bot templates.
+function sameManualBuilderEmbed(original, requested, attachments = []) {
+    const fields = value => Array.isArray(value?.fields)
+        ? value.fields.map(field => [String(field.name || ''), String(field.value || ''), Boolean(field.inline)])
+        : [];
+    const meta = value => ({
+        title: String(value?.title || ''),
+        description: String(value?.description || ''),
+        color: Number.isInteger(value?.color) ? value.color : null,
+        fields: fields(value),
+        footer: value?.footer?.text || '',
+        footerIcon: value?.footer?.icon_url || '',
+        thumbnail: value?.thumbnail?.url || '',
+        author: value?.author?.name || '',
+        authorIcon: value?.author?.icon_url || '',
+        authorUrl: value?.author?.url || '',
+        url: value?.url || '',
+        timestamp: value?.timestamp || '',
+    });
+    if (JSON.stringify(meta(original)) !== JSON.stringify(meta(requested))) return false;
+    const originalImage = String(original?.image?.url || '');
+    const requestedImage = String(requested?.image?.url || '');
+    if (originalImage === requestedImage) return true;
+    if (!originalImage || !requestedImage) return false;
+    // CDN signatures and attachment://filename can refer to the same original
+    // GIF. Only treat them as equal when both resolve to its actual attachment.
+    return attachments.some(file => isInlineEmbedAttachment(file, originalImage)
+        && isInlineEmbedAttachment(file, requestedImage));
+}
+
 function mediaChangeState(sourceData, savedData) {
     const sourceThumbnail = sourceData?.thumbnail?.url || null;
     const savedThumbnail = savedData?.thumbnail?.url || null;
@@ -3028,6 +3072,30 @@ export async function saveModifiedEmbed(guild, state) {
             if (/^Cloudy template key:/i.test(embed.author?.name || '')) delete embed.author;
         }
     }
+
+    const original = message.embeds[index]?.toJSON?.() || message.embeds[index];
+    if (target.source === 'embed-builder' && !target.templateMode
+        && !state.componentsDirty && !payload.files?.length
+        && sameManualBuilderEmbed(original, payload.embeds[index],
+            [...(message.attachments?.values?.() || [])])) {
+        // A Save with no changes must NEVER call message.edit on an uploaded
+        // GIF: Discord would show a second loose image over the embed.
+        // Still synchronize this single physical record so Search reopens the
+        // same current title, body, media, and styling as channel Modify.
+        const registered = await registerCloudyEmbedMessage(message, 'embed-builder', {
+            manualSave: true, manualSaveIndex: index,
+        }).catch(() => false);
+        if (!registered) return { ok: false, reason: 'persistence-failed' };
+        target.sourceEmbedData = original;
+        target.previewSourceData = { ...original };
+        target.cachedMessage = message;
+        await refreshSearchTitleAfterSave(guild.id);
+        markSave('persisted');
+        liveState.logoTouched = false;
+        const displayChannel = guild.channels.cache.get(target.channelId) || channel;
+        return { ok: true, channel: displayChannel, message, updatedCount: 0 };
+    }
+
     activeEmbedManagerSaves.add(String(message.id));
     // A deliberate manual Save owns its thumbnail state. The global REST
     // branding must not re-add a logo because the footer is Cloudy's default.
