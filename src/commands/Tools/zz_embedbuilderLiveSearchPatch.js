@@ -201,6 +201,8 @@ export function invalidateBuilderSearchTitleCache(guildId) {
     lastRegistrySearchRefresh.delete(key);
     lastCanonicalSearchRefresh.delete(key);
     lastCatalogSearchWarm.delete(key);
+    // Explicit Save/Delete must invalidate reused autocomplete metadata too.
+    indexedAutocompleteMemo.delete(key);
     for (const offeredKey of recentSearchSelections.keys()) {
         if (offeredKey.startsWith(key + ':')) recentSearchSelections.delete(offeredKey);
     }
@@ -1422,25 +1424,68 @@ function autocompleteMatches(guild, records, rawQuery) {
 // Search cache. Reuse expensive title/overlay/text normalization across all
 // keystrokes; avoid rehydrating 3,000+ registry/catalog rows every time.
 const indexedAutocompleteCache = new WeakMap();
+// Guild records are re-cloned after ordinary log registrations. Reusing the
+// previous generation's normalized text avoids thousands of repeated source-
+// definition and saved-template lookups for unchanged entries while typing.
+// Cache is scoped to one guild, never shared with a user/permission view.
+const indexedAutocompleteMemo = new Map();
+const MAX_MEMO_GUILDS = 32;
+const MAX_MEMO_ENTRIES = 8000;
 
 function indexedAutocompleteCandidates(records) {
     if (!Array.isArray(records) || !records.length) return [];
     const existing = indexedAutocompleteCache.get(records);
     if (existing) return existing;
+
+    const guildId = String(records[0]?.guildId || '');
+    const catalogRevision = getSearchableSystemCatalogRevision(guildId);
+    const prior = indexedAutocompleteMemo.get(guildId);
+    const reusable = prior?.catalogRevision === catalogRevision ? prior.entries : null;
+    const next = new Map();
     const entries = records.map(record => {
-        const saved = savedSearchSnapshot(record);
-        const family = automatedTicketLogFamily(record);
-        const data = record?.snapshot || {};
-        const title = normalize(family?.title || ((saved.matched || record.manualSaved)
-            && saved.data?.title ? saved.data.title
-            : [record?.name, record?.title, data.title].filter(Boolean).join(' ')));
-        const body = normalize([
-            data.description,
-            ...(Array.isArray(data.fields) ? data.fields.flatMap(field => [field?.name, field?.value]) : []),
-        ].filter(Boolean).join(' '));
-        return { record, title, body, all: title + ' ' + body,
-            rank: priority(record), family: family?.key || '' };
+        // The signature includes all record attributes that may participate
+        // in titles, aliases, source overlays, ranking, and preview selection.
+        // A modified record always recomputes its metadata. Saved title
+        // overlays explicitly purge this memo through the normal invalidator.
+        let signature = null;
+        try { signature = JSON.stringify(record); } catch { /* Fall back to fresh computation. */ }
+        const identity = [
+            record?.guildId, record?.backingChannelId || record?.channelId,
+            record?.messageId, record?.embedIndex || 0, record?.source,
+        ].join(':');
+        const reused = signature != null && reusable?.get(identity);
+        let values;
+        if (reused?.signature === signature) {
+            values = reused.values;
+        } else {
+            const saved = savedSearchSnapshot(record);
+            const family = automatedTicketLogFamily(record);
+            const data = record?.snapshot || {};
+            const title = normalize(family?.title || ((saved.matched || record.manualSaved)
+                && saved.data?.title ? saved.data.title
+                : [record?.name, record?.title, data.title].filter(Boolean).join(' ')));
+            const body = normalize([
+                data.description,
+                ...(Array.isArray(data.fields) ? data.fields.flatMap(field => [field?.name, field?.value]) : []),
+            ].filter(Boolean).join(' '));
+            values = { title, body, all: title + ' ' + body,
+                rank: priority(record), family: family?.key || '' };
+        }
+        if (signature != null && next.size < MAX_MEMO_ENTRIES) {
+            next.set(identity, { signature, values });
+        }
+        // A new Search generation may have newer record snapshots; cached
+        // metadata never substitutes the original record, selection or Save.
+        return { record, ...values };
     });
+
+    if (guildId) {
+        indexedAutocompleteMemo.delete(guildId);
+        indexedAutocompleteMemo.set(guildId, { catalogRevision, entries: next });
+        while (indexedAutocompleteMemo.size > MAX_MEMO_GUILDS) {
+            indexedAutocompleteMemo.delete(indexedAutocompleteMemo.keys().next().value);
+        }
+    }
     indexedAutocompleteCache.set(records, entries);
     return entries;
 }
