@@ -960,7 +960,7 @@ async function postBuiltMessage(channel, state, guild, member) {
     // saved draft from before the last edit.
     const { flushPendingEmbedEditorUpdates } = await import('../../services/embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state?.colorSessionToken);
-    if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false };
+    if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false, reason: 'permission-denied' };
     const permissions = channel.permissionsFor(guild.members.me);
     const requiredPermissions = [
         PermissionFlagsBits.ViewChannel,
@@ -968,10 +968,11 @@ async function postBuiltMessage(channel, state, guild, member) {
         PermissionFlagsBits.SendMessages,
     ];
 
-    if (state.mediaBuffer) requiredPermissions.push(PermissionFlagsBits.AttachFiles);
+    // Permanent media URLs require Embed Links but not Attach Files.
+    if (state.mediaBuffer && !embedMediaStorageEnabled()) requiredPermissions.push(PermissionFlagsBits.AttachFiles);
 
     if (!permissions?.has(requiredPermissions)) {
-        return { ok: false };
+        return { ok: false, reason: 'permission-denied' };
     }
 
     // Never publish another attachment-backed banner that can jump outside
@@ -1994,11 +1995,17 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         }
         const posted = await postBuiltMessage(channel, state, guild, channelInteraction.member).catch(() => ({ ok: false }));
         if (!posted.ok) {
+            const denied = posted.reason === 'permission-denied';
+            const mediaFailure = posted.reason === 'media-persistence-failed';
             await replyUserError(channelInteraction, {
-                type: posted.reason === 'persistence-failed' ? ErrorTypes.UNKNOWN : ErrorTypes.PERMISSION,
-                message: posted.reason === 'persistence-failed'
-                    ? 'The message could not be saved permanently, so it was not kept in the channel. Please try again.'
-                    : `I need permission to post embeds in ${channel}.`,
+                type: denied ? ErrorTypes.PERMISSION : ErrorTypes.UNKNOWN,
+                message: denied
+                    ? `I need permission to post embeds in ${channel}.`
+                    : mediaFailure
+                        ? 'The image could not be saved to Cloudy storage, so the message was not posted. Please try again.'
+                        : posted.reason === 'persistence-failed'
+                            ? 'The message could not be saved permanently, so it was not kept in the channel. Please try again.'
+                            : 'Cloudy could not post this message. Please try again.',
             });
             return;
         }
