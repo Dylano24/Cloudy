@@ -3053,6 +3053,17 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     const current = edited.embeds?.[index]?.toJSON?.() || applyStateToExistingEmbed(state);
+    // A converted/uploaded GIF becomes a Discord-hosted image after the
+    // first successful Save. Future Saves in this *same* Builder session must
+    // edit the existing media, not silently reupload its old buffer each time.
+    // Keep a buffer only when Discord has not returned a usable image URL.
+    const currentImageUrl = String(current.image?.url || '');
+    if (state.mediaBuffer && state.mediaName && /^https?:\/\//i.test(currentImageUrl)) {
+        liveState.mediaUrl = currentImageUrl;
+        liveState.mediaBuffer = null;
+        liveState.mediaName = null;
+        liveState.mediaConvertedFromVideo = false;
+    }
     if (termsFooterUpdated) {
         state.bottomLine = current.footer?.text || embeds[index].footer.text;
         liveState.bottomLine = state.bottomLine;
@@ -3152,6 +3163,10 @@ export async function saveModifiedEmbed(guild, state) {
         // used after reopening and after another Save in this Builder session.
         if (current.thumbnail?.url) nextPreview.thumbnail = { url: current.thumbnail.url };
         else delete nextPreview.thumbnail;
+        // A second Save in the same Search/Modify session must use the
+        // confirmed Discord image and color, not the snapshot from selection.
+        if (current.image?.url) nextPreview.image = { ...current.image };
+        else delete nextPreview.image;
         if (termsFooterUpdated) nextPreview.footer = { ...current.footer };
         state.modifyTarget.previewSourceData = nextPreview;
     }
