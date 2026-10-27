@@ -22,6 +22,7 @@ import { applyEmbedColorPickerSession } from './services/embedColorPickerSession
 import { embedColorPickerPage } from './web/embedColorPickerPage.js';
 import { registerAppealsApi } from './web/appealsApi.js';
 import { registerWebsiteAssistantApi } from './web/websiteAssistantApi.js';
+import { registerEmbedMediaRoutes } from './services/embedMediaStorageService.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 import { getBuiltInSystemCatalogCoverage } from './services/systemEmbedCatalogService.js';
 
@@ -170,6 +171,8 @@ class TitanBot extends Client {
 
     registerAppealsApi(app, this);
     registerWebsiteAssistantApi(app);
+    // Read-only immutable images served from Cloudy's persistent media volume.
+    registerEmbedMediaRoutes(app);
 
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
