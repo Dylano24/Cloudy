@@ -1441,11 +1441,6 @@ function indexedAutocompleteCandidates(records) {
         return { record, title, body, all: title + ' ' + body,
             rank: priority(record), family: family?.key || '' };
     });
-    // All subsequent keystrokes share this immutable index. Keep the same
-    // priority + locale ordering as the old per-query Array.sort, but do the
-    // expensive comparison only once when registry/catalog data changes.
-    entries.sort((a, b) => b.rank - a.rank
-        || searchTitleCollator.compare(a.title, b.title));
     indexedAutocompleteCache.set(records, entries);
     return entries;
 }
@@ -1454,23 +1449,19 @@ export function buildIndexedAutocompleteMatches(guild, member, records, rawQuery
     const entries = indexedAutocompleteCandidates(records);
     const query = normalize(rawQuery);
     const tokens = query.split(' ').filter(Boolean);
-    // An empty query already has the correct order. Typed queries have only
-    // five fixed scoring tiers. The pre-sorted index preserves priority/title
-    // order within each tier, removing O(n log n) sorting per keystroke.
-    // This keeps the exact previous ranking, including multiword body matches.
-    const tiers = query ? [[], [], [], [], []] : null;
-    if (tiers) {
-        for (const entry of entries) {
-            if (tokens.length && !tokens.every(token => entry.all.includes(token))) continue;
-            const tier = entry.title === query ? 0
-                : entry.title.startsWith(query) ? 1
-                : entry.title.includes(query) ? 2
-                : entry.body.includes(query) ? 3 : 4;
-            const score = [10000, 9000, 8000, 3500, 1000][tier];
-            tiers[tier].push({ entry, score });
-        }
+    const matching = [];
+    for (const entry of entries) {
+        if (tokens.length && !tokens.every(token => entry.all.includes(token))) continue;
+        const score = !query ? entry.rank
+            : entry.title === query ? 10000
+            : entry.title.startsWith(query) ? 9000
+            : entry.title.includes(query) ? 8000
+            : entry.body.includes(query) ? 3500 : 1000;
+        matching.push({ entry, score });
     }
-    const matching = tiers ? tiers.flat() : entries.map(entry => ({ entry, score: entry.rank }));
+    matching.sort((a, b) => b.score - a.score ||
+        b.entry.rank - a.entry.rank ||
+        searchTitleCollator.compare(a.entry.title, b.entry.title));
 
     const shortlist = [];
     const families = new Set();
