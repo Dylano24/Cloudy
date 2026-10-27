@@ -3,7 +3,6 @@ import { createEmbed, successEmbed } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { normalizeEconomyEmbed } from '../../utils/economyGamblingPresentation.js';
 import EconomyService from '../../services/economyService.js';
 
 export default {
@@ -120,7 +119,7 @@ export default {
                     value: `$${updatedReceiverData.wallet.toLocaleString()}`,
                     inline: true,
                 });
-                await receiver.send({ embeds: [normalizeEconomyEmbed(receiverEmbed)] });
+                await receiver.send({ embeds: [receiverEmbed] });
             } catch (e) {
                     logger.warn(`Could not DM user ${receiver.id}: ${e.message}`);
             }
