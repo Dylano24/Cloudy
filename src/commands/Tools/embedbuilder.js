@@ -823,7 +823,13 @@ function buildSingleEmbed(state, description = null, options = {}) {
             inline: Boolean(field.inline),
         }));
     }
-    if (includeLogo && state.showLogo) data.thumbnail = { url: CLOUDY_LOGO_URL };
+    if (includeLogo && state.showLogo && !state.removeExistingLogo) {
+        // Repost must render the same selected thumbnail as the Builder
+        // preview. An untouched custom logo is not Cloudy's default C.
+        const existingThumbnail = state.modifyTarget?.previewSourceData?.thumbnail?.url
+            || state.modifyTarget?.sourceEmbedData?.thumbnail?.url;
+        data.thumbnail = { url: !state.logoTouched && existingThumbnail ? existingThumbnail : CLOUDY_LOGO_URL };
+    }
     if (includeFooter && state.bottomLine) {
         const marker = posted && includeBuilderMarker ? MESSAGE_BUILDER_FOOTER_MARKER : '';
         const footerLimit = marker ? 2047 : 2048;
@@ -921,7 +927,7 @@ export function buildPostedEmbeds(state) {
     }) : null;
     const includeBuilderMarker = !privateDraft || (String(state.bottomLine || '').length < 2048
         && getEmbedTextLength(unmarkedBase) + (state.message ? 1 : 0) + MESSAGE_BUILDER_FOOTER_MARKER.length <= DISCORD_EMBED_TOTAL_TEXT_LIMIT);
-    const baseEmbed = buildSingleEmbed(state, null, { posted: true, includeFields: privateDraft, includeBuilderMarker });
+    const baseEmbed = buildSingleEmbed(state, null, { posted: true, includeFields: true, includeBuilderMarker });
     const descriptionLimit = Math.max(
         1,
         Math.min(
@@ -940,7 +946,7 @@ export function buildPostedEmbeds(state) {
             includeLogo: isFirst,
             includeFooter: isLast,
             includeMedia: isLast,
-            includeFields: privateDraft && isFirst,
+            includeFields: isFirst,
             includeBuilderMarker,
             posted: true,
         });
@@ -948,6 +954,11 @@ export function buildPostedEmbeds(state) {
 }
 
 async function postBuiltMessage(channel, state, guild, member) {
+    // The web/content editor can still have a pending update when the
+    // channel picker opens. Post the finalized values, never the previous
+    // saved draft from before the last edit.
+    const { flushPendingEmbedEditorUpdates } = await import('../../services/embedColorPickerSessionService.js');
+    await flushPendingEmbedEditorUpdates(state?.colorSessionToken);
     if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false };
     const permissions = channel.permissionsFor(guild.members.me);
     const requiredPermissions = [
