@@ -416,8 +416,15 @@ export async function replyUserError(interaction, {
 
     logInteractionError(syntheticError, errorType, logData);
 
-    const embed = buildUserErrorEmbed(errorType, userMessage);
+    const embed = buildUserErrorEmbed(errorType, userMessage, {
+        preserveText: isEmbedBuilderErrorInteraction(interaction),
+    });
     return sendErrorResponse(interaction, embed, { ...context, traceId, ephemeral, subtype });
+}
+
+function isEmbedBuilderErrorInteraction(interaction) {
+    return String(interaction?.commandName || '').toLowerCase() === 'embedbuilder'
+        || String(interaction?.customId || '').startsWith('simple_embed_');
 }
 
 const USER_ERROR_TYPES = new Set([
@@ -450,6 +457,7 @@ export async function handleInteractionError(interaction, error, context = {}) {
 
     const embed = buildUserErrorEmbed(errorType, description, {
         titleOverride: error?.context?.titleOverride,
+        preserveText: builderAction || isEmbedBuilderErrorInteraction(interaction),
     });
 
     // Keep the generic system error independent from editable feature templates

@@ -214,7 +214,11 @@ export function canonicalBuilderResponseTitle(value) {
 
 function recordEmbedData(record) {
     const original = migrateCloudyLogoEmbedData(record?.snapshot || getEmbedRegistrySnapshot(record) || {}).data || {};
-    const snapshot = getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, original).data;
+    // A manual Save has one authoritative physical snapshot; do not restore
+    // old text or banners through shared bot-response template aliases.
+    const snapshot = record?.source === 'embed-builder' && record?.manualSaved
+        ? original
+        : getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, original).data;
     return {
         ...snapshot,
         title: snapshot.title || record?.title || record?.name || '',
@@ -723,7 +727,10 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
         const name = stableKey === 'ticket-main'
             ? 'Ticket'
             : (humanTemplateRecordName(record) || 'Embed');
-        const key = `template:${templateIdentity(channelId, recordData)}`;
+        // A saved owner Post owns one physical message, not a reusable response.
+        const key = record.source === 'embed-builder' && record.manualSaved === true
+            ? `manual:${record.backingChannelId || record.channelId}:${record.messageId}:${record.embedIndex || 0}`
+            : `template:${templateIdentity(channelId, recordData)}`;
         if (!groups.has(key)) groups.set(key, { label: name, records: [], templateMode: false });
         groups.get(key).records.push(record);
     }
@@ -767,7 +774,10 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
             sourceRecord,
             duplicateCount: group.records.length,
             templateCount: group.records.length,
-            templateMode: group.preventTemplateMode ? false : (Boolean(group.templateMode) || group.records.length > 1 || representative.source === 'system-catalog'),
+            templateMode: representative.source === 'embed-builder' && representative.manualSaved === true
+                ? false
+                : (group.preventTemplateMode ? false
+                    : (Boolean(group.templateMode) || group.records.length > 1 || representative.source === 'system-catalog')),
         };
     });
 }
@@ -796,8 +806,11 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
         if (isLegacyHelperParserArtifactRecord(record) || isStaleDynamicSourceArtifactRecord(record)) continue;
         const raw = record.snapshot || getEmbedRegistrySnapshot(record) || recordEmbedData(record);
         if (isRetiredGamblingEmbed(raw)) continue;
-        const saved = getCachedSavedEmbedTemplateData(guild.id, record.channelId, raw);
-        const identity = balanceResponseIdentity(raw) || saved.canonicalIdentity || templateIdentity(record.channelId, raw);
+        const isOwnerPost = record.source === 'embed-builder' && record.manualSaved === true;
+        const saved = isOwnerPost ? { matched: false } : getCachedSavedEmbedTemplateData(guild.id, record.channelId, raw);
+        const identity = isOwnerPost
+            ? `owner:${record.backingChannelId || record.channelId}:${record.messageId}:${record.embedIndex || 0}`
+            : (balanceResponseIdentity(raw) || saved.canonicalIdentity || templateIdentity(record.channelId, raw));
         if (!identity || identity === '::') continue;
         const groupKey = perChannel ? String(record.channelId) + '|' + identity : identity;
         if (!groups.has(groupKey)) groups.set(groupKey, []);
@@ -814,12 +827,13 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
         const data = recordEmbedData(master);
         const source = getSystemSourceDefinitionPreviewForEmbed(data);
         const hydrated = { ...(source || {}), ...data };
-        const saved = getCachedSavedEmbedTemplateData(guild.id, master.channelId, hydrated);
+        const ownerPost = master.source === 'embed-builder' && master.manualSaved === true;
+        const saved = ownerPost ? { matched: false } : getCachedSavedEmbedTemplateData(guild.id, master.channelId, hydrated);
         const snapshot = removeRetiredGamblingGuideCommand(saved.matched ? saved.data : hydrated);
         const canonical = {
             ...master, snapshot, canonicalIdentity: identity,
             title: snapshot.title || '', name: humanTemplateRecordName({ ...master, snapshot }),
-            templateMode: true,
+            templateMode: !ownerPost,
         };
         canonical.sourceRecord = { ...master, snapshot };
         canonical.previewRecord = { ...master, snapshot };
@@ -1244,6 +1258,7 @@ export function loadRecordSnapshotIntoState(
     state.mediaBuffer = null;
     state.mediaName = null;
     state.mediaConvertedFromVideo = false;
+    state.mediaTouched = false;
     if (record.draftData?.mediaData && record.draftData?.mediaName) {
         state.mediaBuffer = Buffer.from(record.draftData.mediaData, 'base64');
         state.mediaName = record.draftData.mediaName;
@@ -1289,7 +1304,8 @@ export function loadRecordSnapshotIntoState(
         savedLogoPreference: record.source !== 'embed-builder'
             && savedDisplay.matched && savedDisplay.thumbnailOverrideApplied === true,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
-        templateMode: Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder',
+        templateMode: savedPhysicalBuilder
+            ? false : (Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder'),
         templateTitle: record.canonicalIdentity || templateRule?.key || templateIdentity(
             logicalChannelId,
             Object.keys(templateSourceData).length ? templateSourceData : data,
@@ -1414,6 +1430,7 @@ function loadEmbedIntoState(state, resolved) {
     state.mediaBuffer = null;
     state.mediaName = null;
     state.mediaConvertedFromVideo = false;
+    state.mediaTouched = false;
     state.pendingBuilderDelete = null;
     state.modifyTarget = {
         guildId: message.guildId,
@@ -1429,7 +1446,8 @@ function loadEmbedIntoState(state, resolved) {
             embedIndex: Math.max(0, Number(record.embedIndex) || 0),
         },
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
-        templateMode: Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder',
+        templateMode: record.source === 'embed-builder' && record.manualSaved === true
+            ? false : (Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder'),
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
         templateKind,
         catalogTitle: data.title || null,
@@ -3047,6 +3065,17 @@ export async function saveModifiedEmbed(guild, state) {
     const embeds = message.embeds.map((embed, embedIndex) =>
         embedIndex === index ? applyStateToExistingEmbed(state) : embed.toJSON(),
     );
+    // Keep the most recent live Discord attachment for text/color-only edits.
+    // Older Search snapshots can contain another CDN signature for the same GIF.
+    const selectedMediaUrl = target.previewSourceData?.image?.url
+        || target.sourceEmbedData?.image?.url || null;
+    const mediaChanged = state.mediaTouched === true || Boolean(state.mediaBuffer)
+        || String(state.mediaUrl || '') !== String(selectedMediaUrl || '');
+    if (target.source === 'embed-builder' && !mediaChanged) {
+        const liveImageUrl = message.embeds[index]?.image?.url;
+        if (liveImageUrl) embeds[index].image = { url: liveImageUrl };
+        else delete embeds[index].image;
+    }
     const beforeTermsStamp = embeds[index];
     embeds[index] = stampTermsFooterOnSave(message.embeds[index].toJSON(), beforeTermsStamp, {
         channelId: backingChannelId,
@@ -3089,6 +3118,8 @@ export async function saveModifiedEmbed(guild, state) {
         target.sourceEmbedData = original;
         target.previewSourceData = { ...original };
         target.cachedMessage = message;
+        liveState.mediaUrl = original.image?.url || null;
+        liveState.mediaTouched = false;
         await refreshSearchTitleAfterSave(guild.id);
         markSave('persisted');
         liveState.logoTouched = false;
@@ -3131,6 +3162,8 @@ export async function saveModifiedEmbed(guild, state) {
         liveState.mediaBuffer = null;
         liveState.mediaName = null;
         liveState.mediaConvertedFromVideo = false;
+    } else if (!state.mediaBuffer) {
+        liveState.mediaUrl = currentImageUrl || null;
     }
     if (termsFooterUpdated) {
         state.bottomLine = current.footer?.text || embeds[index].footer.text;
@@ -3261,6 +3294,7 @@ export async function saveModifiedEmbed(guild, state) {
     await refreshSearchTitleAfterSave(guild.id);
     markSave('persisted');
     liveState.logoTouched = false;
+    liveState.mediaTouched = false;
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
 }
