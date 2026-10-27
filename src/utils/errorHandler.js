@@ -412,9 +412,14 @@ export async function replyUserError(interaction, {
 
     const embed = buildUserErrorEmbed(errorType, userMessage, {
         // A ticket error template must never replace a real Builder failure.
-        preserveText: String(interaction?.commandName || '').toLowerCase() === 'embedbuilder',
+        preserveText: isEmbedBuilderErrorInteraction(interaction),
     });
     return sendErrorResponse(interaction, embed, { ...context, traceId, ephemeral, subtype });
+}
+
+function isEmbedBuilderErrorInteraction(interaction) {
+    return String(interaction?.commandName || '').toLowerCase() === 'embedbuilder'
+        || String(interaction?.customId || '').startsWith('simple_embed_');
 }
 
 const USER_ERROR_TYPES = new Set([
@@ -438,12 +443,13 @@ export async function handleInteractionError(interaction, error, context = {}) {
 
     // System errors include a reference code; the response policy controls deletion.
     const isUserError = USER_ERROR_TYPES.has(errorType) || error?.context?.expected === true;
-    const description = isUserError
+    const description = isUserError || isEmbedBuilderErrorInteraction(interaction)
         ? userMessage
         : `${userMessage}\n\n-# Ref: \`${buildErrorReference(resolvedErrorCode, traceId)}\``;
 
     const embed = buildUserErrorEmbed(errorType, description, {
         titleOverride: error?.context?.titleOverride,
+        preserveText: isEmbedBuilderErrorInteraction(interaction),
     });
 
     // Keep the generic system error independent from editable feature templates
