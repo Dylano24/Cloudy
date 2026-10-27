@@ -9,6 +9,37 @@ import { randomUUID } from 'node:crypto';
 import { peekGuildConfigCache } from './config/guildConfig.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
+const DELETED_REGISTRY_PREFIX = 'cloudy:embed-registry-deleted:';
+const persistentDeletedMessages = new Map();
+const persistentDeletedLoads = new Map();
+function deletedMessageKey(guildId, channelId, messageId) {
+    return [String(channelId), String(messageId)].join(':');
+}
+async function loadPersistentDeletedMessages(guildId) {
+    const guildKey = String(guildId);
+    if (persistentDeletedMessages.has(guildKey)) return persistentDeletedMessages.get(guildKey);
+    if (persistentDeletedLoads.has(guildKey)) return persistentDeletedLoads.get(guildKey);
+    const loading = (async () => {
+        const stored = await db.get(DELETED_REGISTRY_PREFIX + guildKey, {}, { strict: true });
+        const keys = new Set(Object.keys(stored && !Array.isArray(stored) && typeof stored === 'object'
+            ? stored : {}));
+        persistentDeletedMessages.set(guildKey, keys);
+        return keys;
+    })();
+    persistentDeletedLoads.set(guildKey, loading);
+    try { return await loading; }
+    finally { if (persistentDeletedLoads.get(guildKey) === loading) persistentDeletedLoads.delete(guildKey); }
+}
+async function persistDeletedMessage(guildId, channelIds, messageId) {
+    const guildKey = String(guildId);
+    const existing = await loadPersistentDeletedMessages(guildKey);
+    const next = new Set(existing);
+    for (const channelId of channelIds) next.add(deletedMessageKey(guildKey, channelId, messageId));
+    const data = Object.fromEntries([...next].map(key => [key, true]));
+    if (!await db.set(DELETED_REGISTRY_PREFIX + guildKey, data)) return false;
+    persistentDeletedMessages.set(guildKey, next);
+    return true;
+}
 const SCAN_BATCH_SIZE = 100;
 const RECONCILE_CONCURRENCY = 6;
 const DEFINITIVE_MISSING_CODES = new Set([10003, 10008, 50001, 50013]);
@@ -38,6 +69,8 @@ function rememberPurgedMessage(guildId, channelIds, messageId) {
     }
 }
 export function isRecentlyPurgedMessage(record) {
+    const persistentKey = deletedMessageKey(record.guildId, physicalChannelId(record), record.messageId);
+    if (persistentDeletedMessages.get(String(record.guildId))?.has(persistentKey)) return true;
     const key = purgedMessageKey(record.guildId, physicalChannelId(record), record.messageId);
     const expiresAt = recentlyPurgedMessages.get(key);
     if (!expiresAt) return false;
@@ -163,7 +196,9 @@ function cleanStoredRecords(records) {
     const unique = new Map();
 
     for (const record of Array.isArray(records) ? records : []) {
-        if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record) || !isFixedCloudyRecord(record)) continue;
+        if (!record?.guildId || !record?.channelId || !record?.messageId
+            || isRecentlyPurgedMessage(record)
+            || isInternalEmbedRecord(record) || !isFixedCloudyRecord(record)) continue;
         // Keep live discovery and system templates. Deleted runtime copies and
         // explicitly unsaved Builder posts are not a permanent archive. Legacy
         // Builder rows without a Save marker are ambiguous, so leave them alone.
@@ -214,6 +249,9 @@ async function mutateRegistry(guildId, operation, committedSnapshot = null) {
 }
 
 async function readStoredRecords(guildId) {
+    // Hydrate durable deletes BEFORE reading or publishing registry snapshots.
+    // An old gateway event must not bring a deleted message back after restart.
+    await loadPersistentDeletedMessages(guildId);
     const stored = await db.get(registryKey(guildId), [], { strict: true });
     return Array.isArray(stored) ? stored : [];
 }
@@ -963,11 +1001,16 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
         const records = cleanStoredRecords(await readStoredRecords(guildId));
         const removed = records.filter(matchesTarget);
         const next = records.filter(item => !matchesTarget(item));
+        const channelIds = new Set([
+            String(channelId), ...removed.map(record => physicalChannelId(record)),
+        ]);
+        // Persist the Delete barrier before publishing a cleaned registry.
+        // Snowflake IDs are immutable; a delayed event must stay rejected
+        // even when the process restarts or the old message had no registry row.
+        if (!await persistDeletedMessage(guildId, channelIds, messageId)) return false;
+        rememberPurgedMessage(guildId, channelIds, messageId);
         if (removed.length && !await setInDb(registryKey(guildId), sortRecords(next))) return false;
         committedRecords = next;
-        rememberPurgedMessage(guildId, new Set([
-            String(channelId), ...removed.map(record => physicalChannelId(record)),
-        ]), messageId);
         for (const record of removed) embedSnapshotCache.delete(recordKey(record));
         // A queued registration may still be pending when this Delete ends.
         // Keep the last-known list free of this target in that interval too.

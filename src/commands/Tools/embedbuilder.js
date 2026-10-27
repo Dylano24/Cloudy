@@ -51,6 +51,7 @@ import { applyInitialSearchSelectionToState,
     prepareEmbedManager,
     repostDetachedEmbed,
     saveModifiedEmbed,
+    withEmbedManagerMessageLock,
     saveNewBuilderDraft,
     syncBuilderLogoFromLiveMessage } from '../../services/embedManagerService.js';
 import {
@@ -439,6 +440,14 @@ function resetBuilderAfterRecordDeletion(state) {
 }
 
 async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
+    const target = state?.pendingBuilderDelete || state?.modifyTarget;
+    return withEmbedManagerMessageLock(
+        guild?.id, target?.backingChannelId || target?.channelId, target?.messageId,
+        () => savePendingBuilderDeletionUnlocked(buttonInteraction, guild, state),
+    );
+}
+
+async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, state) {
     const markDelete = createBuilderPerformanceTracker('confirmed_delete');
     const target = state.modifyTarget;
     const pending = state.pendingBuilderDelete;
@@ -720,7 +729,9 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
         : await saveNewBuilderDraft(guild, state, channelId);
 
     if (!saved.ok) {
-        const failureMessage = saved.discordUpdated
+        const failureMessage = saved.reason === 'stale-editor'
+            ? 'This embed was changed in another Builder session. Reopen it in Search or the channel before saving to avoid replacing the newest version.'
+            : saved.discordUpdated
             ? 'The Discord message was updated, but the changes could not be saved permanently. Please try Save again.'
             : !state.modifyTarget || String(state.modifyTarget.messageId).startsWith('draft-')
                 ? 'The embed could not be saved permanently. Your draft is still open. Please try Save again.'

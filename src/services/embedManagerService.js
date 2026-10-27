@@ -109,6 +109,20 @@ function prewarmEmbedManagerOverview(guild, botUserId) {
 }
 
 const activeEmbedManagerSaves = new Set();
+// Serialize physical Save and Confirm Delete across separate Builder sessions.
+// A per-session click guard alone cannot protect a message edited by two users.
+const physicalBuilderMutationQueues = new Map();
+export async function withEmbedManagerMessageLock(guildId, channelId, messageId, work) {
+    if (!guildId || !channelId || !messageId) return work();
+    const key = [String(guildId), String(channelId), String(messageId)].join(':');
+    const previous = physicalBuilderMutationQueues.get(key) || Promise.resolve();
+    const current = previous.catch(() => {}).then(work);
+    physicalBuilderMutationQueues.set(key, current);
+    try { return await current; }
+    finally {
+        if (physicalBuilderMutationQueues.get(key) === current) physicalBuilderMutationQueues.delete(key);
+    }
+}
 const TEMPLATE_CHANNEL_IDS = new Set([
     '1539375620885323826',
     '1539371111240831078',
@@ -2973,6 +2987,27 @@ export function preserveExistingEmbedBannerAttachment(message, payload, embedInd
 }
 
 export async function saveModifiedEmbed(guild, state) {
+    const target = state?.modifyTarget;
+    return withEmbedManagerMessageLock(
+        guild?.id, target?.backingChannelId || target?.channelId, target?.messageId,
+        () => saveModifiedEmbedUnlocked(guild, state),
+    );
+}
+
+function manualEmbedVersion(embed) {
+    const data = embed?.toJSON?.() || embed || {};
+    return JSON.stringify({
+        title: data.title || '',
+        description: data.description || '',
+        color: Number.isInteger(data.color) ? data.color : null,
+        fields: (data.fields || []).map(f => [f.name || '', f.value || '', Boolean(f.inline)]),
+        thumbnail: data.thumbnail?.url || '',
+        image: String(data.image?.url || '').split('?')[0],
+        footer: data.footer?.text || '',
+    });
+}
+
+async function saveModifiedEmbedUnlocked(guild, state) {
     const markSave = createBuilderPerformanceTracker('existing_save');
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
@@ -3021,20 +3056,19 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     const backingChannelId = String(target.backingChannelId || target.channelId);
-    const cachedMessage = target.cachedMessage
-        && String(target.cachedMessage.id) === String(target.messageId)
-        && target.cachedMessage.author?.id === guild.client.user?.id
-        ? target.cachedMessage
-        : null;
-    const channel = cachedMessage?.channel
-        || guild.channels.cache.get(backingChannelId)
+    const channel = guild.channels.cache.get(backingChannelId)
+        || target.cachedMessage?.channel
         || await guild.channels.fetch(backingChannelId).catch(() => null);
-    if (!cachedMessage && !channel?.messages?.fetch) {
-        return { ok: false, reason: 'channel-missing' };
-    }
+    if (!channel?.messages?.fetch) return { ok: false, reason: 'channel-missing' };
 
+    // The editor's cachedMessage is a preview shortcut, never a Save authority.
+    // Force a REST fetch on real discord.js managers: its default string-ID
+    // fetch may return an older cache entry after an update in another session.
     let fetchError = null;
-    const message = cachedMessage || await channel.messages.fetch(target.messageId).catch(error => {
+    const fetchArgument = typeof channel.messages.resolveId === 'function'
+        ? { message: String(target.messageId), force: true }
+        : String(target.messageId);
+    const message = await channel.messages.fetch(fetchArgument).catch(error => {
         fetchError = error;
         return null;
     });
@@ -3060,6 +3094,13 @@ export async function saveModifiedEmbed(guild, state) {
 
     const index = Number(target.embedIndex || 0);
     if (!message.embeds?.[index]) return { ok: false, reason: 'embed-missing' };
+    // A second session must not replace a newer manually saved revision with
+    // the older contents that were on screen when it opened. Ask it to reload.
+    if (target.source === 'embed-builder' && !target.templateMode
+        && target.sourceEmbedData
+        && manualEmbedVersion(message.embeds[index]) !== manualEmbedVersion(target.sourceEmbedData)) {
+        return { ok: false, reason: 'stale-editor' };
+    }
 
     const sourceData = { ...(target.sourceEmbedData || {}) };
     const embeds = message.embeds.map((embed, embedIndex) =>
