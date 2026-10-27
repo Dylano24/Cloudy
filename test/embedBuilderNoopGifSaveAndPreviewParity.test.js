@@ -148,6 +148,12 @@ test('editing text keeps the live inline GIF when Search holds an old CDN signat
   state.mediaUrl = 'https://cdn.discordapp.com/attachments/'
     + channelId + '/' + attachmentId + '/' + attachmentName + '?ex=old-signature';
   state.mediaTouched = false;
+  state.modifyTarget.previewSourceData = {
+    ...state.modifyTarget.previewSourceData, image: { url: state.mediaUrl },
+  };
+  state.modifyTarget.sourceEmbedData = {
+    ...state.modifyTarget.sourceEmbedData, image: { url: state.mediaUrl },
+  };
   const result = await saveModifiedEmbed(guild, state);
   assert.equal(result.ok, true);
   assert.equal(message.editCalls.length, 1);
