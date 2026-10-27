@@ -2,6 +2,7 @@
 // BUILDER_SAVED_PARITY_V1
 import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
 import { withEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
+import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from './embedMediaStorageService.js';
 import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
@@ -3137,11 +3138,61 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     const payload = { embeds };
     if (state.componentsDirty) payload.components = getBuilderMessageComponents(state);
     if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
-    // A content-only Save must not turn the original embedded GIF into
-    // a second loose image above the message.
-    preserveExistingEmbedBannerAttachment(message, payload, index, {
-        newUpload: Boolean(state.mediaBuffer && state.mediaName),
-    });
+
+    const ownerPhysical = target.source === 'embed-builder' && !target.templateMode;
+    const oldImageUrl = String(message.embeds[index]?.image?.url || '');
+    const originalAttachments = [...(message.attachments?.values?.() || [])];
+    const inlineFile = originalAttachments.find(file => isInlineEmbedAttachment(file, oldImageUrl));
+    const requestedImage = String(payload.embeds[index]?.image?.url || '');
+    const discordHostedImage = /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/(?:ephemeral-)?attachments\//i.test(oldImageUrl);
+    let movedToDurable = false;
+
+    // Discord PATCH on an attachment:// image can leave an extra loose GIF.
+    // Use one immutable Cloudy URL and remove only that image's old attachment.
+    // Migration happens once; future text/color/logo Saves need no download.
+    if (ownerPhysical && embedMediaStorageEnabled()) {
+        try {
+            if (state.mediaBuffer && state.mediaName) {
+                payload.embeds[index].image = { url: await storeEmbedMediaBuffer(state.mediaBuffer) };
+                delete payload.files;
+                movedToDurable = true;
+            } else if (requestedImage && !mediaChanged && (inlineFile || discordHostedImage)) {
+                payload.embeds[index].image = {
+                    url: await storeExistingDiscordEmbedMedia(inlineFile?.url || oldImageUrl),
+                };
+                movedToDurable = true;
+            } else if (state.mediaTouched && requestedImage
+                && /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/(?:ephemeral-)?attachments\//i.test(requestedImage)) {
+                payload.embeds[index].image = { url: await storeExistingDiscordEmbedMedia(requestedImage) };
+                movedToDurable = true;
+            }
+        } catch (error) {
+            // Never drop or duplicate media after a failed migration. The
+            // physical Discord message remains unchanged and Save can retry.
+            logger.warn('Permanent Embed Builder banner migration failed: ' + (error?.message || error));
+            return { ok: false, reason: 'media-persistence-failed' };
+        }
+    }
+
+    const imageNow = String(payload.embeds[index]?.image?.url || '');
+    const shouldRemoveOldInline = ownerPhysical && inlineFile
+        && (movedToDurable || !imageNow
+            || (mediaChanged && !isInlineEmbedAttachment(inlineFile, imageNow)));
+    if (shouldRemoveOldInline) {
+        payload.attachments = originalAttachments
+            .filter(file => String(file.id) !== String(inlineFile.id))
+            .map(file => ({ id: String(file.id) }));
+    } else if (ownerPhysical && movedToDurable && discordHostedImage
+        && originalAttachments.length === 0) {
+        // Some Discord gateway messages omit inline attachment metadata.
+        // Explicitly remove all (zero known) files, not just the image URL.
+        payload.attachments = [];
+    } else {
+        // Untouched inline media must not be accidentally reuploaded.
+        preserveExistingEmbedBannerAttachment(message, payload, index, {
+            newUpload: Boolean(payload.files?.length),
+        });
+    }
 
     // Catalog identity is internal; it must never become a public embed author.
     if (target.source !== 'system-catalog' && String(message.content || '').trim() !== 'System & error embed templates') {
