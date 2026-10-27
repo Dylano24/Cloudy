@@ -28,6 +28,7 @@ import { TitanBotError,
     replyUserError,
     ErrorTypes } from '../../utils/errorHandler.js';
 import { getColor } from '../../config/bot.js';
+import { markBotResponsePayload } from '../../utils/botResponseIntent.js';
 import {
     createEmbedColorPickerSession,
     deleteEmbedColorPickerSession,
@@ -328,7 +329,7 @@ function clearBuilderRecordCaches(guildId) {
 }
 
 async function sendBuilderDeleteNotice(interaction, title, description, color = 0xFFFFFF) {
-    const message = await interaction.followUp(builderUiPayload({
+    const message = await interaction.followUp(markBotResponsePayload({
         embeds: [new EmbedBuilder().setTitle(title).setDescription(description).setColor(color)],
         flags: MessageFlags.Ephemeral,
         fetchReply: true,
@@ -778,7 +779,7 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
     }
 
     void refreshBuilder(buttonInteraction, state).catch(() => {});
-    const confirmation = await buttonInteraction.followUp(builderUiPayload({
+    const confirmation = await buttonInteraction.followUp(markBotResponsePayload({
         content: null,
         embeds: [successEmbed('Changes saved', saved.draft
             ? 'The embed was saved to the Builder. Use Post to publish it.'
@@ -1968,7 +1969,7 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         }
         state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
-        const sentMessage = await channelInteraction.followUp(builderUiPayload({
+        const sentMessage = await channelInteraction.followUp(markBotResponsePayload({
             embeds: [isRepost
                 ? successEmbed('Message reposted', `Your message has been reposted to ${posted.destination}.`)
                 : successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
@@ -2360,7 +2361,7 @@ export default {
                                 break;
                             }
 
-                            const confirmation = await buttonInteraction.followUp(builderUiPayload({
+                            const confirmation = await buttonInteraction.followUp(markBotResponsePayload({
                                 embeds: [successEmbed('Message reposted', `The embed was reposted to ${reposted.channel} and saved automatically.`)],
                                 flags: MessageFlags.Ephemeral,
                                 fetchReply: true,
