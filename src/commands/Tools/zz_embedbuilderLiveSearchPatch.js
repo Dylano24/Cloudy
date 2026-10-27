@@ -1820,6 +1820,24 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     }
     const fromAutocomplete = Boolean(record);
     if (!record) {
+        // New manual Saves are already indexed in the current in-memory
+        // registry. A missed autocomplete handoff must not trigger a full
+        // 3000-record catalog scan and several slow Discord GETs.
+        // Only reuse a current-generation, permission-checked physical ID;
+        // tombstoned Delete targets are never reintroduced.
+        const hot = peekEmbedRegistry(interaction.guildId, { current: true })
+            ?.find(item => String(item.channelId) === selected.channelId
+                && String(item.messageId) === selected.messageId
+                && Number(item.embedIndex || 0) === selected.embedIndex);
+        if (hot?.source === 'embed-builder' && hot.manualSaved === true
+            && !isSearchDeleteHidden(hot)) {
+            record = sanitizeSearchRecordAccess(interaction.guild, interaction.member, hot, {
+                requireSend: true,
+            });
+            if (record) records = [record];
+        }
+    }
+    if (!record) {
         const findSelected = items => {
             const candidate = items.find(item =>
                 String(item.channelId) === selected.channelId
@@ -1905,9 +1923,13 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
                     interaction.guild, record, savedManualSnapshot ? record : record.previewRecord || null, interaction.user.id,
                 ).catch(() => null)
                 : null;
-    await warmSavedEmbedTemplateScopes(interaction.guildId, [
-        record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
-    ]);
+    // Owner-created saved physical posts do not have reusable overlays. A
+    // global template DB read is unnecessary before rendering their preview.
+    if (!savedManualSnapshot) {
+        await warmSavedEmbedTemplateScopes(interaction.guildId, [
+            record.channelId, record.previewRecord?.channelId, record.sourceRecord?.channelId,
+        ]);
+    }
     markSelection('templates_ready');
     // Peer matching consults saved overlays, so keep it after authoritative warming.
     const groupedPreview = savedManualSnapshot ? record : (record.previewRecord
