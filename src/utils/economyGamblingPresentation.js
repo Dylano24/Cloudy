@@ -99,7 +99,8 @@ export function normalizeEconomyEmbed(sourceEmbed) {
     thumbnail: { url: CLOUDY_LOGO_URL },
   };
   // Keep discord.js builders and their existing metadata intact.
-  if (sourceEmbed.data && typeof sourceEmbed.toJSON === 'function') {
+  if (sourceEmbed.data && typeof sourceEmbed.setTitle === 'function'
+      && typeof sourceEmbed.toJSON === 'function') {
     sourceEmbed.data = normalized;
     return sourceEmbed;
   }
