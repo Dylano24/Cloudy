@@ -13,6 +13,9 @@ test('titles and body labels use sentence case without damaging usernames or men
   assert.equal(economySentenceCase('New Bank Balance'), 'New bank balance');
   assert.equal(economySentenceCase('The Bank'), 'The bank');
   assert.equal(economySentenceCase('Player Hand'), 'Player hand');
+  assert.equal(economySentenceCase('Economy Dashboard'), 'Economy dashboard');
+  assert.equal(economySentenceCase('Change Currency Symbol'), 'Change currency symbol');
+  assert.equal(economySentenceCase('Active Users'), 'Active users');
   assert.equal(economySentenceCase("SomeGamer's Bank Balance"), "SomeGamer's bank balance");
   assert.equal(
     economySentenceCase('Cash Balance: **$50**\nThe Bank has $100 and <@123456789012345678>'),
