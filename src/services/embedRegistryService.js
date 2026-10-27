@@ -662,10 +662,20 @@ export async function getEmbedRegistry(guildId, { cached = false } = {}) {
         // Share only in-flight storage work, never mutable records or a stale
         // cross-request cache unless search explicitly opts in. Mutations start fresh reads.
         const records = await pending.promise;
-        // A read from the generation before Save/Delete must never leak to Search.
+        // Never return a snapshot from the previous Save/Delete generation.
+        // Avoid unbounded waits: a mutator may itself be waiting on an editor
+        // or backend read. Take a fresh durable read after a bounded wait.
         if (generation !== getEmbedRegistryGeneration(guildId) || registryMutationQueues.has(key)) {
-            await registryMutationQueues.get(key)?.catch(() => {});
-            return getEmbedRegistry(guildId, { cached: false });
+            const mutation = registryMutationQueues.get(key);
+            if (mutation) {
+                let timeout;
+                await Promise.race([
+                    mutation.catch(() => {}),
+                    new Promise(resolve => { timeout = setTimeout(resolve, 900); }),
+                ]);
+                clearTimeout(timeout);
+            }
+            return structuredClone(cleanStoredRecords(await readStoredRecords(guildId)));
         }
         if (generation === getEmbedRegistryGeneration(guildId) && !registryMutationQueues.has(key)) {
             registryLastKnown.set(key, { generation, records });
