@@ -138,3 +138,35 @@ test('Search and channel Builder use latest authoritative manually saved physica
     assert.equal(state.modifyTarget.sourceEmbedData.title, 'TEST 2');
   }
 });
+
+
+test('real repeated Save updates one physical embed with full current preview and attached GIF', async t => {
+  const { state, message, guild } = fixture(t);
+  for (let index = 0; index < 12; index++) {
+    const title = 'Latest edition ' + index;
+    const description = ('Long description ' + index + ' ').repeat(30);
+    const color = 0x100000 + index * 12345;
+    state.title = title;
+    state.message = description;
+    state.sideColor = color;
+    const result = await saveModifiedEmbed(guild, state);
+    assert.equal(result.ok, true, 'Save #' + index);
+    assert.equal(result.message.id, messageId);
+    assert.equal(message.embeds[0].title, title);
+    assert.equal(message.embeds[0].description, description);
+    assert.equal(message.embeds[0].color, color);
+    assert.equal(state.modifyTarget.previewSourceData.title, title);
+    assert.equal(state.modifyTarget.previewSourceData.description, description);
+    assert.equal(state.modifyTarget.previewSourceData.color, color);
+    assert.equal(state.modifyTarget.previewSourceData.image.url, imageUrl);
+    assert.equal(message.editCalls[index].embeds[0].image.url, 'attachment://' + attachmentName);
+    assert.deepEqual(message.editCalls[index].attachments, [{ id: attachmentId }]);
+  }
+  const records = await getEmbedRegistry(guildId);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].messageId, messageId);
+  assert.equal(records[0].snapshot.title, 'Latest edition 11');
+  assert.equal(records[0].snapshot.color, 0x100000 + 11 * 12345);
+  assert.deepEqual(buildSearchChoices(buildMatches(guild, records, 'Latest edition 11'))
+    .map(x => x.name), ['Latest edition 11']);
+});
