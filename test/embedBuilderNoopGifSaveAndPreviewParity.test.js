@@ -303,3 +303,75 @@ test('Search keeps one test label but selects latest saved message, not old test
   })));
   assert.equal(choices[0].value, channelId + ':' + newer.messageId + ':0');
 });
+
+
+test('saved physical Search snapshot beats an older preview even without updatedAt', () => {
+  const physical = {
+    guildId, channelId, messageId, source: 'embed-builder', manualSaved: true,
+    snapshot: {
+      title: 'LATEST', description: 'Current body', color: 0x123ABC,
+      image: { url: 'https://cloudy.example.com/cloudy-embed-media/current.gif' },
+      footer: { text: 'Latest footer' },
+    },
+  };
+  const old = {
+    ...physical, messageId: '187777777777777779',
+    snapshot: {
+      title: 'OLD TITLE', description: 'Old body', color: 0x777777,
+      image: { url: imageUrl }, footer: { text: 'Old footer' },
+    },
+  };
+  const state = {};
+  assert.equal(loadRecordSnapshotIntoState(state, { id: guildId }, physical, old, old), true);
+  assert.equal(state.title, 'LATEST');
+  assert.equal(state.message, 'Current body');
+  assert.equal(state.bottomLine, 'Latest footer');
+  assert.equal(state.mediaUrl, physical.snapshot.image.url);
+  assert.equal(state.modifyTarget.messageId, messageId);
+  assert.equal(state.modifyTarget.templateMode, false);
+});
+
+test('Search old CDN signature never replaces a live hosted GIF on footer and repeated Save', async t => {
+  const { state, message, guild, data } = fixture(t);
+  const permanent = 'https://cloudy.example.com/cloudy-embed-media/'
+    + 'a'.repeat(64) + '.gif';
+  message.embeds = [new Embed({ ...data, image: { url: permanent } })];
+  message.attachments = new Collection();
+  // Search was opened before the first migration and still shows an old URL.
+  // The owner did not select Add or Remove media in this session.
+  state.mediaUrl = imageUrl;
+  state.mediaTouched = false;
+  for (let i = 0; i < 25; i++) {
+    state.title = 'Current revision ' + i;
+    state.message = 'Body revision ' + i;
+    state.bottomLine = 'Footer revision ' + i;
+    state.sideColor = 0x110000 + i;
+    const saved = await saveModifiedEmbed(guild, state);
+    assert.equal(saved.ok, true, 'Save #' + i);
+    assert.equal(saved.message.id, messageId);
+    assert.equal(message.embeds[0].image.url, permanent);
+    assert.equal(state.mediaUrl, permanent);
+    assert.equal(state.modifyTarget.previewSourceData.image.url, permanent);
+  }
+  const records = await getEmbedRegistry(guildId);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].messageId, messageId);
+  assert.equal(records[0].snapshot.title, 'Current revision 24');
+  assert.equal(records[0].snapshot.footer.text, 'Footer revision 24');
+  assert.equal(records[0].snapshot.image.url, permanent);
+  assert.equal(message.editCalls.length, 25);
+  assert.ok(message.editCalls.every(call => call.embeds[0].image.url === permanent));
+});
+
+test('Save does not resurrect a deleted physical Discord embed as a detached draft', async t => {
+  const { state, message, guild } = fixture(t);
+  const gone = Object.assign(new Error('Unknown Message'), { code: 10008 });
+  state.modifyTarget.liveLogoSource = { channelId, messageId, embedIndex: 0 };
+  message.channel.messages.fetch = async () => { throw gone; };
+  state.title = 'Must not be restored';
+  const saved = await saveModifiedEmbed(guild, state);
+  assert.equal(saved.ok, false);
+  assert.equal(saved.reason, 'message-missing');
+  assert.equal(message.editCalls.length, 0);
+  assert.equal((await getEmbedRegistry(guildId)).length, 0);
+});
