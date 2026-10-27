@@ -79,3 +79,23 @@ test('unavailable storage does not issue list queries', async t => {
   assert.deepEqual(await database.list('guild:g:'), []);
   assert.equal(stats().calls, 0);
 });
+
+test('singleton existence checks overlap in bounded batches without changing list order', async () => {
+  const { database } = fixture(() => []);
+  let active = 0, peak = 0;
+  const requested = [];
+  database.exists = async key => {
+    requested.push(key);
+    active++;
+    peak = Math.max(peak, active);
+    await setImmediate();
+    if (key.endsWith(':config')) await setImmediate();
+    active--;
+    return true;
+  };
+  const result = await database.list('guild:g:');
+  assert.deepEqual(result, requested);
+  assert.ok(peak > 1, 'singleton queries should not each wait for the preceding round trip');
+  assert.ok(peak <= 4);
+  assert.equal(active, 0);
+});
