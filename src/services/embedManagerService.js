@@ -1104,10 +1104,11 @@ export function loadRecordSnapshotIntoState(
     // A posted owner-authored Builder message is authoritative after Save.
     // Search may still offer an older runtime preview or a shared template
     // with the same name; neither may replace the saved physical snapshot.
-    // Legacy records lacking a Save revision keep their existing overlay path.
+    // A saved, physical owner post owns its snapshot even if it predates the
+    // updatedAt revision. A Search peer must never restore an earlier banner,
+    // title, footer or other field over that physical message.
     const savedPhysicalBuilder = record.source === 'embed-builder'
-        && record.manualSaved === true && Boolean(record.updatedAt)
-        && !record.detached;
+        && record.manualSaved === true && !record.detached;
     if (savedPhysicalBuilder) {
         previewRecord = null;
         sourceRecord = null;
@@ -2996,6 +2997,7 @@ export async function saveModifiedEmbed(guild, state) {
 
 async function saveModifiedEmbedUnlocked(guild, state) {
     const markSave = createBuilderPerformanceTracker('existing_save');
+    const selectedWasDetached = Boolean(state?.modifyTarget?.detached);
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
     markSave('editor_ready');
@@ -3006,6 +3008,12 @@ async function saveModifiedEmbedUnlocked(guild, state) {
         await syncBuilderLogoFromLiveMessage(guild, state, { cacheTargetMessage: true });
     }
     markSave('logo_ready');
+    // If the physical Discord post disappeared while verifying it, do not
+    // silently turn this Modify/Save into a detached registry-only ghost.
+    // Intentionally opened detached drafts follow their existing Save path.
+    if (!selectedWasDetached && state?.modifyTarget?.detached) {
+        return { ok: false, reason: 'message-missing' };
+    }
     const liveState = state;
     state = { ...state, embedFields: state.embedFields?.map(field => ({ ...field })) };
     const target = state.modifyTarget;
@@ -3098,8 +3106,13 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     // Older Search snapshots can contain another CDN signature for the same GIF.
     const selectedMediaUrl = target.previewSourceData?.image?.url
         || target.sourceEmbedData?.image?.url || null;
+    const ownerPhysical = target.source === 'embed-builder' && !target.templateMode;
+    // Search may have a stale signed Discord CDN URL while the same physical
+    // message already has a permanent hosted image. Only the user's explicit
+    // Add/Remove media action is an image edit on a saved physical post.
+    // Other template paths retain their prior URL-difference detection.
     const mediaChanged = state.mediaTouched === true || Boolean(state.mediaBuffer)
-        || String(state.mediaUrl || '') !== String(selectedMediaUrl || '');
+        || (!ownerPhysical && String(state.mediaUrl || '') !== String(selectedMediaUrl || ''));
     if (target.source === 'embed-builder' && !mediaChanged) {
         const liveImageUrl = message.embeds[index]?.image?.url;
         if (liveImageUrl) embeds[index].image = { url: liveImageUrl };
@@ -3139,7 +3152,6 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     if (state.componentsDirty) payload.components = getBuilderMessageComponents(state);
     if (state.mediaBuffer && state.mediaName) payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
 
-    const ownerPhysical = target.source === 'embed-builder' && !target.templateMode;
     const oldImageUrl = String(message.embeds[index]?.image?.url || '');
     const originalAttachments = [...(message.attachments?.values?.() || [])];
     const inlineFile = originalAttachments.find(file => isInlineEmbedAttachment(file, oldImageUrl));
