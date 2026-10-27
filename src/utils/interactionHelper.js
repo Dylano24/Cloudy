@@ -2,6 +2,7 @@
 // interactionHelper.js
 
 import { logger } from './logger.js';
+import { normalizeEconomyInteractionPayload } from './economyGamblingPresentation.js';
 import { MessageFlags } from 'discord.js';
 import { handleInteractionError, createError, ErrorTypes } from './errorHandler.js';
 import { ResponseCoordinator } from './responseCoordinator.js';
@@ -176,7 +177,7 @@ export class InteractionHelper {
                 return false;
             }
             const coordinator = this.getCoordinator(interaction);
-            const cleanOptions = sanitizeEditReplyOptions(options);
+            const cleanOptions = normalizeEconomyInteractionPayload(interaction, sanitizeEditReplyOptions(options));
             if (coordinator?.isUsageFinalized()) {
                 return false;
             }
@@ -236,7 +237,7 @@ export class InteractionHelper {
                 return false;
             }
             const coordinator = this.getCoordinator(interaction);
-            const cleanOptions = sanitizeReplyOptions(options);
+            const cleanOptions = normalizeEconomyInteractionPayload(interaction, sanitizeReplyOptions(options));
             if (coordinator?.isUsageFinalized()) {
                 return false;
             }
