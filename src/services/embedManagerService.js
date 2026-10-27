@@ -2893,22 +2893,20 @@ export function preserveExistingEmbedBannerAttachment(message, payload, embedInd
     const requestedImage = String(payload.embeds[embedIndex]?.image?.url || '');
     const unchangedImage = !newUpload && Boolean(requestedImage)
         && (requestedImage === originalImage || isInlineEmbedAttachment(originalFile, requestedImage));
-    const retained = attachments.filter(file =>
-        file.id !== originalFile.id || unchangedImage
-        || payload.embeds.some((embed, index) => index !== embedIndex
-            && isInlineEmbedAttachment(file, embed?.image?.url)));
+    // Media replacement, clearing and new uploads already work. Do not
+    // touch their attachment handling or any sibling files.
+    if (!unchangedImage) return payload;
+
     // Discord API v10 needs explicit retained attachment IDs on edits.
     // Never upload a duplicate GIF just to update its title or text.
-    payload.attachments = retained.map(file => ({ id: String(file.id) }));
-    if (unchangedImage) {
-        payload.embeds[embedIndex] = {
-            ...payload.embeds[embedIndex],
-            image: {
-                ...payload.embeds[embedIndex].image,
-                url: 'attachment://' + (originalFile.name || originalFile.filename),
-            },
-        };
-    }
+    payload.attachments = attachments.map(file => ({ id: String(file.id) }));
+    payload.embeds[embedIndex] = {
+        ...payload.embeds[embedIndex],
+        image: {
+            ...payload.embeds[embedIndex].image,
+            url: 'attachment://' + (originalFile.name || originalFile.filename),
+        },
+    };
     return payload;
 }
 
