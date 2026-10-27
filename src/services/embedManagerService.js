@@ -3,6 +3,9 @@
 import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
 import { withEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
 import {
+    isCloudyEmbedMediaStorageEnabled, persistCloudyEmbedMediaBuffer, persistCloudyDiscordEmbedMedia,
+} from './embedMediaStorageService.js';
+import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
     isLegacyBalanceParserArtifact } from './balanceResponseIdentity.js';
@@ -3142,6 +3145,40 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     preserveExistingEmbedBannerAttachment(message, payload, index, {
         newUpload: Boolean(state.mediaBuffer && state.mediaName),
     });
+
+    if (target.source === 'embed-builder' && !target.templateMode) {
+        const files = [...(message.attachments?.values?.() || [])];
+        const originalBannerUrl = String(message.embeds[index]?.image?.url || '');
+        const originalAttachment = files.find(file => isInlineEmbedAttachment(file, originalBannerUrl));
+        let durableUrl = null;
+        if (isCloudyEmbedMediaStorageEnabled()) {
+            if (state.mediaBuffer) {
+                durableUrl = await persistCloudyEmbedMediaBuffer(state.mediaBuffer);
+            } else if (mediaChanged && state.mediaUrl) {
+                durableUrl = await persistCloudyDiscordEmbedMedia(state.mediaUrl);
+            } else if (!mediaChanged && originalBannerUrl) {
+                durableUrl = await persistCloudyDiscordEmbedMedia(
+                    originalAttachment?.url || originalBannerUrl,
+                );
+            }
+        }
+        if (durableUrl) {
+            // A real HTTPS image URL has no attachment:// reference, so
+            // subsequent title, color, button or logo edits cannot detach it.
+            payload.embeds[index].image = { url: durableUrl };
+            delete payload.files;
+        }
+        // Remove an embedded banner's old physical attachment when it has
+        // been replaced, removed or safely moved to durable media storage.
+        // Other real attachments are preserved byte-for-byte by their IDs.
+        if (originalAttachment && (durableUrl
+            || (!payload.embeds[index]?.image && !payload.files)
+            || (mediaChanged && !payload.files))) {
+            payload.attachments = files
+                .filter(file => String(file.id) !== String(originalAttachment.id))
+                .map(file => ({ id: String(file.id) }));
+        }
+    }
 
     // Catalog identity is internal; it must never become a public embed author.
     if (target.source !== 'system-catalog' && String(message.content || '').trim() !== 'System & error embed templates') {

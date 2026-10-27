@@ -22,6 +22,7 @@ import { applyEmbedColorPickerSession } from './services/embedColorPickerSession
 import { embedColorPickerPage } from './web/embedColorPickerPage.js';
 import { registerAppealsApi } from './web/appealsApi.js';
 import { registerWebsiteAssistantApi } from './web/websiteAssistantApi.js';
+import { registerCloudyEmbedMediaRoutes } from './services/embedMediaStorageService.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 import { getBuiltInSystemCatalogCoverage } from './services/systemEmbedCatalogService.js';
 
@@ -170,6 +171,9 @@ class TitanBot extends Client {
 
     registerAppealsApi(app, this);
     registerWebsiteAssistantApi(app);
+    // Discord's image proxy needs a stable, public read-only URL. Never
+    // expose S3 credentials or an unauthenticated upload endpoint.
+    registerCloudyEmbedMediaRoutes(app);
 
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;

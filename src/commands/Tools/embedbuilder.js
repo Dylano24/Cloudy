@@ -47,6 +47,9 @@ import {
     refreshAllTicketChannels,
     } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
+import {
+    isCloudyEmbedMediaStorageEnabled, persistCloudyEmbedMediaBuffer, persistCloudyDiscordEmbedMedia,
+} from '../../services/embedMediaStorageService.js';
 import { applyInitialSearchSelectionToState,
     openEmbedManager,
     prepareEmbedManager,
@@ -949,6 +952,19 @@ export function buildPostedEmbeds(state) {
 
 async function postBuiltMessage(channel, state, guild, member) {
     if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false };
+    // Own the banner as a durable Cloudy URL before posting. Discord
+    // attachment:// GIFs can jump outside the embed after later edits.
+    if (isCloudyEmbedMediaStorageEnabled() && (state.mediaBuffer || state.mediaUrl)) {
+        const stored = state.mediaBuffer
+            ? await persistCloudyEmbedMediaBuffer(state.mediaBuffer)
+            : await persistCloudyDiscordEmbedMedia(state.mediaUrl);
+        if (stored) {
+            state.mediaUrl = stored;
+            state.mediaBuffer = null;
+            state.mediaName = null;
+            state.mediaConvertedFromVideo = false;
+        }
+    }
     const permissions = channel.permissionsFor(guild.members.me);
     const requiredPermissions = [
         PermissionFlagsBits.ViewChannel,
