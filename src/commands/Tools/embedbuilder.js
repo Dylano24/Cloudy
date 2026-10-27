@@ -17,6 +17,7 @@ import {
     EmbedBuilder,
     } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { withEmbedBuilderMessageMutation } from '../../services/embedBuilderMutationLock.js';
 import { registerBuilderPreviewMessage,
     unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
@@ -439,6 +440,15 @@ function resetBuilderAfterRecordDeletion(state) {
 }
 
 async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
+    const target = state.modifyTarget;
+    if (!target?.messageId) return false;
+    return withEmbedBuilderMessageMutation(
+        guild.id, target.backingChannelId || target.channelId, target.messageId,
+        () => savePendingBuilderDeletionUnlocked(buttonInteraction, guild, state),
+    );
+}
+
+async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, state) {
     const markDelete = createBuilderPerformanceTracker('confirmed_delete');
     const target = state.modifyTarget;
     const pending = state.pendingBuilderDelete;

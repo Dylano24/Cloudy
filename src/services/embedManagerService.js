@@ -1,6 +1,7 @@
 // CLOUDY_INTERACTION_LATENCY_V1
 // BUILDER_SAVED_PARITY_V1
 import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
+import { withEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
 import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
@@ -2972,7 +2973,27 @@ export function preserveExistingEmbedBannerAttachment(message, payload, embedInd
     return payload;
 }
 
+function syncSavedManualBuilderEditorState(state, target, data) {
+    if (target.source !== 'embed-builder' || target.templateMode) return;
+    state.title = data.title || null;
+    state.message = data.description || null;
+    state.sideColor = Number.isInteger(data.color) ? data.color : state.sideColor;
+    state.embedFields = Array.isArray(data.fields) ? data.fields.map(field => ({ ...field })) : [];
+    state.bottomLine = cleanFooter(data.footer?.text || '') || null;
+    state.showLogo = Boolean(data.thumbnail?.url);
+    state.removeExistingLogo = false;
+}
+
 export async function saveModifiedEmbed(guild, state) {
+    const target = state?.modifyTarget;
+    if (!guild?.id || !target?.messageId || target.detached) return saveModifiedEmbedUnlocked(guild, state);
+    return withEmbedBuilderMessageMutation(
+        guild.id, target.backingChannelId || target.channelId, target.messageId,
+        () => saveModifiedEmbedUnlocked(guild, state),
+    );
+}
+
+async function saveModifiedEmbedUnlocked(guild, state) {
     const markSave = createBuilderPerformanceTracker('existing_save');
     const { flushPendingEmbedEditorUpdates } = await import('./embedColorPickerSessionService.js');
     await flushPendingEmbedEditorUpdates(state.colorSessionToken);
@@ -3034,7 +3055,14 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     let fetchError = null;
-    const message = cachedMessage || await channel.messages.fetch(target.messageId).catch(error => {
+    // Avoid a stale cached Message from another editor or a deleted post.
+    const authoritativeFetch = target.source === 'embed-builder' && !target.templateMode;
+    const message = authoritativeFetch
+        ? await channel?.messages?.fetch?.(target.messageId, { force: true }).catch(error => {
+            fetchError = error;
+            return null;
+        })
+        : cachedMessage || await channel.messages.fetch(target.messageId).catch(error => {
         fetchError = error;
         return null;
     });
@@ -3075,6 +3103,26 @@ export async function saveModifiedEmbed(guild, state) {
         const liveImageUrl = message.embeds[index]?.image?.url;
         if (liveImageUrl) embeds[index].image = { url: liveImageUrl };
         else delete embeds[index].image;
+    }
+    // Merge changes field-by-field against the fresh physical message. An
+    // untouched stale session must never roll an earlier saved field back.
+    if (target.source === 'embed-builder' && !target.templateMode) {
+        const baseline = target.sourceEmbedData || {};
+        const live = message.embeds[index].toJSON?.() || message.embeds[index];
+        const requested = embeds[index];
+        const unchanged = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+        const inherit = key => {
+            if (live[key] === undefined) delete requested[key];
+            else requested[key] = structuredClone(live[key]);
+        };
+        if (unchanged(state.title || null, baseline.title || null)) inherit('title');
+        if (unchanged(state.message || null, baseline.description || null)) inherit('description');
+        if (unchanged(state.sideColor ?? null, baseline.color ?? null)) inherit('color');
+        if (unchanged(state.embedFields || [], baseline.fields || [])) inherit('fields');
+        if (unchanged(state.bottomLine || '', cleanFooter(baseline.footer?.text || ''))) inherit('footer');
+        if (!state.logoTouched) inherit('thumbnail');
+        if (!mediaChanged) inherit('image');
+        for (const key of ['author', 'url', 'timestamp']) inherit(key);
     }
     const beforeTermsStamp = embeds[index];
     embeds[index] = stampTermsFooterOnSave(message.embeds[index].toJSON(), beforeTermsStamp, {
@@ -3118,6 +3166,7 @@ export async function saveModifiedEmbed(guild, state) {
         target.sourceEmbedData = original;
         target.previewSourceData = { ...original };
         target.cachedMessage = message;
+        syncSavedManualBuilderEditorState(liveState, target, original);
         liveState.mediaUrl = original.image?.url || null;
         liveState.mediaTouched = false;
         await refreshSearchTitleAfterSave(guild.id);
@@ -3252,6 +3301,7 @@ export async function saveModifiedEmbed(guild, state) {
 
     state.modifyTarget.sourceEmbedData = current;
     if (target.source === 'embed-builder' && !target.templateMode) {
+        syncSavedManualBuilderEditorState(liveState, target, current);
         // The edited Discord embed is the single canonical physical record.
         // Rebuilding its preview from old selection data left stale colors and
         // removed fields behind after Save, until another Search/Save cycle.
