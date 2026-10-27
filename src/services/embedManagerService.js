@@ -1206,9 +1206,7 @@ export function loadRecordSnapshotIntoState(
             inline: Boolean(field.inline),
         }))
         : [];
-    state.sideColor = record.manualSaved === true && record.source === 'embed-builder'
-        && Number.isInteger(data.color) ? data.color
-        : savedDisplay.matched && Number.isInteger(savedDisplay.data.color)
+    state.sideColor = savedDisplay.matched && Number.isInteger(savedDisplay.data.color)
         ? savedDisplay.data.color
         : Number.isInteger(previewData?.color)
         ? previewData.color
@@ -3169,7 +3167,6 @@ export async function saveModifiedEmbed(guild, state) {
         // confirmed Discord image and color, not the snapshot from selection.
         if (current.image?.url) nextPreview.image = { ...current.image };
         else delete nextPreview.image;
-        if (Number.isInteger(current.color)) nextPreview.color = current.color;
         if (termsFooterUpdated) nextPreview.footer = { ...current.footer };
         state.modifyTarget.previewSourceData = nextPreview;
     }
