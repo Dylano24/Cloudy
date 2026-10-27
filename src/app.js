@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { REST } from '@discordjs/rest';
+import { installDiscordRestSafeguards } from './utils/discordRestSafeguards.js';
 import express from 'express';
 import cron from 'node-cron';
 
@@ -70,6 +71,7 @@ class TitanBot extends Client {
     this.cooldowns = new Collection();
     this.db = null;
     this.rest = new REST({ version: '10' }).setToken(config.bot.token);
+    installDiscordRestSafeguards(this.rest);
   }
 
   async start() {
