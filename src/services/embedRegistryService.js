@@ -37,7 +37,7 @@ function rememberPurgedMessage(guildId, channelIds, messageId) {
         recentlyPurgedMessages.set(purgedMessageKey(guildId, channelId, messageId), now + RECENT_PURGE_TTL);
     }
 }
-function isRecentlyPurgedMessage(record) {
+export function isRecentlyPurgedMessage(record) {
     const key = purgedMessageKey(record.guildId, physicalChannelId(record), record.messageId);
     const expiresAt = recentlyPurgedMessages.get(key);
     if (!expiresAt) return false;
@@ -697,7 +697,15 @@ async function saveRecords(guildId, additions) {
         // Avoid rewriting a large JSON document for an updatedAt-only difference.
         const saved = registryContent(stored) === registryContent(result)
             || await setInDb(registryKey(guildId), result);
-        if (saved) committedRecords = result;
+        if (saved) {
+            committedRecords = result;
+            // Publish only the committed winner, never an incoming stale
+            // gateway snapshot or a Save whose database write failed.
+            for (const addition of batch.additions) {
+                const committed = next.get(recordKey(addition));
+                if (committed?.snapshot) rememberEmbedSnapshot(committed, committed.snapshot);
+            }
+        }
         return saved;
     }).then(saved => {
         // Publish only a durable registration after the mutation queue has
@@ -760,7 +768,6 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy', {
                         detached: false,
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
-                    rememberEmbedSnapshot(addition, embed);
                     return addition;
                 })
                 .filter(addition => isSystemCatalogMessage(message)
@@ -821,9 +828,11 @@ export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snaps
     const normalizedComponents = components == null ? null : normalizeMessageComponents(components);
     if (!guildId || !target?.messageId || !normalizedSnapshot) return false;
 
+    let committedRecords = null;
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
         let changed = false;
+        let updatedRecord = null;
         const next = records.map(record => {
             const matches = String(record.channelId) === String(target.channelId)
                 && String(record.messageId) === String(target.messageId)
@@ -833,7 +842,7 @@ export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snaps
             changed = true;
             const updated = normalizeRecord({
                 ...record,
-                title: normalizedSnapshot.title || record.title,
+                title: normalizedSnapshot.title || '',
                 name: embedName(normalizedSnapshot),
                 snapshot: normalizedSnapshot,
                 components: normalizedComponents == null ? record.components : normalizedComponents,
@@ -841,13 +850,19 @@ export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snaps
                 manualSaved: true,
                 ...(draftData !== undefined ? { draftData } : {}),
             });
-            if (updated) rememberEmbedSnapshot(updated, normalizedSnapshot);
+            if (updated) updatedRecord = updated;
             return updated || record;
         });
 
         if (!changed) return false;
-        return setInDb(registryKey(guildId), sortRecords(next));
-    });
+        const result = sortRecords(next);
+        const saved = await setInDb(registryKey(guildId), result);
+        if (saved) {
+            committedRecords = result;
+            if (updatedRecord) rememberEmbedSnapshot(updatedRecord, normalizedSnapshot);
+        }
+        return saved;
+    }, () => committedRecords);
 }
 
 export async function relinkDetachedEmbedRegistryMessage(guildId, target, message) {
