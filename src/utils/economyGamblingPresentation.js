@@ -121,7 +121,13 @@ export function normalizeEconomyPayload(payload) {
 
 export function normalizeEconomyInteractionPayload(interaction, payload) {
   const name = String(interaction?.commandName || interaction?._commandName || '').toLowerCase();
-  // No implicit channel-wide edits: a different command in a gambling channel
-  // must never accidentally become an economy message.
-  return ACTIVE_COMMANDS.has(name) ? normalizeEconomyPayload(payload) : payload;
+  if (!ACTIVE_COMMANDS.has(name)) return payload;
+  const channelId = String(interaction?.channelId || interaction?.channel?.id || '');
+  const channel = interaction?.channel || interaction?.guild?.channels?.cache?.get?.(channelId);
+  const channelName = String(channel?.name || '').toLowerCase();
+  // Keep changes inside the dedicated gambling/economy channels only. Errors
+  // in unrelated channels retain their existing layout; do not change them.
+  const dedicatedChannel = channelId === '1533188412507558130'
+    || /(?:^|[^a-z])(gambling|economy)(?:[^a-z]|$)/.test(channelName);
+  return dedicatedChannel ? normalizeEconomyPayload(payload) : payload;
 }
