@@ -138,3 +138,40 @@ test('Search and channel Builder use latest authoritative manually saved physica
     assert.equal(state.modifyTarget.sourceEmbedData.title, 'TEST 2');
   }
 });
+
+
+test('editing text keeps the live inline GIF when Search holds an old CDN signature', async t => {
+  const { state, message, guild } = fixture(t);
+  state.message = 'A longer updated message that should not detach the banner.';
+  state.sideColor = 0x556677;
+  state.mediaUrl = 'https://cdn.discordapp.com/attachments/'
+    + channelId + '/' + attachmentId + '/' + attachmentName + '?ex=old-signature';
+  state.mediaTouched = false;
+  const result = await saveModifiedEmbed(guild, state);
+  assert.equal(result.ok, true);
+  assert.equal(message.editCalls.length, 1);
+  assert.equal(message.editCalls[0].embeds[0].description, state.message);
+  assert.equal(message.editCalls[0].embeds[0].image.url, 'attachment://' + attachmentName);
+  assert.deepEqual(message.editCalls[0].attachments, [{ id: attachmentId }]);
+  assert.equal(state.mediaUrl, imageUrl);
+  assert.equal(state.mediaTouched, false);
+  // Repeated unchanged Save must not PATCH or restore the old signed URL.
+  for (let i = 0; i < 5; i++) assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.equal(message.editCalls.length, 1);
+  const records = await getEmbedRegistry(guildId);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].snapshot.description, state.message);
+  assert.equal(records[0].snapshot.image.url, imageUrl);
+});
+
+test('explicit Remove media clears the banner rather than restoring the old GIF', async t => {
+  const { state, message, guild } = fixture(t);
+  state.mediaUrl = null;
+  state.mediaTouched = true;
+  const result = await saveModifiedEmbed(guild, state);
+  assert.equal(result.ok, true);
+  assert.equal(message.editCalls.length, 1);
+  assert.equal(message.editCalls[0].embeds[0].image, undefined);
+  assert.equal(state.mediaUrl, null);
+  assert.equal(state.mediaTouched, false);
+});

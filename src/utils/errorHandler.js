@@ -410,7 +410,10 @@ export async function replyUserError(interaction, {
 
     logInteractionError(syntheticError, errorType, logData);
 
-    const embed = buildUserErrorEmbed(errorType, userMessage);
+    const embed = buildUserErrorEmbed(errorType, userMessage, {
+        // A ticket error template must never replace a real Builder failure.
+        preserveText: String(interaction?.commandName || '').toLowerCase() === 'embedbuilder',
+    });
     return sendErrorResponse(interaction, embed, { ...context, traceId, ephemeral, subtype });
 }
 
