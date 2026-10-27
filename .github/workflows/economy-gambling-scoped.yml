@@ -1,0 +1,32 @@
+name: Economy and gambling scoped checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/utils/economyGamblingPresentation.js'
+      - 'src/utils/interactionHelper.js'
+      - 'src/commands/Economy/**'
+      - 'scripts/normalize-economy-gambling-history.js'
+      - 'test/economyGamblingPresentation.test.js'
+      - '.github/workflows/economy-gambling-scoped.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  targeted:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit
+      - name: Lint affected files
+        run: npx eslint src/utils/economyGamblingPresentation.js src/utils/interactionHelper.js src/commands/Economy/baccarat.js src/commands/Economy/blackjack.js scripts/normalize-economy-gambling-history.js test/economyGamblingPresentation.test.js
+      - name: Scoped regression tests
+        run: node --test test/economyGamblingPresentation.test.js
