@@ -37,8 +37,8 @@ const UI_WORDS = new Set([
 // Never change a URL, Discord mention or code literal while formatting copy.
 const PROTECTED_PARTS = /(https?:\/\/[^\s]+|<[^>]+>|\x60[^\x60]*\x60)/g;
 const WORD = /[\p{L}]+(?:['’][\p{L}]+)?/gu;
-const ERROR_TITLE = /\b(?:error|failed|failure|lost|loss|bust|blocked|denied|invalid|insufficient|rejected|unsuccessful|too fast|cooldown|not enough|unable)\b/i;
-const SUCCESS_TITLE = /\b(?:success|successful|won|win|winning|completed|earned|received|deposited|withdrawn|paid|reward claimed)\b/i;
+const ERROR_TITLE = /\b(?:error|failed|failure|lost|loss|bust|blocked|denied|invalid|insufficient|rejected|unsuccessful|too fast|cooldown|not enough|unable|expired)\b/i;
+const SUCCESS_TITLE = /\b(?:success|successful|won|win|winning|completed|earned|received|deposited|withdrawn|paid|added|claimed|transferred|payment|reward claimed)\b/i;
 const NEUTRAL_TITLE = /\b(?:balance|inventory|leaderboard|bet|bets|overview|information|guide)\b/i;
 const RED_COLORS = new Set([0x7A1712, 0xED4245, 0x670102, 0xFF0000]);
 const GREEN_COLORS = new Set([0x00C49D, 0x57F287, 0x00FF00, 0x2ECC71]);
