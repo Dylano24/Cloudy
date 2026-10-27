@@ -58,6 +58,22 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           SMOKE_IMAGE: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
-        run: >-
-          docker run --rm --entrypoint node "$SMOKE_IMAGE" -e
-          "const fs = require('node:fs'); if (process.getuid() === 0) throw new Error('Runtime must be non-root'); fs.accessSync('logs', fs.constants.W_OK); fs.accessSync('src/config/bot.js', fs.constants.W_OK);"
+        run: |
+          set -euo pipefail
+          MEDIA_VOLUME="cloudy-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker volume create "$MEDIA_VOLUME" >/dev/null
+          trap 'docker volume rm "$MEDIA_VOLUME" >/dev/null' EXIT
+          # Use the real entrypoint, not --entrypoint node: the former fixes
+          # Railway's fresh root-owned mount then execs node as the node user.
+          docker run --rm \
+            --mount "type=volume,src=$MEDIA_VOLUME,dst=/cloudy-media" \
+            -e CLOUDY_EMBED_MEDIA_DIR=/cloudy-media/embeds \
+            "$SMOKE_IMAGE" node -e '
+              const fs = require("node:fs");
+              if (process.getuid() === 0) throw new Error("Runtime must be non-root");
+              fs.accessSync("logs", fs.constants.W_OK);
+              fs.accessSync("src/config/bot.js", fs.constants.W_OK);
+              const path = "/cloudy-media/embeds/.smoke-test";
+              fs.writeFileSync(path, "ok");
+              fs.rmSync(path);
+            '
