@@ -25,6 +25,37 @@ const registryGenerations = new Map();
 // of that exact deleted message without suppressing any other saved embed.
 const recentlyPurgedMessages = new Map();
 const RECENT_PURGE_TTL = 30 * 60_000;
+// A confirmed Delete is permanent across restarts, unlike a process-local TTL.
+const DELETED_MESSAGE_PREFIX = 'cloudy:embed-registry-deleted:';
+const permanentlyPurgedMessages = new Map();
+const permanentPurgeLoads = new Map();
+
+async function loadPermanentPurgeSet(guildId) {
+    const key = String(guildId);
+    if (permanentlyPurgedMessages.has(key)) return permanentlyPurgedMessages.get(key);
+    if (permanentPurgeLoads.has(key)) return permanentPurgeLoads.get(key);
+    const loading = (async () => {
+        const saved = await db.get(DELETED_MESSAGE_PREFIX + key, [], { strict: true });
+        const set = new Set(Array.isArray(saved) ? saved.map(String) : []);
+        permanentlyPurgedMessages.set(key, set);
+        return set;
+    })();
+    permanentPurgeLoads.set(key, loading);
+    try { return await loading; }
+    finally { if (permanentPurgeLoads.get(key) === loading) permanentPurgeLoads.delete(key); }
+}
+
+async function persistPermanentPurge(guildId, channelIds, messageId) {
+    const key = String(guildId);
+    const stored = await loadPermanentPurgeSet(key);
+    const next = new Set(stored);
+    for (const channelId of channelIds) next.add(String(channelId) + ':' + String(messageId));
+    if (next.size === stored.size) return true;
+    if (!await setInDb(DELETED_MESSAGE_PREFIX + key, [...next])) return false;
+    permanentlyPurgedMessages.set(key, next);
+    return true;
+}
+
 function purgedMessageKey(guildId, channelId, messageId) {
     return [String(guildId), String(channelId), String(messageId)].join(':');
 }
@@ -38,7 +69,11 @@ function rememberPurgedMessage(guildId, channelIds, messageId) {
     }
 }
 export function isRecentlyPurgedMessage(record) {
-    const key = purgedMessageKey(record.guildId, physicalChannelId(record), record.messageId);
+    const physical = physicalChannelId(record);
+    const key = purgedMessageKey(record.guildId, physical, record.messageId);
+    const permanent = permanentlyPurgedMessages.get(String(record.guildId));
+    if (permanent?.has(physical + ':' + String(record.messageId))
+        || permanent?.has(String(record.channelId || '') + ':' + String(record.messageId))) return true;
     const expiresAt = recentlyPurgedMessages.get(key);
     if (!expiresAt) return false;
     if (expiresAt <= Date.now()) {
@@ -163,7 +198,8 @@ function cleanStoredRecords(records) {
     const unique = new Map();
 
     for (const record of Array.isArray(records) ? records : []) {
-        if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record) || !isFixedCloudyRecord(record)) continue;
+        if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record) || !isFixedCloudyRecord(record)
+            || isRecentlyPurgedMessage(record)) continue;
         // Keep live discovery and system templates. Deleted runtime copies and
         // explicitly unsaved Builder posts are not a permanent archive. Legacy
         // Builder rows without a Save marker are ambiguous, so leave them alone.
@@ -214,6 +250,7 @@ async function mutateRegistry(guildId, operation, committedSnapshot = null) {
 }
 
 async function readStoredRecords(guildId) {
+    await loadPermanentPurgeSet(guildId);
     const stored = await db.get(registryKey(guildId), [], { strict: true });
     return Array.isArray(stored) ? stored : [];
 }
@@ -605,9 +642,10 @@ export function peekEmbedRegistry(guildId, { current = false } = {}) {
     // in-flight mutation. Autocomplete keeps its existing last-known behavior.
     if (current && (!known || known.generation !== getEmbedRegistryGeneration(key)
         || registryMutationQueues.has(key))) return null;
-    return known ? structuredClone(known.records) : null;
+    return known ? structuredClone(known.records.filter(record => !isRecentlyPurgedMessage(record))) : null;
 }
 export async function getEmbedRegistry(guildId, { cached = false } = {}) {
+    await loadPermanentPurgeSet(guildId);
     const key = String(guildId);
     const generation = getEmbedRegistryGeneration(guildId);
     const savedRead = registrySearchCache.get(key);
@@ -624,6 +662,11 @@ export async function getEmbedRegistry(guildId, { cached = false } = {}) {
         // Share only in-flight storage work, never mutable records or a stale
         // cross-request cache unless search explicitly opts in. Mutations start fresh reads.
         const records = await pending.promise;
+        // A read from the generation before Save/Delete must never leak to Search.
+        if (generation !== getEmbedRegistryGeneration(guildId) || registryMutationQueues.has(key)) {
+            await registryMutationQueues.get(key)?.catch(() => {});
+            return getEmbedRegistry(guildId, { cached: false });
+        }
         if (generation === getEmbedRegistryGeneration(guildId) && !registryMutationQueues.has(key)) {
             registryLastKnown.set(key, { generation, records });
             if (!registryMutationQueues.has(key)) {
@@ -962,6 +1005,11 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
         const removed = records.filter(matchesTarget);
+        const tombstoneChannels = new Set([
+            String(channelId), ...removed.map(physicalChannelId),
+            ...removed.map(record => String(record.channelId)),
+        ]);
+        if (!await persistPermanentPurge(guildId, tombstoneChannels, messageId)) return false;
         const next = records.filter(item => !matchesTarget(item));
         if (removed.length && !await setInDb(registryKey(guildId), sortRecords(next))) return false;
         committedRecords = next;
