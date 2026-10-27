@@ -1,3 +1,4 @@
+import { gameHelpRow } from '../../services/gameHelpService.js';
 import { SlashCommandBuilder } from 'discord.js';
 import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -61,6 +62,6 @@ export default {
       thumbnail: { url: CLOUDY_LOGO_URL },
     };
 
-    await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components: [] });
+    await InteractionHelper.safeEditReply(interaction, { embeds: [embed], components: [gameHelpRow('roulette')] });
   }, { command: 'roulette' }),
 };

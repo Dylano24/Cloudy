@@ -1,4 +1,4 @@
-import { isGamblingGameCommand } from '../config/gamblingCommands.js';
+import { ECONOMY_COMMAND_NAMES, isGamblingGameCommand } from '../config/gamblingCommands.js';
 
 const resolvedChannels = new WeakMap();
 const SHOP_COMMANDS = new Set(['shop', 'buy']);
@@ -19,10 +19,11 @@ export function getGamblingResponsePolicy(interaction, context = {}) {
   const resolved = resolvedChannels.get(interaction);
   const commandName = String(interaction?.commandName || context.commandName || context.command || '').toLowerCase();
   const dedicatedKey = resolved?.key
+    || (ECONOMY_COMMAND_NAMES.has(commandName) ? 'economy' : null)
     || (isGamblingGameCommand(commandName) ? 'gambling' : null)
     || (SHOP_COMMANDS.has(commandName) ? 'shop' : null);
 
-  if (!['gambling', 'shop'].includes(dedicatedKey)) return null;
+  if (!['gambling', 'shop', 'economy'].includes(dedicatedKey)) return null;
 
   // Gambling and shop use the exact same response policy; only the target
   // dedicated channel differs.
@@ -30,7 +31,9 @@ export function getGamblingResponsePolicy(interaction, context = {}) {
     ? resolved.channelId
     : findDedicatedChannelBySlug(interaction?.guild, dedicatedKey)?.id;
   const currentId = interaction?.channelId || interaction?.channel?.id;
-  const inDedicatedChannel = Boolean(targetId && currentId === targetId);
+  const inDedicatedChannel = dedicatedKey === 'economy'
+    ? ['gambling', 'shop'].some(slug => findDedicatedChannelBySlug(interaction?.guild, slug)?.id === currentId)
+    : Boolean(targetId && currentId === targetId);
 
   return {
     showCloseButton: false,

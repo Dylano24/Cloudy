@@ -90,3 +90,17 @@ export function buildGamblingGuideDescription() {
     'These commands will not work in other channels.',
   ].join('\n');
 }
+
+export const ECONOMY_COMMAND_NAMES = new Set(GAMBLING_GAME_COMMANDS.filter(command => command.group === 'Economy').map(command => command.name));
+export const EARN_MONEY_COMMAND_NAMES = new Set(GAMBLING_GAME_COMMANDS.filter(command => command.group === 'Earn money').map(command => command.name));
+
+export function buildShopCommandListText() {
+  return [
+    '**Shop**',
+    '`/shop`: Browse the shop.',
+    '`/buy item_id quantity`: Purchase an item from the shop.',
+    '',
+    '**Economy**',
+    ...GAMBLING_GAME_COMMANDS.filter(command => command.group === 'Economy').map(command => `\`${command.usage}\`: ${command.description}`),
+  ].join('\n');
+}
