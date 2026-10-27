@@ -683,8 +683,10 @@ async function saveRecords(guildId, additions) {
                 next.set(key, {
                     ...record,
                     ...existing,
-                    snapshot: record.snapshot || existing.snapshot,
-                    updatedAt: record.updatedAt,
+                    // Read-only history must never undo a saved catalog or
+                    // Builder snapshot with an older body, color, or banner.
+                    snapshot: existing.snapshot || record.snapshot,
+                    updatedAt: existing.updatedAt,
                 });
                 continue;
             }
