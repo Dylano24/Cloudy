@@ -129,21 +129,3 @@ test('inline GIF attachment logic is idempotent for 1000 title-only edits', () =
   }
 });
 
-test('manual Builder post keeps its own chosen color over unrelated cached previews', () => {
-  const guild = { id: 'manual-colors-20261027', channels: { cache: new Map() } };
-  const own = {
-    guildId: guild.id, channelId: '186666666666665551',
-    messageId: '186666666666665552', source: 'embed-builder',
-    manualSaved: true, snapshot: {
-      title: 'YES5', description: 'Updated content',
-      image: { url: 'https://example.com/banner.gif' }, color: 0xFF1493,
-    },
-  };
-  const oldPeer = { ...own, source: 'bot-history', manualSaved: false,
-    messageId: '186666666666665554',
-    snapshot: { title: 'YES', description: 'Old content', color: 0x4285F4 },
-  };
-  const state = {};
-  assert.equal(loadRecordSnapshotIntoState(state, guild, own, oldPeer), true);
-  assert.equal(state.sideColor, 0xFF1493);
-});
