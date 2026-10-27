@@ -1083,7 +1083,61 @@ function recordsFromMessage(message, priorRecords = [], { allowManual = false } 
         .filter(Boolean);
 }
 
-async function resolveRegistryMessage(guild, records) {
+// The catalog can store many embeds in a small number of physical messages.
+// Fetch nearby messages together when identities are dense. Every unresolved
+// identity still uses the original one-message verification below, so missing
+// messages, saved drafts and manual edits keep their existing semantics.
+export async function prefetchDenseRegistryMessages(guild, entries) {
+    const byChannel = new Map();
+    for (const [key, records] of entries) {
+        const first = records?.[0];
+        const channelId = first && physicalChannelId(first);
+        const messageId = String(first?.messageId || '');
+        if (!channelId || !/^\d{17,20}$/.test(messageId)
+            || (first.detached && messageId.startsWith('draft-'))) continue;
+        if (!byChannel.has(channelId)) byChannel.set(channelId, []);
+        byChannel.get(channelId).push({ key, messageId });
+    }
+
+    const found = new Map();
+    for (const [channelId, targets] of byChannel) {
+        // A broad history request is not worthwhile for just a few messages.
+        if (targets.length < 12) continue;
+        const channel = guild.channels.cache.get(channelId);
+        if (!channel?.messages?.fetch) continue;
+        const pending = new Map(targets.map(target => [target.messageId, target.key]));
+        const maxBatches = Math.min(30, Math.ceil(targets.length / 8));
+        let batches = 0;
+
+        while (pending.size >= 12 && batches < maxBatches) {
+            const anchor = pending.keys().next().value;
+            batches += 1;
+            let batch;
+            try {
+                batch = await channel.messages.fetch({ limit: 100, around: anchor });
+            } catch {
+                break; // The original resolver handles 404s, access errors and retries.
+            }
+            if (!batch?.size) break;
+
+            let hits = 0;
+            for (const message of batch.values()) {
+                const id = String(message?.id || '');
+                const key = pending.get(id);
+                if (key === undefined || String(message.channelId || channelId) !== channelId) continue;
+                found.set(key, message);
+                pending.delete(id);
+                hits += 1;
+            }
+            // Sparse channel: stop speculative requests and verify remaining
+            // messages individually as before.
+            if (hits < 3) break;
+        }
+    }
+    return found;
+}
+
+async function resolveRegistryMessage(guild, records, preloadedMessage = null) {
     const first = records[0];
     if (first.detached && String(first.messageId).startsWith('draft-')) return { status: 'resolved', records };
     const sourceChannelId = physicalChannelId(first);
@@ -1101,13 +1155,17 @@ async function resolveRegistryMessage(guild, records) {
 
     if (!channel?.messages?.fetch) return { status: 'missing', records: [] };
 
-    let message;
-    try {
-        message = await channel.messages.fetch(first.messageId);
-    } catch (error) {
-        return DEFINITIVE_MISSING_CODES.has(error?.code)
-            ? { status: 'missing', records: [] }
-            : { status: 'unknown', records };
+    let message = preloadedMessage?.id === first.messageId
+        && String(preloadedMessage.channelId) === String(sourceChannelId)
+        ? preloadedMessage : null;
+    if (!message) {
+        try {
+            message = await channel.messages.fetch(first.messageId);
+        } catch (error) {
+            return DEFINITIVE_MISSING_CODES.has(error?.code)
+                ? { status: 'missing', records: [] }
+                : { status: 'unknown', records };
+        }
     }
 
     if (
@@ -1147,9 +1205,12 @@ export async function reconcileEmbedRegistry(guild) {
     }
 
     const entries = [...groups.entries()];
+    // Combine dense message verifications into bounded read-only Discord
+    // history requests. The fallback remains authoritative for every miss.
+    const prefetched = await prefetchDenseRegistryMessages(guild, entries);
     const resolved = await mapWithConcurrency(entries, RECONCILE_CONCURRENCY, async ([key, records]) => [
         key,
-        await resolveRegistryMessage(guild, records),
+        await resolveRegistryMessage(guild, records, prefetched.get(key)),
     ]);
     const results = new Map(resolved);
 
