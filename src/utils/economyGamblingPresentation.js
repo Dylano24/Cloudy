@@ -31,7 +31,11 @@ const UI_WORDS = new Set([
   'status', 'stolen', 'success', 'successful', 'successfully', 'the',
   'tie', 'to', 'too', 'total', 'transaction', 'transfer', 'updated',
   'value', 'wallet', 'was', 'were', 'win', 'winner', 'winning', 'withdraw',
-  'withdrawal', 'won', 'work', 'you', 'your',
+  'withdrawal', 'won', 'work', 'you', 'your', 'an', 'art', 'analyst',
+  'begging', 'bonus', 'bot', 'could', 'complete', 'data', 'delivery',
+  'developer', 'double', 'down', 'driver', 'heist', 'incoming', 'is',
+  'laptop', 'later', 'message', 'pizza', 'please', 'software',
+  'something', 'theft', 'try', 'went', 'wrong',
 ]);
 
 // Never change a URL, Discord mention or code literal while formatting copy.
