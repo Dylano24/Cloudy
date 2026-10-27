@@ -214,7 +214,11 @@ export function canonicalBuilderResponseTitle(value) {
 
 function recordEmbedData(record) {
     const original = migrateCloudyLogoEmbedData(record?.snapshot || getEmbedRegistrySnapshot(record) || {}).data || {};
-    const snapshot = getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, original).data;
+    // Owner-authored physical Save owns the complete snapshot. Global bot
+    // response aliases must never reintroduce an earlier title or banner.
+    const snapshot = record?.source === 'embed-builder' && record?.manualSaved
+        ? original
+        : getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, original).data;
     return {
         ...snapshot,
         title: snapshot.title || record?.title || record?.name || '',
@@ -1244,6 +1248,7 @@ export function loadRecordSnapshotIntoState(
     state.mediaBuffer = null;
     state.mediaName = null;
     state.mediaConvertedFromVideo = false;
+    state.mediaTouched = false;
     if (record.draftData?.mediaData && record.draftData?.mediaName) {
         state.mediaBuffer = Buffer.from(record.draftData.mediaData, 'base64');
         state.mediaName = record.draftData.mediaName;
@@ -1414,6 +1419,7 @@ function loadEmbedIntoState(state, resolved) {
     state.mediaBuffer = null;
     state.mediaName = null;
     state.mediaConvertedFromVideo = false;
+    state.mediaTouched = false;
     state.pendingBuilderDelete = null;
     state.modifyTarget = {
         guildId: message.guildId,
@@ -3047,6 +3053,15 @@ export async function saveModifiedEmbed(guild, state) {
     const embeds = message.embeds.map((embed, embedIndex) =>
         embedIndex === index ? applyStateToExistingEmbed(state) : embed.toJSON(),
     );
+    // The live physical message owns its existing banner unless the owner
+    // explicitly added or removed media. An old Search/Modify session can
+    // contain an expired or differently signed CDN URL for the same GIF.
+    // Sending that stale URL makes Discord detach or duplicate the image.
+    if (target.source === 'embed-builder' && !state.mediaTouched && !state.mediaBuffer) {
+        const liveImageUrl = message.embeds[index]?.image?.url;
+        if (liveImageUrl) embeds[index].image = { url: liveImageUrl };
+        else delete embeds[index].image;
+    }
     const beforeTermsStamp = embeds[index];
     embeds[index] = stampTermsFooterOnSave(message.embeds[index].toJSON(), beforeTermsStamp, {
         channelId: backingChannelId,
@@ -3089,6 +3104,8 @@ export async function saveModifiedEmbed(guild, state) {
         target.sourceEmbedData = original;
         target.previewSourceData = { ...original };
         target.cachedMessage = message;
+        liveState.mediaUrl = original.image?.url || null;
+        liveState.mediaTouched = false;
         await refreshSearchTitleAfterSave(guild.id);
         markSave('persisted');
         liveState.logoTouched = false;
@@ -3131,6 +3148,10 @@ export async function saveModifiedEmbed(guild, state) {
         liveState.mediaBuffer = null;
         liveState.mediaName = null;
         liveState.mediaConvertedFromVideo = false;
+    } else if (!state.mediaBuffer) {
+        // The next Save must start from Discord's just-confirmed image, not
+        // from the CDN URL the user initially selected in Search.
+        liveState.mediaUrl = currentImageUrl || null;
     }
     if (termsFooterUpdated) {
         state.bottomLine = current.footer?.text || embeds[index].footer.text;
@@ -3256,6 +3277,7 @@ export async function saveModifiedEmbed(guild, state) {
     await refreshSearchTitleAfterSave(guild.id);
     markSave('persisted');
     liveState.logoTouched = false;
+    liveState.mediaTouched = false;
     const displayChannel = guild.channels.cache.get(target.channelId) || channel;
     return { ok: true, channel: displayChannel, message: edited, updatedCount };
 }

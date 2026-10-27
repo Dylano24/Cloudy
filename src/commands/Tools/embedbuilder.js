@@ -1620,6 +1620,7 @@ async function editMedia(buttonInteraction, state) {
             state.mediaBuffer = converted.buffer;
             state.mediaName = converted.filename;
             state.mediaConvertedFromVideo = true;
+            state.mediaTouched = true;
             await refreshBuilder(submitted, state);
         } catch (error) {
             logger.error('Video to GIF conversion failed:', error);
@@ -1647,6 +1648,7 @@ async function editMedia(buttonInteraction, state) {
     }
 
     state.mediaUrl = uploadedMedia.url;
+    state.mediaTouched = true;
     state.mediaBuffer = null;
     state.mediaName = uploadedMedia.name || null;
     state.mediaConvertedFromVideo = false;
@@ -2010,6 +2012,7 @@ export default {
                 mediaBuffer: null,
                 mediaName: null,
                 mediaConvertedFromVideo: false,
+                mediaTouched: false,
                 modifyTarget: null,
                 componentRows: [],
                 componentRowsSourceMessageId: 'new',
@@ -2231,6 +2234,7 @@ export default {
                             state.mediaBuffer = null;
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
+                            state.mediaTouched = true;
                             await refreshBuilder(buttonInteraction, state);
                             break;
                         case 'simple_embed_buttons':
@@ -2387,6 +2391,7 @@ export default {
                             state.mediaBuffer = null;
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
+                            state.mediaTouched = false;
                             state.modifyTarget = null;
                             state.pendingBuilderDelete = null;
                             state.componentRows = [];
