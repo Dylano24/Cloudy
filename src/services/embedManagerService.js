@@ -3154,7 +3154,19 @@ async function saveModifiedEmbedUnlocked(guild, state) {
 
     const oldImageUrl = String(message.embeds[index]?.image?.url || '');
     const originalAttachments = [...(message.attachments?.values?.() || [])];
-    const inlineFile = originalAttachments.find(file => isInlineEmbedAttachment(file, oldImageUrl));
+    // Older Search sessions can retain the original Discord attachment URL
+    // after the physical image already moved to Cloudy's permanent URL.
+    // Match that *specific former banner*, not arbitrary loose image files.
+    const knownBannerUrls = ownerPhysical
+        ? [oldImageUrl, target.sourceEmbedData?.image?.url, target.previewSourceData?.image?.url]
+        : [oldImageUrl];
+    const inlineFile = originalAttachments.find(file =>
+        knownBannerUrls.some(url => isInlineEmbedAttachment(file, url))
+        // A shared file can still serve another embed or logo on this message.
+        && !message.embeds.some((embed, embedIndex) =>
+            (embedIndex !== index && isInlineEmbedAttachment(file, embed.image?.url))
+            || isInlineEmbedAttachment(file, embed.thumbnail?.url))
+    );
     const requestedImage = String(payload.embeds[index]?.image?.url || '');
     const discordHostedImage = /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/(?:ephemeral-)?attachments\//i.test(oldImageUrl);
     let movedToDurable = false;
@@ -3187,8 +3199,14 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     }
 
     const imageNow = String(payload.embeds[index]?.image?.url || '');
+    // An old inline file can remain loose after the image was already
+    // migrated. If the saved source still identifies that *same* attachment
+    // and no embed references it now, remove it on the next real edit.
+    const staleKnownBannerFile = ownerPhysical && inlineFile
+        && !isInlineEmbedAttachment(inlineFile, oldImageUrl)
+        && !isInlineEmbedAttachment(inlineFile, imageNow);
     const shouldRemoveOldInline = ownerPhysical && inlineFile
-        && (movedToDurable || !imageNow
+        && (staleKnownBannerFile || movedToDurable || !imageNow
             || (mediaChanged && !isInlineEmbedAttachment(inlineFile, imageNow)));
     if (shouldRemoveOldInline) {
         payload.attachments = originalAttachments
