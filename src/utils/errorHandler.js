@@ -318,12 +318,18 @@ async function sendErrorResponse(interaction, embed, context = {}) {
         const showCloseButton = autoDelete
             ? false
             : (ticketPermissionDenied ? false : gamblingPolicy?.showCloseButton ?? context.showCloseButton);
-        const errorMessage = markBotResponsePayload({
+        const payload = {
             embeds: [embed],
             components: showCloseButton !== false && interaction.user?.id
                 ? [buildCloseButtonRow(interaction.user.id)]
                 : [],
-        });
+        };
+        // Builder errors belong to its private editor UI, not the runtime
+        // template overlay system (which could display a ticket-limit title).
+        const builderAction = interaction?.commandName === 'embedbuilder'
+            || context.command === 'embedbuilder'
+            || /^simple_embed_/.test(String(interaction?.customId || ''));
+        const errorMessage = builderAction ? payload : markBotResponsePayload(payload);
 
         if (interaction._isPrefixCommand) {
             if (coordinator?.hasResponded()) {
@@ -435,7 +441,10 @@ export async function handleInteractionError(interaction, error, context = {}) {
 
     // System errors include a reference code; the response policy controls deletion.
     const isUserError = USER_ERROR_TYPES.has(errorType) || error?.context?.expected === true;
-    const description = isUserError
+    const builderAction = interaction?.commandName === 'embedbuilder'
+        || context.command === 'embedbuilder'
+        || /^simple_embed_/.test(String(interaction?.customId || ''));
+    const description = isUserError || builderAction
         ? userMessage
         : `${userMessage}\n\n-# Ref: \`${buildErrorReference(resolvedErrorCode, traceId)}\``;
 

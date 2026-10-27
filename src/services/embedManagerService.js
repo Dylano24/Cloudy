@@ -3218,7 +3218,12 @@ export async function saveModifiedEmbed(guild, state) {
     }
 
     state.modifyTarget.sourceEmbedData = current;
-    if (state.modifyTarget.previewSourceData) {
+    if (target.source === 'embed-builder' && !target.templateMode) {
+        // The edited Discord embed is the single canonical physical record.
+        // Rebuilding its preview from old selection data left stale colors and
+        // removed fields behind after Save, until another Search/Save cycle.
+        state.modifyTarget.previewSourceData = { ...current };
+    } else if (state.modifyTarget.previewSourceData) {
         const nextPreview = { ...state.modifyTarget.previewSourceData };
         if (state.title) nextPreview.title = state.title;
         else delete nextPreview.title;

@@ -262,6 +262,11 @@ async function replaceSaveFeedback(interaction, message, payload) {
 }
 
 
+// Builder confirmations and errors are session UI, not runtime Cloudy response
+// templates. Tagging these payloads as bot responses can replace their title
+// with unrelated saved catalog texts (for example a ticket-limit warning).
+function builderUiPayload(payload) { return payload; }
+
 const BUILDER_DELETE_MISSING_CODES = new Set([10003, 10008]);
 
 function builderDeleteTargetKey(target) {
@@ -720,10 +725,10 @@ async function finishExistingEmbedSave(buttonInteraction, guild, state) {
             : !state.modifyTarget || String(state.modifyTarget.messageId).startsWith('draft-')
                 ? 'The embed could not be saved permanently. Your draft is still open. Please try Save again.'
                 : 'The existing embed could not be updated. It may have been deleted or Cloudy may no longer have access.';
-        const failure = await buttonInteraction.followUp(markBotResponsePayload({
+        const failure = await buttonInteraction.followUp(builderUiPayload({
             content: null,
             embeds: [new EmbedBuilder()
-                .setTitle('Could not save changes')
+                .setTitle('Something went wrong')
                 .setDescription(failureMessage)
                 .setColor(getColor('error'))],
             flags: MessageFlags.Ephemeral,
@@ -1594,7 +1599,7 @@ async function editMedia(buttonInteraction, state) {
     const mediaKind = getMediaKind(uploadedMedia);
 
     if (!mediaKind) {
-        const invalidMediaMessage = await submitted.reply(markBotResponsePayload({
+        const invalidMediaMessage = await submitted.reply(builderUiPayload({
             embeds: [
                 new EmbedBuilder({
                     title: 'Invalid media file',
@@ -1631,7 +1636,7 @@ async function editMedia(buttonInteraction, state) {
                         ? 'The converted GIF is too large. Try a shorter video.'
                         : 'Cloudy could not convert that video to a GIF.';
 
-            const failedMessage = await submitted.followUp(markBotResponsePayload({
+            const failedMessage = await submitted.followUp(builderUiPayload({
                 embeds: [
                     new EmbedBuilder()
                         .setTitle('Video conversion failed')
@@ -1740,7 +1745,7 @@ async function browseOwnerServers(buttonInteraction, rootInteraction, state) {
     const sharedGuilds = await getSharedOwnerGuilds(buttonInteraction.client, buttonInteraction.user.id);
 
     if (!sharedGuilds.length) {
-        const noServersMessage = await buttonInteraction.followUp(markBotResponsePayload({
+        const noServersMessage = await buttonInteraction.followUp(builderUiPayload({
             embeds: [
                 new EmbedBuilder()
                     .setTitle('No shared servers found')
@@ -2334,7 +2339,7 @@ export default {
                                 buttonInteraction.member,
                             );
                             if (!reposted.ok) {
-                                const failure = await buttonInteraction.followUp(markBotResponsePayload({
+                                const failure = await buttonInteraction.followUp(builderUiPayload({
                                     embeds: [new EmbedBuilder()
                                         .setTitle('Something went wrong')
                                         .setDescription(
@@ -2404,12 +2409,15 @@ export default {
                     // interaction makes replyUserError edit the original builder reply,
                     // which can replace the whole builder with the error embed.
                     if (!buttonInteraction.replied && !buttonInteraction.deferred) {
-                        await replyUserError(buttonInteraction, {
-                            type: ErrorTypes.UNKNOWN,
-                            message: 'The message builder could not complete that action.',
-                        }).catch(() => {});
+                        await buttonInteraction.reply(builderUiPayload({
+                            embeds: [new EmbedBuilder()
+                                .setTitle('Something went wrong')
+                                .setDescription('The message builder could not complete that action. The builder is still open.')
+                                .setColor(getColor('error'))],
+                            flags: MessageFlags.Ephemeral,
+                        })).catch(() => {});
                     } else {
-                        const errorMessage = await buttonInteraction.followUp(markBotResponsePayload({
+                        const errorMessage = await buttonInteraction.followUp(builderUiPayload({
                             embeds: [new EmbedBuilder()
                                 .setTitle('Something went wrong')
                                 .setDescription('The message builder could not complete that action. The builder is still open.')
