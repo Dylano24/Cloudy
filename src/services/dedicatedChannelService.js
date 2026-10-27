@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'disc
 import { fetchGuildChannels } from '../utils/guildChannelFetch.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { getFromDb, setInDb } from '../utils/database.js';
-import { logger } from '../utils/logger.js';
+import { logger, startupLog } from '../utils/logger.js';
 import { ECONOMY_COMMAND_NAMES, EARN_MONEY_COMMAND_NAMES } from '../config/gamblingCommands.js';
 import { createStickyGuideManager } from './stickyGuideService.js';
 import { findDedicatedChannelBySlug as findBySlug, rememberDedicatedCommandChannel } from './dedicatedChannelPolicy.js';
@@ -101,19 +101,9 @@ export function buildDedicatedGuidePayload(key, existing = null) {
   const rule = CHANNEL_RULES[key];
   const embeds = existing?.embeds?.length
     ? existing.embeds.map(embed => embed.toJSON()) : [buildGuideEmbed(rule).toJSON()];
-  const legacy = existing && embeds.some(embed => /^(?:shop commands|gambling & games)$/i.test(embed.title || ''));
-  if (legacy) {
-    for (const embed of embeds) {
-      if (/^(?:shop commands|gambling & games)$/i.test(embed.title || '')) {
-        embed.title = rule.guideTitle;
-        embed.description = rule.guideDescription;
-        delete embed.fields;
-      }
-    }
-  }
-  const components = !existing || legacy ? [new ActionRowBuilder().addComponents(
+  const components = existing ? existing.components || [] : [new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dedicated_commands:${key}`).setLabel('Commands').setStyle(ButtonStyle.Secondary),
-  )] : existing.components || [];
+  )];
   return {
     content: existing?.content || undefined,
     embeds, components,
@@ -129,15 +119,6 @@ function guideManager(key, isGuide) {
     isGuide,
     onError: error => logger.warn(`${key} guide refresh failed: ${error.message}`),
     everyNMessages: 5,
-    async prepareExisting(message) {
-      // The user requested replacing these two legacy panels. Once upgraded,
-      // preserve subsequent manual Builder edits and all other guides.
-      if (!message.embeds.some(embed => /^(?:shop commands|gambling & games)$/i.test(embed.title || ''))) return message;
-      const { embeds, components } = buildDedicatedGuidePayload(key, message);
-      const updated = await message.edit({ embeds, components });
-      logger.info(`Updated ${key} Commands panel ${message.id}`);
-      return updated;
-    },
     buildPayload: (_channel, existing) => buildDedicatedGuidePayload(key, existing),
   });
 }
@@ -165,18 +146,21 @@ async function ensureGuideMessage(guild, key) {
   const channel = await resolveDedicatedChannel(guild, key);
   if (!rule || !channel?.messages?.fetch) return false;
 
-  if (key === 'shop') {
-    return shopGuideManager.refresh(channel).catch(error => {
-      logger.warn(`Shop guide setup failed: ${error.message}`);
+  if (['shop', 'gambling'].includes(key)) {
+    const manager = key === 'shop' ? shopGuideManager : gamblingGuideManager;
+    try {
+      const refreshed = await manager.refresh(channel);
+      if (!refreshed) return false;
+      const state = await getFromDb(guideStorageKey(channel), null);
+      const message = state?.messageId ? await channel.messages.fetch({ message: state.messageId, force: true }) : null;
+      const ready = Boolean(message?.components?.some(row => row.components?.some(button => button.customId === `dedicated_commands:${key}`)));
+      if (ready) startupLog(`${key} Commands panel verified: ${message.id}`);
+      else logger.warn(`${key} Commands panel is missing its Commands button`);
+      return ready;
+    } catch (error) {
+      logger.warn(`${key} guide setup failed: ${error.message}`);
       return false;
-    });
-  }
-
-  if (key === 'gambling') {
-    return gamblingGuideManager.refresh(channel).catch(error => {
-      logger.warn(`Gambling guide setup failed: ${error.message}`);
-      return false;
-    });
+    }
   }
 
   const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);

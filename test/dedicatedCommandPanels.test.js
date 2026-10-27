@@ -5,13 +5,10 @@ import { buildDedicatedGuidePayload } from '../src/services/dedicatedChannelServ
 import panels from '../src/interactions/buttons/dedicatedCommands.js';
 
 for (const key of ['gambling', 'shop']) {
-  test(`${key} panel is compact with a Commands button and preserves styling on upgrade`, () => {
-    const old = { embeds: [new Embed({ title: key === 'shop' ? 'Shop commands' : 'Gambling & Games', description: 'Old list', color: 123, image: { url: 'https://example.com/banner.gif' } })] };
-    const result = buildDedicatedGuidePayload(key, old);
+  test(`${key} panel is compact with a Commands button`, () => {
+    const result = buildDedicatedGuidePayload(key);
     assert.equal(result.embeds[0].title, key === 'shop' ? 'Shop & Economy' : 'Games & Economy');
     assert.ok(!result.embeds[0].description.includes('/balance'));
-    assert.equal(result.embeds[0].image.url, 'https://example.com/banner.gif');
-    assert.equal(result.embeds[0].color, 123);
     assert.equal(result.components[0].toJSON().components[0].custom_id, `dedicated_commands:${key}`);
   });
   test(`${key} Commands opens only the requested categories privately for exactly 5 minutes`, async t => {
