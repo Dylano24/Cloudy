@@ -23,25 +23,25 @@ test('text-only Save reuses the original GIF inside the embed instead of an exte
   assert.equal(payload.embeds[0].title, 'YES2');
 });
 
-test('changed or cleared media removes only its old inline file; unrelated files remain', () => {
+test('changing/removing media is untouched, including unrelated attachments', () => {
   const extra = { id: '185555555555551115', name: 'guide.pdf',
     url: 'https://cdn.discordapp.com/attachments/' + channelId + '/185555555555551115/guide.pdf' };
   const message = makeMessage();
   message.attachments.set(extra.id, extra);
   const replaced = { embeds: [{ title: 'YES2', image: { url: 'https://images.example.org/new.gif' } }] };
   preserveExistingEmbedBannerAttachment(message, replaced, 0);
-  assert.deepEqual(replaced.attachments, [{ id: extra.id }]);
+  assert.equal('attachments' in replaced, false);
   assert.equal(replaced.embeds[0].image.url, 'https://images.example.org/new.gif');
   const cleared = { embeds: [{ title: 'YES2' }] };
   preserveExistingEmbedBannerAttachment(message, cleared, 0);
-  assert.deepEqual(cleared.attachments, [{ id: extra.id }]);
+  assert.equal('attachments' in cleared, false);
 });
 
 test('a newly converted video upload does not retain the old GIF', () => {
   const payload = { embeds: [{ title: 'YES2', image: { url: 'attachment://new.gif' } }],
     files: [{ attachment: Buffer.from('GIF89a'), name: 'new.gif' }] };
   preserveExistingEmbedBannerAttachment(makeMessage(), payload, 0, { newUpload: true });
-  assert.deepEqual(payload.attachments, []);
+  assert.equal('attachments' in payload, false, 'existing upload behavior is preserved');
   assert.equal(payload.embeds[0].image.url, 'attachment://new.gif');
   assert.equal(payload.files.length, 1);
 });
