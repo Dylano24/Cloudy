@@ -6,7 +6,9 @@ import { db } from '../src/utils/database.js';
 import {
   saveModifiedEmbed, loadRecordSnapshotIntoState, getCanonicalBuilderRecords, collapseDisplayRecords,
 } from '../src/services/embedManagerService.js';
-import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
+import {
+  getEmbedRegistry, purgeEmbedRegistryRecord, registerCloudyEmbedMessage, isRecentlyPurgedMessage,
+} from '../src/services/embedRegistryService.js';
 import { buildMatches, buildSearchChoices } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 const guildId = 'builder-noop-gif-sync-20261027';
@@ -285,4 +287,36 @@ test('simultaneous Saves of the same message cannot send a stale second PATCH', 
   assert.equal(results[1].reason, 'stale-editor');
   assert.equal(message.editCalls.length, 1);
   assert.equal(message.embeds[0].title, 'First committed change');
+});
+
+test('Delete persists immutable message tombstone and rejects a delayed gateway registration', async t => {
+  const { state, message, guild, storage } = fixture(t);
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.equal((await getEmbedRegistry(guildId)).length, 1);
+  assert.equal(await purgeEmbedRegistryRecord(guildId, channelId, messageId, null), true);
+  const deletes = storage.get('cloudy:embed-registry-deleted:' + guildId);
+  assert.equal(deletes[channelId + ':' + messageId], true);
+  assert.equal(isRecentlyPurgedMessage({ guildId, channelId, messageId }), true);
+  assert.equal(await registerCloudyEmbedMessage(message, 'embed-builder', { manualSave: true }), true);
+  assert.deepEqual(await getEmbedRegistry(guildId), []);
+});
+
+test('cold guild hydrates persisted Delete before exposing or accepting old records', async t => {
+  const { storage, message } = fixture(t);
+  const coldGuildId = 'builder-cold-restart-tombstones-20261027';
+  const oldRecord = {
+    guildId: coldGuildId, channelId, messageId, embedIndex: 0,
+    source: 'embed-builder', manualSaved: true,
+    title: 'Old ghost', name: 'Old ghost',
+    snapshot: { title: 'Old ghost', color: 0xFFFFFF },
+  };
+  storage.set('cloudy:embed-registry:' + coldGuildId, [oldRecord]);
+  storage.set('cloudy:embed-registry-deleted:' + coldGuildId, {
+    [channelId + ':' + messageId]: true,
+  });
+  assert.deepEqual(await getEmbedRegistry(coldGuildId), []);
+  assert.equal(isRecentlyPurgedMessage(oldRecord), true);
+  const late = { ...message, guildId: coldGuildId };
+  assert.equal(await registerCloudyEmbedMessage(late, 'embed-builder', { manualSave: true }), true);
+  assert.deepEqual(await getEmbedRegistry(coldGuildId), []);
 });
