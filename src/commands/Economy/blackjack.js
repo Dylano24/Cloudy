@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
+import { normalizeEconomyPayload } from '../../utils/economyGamblingPresentation.js';
 import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -91,7 +92,7 @@ async function embed(state, result = null) {
 }
 
 async function payload(state, result = null, ended = false) {
-  return { embeds: [await embed(state, result)], components: controls(state, ended), attachments: [] };
+  return normalizeEconomyPayload({ embeds: [await embed(state, result)], components: controls(state, ended), attachments: [] });
 }
 
 function dealerDraw(state) { while (score(state.dealer) < 17) state.dealer.push(draw(state)); }
