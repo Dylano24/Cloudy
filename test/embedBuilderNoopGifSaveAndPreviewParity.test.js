@@ -8,6 +8,7 @@ import {
 } from '../src/services/embedManagerService.js';
 import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
 import { buildMatches, buildSearchChoices } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
+import { buildPostedEmbeds } from '../src/commands/Tools/embedbuilder.js';
 
 const guildId = 'builder-noop-gif-sync-20261027';
 const channelId = '187777777777777771';
@@ -248,4 +249,57 @@ test('distinct owner posts with an identical title remain distinct physical choi
   const collapsed = collapseDisplayRecords(records, channelId);
   assert.equal(collapsed.length, 2);
   assert.ok(collapsed.every(record => !record.templateMode));
+});
+
+test('Post uses the current preview title, content, fields, banner and untouched custom logo', () => {
+  const customLogoUrl = 'https://example.com/custom-logo.png';
+  const state = {
+    title: 'test 2', message: 'The latest edited message', sideColor: 0xCC3344,
+    bottomLine: 'Updated footer', showLogo: true, logoTouched: false,
+    embedFields: [{ name: 'Updated field', value: 'New value', inline: true }],
+    mediaUrl: 'https://example.com/new-banner.gif', mediaBuffer: null,
+    modifyTarget: {
+      detached: false, messageId, source: 'embed-builder',
+      sourceEmbedData: { title: 'test 1', thumbnail: { url: customLogoUrl } },
+      previewSourceData: { title: 'test 1', thumbnail: { url: customLogoUrl } },
+    },
+  };
+  const posted = buildPostedEmbeds(state).map(embed => embed.toJSON());
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].title, 'test 2');
+  assert.equal(posted[0].description, 'The latest edited message');
+  assert.equal(posted[0].color, 0xCC3344);
+  assert.equal(posted[0].thumbnail.url, customLogoUrl);
+  assert.equal(posted[0].image.url, 'https://example.com/new-banner.gif');
+  assert.deepEqual(posted[0].fields, [{ name: 'Updated field', value: 'New value', inline: true }]);
+  assert.match(posted[0].footer.text, /^Updated footer/);
+});
+
+test('Search keeps one test label but selects latest saved message, not old test', () => {
+  const old = {
+    guildId, channelId, messageId: '187777777777777772',
+    source: 'embed-builder', manualSaved: true, title: 'test', name: 'test',
+    updatedAt: '2026-10-26T10:00:00.000Z',
+    snapshot: { title: 'test', description: 'Original saved content' },
+  };
+  const latest = {
+    ...old, messageId: '187777777777777779',
+    updatedAt: '2026-10-27T10:00:00.000Z',
+    snapshot: { title: 'test', description: 'Latest saved content' },
+  };
+  for (const ordered of [[old, latest], [latest, old]]) {
+    const choices = buildSearchChoices(ordered.map(record => ({
+      record, document: { title: 'test' },
+    })));
+    assert.deepEqual(choices, [{
+      name: 'test', value: channelId + ':' + latest.messageId + ':0',
+    }]);
+  }
+  // Even old rows without updatedAt use Discord's ordered message IDs.
+  const legacy = { ...old, updatedAt: undefined };
+  const newer = { ...latest, updatedAt: undefined };
+  const choices = buildSearchChoices([legacy, newer].map(record => ({
+    record, document: { title: 'test' },
+  })));
+  assert.equal(choices[0].value, channelId + ':' + newer.messageId + ':0');
 });
