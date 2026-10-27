@@ -56,8 +56,9 @@ test('only economy and gambling commands are changed, not unrelated embeds', () 
   assert.strictEqual(manual, payload);
   assert.strictEqual(ticket, payload);
   assert.strictEqual(manual.embeds[0], embed);
-  assert.equal(normalizeEconomyInteractionPayload({ commandName: 'balance' }, payload).embeds[0].title, 'The bank');
-  assert.equal(normalizeEconomyInteractionPayload({ commandName: 'roulette' }, payload).embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
+  assert.strictEqual(normalizeEconomyInteractionPayload({ commandName: 'balance', channel: { name: 'general' } }, payload), payload);
+  assert.equal(normalizeEconomyInteractionPayload({ commandName: 'balance', channelId: '1533188412507558130' }, payload).embeds[0].title, 'The bank');
+  assert.equal(normalizeEconomyInteractionPayload({ commandName: 'roulette', channelId: '200000000000000001', channel: { name: 'gambling-and-bets' } }, payload).embeds[0].thumbnail.url, CLOUDY_LOGO_URL);
 });
 
 test('supports discord.js EmbedBuilder and preserves author, footer and banner', () => {
