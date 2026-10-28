@@ -153,7 +153,9 @@ test('strict registry peek rejects snapshots invalidated by deletion and returns
   first[0].snapshot.title = 'Local draft';
   assert.equal(peekEmbedRegistry(record.guildId, { current: true })[0].snapshot.title, 'Rules panel');
   await removeEmbedRegistryRecord(record.guildId, record.channelId, record.messageId);
-  assert.equal(peekEmbedRegistry(record.guildId, { current: true }), null,
+  // The removal publishes its own committed result: the pre-delete live row
+  // can never satisfy a fresh channel browser, and no extra read is needed.
+  assert.equal(peekEmbedRegistry(record.guildId, { current: true })[0].detached, true,
     'a pre-delete cache cannot satisfy a fresh channel browser');
   await getEmbedRegistry(record.guildId);
   assert.equal(peekEmbedRegistry(record.guildId, { current: true })[0].detached, true,

@@ -23,6 +23,38 @@ async function loadIndexedRules(prefix, ids) {
   })));
 }
 
+// A Reappear rule follows its embed through every move. Any physical ID it
+// ever had (origin, current or an earlier copy) identifies the same rule.
+function ruleOwnsMessage(originMessageId, config, messageId) {
+  const id = String(messageId || '');
+  if (!id) return false;
+  return originMessageId === id
+    || String(config?.messageId || '') === id
+    || String(config?.originMessageId || '') === id
+    || (Array.isArray(config?.previousMessageIds) && config.previousMessageIds.map(String).includes(id));
+}
+
+// Read-only lookup of the active (not disabled) Reappear rule of one embed.
+export async function findExistingEmbedReappearRule({ guildId, channelId, messageId, embedIndex = 0 }) {
+  const guild = String(guildId || '').trim();
+  const channel = String(channelId || '').trim();
+  const activeId = String(messageId || '').trim();
+  const index = Math.max(0, Number(embedIndex) || 0);
+  if (!guild || !channel || !activeId) return null;
+  const prefix = `cloudy:embed-reappear:${guild}:${channel}:`;
+  const indexedIds = normalizeIndex(await getFromDb(`cloudy:embed-reappear-index:${guild}:${channel}`, []));
+  if (!indexedIds.length) return null;
+  const rules = await loadIndexedRules(prefix, indexedIds);
+  const existing = rules.find(({ originMessageId, config }) =>
+    config?.every && ruleOwnsMessage(originMessageId, config, activeId)
+    && Math.max(0, Number(config.embedIndex) || 0) === index) || null;
+  if (!existing) return null;
+  const disabled = await getFromDb(
+    `cloudy:embed-reappear-disabled:${guild}:${channel}:${existing.originMessageId}:${index}`, null,
+  );
+  return disabled ? null : { originMessageId: existing.originMessageId, ...existing.config };
+}
+
 export async function relinkExistingEmbedReappearRule({
   guildId,
   channelId,
@@ -49,9 +81,7 @@ export async function relinkExistingEmbedReappearRule({
 
   const indexedRules = await loadIndexedRules(prefix, indexedIds);
   const existing = indexedRules.find(({ originMessageId, config }) =>
-    originMessageId === previousId
-    || String(config?.messageId || '') === previousId
-    || String(config?.originMessageId || '') === previousId
+    ruleOwnsMessage(originMessageId, config, previousId)
   ) || null;
   if (!existing?.config) return { ok: true, linked: false };
 
@@ -67,6 +97,10 @@ export async function relinkExistingEmbedReappearRule({
     channelId: channel,
     messageId: nextId,
     originMessageId,
+    previousMessageIds: [...new Set([
+      ...(Array.isArray(existing.config.previousMessageIds) ? existing.config.previousMessageIds.map(String) : []),
+      previousId,
+    ])].slice(-50),
     embedIndex: index,
     count: 0,
     embed: asPlain(embed, existing.config.embed),
@@ -158,9 +192,7 @@ export async function syncExistingEmbedReappearRule({
   const indexedRules = await loadIndexedRules(prefix, indexedIds);
 
   const existing = indexedRules.find(({ originMessageId, config }) =>
-    originMessageId === activeMessageId
-    || String(config?.messageId || '') === activeMessageId
-    || String(config?.originMessageId || '') === activeMessageId
+    ruleOwnsMessage(originMessageId, config, activeMessageId)
   ) || null;
 
   const originMessageId = existing?.originMessageId || activeMessageId;

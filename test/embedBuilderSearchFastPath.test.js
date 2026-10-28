@@ -56,8 +56,9 @@ test('Search autocomplete fast path merges cached canonical Builder records and 
   assert.ok(fastStart >= 0 && fastEnd > fastStart);
   const fast = source.slice(fastStart, fastEnd);
 
-  assert.match(fast, /peekEmbedRegistry\(guildId\)/);
-  assert.match(fast, /const known = peekEmbedRegistry\(guildId\)/);
+  // Read-only peek: ranking does not deep-copy the registry per keystroke.
+  assert.match(fast, /peekEmbedRegistry\(guildId(?:, \{ clone: false \})?\)/);
+  assert.match(fast, /const known = peekEmbedRegistry\(guildId(?:, \{ clone: false \})?\)/);
   assert.match(fast, /cached\?\.generation === generation/);
   assert.match(fast, /cached\?\.records\?\.length/);
   assert.match(fast, /fastSearchCache\.set\(guildId/);

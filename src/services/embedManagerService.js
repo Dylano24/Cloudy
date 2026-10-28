@@ -1,13 +1,14 @@
 // CLOUDY_INTERACTION_LATENCY_V1
 // BUILDER_SAVED_PARITY_V1
 import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
-import { withEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
+import { acquireEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
 import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from './embedMediaStorageService.js';
 import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
     isLegacyBalanceParserArtifact } from './balanceResponseIdentity.js';
 import { normalizeManualIndent } from '../utils/manualEmbedIndent.js';
+import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../utils/builderOwnedSends.js';
 import { commercialBuilderTitle } from '../utils/builderCommercialTitle.js';
 import { stampTermsFooterOnSave } from './termsWebsiteFooterService.js';
 import { withManualBuilderPostLogoChoice, withManualBuilderSaveLogoChoice } from '../utils/cloudyFooter.js';
@@ -37,6 +38,7 @@ import {
     reconcileEmbedRegistry,
     relinkDetachedEmbedRegistryMessage,
     removeEmbedRegistryRecord,
+    resolveMovedEmbedMessageId,
     isRecentlyPurgedMessage,
     updateDetachedEmbedRegistrySnapshot,
     saveNewBuilderDraftRecord,
@@ -1320,6 +1322,8 @@ export function loadRecordSnapshotIntoState(
         templateKind,
         catalogTitle: templateSourceData.title || data.title || null,
         detached: Boolean(record.detached),
+        // Carried to a Repost so a deliberately Saved item stays Saved.
+        ...(Object.hasOwn(record, 'explicitSave') ? { explicitSave: record.explicitSave === true } : {}),
         cachedMessage: null,
     };
     if (record.source === 'embed-builder') loadBuilderComponentsFromRecord(state, record);
@@ -2772,11 +2776,12 @@ export async function repostDetachedEmbed(guild, state, member = null) {
         ...(components.length ? { components } : {}),
     };
 
-    const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload)).catch(error => {
+    const sent = await withManualBuilderPostLogoChoice(() => channel.send(withBuilderOwnedNonce(payload))).catch(error => {
         logger.error('Failed to repost detached Builder embed:', error);
         return null;
     });
     if (!sent) return { ok: false, reason: 'send-failed' };
+    rememberBuilderOwnedMessage(sent);
 
     const reappearRelink = await relinkExistingEmbedReappearRule({
         guildId: guild.id,
@@ -2995,13 +3000,43 @@ function syncSavedManualBuilderEditorState(state, target, data) {
     state.removeExistingLogo = false;
 }
 
+// Reappear may have moved the selected Builder item to a new physical
+// message while this Builder was open. Follow that same identity instead of
+// failing the Save against the old (deleted) message ID.
+export function followMovedBuilderTarget(guildId, target) {
+    if (!guildId || !target?.messageId || target.detached || target.source !== 'embed-builder') return null;
+    const channelId = String(target.backingChannelId || target.channelId || '');
+    const from = String(target.messageId);
+    const to = resolveMovedEmbedMessageId(guildId, channelId, from);
+    if (!to || to === from) return null;
+    target.messageId = to;
+    target.embedIndex = 0;
+    target.cachedMessage = null;
+    if (target.liveLogoSource && String(target.liveLogoSource.messageId) === from) {
+        target.liveLogoSource = { ...target.liveLogoSource, messageId: to, embedIndex: 0 };
+    }
+    return { from, to };
+}
+
 export async function saveModifiedEmbed(guild, state) {
     const target = state?.modifyTarget;
     if (!guild?.id || !target?.messageId || target.detached) return saveModifiedEmbedUnlocked(guild, state);
-    return withEmbedBuilderMessageMutation(
-        guild.id, target.backingChannelId || target.channelId, target.messageId,
-        () => saveModifiedEmbedUnlocked(guild, state),
-    );
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        followMovedBuilderTarget(guild.id, target);
+        const lockedMessageId = String(target.messageId);
+        const release = await acquireEmbedBuilderMessageMutation(
+            guild.id, target.backingChannelId || target.channelId, lockedMessageId,
+        );
+        try {
+            // A move may have completed while this Save waited for the lock.
+            followMovedBuilderTarget(guild.id, target);
+            if (String(target.messageId) !== lockedMessageId) continue;
+            return await saveModifiedEmbedUnlocked(guild, state);
+        } finally {
+            release();
+        }
+    }
+    return { ok: false, reason: 'message-missing' };
 }
 
 async function saveModifiedEmbedUnlocked(guild, state) {
@@ -3012,8 +3047,12 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     markSave('editor_ready');
     // Read the actual selected message before Save when no logo button was
     // pressed. This prevents a stale registry thumbnail being restored by a
-    // seemingly unrelated Save.
-    if (state?.modifyTarget && !state.logoTouched) {
+    // seemingly unrelated Save. An owner-posted Builder message is fetched
+    // authoritatively below and inherits its untouched live thumbnail field
+    // by field, so a second Discord read here would only add latency.
+    const ownerPostedTarget = state?.modifyTarget?.source === 'embed-builder'
+        && !state.modifyTarget.templateMode && !state.modifyTarget.detached;
+    if (state?.modifyTarget && !state.logoTouched && !ownerPostedTarget) {
         await syncBuilderLogoFromLiveMessage(guild, state, { cacheTargetMessage: true });
     }
     markSave('logo_ready');
@@ -3085,6 +3124,16 @@ async function saveModifiedEmbedUnlocked(guild, state) {
         return null;
     });
     if (!message) {
+        // The owner's physical post was deleted in Discord: apply the normal
+        // deletion semantics (Saved template kept, posted-only item removed)
+        // and never treat this Save as a new detached ghost.
+        if (authoritativeFetch && Number(fetchError?.code) === 10008 && liveState.modifyTarget === target) {
+            await removeEmbedRegistryRecord(guild.id, target.channelId, target.messageId, target.embedIndex)
+                .catch(() => false);
+            target.detached = true;
+            target.cachedMessage = null;
+            liveState.modifyTarget.detached = true;
+        }
         // Only Discord's definitive Unknown Message code proves the old
         // catalog post is gone. Permission failures and transient network
         // errors must not silently fall back to a template-only Save.
@@ -3258,7 +3307,7 @@ async function saveModifiedEmbedUnlocked(guild, state) {
         // Still synchronize this single physical record so Search reopens the
         // same current title, body, media, and styling as channel Modify.
         const registered = await registerCloudyEmbedMessage(message, 'embed-builder', {
-            manualSave: true, manualSaveIndex: index,
+            manualSave: true, manualSaveIndex: index, explicitSave: true,
         }).catch(() => false);
         if (!registered) return { ok: false, reason: 'persistence-failed' };
         target.sourceEmbedData = original;
@@ -3431,7 +3480,9 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     const registrySource = target.source === 'embed-builder'
         ? 'embed-builder'
         : (target.templateMode ? 'modified-template' : 'modified');
-    const registered = await registerCloudyEmbedMessage(edited, registrySource, { manualSave: true, manualSaveIndex: index })
+    const registered = await registerCloudyEmbedMessage(edited, registrySource, {
+        manualSave: true, manualSaveIndex: index, explicitSave: true,
+    })
         .catch(error => {
             logger.error('Failed to refresh modified embed registry:', error);
             return false;

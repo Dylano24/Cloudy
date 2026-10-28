@@ -8,6 +8,7 @@ import { applySavedEmbedTemplates } from '../services/embedTemplateService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
 import { scheduleTransientMessageDeletion } from '../utils/transientResponse.js';
+import { isBuilderOwnedMessage } from '../utils/builderOwnedSends.js';
 
 const REVIEW_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const FIXED_LOG_CHANNEL_IDS = new Set([
@@ -48,6 +49,12 @@ export default {
     // embeds. They must receive a saved Builder template even when they are
     // intentionally excluded from the Builder registry itself.
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return;
+
+    // An Embed Builder post (or its Reappear move) is owner-authored content.
+    // It is registered by the Builder itself with its own identity; generic
+    // template/branding passes must never restyle it (colour, logo, title)
+    // and a status-like title must not make it a 10-second transient reply.
+    if (isBuilderOwnedMessage(message)) return;
 
     scheduleTransientMessageDeletion(message);
 
