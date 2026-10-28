@@ -101,6 +101,17 @@ export function buildDedicatedGuidePayload(key, existing = null) {
   const rule = CHANNEL_RULES[key];
   const embeds = existing?.embeds?.length
     ? existing.embeds.map(embed => embed.toJSON()) : [buildGuideEmbed(rule).toJSON()];
+  // Normalize the title BEFORE Discord gets the payload. An older Builder
+  // template may return lowercase even though the guide source is uppercase.
+  // Keep every other embed property and every custom guide unchanged.
+  if (key === 'gambling') {
+    for (const embed of embeds) {
+      if (embed?.description === GAMBLING_GUIDE_DESCRIPTION
+        && /^Games & economy$/i.test(String(embed.title || ''))) {
+        embed.title = rule.guideTitle;
+      }
+    }
+  }
   const components = existing ? existing.components || [] : [new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dedicated_commands:${key}`).setLabel('Commands').setStyle(ButtonStyle.Secondary),
   )];
