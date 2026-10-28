@@ -2039,6 +2039,9 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
             return;
         }
 
+        // Completing Post must not end the *root* Builder collector.
+        // Its Close message button remains visible and must still be handled.
+        // Only the channel-picker collector is complete after this post.
         collector.stop('posted');
         const successPayload = markBotResponsePayload({
             embeds: [isRepost
@@ -2056,7 +2059,13 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         // Never delete it (or its original picker) with a cleanup timer.
         state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
-        state.finishBuilder?.('posted');
+        // The user may still click Close message, edit this draft, or open
+        // Modify after posting. Stopping the root collector here left visible
+        // Close/Reset/Delete buttons that Discord could no longer acknowledge.
+        // Keep that session alive until explicit Close, Reset or idle expiry.
+        void refreshBuilder(buttonInteraction, state).catch(error => {
+            logger.warn('[EMBED_BUILDER] Post-session dashboard refresh failed:', error);
+        });
     });
 }
 
