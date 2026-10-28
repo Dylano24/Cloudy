@@ -23,6 +23,7 @@ import {
     resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
 import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
+import { refreshManualBuilderSearchRecord } from '../../services/embedBuilderPhysicalSearchService.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
 import { FAQ_AI_BUTTON_ID } from '../../services/faqAiService.js';
@@ -1864,6 +1865,28 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
         record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
     }
     if (isSearchDeleteHidden(record)) return null;
+    if (record.source === 'embed-builder' && record.manualSaved === true
+        && !record.detached && interaction.guild) {
+        // The autocomplete suggestion may precede a physical Discord edit.
+        // Verify this selected message ID only (never merge same-title
+        // messages), with a hard bound so slow REST cannot stall the editor.
+        let refreshTimer;
+        const verified = await Promise.race([
+            refreshManualBuilderSearchRecord(interaction.guild, record)
+                .catch(error => {
+                    logger.warn('[EMBED_SEARCH] Current physical preview unavailable:', error);
+                    return record;
+                }),
+            new Promise(resolve => {
+                refreshTimer = setTimeout(() => resolve(record), 850);
+                refreshTimer.unref?.();
+            }),
+        ]).finally(() => clearTimeout(refreshTimer));
+        if (verified) record = verified;
+        // Old peers or offered previews may still contain an obsolete title
+        // from the same physical ID; a manual Save owns its exact snapshot.
+        records = [record];
+    }
     markSelection('record_ready');
     const savedManualSnapshot = record.source === 'embed-builder'
         && record.manualSaved === true && record.snapshot
