@@ -5,55 +5,55 @@ import assert from 'node:assert/strict';
 // This test does not execute live Discord actions or require any token.
 const commands = [
   [
-    "src/commands/Moderation/dm.js",
+    "../src/commands/Moderation/dm.js",
     "dm"
   ],
   [
-    "src/commands/Moderation/lock.js",
+    "../src/commands/Moderation/lock.js",
     "lock"
   ],
   [
-    "src/commands/Moderation/unlock.js",
+    "../src/commands/Moderation/unlock.js",
     "unlock"
   ],
   [
-    "src/commands/Moderation/purge.js",
+    "../src/commands/Moderation/purge.js",
     "purge"
   ],
   [
-    "src/commands/Giveaway/gcreate.js",
+    "../src/commands/Giveaway/gcreate.js",
     "gcreate"
   ],
   [
-    "src/commands/Giveaway/gdelete.js",
+    "../src/commands/Giveaway/gdelete.js",
     "gdelete"
   ],
   [
-    "src/commands/Giveaway/gend.js",
+    "../src/commands/Giveaway/gend.js",
     "gend"
   ],
   [
-    "src/commands/Giveaway/greroll.js",
+    "../src/commands/Giveaway/greroll.js",
     "greroll"
   ],
   [
-    "src/commands/Economy/fish.js",
+    "../src/commands/Economy/fish.js",
     "fish"
   ],
   [
-    "src/commands/Economy/inventory.js",
+    "../src/commands/Economy/inventory.js",
     "inventory"
   ],
   [
-    "src/commands/Economy/mine.js",
+    "../src/commands/Economy/mine.js",
     "mine"
   ],
   [
-    "src/commands/Utility/todo.js",
+    "../src/commands/Utility/todo.js",
     "todo"
   ],
   [
-    "src/commands/Tools/randomuser.js",
+    "../src/commands/Tools/randomuser.js",
     "randomuser"
   ]
 ];
