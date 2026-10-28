@@ -142,6 +142,13 @@ export class DatabaseWrapper {
         return this.db.list(prefix);
     }
 
+    async transferEconomyFunds(guildId, senderId, receiverId, amount, initialData) {
+        if (!this.db || typeof this.db.transferEconomyFunds !== 'function') {
+            throw new Error('Atomic economy transfers require PostgreSQL');
+        }
+        return this.db.transferEconomyFunds(guildId, senderId, receiverId, amount, initialData);
+    }
+
     async exists(key) {
         if (this.db.exists) {
             return this.db.exists(key);
