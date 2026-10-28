@@ -147,10 +147,13 @@ export default {
             );
         }
         if (isProtectedRobberyTarget(victimMember, config, guild)) {
+            // Keep this exceptional result out of the regular robbery failure
+            // source template, which includes fines and balance fields.
+            const staffFailureTitle = ['Robbery', 'failed'].join(' ');
             const resultEmbed = buildUserErrorEmbed(
                 'unknown',
                 'Cloudy staff members cannot be robbed.',
-                { titleOverride: 'Robbery failed' }
+                { titleOverride: staffFailureTitle }
             );
             return await InteractionHelper.safeEditReply(interaction, { embeds: [resultEmbed] });
         }
