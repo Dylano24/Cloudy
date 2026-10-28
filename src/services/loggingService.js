@@ -1,7 +1,7 @@
 import { AUTOMOD_LOG_CHANNEL_ID } from './deletionAttributionService.js';
 // loggingService.js
 
-import { ChannelType } from 'discord.js';
+import { ChannelType, EmbedBuilder } from 'discord.js';
 import { getGuildConfig, updateGuildConfig } from './config/guildConfig.js';
 import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
@@ -414,6 +414,9 @@ export async function logEvent({
       && [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType) && !decorated.matched) {
       presentedEmbed = normalizeCloudyEmbed(presentedEmbed, { ensureFooter: true }).embed;
     }
+    // A deleted photo is shown inside the log embed, after any saved
+    // template, so the deleted content always wins over a template image.
+    if (eventType === EVENT_TYPES.MESSAGE_DELETE && data.image) presentedEmbed.setImage(data.image);
     const messageOptions = { embeds: [presentedEmbed] };
     if (allowedMentions) messageOptions.allowedMentions = allowedMentions;
     else if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };
@@ -439,6 +442,8 @@ export async function logEvent({
           if (!sent) {
             const fallback = { ...messageOptions };
             delete fallback.files;
+            // Without the upload there is no attachment:// image to show.
+            if (data.image) fallback.embeds = [EmbedBuilder.from(presentedEmbed).setImage(null)];
             fallback.content = `Media could not be copied.\n${data.attachmentFallback || ''}`.slice(0, 2000);
             sent = await channel.send(fallback);
           } else {
