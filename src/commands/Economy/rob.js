@@ -153,7 +153,7 @@ export default {
             const resultEmbed = buildUserErrorEmbed(
                 'unknown',
                 'Cloudy staff members cannot be robbed.',
-                { titleOverride: staffFailureTitle }
+                { titleOverride: staffFailureTitle, preserveText: true }
             );
             return await InteractionHelper.safeEditReply(interaction, { embeds: [resultEmbed] });
         }
