@@ -128,7 +128,6 @@ export async function logDeletedMessage(message, options = {}) {
 
   const metaLines = [
     formatLogLine('Deleted by', deletedBy.label),
-    formatLogLine('Type', deletedBy.type || 'Deleted'),
     formatLogLine('Channel', channelMention(channelId)),
     formatLogLine('Message ID', `\`${message.id}\``),
     formatLogLine('Message author', resolvedAuthorId ? `<@${resolvedAuthorId}>` : 'Unknown'),
@@ -150,9 +149,12 @@ export async function logDeletedMessage(message, options = {}) {
     messageBody = 'Content unavailable: this message was not cached before deletion.';
   }
 
+  // "Message created" stays the last header line; attachment names belong
+  // to the message itself.
   if (attachments.length > 0) {
     const names = attachments.map(attachment => attachment.name).filter(Boolean).join(', ');
-    metaLines.push(formatLogLine('Attachments', names ? `${attachments.length} (${names})`.slice(0, 900) : String(attachments.length)));
+    const summary = formatLogLine('Attachments', names ? `${attachments.length} (${names})`.slice(0, 300) : String(attachments.length));
+    messageBody = messageBody ? `${messageBody}\n\n${summary}` : summary;
     if (media.links.length) fullBody += `\n\nAttachments not copied:\n${media.links.join('\n')}`;
   }
 
