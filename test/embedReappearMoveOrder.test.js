@@ -76,6 +76,37 @@ test('Reappear retains the configured message count', async () => {
   assert.deepEqual(f.actions, ['delete:old', 'delay:2000', 'send']);
 });
 
+test('old deleted Yess never reappears when a new Test is posted in general', async () => {
+  const f = fixture();
+  f.visible.delete('old'); // The owner already deleted the old Yess.
+  f.visible.add('new-test'); // Different, newly posted Test stays untouched.
+  await f.run();
+  assert.deepEqual(f.actions, [], 'no old content may be posted');
+  assert.deepEqual([...f.visible], ['new-test']);
+  assert.equal(f.values.has(f.ruleKey), false, 'orphan reappear rule is removed');
+  assert.deepEqual(f.values.get('cloudy:embed-reappear-index:g:c'), []);
+  assert.ok(f.values.get('cloudy:embed-reappear-disabled:g:c:original:0'));
+});
+
+test('a permanent Builder Delete also stops a legacy Yess Reappear rule', async () => {
+  const f = fixture();
+  f.visible.add('new-test');
+  f.values.set('cloudy:embed-registry-deleted:g', ['c:original']);
+  await f.run();
+  assert.equal(f.values.has(f.ruleKey), false);
+  assert.ok(f.values.get('cloudy:embed-reappear-disabled:g:c:original:0'));
+  assert.deepEqual([...f.visible], ['new-test'], 'clean only old physical Yess');
+  assert.equal(f.actions.includes('send'), false, 'never recreate a deleted embed');
+});
+
+test('missing old physical message is retired without sending its stored template', async () => {
+  const f = fixture();
+  f.visible.delete('old');
+  await f.run();
+  assert.equal(f.actions.includes('send'), false);
+  assert.equal(f.values.has(f.ruleKey), false);
+});
+
 test('a lookup failure never creates a second visible copy', async () => {
   const f = fixture({ fetchFails: true });
   await f.run();
