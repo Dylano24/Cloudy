@@ -26,6 +26,7 @@ import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { isBotResponsePayload } from '../utils/botResponseIntent.js';
+import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
@@ -160,6 +161,9 @@ function isBuilderAuthoredMessage(message) {
 }
 
 function applyPayloadTemplates(payload, source) {
+  // This specific Commands guide is already finalized before sending.
+  // Never apply a stale runtime catalog title over it.
+  if (isDedicatedGamblingGuideMessage(payload)) return payload;
   if (isBuilderAuthoredInteraction(source)) return payload;
   if (isPrivateReportCasePayload(payload)) return payload;
   if (payload == null) return payload;
@@ -277,6 +281,7 @@ function shouldPrepareMessageEdit(message) {
     && message.author?.id === message.client.user.id
     && !autoApplyingMessageIds.has(message.id)
     && !isEmbedManagerSaveInProgress(message.id)
+    && !isDedicatedGamblingGuideMessage(message)
     && !isBuilderAuthoredMessage(message)
     && String(message.content || '').trim() !== SYSTEM_CATALOG_CONTENT,
   );
@@ -360,8 +365,16 @@ function embedJson(embed) {
   return embed?.toJSON ? embed.toJSON() : embed || null;
 }
 
-async function applyTemplatesToExistingMessage(message, { initialCreation = false } = {}) {
+export async function applyTemplatesToExistingMessage(message, { initialCreation = false } = {}) {
   if (isPrivateReportCasePayload(message)) return false;
+  // This was the missing second edit: MESSAGE_CREATE applied old catalog
+  // styling after Discord already displayed the correctly titled guide.
+  if (isDedicatedGamblingGuideMessage(message)) {
+    if (initialCreation) logger.info('[GAMBLING_GUIDE] Skipped post-send template rewrite.', {
+      messageId: message.id, channelId: message.channelId,
+    });
+    return false;
+  }
   if (isBuilderAuthoredMessage(message)) return false;
   if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return false;
   if (!message?.client?.user?.id || !message.guildId || !message.editable) return false;
@@ -492,6 +505,7 @@ function seedKnownGameResponses() {
 }
 
 export async function applySavedResponsePayloadTemplates(payload, source) {
+  if (isDedicatedGamblingGuideMessage(payload)) return payload;
   const builderInteraction = isBuilderAuthoredInteraction(source);
   if (isPrivateReportCasePayload(payload) || (builderInteraction && !isBotResponsePayload(payload))) return payload;
   if (!payload || typeof payload !== 'object' || !Array.isArray(payload.embeds)) return payload;
@@ -618,6 +632,7 @@ export default {
     seedKnownGameResponses();
 
     client.on(Events.MessageCreate, async message => {
+      if (isDedicatedGamblingGuideMessage(message)) return;
       if (String(message?.content || '').trim() === SYSTEM_CATALOG_CONTENT || isBuilderAuthoredMessage(message)) return;
       try {
         if (await isTicketLifecycleLogChannel(message)) return;
@@ -633,6 +648,7 @@ export default {
         ? await newMessage.fetch().catch(() => null)
         : newMessage;
       if (!message) return;
+      if (isDedicatedGamblingGuideMessage(message)) return;
       if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT || isBuilderAuthoredMessage(message)) return;
       if (isEmbedManagerSaveInProgress(message.id)) return;
       if (autoApplyingMessageIds.has(message.id)) return;
