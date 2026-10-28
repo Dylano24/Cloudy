@@ -21,8 +21,10 @@ import {
     getEmbedRegistrySnapshot,
     peekEmbedRegistry,
     resolveEmbedRegistryRecord,
+    registerCloudyEmbedMessage,
 } from '../../services/embedRegistryService.js';
 import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
+import { withEmbedBuilderMessageMutation } from '../../services/embedBuilderMutationLock.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
 import { FAQ_AI_BUTTON_ID } from '../../services/faqAiService.js';
@@ -1770,6 +1772,58 @@ export async function withBuilderSelectionAcknowledgement(interaction, prepare, 
     }
 }
 
+// Discord is authoritative for a physical owner-authored embed. A completed
+// Save can have updated Discord while Search still holds an older registry
+// snapshot or an autocomplete offer created before the change. Reconcile only
+// the selected physical message, not the entire guild/channel history.
+export async function refreshSavedOwnerSearchRecord(guild, record) {
+    if (!guild?.id || record?.source !== 'embed-builder'
+        || record.manualSaved !== true || record.detached || !record.messageId) return record;
+    const channelId = String(record.backingChannelId || record.channelId || '');
+    const messageId = String(record.messageId);
+    const index = Math.max(0, Number(record.embedIndex) || 0);
+    return withEmbedBuilderMessageMutation(guild.id, channelId, messageId, async () => {
+        const channel = guild.channels?.cache?.get?.(channelId)
+            || await guild.channels?.fetch?.(channelId).catch(() => null);
+        if (!channel?.messages?.fetch) return record;
+        let live;
+        try {
+            live = await channel.messages.fetch(messageId, { force: true });
+        } catch {
+            // Losing access is not proof a saved template should be deleted.
+            // Permanent Delete remains a separate explicit Builder action.
+            return record;
+        }
+        if (!live || String(live.id) !== messageId
+            || (guild.client?.user?.id && live.author?.id !== guild.client.user.id)
+            || live.flags?.has?.(MessageFlags.Ephemeral)
+            || !live.embeds?.[index]) return record;
+        const snapshot = live.embeds[index].toJSON?.() || live.embeds[index];
+        const components = (live.components || []).map(row => row?.toJSON?.() || row);
+        const changed = JSON.stringify(record.snapshot || {}) !== JSON.stringify(snapshot)
+            || JSON.stringify(record.components || []) !== JSON.stringify(components);
+        if (!changed) return record;
+
+        const current = {
+            ...record,
+            title: snapshot.title || '',
+            name: snapshot.title || record.name,
+            snapshot,
+            components,
+        };
+        const saved = await registerCloudyEmbedMessage(live, 'embed-builder', {
+            manualSave: true, manualSaveIndex: index,
+        }).catch(error => {
+            logger.warn('Builder Search physical record reconciliation failed:', error);
+            return false;
+        });
+        if (saved) invalidateBuilderSearchTitleCache(guild.id);
+        // Even if persistence temporarily fails, never show an obsolete
+        // preview when the actual Discord message was read successfully.
+        return current;
+    });
+}
+
 export async function loadEmbedBuilderSearchSelection(interaction) {
     const selected = parseSelection(interaction.options?.getString?.('search') || '');
     if (!selected || !interaction.guildId) return null;
@@ -1864,6 +1918,19 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
         record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
     }
     if (isSearchDeleteHidden(record)) return null;
+    if (record.source === 'embed-builder' && record.manualSaved === true && !record.detached) {
+        // Keep the first paint bounded, but refresh the exact physical
+        // message instead of trusting an unversioned old Search snapshot.
+        let timer;
+        const refreshed = await Promise.race([
+            refreshSavedOwnerSearchRecord(interaction.guild, record).catch(() => record),
+            new Promise(resolve => {
+                timer = setTimeout(() => resolve(record), 900);
+                timer.unref?.();
+            }),
+        ]).finally(() => clearTimeout(timer));
+        record = refreshed || record;
+    }
     markSelection('record_ready');
     const savedManualSnapshot = record.source === 'embed-builder'
         && record.manualSaved === true && record.snapshot
