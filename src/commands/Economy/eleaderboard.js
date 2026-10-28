@@ -4,6 +4,7 @@ import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHan
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { getEconomyPrefix } from '../../utils/database.js';
+import { readGuildEconomyValues } from '../../utils/economy.js';
 
 export async function buildEconomyLeaderboardEmbed(client, guildId, userId) {
 
@@ -25,9 +26,12 @@ export async function buildEconomyLeaderboardEmbed(client, guildId, userId) {
         );
     }
 
-    const allUserData = (await Promise.all(allKeys.map(async key => {
+    // One whole-guild read instead of one database query per account. Values
+    // and their order (and therefore tie order) are unchanged.
+    const values = await readGuildEconomyValues(client, guildId, allKeys);
+    const allUserData = allKeys.map((key, index) => {
         const userId = key.replace(prefix, "");
-        const userData = await client.db.get(key);
+        const userData = values[index];
 
         if (userData) {
             return {
@@ -37,7 +41,7 @@ export async function buildEconomyLeaderboardEmbed(client, guildId, userId) {
         }
 
         return null;
-    }))).filter(Boolean);
+    }).filter(Boolean);
 
     allUserData.sort((a, b) => b.net_worth - a.net_worth);
 

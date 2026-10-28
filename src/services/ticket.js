@@ -234,8 +234,11 @@ export async function createTicket(
   ticketData.ticketNumber = String(ticketNumber);
   ticketData.ticketMessageId = ticketMessage.id;
   await saveTicketData(guild.id, channel.id, ticketData);
-    
-    await logTicketEvent({
+
+    // The staff log is still sent, but the creator's "Ticket created" reply no
+    // longer waits for the log channel. logTicketEvent never throws; it reports
+    // failure by returning false, the same way the Claim and Close logs run.
+    void logTicketEvent({
       client: guild.client,
       guildId: guild.id,
       event: {
@@ -251,8 +254,8 @@ export async function createTicket(
           categoryName: category?.name || 'Default'
         }
       }
-    });
-    
+    }).catch(() => {});
+
     return { channel, ticketData, ticketMessage };
     
   } catch (error) {
