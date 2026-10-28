@@ -456,6 +456,13 @@ async function processEmbedReappear(message) {
           config.components = (previous.components || []).map(row => row?.toJSON?.() || row);
         }
 
+        // The Gambling guide's legacy title must not return after Reappear.
+        // Only correct this one exact title in the dedicated gambling channel.
+        if (String(message.channel.name || '').toLowerCase().includes('gambling')
+          && config.embed?.title === 'Games & economy') {
+          config.embed.title = 'Games & Economy';
+        }
+
         // A move that Cloudy itself initiated may legitimately have no current
         // physical message if the replacement send failed. Record that explicit
         // intent before deleting, so retry never revives an unrelated deleted
