@@ -138,6 +138,16 @@ export default {
             );
         }
 
+        await InteractionHelper.safeReply(interaction, {
+            embeds: [
+                successEmbed(
+                    `Giveaway Started! 🎉`,
+                    `A new giveaway for **${prizeName}** has been started in ${targetChannel} and will end in **${durationString}**.`,
+                ),
+            ],
+            flags: MessageFlags.Ephemeral,
+        });
+
         try {
             await logEvent({
                 client: interaction.client,
@@ -176,15 +186,5 @@ export default {
         }
 
         logger.info(`Giveaway created successfully: ${giveawayMessage.id} in ${targetChannel.name}`);
-
-        await InteractionHelper.safeReply(interaction, {
-            embeds: [
-                successEmbed(
-                    `Giveaway Started! 🎉`,
-                    `A new giveaway for **${prizeName}** has been started in ${targetChannel} and will end in **${durationString}**.`,
-                ),
-            ],
-            flags: MessageFlags.Ephemeral,
-        });
     },
 };
