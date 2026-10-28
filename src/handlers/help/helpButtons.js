@@ -43,7 +43,7 @@ export const helpBugReportButton = {
         const githubButton = new ButtonBuilder()
             .setLabel('🐛 Report Bug on GitHub')
             .setStyle(ButtonStyle.Link)
-            .setURL('https://github.com/codebymitch/TitanBot/issues');
+            .setURL('https://github.com/Dylano24/Cloudy/issues');
 
         const bugRow = new ActionRowBuilder().addComponents(githubButton);
 
@@ -59,7 +59,7 @@ export const helpBugReportButton = {
             color: 'error'
         });
         bugReportEmbed.setFooter({
-            text: 'TitanBot Bug Reporting System',
+            text: 'Cloudy bug reporting system',
             iconURL: client.user.displayAvatarURL()
         });
         bugReportEmbed.setTimestamp();
