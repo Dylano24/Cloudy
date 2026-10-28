@@ -16,6 +16,12 @@ import { isCommandEnabledInConfig } from '../services/commandAccessService.js';
 import { enforceLinkProtection } from '../services/linkProtectionService.js';
 import { enforceProtectedIdentityMessage } from '../services/protectedIdentityService.js';
 import {
+  beginEmbedRegistryMove,
+  moveEmbedRegistryMessage,
+} from '../services/embedRegistryService.js';
+import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../utils/builderOwnedSends.js';
+import { acquireEmbedBuilderMessageMutation } from '../services/embedBuilderMutationLock.js';
+import {
   getCountingGameConfig,
   saveCountingGameConfig,
   isValidCountingMessage,
@@ -297,6 +303,16 @@ async function handleLeveling(message, client) {
 }
 
 
+// A Reappear move replaces the physical message of the SAME Builder item.
+// These hooks keep its registry identity attached to the new message ID.
+const reappearIdentity = {
+  lock: acquireEmbedBuilderMessageMutation,
+  beginMove: beginEmbedRegistryMove,
+  move: moveEmbedRegistryMessage,
+  ownedPayload: withBuilderOwnedNonce,
+  rememberOwned: rememberBuilderOwnedMessage,
+};
+
 const reappearQueues = new Map();
 
 async function handleEmbedReappear(message) {
@@ -403,73 +419,122 @@ async function processEmbedReappear(message) {
       // removed directly in Discord. The previous implementation treated a
       // confirmed 10008 as permission to send the old saved content again.
       const previousMessageId = config.messageId ? String(config.messageId) : null;
-      let previous = null;
-      let sourceMissing = !previousMessageId;
-      if (previousMessageId) {
-        try {
-          previous = await message.channel.messages.fetch(previousMessageId, { force: true });
-          sourceMissing = !previous;
-        } catch (error) {
-          if (Number(error?.code) === 10008) sourceMissing = true;
-          else throw error; // Temporary API failures must not delete the rule.
+      // A Builder Save of this exact message finishes first (and vice
+      // versa), so a move never races an edit of the same physical message.
+      const releaseMessageLock = previousMessageId
+        ? await reappearIdentity.lock(message.guild.id, message.channel.id, previousMessageId)
+        : () => {};
+      try {
+        let previous = null;
+        let sourceMissing = !previousMessageId;
+        if (previousMessageId) {
+          try {
+            previous = await message.channel.messages.fetch(previousMessageId, { force: true });
+            sourceMissing = !previous;
+          } catch (error) {
+            if (Number(error?.code) === 10008) sourceMissing = true;
+            else throw error; // Temporary API failures must not delete the rule.
+          }
         }
-      }
-      if (sourceMissing && config.pendingMove !== true) {
-        // Disable the exact old rule, not a newer Test embed in this channel.
-        if (!await setInDb(disableKey, {
-          disabled: true, reason: 'physical-message-deleted',
-          disabledAt: new Date().toISOString(),
-        })) continue;
-        removedIds.add(originalMessageId);
-        await deleteFromDb(key);
-        continue;
-      }
-
-      // A move that Cloudy itself initiated may legitimately have no current
-      // physical message if the replacement send failed. Record that explicit
-      // intent before deleting, so retry never revives an unrelated deleted
-      // Yess and still recovers from a failed automatic replacement.
-      config.pendingMove = true;
-      if (!await setInDb(key, config)) continue;
-      if (previous) {
-        const removedPrevious = await previous.delete().then(() => true).catch(() => false);
-        if (!removedPrevious) {
-          config.pendingMove = false;
-          await setInDb(key, config);
+        if (sourceMissing && config.pendingMove !== true) {
+          // Disable the exact old rule, not a newer Test embed in this channel.
+          if (!await setInDb(disableKey, {
+            disabled: true, reason: 'physical-message-deleted',
+            disabledAt: new Date().toISOString(),
+          })) continue;
+          removedIds.add(originalMessageId);
+          await deleteFromDb(key);
           continue;
         }
-        // Give Discord clients time to process deletion before replacement.
-        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // The moved message must show exactly what is in the channel NOW, not
+        // the snapshot captured when Reappear was first configured. Otherwise
+        // a Save (Test -> Yess, new colour/logo/GIF) is undone by the next move.
+        const liveEmbed = previous?.embeds?.[embedIndex] || null;
+        if (liveEmbed) {
+          config.embed = liveEmbed.toJSON?.() || JSON.parse(JSON.stringify(liveEmbed));
+          config.components = (previous.components || []).map(row => row?.toJSON?.() || row);
+        }
+
+        // A move that Cloudy itself initiated may legitimately have no current
+        // physical message if the replacement send failed. Record that explicit
+        // intent before deleting, so retry never revives an unrelated deleted
+        // Yess and still recovers from a failed automatic replacement.
+        config.pendingMove = true;
+        if (!await setInDb(key, config)) continue;
+        // Cloudy's own deletion of the old copy is not a manual Discord delete:
+        // its registry identity must survive until it follows the new message.
+        const releaseMove = previousMessageId
+          ? reappearIdentity.beginMove(message.guild.id, message.channel.id, previousMessageId)
+          : () => {};
+        try {
+          if (previous) {
+            const removedPrevious = await previous.delete().then(() => true).catch(() => false);
+            if (!removedPrevious) {
+              config.pendingMove = false;
+              await setInDb(key, config);
+              continue;
+            }
+            // Give Discord clients time to process deletion before replacement.
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+
+          if (await getFromDb(disableKey, null)) {
+            removedIds.add(originalMessageId);
+            await deleteFromDb(key);
+            continue;
+          }
+
+          // Remove the old copy before creating the new one: Discord must never
+          // show two copies while the embed moves to the bottom.
+          const sent = await message.channel.send(reappearIdentity.ownedPayload({
+            embeds: [config.embed],
+            components: config.components || [],
+          })).catch(() => null);
+          if (!sent) continue;
+          reappearIdentity.rememberOwned(sent);
+
+          // Delete may race with a user message that triggered Reappear. Re-check
+          // the exact tombstone after sending and remove only this just-created copy.
+          if (await getFromDb(disableKey, null)) {
+            await sent.delete().catch(() => {});
+            removedIds.add(originalMessageId);
+            await deleteFromDb(key);
+            continue;
+          }
+
+          if (previousMessageId) {
+            const moved = await reappearIdentity.move(
+              message.guild.id, message.channel.id, previousMessageId, sent,
+            ).catch(error => {
+              logger.error('Embed reappear registry move failed:', error);
+              return false;
+            });
+            if (!moved) {
+              logger.warn('Embed reappear moved a message without a registry identity to follow.', {
+                guildId: message.guild.id, channelId: message.channel.id,
+                previousMessageId, messageId: sent.id,
+              });
+            }
+          }
+
+          config.count = 0;
+          config.pendingMove = false;
+          // Every former physical ID stays linked to this one rule, so a Delete
+          // opened from any earlier copy still disables the right Reappear.
+          config.previousMessageIds = [...new Set([
+            ...(Array.isArray(config.previousMessageIds) ? config.previousMessageIds.map(String) : []),
+            ...(previousMessageId ? [previousMessageId] : []),
+          ])].slice(-50);
+          config.messageId = sent.id;
+          config.updatedAt = new Date().toISOString();
+          await setInDb(key, config);
+        } finally {
+          releaseMove();
+        }
+      } finally {
+        releaseMessageLock();
       }
-
-      if (await getFromDb(disableKey, null)) {
-        removedIds.add(originalMessageId);
-        await deleteFromDb(key);
-        continue;
-      }
-
-      // Remove the old copy before creating the new one: Discord must never
-      // show two copies while the embed moves to the bottom.
-      const sent = await message.channel.send({
-        embeds: [config.embed],
-        components: config.components || [],
-      }).catch(() => null);
-      if (!sent) continue;
-
-      // Delete may race with a user message that triggered Reappear. Re-check
-      // the exact tombstone after sending and remove only this just-created copy.
-      if (await getFromDb(disableKey, null)) {
-        await sent.delete().catch(() => {});
-        removedIds.add(originalMessageId);
-        await deleteFromDb(key);
-        continue;
-      }
-
-      config.count = 0;
-      config.pendingMove = false;
-      config.messageId = sent.id;
-      config.updatedAt = new Date().toISOString();
-      await setInDb(key, config);
     }
 
     // Never rewrite the index from the stale snapshot read at the beginning of

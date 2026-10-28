@@ -63,16 +63,20 @@ function setup(t, id, { deleteFails = false } = {}) {
   };
 }
 
-test('Repost to the existing channel updates the same message, never makes a duplicate', async t => {
+test('a deliberate Repost in the same channel gets a new physical identity without a duplicate', async t => {
   const f = setup(t, 'same-channel');
   const result = await postReplacingManualBuilderMessage({
     ...f, channel: f.oldChannel,
   });
   assert.equal(result.ok, true);
   assert.equal(result.replaced, true);
-  assert.deepEqual(f.status(), { oldLive: true, newLive: false,
-    postCount: 0, saveCount: 1, disableCount: 0 });
-  assert.deepEqual((await getEmbedRegistry(f.guild.id)).map(x => x.messageId), [f.sourceId]);
+  // Repost publishes a new message (new ID) and retires the old one; Save
+  // remains the in-place edit of the existing message ID.
+  assert.deepEqual(f.status(), { oldLive: false, newLive: true,
+    postCount: 1, saveCount: 0, disableCount: 1 });
+  const records = await getEmbedRegistry(f.guild.id);
+  assert.deepEqual(records.map(x => x.messageId), [f.newId]);
+  assert.equal(records[0].source, 'embed-builder');
 });
 
 test('moving an existing Builder embed replaces old physical and old registry identity', async t => {

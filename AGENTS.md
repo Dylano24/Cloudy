@@ -19,6 +19,17 @@ This file is the persistent working context for every Codex session that edits t
 - The Embed Builder currently works. Do not alter it unless the user specifically requests an Embed Builder change.
 - Preview and Discord output should retain manually saved text and spacing as closely as Discord permits.
 
+## Embed Builder identity model
+
+- One physical Discord embed (`guildId + channelId + messageId + embedIndex`) has exactly one registry row. Title, colour, logo or text changes never change that identity.
+- A Builder post is `source: 'embed-builder'`. Only explicit Builder writes (Post, Save, exact live re-read) may change it; gateway events, history scans and catalog passes never replace or reclassify it. Builder posts carry a send nonce/footer marker and are skipped by automatic template/branding passes.
+- Every committed registry write publishes its result to the in-memory Search views at once; never add a cache that is not refreshed by those commits.
+- Save edits the same message ID. Repost creates a new message ID and retires the old one (one identity remains). After Post the Builder edits the posted message.
+- Reappear moves the same identity to the new message (live content, registry row follows, rule remembers all former IDs). It takes the same per-message lock as Save.
+- Delete removes the row, its Reappear chain and active copy permanently (persistent tombstone).
+- A manual Discord deletion removes a post that was only published (`explicitSave: false`); an explicitly Saved one stays as a detached template and is never reposted automatically.
+- `node scripts/embed-registry-audit.js --guild <id> [--title pop] [--verify-discord]` writes a backup and reports duplicates read-only.
+
 ## Current non-ticket log rules
 
 Ticket logs are excluded from all rules in this section and must remain unchanged.
