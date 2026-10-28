@@ -36,6 +36,16 @@ test('deleted human, moderator and bot messages route by author, including bulk 
     assert.deepEqual(sent[index].allowedMentions, { parse: [] });
   }
   assert.match(JSON.stringify(sent.at(-1).embed), /Bot embed.*Original bot content/s);
+  // Channel is one clickable mention (never "general #general"), created is
+  // a full date/time, and every required field is present in order.
+  const description = sent[2].embed.description;
+  assert.match(description, /\*\*Channel:\*\* <#source>\n/);
+  assert.doesNotMatch(description, /general/);
+  assert.match(description, /\*\*Message created:\*\* <t:1:f>/);
+  assert.deepEqual(description.split('\n').filter(line => line.startsWith('> ')).map(line => line.match(/^> \*\*([^:]+):/)[1]),
+    ['Deleted by', 'Type', 'Channel', 'Message ID', 'Message author', 'Message created', 'Author type']);
+  // Footer is final when sent; the generic listener never edits these logs.
+  assert.equal(sent[2].embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   await logDeletedMessage(message('member', { content: '', attachments: new Collection([
     ['photo', { name: 'photo.png', url: 'https://cdn.discordapp.com/attachments/one/photo.png', contentType: 'image/png' }],
     ['video', { name: 'video.mp4', url: 'https://cdn.discordapp.com/attachments/one/video.mp4', contentType: 'video/mp4' }],
@@ -71,7 +81,9 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(automatic);
   assert.equal(sent.at(-1).id, AUTOMOD_LOG_CHANNEL_ID);
   assert.match(JSON.stringify(sent.at(-1).embed), /Deleted by.*<@bot>.*AutoMod/s);
-  assert.match(JSON.stringify(sent.at(-1).embed), /Author type.*Bot/s);
+  // The author is a member; AutoMod is what removed it (Type line).
+  assert.match(JSON.stringify(sent.at(-1).embed), /Author type:\*\* Member/);
+  assert.match(JSON.stringify(sent.at(-1).embed), /Type:\*\* Removed by AutoMod/);
   assert.match(JSON.stringify(sent.at(-1).embed), /Message author.*<@member>/s);
   const count = sent.length;
   await logDeletedMessage(message('bot', { channelId: MEMBER_MESSAGE_LOG_ID }));
