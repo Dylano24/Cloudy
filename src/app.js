@@ -169,11 +169,6 @@ class TitanBot extends Client {
     app.use('/api/appeals', express.json({ limit: '32kb' }));
     app.use(express.json({ limit: '8kb' }));
 
-    registerAppealsApi(app, this);
-    registerWebsiteAssistantApi(app);
-    // Read-only immutable images served from Cloudy's persistent media volume.
-    registerEmbedMediaRoutes(app);
-
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
     const maxRequests = this.config.api?.rateLimit?.max || 100;
@@ -203,6 +198,11 @@ class TitanBot extends Client {
       requestCounts.set(ip, times);
       next();
     });
+
+    registerAppealsApi(app, this);
+    registerWebsiteAssistantApi(app);
+    // Read-only immutable images served from Cloudy's persistent media volume.
+    registerEmbedMediaRoutes(app);
 
     app.get('/health', (req, res) => {
       const dbStatus = this.db?.getStatus?.() || { isDegraded: 'unknown' };
