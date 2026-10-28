@@ -1,14 +1,38 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { successEmbed, warningEmbed, buildUserErrorEmbed } from '../../utils/embeds.js';
 import { getEconomyData, setEconomyData, getInitialEconomyData } from '../../utils/economy.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { BotConfig } from '../../config/bot.js';
+import { memberHasConfiguredModeratorRole } from '../../utils/permissionGuard.js';
+import { hasCloudyOwnerMember } from '../../services/ownerRoleAccess.js';
 
 const ROB_COOLDOWN = BotConfig.economy?.cooldowns?.rob ?? 4 * 60 * 60 * 1000;
 const BASE_ROB_SUCCESS_CHANCE = BotConfig.economy?.robSuccessRate ?? 0.4;
 const ROB_PERCENTAGE = 0.15;
 const FINE_PERCENTAGE = 0.1;
+
+const STAFF_ROLE_NAMES = new Set(['staff', 'owner', 'admin', 'administrator', 'moderator']);
+
+export function isProtectedRobberyTarget(member, guildConfig = {}, guild = null) {
+    if (!member) return false;
+    const roles = member.roles?.cache;
+    const roleId = role => typeof role === 'string' ? role : role?.id;
+    const configured = [
+        guildConfig?.modRole, guildConfig?.adminRole, guildConfig?.ticketStaffRoleId,
+    ].some(role => Boolean(roleId(role) && roles?.has?.(roleId(role))));
+
+    return String(guild?.ownerId || member.guild?.ownerId || '') === String(member.id)
+        || Boolean(member.permissions?.has?.(PermissionFlagsBits.Administrator))
+        || hasCloudyOwnerMember(member)
+        || memberHasConfiguredModeratorRole(
+            roles ? member : null, guildConfig,
+        )
+        || configured
+        || Boolean(Array.from(roles?.values?.() || []).some(role =>
+            STAFF_ROLE_NAMES.has(String(role.name || '').trim().toLowerCase())));
+}
+
 
 function applyRobbery(robberData, victimData, victimUser) {
     // Called after both accounts have been row-locked by PostgreSQL.
@@ -96,6 +120,42 @@ export default {
                 "You cannot rob a bot.",
                 { victimId: victimUser.id, isBot: true }
             );
+        }
+
+        // Check staff protection before touching either economy account.
+        const guild = interaction.guild;
+        let victimMember = guild?.members?.cache?.get?.(victimUser.id)
+            || interaction.options.getMember?.('user') || null;
+        if (!victimMember && guild?.members?.fetch) {
+            try {
+                victimMember = await guild.members.fetch(victimUser.id);
+            } catch {
+                throw createError(
+                    'Cannot verify robbery target',
+                    ErrorTypes.VALIDATION,
+                    "Unable to verify this member's staff status. Please try again.",
+                    { victimId: victimUser.id }
+                );
+            }
+        }
+        if (guild && !victimMember) {
+            throw createError(
+                'Robbery target not found',
+                ErrorTypes.VALIDATION,
+                "Unable to verify this member's staff status. Please try again.",
+                { victimId: victimUser.id }
+            );
+        }
+        if (isProtectedRobberyTarget(victimMember, config, guild)) {
+            // Keep this exceptional result out of the regular robbery failure
+            // source template, which includes fines and balance fields.
+            const staffFailureTitle = ['Robbery', 'failed'].join(' ');
+            const resultEmbed = buildUserErrorEmbed(
+                'unknown',
+                'Cloudy staff members cannot be robbed.',
+                { titleOverride: staffFailureTitle, preserveText: true }
+            );
+            return await InteractionHelper.safeEditReply(interaction, { embeds: [resultEmbed] });
         }
 
         let robberData;

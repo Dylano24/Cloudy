@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import rob from '../src/commands/Economy/rob.js';
+import rob, { isProtectedRobberyTarget } from '../src/commands/Economy/rob.js';
 
 const guildId = '1532882647838228723';
 const robberId = '1532882647838228724';
@@ -87,4 +87,49 @@ test('failed robbery fines robber but does not spend victim wallet', async t => 
   assert.equal(f.commits(), 1);
   assert.equal(f.staleWrites(), 0);
   assert.match(JSON.stringify(f.payloads[0]), /Robbery failed/);
+});
+
+test('Cloudy staff, configured moderators and server owners are protected', () => {
+  const member = (name, id = victimId) => ({
+    id,
+    roles: { cache: new Map(name ? [['test-role', { id: 'test-role', name }]] : []) },
+    permissions: { has: () => false },
+  });
+  assert.equal(isProtectedRobberyTarget(member('Staff')), true);
+  assert.equal(isProtectedRobberyTarget(member('Owner')), true);
+  assert.equal(isProtectedRobberyTarget(member('Moderator')), true);
+  assert.equal(isProtectedRobberyTarget(member('')), false);
+  assert.equal(isProtectedRobberyTarget(member('Member'), {}, { ownerId: victimId }), true);
+  assert.equal(isProtectedRobberyTarget(member('Member'), { modRole: 'test-role' }), true);
+  assert.equal(isProtectedRobberyTarget(member('Member'), { adminRole: 'test-role' }), true);
+  assert.equal(isProtectedRobberyTarget(member('Member'), { ticketStaffRoleId: 'test-role' }), true);
+  assert.equal(isProtectedRobberyTarget({
+    ...member('Member'), permissions: { has: () => true },
+  }), true);
+});
+
+test('staff robbery is rejected before any account access, fine or cooldown', async () => {
+  const f = fixture();
+  const attempt = f.interaction();
+  const victimMember = {
+    id: victimId,
+    roles: { cache: new Map([['staff-id', { id: 'staff-id', name: 'Staff' }]]) },
+    permissions: { has: () => false },
+  };
+  attempt.guild = {
+    id: guildId,
+    ownerId: robberId,
+    members: { cache: new Map([[victimId, victimMember]]) },
+  };
+
+  await rob.execute(attempt, {}, f.client);
+
+  assert.equal(f.commits(), 0);
+  assert.equal(f.staleWrites(), 0);
+  assert.equal(f.read(robberId).wallet, 500);
+  assert.equal(f.read(victimId).wallet, 2000);
+  assert.equal(f.read(robberId).lastRob, 0);
+  assert.equal(f.payloads.length, 1);
+  assert.match(JSON.stringify(f.payloads[0]), /Robbery failed/);
+  assert.match(JSON.stringify(f.payloads[0]), /Cloudy staff members cannot be robbed/);
 });
