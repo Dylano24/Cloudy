@@ -2011,23 +2011,44 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         }
 
         collector.stop('posted');
-        if (channelPickerMessage?.id && buttonInteraction.webhook?.deleteMessage) {
-            const deleted = await buttonInteraction.webhook.deleteMessage(channelPickerMessage.id)
-                .then(() => true)
-                .catch(() => false);
-            if (!deleted) await channelPickerMessage.delete?.().catch(() => {});
-        } else {
-            await channelPickerMessage.delete?.().catch(() => {});
-        }
-        state.builderChildMessages?.delete?.(channelPickerMessage?.id);
-
-        const sentMessage = await channelInteraction.followUp(markBotResponsePayload({
+        const successPayload = markBotResponsePayload({
             embeds: [isRepost
                 ? successEmbed('Message reposted', `Your message has been reposted to ${posted.destination}.`)
                 : successEmbed('Message sent', `Your message has been posted to ${posted.destination}.`)],
-            flags: MessageFlags.Ephemeral,
-        }));
-        removeTransientMessage(channelInteraction, sentMessage);
+            components: [],
+        });
+
+        // This channel picker is the component interaction's original
+        // message. Deleting it before followUp creates Discord's visible
+        // "Message could not be loaded" reply reference. Replace the picker
+        // in-place instead, then expire the private success feedback.
+        const updated = await channelInteraction.editReply(successPayload)
+            .then(() => true)
+            .catch(() => false);
+        if (!updated) {
+            // Leave the original component message available as a reference
+            // until this fallback confirmation has been sent.
+            const sentMessage = await channelInteraction.followUp({
+                ...successPayload,
+                flags: MessageFlags.Ephemeral,
+            }).catch(() => null);
+            if (sentMessage) removeTransientMessage(channelInteraction, sentMessage);
+        } else if (channelPickerMessage?.id) {
+            // Keep the edited success confirmation visible long enough to be
+            // read, then remove it using the original picker webhook token.
+            // Never delete the referenced picker BEFORE acknowledging Post.
+            const feedbackTimer = setTimeout(async () => {
+                if (buttonInteraction.webhook?.deleteMessage) {
+                    const deleted = await buttonInteraction.webhook.deleteMessage(channelPickerMessage.id)
+                        .then(() => true).catch(() => false);
+                    if (deleted) return;
+                }
+                await channelPickerMessage.delete?.().catch(() => {});
+            }, TRANSIENT_RESPONSE_TIMEOUT);
+            feedbackTimer.unref?.();
+        }
+        state.builderChildMessages?.delete?.(channelPickerMessage?.id);
+
         state.finishBuilder?.('posted');
     });
 }

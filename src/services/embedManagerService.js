@@ -1100,7 +1100,11 @@ export function loadRecordSnapshotIntoState(
     const snapshot = record?.snapshot || getEmbedRegistrySnapshot(record);
     if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
 
-    const data = migrateCloudyLogoEmbedData(snapshot).data || {};
+    // Manually posted physical embeds own their exact existing logo asset.
+    // Global branding migration applies to Cloudy-generated templates, not
+    // to an owner's saved thumbnail; Search must not turn a dark C white.
+    const ownerSavedVisual = record.source === 'embed-builder' && record.manualSaved === true;
+    const data = ownerSavedVisual ? { ...snapshot } : (migrateCloudyLogoEmbedData(snapshot).data || {});
     // A posted owner-authored Builder message is authoritative after Save.
     // Search may still offer an older runtime preview or a shared template
     // with the same name; neither may replace the saved physical snapshot.
