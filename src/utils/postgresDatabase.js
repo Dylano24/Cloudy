@@ -1,6 +1,7 @@
 // postgresDatabase.js
 
 import pg from 'pg';
+import { normalizeEconomyData } from './schemas.js';
 import { pgConfig, resolvePostgresPoolConfig } from '../config/database/postgres.js';
 import { logger } from './logger.js';
 import { assertAllowlistedIdentifier, quoteIdentifier } from './sqlIdentifiers.js';
@@ -782,6 +783,104 @@ class PostgreSQLDatabase {
             if (strictRead || parsedKey.type === 'economy') throw error;
             return defaultValue;
         }
+    }
+
+    /**
+     * Commit both economy balances in one PostgreSQL transaction.
+     * Rows are created and locked in deterministic user order so simultaneous
+     * transfers cannot spend the same wallet amount twice.
+     */
+    async transferEconomyFunds(guildId, senderId, receiverId, amount, initialData) {
+        if (!this.isAvailable()) throw new Error('PostgreSQL is unavailable');
+        if (senderId === receiverId || !Number.isSafeInteger(amount) || amount <= 0) {
+            throw new Error('Invalid economy transfer');
+        }
+
+        const userIds = [senderId, receiverId].sort();
+        const initialWallet = initialData?.wallet ?? 0;
+        const initialBank = initialData?.bank ?? 0;
+
+        return this.runTransaction(async (client) => {
+            await client.query(
+                'INSERT INTO ' + pgConfig.tables.guilds
+                    + ' (id, created_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING',
+                [guildId],
+            );
+
+            for (const userId of userIds) {
+                await client.query(
+                    'INSERT INTO ' + pgConfig.tables.users
+                        + ' (id, created_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING',
+                    [userId],
+                );
+                await client.query(
+                    'INSERT INTO ' + pgConfig.tables.economy
+                        + ' (guild_id, user_id, balance, bank, data, updated_at)'
+                        + ' VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)'
+                        + ' ON CONFLICT (guild_id, user_id) DO NOTHING',
+                    [guildId, userId, initialWallet, initialBank, initialData],
+                );
+            }
+
+            const result = await client.query(
+                'SELECT user_id, balance, bank, data FROM ' + pgConfig.tables.economy
+                    + ' WHERE guild_id = $1 AND user_id = ANY($2::text[])'
+                    + ' ORDER BY user_id FOR UPDATE',
+                [guildId, userIds],
+            );
+            if (result.rows.length !== 2) {
+                throw new Error('One or more economy accounts could not be locked');
+            }
+
+            const accounts = new Map(result.rows.map(row => {
+                const savedData = row.data && typeof row.data === 'object'
+                    && Object.keys(row.data).length > 0
+                    ? row.data
+                    : { wallet: Number(row.balance), bank: Number(row.bank) };
+                return [row.user_id, normalizeEconomyData(savedData, initialData)];
+            }));
+            const sender = accounts.get(senderId);
+            const receiver = accounts.get(receiverId);
+            if (!sender || !receiver) throw new Error('Missing economy account data');
+
+            const sourceBalance = sender.wallet;
+            const destinationBalance = receiver.wallet;
+            if (!Number.isSafeInteger(sourceBalance) || sourceBalance < 0
+                || !Number.isSafeInteger(destinationBalance) || destinationBalance < 0) {
+                const error = new Error('Invalid stored economy balance');
+                error.code = 'ECONOMY_UNSAFE_BALANCE';
+                throw error;
+            }
+            if (sourceBalance < amount) {
+                const error = new Error('Insufficient funds');
+                error.code = 'ECONOMY_INSUFFICIENT_FUNDS';
+                error.available = sourceBalance;
+                throw error;
+            }
+            if (!Number.isSafeInteger(destinationBalance + amount)) {
+                const error = new Error('Transfer exceeds safe balance');
+                error.code = 'ECONOMY_UNSAFE_BALANCE';
+                throw error;
+            }
+
+            sender.wallet = sourceBalance - amount;
+            receiver.wallet = destinationBalance + amount;
+
+            for (const userId of userIds) {
+                const account = accounts.get(userId);
+                await client.query(
+                    'UPDATE ' + pgConfig.tables.economy
+                        + ' SET balance = $3, data = $4, updated_at = CURRENT_TIMESTAMP'
+                        + ' WHERE guild_id = $1 AND user_id = $2',
+                    [guildId, userId, account.wallet, account],
+                );
+            }
+
+            return {
+                senderNewBalance: sender.wallet,
+                receiverNewBalance: receiver.wallet,
+            };
+        });
     }
 
     async runTransaction(operation) {
