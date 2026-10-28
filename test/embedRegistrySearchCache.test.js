@@ -21,7 +21,9 @@ test('search cache shares successful reads and is invalidated by a registry muta
   await removeEmbedRegistryRecord(record.guildId, record.channelId, record.messageId, 0);
   const afterRemoval = await getEmbedRegistry(record.guildId, { cached: true });
   assert.equal(afterRemoval[0].detached, true, 'saved snapshot stays available as a detached template');
-  assert.equal(reads, 3);
+  // The mutation read the durable document once and published its committed
+  // result; Search does not need to read the same document again.
+  assert.equal(reads, 2);
 });
 
 test('an old in-flight registry read cannot replace a successfully saved Search snapshot', async t => {

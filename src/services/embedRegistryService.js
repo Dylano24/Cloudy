@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
 import { randomUUID } from 'node:crypto';
 import { peekGuildConfigCache } from './config/guildConfig.js';
+import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const SCAN_BATCH_SIZE = 100;
@@ -169,9 +170,57 @@ function rememberEmbedSnapshot(record, embed) {
 
 export function getEmbedRegistrySnapshot(record) {
     if (!record) return null;
-    return embedSnapshotCache.get(recordKey(record))
-        || normalizeEmbedSnapshot(record.snapshot)
+    // The committed record is the source of truth. The in-memory cache is
+    // only a fallback for rows that carry no snapshot; a slow history scan
+    // must never replace a newer saved title, color, logo or banner.
+    return normalizeEmbedSnapshot(record.snapshot)
+        || embedSnapshotCache.get(recordKey(record))
         || null;
+}
+
+// Only the Embed Builder appends this invisible marker to a footer. It is the
+// stable proof that a physical message is an owner-authored Builder post,
+// independent of which gateway/registry event happened to register it first.
+export function isBuilderMarkedSnapshot(snapshot) {
+    const text = String(snapshot?.footer?.text || '');
+    return text.length > MESSAGE_BUILDER_FOOTER_MARKER.length
+        && text.endsWith(MESSAGE_BUILDER_FOOTER_MARKER);
+}
+
+function isBuilderOwnedRecord(record) {
+    return String(record?.source || '') === 'embed-builder' && record?.manualSaved === true;
+}
+
+// One physical Builder post has one identity: source "embed-builder". Older
+// releases could store it as "automatic" when Discord's MESSAGE_CREATE event
+// was registered before the Builder's own Post registration, or as a fresh
+// "automatic" row after Reappear moved it. Such rows were then edited as
+// shared bot templates (wrong logo/colour, global title overlays). This view
+// restores the Builder identity without deleting or rewriting any content.
+// Sources that only *observed* a message (gateway events, history scans,
+// reconciliation). A deliberate template Save ("modified-template") keeps
+// its own reusable-template semantics and is never reclassified.
+const OBSERVED_REGISTRY_SOURCES = new Set([
+    'automatic', 'automatic-update', 'history', 'bot-history', 'reconciled',
+]);
+
+function withCanonicalBuilderIdentity(record) {
+    if (!record || typeof record !== 'object') return record;
+    const source = String(record.source || '');
+    if (!isBuilderMarkedSnapshot(record.snapshot)) return record;
+    if (source === 'embed-builder') {
+        if (record.manualSaved === true || !Object.hasOwn(record, 'manualSaved')) return record;
+    } else if (!OBSERVED_REGISTRY_SOURCES.has(source)) {
+        return record;
+    }
+    if (record.detached && record.manualSaved !== true) return record;
+    const next = { ...record, source: 'embed-builder' };
+    if (record.manualSaved !== true) {
+        next.manualSaved = true;
+        // Never explicitly Saved: a manual Discord deletion removes it.
+        if (!Object.hasOwn(record, 'explicitSave')) next.explicitSave = false;
+    }
+    return next;
 }
 
 function sortRecords(records) {
@@ -197,7 +246,8 @@ function botHistorySnapshotIdentity(record) {
 function cleanStoredRecords(records) {
     const unique = new Map();
 
-    for (const record of Array.isArray(records) ? records : []) {
+    for (const storedRecord of Array.isArray(records) ? records : []) {
+        const record = withCanonicalBuilderIdentity(storedRecord);
         if (!record?.guildId || !record?.channelId || !record?.messageId || isInternalEmbedRecord(record) || !isFixedCloudyRecord(record)
             || isRecentlyPurgedMessage(record)) continue;
         // Keep live discovery and system templates. Deleted runtime copies and
@@ -222,6 +272,19 @@ function cleanStoredRecords(records) {
     return cleaned;
 }
 
+// Every committed registry write is published to the in-memory views at once.
+// Previously only some writers did this, and only when no other write was
+// queued. Search then kept serving a deleted or renamed embed (e.g. the old
+// "Test" after it became "Yess", or a post removed in Discord) until an
+// unrelated later write happened to refresh it.
+function publishCommittedRegistry(guildId, records) {
+    const key = String(guildId);
+    const generation = getEmbedRegistryGeneration(key);
+    const cleaned = cleanStoredRecords(records);
+    registryLastKnown.set(key, { generation, records: cleaned });
+    registrySearchCache.set(key, { generation, records: cleaned, expiresAt: Date.now() + 5000 });
+}
+
 async function mutateRegistry(guildId, operation, committedSnapshot = null) {
     const queueKey = String(guildId);
     // Other mutations are ordering barriers for pending registration batches.
@@ -239,13 +302,11 @@ async function mutateRegistry(guildId, operation, committedSnapshot = null) {
         registryGenerations.set(queueKey, getEmbedRegistryGeneration(queueKey) + 1);
         if (registryMutationQueues.get(queueKey) === current) {
             registryMutationQueues.delete(queueKey);
-            const records = committedSnapshot?.();
-            if (records) {
-                const generation = getEmbedRegistryGeneration(queueKey);
-                registryLastKnown.set(queueKey, { generation, records });
-                registrySearchCache.set(queueKey, { generation, records, expiresAt: Date.now() + 5000 });
-            }
         }
+        // Mutations are serialized, so this commit is the newest durable
+        // state even while a later write is still queued behind it.
+        const records = committedSnapshot?.();
+        if (records) publishCommittedRegistry(queueKey, records);
     }
 }
 
@@ -623,10 +684,16 @@ function normalizeRecord(record) {
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
+    // explicitSave distinguishes a deliberate Save (kept as a standalone
+    // template after a manual Discord deletion) from a post that was only
+    // published. Rows written before this flag existed keep their old
+    // retention semantics, so absence is preserved.
+    if (Object.hasOwn(record, 'explicitSave')) normalized.explicitSave = record.explicitSave === true;
     // Older Builder records predate the Save marker; absence is not proof
     // that the user never saved them.
     if (isManualBuilderRecord(record) && !Object.hasOwn(record, 'manualSaved')) delete normalized.manualSaved;
-    return isInternalEmbedRecord(normalized) ? null : normalized;
+    const canonical = withCanonicalBuilderIdentity(normalized);
+    return isInternalEmbedRecord(canonical) ? null : canonical;
 }
 
 const registryReadLoads = new Map();
@@ -635,14 +702,18 @@ const registrySearchCache = new Map();
 // synchronously and refreshes in the background, so a keystroke never waits on
 // a storage read while a registry write is queued.
 const registryLastKnown = new Map();
-export function peekEmbedRegistry(guildId, { current = false } = {}) {
+export function peekEmbedRegistry(guildId, { current = false, clone = true } = {}) {
     const key = String(guildId);
     const known = registryLastKnown.get(key);
     // A channel menu must not reuse a snapshot from before Save/Delete or an
     // in-flight mutation. Autocomplete keeps its existing last-known behavior.
     if (current && (!known || known.generation !== getEmbedRegistryGeneration(key)
         || registryMutationQueues.has(key))) return null;
-    return known ? structuredClone(known.records.filter(record => !isRecentlyPurgedMessage(record))) : null;
+    if (!known) return null;
+    const records = known.records.filter(record => !isRecentlyPurgedMessage(record));
+    // clone:false is for strictly read-only callers (Search ranking). It avoids
+    // deep-copying the whole registry after every bot-message registration.
+    return clone ? structuredClone(records) : records;
 }
 export async function getEmbedRegistry(guildId, { cached = false } = {}) {
     await loadPermanentPurgeSet(guildId);
@@ -675,6 +746,10 @@ export async function getEmbedRegistry(guildId, { cached = false } = {}) {
                 ]);
                 clearTimeout(timeout);
             }
+            // Every commit publishes its exact durable result. Reuse it when
+            // it is current instead of reading the same document again.
+            const committed = peekEmbedRegistry(guildId, { current: true });
+            if (committed) return committed;
             return structuredClone(cleanStoredRecords(await readStoredRecords(guildId)));
         }
         if (generation === getEmbedRegistryGeneration(guildId) && !registryMutationQueues.has(key)) {
@@ -713,10 +788,24 @@ async function saveRecords(guildId, additions) {
         const next = new Map(records.map(record => [recordKey(record), record]));
 
         for (const addition of batch.additions) {
+            // Only an explicit Builder write (Post, Save or an exact live
+            // re-read of the selected message) may change a Builder post.
+            const authoritative = addition?.authoritative === true;
             const record = normalizeRecord(addition);
             if (!record || isRecentlyPurgedMessage(record)) continue;
             const key = recordKey(record);
             const existing = next.get(key) || null;
+            // Gateway create/update events, history scans and catalog passes
+            // can carry an older snapshot of the same physical message. They
+            // never replace (or reclassify) a committed Builder post.
+            if (existing && isBuilderOwnedRecord(existing) && !authoritative) continue;
+            if (authoritative && existing && String(record.source) === 'embed-builder') {
+                const merged = { ...existing, ...record, source: 'embed-builder', manualSaved: true };
+                // A deliberate Save is permanent for this identity.
+                if (existing.explicitSave === true) merged.explicitSave = true;
+                next.set(key, merged);
+                continue;
+            }
             // A delayed history scan can carry the *old* title AND body
             // after Modify/Save updated an existing Cloudy message. The same
             // protection applies to saved existing embeds ("modified" and
@@ -764,22 +853,16 @@ async function saveRecords(guildId, additions) {
             }
         }
         return saved;
-    }).then(saved => {
-        // Publish only a durable registration after the mutation queue has
-        // drained. Search and Save can use this exact snapshot immediately
-        // instead of reading the same large registry back from the database.
-        if (saved && committedRecords && !registryMutationQueues.has(key)) {
-            const generation = getEmbedRegistryGeneration(key);
-            registryLastKnown.set(key, { generation, records: committedRecords });
-            registrySearchCache.set(key, { generation, records: committedRecords, expiresAt: Date.now() + 5000 });
-        }
-        return saved;
-    });
+    // Publish the durable registration as soon as it commits. Search and
+    // Save use this exact snapshot instead of re-reading the registry.
+    }, () => committedRecords);
     registryWriteBatches.set(key, batch);
     return batch.promise;
 }
 
-export async function registerCloudyEmbedMessages(messages, source = 'cloudy', { manualSave = false, manualSaveIndex = 0 } = {}) {
+export async function registerCloudyEmbedMessages(messages, source = 'cloudy', {
+    manualSave = false, manualSaveIndex = 0, explicitSave = undefined,
+} = {}) {
     const grouped = new Map();
     // A message deliberately sent from the Embed Builder is a user-created
     // template and must remain editable even when its title is custom. Normal
@@ -805,18 +888,33 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy', {
                 else joinToCreateCatalogChannels.delete(String(message.guildId));
             }
 
-            const priorRecords = manualSave ? await getEmbedRegistry(message.guildId) : [];
+            // A warm, current registry view avoids one full registry read on
+            // every Post/Save while never using a snapshot from before a write.
+            const priorRecords = manualSave
+                ? (peekEmbedRegistry(message.guildId, { current: true }) || await getEmbedRegistry(message.guildId))
+                : [];
             const additions = message.embeds
                 .map((embed, embedIndex) => {
                     const prior = priorRecords.find(record => String(record.messageId) === String(message.id) && Number(record.embedIndex || 0) === embedIndex);
                     const location = prior ? { channelId: prior.channelId, backingChannelId: prior.backingChannelId } : recordLocationForEmbed(message, embed);
+                    const explicitWrite = manualSave && embedIndex === manualSaveIndex;
+                    // An explicit Builder registration is the identity of this
+                    // physical post, even if a gateway event registered the
+                    // same message as "automatic" a few milliseconds earlier.
+                    const builderIdentity = isManualBuilderMessage
+                        && String(prior?.source || '') !== 'system-catalog'
+                        && !isSystemCatalogMessage(message);
                     const addition = {
                         guildId: message.guildId,
                         ...location,
                         messageId: message.id,
                         embedIndex,
-                        source: prior?.source || (isSystemCatalogMessage(message) ? 'system-catalog' : source),
-                        manualSaved: Boolean(prior?.manualSaved || (manualSave && embedIndex === manualSaveIndex)),
+                        source: builderIdentity
+                            ? 'embed-builder'
+                            : (prior?.source || (isSystemCatalogMessage(message) ? 'system-catalog' : source)),
+                        ...(explicitWrite ? { authoritative: true } : {}),
+                        ...(explicitWrite && explicitSave !== undefined ? { explicitSave: explicitSave === true } : {}),
+                        manualSaved: Boolean(prior?.manualSaved || explicitWrite),
                         title: embed?.title || '',
                         name: embedName(embed),
                         channelName: message.channel?.name || '',
@@ -856,6 +954,9 @@ function detachedBuilderRecord(record) {
     // Builder data whose historical Save status cannot be established.
     if (!record?.manualSaved
         && (!isManualBuilderRecord(record) || Object.hasOwn(record, 'manualSaved'))) return null;
+    // A Builder post that was only published (never explicitly Saved)
+    // disappears from the Builder when it is deleted manually in Discord.
+    if (record.explicitSave === false) return null;
     if (!isFixedCloudyRecord(record)) return null;
     const snapshot = getEmbedRegistrySnapshot(record);
     if (!snapshot) return null;
@@ -872,7 +973,7 @@ function detachedBuilderRecord(record) {
 export async function saveNewBuilderDraftRecord(guildId, channelId, snapshot, components, draftData) {
     const record = normalizeRecord({
         guildId, channelId, messageId: 'draft-' + randomUUID(), embedIndex: 0,
-        source: 'embed-builder', manualSaved: true, detached: true,
+        source: 'embed-builder', manualSaved: true, explicitSave: true, detached: true,
         title: snapshot.title || '', name: embedName(snapshot), snapshot, components, draftData,
     });
     if (!record || !await saveRecords(guildId, [record])) return null;
@@ -905,6 +1006,7 @@ export async function updateDetachedEmbedRegistrySnapshot(guildId, target, snaps
                 components: normalizedComponents == null ? record.components : normalizedComponents,
                 detached: true,
                 manualSaved: true,
+                explicitSave: true,
                 ...(draftData !== undefined ? { draftData } : {}),
             });
             if (updated) updatedRecord = updated;
@@ -982,24 +1084,35 @@ export async function relinkDetachedEmbedRegistryMessage(guildId, target, messag
     }, () => committedRecords);
 }
 
-export async function removeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
+// Shared "this physical message is gone" transition. Explicitly saved Builder
+// templates survive as detached records; everything else is removed. Each
+// commit is published immediately so Search never shows the removed row.
+function detachMatchingRegistryRecords(guildId, matches) {
+    let committedRecords = null;
     return mutateRegistry(guildId, async () => {
         const records = cleanStoredRecords(await readStoredRecords(guildId));
         let changed = false;
         const next = records.flatMap(item => {
-            const matches = (
-                (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
-                && String(item.messageId) === String(messageId)
-                && Number(item.embedIndex || 0) === Number(embedIndex || 0)
-            );
-            if (!matches) return [item];
+            if (!matches(item)) return [item];
             changed = true;
             const detached = detachedBuilderRecord(item);
             return detached ? [detached] : [];
         });
         if (!changed) return false;
-        return setInDb(registryKey(guildId), sortRecords(next));
-    });
+        const result = sortRecords(next);
+        if (!await setInDb(registryKey(guildId), result)) return false;
+        committedRecords = result;
+        return true;
+    }, () => committedRecords);
+}
+
+export async function removeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
+    if (isEmbedRegistryMoveInProgress(guildId, channelId, messageId)) return false;
+    return detachMatchingRegistryRecords(guildId, item => (
+        (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
+        && String(item.messageId) === String(messageId)
+        && Number(item.embedIndex || 0) === Number(embedIndex || 0)
+    ));
 }
 
 export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
@@ -1060,39 +1173,141 @@ export async function purgeEmbedRegistryRecord(guildId, channelId, messageId, em
 }
 
 export async function removeEmbedRegistryMessage(guildId, channelId, messageId) {
-    return mutateRegistry(guildId, async () => {
-        const records = cleanStoredRecords(await readStoredRecords(guildId));
-        let changed = false;
-        const next = records.flatMap(item => {
-            const matches = (
-                (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
-                && String(item.messageId) === String(messageId)
-            );
-            if (!matches) return [item];
-            changed = true;
-            const detached = detachedBuilderRecord(item);
-            return detached ? [detached] : [];
-        });
-        if (!changed) return false;
-        return setInDb(registryKey(guildId), sortRecords(next));
-    });
+    // Cloudy itself deleted this message to move the same identity (Reappear
+    // or Repost). Its gateway delete event is not a manual Discord deletion.
+    if (isEmbedRegistryMoveInProgress(guildId, channelId, messageId)) return false;
+    return detachMatchingRegistryRecords(guildId, item => (
+        (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
+        && String(item.messageId) === String(messageId)
+    ));
 }
 
 export async function removeEmbedRegistryChannel(guildId, channelId) {
-    return mutateRegistry(guildId, async () => {
-        const records = cleanStoredRecords(await readStoredRecords(guildId));
-        let changed = false;
-        const next = records.flatMap(item => {
-            const matches = String(item.channelId) === String(channelId)
-                || physicalChannelId(item) === String(channelId);
-            if (!matches) return [item];
-            changed = true;
-            const detached = detachedBuilderRecord(item);
-            return detached ? [detached] : [];
-        });
-        if (!changed) return false;
-        return setInDb(registryKey(guildId), sortRecords(next));
+    return detachMatchingRegistryRecords(guildId, item => String(item.channelId) === String(channelId)
+        || physicalChannelId(item) === String(channelId));
+}
+
+// ---------------------------------------------------------------------------
+// Identity moves. Reappear (and a deliberate Repost) replace one physical
+// Discord message with a new one. That is the SAME Builder item: it keeps
+// its source, Save state and creation time, and its registry row follows the
+// new message ID. It must never become a second "automatic" row next to a
+// detached copy of the old message (the old Pop 57 / Pop duplicates).
+// ---------------------------------------------------------------------------
+const pendingRegistryMoves = new Map();
+// old physical ID -> the ID the same Builder item moved to (this process).
+// An open Builder session that still targets the old ID follows the move.
+const movedRegistryMessages = new Map();
+const MOVED_MESSAGE_TTL = 6 * 60 * 60_000;
+
+function registryMoveKey(guildId, channelId, messageId) {
+    return [String(guildId), String(channelId), String(messageId)].join(':');
+}
+
+export function resolveMovedEmbedMessageId(guildId, channelId, messageId) {
+    let current = String(messageId || '');
+    const now = Date.now();
+    for (let hop = 0; hop < 50 && current; hop += 1) {
+        const key = registryMoveKey(guildId, channelId, current);
+        const moved = movedRegistryMessages.get(key);
+        if (!moved) break;
+        if (moved.expiresAt <= now) {
+            movedRegistryMessages.delete(key);
+            break;
+        }
+        current = moved.to;
+    }
+    return current;
+}
+
+function rememberMovedRegistryMessage(guildId, channelId, fromId, toId) {
+    const now = Date.now();
+    for (const [key, moved] of movedRegistryMessages) {
+        if (moved.expiresAt <= now) movedRegistryMessages.delete(key);
+    }
+    movedRegistryMessages.set(registryMoveKey(guildId, channelId, fromId), {
+        to: String(toId), expiresAt: now + MOVED_MESSAGE_TTL,
     });
+    while (movedRegistryMessages.size > 5000) {
+        movedRegistryMessages.delete(movedRegistryMessages.keys().next().value);
+    }
+}
+
+export function isEmbedRegistryMoveInProgress(guildId, channelId, messageId) {
+    return (pendingRegistryMoves.get(registryMoveKey(guildId, channelId, messageId)) || 0) > 0;
+}
+
+export function beginEmbedRegistryMove(guildId, channelId, messageId) {
+    if (!guildId || !channelId || !messageId) return () => {};
+    const key = registryMoveKey(guildId, channelId, messageId);
+    pendingRegistryMoves.set(key, (pendingRegistryMoves.get(key) || 0) + 1);
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        const remaining = (pendingRegistryMoves.get(key) || 1) - 1;
+        if (remaining > 0) pendingRegistryMoves.set(key, remaining);
+        else pendingRegistryMoves.delete(key);
+    };
+}
+
+export async function moveEmbedRegistryMessage(guildId, channelId, fromMessageId, message) {
+    const fromId = String(fromMessageId || '');
+    const toId = String(message?.id || '');
+    if (!guildId || !channelId || !fromId || !toId || !message?.embeds?.length) return false;
+    if (fromId === toId) return true;
+
+    let committedRecords = null;
+    let moved = false;
+    const result = await mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        const sources = records.filter(item =>
+            (String(item.channelId) === String(channelId) || physicalChannelId(item) === String(channelId))
+            && String(item.messageId) === fromId);
+        // A gateway "automatic" registration of the new message may already
+        // exist. The moved identity replaces it; nothing else is touched.
+        const remaining = records.filter(item => !sources.includes(item)
+            && !(physicalChannelId(item) === String(message.channelId) && String(item.messageId) === toId));
+        if (!sources.length) return false;
+
+        const replacements = sources.map(sourceRecord => {
+            const index = Math.max(0, Number(sourceRecord.embedIndex) || 0);
+            const embed = message.embeds[index] || (sources.length === 1 ? message.embeds[0] : null);
+            if (!embed) return null;
+            const location = recordLocationForEmbed(message, embed, sourceRecord);
+            return normalizeRecord({
+                ...sourceRecord,
+                ...location,
+                messageId: toId,
+                embedIndex: message.embeds[index] ? index : 0,
+                title: embed?.title || '',
+                name: embedName(embed),
+                channelName: message.channel?.name || sourceRecord.channelName || '',
+                snapshot: normalizeEmbedSnapshot(embed),
+                components: normalizeMessageComponents(message.components),
+                detached: false,
+                createdAt: sourceRecord.createdAt || message.createdAt?.toISOString?.() || new Date().toISOString(),
+            });
+        }).filter(Boolean);
+        if (!replacements.length) return false;
+        for (const replacement of replacements) delete replacement.draftData;
+
+        const next = sortRecords([...remaining, ...replacements]);
+        if (!await setInDb(registryKey(guildId), next)) return false;
+        committedRecords = next;
+        moved = true;
+        for (const record of sources) embedSnapshotCache.delete(recordKey(record));
+        for (const replacement of replacements) rememberEmbedSnapshot(replacement, replacement.snapshot);
+        return true;
+    }, () => committedRecords);
+    // The old message ID is retired for this process: late gateway events
+    // or history pages for it can no longer recreate a second identity. It is
+    // deliberately NOT a permanent Delete tombstone (Reappear's origin key).
+    if (moved) {
+        rememberPurgedMessage(guildId, new Set([String(channelId)]), fromId);
+        rememberMovedRegistryMessage(guildId, channelId, fromId, toId);
+    }
+    return result;
 }
 
 export async function resolveEmbedRegistryRecord(guild, record) {
@@ -1139,6 +1354,7 @@ function recordsFromMessage(message, priorRecords = [], { allowManual = false } 
                 embedIndex,
                 source: isSystemCatalogMessage(message) ? 'system-catalog' : (prior?.source || 'reconciled'),
                 ...(prior && Object.hasOwn(prior, 'manualSaved') ? { manualSaved: prior.manualSaved } : {}),
+                ...(prior && Object.hasOwn(prior, 'explicitSave') ? { explicitSave: prior.explicitSave } : {}),
                 title: embed?.title || '',
                 name: embedName(embed),
                 channelName: message.channel?.name || prior?.channelName || '',
@@ -1284,6 +1500,7 @@ export async function reconcileEmbedRegistry(guild) {
     ]);
     const results = new Map(resolved);
 
+    let committedRecords = null;
     const records = await mutateRegistry(guild.id, async () => {
         const latest = cleanStoredRecords(await readStoredRecords(guild.id));
         const next = [];
@@ -1321,9 +1538,10 @@ export async function reconcileEmbedRegistry(guild) {
         if (!await setInDb(registryKey(guild.id), cleaned)) {
             throw new Error('Failed to persist reconciled embed registry');
         }
+        committedRecords = cleaned;
         for (const record of cleaned) rememberEmbedSnapshot(record, record.snapshot);
         return cleaned;
-    });
+    }, () => committedRecords);
 
     return {
         records,
@@ -1390,7 +1608,8 @@ export async function scanGuildForCloudyEmbeds(guild, botUserId, { maxMessagesPe
                         createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
                     };
                     if (isInternalEmbedRecord(addition)) continue;
-                    rememberEmbedSnapshot(addition, embed);
+                    // saveRecords remembers only the committed winner. A slow
+                    // history page may predate a Save of this same message.
                     additions.push(addition);
                     found += 1;
                 }

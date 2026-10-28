@@ -50,6 +50,8 @@ import {
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from '../../services/embedMediaStorageService.js';
 import { applyInitialSearchSelectionToState,
+    followMovedBuilderTarget,
+    loadRecordSnapshotIntoState,
     openEmbedManager,
     prepareEmbedManager,
     repostDetachedEmbed,
@@ -57,12 +59,16 @@ import { applyInitialSearchSelectionToState,
     saveNewBuilderDraft,
     syncBuilderLogoFromLiveMessage } from '../../services/embedManagerService.js';
 import {
+    getEmbedRegistry,
+    peekEmbedRegistry,
     purgeEmbedRegistryRecord,
     registerCloudyEmbedMessage,
     relinkDetachedEmbedRegistryMessage,
     } from '../../services/embedRegistryService.js';
+import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../../utils/builderOwnedSends.js';
 import { touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
+import { findExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { hideSystemCatalogFromBuilder, hideBuilderSearchTitlesFromBuilder } from '../../services/systemEmbedCatalogService.js';
 import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord } from '../../utils/embedBuilderAccess.js';
 import { getFromDb,
@@ -342,6 +348,8 @@ async function sendBuilderDeleteNotice(interaction, title, description, color = 
 
 async function togglePendingBuilderDeletion(buttonInteraction, guild, state) {
     const target = state.modifyTarget;
+    // Reappear may have moved this item while the Builder was open.
+    if (followMovedBuilderTarget(guild.id, target)) state.pendingBuilderDelete = null;
     const key = builderDeleteTargetKey(target);
 
     if (state.pendingBuilderDelete?.key === key) {
@@ -444,6 +452,18 @@ function resetBuilderAfterRecordDeletion(state) {
 async function savePendingBuilderDeletion(buttonInteraction, guild, state) {
     const target = state.modifyTarget;
     if (!target?.messageId) return false;
+    // The confirmed item followed a Reappear move: delete its current copy.
+    const moved = followMovedBuilderTarget(guild.id, target);
+    if (moved && state.pendingBuilderDelete) {
+        state.pendingBuilderDelete = {
+            ...state.pendingBuilderDelete,
+            key: builderDeleteTargetKey(target),
+            messageId: String(target.messageId),
+            embedIndex: Math.max(0, Number(target.embedIndex) || 0),
+            presence: null,
+            logPresence: null,
+        };
+    }
     return withEmbedBuilderMessageMutation(
         guild.id, target.backingChannelId || target.channelId, target.messageId,
         () => savePendingBuilderDeletionUnlocked(buttonInteraction, guild, state),
@@ -559,15 +579,18 @@ async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, stat
         markDelete('search_updated');
         await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
         resetBuilderAfterRecordDeletion(state);
-        await refreshBuilder(buttonInteraction, state);
-        await sendBuilderDeleteNotice(
-            buttonInteraction,
-            'Removed from Builder',
-            logTarget && ['exists', 'missing'].includes(logPresence?.status)
-                ? 'The selected Discord log message and its Builder Search entry were removed. Shared response templates remain operational.'
-                : 'The virtual catalog entry was removed from Builder Search. No separate physical log message was attached.',
-            0x57F287,
-        );
+        // The confirmation never waits for the preview/dashboard repaint.
+        await Promise.all([
+            refreshBuilder(buttonInteraction, state),
+            sendBuilderDeleteNotice(
+                buttonInteraction,
+                'Removed from Builder',
+                logTarget && ['exists', 'missing'].includes(logPresence?.status)
+                    ? 'The selected Discord log message and its Builder Search entry were removed. Shared response templates remain operational.'
+                    : 'The virtual catalog entry was removed from Builder Search. No separate physical log message was attached.',
+                0x57F287,
+            ),
+        ]);
         markDelete('first_visible');
         return true;
     }
@@ -604,6 +627,17 @@ async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, stat
             ? await reappearChannel.messages.fetch(activeReappearMessageId).catch(() => null)
             : null;
         await activeMessage?.delete?.().catch(() => {});
+        // The moved Reappear copy is the same Builder item. Its registry row
+        // must go too, or Search keeps offering an embed that was deleted.
+        const activePurged = await purgeEmbedRegistryRecord(
+            guild.id, pending.channelId, activeReappearMessageId, null,
+        ).catch(() => false);
+        if (!activePurged) {
+            await sendBuilderDeleteNotice(buttonInteraction, 'Delete could not be saved',
+                'The Reappear copy of this embed could not be removed permanently. Please try Confirm delete again.',
+                0xED4245);
+            return false;
+        }
     }
 
     if (presence.status === 'exists') {
@@ -690,13 +724,16 @@ async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, stat
     clearBuilderRecordCaches(guild.id);
     await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
     resetBuilderAfterRecordDeletion(state);
-    await refreshBuilder(buttonInteraction, state);
-    await sendBuilderDeleteNotice(
-        buttonInteraction,
-        'Removed from Builder',
-        'The Discord message, saved Builder record and Reappear rule were removed. You can use Post to publish this draft again.',
-        0x57F287,
-    );
+    // The confirmation never waits for the preview/dashboard repaint.
+    await Promise.all([
+        refreshBuilder(buttonInteraction, state),
+        sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Removed from Builder',
+            'The Discord message, saved Builder record and Reappear rule were removed. You can use Post to publish this draft again.',
+            0x57F287,
+        ),
+    ]);
     markDelete('first_visible');
     return true;
 }
@@ -955,7 +992,7 @@ export function buildPostedEmbeds(state) {
     });
 }
 
-async function postBuiltMessage(channel, state, guild, member) {
+async function postBuiltMessage(channel, state, guild, member, { explicitSave = false } = {}) {
     // The web/content editor can still have a pending update when the
     // channel picker opens. Post the finalized values, never the previous
     // saved draft from before the last edit.
@@ -1036,12 +1073,16 @@ async function postBuiltMessage(channel, state, guild, member) {
 
         // Publish this exact Builder choice. The general Cloudy footer policy
         // may add missing footer text, but must not re-add an intentionally
-        // absent C on this new owner-authored embed.
-        const sent = await withManualBuilderPostLogoChoice(() => channel.send(payload)).catch(() => null);
+        // absent C on this new owner-authored embed. The nonce lets the
+        // generic MESSAGE_CREATE listener recognise this Builder post before
+        // channel.send() resolves, so it is never restyled or misregistered.
+        const sent = await withManualBuilderPostLogoChoice(() => channel.send(withBuilderOwnedNonce(payload)))
+            .catch(() => null);
         if (!sent) {
             await rollbackPost();
             return { ok: false, reason: 'send-failed' };
         }
+        rememberBuilderOwnedMessage(sent);
 
         const sentEntry = { message: sent, registered: false };
         sentMessages.push(sentEntry);
@@ -1050,7 +1091,7 @@ async function postBuiltMessage(channel, state, guild, member) {
         // buttons and identity in the registry even if Discord later removes
         // the physical message. Delete from Builder is separately permanent.
         const registered = await registerCloudyEmbedMessage(sent, 'embed-builder', {
-            manualSave: true, manualSaveIndex: 0,
+            manualSave: true, manualSaveIndex: 0, explicitSave,
         });
         if (!registered) {
             await rollbackPost();
@@ -1099,7 +1140,8 @@ async function postBuiltMessage(channel, state, guild, member) {
         await import('./zz_embedbuilderLiveSearchPatch.js');
     invalidateBuilderSearchTitleCache(guild.id);
 
-    return { ok: true, destination: channel, rollback: rollbackPost };
+    const messages = sentMessages.map(entry => entry.message);
+    return { ok: true, destination: channel, rollback: rollbackPost, messages };
 }
 
 function buildControlEmbed(state) {
@@ -1392,6 +1434,24 @@ async function editBuilderDashboardMessage(state, payload) {
     }
 
     return false;
+}
+
+// The interaction webhook that created each private helper message. A
+// follow-up is deleted through its own interaction token first.
+const builderChildWebhooks = new WeakMap();
+
+async function deleteBuilderChildMessages(interaction, state) {
+    const children = [...(state.builderChildMessages?.values?.() || [])];
+    state.builderChildMessages?.clear?.();
+    await Promise.allSettled(children.map(async childMessage => {
+        const webhooks = [builderChildWebhooks.get(childMessage), interaction?.webhook]
+            .filter((webhook, index, list) => webhook?.deleteMessage && list.indexOf(webhook) === index);
+        for (const webhook of childMessage?.id ? webhooks : []) {
+            const deleted = await webhook.deleteMessage(childMessage.id).then(() => true).catch(() => false);
+            if (deleted) return;
+        }
+        await childMessage?.delete?.().catch(() => {});
+    }));
 }
 
 async function deleteBuilderDashboardMessage(state) {
@@ -1927,9 +1987,56 @@ export async function confirmBuilderPostedMessage(interaction, payload) {
     const updated = await interaction.editReply(payload)
         .then(() => true).catch(() => false);
     if (updated) return true;
-    await interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral })
+    const fallback = await interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral, fetchReply: true })
         .catch(() => null);
+    // Success is a status reply: it expires after exactly 10 seconds.
+    if (fallback) removeTransientMessage(interaction, fallback);
     return false;
+}
+
+// Ephemeral Builder helpers (channel picker / its Post confirmation) are
+// children of this Builder session. A status child is removed after exactly
+// 10 seconds, or together with the session if that ends first.
+export function scheduleBuilderChildMessageRemoval(interaction, state, message) {
+    if (!message?.id) return;
+    if (!state.builderChildMessages) state.builderChildMessages = new Map();
+    state.builderChildMessages.set(message.id, message);
+    if (interaction?.webhook && message && typeof message === 'object') {
+        builderChildWebhooks.set(message, interaction.webhook);
+    }
+    const timer = setTimeout(async () => {
+        if (!state.builderChildMessages?.has?.(message.id)) return;
+        state.builderChildMessages.delete(message.id);
+        const deleted = interaction?.webhook?.deleteMessage
+            ? await interaction.webhook.deleteMessage(message.id).then(() => true).catch(() => false)
+            : false;
+        if (!deleted) await message.delete?.().catch(() => {});
+    }, TRANSIENT_RESPONSE_TIMEOUT);
+    timer.unref?.();
+}
+
+// After Post the Builder edits exactly the message it published, so Save
+// changes that physical message ID instead of creating a second copy.
+async function selectPostedBuilderMessage(guild, state, messages) {
+    const posted = Array.isArray(messages) ? messages.filter(Boolean) : [];
+    // A long draft is published as several physical parts. One of those
+    // parts cannot represent the whole draft, so keep "New embed" mode.
+    if (posted.length !== 1) {
+        state.modifyTarget = null;
+        return false;
+    }
+    const [message] = posted;
+    const records = peekEmbedRegistry(guild.id, { current: true }) || await getEmbedRegistry(guild.id);
+    const record = records.find(item => String(item.messageId) === String(message.id)
+        && Number(item.embedIndex || 0) === 0);
+    if (!record) {
+        state.modifyTarget = null;
+        return false;
+    }
+    const loaded = loadRecordSnapshotIntoState(state, guild, record);
+    if (loaded && state.modifyTarget) state.modifyTarget.cachedMessage = message;
+    state.pendingBuilderDelete = null;
+    return loaded;
 }
 
 async function postMessage(buttonInteraction, state, guild, forceNew = false) {
@@ -1965,6 +2072,9 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
     if (!state.builderChildMessages) state.builderChildMessages = new Map();
     if (channelPickerMessage?.id) {
         state.builderChildMessages.set(channelPickerMessage.id, channelPickerMessage);
+        if (buttonInteraction.webhook && typeof channelPickerMessage === 'object') {
+            builderChildWebhooks.set(channelPickerMessage, buttonInteraction.webhook);
+        }
     }
 
     // The channel picker is an interactive continuation of Post message, not a
@@ -2014,11 +2124,26 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
             return;
         }
         const target = state.modifyTarget ? { ...state.modifyTarget } : null;
+        // A Repost moves the selected Builder item to a new physical message.
+        // Keep its Reappear setting and its Save state on the new identity.
+        const movesBuilderItem = Boolean(target?.source === 'embed-builder' && !target.detached
+            && target.messageId && !String(target.messageId).startsWith('draft-'));
+        if (movesBuilderItem && !state.reappearTouched && !state.reappearAfter) {
+            const existingRule = await findExistingEmbedReappearRule({
+                guildId: guild.id,
+                channelId: target.backingChannelId || target.channelId,
+                messageId: target.messageId,
+                embedIndex: target.embedIndex,
+            }).catch(() => null);
+            if (existingRule?.every) state.reappearAfter = existingRule.every;
+        }
         const posted = await postReplacingManualBuilderMessage({
             guild,
             channel,
             target,
-            postNew: () => postBuiltMessage(channel, state, guild, channelInteraction.member),
+            postNew: () => postBuiltMessage(channel, state, guild, channelInteraction.member, {
+                explicitSave: movesBuilderItem && target.explicitSave !== false,
+            }),
             saveExisting: () => saveModifiedEmbed(guild, state),
         }).catch(error => {
             logger.error('[EMBED_BUILDER] Repost failed:', error);
@@ -2050,6 +2175,7 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         // Its Close message button remains visible and must still be handled.
         // Only the channel-picker collector is complete after this post.
         collector.stop('posted');
+        state.reappearTouched = false;
         const successPayload = markBotResponsePayload({
             embeds: [isRepost
                 ? successEmbed('Message reposted', `Your message has been reposted to ${posted.destination}.`)
@@ -2058,13 +2184,21 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         });
 
         // This channel picker is the component interaction's original
-        // message. Deleting it before followUp creates Discord's visible
-        // "Message could not be loaded" reply reference. Replace the picker
-        // in-place instead, then expire the private success feedback.
-        await confirmBuilderPostedMessage(channelInteraction, successPayload);
-        // The success message is ephemeral and expires naturally in Discord.
-        // Never delete it (or its original picker) with a cleanup timer.
-        state.builderChildMessages?.delete?.(channelPickerMessage?.id);
+        // message. Replace it in place with the success status (no extra
+        // reply referencing it), then remove it after exactly 10 seconds.
+        // It stays registered with this Builder session, so Close/idle
+        // removes it *before* the dashboard it refers to: Discord never shows
+        // "Original message was deleted" above a stale "Message sent".
+        const confirmedInPlace = await confirmBuilderPostedMessage(channelInteraction, successPayload);
+        if (confirmedInPlace) scheduleBuilderChildMessageRemoval(buttonInteraction, state, channelPickerMessage);
+
+        // From now on this Builder edits the message it just published. A
+        // following Save updates that same physical message ID; it never
+        // creates a separate draft/registry copy of the same embed.
+        await selectPostedBuilderMessage(guild, state, posted.messages).catch(error => {
+            logger.warn('[EMBED_BUILDER] Posted message could not be selected for editing: '
+                + (error?.message || error));
+        });
 
         // The user may still click Close message, edit this draft, or open
         // Modify after posting. Stopping the root collector here left visible
@@ -2470,6 +2604,9 @@ export default {
                         }
                         case 'simple_embed_close':
                             await buttonInteraction.deferUpdate().catch(() => {});
+                            // Remove private helpers (picker, Post confirmation)
+                            // before the dashboard they reply to.
+                            await deleteBuilderChildMessages(interaction, state).catch(() => {});
                             await deleteBuilderDashboardMessage(state).catch(() => {});
                             await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
                             collector.stop('manual-close');
@@ -2534,12 +2671,10 @@ export default {
 
             collector.on('end', async (_collected, reason) => {
                 const completedPost = reason === 'posted';
-                // A successful Post has a private success reply linked to the
-                // Builder interaction. Deleting its source preview/dashboard
-                // makes Discord display "Original message was deleted".
-                // Keep the two ephemeral originals, disable their controls,
-                // and let Discord expire them. All other close/idle paths
-                // retain their previous immediate cleanup behavior.
+                // Remove helper replies before the dashboard they refer to.
+                await deleteBuilderChildMessages(interaction, state).catch(() => {});
+                // A 'posted' end keeps both ephemeral originals (controls
+                // disabled); all other close/idle paths delete them at once.
                 if (completedPost) {
                     unregisterBuilderPreviewMessage(state.builderMessage || state.builderMessageId);
                     await Promise.allSettled([
@@ -2563,16 +2698,6 @@ export default {
                 state.activeButtonEditorCollector?.stop?.('builder-ended');
                 state.activeButtonEditorCollector = null;
 
-                // The root builder owns all ephemeral editor/helper panels. When
-                // it closes or expires, remove those panels as one session.
-                for (const childMessage of state.builderChildMessages?.values?.() || []) {
-                    if (childMessage?.id && interaction.webhook?.deleteMessage) {
-                        await interaction.webhook.deleteMessage(childMessage.id).catch(() => childMessage?.delete?.().catch(() => {}));
-                    } else {
-                        await childMessage?.delete?.().catch(() => {});
-                    }
-                }
-                state.builderChildMessages?.clear?.();
                 if (state.activeEmbedManager) {
                     state.activeEmbedManager.closed = true;
                     state.activeEmbedManager.collector?.stop('builder-ended');

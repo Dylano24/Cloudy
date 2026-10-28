@@ -16,7 +16,15 @@ function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails
   const get = async (key, fallback) => structuredClone(values.get(key) ?? fallback);
   const set = async (key, value) => { values.set(key, structuredClone(value)); return true; };
   const remove = async key => values.delete(key);
-  const handle = new Function('getFromDb', 'setInDb', 'deleteFromDb', 'logger', 'setTimeout', `const reappearQueues = new Map(); ${source.slice(start)}; return handleEmbedReappear;`)(get, set, remove, { error() {} }, (callback, delay) => { actions.push('delay:' + delay); callback(); });
+  const moves = [];
+  const reappearIdentity = {
+    lock: async () => () => {},
+    beginMove: (_guildId, _channelId, messageId) => { actions.push('guard:' + messageId); return () => actions.push('release:' + messageId); },
+    move: async (_guildId, _channelId, from, sent) => { moves.push([from, sent.id]); return true; },
+    ownedPayload: payload => payload,
+    rememberOwned: () => {},
+  };
+  const handle = new Function('getFromDb', 'setInDb', 'deleteFromDb', 'logger', 'setTimeout', 'reappearIdentity', `const reappearQueues = new Map(); ${source.slice(start)}; return handleEmbedReappear;`)(get, set, remove, { error() {}, warn() {} }, (callback, delay) => { actions.push('delay:' + delay); callback(); }, reappearIdentity);
   let serial = 0;
   const channel = {
     id: 'c',
@@ -39,22 +47,26 @@ function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails
       return { id, delete: async () => visible.delete(id) };
     },
   };
-  return { run: () => handle({ guild: { id: 'g' }, channel }), actions, visible, values, ruleKey, overlap: () => overlap, allowSend: () => { sendFails = false; } };
+  return { run: () => handle({ guild: { id: 'g' }, channel }), actions, visible, values, ruleKey, moves, overlap: () => overlap, allowSend: () => { sendFails = false; } };
 }
 
 test('Reappear deletes the previous copy before sending the next', async () => {
   const f = fixture();
   await f.run();
-  assert.deepEqual(f.actions, ['delete:old', 'delay:2000', 'send']);
+  assert.deepEqual(f.actions, ['guard:old', 'delete:old', 'delay:2000', 'send', 'release:old']);
   assert.equal(f.overlap(), false);
   assert.equal(f.visible.size, 1);
+  assert.deepEqual(f.moves, [['old', 'new-1']], 'the registry identity follows the moved message');
+  assert.deepEqual(f.values.get(f.ruleKey).previousMessageIds, ['old'],
+    'the rule remembers every former physical ID of this embed');
 });
 
 test('failed deletion preserves the existing embed and sends no duplicate', async () => {
   const f = fixture({ deleteFails: true });
   await f.run();
-  assert.deepEqual(f.actions, ['delete:old']);
+  assert.deepEqual(f.actions, ['guard:old', 'delete:old', 'release:old']);
   assert.deepEqual([...f.visible], ['old']);
+  assert.deepEqual(f.moves, []);
 });
 
 test('failed sending keeps the rule ready for retry', async () => {
@@ -73,7 +85,7 @@ test('Reappear retains the configured message count', async () => {
   await f.run();
   assert.deepEqual(f.actions, []);
   await f.run();
-  assert.deepEqual(f.actions, ['delete:old', 'delay:2000', 'send']);
+  assert.deepEqual(f.actions, ['guard:old', 'delete:old', 'delay:2000', 'send', 'release:old']);
 });
 
 test('old deleted Yess never reappears when a new Test is posted in general', async () => {
@@ -117,7 +129,7 @@ test('a lookup failure never creates a second visible copy', async () => {
 test('turning Reappear off during deletion prevents reposting', async () => {
   const f = fixture({ disableDuringDelete: true });
   await f.run();
-  assert.deepEqual(f.actions, ['delete:old', 'delay:2000']);
+  assert.deepEqual(f.actions, ['guard:old', 'delete:old', 'delay:2000', 'release:old']);
   assert.equal(f.values.has(f.ruleKey), false);
 });
 

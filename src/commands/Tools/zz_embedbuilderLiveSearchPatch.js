@@ -43,6 +43,7 @@ const RUNTIME_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchRuntime');
 const RESPONSE_PATCH = Symbol.for('cloudy.embedbuilderLiveSearchResponses');
 const OLD_SEARCH_BUTTON_ID = '__cloudy_removed_builder_search_button__';
 const PENDING_TTL = 5 * 60_000;
+const LIVE_SELECTION_VERIFY_BUDGET_MS = 250;
 const INTERNAL_SEARCH_TITLES = new Set([
     'message builder',
     'modify embed',
@@ -273,6 +274,10 @@ function clean(value, max = 100) {
 
 const searchTitleCollator = new Intl.Collator(undefined, { sensitivity: 'base' });
 let autocompleteSnapshots = null;
+// Per-call memo of derived Search documents/identities. Active only while one
+// autocomplete list is being built; never shared between keystrokes.
+let autocompleteDocuments = null;
+let autocompleteIdentities = null;
 
 function savedSearchSnapshot(record) {
     const remembered = record && autocompleteSnapshots?.get(record);
@@ -457,6 +462,14 @@ export function recordTitle(record) {
 }
 
 function recordDocument(guild, record) {
+    const remembered = record && autocompleteDocuments?.get(record);
+    if (remembered) return remembered;
+    const document = buildRecordDocument(guild, record);
+    if (record) autocompleteDocuments?.set(record, document);
+    return document;
+}
+
+function buildRecordDocument(guild, record) {
     const resolved = savedSearchSnapshot(record);
     const data = resolved.data;
     const channel = guild?.channels?.cache?.get?.(String(record?.channelId || '')) || null;
@@ -780,7 +793,9 @@ export async function loadFastEmbedBuilderSearchRecords(interaction, { unfiltere
         );
     }
 
-    const known = peekEmbedRegistry(guildId);
+    // Read-only view: ranking never mutates records, and the record a user
+    // selects is copied before it reaches the Builder state.
+    const known = peekEmbedRegistry(guildId, { clone: false });
     const canonicalRecords = peekCanonicalBuilderRecords(interaction.guild);
     const raw = mergeSearchRecords(guildId, [...(known || []), ...canonicalRecords]);
     if (raw.length) {
@@ -1112,6 +1127,13 @@ function manualSearchIdentity(record) {
 }
 
 function exactAutomatedSearchIdentity(record, document = null) {
+    if (record && autocompleteIdentities?.has(record)) return autocompleteIdentities.get(record);
+    const identity = computeExactAutomatedSearchIdentity(record, document);
+    if (record) autocompleteIdentities?.set(record, identity);
+    return identity;
+}
+
+function computeExactAutomatedSearchIdentity(record, document = null) {
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return manualSearchIdentity(record);
     const ticketLog = automatedTicketLogFamily(record);
@@ -1339,17 +1361,23 @@ export function buildMatches(guild, records, query) {
 // autocomplete deadline. Full canonical records remain available on selection.
 // Title and body terms are both considered, including errors whose title is
 // generic but whose description names the underlying response.
-export function buildAutocompleteMatches(guild, records, rawQuery) {
-    // One synchronous list build consults the same snapshot repeatedly for
-    // labels, grouping and ranking. Reuse that resolution only for this call;
-    // the next query must see any Save immediately, even on the same record.
-    const previous = autocompleteSnapshots;
+// One synchronous list build consults the same snapshot, document and
+// identity repeatedly for labels, grouping and ranking. Reuse them only for
+// this call; the next query must see any Save immediately.
+function withAutocompleteMemo(work) {
+    const previous = [autocompleteSnapshots, autocompleteDocuments, autocompleteIdentities];
     autocompleteSnapshots = new WeakMap();
+    autocompleteDocuments = new WeakMap();
+    autocompleteIdentities = new WeakMap();
     try {
-        return autocompleteMatches(guild, records, rawQuery);
+        return work();
     } finally {
-        autocompleteSnapshots = previous;
+        [autocompleteSnapshots, autocompleteDocuments, autocompleteIdentities] = previous;
     }
+}
+
+export function buildAutocompleteMatches(guild, records, rawQuery) {
+    return withAutocompleteMemo(() => autocompleteMatches(guild, records, rawQuery));
 }
 
 function autocompleteMatches(guild, records, rawQuery) {
@@ -1433,6 +1461,20 @@ const indexedAutocompleteMemo = new Map();
 const MAX_MEMO_GUILDS = 32;
 const MAX_MEMO_ENTRIES = 8000;
 
+// Every registry write gives a changed row a new updatedAt, so a registry row
+// is unchanged when updatedAt and its identity/visibility fields are equal.
+// Serializing every 1-3 KB row after each bot-message registration was the
+// main autocomplete cost. Rows without updatedAt keep the exact signature.
+function autocompleteMemoSignature(record) {
+    if (record?.updatedAt && !record.canonicalIdentity && !record.previewRecord && !record.sourceRecord) {
+        return [
+            'u', record.updatedAt, record.source, record.manualSaved, record.explicitSave,
+            record.detached, record.title, record.name, record.snapshot?.title,
+        ].map(value => String(value ?? '')).join('\u0001');
+    }
+    try { return JSON.stringify(record); } catch { return null; }
+}
+
 function indexedAutocompleteCandidates(records) {
     if (!Array.isArray(records) || !records.length) return [];
     const existing = indexedAutocompleteCache.get(records);
@@ -1448,8 +1490,7 @@ function indexedAutocompleteCandidates(records) {
         // in titles, aliases, source overlays, ranking, and preview selection.
         // A modified record always recomputes its metadata. Saved title
         // overlays explicitly purge this memo through the normal invalidator.
-        let signature = null;
-        try { signature = JSON.stringify(record); } catch { /* Fall back to fresh computation. */ }
+        const signature = autocompleteMemoSignature(record);
         const identity = [
             record?.guildId, record?.backingChannelId || record?.channelId,
             record?.messageId, record?.embedIndex || 0, record?.source,
@@ -1492,6 +1533,10 @@ function indexedAutocompleteCandidates(records) {
 }
 
 export function buildIndexedAutocompleteMatches(guild, member, records, rawQuery) {
+    return withAutocompleteMemo(() => indexedAutocompleteMatches(guild, member, records, rawQuery));
+}
+
+function indexedAutocompleteMatches(guild, member, records, rawQuery) {
     const entries = indexedAutocompleteCandidates(records);
     const query = normalize(rawQuery);
     const tokens = query.split(' ').filter(Boolean);
@@ -1867,9 +1912,11 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     if (isSearchDeleteHidden(record)) return null;
     if (record.source === 'embed-builder' && record.manualSaved === true
         && !record.detached && interaction.guild) {
-        // The autocomplete suggestion may precede a physical Discord edit.
-        // Verify this selected message ID only (never merge same-title
-        // messages), with a hard bound so slow REST cannot stall the editor.
+        // Every Save/Post/Reappear move commits its exact snapshot to the
+        // registry, so the selected row is already current. The live read is
+        // a safety net (it also updates the registry in the background); it
+        // gets a short bound so "Cloudy Manager is thinking..." stays brief.
+        // Save itself still merges field by field against the live message.
         let refreshTimer;
         const verified = await Promise.race([
             refreshManualBuilderSearchRecord(interaction.guild, record)
@@ -1878,7 +1925,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
                     return record;
                 }),
             new Promise(resolve => {
-                refreshTimer = setTimeout(() => resolve(record), 850);
+                refreshTimer = setTimeout(() => resolve(record), LIVE_SELECTION_VERIFY_BUDGET_MS);
                 refreshTimer.unref?.();
             }),
         ]).finally(() => clearTimeout(refreshTimer));
@@ -1967,7 +2014,7 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
     // component rows. Do not wait up to 650ms for a redundant Discord fetch
     // before its Builder preview becomes visible; normal live records still
     // validate/fetch as before.
-    const previewRecord = savedManualSnapshot || directPreview
+    let previewRecord = savedManualSnapshot || directPreview
         ? record
         : readyLiveSnapshot ? quickLive
         : (runtimePreview
@@ -1984,6 +2031,9 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
         record = { ...record, components: previewRecord.components };
     }
     markSelection('preview_ready');
+    // Search reads shared registry objects; the Builder gets its own copy.
+    record = structuredClone(record);
+    if (previewRecord) previewRecord = structuredClone(previewRecord);
     return {
         record,
         previewRecord,
