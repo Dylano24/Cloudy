@@ -10,6 +10,7 @@ import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js
 import { scheduleTransientMessageDeletion } from '../utils/transientResponse.js';
 import { isBuilderOwnedMessage } from '../utils/builderOwnedSends.js';
 import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
+import { DEDICATED_MESSAGE_LOG_CHANNEL_IDS } from '../services/messageLogDestination.js';
 
 const REVIEW_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const FIXED_LOG_CHANNEL_IDS = new Set([
@@ -17,6 +18,8 @@ const FIXED_LOG_CHANNEL_IDS = new Set([
   '1539371111240831078',
   '1539259457404412036',
   '1539371572442435646',
+  // Staff, Member and AutoMod message logs (footer applied in logEvent).
+  ...DEDICATED_MESSAGE_LOG_CHANNEL_IDS,
 ]);
 
 async function ensurePublishedReviewFooter(message) {

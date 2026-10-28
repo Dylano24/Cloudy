@@ -11,6 +11,7 @@ import {
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
+import { DEDICATED_MESSAGE_LOG_CHANNEL_IDS } from '../services/messageLogDestination.js';
 
 function isWelcomeEmbed(embed) {
   const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
@@ -65,8 +66,12 @@ export default {
     // Published staff reviews already carry their fixed Cloudy Inc. footer and
     // live custom star emoji. Never reapply a saved Builder template on update.
     const isPublishedStaffReview = message.channelId === COMMUNITY_REVIEWS_CHANNEL_ID;
+    // Staff/Member/AutoMod message logs are complete when sent; a generic
+    // pass here could cross-match another template and rewrite the log.
+    const isDedicatedMessageLog = DEDICATED_MESSAGE_LOG_CHANNEL_IDS.has(message.channelId);
     const matchedTemplate = isBlackjackEmbed(message.embeds?.[0])
       || isPublishedStaffReview
+      || isDedicatedMessageLog
       || await applySavedEmbedTemplates(message);
     if (!matchedTemplate) await normalizeCloudyMessage(message, { ensureFooter: true });
     if (!isPublishedStaffReview && isRegistrableCloudyEmbedMessage(message)) {

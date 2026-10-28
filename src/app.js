@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import { installDiscordRestSafeguards } from './utils/discordRestSafeguards.js';
+import { installCloudyDeletionRecorder } from './services/deletionAttributionService.js';
 import express from 'express';
 import cron from 'node-cron';
 
@@ -73,6 +74,8 @@ class CloudyBot extends Client {
     this.db = null;
     this.rest = new REST({ version: '10' }).setToken(config.bot.token);
     installDiscordRestSafeguards(this.rest);
+    // Deletions Cloudy itself performs are attributed to Cloudy directly.
+    installCloudyDeletionRecorder(this.rest);
   }
 
   async start() {

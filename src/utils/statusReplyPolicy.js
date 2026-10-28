@@ -4,7 +4,12 @@ const STATUS_TITLES = /^(?:(?:birthday(?: announcements)?|application|category|c
 
 const STATUS_CONTENT = /^(?:only (?:the user|admins|the ticket creator|the staff team)|you (?:cannot use|can only|must have|must be)|your balance could not be saved\b|this (?:dashboard belongs|fix guide is available|faq assistant can only|countdown has expired|button action is no longer|ticket dashboard is outdated|action can only)|that (?:ticket (?:text )?setting|member is no longer)|the (?:ticket (?:dashboard could not|system is currently disabled|database is temporarily)|private faq assistant is temporarily|url must start)|no (?:ticket dashboard value|calculation history)\b|please (?:enter|wait|select|choose|provide)\b|i could not open the question form\b)/i;
 
+// Permanent message logs are never short status replies: "Message deleted"
+// would otherwise match "message ... deleted" and be treated as one.
+const PERMANENT_LOG_TITLES = /^message (?:deleted|edited)$/i;
+
 export function isAdditionalStatusTitle(title) {
+  if (PERMANENT_LOG_TITLES.test(String(title || '').trim())) return false;
   return STATUS_TITLES.test(title);
 }
 

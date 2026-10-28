@@ -15,7 +15,13 @@ import {
 } from '../utils/logging/logEmbeds.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 import { enforceFixedLogPresentation } from './moderationLogPresentation.js';
-import { CLOUDY_GUILD_ID, messageLogAuthorType, messageLogDestination } from './messageLogDestination.js';
+import {
+  CLOUDY_GUILD_ID,
+  DEDICATED_MESSAGE_LOG_CHANNEL_IDS,
+  messageLogAuthorType,
+  messageLogDestination,
+} from './messageLogDestination.js';
+import { normalizeCloudyEmbed } from './cloudyBrandingService.js';
 
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
 const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
@@ -350,7 +356,9 @@ export async function logEvent({
     const audienceChannelId = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
       ? messageLogDestination(guild, data.userId, author, config, data.authorBot, deleter) : null;
     if (requiredMessageDeletion && data.lines) {
-      const type = automod ? 'Bot' : messageLogAuthorType(guild, data.userId, author, config, data.authorBot);
+      // The author of the message, not the remover: an AutoMod removal of a
+      // member's message is still a Member message (Type says AutoMod).
+      const type = messageLogAuthorType(guild, data.userId, author, config, data.authorBot);
       data = { ...data, lines: [...data.lines, formatLogLine('Author type', type)] };
     }
     const logChannelId = automod ? AUTOMOD_LOG_CHANNEL_ID : audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);
@@ -395,7 +403,14 @@ export async function logEvent({
       strictTitle: true,
     });
 
-    const presentedEmbed = enforceFixedLogPresentation(decorated.embed, { eventType });
+    let presentedEmbed = enforceFixedLogPresentation(decorated.embed, { eventType });
+    // Dedicated message logs are complete when sent: the generic branding
+    // listener skips these channels, so apply its Cloudy footer here instead
+    // of editing the log afterwards (no "(edited)", one request less).
+    if (DEDICATED_MESSAGE_LOG_CHANNEL_IDS.has(channel.id)
+      && [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType) && !decorated.matched) {
+      presentedEmbed = normalizeCloudyEmbed(presentedEmbed, { ensureFooter: true }).embed;
+    }
     const messageOptions = { embeds: [presentedEmbed] };
     if (allowedMentions) messageOptions.allowedMentions = allowedMentions;
     else if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };

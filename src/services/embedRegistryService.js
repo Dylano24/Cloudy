@@ -8,6 +8,7 @@ import { getTicketLogTemplate } from '../utils/ticket/ticketLogTemplates.js';
 import { randomUUID } from 'node:crypto';
 import { peekGuildConfigCache } from './config/guildConfig.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from './cloudyBrandingService.js';
+import { DEDICATED_MESSAGE_LOG_CHANNEL_IDS } from './messageLogDestination.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const SCAN_BATCH_SIZE = 100;
@@ -772,6 +773,41 @@ function registryContent(records) {
     }));
 }
 
+// Staff/Member/AutoMod message logs repeat one log type per deletion or
+// edit. Search offers each type once (newest message), so the registry keeps
+// only the newest automatic row per log channel and type instead of growing
+// with every log. Saved and Builder rows are never removed here.
+const REPEATED_MESSAGE_LOG_TITLES = new Set(['message deleted', 'message edited']);
+
+function repeatedMessageLogFamily(record) {
+    const channelId = physicalChannelId(record);
+    const title = cleanName(record?.title || record?.snapshot?.title);
+    if (!DEDICATED_MESSAGE_LOG_CHANNEL_IDS.has(channelId) || !REPEATED_MESSAGE_LOG_TITLES.has(title)) return null;
+    if (record.manualSaved === true || isBuilderOwnedRecord(record)
+        || ['embed-builder', 'system-catalog'].includes(String(record.source || ''))) return null;
+    return `${channelId}:${title}`;
+}
+
+function messageSnowflake(record) {
+    const id = String(record?.messageId || '');
+    return /^\d{17,20}$/.test(id) ? BigInt(id) : 0n;
+}
+
+function pruneRepeatedMessageLogRows(records) {
+    const newest = new Map();
+    for (const record of records) {
+        const family = repeatedMessageLogFamily(record);
+        if (!family) continue;
+        const current = newest.get(family);
+        if (!current || messageSnowflake(record) > messageSnowflake(current)) newest.set(family, record);
+    }
+    if (!newest.size) return records;
+    return records.filter(record => {
+        const family = repeatedMessageLogFamily(record);
+        return !family || newest.get(family) === record;
+    });
+}
+
 async function saveRecords(guildId, additions) {
     const key = String(guildId);
     const pending = registryWriteBatches.get(key);
@@ -838,7 +874,7 @@ async function saveRecords(guildId, additions) {
             next.set(key, merged);
         }
 
-        const result = sortRecords([...next.values()]);
+        const result = sortRecords(pruneRepeatedMessageLogRows([...next.values()]));
         // Gateway updates can arrive from several listeners with the same payload.
         // Avoid rewriting a large JSON document for an updatedAt-only difference.
         const saved = registryContent(stored) === registryContent(result)
@@ -847,9 +883,10 @@ async function saveRecords(guildId, additions) {
             committedRecords = result;
             // Publish only the committed winner, never an incoming stale
             // gateway snapshot or a Save whose database write failed.
+            const kept = new Set(result.map(recordKey));
             for (const addition of batch.additions) {
                 const committed = next.get(recordKey(addition));
-                if (committed?.snapshot) rememberEmbedSnapshot(committed, committed.snapshot);
+                if (committed?.snapshot && kept.has(recordKey(addition))) rememberEmbedSnapshot(committed, committed.snapshot);
             }
         }
         return saved;
