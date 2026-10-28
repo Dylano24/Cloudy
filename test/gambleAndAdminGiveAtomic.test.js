@@ -28,7 +28,6 @@ function fixture(inventory = {}) {
   const interaction = (amount, subcommand = null) => ({
     id: '1532882647838228726', createdTimestamp: Date.now(),
     guildId: '1532882647838228700',
-    guild: { ownerId: '1532882647838228724' },
     user: { id: '1532882647838228724', username: 'owner' },
     deferred: false, replied: false, isChatInputCommand: () => true,
     options: {
@@ -74,9 +73,12 @@ test('failed /gamble loses only one bet and starts cooldown', async t => {
 
 test('two simultaneous /economy give operations add cash without lost updates', async () => {
   const f = fixture();
+  const ownerInteraction = () => Object.assign(f.interaction(100, 'give'), {
+    guild: { ownerId: '1532882647838228724' },
+  });
   const results = await Promise.allSettled([
-    economy.execute(f.interaction(100, 'give'), {}, f.client),
-    economy.execute(f.interaction(100, 'give'), {}, f.client),
+    economy.execute(ownerInteraction(), {}, f.client),
+    economy.execute(ownerInteraction(), {}, f.client),
   ]);
   assert.equal(results.filter(r => r.status === 'fulfilled').length, 2);
   assert.equal(f.read().wallet, 700);
