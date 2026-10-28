@@ -39,6 +39,10 @@ const STARTUP_SCAN_DELAY_MS = 90_000;
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
 const autoApplyingMessageIds = new Set();
 
+export function isPrivateCasinoHelpInteraction(source) {
+  return /^game_help:(?:blackjack|baccarat|roulette)$/.test(String(source?.customId || ''));
+}
+
 // A staff-targeted robbery attempt has no fine or balance change. Never
 // substitute a saved ordinary Robbery failed template into this denial.
 function isStaffRobberyProtectionPayload(payload) {
@@ -568,6 +572,10 @@ function patchInteractionCapture() {
       interaction[method] = async (payload, ...args) => {
         let outgoing = payload;
         try {
+          // Private casino help must show its current source text, not a stale saved response template.
+          if (isPrivateCasinoHelpInteraction(source)) {
+            return original(payload, ...args);
+          }
           if (isStaffRobberyProtectionPayload(payload)) return original(payload, ...args);
           if (isBuilderAuthoredInteraction(source)) {
             if (!isBotResponsePayload(payload)) return original(payload, ...args);

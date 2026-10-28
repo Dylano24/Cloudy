@@ -26,7 +26,8 @@ export const GAME_HELP = {
 
 export function gameHelpRow(game) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`game_help:${game}`).setLabel('How to play').setEmoji('❔').setStyle(ButtonStyle.Secondary),
+    // Keep the question mark inside the label: Discord adds extra spacing when it is a separate button emoji.
+    new ButtonBuilder().setCustomId(`game_help:${game}`).setLabel('❔ How to play').setStyle(ButtonStyle.Secondary),
   );
 }
 
