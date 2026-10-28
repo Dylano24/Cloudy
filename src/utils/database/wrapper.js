@@ -142,6 +142,13 @@ export class DatabaseWrapper {
         return this.db.list(prefix);
     }
 
+    async mutateEconomyAccount(guildId, userId, initialData, mutate) {
+        if (!this.db || typeof this.db.mutateEconomyAccount !== 'function') {
+            throw new Error('Atomic economy mutation requires PostgreSQL');
+        }
+        return this.db.mutateEconomyAccount(guildId, userId, initialData, mutate);
+    }
+
     async transferEconomyFunds(guildId, senderId, receiverId, amount, initialData) {
         if (!this.db || typeof this.db.transferEconomyFunds !== 'function') {
             throw new Error('Atomic economy transfers require PostgreSQL');
