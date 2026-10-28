@@ -1,4 +1,5 @@
 import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
+import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { BALANCE_RESPONSE_KEY, balanceResponseIdentity, readLegacyBalanceTemplate } from './balanceResponseIdentity.js';
 import { removeRetiredGamblingGuideCommand } from '../config/gamblingCommands.js';
@@ -545,11 +546,7 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
   // The dedicated Gambling guide has a fixed title. A stale saved template
   // can otherwise edit a newly posted/Reappear guide back to lowercase
   // moments after Discord first shows the correct title.
-  const isGamblingGuide = String(
-    message.channel?.name || message.guild?.channels?.cache?.get?.(message.channelId)?.name || '',
-  ).toLowerCase().includes('gambling')
-    && message.embeds.some(embed =>
-      /^games\s*&\s*economy$/i.test(String(embed?.title || '').trim()));
+  const isGamblingGuide = isDedicatedGamblingGuideMessage(message);
   // Its outgoing payload is already normalized by the guide/Reappear
   // sender. Never do a second, visible edit immediately after creation.
   if (isGamblingGuide) return true;

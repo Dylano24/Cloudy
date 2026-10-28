@@ -9,6 +9,7 @@ import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
 import { scheduleTransientMessageDeletion } from '../utils/transientResponse.js';
 import { isBuilderOwnedMessage } from '../utils/builderOwnedSends.js';
+import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
 
 const REVIEW_FOOTER_TEXT = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const FIXED_LOG_CHANNEL_IDS = new Set([
@@ -55,6 +56,15 @@ export default {
     // template/branding passes must never restyle it (colour, logo, title)
     // and a status-like title must not make it a 10-second transient reply.
     if (isBuilderOwnedMessage(message)) return;
+
+    // The Commands guide must never be restyled after its first render.
+    // Still register it so the Embed Builder can discover the real message.
+    if (isDedicatedGamblingGuideMessage(message)) {
+      if (isRegistrableCloudyEmbedMessage(message)) {
+        await registerCloudyEmbedMessage(message, 'automatic');
+      }
+      return;
+    }
 
     scheduleTransientMessageDeletion(message);
 
