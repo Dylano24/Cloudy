@@ -2033,8 +2033,19 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
                 flags: MessageFlags.Ephemeral,
             }).catch(() => null);
             if (sentMessage) removeTransientMessage(channelInteraction, sentMessage);
-        } else if (channelPickerMessage) {
-            removeTransientMessage(buttonInteraction, channelPickerMessage);
+        } else if (channelPickerMessage?.id) {
+            // Keep the edited success confirmation visible long enough to be
+            // read, then remove it using the original picker webhook token.
+            // Never delete the referenced picker BEFORE acknowledging Post.
+            const feedbackTimer = setTimeout(async () => {
+                if (buttonInteraction.webhook?.deleteMessage) {
+                    const deleted = await buttonInteraction.webhook.deleteMessage(channelPickerMessage.id)
+                        .then(() => true).catch(() => false);
+                    if (deleted) return;
+                }
+                await channelPickerMessage.delete?.().catch(() => {});
+            }, TRANSIENT_RESPONSE_TIMEOUT);
+            feedbackTimer.unref?.();
         }
         state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
