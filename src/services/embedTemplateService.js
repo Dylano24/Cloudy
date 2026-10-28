@@ -1,3 +1,4 @@
+import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
 import { hasRequiredPatchBanner } from './patchNotesBannerService.js';
 import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
@@ -468,7 +469,7 @@ function decorateEmbedData(embed, stored, options = {}) {
     else delete data.image;
   }
 
-  const finalData = stripBlackjackCardsRemaining(data);
+  const finalData = stripRustPatchLogo(stripBlackjackCardsRemaining(data));
   return {
     matched: true,
     changed: JSON.stringify(original) !== JSON.stringify(finalData),

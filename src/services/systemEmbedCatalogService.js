@@ -1,3 +1,4 @@
+import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
 import { hasRequiredPatchBanner } from './patchNotesBannerService.js';
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { BALANCE_RESPONSE_KEY, balanceResponseIdentity } from './balanceResponseIdentity.js';
@@ -1715,7 +1716,7 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
     }
   }
 
-  return isBlackjackContext(context) ? stripBlackjackCardsRemaining(next) : next;
+  return stripRustPatchLogo(isBlackjackContext(context) ? stripBlackjackCardsRemaining(next) : next);
 }
 
 function renderTicketMainDynamic(templateValue, values = []) {

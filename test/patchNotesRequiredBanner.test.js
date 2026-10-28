@@ -17,7 +17,7 @@ function fixture(source, { existing = false, stored = false } = {}) {
   const id = source === 'rust' ? '1533886914459861103' : '1539397467647377530';
   const values = new Map();
   const sends = []; const edits = [];
-  const data = { title: 'Owner saved title', url: link, description: 'Owner saved body', color: 123, thumbnail: { url: 'https://example.com/logo.png' }, footer: { text: 'Owner footer' } };
+  const data = { title: 'Owner saved title', url: link, description: 'Owner saved body', color: 123, ...(source === 'nitrado' ? { thumbnail: { url: 'https://example.com/logo.png' } } : {}), footer: { text: 'Owner footer' } };
   const history = new Collection();
   if (existing) history.set('existing', { id: 'existing', author: { id: 'bot' }, embeds: [{ ...data, toJSON: () => data }], attachments: new Collection([['keep', { id: 'keep' }]]), edit: async payload => { edits.push(payload); data.image = payload.embeds[0].image; } });
   const channel = { id, isTextBased: () => true, messages: { fetch: async () => history }, send: async payload => { sends.push(payload); } };
