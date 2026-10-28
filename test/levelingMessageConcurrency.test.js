@@ -89,7 +89,9 @@ test('the message event reads level state once per attempt and concurrent messag
   const f = fixture();
   await Promise.all([messageCreate.execute(f.message, f.client), messageCreate.execute(f.message, f.client)]);
   assert.equal(f.state.totalXp, 2);
-  assert.equal(f.reads.filter(key => key === f.levelKey).length, 2);
+  // The second message is inside the cooldown that the first award just
+  // started, so it no longer needs its own database read.
+  assert.equal(f.reads.filter(key => key === f.levelKey).length, 1);
   assert.equal(f.writes.length, 1);
 });
 

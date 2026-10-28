@@ -12,6 +12,7 @@ import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
 import { DEDICATED_MESSAGE_LOG_CHANNEL_IDS } from '../services/messageLogDestination.js';
+import { resolveUpdatedMessage } from '../utils/updatedMessage.js';
 
 function isWelcomeEmbed(embed) {
   const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
@@ -25,9 +26,7 @@ export default {
   async execute(oldMessage, newMessage) {
     if (!newMessage?.client?.user?.id) return;
 
-    const message = newMessage.partial
-      ? await newMessage.fetch().catch(() => null)
-      : newMessage;
+    const message = await resolveUpdatedMessage(newMessage, { cloudyOnly: true });
 
     if (!message) return;
     if (message.author?.id !== message.client.user.id) return;

@@ -1,15 +1,14 @@
 import { Events } from 'discord.js';
 import { syncSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
 import { logger } from '../utils/logger.js';
+import { resolveUpdatedMessage } from '../utils/updatedMessage.js';
 
 export default {
   name: Events.MessageUpdate,
   once: false,
 
   async execute(oldMessage, newMessage) {
-    const message = newMessage?.partial
-      ? await newMessage.fetch().catch(() => null)
-      : newMessage;
+    const message = await resolveUpdatedMessage(newMessage);
     if (!message) return;
 
     await syncSystemEmbedCatalogMessage(message).catch(error => {

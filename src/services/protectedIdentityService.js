@@ -2,6 +2,7 @@ import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_LOGO_URL } from './moderationLogPresentation.js';
+import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 
 const TARGET_GUILD_ID = '1532882647838228723';
 const LOG_CHANNEL_ID = '1539259457404412036';
@@ -53,9 +54,12 @@ function isExempt(member) {
 }
 
 async function sendPermanentLog(member, detection, source, banned, error = null) {
-    const channel = await member.client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
-    if (!channel?.isTextBased()) {
-        logger.warn(`Protected identity log channel ${LOG_CHANNEL_ID} is unavailable`);
+    // Same lookup as the normal ban logs: the original channel ID first, then
+    // the current "ban-logs" channel when it has been recreated.
+    const channel = await resolveCloudyChannel(member.client, 'banLogs', { guild: member.guild, textOnly: true })
+        .catch(() => null);
+    if (!channel?.isTextBased?.()) {
+        logger.warn(`Protected identity log channel ${LOG_CHANNEL_ID} (ban-logs) is unavailable`);
         return;
     }
 

@@ -7,6 +7,31 @@ import { formatLogLine } from '../../utils/logging/logEmbeds.js';
 import { Mutex } from '../../utils/mutex.js';
 import { wrapServiceBoundary } from '../../utils/errorHandler.js';
 
+// Last message award per guild:user written by this process. Inside the XP
+// cooldown the stored lastMessage is at least this recent, so the database
+// read can be skipped for every further message in that window.
+const recentMessageAwards = new Map();
+const MAX_RECENT_AWARDS = 50_000;
+
+function recentlyAwarded(lockKey, cooldownMs, now = Date.now()) {
+  const awardedAt = recentMessageAwards.get(lockKey);
+  if (!awardedAt) return false;
+  if (now - awardedAt < cooldownMs) return true;
+  recentMessageAwards.delete(lockKey);
+  return false;
+}
+
+function rememberMessageAward(lockKey, at) {
+  recentMessageAwards.delete(lockKey);
+  recentMessageAwards.set(lockKey, at);
+  while (recentMessageAwards.size > MAX_RECENT_AWARDS) recentMessageAwards.delete(recentMessageAwards.keys().next().value);
+}
+
+// Test helper.
+export function clearRecentMessageAwards() {
+  recentMessageAwards.clear();
+}
+
 /**
  * Award XP to a member. Returns null when XP is skipped (disabled/invalid amount).
  * Throws on storage or unexpected failures.
@@ -24,13 +49,15 @@ export const addXp = wrapServiceBoundary(async function addXp(client, guild, mem
       return null;
     }
 
+    const cooldownMs = (config.xpCooldown || 60) * 1000;
+    if (messageAward && recentlyAwarded(lockKey, cooldownMs)) return null;
+
     const levelData = await getUserLevelData(client, guild.id, member.user.id);
 
     if (messageAward) {
       // Concurrent messages must check the latest saved timestamp under the
       // same lock as the award. Manual XP operations retain their behavior.
-      const cooldownTime = config.xpCooldown || 60;
-      if (Date.now() - (levelData.lastMessage || 0) < cooldownTime * 1000) {
+      if (Date.now() - (levelData.lastMessage || 0) < cooldownMs) {
         return null;
       }
     }
@@ -59,6 +86,7 @@ export const addXp = wrapServiceBoundary(async function addXp(client, guild, mem
 
     // Never announce a level-up or grant its rewards until XP is persisted.
     await saveUserLevelData(client, guild.id, member.user.id, levelData);
+    if (messageAward) rememberMessageAward(lockKey, levelData.lastMessage);
     for (const reward of roleRewards) {
       await awardRoleReward(guild, member, reward.roleId, reward.level);
     }
