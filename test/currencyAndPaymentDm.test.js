@@ -7,7 +7,9 @@ import {
 } from '../src/services/currencyGrantService.js';
 import { fillIncomingPaymentTemplate } from '../src/services/incomingPaymentDmService.js';
 import { getResponseLifetime } from '../src/utils/responseLifetime.js';
-import { TRANSIENT_MESSAGE_MS } from '../src/utils/interactionMessageLifecycle.js';
+import { TRANSIENT_MESSAGE_MS, deleteLifecycleMessage } from '../src/utils/interactionMessageLifecycle.js';
+import { isPersistentBotMessage } from '../src/utils/transientResponse.js';
+import { MessageFlags } from 'discord.js';
 
 const guildId = '1532882647838228723';
 const ownerId = '1532882647838228724';
@@ -172,4 +174,47 @@ test('currency still grants to owner in gambling with the same ten-second reply 
   assert.deepEqual(changes, [{ guild: guildId, user: ownerId, wallet: 125 }]);
   assert.equal(replies.length, 1);
   assert.match(JSON.stringify(replies[0]), /Currency added/);
+});
+
+test('currency ephemeral reply deletes after its lifecycle even inside staff message logs', async () => {
+  const deleted = [];
+  const message = {
+    id: '1532882647838228709',
+    channel: { name: 'staff-message-logs' },
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+  };
+  assert.equal(isPersistentBotMessage(message), true);
+  const interaction = {
+    commandName: 'currency',
+    ephemeral: true,
+    webhook: { deleteMessage: async id => { deleted.push(id); } },
+  };
+  assert.equal(await deleteLifecycleMessage(message, interaction), true);
+  assert.deepEqual(deleted, [message.id]);
+});
+
+test('ordinary staff logs stay permanent even if a generic timer tries to delete', async () => {
+  const deleted = [];
+  const message = {
+    id: '1532882647838228710',
+    channel: { name: 'staff-message-logs' },
+    delete: async () => { deleted.push('message'); },
+  };
+  const interaction = {
+    commandName: 'currency',
+    webhook: { deleteMessage: async () => { deleted.push('webhook'); } },
+  };
+  assert.equal(await deleteLifecycleMessage(message, interaction), false);
+  assert.deepEqual(deleted, []);
+});
+
+test('wrong-channel currency response uses the standard red Cloudy error embed', async () => {
+  const { interaction, replies } = currencyInteraction('1533188412507558132');
+  await currencyCommand.execute(interaction, {}, { db: {} });
+  assert.equal(replies.length, 1);
+  const data = replies[0].embeds[0].toJSON();
+  assert.equal(data.title, 'Wrong channel');
+  assert.match(data.description, /This command can only be used in the dedicated channel\./);
+  assert.match(data.description, /<#1533188412507558130>/);
+  assert.equal(data.color, 0x7A1712);
 });
