@@ -166,7 +166,7 @@ export default {
     await InteractionHelper.safeEditReply(interaction, await payload(state));
     const message = await interaction.fetchReply().catch(() => null);
     if (!message?.createMessageComponentCollector) return;
-    const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${state.id}`), time: 10 * 60 * 1000 });
+    const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id && i.customId.endsWith(`:${state.id}`), time: 2 * 60 * 1000 });
     let busy = false;
     let expiryPending = false;
     async function expireGame() {
@@ -175,7 +175,7 @@ export default {
       state.finished = true;
       try {
         state.data = await adjustCasinoBalance(client, interaction.guildId, interaction.user.id, state.totalBet);
-        await message.edit(await payload(state, { title: 'Expired', color: 'warning', text: `Game expired — **${money(state.totalBet)}** was returned.` }, true));
+        await message.edit(await payload(state, { title: 'Expired', color: 'warning', text: `Game expired. **${money(state.totalBet)}** was returned.` }, true));
       } catch (error) { logger.error('Blackjack expiry failed:', error); }
     }
     collector.on('collect', async component => {
