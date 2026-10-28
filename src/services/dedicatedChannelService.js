@@ -112,8 +112,24 @@ export function buildDedicatedGuidePayload(key, existing = null) {
   };
 }
 
+async function correctGamblingGuideTitle(message) {
+  if (!message.embeds?.some(embed =>
+    embed.title === 'Games & economy' && embed.description === GAMBLING_GUIDE_DESCRIPTION
+  )) return message;
+
+  const embeds = message.embeds.map(embed => {
+    const data = embed.toJSON();
+    if (data.title === 'Games & economy' && data.description === GAMBLING_GUIDE_DESCRIPTION) {
+      data.title = CHANNEL_RULES.gambling.guideTitle;
+    }
+    return data;
+  });
+  return message.edit({ embeds });
+}
+
 function guideManager(key, isGuide) {
   return createStickyGuideManager({
+    prepareExisting: key === 'gambling' ? correctGamblingGuideTitle : undefined,
     loadState: channel => getFromDb(guideStorageKey(channel), null),
     saveState: (channel, state) => setInDb(guideStorageKey(channel), state),
     isGuide,
