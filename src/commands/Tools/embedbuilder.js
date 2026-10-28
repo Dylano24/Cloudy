@@ -1092,6 +1092,13 @@ async function postBuiltMessage(channel, state, guild, member) {
         }
     }
 
+    // A posted embed is immediately searchable by its *new* physical ID and
+    // title. Expire autocomplete results offered before Post; those must not
+    // reopen an earlier Test version when the message is now titled Yess.
+    const { invalidateBuilderSearchTitleCache } =
+        await import('./zz_embedbuilderLiveSearchPatch.js');
+    invalidateBuilderSearchTitleCache(guild.id);
+
     return { ok: true, destination: channel, rollback: rollbackPost };
 }
 
