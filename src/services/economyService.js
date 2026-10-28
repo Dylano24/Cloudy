@@ -151,7 +151,7 @@ class EconomyService {
           throw createError(
             'Insufficient funds',
             ErrorTypes.VALIDATION,
-            `You only have **${error.available.toLocaleString()}** in cash.`,
+            `You only have **$${error.available.toLocaleString()}** in cash.`,
             { required: amount, available: error.available, senderId },
           );
         }
