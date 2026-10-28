@@ -19,6 +19,7 @@ import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abusePr
 import { isCommandEnabledInConfig } from '../services/commandAccessService.js';
 import { resolveSlashAccessKey } from '../utils/messageAdapter.js';
 import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
+import { isGamblingGameCommand } from '../config/gamblingCommands.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
 import { enforceDefaultCommandPermissions } from '../utils/permissionGuard.js';
 import { scheduleTransientInteractionReplyDeletion } from '../utils/transientResponse.js';
@@ -149,7 +150,10 @@ export default {
             }
 
             const defaultCooldownSec = Number(botConfig.commands?.defaultCooldown) || 0;
-            if (defaultCooldownSec > 0 && !isBotOwner(interaction.user.id)) {
+            // Gambling/economy has its own gameplay cooldowns; do not also apply
+            // the generic three-second Too fast timer to those commands.
+            if (defaultCooldownSec > 0 && !isBotOwner(interaction.user.id)
+                && !isGamblingGameCommand(interaction.commandName)) {
               const cooldownKey = `${interaction.user.id}:${interaction.commandName}`;
               const expiresAt = client.cooldowns.get(cooldownKey);
 
