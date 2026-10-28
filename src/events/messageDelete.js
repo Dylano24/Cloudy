@@ -184,7 +184,9 @@ export async function logDeletedMessage(message, options = {}) {
       userId: resolvedAuthorId,
       authorBot,
       deletedById: deletedBy.id,
+      deletedByBot: deletedBy.bot === true,
       deletionSource: deletedBy.source,
+      videoNames: media.videos || [],
       channelId,
     }
   });

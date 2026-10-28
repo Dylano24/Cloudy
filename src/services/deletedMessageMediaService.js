@@ -59,7 +59,7 @@ async function download(url, limit, declaredType, fetchFile) {
 export async function prepareDeletedMessageMedia(message, fetchFile = fetch) {
   // images: copied photos that may be shown inside the log embed itself
   // (videos cannot be: Discord does not play bot-embedded video).
-  const files = [], links = [], images = [];
+  const files = [], links = [], images = [], videos = [];
   let remaining = MAX_TOTAL_MEDIA_BYTES;
   for (const attachment of message?.attachments?.values?.() || []) {
     if (!attachment?.url) continue;
@@ -88,10 +88,11 @@ export async function prepareDeletedMessageMedia(message, fetchFile = fetch) {
       if (photo) name = embeddableName(name);
       files.push({ attachment: copied.buffer, name, description: attachment.description || undefined });
       if (photo) images.push(name);
+      else if (/^video\//.test(copied.type)) videos.push(name);
       remaining -= copied.size;
     } catch (error) {
       links.push(`${name}: ${attachment.url} (${error.message})`);
     }
   }
-  return { files, links, images };
+  return { files, links, images, videos };
 }
