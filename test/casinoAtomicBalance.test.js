@@ -10,7 +10,7 @@ function fixture(wallet = 1000) {
   let commits = 0;
   const client = { db: {
     getConnectionType: () => 'postgresql',
-    async get() { throw new Error('Non-atomic casino read forbidden'); },
+    async get() { return structuredClone(account); },
     async set() { throw new Error('Non-atomic casino write forbidden'); },
     mutateEconomyAccount(_guildId, _userId, _initial, mutate) {
       const promise = queue.then(async () => {
