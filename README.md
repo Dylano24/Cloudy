@@ -1,6 +1,6 @@
 # Cloudy Discord Bot
 
-**Cloudy** is based on TitanBot by codebymitch and provides moderation, tickets, economy, music and community tools. It uses Node.js 24, Discord.js v14 and PostgreSQL. See [the current audit](CODE_QUALITY_AUDIT.md) for verified changes and operational limitations.
+**Cloudy**, maintained by **Dylano24**, provides moderation, reports, tickets, economy, music and community tools. It incorporates historical open-source work originating in TitanBot by codebymitch; upstream attribution is preserved. It uses Node.js 24, Discord.js v14 and PostgreSQL. See [the current audit](CODE_QUALITY_AUDIT.md) for verified changes and operational limitations.
 
 [![Support Server](https://img.shields.io/badge/-Support%20Server-%235865F2?logo=discord&logoColor=white&style=flat-square&logoWidth=20)](https://discord.gg/8kJBYhTGW9)
 [![Discord.js](https://img.shields.io/npm/v/discord.js?style=flat-square&labelColor=%23202225&color=%23202225&logo=npm&logoColor=white&logoWidth=20)](https://www.npmjs.com/package/discord.js)
@@ -18,7 +18,7 @@
 <a name="features-overview"></a>
 ## Features Overview
 
-TitanBot offers a complete suite of tools for Discord server management and community engagement:
+Cloudy offers a complete suite of tools for Discord server management and community engagement:
 
 <table>
 <tr>
@@ -96,11 +96,11 @@ TitanBot offers a complete suite of tools for Discord server management and comm
 
 ### Video Tutorial
 For a detailed step-by-step setup guide, watch our comprehensive video tutorial:
-[**TitanBot Setup Tutorial**](https://www.youtube.com/@TouchDisc)
+[**Community setup tutorial (external)**](https://www.youtube.com/@TouchDisc)
 
 ## Docker Deployment (Recommended)
 
-TitanBot is fully containerized for easy deployment.
+Cloudy is fully containerized for easy deployment.
 
 1. **Clone the repository:**
    ```bash
@@ -182,6 +182,8 @@ docker pull ghcr.io/dylano24/cloudy:main
    GUILD_ID=your_discord_guild_id_here
 
    # PostgreSQL Configuration (Primary Database)
+   # Existing deployments may use the legacy database name 'titanbot'.
+   # Do not rename a populated database without a planned migration and backup.
    POSTGRES_URL=postgresql://postgres:yourpassword@localhost:5432/titanbot
    POSTGRES_HOST=localhost
    POSTGRES_PORT=5432
@@ -194,7 +196,7 @@ docker pull ghcr.io/dylano24/cloudy:main
    - `NODE_ENV=production`
    - `LOG_LEVEL=warn` for a clean production console (critical issues + startup status)
    - `LOG_LEVEL=info` if you want more detailed operational logs
-   - If your chosen `PORT` is already used, TitanBot automatically tries the next port(s)
+   - If your chosen `PORT` is already used, Cloudy automatically tries the next port(s)
 
    Environment options reference:
    - `NODE_ENV`: `development`, `production`, `test` (any non-`production` value is treated as non-production)
@@ -249,7 +251,7 @@ Notes:
 <a name="bot-intents"></a>
 
 ## Required Bot Intents
-TitanBot requires the following Discord intents:
+Cloudy requires the following Discord intents:
 - **Guilds**
 - **Guild Messages**
 - **Message Content**
@@ -280,10 +282,10 @@ See [explicit AI setup, commands, permissions and limitations](docs/AI_INTEGRATI
 
 ## License
 
-TitanBot is released under the MIT License. See [LICENSE](LICENSE) for details.
+See [LICENSE](LICENSE) for the applicable license text, including notices originating in upstream open-source components.
 
 ## Thank You
 
-Thank you for choosing TitanBot for your Discord server! We're constantly working to improve and add new features based on community feedback.
+Thank you for choosing Cloudy for your Discord server! We're constantly working to improve and add new features based on community feedback.
 
 *Last updated: 8 October 2026*
