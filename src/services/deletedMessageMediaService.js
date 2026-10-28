@@ -84,7 +84,7 @@ export async function prepareDeletedMessageMedia(message, fetchFile = fetch) {
         }
       }
       if (!copied) throw lastError || new Error('no longer available');
-      const photo = /^image\//.test(copied.type) && !/^SPOILER_/i.test(name);
+      const photo = /^image\//.test(copied.type);
       if (photo) name = embeddableName(name);
       files.push({ attachment: copied.buffer, name, description: attachment.description || undefined });
       if (photo) images.push(name);
