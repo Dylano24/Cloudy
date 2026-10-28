@@ -2026,27 +2026,16 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
             .then(() => true)
             .catch(() => false);
         if (!updated) {
-            // Leave the original component message available as a reference
-            // until this fallback confirmation has been sent.
-            const sentMessage = await channelInteraction.followUp({
+            // Keep the original ephemeral component response alive: Discord
+            // displays "Original message was deleted" when its source message
+            // is removed, even though the actual channel post succeeded.
+            await channelInteraction.followUp({
                 ...successPayload,
                 flags: MessageFlags.Ephemeral,
             }).catch(() => null);
-            if (sentMessage) removeTransientMessage(channelInteraction, sentMessage);
-        } else if (channelPickerMessage?.id) {
-            // Keep the edited success confirmation visible long enough to be
-            // read, then remove it using the original picker webhook token.
-            // Never delete the referenced picker BEFORE acknowledging Post.
-            const feedbackTimer = setTimeout(async () => {
-                if (buttonInteraction.webhook?.deleteMessage) {
-                    const deleted = await buttonInteraction.webhook.deleteMessage(channelPickerMessage.id)
-                        .then(() => true).catch(() => false);
-                    if (deleted) return;
-                }
-                await channelPickerMessage.delete?.().catch(() => {});
-            }, TRANSIENT_RESPONSE_TIMEOUT);
-            feedbackTimer.unref?.();
         }
+        // Do not delete the picker/success confirmation by timer. It is
+        // ephemeral and Discord will expire it without a broken reference.
         state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
         state.finishBuilder?.('posted');
