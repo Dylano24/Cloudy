@@ -49,7 +49,18 @@ export function isTransientStatusPayload(payload = null, message = null) {
   return transientPayloads.has(source) || embeds.some(isTransientStatusEmbed) || isTransientStatusContent(content);
 }
 
+// Gambling cooldown errors are part of the channel history, not a 10-second
+// acknowledgement. Other transient statuses retain their existing lifetimes.
+export function isPersistentGamblingTooFastMessage(message) {
+  const channelId = String(message?.channelId || message?.channel?.id || '');
+  const channelName = String(message?.channel?.name || '').toLowerCase();
+  if (channelId !== '1533188412507558130' && !/(?:^|[^a-z])gambling(?:[^a-z]|$)/.test(channelName)) return false;
+  return (message?.embeds || []).some(embed =>
+    /^too fast$/i.test(String((embed?.toJSON?.() || embed)?.title || '').trim()));
+}
+
 export function isPersistentBotMessage(message) {
+  if (isPersistentGamblingTooFastMessage(message)) return true;
   if (/^report-\d+$/.test(String(message?.channel?.name || ''))) return true;
   if ((message?.components || []).some(row => (row.components || []).some(button => /^report_case:/.test(button.customId || button.custom_id || '')))) return true;
   const channelName = String(message?.channel?.name || '').trim();
@@ -83,7 +94,8 @@ export async function scheduleTransientInteractionReplyDeletion(interaction) {
   const reply = await interaction.fetchReply?.().catch(() => null);
   // This helper is used outside interactionMessageLifecycle too, so enforce the
   // Builder exclusion here at the final deletion boundary as well.
-  if (!reply || isBuilderSessionMessage(reply) || !isTransientStatusPayload(null, reply)) return false;
+  if (!reply || isBuilderSessionMessage(reply) || isPersistentBotMessage(reply)
+      || !isTransientStatusPayload(null, reply)) return false;
 
   const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), TRANSIENT_TTL_MS);
   timer.unref?.();
