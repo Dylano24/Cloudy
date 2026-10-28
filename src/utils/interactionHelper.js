@@ -208,7 +208,7 @@ export class InteractionHelper {
                 logger.warn(`Interaction ${interaction.id} already acknowledged during edit:`, error.message);
                 return false;
             }
-            if (error.name === 'InteractionNotReplied' || error.message.includes('not been sent or deferred')) {
+            if (error?.name === 'InteractionNotReplied' || String(error?.message ?? '').includes('not been sent or deferred')) {
                 logger.debug(`Interaction ${interaction.id} not replied, using reply fallback instead of edit:`, error.message);
                 return await this.safeReply(interaction, options);
             }
