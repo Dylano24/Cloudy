@@ -1,0 +1,39 @@
+name: Cloudy branding inventory
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/audit-cloudy-branding.mjs'
+      - '.github/workflows/cloudy-branding-inventory.yml'
+      - 'package.json'
+      - 'Dockerfile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout entire repository
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Scan tracked text files for legacy naming
+        run: |
+          node scripts/audit-cloudy-branding.mjs > cloudy-branding-audit.json
+          jq '{scanned, lines, matchingFiles, totals, byArea, omittedHits}' cloudy-branding-audit.json
+          echo "Legacy runtime references:"
+          jq -r '.hits[] | select(.area == "runtime") | "\(.path):\(.line) [\(.kind)] \(.snippet)"' cloudy-branding-audit.json | head -n 150 || true
+      - name: Attach complete read only inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudy-branding-inventory
+          path: cloudy-branding-audit.json
+          retention-days: 7
