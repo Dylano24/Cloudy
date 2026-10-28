@@ -32,7 +32,7 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(message('bot', { content: '', embeds: [{ title: 'Bot embed', description: 'Original bot content' }] }));
   assert.deepEqual(sent.map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID]);
   for (const [index, type] of ['Staff', 'Staff', 'Member', 'Bot'].entries()) {
-    assert.match(JSON.stringify(sent[index].embed), new RegExp(`Author type.*${type}`));
+    assert.match(sent[index].embed.description, new RegExp(`\\*\\*Type:\\*\\* ${type}$`, 'm'));
     assert.deepEqual(sent[index].allowedMentions, { parse: [] });
   }
   assert.match(JSON.stringify(sent.at(-1).embed), /Bot embed.*Original bot content/s);
@@ -43,7 +43,8 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   assert.doesNotMatch(description, /general/);
   assert.match(description, /\*\*Message created:\*\* <t:1:f>/);
   assert.deepEqual(description.split('\n').filter(line => line.startsWith('> ')).map(line => line.match(/^> \*\*([^:]+):/)[1]),
-    ['Deleted by', 'Type', 'Channel', 'Message ID', 'Message author', 'Message created', 'Author type']);
+    ['Deleted by', 'Type', 'Channel', 'Message ID', 'Message author', 'Message created']);
+  assert.doesNotMatch(description, /Author type/);
   // Footer is final when sent; the generic listener never edits these logs.
   assert.equal(sent[2].embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   await logDeletedMessage(message('member', { content: '', attachments: new Collection([
@@ -81,9 +82,9 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(automatic);
   assert.equal(sent.at(-1).id, AUTOMOD_LOG_CHANNEL_ID);
   assert.match(JSON.stringify(sent.at(-1).embed), /Deleted by.*<@bot>.*AutoMod/s);
-  // The author is a member; AutoMod is what removed it (Type line).
-  assert.match(JSON.stringify(sent.at(-1).embed), /Author type:\*\* Member/);
-  assert.match(JSON.stringify(sent.at(-1).embed), /Type:\*\* Removed by AutoMod/);
+  // The author is a member, even though AutoMod removed it.
+  assert.match(sent.at(-1).embed.description, /\*\*Type:\*\* Member/);
+  assert.doesNotMatch(sent.at(-1).embed.description, /Author type|Removed by AutoMod/);
   assert.match(JSON.stringify(sent.at(-1).embed), /Message author.*<@member>/s);
   const count = sent.length;
   await logDeletedMessage(message('bot', { channelId: MEMBER_MESSAGE_LOG_ID }));

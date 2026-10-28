@@ -28,6 +28,7 @@ import { CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { isBotResponsePayload } from '../utils/botResponseIntent.js';
 import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
+import { DEDICATED_MESSAGE_LOG_CHANNEL_IDS } from '../services/messageLogDestination.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
@@ -58,6 +59,8 @@ const FIXED_NON_TICKET_LOG_CHANNEL_IDS = new Set([
   '1539259457404412036',
   '1539371572442435646',
   '1539372511089926244',
+  // Staff, Member and AutoMod message logs are complete when sent.
+  ...DEDICATED_MESSAGE_LOG_CHANNEL_IDS,
 ]);
 
 async function isTicketLifecycleLogChannel(message) {
