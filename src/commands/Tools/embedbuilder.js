@@ -18,6 +18,7 @@ import {
     } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { withEmbedBuilderMessageMutation } from '../../services/embedBuilderMutationLock.js';
+import { postReplacingManualBuilderMessage } from '../../services/embedBuilderRepostIdentityService.js';
 import { registerBuilderPreviewMessage,
     unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
@@ -1091,7 +1092,7 @@ async function postBuiltMessage(channel, state, guild, member) {
         }
     }
 
-    return { ok: true, destination: channel };
+    return { ok: true, destination: channel, rollback: rollbackPost };
 }
 
 function buildControlEmbed(state) {
@@ -2005,7 +2006,17 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
             });
             return;
         }
-        const posted = await postBuiltMessage(channel, state, guild, channelInteraction.member).catch(() => ({ ok: false }));
+        const target = state.modifyTarget ? { ...state.modifyTarget } : null;
+        const posted = await postReplacingManualBuilderMessage({
+            guild,
+            channel,
+            target,
+            postNew: () => postBuiltMessage(channel, state, guild, channelInteraction.member),
+            saveExisting: () => saveModifiedEmbed(guild, state),
+        }).catch(error => {
+            logger.error('[EMBED_BUILDER] Repost failed:', error);
+            return { ok: false, reason: 'repost-failed' };
+        });
         if (!posted.ok) {
             const denied = posted.reason === 'permission-denied';
             const mediaFailure = posted.reason === 'media-persistence-failed';
@@ -2017,7 +2028,13 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
                         ? 'The image could not be saved to Cloudy storage, so the message was not posted. Please try again.'
                         : posted.reason === 'persistence-failed'
                             ? 'The message could not be saved permanently, so it was not kept in the channel. Please try again.'
-                            : 'Cloudy could not post this message. Please try again.',
+                            : posted.reason === 'cleanup-incomplete'
+                                ? 'The new message was posted, but the old saved record could not be fully removed. Please check the Builder logs before trying again.'
+                                : posted.reason === 'original-delete-failed'
+                                    ? 'Could not remove the old embed, so the new copy was rolled back. Please check Cloudy permissions.'
+                                    : posted.reason === 'source-unavailable' || posted.reason === 'source-not-owned'
+                                        ? 'Could not verify the original embed. No second copy was posted.'
+                                        : 'Cloudy could not post this message. Please try again.',
             });
             return;
         }
