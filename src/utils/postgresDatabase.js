@@ -845,6 +845,68 @@ class PostgreSQLDatabase {
         });
     }
 
+    // Two-account mutations (e.g. robbery) lock rows in deterministic user
+    // order and commit both balances, cooldowns and inventory atomically.
+    async mutateEconomyAccounts(guildId, userIds, initialData, mutate) {
+        if (!this.isAvailable()) throw new Error('PostgreSQL is unavailable');
+        if (typeof mutate !== 'function') throw new TypeError('Economy mutation callback required');
+        const ids = [...new Set(userIds.map(String))].sort();
+        if (ids.length !== 2 || ids.some(id => !id)) {
+            throw new Error('Exactly two different economy accounts are required');
+        }
+
+        return this.runTransaction(async client => {
+            await client.query(
+                'INSERT INTO ' + pgConfig.tables.guilds
+                    + ' (id, created_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING',
+                [guildId],
+            );
+            for (const userId of ids) {
+                await client.query(
+                    'INSERT INTO ' + pgConfig.tables.users
+                        + ' (id, created_at) VALUES ($1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING',
+                    [userId],
+                );
+                await client.query(
+                    'INSERT INTO ' + pgConfig.tables.economy
+                        + ' (guild_id, user_id, balance, bank, data, updated_at)'
+                        + ' VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)'
+                        + ' ON CONFLICT (guild_id, user_id) DO NOTHING',
+                    [guildId, userId, initialData?.wallet ?? 0, initialData?.bank ?? 0, initialData],
+                );
+            }
+            const stored = await client.query(
+                'SELECT user_id, balance, bank, data FROM ' + pgConfig.tables.economy
+                    + ' WHERE guild_id = $1 AND user_id = ANY($2::text[])'
+                    + ' ORDER BY user_id FOR UPDATE',
+                [guildId, ids],
+            );
+            if (stored.rows.length !== 2) throw new Error('Economy accounts could not be locked');
+            const accounts = new Map(stored.rows.map(row => {
+                const data = row.data && typeof row.data === 'object' && Object.keys(row.data).length
+                    ? row.data : { wallet: Number(row.balance), bank: Number(row.bank) };
+                return [String(row.user_id), normalizeEconomyData(data, initialData)];
+            }));
+            const result = await mutate(accounts);
+            for (const id of ids) {
+                const account = accounts.get(id);
+                if (!account || !Number.isSafeInteger(account.wallet) || account.wallet < 0
+                    || !Number.isSafeInteger(account.bank) || account.bank < 0) {
+                    const error = new Error('Invalid economy balance after mutation');
+                    error.code = 'ECONOMY_UNSAFE_BALANCE';
+                    throw error;
+                }
+                await client.query(
+                    'UPDATE ' + pgConfig.tables.economy
+                        + ' SET balance = $3, bank = $4, data = $5, updated_at = CURRENT_TIMESTAMP'
+                        + ' WHERE guild_id = $1 AND user_id = $2',
+                    [guildId, id, account.wallet, account.bank, account],
+                );
+            }
+            return { accounts, result };
+        });
+    }
+
     async transferEconomyFunds(guildId, senderId, receiverId, amount, initialData) {
         if (!this.isAvailable()) throw new Error('PostgreSQL is unavailable');
         if (senderId === receiverId || !Number.isSafeInteger(amount) || amount <= 0) {
