@@ -29,7 +29,7 @@ export function isProtectedRobberyTarget(member, guildConfig = {}, guild = null)
             roles ? member : null, guildConfig,
         )
         || configured
-        || Boolean(roles?.some?.(role =>
+        || Boolean(Array.from(roles?.values?.() || []).some(role =>
             STAFF_ROLE_NAMES.has(String(role.name || '').trim().toLowerCase())));
 }
 
