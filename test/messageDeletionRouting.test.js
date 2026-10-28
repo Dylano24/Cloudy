@@ -53,6 +53,9 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   ]) }));
   assert.deepEqual(sent.at(-1).files.map(file => file.name), ['photo.png', 'video.mp4']);
   assert.deepEqual(sent.at(-1).files.map(file => file.attachment.toString()), ['photo bytes', 'video bytes']);
+  // The photo is shown inside the embed (clickable there); the video stays a
+  // playable attachment because Discord does not play video in bot embeds.
+  assert.equal(sent.at(-1).embed.image?.url, 'attachment://photo.png');
   assert.equal(sent.at(-1).id, MEMBER_MESSAGE_LOG_ID);
   const destination = guild.channels.cache.get(MEMBER_MESSAGE_LOG_ID);
   const originalSend = destination.send;
@@ -67,6 +70,8 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   assert.equal(failed, true);
   assert.equal(sent.at(-1).files, undefined);
   assert.match(JSON.stringify(sent.at(-1).embed), /deleted text from member/);
+  // No upload, so no attachment:// image may be referenced.
+  assert.equal(sent.at(-1).embed.image, undefined);
   destination.send = originalSend;
   await logDeletedMessage(message('staff', { content: 'x'.repeat(4000), channelId: 'different-channel', attachments: new Collection([['image', { url: 'https://cdn.example/image.png' }]]) }));
   assert.equal(sent.at(-1).id, OWNER_MOD_MESSAGE_LOG_ID);

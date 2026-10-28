@@ -20,8 +20,20 @@ test('deleted media preserves binary photos/videos and never uploads an HTML err
     return new Response(Buffer.from([1, 2, 3, 255]), { headers: { 'content-type': url.includes('video') ? 'video/mp4' : 'image/png' } });
   });
   assert.deepEqual(result.files.map(file => file.name), ['photo.png', 'video.mp4']);
+  assert.deepEqual(result.images, ['photo.png'], 'only photos can be shown inside the embed');
   for (const file of result.files) assert.deepEqual(file.attachment, Buffer.from([1, 2, 3, 255]));
   assert.equal(result.links.length, 3);
   assert.equal(reads.some(url => url.includes('large')), false);
   assert.match(result.links.join('\n'), /no longer available.*not a photo or video.*too large/s);
+});
+
+test('embedded photo names are made safe for attachment:// and spoilers stay hidden', async () => {
+  const attachments = new Collection([
+    ['spaced', { name: 'my photo (1).jpg', contentType: 'image/jpeg', url: 'https://cdn.discordapp.com/attachments/one/my.jpg' }],
+    ['spoiler', { name: 'SPOILER_secret.png', contentType: 'image/png', url: 'https://cdn.discordapp.com/attachments/one/s.png' }],
+  ]);
+  const result = await prepareDeletedMessageMedia({ attachments }, async url => new Response(Buffer.from([1]), {
+    headers: { 'content-type': url.endsWith('.jpg') ? 'image/jpeg' : 'image/png' } }));
+  assert.deepEqual(result.files.map(file => file.name), ['my_photo__1_.jpg', 'SPOILER_secret.png']);
+  assert.deepEqual(result.images, ['my_photo__1_.jpg']);
 });

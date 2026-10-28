@@ -159,6 +159,12 @@ export async function logDeletedMessage(message, options = {}) {
   }
 
   const files = [...media.files];
+  // The first photo is shown inside the embed (clickable there). It must be
+  // in the first upload batch of 10, which carries the embed.
+  const embedImage = (media.images || []).find(name => {
+    const index = files.findIndex(file => file.name === name);
+    return index >= 0 && index < 10;
+  });
   if (fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH || media.links.length) {
     files.push({ attachment: Buffer.from(fullBody), name: `deleted-message-${message.id}.txt` });
   }
@@ -174,6 +180,7 @@ export async function logDeletedMessage(message, options = {}) {
       lines: metaLines,
       quoted: true,
       section: messageBody ? { title: 'Message', body: messageBody } : null,
+      image: embedImage ? `attachment://${embedImage}` : null,
       userId: resolvedAuthorId,
       authorBot,
       deletedById: deletedBy.id,

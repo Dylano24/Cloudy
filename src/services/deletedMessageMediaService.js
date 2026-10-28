@@ -27,6 +27,11 @@ function acceptedType(declared, received) {
   return null;
 }
 
+// Discord matches attachment://name exactly; keep embedded names plain.
+function embeddableName(name) {
+  return String(name || 'image').replace(/[^\w.-]/g, '_') || 'image';
+}
+
 async function download(url, limit, declaredType, fetchFile) {
   const response = await fetchFile(url.href, { signal: AbortSignal.timeout(15_000), redirect: 'error' });
   if (!response.ok) throw new Error('no longer available');
@@ -42,7 +47,7 @@ async function download(url, limit, declaredType, fetchFile) {
     chunks.push(Buffer.from(chunk));
   }
   if (!size) throw new Error('empty file');
-  return { buffer: Buffer.concat(chunks), size };
+  return { buffer: Buffer.concat(chunks), size, type: baseType(type) };
 }
 
 /**
@@ -52,7 +57,9 @@ async function download(url, limit, declaredType, fetchFile) {
  * exceed the upload limit, are listed as links instead.
  */
 export async function prepareDeletedMessageMedia(message, fetchFile = fetch) {
-  const files = [], links = [];
+  // images: copied photos that may be shown inside the log embed itself
+  // (videos cannot be: Discord does not play bot-embedded video).
+  const files = [], links = [], images = [];
   let remaining = MAX_TOTAL_MEDIA_BYTES;
   for (const attachment of message?.attachments?.values?.() || []) {
     if (!attachment?.url) continue;
@@ -77,11 +84,14 @@ export async function prepareDeletedMessageMedia(message, fetchFile = fetch) {
         }
       }
       if (!copied) throw lastError || new Error('no longer available');
+      const photo = /^image\//.test(copied.type) && !/^SPOILER_/i.test(name);
+      if (photo) name = embeddableName(name);
       files.push({ attachment: copied.buffer, name, description: attachment.description || undefined });
+      if (photo) images.push(name);
       remaining -= copied.size;
     } catch (error) {
       links.push(`${name}: ${attachment.url} (${error.message})`);
     }
   }
-  return { files, links };
+  return { files, links, images };
 }
