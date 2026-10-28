@@ -1,4 +1,4 @@
-import { escapeMarkdown } from 'discord.js';
+import { EmbedBuilder, escapeMarkdown } from 'discord.js';
 import { createEmbed } from '../utils/embeds.js';
 import { decorateEmbedWithSavedTemplate } from './embedTemplateService.js';
 
@@ -40,5 +40,5 @@ export async function buildIncomingPaymentDm({
     fields: [{ name: 'Your new cash', value: '{dynamic}', inline: true }],
   });
   const saved = await decorateEmbedWithSavedTemplate(guildId, channelId, base);
-  return fillIncomingPaymentTemplate(saved.embed.toJSON(), { senderName, amount, newCash });
+  return new EmbedBuilder(fillIncomingPaymentTemplate(saved.embed.toJSON(), { senderName, amount, newCash }));
 }
