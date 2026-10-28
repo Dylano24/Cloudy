@@ -79,21 +79,30 @@ export async function getLeaderboard(client, guildId, limit = 10) {
       return new Map();
     });
 
-    const leaderboard = (await Promise.all([...members].map(async ([userId, member]) => {
-      if (member.user.bot) return null;
+    // A large guild should not open a database read for every member at once.
+    // Preserve source ordering so stable leaderboard ties retain their order.
+    const entries = [...members];
+    const results = new Array(entries.length);
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(12, entries.length) }, async () => {
+      while (nextIndex < entries.length) {
+        const index = nextIndex++;
+        const [userId, member] = entries[index];
+        if (member.user.bot) continue;
 
-      const data = await getUserLevelData(client, guildId, userId);
-      if (data && (data.totalXp > 0 || data.level > 0)) {
-        return {
-          userId,
-          username: member.user.username,
-          discriminator: member.user.discriminator,
-          ...data
-        };
+        const data = await getUserLevelData(client, guildId, userId);
+        if (data && (data.totalXp > 0 || data.level > 0)) {
+          results[index] = {
+            userId,
+            username: member.user.username,
+            discriminator: member.user.discriminator,
+            ...data
+          };
+        }
       }
-
-      return null;
-    }))).filter(Boolean);
+    });
+    await Promise.all(workers);
+    const leaderboard = results.filter(Boolean);
     
     leaderboard.sort((a, b) => b.totalXp - a.totalXp);
     
