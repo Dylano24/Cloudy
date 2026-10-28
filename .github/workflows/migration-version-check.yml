@@ -61,3 +61,6 @@ jobs:
         env:
           CLOUDY_RUN_ECONOMY_PG_INTEGRATION: 'true'
         run: node --test test/economyPostgresTransfer.integration.test.js
+
+      - name: Verify focused audit regression tests
+        run: node --test test/publicApiRateLimitOrder.test.js test/economyAtomicTransfer.test.js test/massModerationTargets.test.js
