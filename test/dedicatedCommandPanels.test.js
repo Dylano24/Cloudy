@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Embed, MessageFlags } from 'discord.js';
 import { buildDedicatedGuidePayload } from '../src/services/dedicatedChannelService.js';
+import { applySavedEmbedTemplates } from '../src/services/embedTemplateService.js';
 import panels from '../src/interactions/buttons/dedicatedCommands.js';
 
 for (const key of ['gambling', 'shop']) {
@@ -36,4 +37,39 @@ test('new panels preserve manual Builder content and Commands buttons on later m
   assert.equal(moved.embeds[0].title, 'My games');
   assert.equal(moved.embeds[0].description, 'Custom saved wording');
   assert.deepEqual(moved.components, existing.components);
+});
+
+
+// Regression: the guide must already have its correct title when sent.
+// No other existing style or custom text may be changed by the fix.
+test('Gambling guide normalizes the old lowercase title in the outgoing payload', () => {
+  const description = 'All Cloudy gaming and economy commands must be used in this channel. Click the button below to view all available commands.';
+  const source = new Embed({
+    title: 'Games & economy',
+    description,
+    color: 0xFFFFFF,
+    thumbnail: { url: 'https://example.com/logo.png' },
+    footer: { text: 'Existing footer' },
+  });
+  const original = source.toJSON();
+  const components = buildDedicatedGuidePayload('gambling').components;
+  const payload = buildDedicatedGuidePayload('gambling', { embeds: [source], components });
+
+  assert.equal(payload.embeds[0].title, 'Games & Economy');
+  assert.deepEqual({ ...payload.embeds[0], title: 'Games & economy' }, original);
+  assert.equal(source.toJSON().title, 'Games & economy');
+  assert.deepEqual(payload.components, components);
+});
+
+test('Gambling guide does not receive a second visible title edit after posting', async () => {
+  const description = 'All Cloudy gaming and economy commands must be used in this channel. Click the button below to view all available commands.';
+  let edits = 0;
+  const matched = await applySavedEmbedTemplates({
+    guildId: 'guild', channelId: 'gambling', editable: true,
+    channel: { name: '🎲｜gambling' },
+    embeds: [new Embed({ title: 'Games & Economy', description })],
+    edit: async () => { edits += 1; },
+  }, { initialCreation: true });
+  assert.equal(matched, true);
+  assert.equal(edits, 0);
 });
