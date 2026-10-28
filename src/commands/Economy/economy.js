@@ -2,7 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import economyDashboard from './modules/economy_dashboard.js';
-import { getEconomyData, setEconomyData } from '../../utils/economy.js';
+import { getEconomyData, setEconomyData, getInitialEconomyData } from '../../utils/economy.js';
 import { successEmbed } from '../../utils/embeds.js';
 
 export default {
@@ -47,13 +47,27 @@ export default {
             if (!Number.isSafeInteger(amount) || amount < 1) {
                 throw new Error(`Enter an amount from 1 to ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`);
             }
-            const data = await getEconomyData(client, interaction.guildId, interaction.user.id);
-            if (data.wallet > Number.MAX_SAFE_INTEGER - amount) {
-                throw new Error('That amount would exceed the maximum safe economy balance.');
+            let data;
+            if (client.db?.getConnectionType?.() === 'postgresql'
+                && typeof client.db.mutateEconomyAccount === 'function') {
+                const mutation = await client.db.mutateEconomyAccount(
+                    interaction.guildId, interaction.user.id, getInitialEconomyData(), current => {
+                        if (current.wallet > Number.MAX_SAFE_INTEGER - amount) {
+                            throw new Error('That amount would exceed the maximum safe economy balance.');
+                        }
+                        current.wallet += amount;
+                    },
+                );
+                data = mutation.account;
+            } else {
+                data = await getEconomyData(client, interaction.guildId, interaction.user.id);
+                if (data.wallet > Number.MAX_SAFE_INTEGER - amount) {
+                    throw new Error('That amount would exceed the maximum safe economy balance.');
+                }
+                data.wallet += amount;
+                const saved = await setEconomyData(client, interaction.guildId, interaction.user.id, data);
+                if (!saved) throw new Error('Your balance could not be saved.');
             }
-            data.wallet += amount;
-            const saved = await setEconomyData(client, interaction.guildId, interaction.user.id, data);
-            if (!saved) throw new Error('Your balance could not be saved.');
             await InteractionHelper.safeEditReply(interaction, {
                 embeds: [successEmbed('Cash added', `Added **$${amount.toLocaleString()}** to your cash.\nNew cash balance: **$${data.wallet.toLocaleString()}**.`)],
                 components: [],
