@@ -28,7 +28,7 @@ on:
 
 concurrency:
   group: fast-quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
