@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionFlagsBits, PermissionsBitField, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { createEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getFromDb, setInDb } from '../../utils/database.js';
 import { logger } from '../../utils/logger.js';
