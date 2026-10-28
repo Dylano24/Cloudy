@@ -19,9 +19,9 @@ test('blackjack game guide uses the same Double down capitalization', () => {
 test('blackjack expires after the same two-minute period as baccarat and refunds its bet', () => {
   const blackjack = readFileSync(new URL('../src/commands/Economy/blackjack.js', import.meta.url), 'utf8');
   const baccarat = readFileSync(new URL('../src/commands/Economy/baccarat.js', import.meta.url), 'utf8');
-  assert.match(baccarat, /time:\\s*2\\s*\\*\\s*60\\s*\\*\\s*1000/);
-  assert.match(blackjack, /time:\\s*2\\s*\\*\\s*60\\s*\\*\\s*1000/);
-  assert.match(blackjack, /adjustCasinoBalance\\(client, interaction\\.guildId, interaction\\.user\\.id, state\\.totalBet\\)/);
-  assert.match(blackjack, /Game expired\\. \\*\\*\\$\\{money\\(state\\.totalBet\\)\\}\\*\\* was returned\\./);
-  assert.match(blackjack, /payload\\(state, \\{ title: 'Expired'/);
+  assert.match(baccarat, /time:\s*2\s*\*\s*60\s*\*\s*1000/);
+  assert.match(blackjack, /time:\s*2\s*\*\s*60\s*\*\s*1000/);
+  assert.match(blackjack, /adjustCasinoBalance\(client, interaction\.guildId, interaction\.user\.id, state\.totalBet\)/);
+  assert.match(blackjack, /Game expired\. \*\*\$\{money\(state\.totalBet\)\}\*\* was returned\./);
+  assert.match(blackjack, /payload\(state, \{ title: 'Expired'/);
 });
