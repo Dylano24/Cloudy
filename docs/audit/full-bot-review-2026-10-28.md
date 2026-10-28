@@ -33,7 +33,7 @@ No production deployment or database migration is included in this draft PR.
 
 - `src/services/leveling/leveling.js`: leaderboard loads every member and then reads per-user level data. On a large guild, that is many independent reads. Redesign requires ensuring the leaderboard's current filtering/ranking remains identical.
 - `src/events/messageCreate.js`: when a Reappear embed moves, the event handler may wait for a deliberate two-second Discord deletion/repost interval before continuing to prefix commands and leveling. This is a code-level latency path; its actual impact requires production traces before changing event sequencing.
-- `src/commands/Moderation/massban.js`: user IDs are bounded to 20 but are not deduplicated before the ban loop; repeated IDs can cause unnecessary lookups. Not modified in this patch.
+- `src/commands/Moderation/massban.js` and `masskick.js`: duplicate target IDs were being processed more than once. Both now share a bounded, unique, valid Discord ID parser with dedicated regression tests. The moderation actions, role checks and public response formatting are unchanged.
 
 ## Comprehensive review areas and safety requirements
 
