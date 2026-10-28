@@ -159,8 +159,8 @@ export default {
   category: 'Economy',
   execute: withErrorHandling(async (interaction, config, client) => {
     const deferred = await InteractionHelper.safeDefer(interaction); if (!deferred) return;
-    const { amount, userData } = await takeBet(interaction, client);
-    if (!await setEconomyData(client, interaction.guildId, interaction.user.id, userData)) throw new Error('Could not persist casino bet');
+    const { amount, userData, alreadyPersisted } = await takeBet(interaction, client);
+    if (!alreadyPersisted && !await setEconomyData(client, interaction.guildId, interaction.user.id, userData)) throw new Error('Could not persist casino bet');
     const deck = makeDeck();
     const state = { id: interaction.id, client, guildId: interaction.guildId, user: interaction.user, data: userData, deck, dealer: [deck.pop(), deck.pop()], hands: [{ cards: [deck.pop(), deck.pop()], bet: amount, done: false }], current: 0, totalBet: amount, finished: false };
     await InteractionHelper.safeEditReply(interaction, await payload(state));
