@@ -549,19 +549,9 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
     && message.embeds.some(embed =>
       /^Games & economy$/i.test(String(embed?.title || ''))
       && embed.description === 'All Cloudy gaming and economy commands must be used in this channel. Click the button below to view all available commands.');
-  if (isGamblingGuide) {
-    if (message.embeds.some(embed => embed.title === 'Games & economy')) {
-      const embeds = message.embeds.map(embed => {
-        const data = embed.toJSON();
-        if (data.title === 'Games & economy') data.title = 'Games & Economy';
-        return data;
-      });
-      await message.edit({ embeds }).catch(error => {
-        logger.warn(`Could not correct Gambling guide title: ${error?.message || error}`);
-      });
-    }
-    return true;
-  }
+  // Its outgoing payload is already normalized by the guide/Reappear
+  // sender. Never do a second, visible edit immediately after creation.
+  if (isGamblingGuide) return true;
 
   // ZORP Guide is owner-authored content. Never rewrite it from background
   // template/catalog/normalization passes. A manual Embed Builder Save still
