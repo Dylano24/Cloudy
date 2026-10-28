@@ -57,7 +57,12 @@ test('Modify renders its unchanged controls in one reply and pagination in one u
 test('direct Modify replies retain parent activity and private webhook cleanup even before background refresh', async () => {
   db.initialized = true; db.useFallback = false; db.connectionType = 'test';
   let reads = 0;
-  db.db = { get: async () => { reads += 1; if (reads === 1) return []; return new Promise(() => {}); } };
+  db.db = { get: async key => {
+    if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
+    reads += 1;
+    if (reads === 1) return [];
+    return new Promise(() => {});
+  } };
   const guild = { id: 'lifetime-manager', channels: { cache: new Collection() }, client: { user: { id: 'cloudy' } } };
   const parent = { id: 'lifetime-parent', embeds: [{ title: 'Message builder' }], delete: async () => {} };
   let parentResets = 0, webhookDeletes = 0;
@@ -106,7 +111,10 @@ test('registry mutations invalidate the preloaded Modify snapshot without any hi
     reply: async payload => { paint = payload; return { resource: { message: { id: 'fresh-message', createMessageComponentCollector: () => collector } } }; },
     webhook: { editMessage: async () => {} },
   }, state, async () => true);
-  assert.ok(reads > readsBeforeOpen, 'a mutation requires a fresh storage read');
+  // The committed, current-generation snapshot is already authoritative.
+  // A redundant read here would add latency; the visible channel list must
+  // reflect the mutation without scanning Discord history.
+  assert.equal(reads, readsBeforeOpen, 'opening may reuse a current committed registry snapshot');
   assert.match(paint.embeds[0].toJSON().description, /\*\*Embeds found:\*\* 1/);
   assert.match(paint.embeds[0].toJSON().description, /Choose a channel first/);
   assert.equal(state.embedManagerPrepared, undefined);
@@ -117,7 +125,11 @@ test('a slow registry silently acknowledges before the Discord deadline and reta
   t.mock.timers.enable({ apis: ['setTimeout'] });
   db.initialized = true; db.useFallback = false; db.connectionType = 'test';
   let release;
-  db.db = { get: () => new Promise(resolve => { release = resolve; }), set: async () => true };
+  db.db = {
+    get: key => key.startsWith('cloudy:embed-registry-deleted:')
+      ? Promise.resolve([]) : new Promise(resolve => { release = resolve; }),
+    set: async () => true,
+  };
   const collector = new EventEmitter();
   collector.stop = () => { collector.ended = true; };
   const guild = { id: 'slow-latency-manager', channels: { cache: new Collection() }, client: { user: { id: 'cloudy' } } };
