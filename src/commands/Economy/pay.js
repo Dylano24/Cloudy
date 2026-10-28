@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { createEmbed, successEmbed } from '../../utils/embeds.js';
+import { successEmbed } from '../../utils/embeds.js';
+import { buildIncomingPaymentDm } from '../../services/incomingPaymentDmService.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -111,15 +112,14 @@ export default {
             });
 
             try {
-                const receiverEmbed = createEmbed({ 
-                    title: "Incoming Payment!", 
-                    description: `${interaction.user.username} paid you **$${amount.toLocaleString()}**.` 
-                }).addFields({
-                    name: "Your New Cash",
-                    value: `$${updatedReceiverData.wallet.toLocaleString()}`,
-                    inline: true,
+                const receiverEmbed = await buildIncomingPaymentDm({
+                    guildId,
+                    channelId: interaction.channelId,
+                    senderName: interaction.user.username,
+                    amount,
+                    newCash: updatedReceiverData.wallet,
                 });
-                await receiver.send({ embeds: [receiverEmbed] });
+                await receiver.send({ embeds: [receiverEmbed], allowedMentions: { parse: [] } });
             } catch (e) {
                     logger.warn(`Could not DM user ${receiver.id}: ${e.message}`);
             }
