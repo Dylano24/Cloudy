@@ -25,7 +25,7 @@ import { commercialBuilderTitle } from '../../utils/builderCommercialTitle.js';
 import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
 import { createBuilderPerformanceTracker } from '../../utils/interactionLatency.js';
-import { TitanBotError,
+import { CloudyError,
     replyUserError,
     ErrorTypes } from '../../utils/errorHandler.js';
 import { getColor } from '../../config/bot.js';
@@ -2534,9 +2534,9 @@ export default {
                 deleteEmbedColorPickerSession(colorSessionToken);
             });
         } catch (error) {
-            if (error instanceof TitanBotError) throw error;
+            if (error instanceof CloudyError) throw error;
             logger.error('Unexpected error in simple embed builder:', error);
-            throw new TitanBotError(
+            throw new CloudyError(
                 `embedbuilder failed: ${error.message}`,
                 ErrorTypes.UNKNOWN,
                 'Failed to open the message builder.',
