@@ -1912,6 +1912,18 @@ async function openPrivateBuilderEditor(buttonInteraction, state, mode) {
     if (message?.id) state.builderChildMessages.set(message.id, message);
 }
 
+// Keep the ephemeral picker as the component interaction's message after
+// a successful Post. Deleting it (including after 10 seconds) makes Discord
+// show "Original message was deleted" above the success confirmation.
+export async function confirmBuilderPostedMessage(interaction, payload) {
+    const updated = await interaction.editReply(payload)
+        .then(() => true).catch(() => false);
+    if (updated) return true;
+    await interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral })
+        .catch(() => null);
+    return false;
+}
+
 async function postMessage(buttonInteraction, state, guild, forceNew = false) {
     const isRepost = Boolean(state.modifyTarget);
     if (state.modifyTarget && !forceNew) {
@@ -2022,20 +2034,9 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         // message. Deleting it before followUp creates Discord's visible
         // "Message could not be loaded" reply reference. Replace the picker
         // in-place instead, then expire the private success feedback.
-        const updated = await channelInteraction.editReply(successPayload)
-            .then(() => true)
-            .catch(() => false);
-        if (!updated) {
-            // Keep the original ephemeral component response alive: Discord
-            // displays "Original message was deleted" when its source message
-            // is removed, even though the actual channel post succeeded.
-            await channelInteraction.followUp({
-                ...successPayload,
-                flags: MessageFlags.Ephemeral,
-            }).catch(() => null);
-        }
-        // Do not delete the picker/success confirmation by timer. It is
-        // ephemeral and Discord will expire it without a broken reference.
+        await confirmBuilderPostedMessage(channelInteraction, successPayload);
+        // The success message is ephemeral and expires naturally in Discord.
+        // Never delete it (or its original picker) with a cleanup timer.
         state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
         state.finishBuilder?.('posted');
