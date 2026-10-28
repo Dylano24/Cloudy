@@ -35,7 +35,7 @@ function controls(state, ended = false) {
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`casino_blackjack:hit:${state.id}`).setLabel('Hit').setStyle(ButtonStyle.Primary).setDisabled(ended),
       new ButtonBuilder().setCustomId(`casino_blackjack:stand:${state.id}`).setLabel('Stand').setStyle(ButtonStyle.Success).setDisabled(ended),
-      new ButtonBuilder().setCustomId(`casino_blackjack:double:${state.id}`).setLabel('Double Down').setStyle(ButtonStyle.Secondary).setDisabled(ended || !canDouble),
+      new ButtonBuilder().setCustomId(`casino_blackjack:double:${state.id}`).setLabel('Double down').setStyle(ButtonStyle.Secondary).setDisabled(ended || !canDouble),
       new ButtonBuilder().setCustomId(`casino_blackjack:split:${state.id}`).setLabel('Split').setStyle(ButtonStyle.Secondary).setDisabled(ended || !canSplit),
     ),
     gameHelpRow('blackjack'),
