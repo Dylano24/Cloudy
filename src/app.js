@@ -10,6 +10,7 @@ import config from './config/application.js';
 import { initializeDatabase } from './utils/database.js';
 import { getServerCounters, saveServerCounters, updateCounter } from './services/serverstatsService.js';
 import { logger, startupLog, shutdownLog } from './utils/logger.js';
+import { waitForPoolIdle } from './utils/database/drain.js';
 import { checkBirthdays } from './services/birthdayService.js';
 import { checkGiveaways } from './services/giveawayService.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/loaders/commandLoader.js';
@@ -481,6 +482,14 @@ class CloudyBot extends Client {
       }
 
       if (this.db && this.db.db) {
+        // Discord events have stopped. Let database work that is already in
+        // flight finish (bounded, inside Railway's 10 s draining window), so
+        // it is not cut off by a closed pool. On 28 Oct a registry cleanup of
+        // 53 bulk-deleted messages failed exactly this way during a restart.
+        const drained = await waitForPoolIdle(this.db.db.pool, { quietMs: 500, maxMs: 4000 });
+        if (!drained.idle) {
+          logger.warn(`Database still busy after ${drained.waitedMs} ms at shutdown; closing anyway`);
+        }
         logger.info('Closing database connection...');
         try {
           if (typeof this.db.db.close === 'function') {
