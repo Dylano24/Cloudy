@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { createEmbed, successEmbed } from '../../utils/embeds.js';
+import { createEmbed, successEmbed, buildUserErrorEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { resolveDedicatedChannel } from '../../services/dedicatedChannelService.js';
 import { setResponseLifetime } from '../../utils/responseLifetime.js';
@@ -61,13 +61,12 @@ export default {
     const gamblingChannel = await resolveDedicatedChannel(interaction.guild, 'gambling');
     if (!gamblingChannel || String(interaction.channelId || interaction.channel?.id || '') !== String(gamblingChannel.id)) {
       await InteractionHelper.safeEditReply(interaction, {
-        embeds: [createEmbed({
-          title: 'Wrong channel',
-          description: gamblingChannel
-            ? `This command can only be used in the dedicated channel. Please use <#${gamblingChannel.id}>.`
+        embeds: [buildUserErrorEmbed('validation',
+          gamblingChannel
+            ? `This command can only be used in the dedicated channel. Please use <#${gamblingChannel.id}> to give currency.`
             : 'The dedicated gambling channel is unavailable. Currency was not added.',
-          color: 'error',
-        })],
+          { titleOverride: 'Wrong channel', preserveText: true },
+        )],
       });
       return;
     }
