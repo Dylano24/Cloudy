@@ -42,6 +42,15 @@ function normalizeTimestampInput(value, fallback = new Date()) {
     return !Number.isNaN(parsedDate.getTime()) ? parsedDate : fallback;
 }
 
+// The stored shape of one economy row, exactly as get('guild:G:economy:U')
+// returns it. Shared by the single-account and whole-guild reads.
+function economyRowValue(row) {
+    if (row.data && typeof row.data === 'object' && Object.keys(row.data).length > 0) {
+        return row.data;
+    }
+    return { wallet: row.balance ?? 0, bank: row.bank ?? 0 };
+}
+
 class PostgreSQLDatabase {
     constructor() {
         this.pool = null;
@@ -739,12 +748,7 @@ class PostgreSQLDatabase {
                         [parsedKey.guildId, parsedKey.userId]
                     );
                     if (economyResult.rows.length === 0) return defaultValue;
-                    const row = economyResult.rows[0];
-
-                    if (row.data && typeof row.data === 'object' && Object.keys(row.data).length > 0) {
-                        return row.data;
-                    }
-                    return { wallet: row.balance ?? 0, bank: row.bank ?? 0 };
+                    return economyRowValue(economyResult.rows[0]);
                 }
                 
                 case 'afk_status': {
@@ -783,6 +787,20 @@ class PostgreSQLDatabase {
             if (strictRead || parsedKey.type === 'economy') throw error;
             return defaultValue;
         }
+    }
+
+    /**
+     * Every economy account of one guild in a single query, keyed by user ID.
+     * Values are identical to per-account get(); leaderboards and the economy
+     * dashboard previously issued one query per account.
+     */
+    async getGuildEconomyAccounts(guildId) {
+        if (!this.isAvailable()) throw new Error('Persistent storage is unavailable');
+        const result = await this.pool.query(
+            `SELECT user_id, balance, bank, data FROM ${pgConfig.tables.economy} WHERE guild_id = $1`,
+            [guildId],
+        );
+        return new Map(result.rows.map(row => [String(row.user_id), economyRowValue(row)]));
     }
 
     /**

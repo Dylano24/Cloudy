@@ -1,4 +1,9 @@
-import { hideClosedTicket, restoreReopenedTicketAccess } from './ticketClosedAccessService.js';
+import {
+  hideClosedTicket,
+  isNoopOverwriteEdit,
+  readFreshTicketOverwrites,
+  restoreReopenedTicketAccess,
+} from './ticketClosedAccessService.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -828,9 +833,12 @@ export async function reconcileTicketChannelState(channel) {
 
   if (!isLiveGuildChannel(channel)) return false;
 
-  if (isClosed) {
-    await hideClosedTicket(channel);
-  }
+  // One fresh REST read per pass lets unchanged overwrites be skipped. Without
+  // it every pass re-sent every overwrite, and those writes queued ahead of
+  // (and rate limited) a staff member's next Reopen or Close.
+  const freshOverwrites = isClosed
+    ? await hideClosedTicket(channel)
+    : await readFreshTicketOverwrites(channel);
 
   const ownerPermissions = isClosed
     ? {
@@ -844,7 +852,7 @@ export async function reconcileTicketChannelState(channel) {
       ReadMessageHistory: true,
     };
 
-  if (!isClosed) await channel.permissionOverwrites.edit(ticketData.userId, ownerPermissions).catch(error => {
+  if (!isClosed && !isNoopOverwriteEdit(freshOverwrites, ticketData.userId, ownerPermissions)) await channel.permissionOverwrites.edit(ticketData.userId, ownerPermissions).catch(error => {
     if (isLiveGuildChannel(channel)) {
       logger.warn(`Ticket owner permission reconciliation failed: ${error.message}`, {
         guildId: channel.guild.id,
@@ -863,13 +871,14 @@ export async function reconcileTicketChannelState(channel) {
       ? channel.guild.roles.cache.get(staffRoleId)
         || await channel.guild.roles.fetch(staffRoleId).catch(() => null)
       : null;
-    if (staffRole) {
-      await channel.permissionOverwrites.edit(staffRole.id, {
-        ViewChannel: true,
-        SendMessages: true,
-        AttachFiles: true,
-        ReadMessageHistory: true,
-      }).catch(error => {
+    const staffPermissions = {
+      ViewChannel: true,
+      SendMessages: true,
+      AttachFiles: true,
+      ReadMessageHistory: true,
+    };
+    if (staffRole && !isNoopOverwriteEdit(freshOverwrites, staffRole.id, staffPermissions)) {
+      await channel.permissionOverwrites.edit(staffRole.id, staffPermissions).catch(error => {
         if (isLiveGuildChannel(channel)) {
           logger.warn(`Ticket staff permission reconciliation failed: ${error.message}`, {
             guildId: channel.guild.id,

@@ -19,7 +19,7 @@ import { successEmbed } from '../../../utils/embeds.js';
 import { logger } from '../../../utils/logger.js';
 import { CloudyError, ErrorTypes, replyUserError } from '../../../utils/errorHandler.js';
 import { getEconomyPrefix } from '../../../utils/database.js';
-import { getEconomyData, addMoney, removeMoney, getMaxBankCapacity } from '../../../utils/economy.js';
+import { getEconomyData, addMoney, removeMoney, getMaxBankCapacity, readGuildEconomyValues } from '../../../utils/economy.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -38,24 +38,18 @@ export async function buildDashboardEmbed(guild, client) {
         const economyKeys = await client.db.list(getEconomyPrefix(guild.id));
 
         if (economyKeys && economyKeys.length > 0) {
-            // The old dashboard did one Discord member fetch and one DB read per
-            // account in series. Use READY's member cache and bounded parallel
-            // DB batches so account count does not translate into UI latency.
-            const batchSize = 20;
-            for (let offset = 0; offset < economyKeys.length; offset += batchSize) {
-                const batch = economyKeys.slice(offset, offset + batchSize);
-                const rows = await Promise.all(batch.map(async key => {
-                    const userId = key.split(':').pop();
-                    const member = guild.members.cache.get(userId);
-                    if (member?.user?.bot) return null;
-                    return client.db.get(key, {});
-                }));
+            // Use READY's member cache to skip bots, then read every account in
+            // one whole-guild query instead of batches of per-account queries.
+            const accountKeys = economyKeys.filter(key => {
+                const member = guild.members.cache.get(key.split(':').pop());
+                return !member?.user?.bot;
+            });
+            const rows = await readGuildEconomyValues(client, guild.id, accountKeys, {});
 
-                for (const userData of rows) {
-                    if (!userData) continue;
-                    totalInCirculation += (userData.wallet || 0) + (userData.bank || 0);
-                    userCount++;
-                }
+            for (const userData of rows) {
+                if (!userData) continue;
+                totalInCirculation += (userData.wallet || 0) + (userData.bank || 0);
+                userCount++;
             }
         }
     } catch (error) {
