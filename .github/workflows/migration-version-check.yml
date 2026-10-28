@@ -56,3 +56,8 @@ jobs:
 
       - name: Validate migration version
         run: npm run migrate:check
+
+      - name: Verify atomic economy transfers against ephemeral PostgreSQL
+        env:
+          CLOUDY_RUN_ECONOMY_PG_INTEGRATION: 'true'
+        run: node --test test/economyPostgresTransfer.integration.test.js
