@@ -49,7 +49,7 @@ test('rejoin restores read, send and embeds only in the two original patch chann
   const byId=id=>a.edits.find(edit=>edit.id===id)?.overwrites;
   for(const channel of [a.rust,a.nitrado]){
     assert.deepEqual(byId(channel.id),{
-      ViewChannel:true,ReadMessageHistory:true,SendMessages:true,EmbedLinks:true
+      ViewChannel:true,ReadMessageHistory:true,SendMessages:true,EmbedLinks:true,AttachFiles:true
     });
   }
   assert.deepEqual(byId(a.general.id),{ViewChannel:true,ReadMessageHistory:true});

@@ -1,3 +1,5 @@
+import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
+import { hasRequiredPatchBanner } from './patchNotesBannerService.js';
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { BALANCE_RESPONSE_KEY, balanceResponseIdentity } from './balanceResponseIdentity.js';
 import { EmbedBuilder } from 'discord.js';
@@ -1693,8 +1695,10 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
 
   if (template.thumbnail?.url) next.thumbnail = { ...template.thumbnail };
   else delete next.thumbnail;
-  if (template.image?.url) next.image = { ...template.image };
-  else delete next.image;
+  if (!hasRequiredPatchBanner(data)) {
+    if (template.image?.url) next.image = { ...template.image };
+    else delete next.image;
+  }
 
   // Casino result semantics are runtime-owned. Embed Builder may style the rest,
   // but it must never turn a real win/push/bust into another outcome or color.
@@ -1712,7 +1716,7 @@ export function applyRuntimeEmbedTemplateData(embedData, contextSource = null) {
     }
   }
 
-  return isBlackjackContext(context) ? stripBlackjackCardsRemaining(next) : next;
+  return stripRustPatchLogo(isBlackjackContext(context) ? stripBlackjackCardsRemaining(next) : next);
 }
 
 function renderTicketMainDynamic(templateValue, values = []) {

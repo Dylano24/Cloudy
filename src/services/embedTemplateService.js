@@ -1,3 +1,5 @@
+import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
+import { hasRequiredPatchBanner } from './patchNotesBannerService.js';
 import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
@@ -460,15 +462,14 @@ function decorateEmbedData(embed, stored, options = {}) {
     else delete data.thumbnail;
   }
 
-  const isOfficialRustPatch = /^https:\/\/rust\.facepunch\.com\/news\//i.test(String(original.url || ''));
-  if (template.applyImage === true) {
+  // Article images are current patch data. A stale saved decoration cannot
+  // replace or remove a required official banner during automatic rendering.
+  if (template.applyImage === true && !hasRequiredPatchBanner(original)) {
     if (template.image?.url) data.image = { url: template.image.url };
-    // The article hero is live patch data, just like a ticket number or user.
-    // An older empty Builder media value may not erase that official banner.
-    else if (!isOfficialRustPatch) delete data.image;
+    else delete data.image;
   }
 
-  const finalData = stripBlackjackCardsRemaining(data);
+  const finalData = stripRustPatchLogo(stripBlackjackCardsRemaining(data));
   return {
     matched: true,
     changed: JSON.stringify(original) !== JSON.stringify(finalData),
