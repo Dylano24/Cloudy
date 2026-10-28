@@ -414,7 +414,7 @@ async function processEmbedReappear(message) {
           else throw error; // Temporary API failures must not delete the rule.
         }
       }
-      if (sourceMissing) {
+      if (sourceMissing && config.pendingMove !== true) {
         // Disable the exact old rule, not a newer Test embed in this channel.
         if (!await setInDb(disableKey, {
           disabled: true, reason: 'physical-message-deleted',
@@ -425,13 +425,22 @@ async function processEmbedReappear(message) {
         continue;
       }
 
-      // Persist the pending move before removing the visible copy so a failed
-      // send or restart leaves the saved embed ready for the next-message retry.
+      // A move that Cloudy itself initiated may legitimately have no current
+      // physical message if the replacement send failed. Record that explicit
+      // intent before deleting, so retry never revives an unrelated deleted
+      // Yess and still recovers from a failed automatic replacement.
+      config.pendingMove = true;
       if (!await setInDb(key, config)) continue;
-      const removedPrevious = await previous.delete().then(() => true).catch(() => false);
-      if (!removedPrevious) continue;
-      // Give Discord clients time to process deletion before the replacement.
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (previous) {
+        const removedPrevious = await previous.delete().then(() => true).catch(() => false);
+        if (!removedPrevious) {
+          config.pendingMove = false;
+          await setInDb(key, config);
+          continue;
+        }
+        // Give Discord clients time to process deletion before replacement.
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
       if (await getFromDb(disableKey, null)) {
         removedIds.add(originalMessageId);
@@ -457,6 +466,7 @@ async function processEmbedReappear(message) {
       }
 
       config.count = 0;
+      config.pendingMove = false;
       config.messageId = sent.id;
       config.updatedAt = new Date().toISOString();
       await setInDb(key, config);
