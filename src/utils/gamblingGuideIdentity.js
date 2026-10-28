@@ -14,10 +14,16 @@ function hasGamblingCommandsButton(message) {
 export function isDedicatedGamblingGuideMessage(message) {
   if (!Array.isArray(message?.embeds) || !message.embeds.length) return false;
   const commandsButton = hasGamblingCommandsButton(message);
+  // The same canonical guide may have owner-edited text and no supplied
+  // component metadata while Discord constructs a partial Message.
+  const channelName = String(
+    message?.channel?.name || message?.guild?.channels?.cache?.get?.(message?.channelId)?.name || '',
+  ).toLowerCase();
+  const isGamblingChannel = /(?:^|[^a-z])gambling(?:[^a-z]|$)/.test(channelName);
   return message.embeds.some(embed => {
     const title = String(embed?.title ?? embed?.data?.title ?? '').trim();
     const description = String(embed?.description ?? embed?.data?.description ?? '');
     return GUIDE_TITLE.test(title)
-      && (description === GUIDE_DESCRIPTION || commandsButton);
+      && (description === GUIDE_DESCRIPTION || commandsButton || isGamblingChannel);
   });
 }
