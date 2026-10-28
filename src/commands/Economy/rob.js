@@ -132,7 +132,11 @@ export default {
             robberData.lastRob = now;
 
             await setEconomyData(client, guildId, robberId, robberData);
-            await setEconomyData(client, guildId, victimUser.id, victimData);
+            // An unsuccessful robbery does not change the victim's account.
+            // Writing that stale snapshot could erase another recent balance update.
+            if (isSuccessful) {
+                await setEconomyData(client, guildId, victimUser.id, victimData);
+            }
 
             resultEmbed
                 .addFields(
