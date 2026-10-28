@@ -542,6 +542,27 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
   if (isPrivateReportCasePayload(message)) return false;
   if (!message?.guildId || !message?.channelId || !message?.editable || !message?.embeds?.length) return false;
 
+  // The dedicated Gambling guide has a fixed title. A stale saved template
+  // can otherwise edit a newly posted/Reappear guide back to lowercase
+  // moments after Discord first shows the correct title.
+  const isGamblingGuide = String(message.channel?.name || '').toLowerCase().includes('gambling')
+    && message.embeds.some(embed =>
+      /^Games & economy$/i.test(String(embed?.title || ''))
+      && embed.description === 'All Cloudy gaming and economy commands must be used in this channel. Click the button below to view all available commands.');
+  if (isGamblingGuide) {
+    if (message.embeds.some(embed => embed.title === 'Games & economy')) {
+      const embeds = message.embeds.map(embed => {
+        const data = embed.toJSON();
+        if (data.title === 'Games & economy') data.title = 'Games & Economy';
+        return data;
+      });
+      await message.edit({ embeds }).catch(error => {
+        logger.warn(`Could not correct Gambling guide title: ${error?.message || error}`);
+      });
+    }
+    return true;
+  }
+
   // ZORP Guide is owner-authored content. Never rewrite it from background
   // template/catalog/normalization passes. A manual Embed Builder Save still
   // edits the message and persists its template through the normal save path.
