@@ -1,5 +1,6 @@
 import { Events, EmbedBuilder } from 'discord.js';
 import { CLOUDY_BANNER_URL, CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
+import { resolveUpdatedMessage } from '../utils/updatedMessage.js';
 
 const LEGACY_NAMES = new Set([
   'cloudy-c-logo.png',
@@ -32,9 +33,7 @@ export default {
   once: false,
 
   async execute(_oldMessage, newMessage) {
-    const message = newMessage?.partial
-      ? await newMessage.fetch().catch(() => null)
-      : newMessage;
+    const message = await resolveUpdatedMessage(newMessage, { cloudyOnly: true });
 
     if (!message?.client?.user?.id) return;
     if (message.author?.id !== message.client.user.id) return;
