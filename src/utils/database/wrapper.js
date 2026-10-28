@@ -191,6 +191,12 @@ export class DatabaseWrapper {
         return this.db.mutateEconomyAccounts(guildId, userIds, initialData, mutate);
     }
 
+    // null when the storage backend has no bulk read; callers then use get().
+    async getGuildEconomyAccounts(guildId) {
+        if (!this.db || typeof this.db.getGuildEconomyAccounts !== 'function') return null;
+        return this.db.getGuildEconomyAccounts(guildId);
+    }
+
     async transferEconomyFunds(guildId, senderId, receiverId, amount, initialData) {
         if (!this.db || typeof this.db.transferEconomyFunds !== 'function') {
             throw new Error('Atomic economy transfers require PostgreSQL');
