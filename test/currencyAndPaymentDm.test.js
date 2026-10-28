@@ -6,6 +6,10 @@ import {
   canGrantCurrency, parseCurrencyAmount, grantCurrency, grantCurrencyToMembers,
 } from '../src/services/currencyGrantService.js';
 import { fillIncomingPaymentTemplate } from '../src/services/incomingPaymentDmService.js';
+import { getResponseLifetime } from '../src/utils/responseLifetime.js';
+import { TRANSIENT_MESSAGE_MS, deleteLifecycleMessage } from '../src/utils/interactionMessageLifecycle.js';
+import { isPersistentBotMessage } from '../src/utils/transientResponse.js';
+import { MessageFlags } from 'discord.js';
 
 const guildId = '1532882647838228723';
 const ownerId = '1532882647838228724';
@@ -109,4 +113,122 @@ test('incoming payment DM never sends placeholder text or a stale cash balance',
   }, { senderName: 'new_sender', amount: 25, newCash: 3000 });
   assert.equal(result.description, 'new\\_sender paid you $25.');
   assert.equal(result.fields[0].value, '$3,000');
+});
+
+function currencyInteraction(channelId, scope = 'me') {
+  const gamblingChannel = {
+    id: '1533188412507558130', name: '🎲｜gambling',
+    isTextBased: () => true, isSendable: () => true,
+  };
+  const shopChannel = {
+    id: '1533188412507558131', name: 'shop',
+    isTextBased: () => true, isSendable: () => true,
+  };
+  const replies = [];
+  const interaction = {
+    id: '1532882647838228730', guildId,
+    guild: {
+      id: guildId, ownerId,
+      channels: { cache: { find: fn => [gamblingChannel, shopChannel].find(fn) } },
+    },
+    channelId, user: { id: ownerId, username: 'owner', bot: false },
+    options: {
+      getSubcommand: () => scope, getInteger: () => 25,
+      getBoolean: () => true,
+    },
+    replied: false, deferred: false,
+    async deferReply() { this.deferred = true; },
+    async editReply(payload) { replies.push(payload); this.replied = true; },
+  };
+  return { interaction, replies };
+}
+
+test('currency replies have a ten-second lifetime and cannot grant outside gambling', async () => {
+  for (const channelId of ['1533188412507558131', '1533188412507558132']) {
+    const { interaction, replies } = currencyInteraction(channelId);
+    let mutations = 0;
+    const client = { db: { mutateEconomyAccount: () => { mutations++; } } };
+    await currencyCommand.execute(interaction, {}, client);
+    assert.equal(getResponseLifetime(interaction), TRANSIENT_MESSAGE_MS);
+    assert.equal(mutations, 0);
+    assert.equal(replies.length, 1);
+    assert.match(JSON.stringify(replies[0]), /Wrong channel/);
+    assert.match(JSON.stringify(replies[0]), /<#1533188412507558130>/);
+  }
+});
+
+test('currency still grants to owner in gambling with the same ten-second reply lifetime', async () => {
+  const { interaction, replies } = currencyInteraction('1533188412507558130');
+  const changes = [];
+  const client = { db: {
+    getConnectionType: () => 'postgresql',
+    mutateEconomyAccount: async (guild, user, initial, change) => {
+      const account = { ...initial, wallet: 100 };
+      change(account);
+      changes.push({ guild, user, wallet: account.wallet });
+      return { account };
+    },
+  } };
+  await currencyCommand.execute(interaction, {}, client);
+  assert.equal(getResponseLifetime(interaction), TRANSIENT_MESSAGE_MS);
+  assert.deepEqual(changes, [{ guild: guildId, user: ownerId, wallet: 125 }]);
+  assert.equal(replies.length, 1);
+  assert.match(JSON.stringify(replies[0]), /Currency added/);
+});
+
+test('currency ephemeral reply deletes after its lifecycle even inside staff message logs', async () => {
+  const deleted = [];
+  const message = {
+    id: '1532882647838228709',
+    channel: { name: 'staff-message-logs' },
+    flags: { has: flag => flag === MessageFlags.Ephemeral },
+  };
+  assert.equal(isPersistentBotMessage(message), true);
+  const interaction = {
+    commandName: 'currency',
+    ephemeral: true,
+    webhook: { deleteMessage: async id => { deleted.push(id); } },
+  };
+  assert.equal(await deleteLifecycleMessage(message, interaction), true);
+  assert.deepEqual(deleted, [message.id]);
+});
+
+test('ordinary staff logs stay permanent even if a generic timer tries to delete', async () => {
+  const deleted = [];
+  const message = {
+    id: '1532882647838228710',
+    channel: { name: 'staff-message-logs' },
+    delete: async () => { deleted.push('message'); },
+  };
+  const interaction = {
+    commandName: 'currency',
+    webhook: { deleteMessage: async () => { deleted.push('webhook'); } },
+  };
+  assert.equal(await deleteLifecycleMessage(message, interaction), false);
+  assert.deepEqual(deleted, []);
+});
+
+test('wrong-channel currency response uses the standard red Cloudy error embed', async () => {
+  const { interaction, replies } = currencyInteraction('1533188412507558132');
+  await currencyCommand.execute(interaction, {}, { db: {} });
+  assert.equal(replies.length, 1);
+  const data = replies[0].embeds[0].toJSON();
+  assert.equal(data.title, 'Wrong channel');
+  assert.match(data.description, /This command can only be used in the dedicated channel\./);
+  assert.match(data.description, /<#1533188412507558130>/);
+  assert.equal(data.color, 0x7A1712);
+});
+
+test('confirmation required uses a red sidebar in gambling and never mints cash', async () => {
+  const { interaction, replies } = currencyInteraction('1533188412507558130', 'everyone');
+  interaction.options.getBoolean = () => false;
+  let mutations = 0;
+  const client = { db: { mutateEconomyAccount: () => { mutations++; } } };
+  await currencyCommand.execute(interaction, {}, client);
+  assert.equal(mutations, 0);
+  assert.equal(getResponseLifetime(interaction), TRANSIENT_MESSAGE_MS);
+  assert.equal(replies.length, 1);
+  const embed = replies[0].embeds[0].toJSON();
+  assert.equal(embed.title, 'Confirmation required');
+  assert.equal(embed.color, 0x7A1712);
 });
