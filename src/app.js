@@ -166,9 +166,6 @@ class TitanBot extends Client {
       next();
     });
 
-    app.use('/api/appeals', express.json({ limit: '32kb' }));
-    app.use(express.json({ limit: '8kb' }));
-
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
     const maxRequests = this.config.api?.rateLimit?.max || 100;
@@ -198,6 +195,9 @@ class TitanBot extends Client {
       requestCounts.set(ip, times);
       next();
     });
+
+    app.use('/api/appeals', express.json({ limit: '32kb' }));
+    app.use(express.json({ limit: '8kb' }));
 
     registerAppealsApi(app, this);
     registerWebsiteAssistantApi(app);
