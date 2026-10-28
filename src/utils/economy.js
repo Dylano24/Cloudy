@@ -55,6 +55,14 @@ export function formatCurrency(amount) {
     return `${amount.toLocaleString()} ${currencyName}`;
 }
 
+// Reuse the same account defaults for ordinary reads and atomic transfers.
+export function getInitialEconomyData() {
+    return normalizeEconomyData({}, {
+        ...DEFAULT_ECONOMY_DATA,
+        wallet: ECONOMY_CONFIG.startingBalance ?? DEFAULT_ECONOMY_DATA.wallet,
+    });
+}
+
 export async function getEconomyData(client, guildId, userId) {
     try {
         if (!client.db || typeof client.db.get !== 'function') {
