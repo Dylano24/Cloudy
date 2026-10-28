@@ -56,9 +56,9 @@ test.beforeEach(() => resetDeletionAttributionState());
 test('explicit staff and AutoMod deletion intents identify the real actor', async () => {
   const message = { id: 'deletion-intent', guild: { id: 'attribution-guild' }, client };
   rememberMessageDeleter(message, { id: 'staff' });
-  assert.deepEqual(await resolveMessageDeleter(message), { id: 'staff', label: '<@staff>', source: 'staff', type: DELETION_TYPES.staff });
+  assert.deepEqual(await resolveMessageDeleter(message), { id: 'staff', label: '<@staff>', source: 'staff', type: DELETION_TYPES.staff, bot: false });
   rememberMessageDeleter(message, { id: 'cloudy' }, 'automod');
-  assert.deepEqual(await resolveMessageDeleter(message), { id: 'cloudy', label: '<@cloudy> (AutoMod)', source: 'automod', type: DELETION_TYPES.automod });
+  assert.deepEqual(await resolveMessageDeleter(message), { id: 'cloudy', label: '<@cloudy> (AutoMod)', source: 'automod', type: DELETION_TYPES.automod, bot: true });
 });
 
 test('a member deleting their own message is identified as the author', async () => {
@@ -66,7 +66,7 @@ test('a member deleting their own message is identified as the author', async ()
   deleteEntry('old', 'staff', 'someone-else', 'channel', 4, Date.now() - 600_000);
   assert.equal(await prime(guild), true);
   const result = await resolveMessageDeleter(deleted(guild, 'own', 'member'), fast);
-  assert.deepEqual(result, { id: 'member', label: '<@member>', source: 'self', type: DELETION_TYPES.self });
+  assert.deepEqual(result, { id: 'member', label: '<@member>', source: 'self', type: DELETION_TYPES.self, bot: false });
 });
 
 test('staff deleting a message is found through an aggregated audit entry (count bump, old timestamp)', async () => {
@@ -75,7 +75,7 @@ test('staff deleting a message is found through an aggregated audit entry (count
   await prime(guild);
   entry.extra.count = 4; // Discord merged this deletion into the old entry.
   const staffDeletion = await resolveMessageDeleter(deleted(guild, 'removed-by-staff', 'member'), fast);
-  assert.deepEqual(staffDeletion, { id: 'staff', label: '<@staff>', source: 'audit', type: DELETION_TYPES.staff });
+  assert.deepEqual(staffDeletion, { id: 'staff', label: '<@staff>', source: 'audit', type: DELETION_TYPES.staff, bot: false });
   // The same increment can never be used twice: the member's own deletion
   // right after it is still the member's.
   const ownDeletion = await resolveMessageDeleter(deleted(guild, 'removed-by-member', 'member'), fast);
@@ -128,7 +128,7 @@ test('bots and Cloudy deleting their own messages are named, with the right type
   const { guild } = auditGuild('bot-guild');
   await prime(guild);
   assert.deepEqual(await resolveMessageDeleter(deleted(guild, 'bot-own', 'bot-helper'), fast),
-    { id: 'bot-helper', label: '<@bot-helper>', source: 'self', type: DELETION_TYPES.bot });
+    { id: 'bot-helper', label: '<@bot-helper>', source: 'self', type: DELETION_TYPES.bot, bot: true });
   assert.equal((await resolveMessageDeleter(deleted(guild, 'cloudy-own', 'cloudy'), fast)).type, DELETION_TYPES.cloudy);
 });
 
@@ -144,7 +144,7 @@ test('Cloudy\'s own delete requests are attributed directly and do not hide a la
   await rest.delete('/channels/100/messages/2001');
   const readsBefore = state.reads;
   const result = await resolveMessageDeleter(deleted(guild, '2001', 'member'), fast);
-  assert.deepEqual(result, { id: 'cloudy', label: '<@cloudy>', source: 'cloudy', type: DELETION_TYPES.cloudy });
+  assert.deepEqual(result, { id: 'cloudy', label: '<@cloudy>', source: 'cloudy', type: DELETION_TYPES.cloudy, bot: true });
   assert.equal(state.reads, readsBefore, 'no audit-log request for a deletion Cloudy made');
   // Cloudy's audit increment for that deletion must not be reused.
   deleteEntry('cloudy-entry', 'cloudy', 'member', 'channel');
@@ -173,7 +173,7 @@ test('messages removed by a ban name the moderator who banned', async () => {
   await prime(guild);
   state.ban.push({ id: 'ban', executor: { id: 'mod' }, target: { id: 'member' }, createdTimestamp: Date.now() - 2_000 });
   assert.deepEqual(await resolveMessageDeleter(deleted(guild, 'banned-msg', 'member'), fast),
-    { id: 'mod', label: '<@mod>', source: 'ban', type: DELETION_TYPES.ban });
+    { id: 'mod', label: '<@mod>', source: 'ban', type: DELETION_TYPES.ban, bot: false });
 });
 
 test('without a baseline from before the deletion, or without audit access, nobody is named', async () => {
@@ -207,7 +207,7 @@ test('bulk deletions are resolved once; per-message intents keep the staff membe
   const two = deleted(guild, 'bulk-two', 'member');
   rememberMessageDeleter(two, { id: 'purger' });
   const lookup = await resolveBulkDeletion(one, [one, two], { attemptDelaysMs: [0] });
-  assert.deepEqual(lookup(one), { id: 'mod', label: '<@mod>', source: 'audit', type: DELETION_TYPES.bulk });
+  assert.deepEqual(lookup(one), { id: 'mod', label: '<@mod>', source: 'audit', type: DELETION_TYPES.bulk, bot: false });
   assert.equal(lookup(two).id, 'purger');
   assert.equal(lookup(two).type, DELETION_TYPES.bulk);
 });
