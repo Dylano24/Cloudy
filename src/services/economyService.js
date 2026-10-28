@@ -1,7 +1,7 @@
 // economyService.js
 
 import { logger } from '../utils/logger.js';
-import { getEconomyData, setEconomyData, getMaxBankCapacity } from '../utils/economy.js';
+import { getEconomyData, setEconomyData, getMaxBankCapacity, getInitialEconomyData } from '../utils/economy.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { wrapServiceClassMethods } from '../utils/serviceErrorBoundary.js';
 
@@ -126,6 +126,54 @@ class EconomyService {
     }
 
     this.validateAmount(amount, { operation: 'transfer', senderId, receiverId });
+
+    // Production transfers must commit both accounts as one database operation.
+    // Keep the existing memory/test storage flow for non-production fixtures.
+    if (client.db?.getConnectionType?.() === 'postgresql'
+        && typeof client.db.transferEconomyFunds === 'function') {
+      try {
+        const result = await client.db.transferEconomyFunds(
+          guildId, senderId, receiverId, amount, getInitialEconomyData(),
+        );
+        logger.info('[ECONOMY_TRANSACTION] Money transferred', {
+          type: 'transfer',
+          senderId,
+          receiverId,
+          guildId,
+          amount,
+          senderNewBalance: result.senderNewBalance,
+          receiverNewBalance: result.receiverNewBalance,
+          timestamp: new Date().toISOString(),
+        });
+        return result;
+      } catch (error) {
+        if (error?.code === 'ECONOMY_INSUFFICIENT_FUNDS') {
+          throw createError(
+            'Insufficient funds',
+            ErrorTypes.VALIDATION,
+            `You only have **${error.available.toLocaleString()}** in cash.`,
+            { required: amount, available: error.available, senderId },
+          );
+        }
+        if (error?.code === 'ECONOMY_UNSAFE_BALANCE') {
+          throw createError(
+            'Invalid balance state',
+            ErrorTypes.VALIDATION,
+            'Operation would create an invalid account balance.',
+            { operation: 'transfer', senderId, receiverId, amount },
+          );
+        }
+        logger.error('[ECONOMY_SERVICE] Atomic transfer failed', error, {
+          senderId, receiverId, guildId, amount,
+        });
+        throw createError(
+          'Failed to save transfer',
+          ErrorTypes.DATABASE,
+          'Failed to process transfer. Please try again.',
+          { senderId, receiverId, amount },
+        );
+      }
+    }
 
     const [senderData, receiverData] = await Promise.all([
       getEconomyData(client, guildId, senderId),
