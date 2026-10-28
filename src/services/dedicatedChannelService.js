@@ -27,6 +27,15 @@ const CHANNEL_RULES = {
   },
 };
 
+// Use one title for the Gambling guide before any send or Reappear move.
+// Only this exact guide title is normalized; custom titles are preserved.
+export function canonicalGamblingGuideEmbedData(data) {
+  if (!data || typeof data !== 'object'
+    || !/^games\s*&\s*economy$/i.test(String(data.title || '').trim())
+    || data.title === CHANNEL_RULES.gambling.guideTitle) return data;
+  return { ...data, title: CHANNEL_RULES.gambling.guideTitle };
+}
+
 export async function resolveDedicatedChannel(guild, key) {
   const rule = CHANNEL_RULES[key];
   if (!guild || !rule) return null;
@@ -101,15 +110,10 @@ export function buildDedicatedGuidePayload(key, existing = null) {
   const rule = CHANNEL_RULES[key];
   const embeds = existing?.embeds?.length
     ? existing.embeds.map(embed => embed.toJSON()) : [buildGuideEmbed(rule).toJSON()];
-  // Normalize the title BEFORE Discord gets the payload. An older Builder
-  // template may return lowercase even though the guide source is uppercase.
-  // Keep every other embed property and every custom guide unchanged.
+  // Normalize outgoing copies only. Never edit the visible message afterward.
   if (key === 'gambling') {
-    for (const embed of embeds) {
-      if (embed?.description === GAMBLING_GUIDE_DESCRIPTION
-        && /^Games & economy$/i.test(String(embed.title || ''))) {
-        embed.title = rule.guideTitle;
-      }
+    for (let i = 0; i < embeds.length; i++) {
+      embeds[i] = canonicalGamblingGuideEmbedData(embeds[i]);
     }
   }
   const components = existing ? existing.components || [] : [new ActionRowBuilder().addComponents(
@@ -123,24 +127,8 @@ export function buildDedicatedGuidePayload(key, existing = null) {
   };
 }
 
-async function correctGamblingGuideTitle(message) {
-  if (!message.embeds?.some(embed =>
-    embed.title === 'Games & economy' && embed.description === GAMBLING_GUIDE_DESCRIPTION
-  )) return message;
-
-  const embeds = message.embeds.map(embed => {
-    const data = embed.toJSON();
-    if (data.title === 'Games & economy' && data.description === GAMBLING_GUIDE_DESCRIPTION) {
-      data.title = CHANNEL_RULES.gambling.guideTitle;
-    }
-    return data;
-  });
-  return message.edit({ embeds });
-}
-
 function guideManager(key, isGuide) {
   return createStickyGuideManager({
-    prepareExisting: key === 'gambling' ? correctGamblingGuideTitle : undefined,
     loadState: channel => getFromDb(guideStorageKey(channel), null),
     saveState: (channel, state) => setInDb(guideStorageKey(channel), state),
     isGuide,

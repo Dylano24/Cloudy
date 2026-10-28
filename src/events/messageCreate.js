@@ -21,6 +21,7 @@ import {
 } from '../services/embedRegistryService.js';
 import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../utils/builderOwnedSends.js';
 import { acquireEmbedBuilderMessageMutation } from '../services/embedBuilderMutationLock.js';
+import { canonicalGamblingGuideEmbedData } from '../services/dedicatedChannelService.js';
 import {
   getCountingGameConfig,
   saveCountingGameConfig,
@@ -456,11 +457,17 @@ async function processEmbedReappear(message) {
           config.components = (previous.components || []).map(row => row?.toJSON?.() || row);
         }
 
-        // The Gambling guide's legacy title must not return after Reappear.
-        // Only correct this one exact title in the dedicated gambling channel.
-        if (String(message.channel.name || '').toLowerCase().includes('gambling')
-          && config.embed?.title === 'Games & economy') {
-          config.embed.title = 'Games & Economy';
+        // Publish the correct title on the FIRST Discord payload even when
+        // Reappear reads an old lowercase message or a stale saved snapshot.
+        const reappearChannelName = String(
+          message.channel?.name || message.guild.channels?.cache?.get?.(message.channel.id)?.name || '',
+        ).toLowerCase();
+        if (reappearChannelName.includes('gambling')) {
+          const canonicalEmbed = canonicalGamblingGuideEmbedData(config.embed);
+          if (canonicalEmbed !== config.embed) {
+            logger.info('[GAMBLING_GUIDE] Reappear title normalized before sending.');
+            config.embed = canonicalEmbed;
+          }
         }
 
         // A move that Cloudy itself initiated may legitimately have no current

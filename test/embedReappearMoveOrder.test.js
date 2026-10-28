@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { canonicalGamblingGuideEmbedData } from '../src/services/dedicatedChannelService.js';
 
-function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails = false, disableDuringDelete = false } = {}) {
+function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails = false, disableDuringDelete = false, gamblingGuide = false } = {}) {
   const source = readFileSync('src/events/messageCreate.js', 'utf8');
   const start = source.indexOf('async function handleEmbedReappear');
   const ruleKey = 'cloudy:embed-reappear:g:c:original';
+  const savedEmbed = gamblingGuide
+    ? { title: 'Games & economy', description: 'Customized guide wording', color: 0xFFFFFF }
+    : { title: 'Saved title' };
   const values = new Map([
     ['cloudy:embed-reappear-index:g:c', ['original']],
-    [ruleKey, { every, count: 0, messageId: 'old', embed: { title: 'Saved title' }, components: [] }],
+    [ruleKey, { every, count: 0, messageId: 'old', embed: savedEmbed, components: [] }],
   ]);
   const actions = [];
   const visible = new Set(['old']);
@@ -24,13 +28,17 @@ function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails
     ownedPayload: payload => payload,
     rememberOwned: () => {},
   };
-  const handle = new Function('getFromDb', 'setInDb', 'deleteFromDb', 'logger', 'setTimeout', 'reappearIdentity', `const reappearQueues = new Map(); ${source.slice(start)}; return handleEmbedReappear;`)(get, set, remove, { error() {}, warn() {} }, (callback, delay) => { actions.push('delay:' + delay); callback(); }, reappearIdentity);
+  const handle = new Function('getFromDb', 'setInDb', 'deleteFromDb', 'logger', 'setTimeout', 'reappearIdentity', 'canonicalGamblingGuideEmbedData', `const reappearQueues = new Map(); ${source.slice(start)}; return handleEmbedReappear;`)(get, set, remove, { error() {}, warn() {}, info() {} }, (callback, delay) => { actions.push('delay:' + delay); callback(); }, reappearIdentity, canonicalGamblingGuideEmbedData);
   let serial = 0;
   const channel = {
     id: 'c',
+    name: gamblingGuide ? '🎲｜gambling' : 'general',
     messages: { fetch: async id => {
       if (fetchFails) throw new Error('Discord unavailable');
-      return visible.has(id) ? { delete: async () => {
+      return visible.has(id) ? {
+        embeds: gamblingGuide ? [{ toJSON: () => ({ ...savedEmbed }) }] : [],
+        components: [],
+        delete: async () => {
       actions.push('delete:' + id);
       if (deleteFails) throw new Error('delete failed');
       visible.delete(id);
@@ -39,7 +47,9 @@ function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails
     } },
     async send(payload) {
       actions.push('send');
-      assert.deepEqual(payload.embeds, [{ title: 'Saved title' }]);
+      assert.deepEqual(payload.embeds, [gamblingGuide
+        ? { ...savedEmbed, title: 'Games & Economy' }
+        : { title: 'Saved title' }]);
       if (sendFails) throw new Error('send failed');
       if (visible.size) overlap = true;
       const id = 'new-' + ++serial;
@@ -139,4 +149,12 @@ test('simultaneous Reappear triggers do not stack copies', async () => {
   assert.equal(f.overlap(), false);
   assert.equal(f.visible.size, 1);
   assert.equal(f.actions.filter(action => action === 'send').length, 3);
+});
+
+test('Reappear sends Gambling guide in uppercase from stale live and saved snapshots', async () => {
+  const f = fixture({ gamblingGuide: true });
+  await f.run();
+  assert.equal(f.visible.size, 1);
+  assert.equal(f.values.get(f.ruleKey).embed.title, 'Games & Economy');
+  assert.ok(f.actions.includes('send'));
 });
