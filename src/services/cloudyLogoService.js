@@ -1,3 +1,4 @@
+import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { EmbedBuilder } from 'discord.js';
 
@@ -96,7 +97,8 @@ export function migrateCloudyLogoEmbedData(embed) {
   if (author.changed) { data.author = author.node; changed = true; }
   const footer = migrateIconNode(source.footer);
   if (footer.changed) { data.footer = footer.node; changed = true; }
-  return { data, changed };
+  const finalData = stripRustPatchLogo(data);
+  return { data: finalData, changed: changed || JSON.stringify(finalData) !== JSON.stringify(source) };
 }
 
 export function installCloudyLogoEmbedPatch() {

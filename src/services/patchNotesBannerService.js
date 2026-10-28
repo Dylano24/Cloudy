@@ -1,3 +1,4 @@
+import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
 import { AttachmentBuilder } from 'discord.js';
 import { withEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
@@ -91,21 +92,26 @@ export function isPatchBannerRepairInProgress(message) {
 
 export async function repairMissingPatchBanner(message, article) {
   const needsBanner = embed => samePatchArticle(embed.url, article.link) && !embed.image?.url;
-  if (!message.embeds.some(embed => needsBanner(embed.toJSON()))) return false;
-  const banner = await preparePatchNotesBanner(article);
+  const needsRepair = embed => needsBanner(embed) || (samePatchArticle(embed.url, article.link) && JSON.stringify(stripRustPatchLogo(embed)) !== JSON.stringify(embed));
+  if (!message.embeds.some(embed => needsRepair(embed.toJSON()))) return false;
+  const banner = message.embeds.some(embed => needsBanner(embed.toJSON())) ? await preparePatchNotesBanner(article) : null;
   return withEmbedBuilderMessageMutation(message.guildId, message.channelId, message.id, async () => {
     // A manual Save may have completed while the source image downloaded.
     const current = message.fetch ? await message.fetch(true) : message;
-    const embeds = current.embeds.map(embed => embed.toJSON());
+    const original = current.embeds.map(embed => embed.toJSON());
+    const embeds = original.map(embed => samePatchArticle(embed.url, article.link) ? stripRustPatchLogo(embed) : embed);
     const missing = embeds.filter(needsBanner);
-    if (!missing.length) return false;
-    for (const embed of missing) embed.image = banner.image;
+    if (!missing.length && JSON.stringify(original) === JSON.stringify(embeds)) return false;
+    for (const embed of missing) {
+      if (!banner) return false;
+      embed.image = banner.image;
+    }
     activeBannerRepairs.add(current);
     try {
       await current.edit({
         embeds,
         attachments: [...(current.attachments?.values() || [])].map(({ id }) => ({ id })),
-        files: [banner.file],
+        ...(banner && missing.length ? { files: [banner.file] } : {}),
       });
     } finally {
       activeBannerRepairs.delete(current);

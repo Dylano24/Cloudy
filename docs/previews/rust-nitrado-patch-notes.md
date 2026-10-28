@@ -6,7 +6,7 @@ Preview for the proposed banner fix. This is a visual mockup using the official 
 
 ## Destinations and exact existing-message preview
 
-In `#rust`, the existing **Halloween 2026** embed gains the official `Darkness Falls` image from the same Facepunch article. Its existing message ID and presentation remain intact.
+In `#rust`, the existing **Halloween 2026** embed gains the official `Darkness Falls` image from the same Facepunch article. Its existing message ID and text remain intact. Per user instruction, Rust embeds have no thumbnail or author/footer logo icons; the text footer and article banner remain.
 
 > Darkness falls upon the island as monsters re-awaken from their slumber. The rifts open in random locations, leading to who-knows-where. Enter if you dare, but if you do, you'd better prepare!
 
