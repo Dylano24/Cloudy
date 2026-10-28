@@ -77,11 +77,9 @@ export default {
             const successMessages = [
                 `A kind stranger drops **$${amountWon.toLocaleString()}** into your cup.`,
                 `You spotted an unattended wallet! You grab **$${amountWon.toLocaleString()}** and run.`,
-                `Someone took pity on you and gave you **$${amountWon.toLocaleString()}**!`,
+                `Someone took pity on you and gave **$${amountWon.toLocaleString()}**!`,
                 `You found **$${amountWon.toLocaleString()}** under a park bench.`,
             ];
-            // Preserve the existing reward and response variants.
-            successMessages[2] = `Someone took pity on you and gave you **$${amountWon.toLocaleString()}**!`;
             replyEmbed = successEmbed(
                 'Begging Successful',
                 successMessages[Math.floor(Math.random() * successMessages.length)]
