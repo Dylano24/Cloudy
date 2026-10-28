@@ -1,6 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { successEmbed } from '../../utils/embeds.js';
-import { getEconomyData, setEconomyData } from '../../utils/economy.js';
+import { getEconomyData, setEconomyData, getInitialEconomyData } from '../../utils/economy.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { formatDuration } from '../../utils/embeds.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -70,10 +70,41 @@ export default {
                 hasPremiumRole = true;
             }
 
-            userData.wallet = (userData.wallet || 0) + earned;
-            userData.lastDaily = now;
-
-            await setEconomyData(client, guildId, userId, userData);
+            if (client.db?.getConnectionType?.() === 'postgresql'
+                && typeof client.db.mutateEconomyAccount === 'function') {
+                // Another /daily may have started with the same old snapshot.
+                // Check the cooldown again while the real account row is locked.
+                const { account } = await client.db.mutateEconomyAccount(
+                    guildId, userId, getInitialEconomyData(), current => {
+                        const remaining = (current.lastDaily || 0) + DAILY_COOLDOWN - now;
+                        if (remaining > 0) {
+                            throw createError(
+                                "Daily cooldown active",
+                                ErrorTypes.RATE_LIMIT,
+                                `You need to wait before claiming daily again. Try again in **${formatDuration(remaining)}**.`,
+                                { timeRemaining: remaining, cooldownType: 'daily' }
+                            );
+                        }
+                        const nextWallet = (current.wallet || 0) + earned;
+                        if (!Number.isSafeInteger(nextWallet) || nextWallet < 0) {
+                            throw createError(
+                                "Invalid balance state",
+                                ErrorTypes.VALIDATION,
+                                "Operation would create an invalid account balance.",
+                                { userId, guildId }
+                            );
+                        }
+                        current.wallet = nextWallet;
+                        current.lastDaily = now;
+                    }
+                );
+                userData.wallet = account.wallet;
+                userData.lastDaily = account.lastDaily;
+            } else {
+                userData.wallet = (userData.wallet || 0) + earned;
+                userData.lastDaily = now;
+                await setEconomyData(client, guildId, userId, userData);
+            }
 
             logger.info(`[ECONOMY_TRANSACTION] Daily claimed`, {
                 userId,

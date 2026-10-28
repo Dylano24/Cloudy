@@ -1782,8 +1782,13 @@ export async function openEmbedManager(buttonInteraction, state, refreshBuilder)
     // deferUpdate is silent and keeps the exact existing private follow-up flow.
     let pendingAcknowledgement = null;
     const acknowledgementTimer = setTimeout(() => {
-        if (!buttonInteraction.deferred && !buttonInteraction.replied) {
-            pendingAcknowledgement = buttonInteraction.deferUpdate().catch(() => {});
+        if (!buttonInteraction.deferred && !buttonInteraction.replied
+            && typeof buttonInteraction.deferUpdate === 'function') {
+            // Some legacy handlers/test adapters support direct replies only.
+            // A delayed fast path must never throw from the timer callback.
+            pendingAcknowledgement = Promise.resolve()
+                .then(() => buttonInteraction.deferUpdate())
+                .catch(() => {});
         }
     }, 750);
     acknowledgementTimer.unref?.();

@@ -1,7 +1,7 @@
 {
-  "name": "titanbot",
+  "name": "cloudy-bot",
   "version": "2.1.1",
-  "description": "Modular Ultimate Community Bot by Touchpoint Support",
+  "description": "Cloudy Discord community management bot by Dylano24",
   "main": "src/app.js",
   "type": "module",
   "scripts": {
@@ -43,7 +43,7 @@
   },
   "overrides": {
     "form-data": "^4.0.6",
-    "qs": "6.16.0",
+    "qs": "6.16.1",
     "undici": "^6.27.0"
   }
 }

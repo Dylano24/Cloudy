@@ -1,5 +1,5 @@
 import { ComponentType } from 'discord.js';
-import { TitanBotError, ErrorTypes, replyUserError } from './errorHandler.js';
+import { CloudyError, ErrorTypes, replyUserError } from './errorHandler.js';
 import { InteractionHelper } from './interactionHelper.js';
 import { logger } from './logger.js';
 
@@ -16,14 +16,14 @@ function wrapHandler(handler, interactionLabel = 'dashboard') {
         } catch (error) {
             if (error?.code === 40060) return;
 
-            if (error instanceof TitanBotError) {
+            if (error instanceof CloudyError) {
                 logger.debug(`${interactionLabel} error: ${error.message}`);
             } else {
                 logger.error(`Unexpected ${interactionLabel} error:`, error);
             }
 
             const errorMessage =
-                error instanceof TitanBotError
+                error instanceof CloudyError
                     ? error.userMessage || 'An error occurred while processing your selection.'
                     : 'An unexpected error occurred while updating the configuration.';
 

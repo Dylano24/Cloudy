@@ -1,0 +1,49 @@
+name: Cloudy whole repository code quality
+
+on:
+  push:
+    branches:
+      - 'chatgpt-cloudy-full-bot-audit-20261028'
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'scripts/**'
+      - 'monitor/**'
+      - 'eslint.config.js'
+      - '.github/workflows/cloudy-code-quality.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudy-static-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    name: Full source audit (imports, lint, duplicates)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit
+      - name: Audit every tracked source file
+        run: node scripts/audit-cloudy-code-quality.mjs
+      - name: Upload complete diagnostics for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudy-code-quality-results
+          path: audit-results/code-quality.json
+          if-no-files-found: warn
+          retention-days: 14

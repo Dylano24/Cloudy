@@ -31,7 +31,7 @@ export default {
       );
     }
 
-    const { amount, userData } = await takeBet(interaction, client);
+    const { amount, userData } = await takeBet(interaction, client, { settleImmediately: true });
     const number = Math.floor(Math.random() * 37);
     const color = getRouletteColor(number);
     const tile = await rouletteNumberEmoji(client, number);

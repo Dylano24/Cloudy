@@ -42,7 +42,7 @@ function runtimeBuildInfo() {
   };
 }
 
-class TitanBot extends Client {
+class CloudyBot extends Client {
   constructor() {
     super({
       partials: [Partials.Message, Partials.Channel],
@@ -77,7 +77,7 @@ class TitanBot extends Client {
 
   async start() {
     try {
-      startupLog('Starting TitanBot...');
+      startupLog('Starting Cloudy...');
       const buildInfo = runtimeBuildInfo();
       startupLog(
         `Build: ${buildInfo.commit || 'unknown'}`
@@ -166,14 +166,6 @@ class TitanBot extends Client {
       next();
     });
 
-    app.use('/api/appeals', express.json({ limit: '32kb' }));
-    app.use(express.json({ limit: '8kb' }));
-
-    registerAppealsApi(app, this);
-    registerWebsiteAssistantApi(app);
-    // Read-only immutable images served from Cloudy's persistent media volume.
-    registerEmbedMediaRoutes(app);
-
     const requestCounts = new Map();
     const windowMs = this.config.api?.rateLimit?.windowMs || 60000;
     const maxRequests = this.config.api?.rateLimit?.max || 100;
@@ -203,6 +195,14 @@ class TitanBot extends Client {
       requestCounts.set(ip, times);
       next();
     });
+
+    app.use('/api/appeals', express.json({ limit: '32kb' }));
+    app.use(express.json({ limit: '8kb' }));
+
+    registerAppealsApi(app, this);
+    registerWebsiteAssistantApi(app);
+    // Read-only immutable images served from Cloudy's persistent media volume.
+    registerEmbedMediaRoutes(app);
 
     app.get('/health', (req, res) => {
       const dbStatus = this.db?.getStatus?.() || { isDegraded: 'unknown' };
@@ -499,7 +499,7 @@ class TitanBot extends Client {
 }
 
 try {
-  const bot = new TitanBot();
+  const bot = new CloudyBot();
   
   const setupShutdown = () => {
     process.on('SIGTERM', () => bot.shutdown('SIGTERM'));
@@ -539,4 +539,4 @@ try {
   process.exit(1);
 }
 
-export default TitanBot;
+export default CloudyBot;

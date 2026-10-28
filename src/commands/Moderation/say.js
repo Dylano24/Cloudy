@@ -102,6 +102,16 @@ export default {
 
         const sentMessage = await channel.send({ content: message });
 
+        await InteractionHelper.safeEditReply(interaction, {
+            embeds: [
+                successEmbed(
+                    'Message Sent',
+                    `Posted in ${channel}. [Jump to message](${sentMessage.url})`,
+                ),
+            ],
+            flags: MessageFlags.Ephemeral,
+        });
+
         await logEvent({
             client,
             guild: interaction.guild,
@@ -121,14 +131,6 @@ export default {
             },
         });
 
-        await InteractionHelper.safeEditReply(interaction, {
-            embeds: [
-                successEmbed(
-                    'Message Sent',
-                    `Posted in ${channel}. [Jump to message](${sentMessage.url})`,
-                ),
-            ],
-            flags: MessageFlags.Ephemeral,
-        });
+
     },
 };

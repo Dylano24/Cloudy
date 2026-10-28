@@ -1,7 +1,7 @@
 // errorHandler.js — the single entry point for all error handling.
 //
 // Rules:
-// 1. Commands/handlers: throw TitanBotError (via createError) or let errors propagate;
+// 1. Commands/handlers: throw CloudyError (via createError) or let errors propagate;
 //    interactionCreate routes them through handleInteractionError. For expected user-facing
 //    failures (validation, cooldowns), use replyUserError.
 //    Do NOT wrap a command's execute() body in a try/catch whose only purpose is to call
@@ -43,10 +43,10 @@ export const ErrorTypes = {
     UNKNOWN: 'unknown'
 };
 
-export class TitanBotError extends Error {
+export class CloudyError extends Error {
     constructor(message, type = ErrorTypes.UNKNOWN, userMessage = null, context = {}) {
         super(message);
-        this.name = 'TitanBotError';
+        this.name = 'CloudyError';
         this.type = type;
         this.userMessage = userMessage;
         this.context = context;
@@ -54,6 +54,10 @@ export class TitanBotError extends Error {
         this.timestamp = new Date().toISOString();
     }
 }
+
+// Backwards-compatible import for existing integrations and third-party modules.
+// Internally Cloudy uses CloudyError; both names refer to the same class.
+export const TitanBotError = CloudyError;
 
 // Discord API error codes that indicate a permission problem rather than a bug.
 const DISCORD_PERMISSION_CODES = new Set([
@@ -73,7 +77,7 @@ const DATABASE_ERROR_CODES = new Set([
 ]);
 
 export function categorizeError(error) {
-    if (error instanceof TitanBotError) {
+    if (error instanceof CloudyError) {
         return error.type;
     }
 
@@ -546,11 +550,12 @@ export function createError(message, type = ErrorTypes.UNKNOWN, userMessage = nu
         errorCode: context?.errorCode || getDefaultErrorCodeByType(type)
     };
 
-    return new TitanBotError(message, type, userMessage, normalizedContext);
+    return new CloudyError(message, type, userMessage, normalizedContext);
 }
 
 export default {
     ErrorTypes,
+    CloudyError,
     TitanBotError,
     categorizeError,
     getUserMessage,

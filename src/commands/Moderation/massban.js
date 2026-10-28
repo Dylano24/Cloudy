@@ -3,9 +3,10 @@ import { createEmbed, successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logModerationAction } from '../../utils/moderation.js';
 import { logger } from '../../utils/logger.js';
 import { ModerationService } from '../../services/moderation/moderationService.js';
-import { TitanBotError, replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
+import { CloudyError, replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { parseMassActionUserIds } from '../../utils/parseMassActionUserIds.js';
 export default {
     data: new SlashCommandBuilder()
         .setName("massban")
@@ -49,11 +50,7 @@ export default {
         const deleteDays = interaction.options.getInteger("delete_days") || 0;
 
         try {
-            const userIds = usersInput
-.replace(/<@!?(\d+)>/g, '$1')
-.split(/[\s,]+/)
-.filter(id => id && /^\d+$/.test(id))
-.slice(0, 20);
+            const userIds = parseMassActionUserIds(usersInput);
 
             if (userIds.length === 0) {
                 return await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please provide valid user IDs or mentions. Maximum 20 users at once.' });
@@ -135,7 +132,7 @@ export default {
 
                 } catch (error) {
                     logger.error(`Failed to ban user ${userId}:`, error);
-                    const reason = error instanceof TitanBotError
+                    const reason = error instanceof CloudyError
                         ? (error.userMessage || error.message)
                         : (error.message || "Unknown error");
                     results.failed.push({ 
