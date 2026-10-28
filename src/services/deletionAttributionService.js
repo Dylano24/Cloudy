@@ -55,6 +55,8 @@ export function rememberMessageDeleter(message, user, source = 'staff') {
     label: automod ? (user?.id ? `<@${user.id}> (AutoMod)` : 'AutoMod') : user?.id ? `<@${user.id}>` : 'Unknown',
     source,
     type: automod ? DELETION_TYPES.automod : DELETION_TYPES.staff,
+    // Whether the deleter itself is a bot (AutoMod is Cloudy).
+    bot: automod || user?.bot === true,
   };
   intents.set(key, intent);
   const timer = setTimeout(() => { if (intents.get(key) === intent) intents.delete(key); }, 120_000);
@@ -112,7 +114,7 @@ export function installCloudyDeletionRecorder(rest) {
 
 function cloudyResult(client, type = DELETION_TYPES.cloudy) {
   const id = client?.user?.id;
-  return id ? { id: String(id), label: `<@${id}>`, source: 'cloudy', type } : { ...UNKNOWN };
+  return id ? { id: String(id), label: `<@${id}>`, source: 'cloudy', type, bot: true } : { ...UNKNOWN };
 }
 
 function trackerFor(guildId) {
@@ -237,6 +239,7 @@ function executorResult(executor, client, { source = 'audit', type = null } = {}
     label: `<@${executor.id}>`,
     source,
     type: type || (cloudy ? DELETION_TYPES.cloudy : executor.bot ? DELETION_TYPES.bot : DELETION_TYPES.staff),
+    bot: cloudy || executor.bot === true,
   };
 }
 
@@ -417,6 +420,7 @@ export async function resolveMessageDeleter(message, {
       label: `<@${item.authorId}>`,
       source: 'self',
       type: cloudyAuthor ? DELETION_TYPES.cloudy : bot ? DELETION_TYPES.bot : DELETION_TYPES.self,
+      bot: cloudyAuthor || bot === true,
     };
   } finally {
     tracker.pending.delete(item);

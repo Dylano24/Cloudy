@@ -356,9 +356,12 @@ export async function logEvent({
     const audienceChannelId = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
       ? messageLogDestination(guild, data.userId, author, config, data.authorBot, deleter) : null;
     if (requiredMessageDeletion && data.lines) {
-      // "Type", right under "Deleted by": Staff, Member or Bot for the
-      // message's author (AutoMod removing a member's message is Member).
-      const type = messageLogAuthorType(guild, data.userId, author, config, data.authorBot);
+      // "Type", right under "Deleted by": Staff, Member or Bot for the one
+      // who DELETED the message (the author is shown as Message author).
+      // Member only when a member deleted their own message.
+      const type = data.deletedById
+        ? messageLogAuthorType(guild, data.deletedById, deleter?.user ? deleter : null, config, data.deletedByBot === true)
+        : 'Unknown';
       const lines = [...data.lines];
       const deletedByIndex = lines.findIndex(line => line.startsWith('**Deleted by:**'));
       lines.splice(deletedByIndex + 1, 0, formatLogLine('Type', type));
@@ -401,6 +404,31 @@ export async function logEvent({
       return null;
     }
 
+    // A video cannot play inside a bot embed, and its link only exists once
+    // Discord stores it. Send the video(s) first, right above the log, then
+    // link them in the log itself: no edit afterwards.
+    let videoLinks = '';
+    if (eventType === EVENT_TYPES.MESSAGE_DELETE && data.videoNames?.length && attachments.length) {
+      const videos = attachments.filter(file => data.videoNames.includes(file.name)).slice(0, 10);
+      if (videos.length) {
+        try {
+          const videoMessage = await channel.send({ files: videos, allowedMentions: { parse: [] } });
+          const stored = [...(videoMessage?.attachments?.values?.() || [])];
+          const links = [];
+          for (const [index, video] of stored.entries()) {
+            const name = String(video.name || videos[index]?.name || 'video').replace(/[[\]]/g, '_');
+            const link = `[${name}](${video.url})`;
+            if (video.url && [...links, link].join('\n').length <= 1024) links.push(link);
+          }
+          videoLinks = links.join('\n');
+          attachments = attachments.filter(file => !videos.includes(file));
+        } catch (error) {
+          // The videos stay attachments of the log message itself.
+          logger.warn(`Deleted-message video upload failed for guild ${guildId}: ${error.message}`);
+        }
+      }
+    }
+
     const embed = createLogEmbed(guild, eventType, data);
     const decorated = await decorateEmbedWithSavedTemplate(guildId, channel.id, embed, {
       strictTitle: true,
@@ -417,6 +445,7 @@ export async function logEvent({
     // A deleted photo is shown inside the log embed, after any saved
     // template, so the deleted content always wins over a template image.
     if (eventType === EVENT_TYPES.MESSAGE_DELETE && data.image) presentedEmbed.setImage(data.image);
+    if (videoLinks) presentedEmbed.addFields({ name: videoLinks.includes('\n') ? 'Videos' : 'Video', value: videoLinks });
     const messageOptions = { embeds: [presentedEmbed] };
     if (allowedMentions) messageOptions.allowedMentions = allowedMentions;
     else if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };

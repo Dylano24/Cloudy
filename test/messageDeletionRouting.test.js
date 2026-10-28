@@ -22,7 +22,8 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   guild.members.cache.set('staff', { roles: { cache: new Collection([['staff-role', {}]]) } });
   const sent = [];
   for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
-    permissionsFor: () => ({ has: () => true }), send: async payload => { sent.push({ id, embed: payload.embeds[0].toJSON(), files: payload.files, allowedMentions: payload.allowedMentions }); return { id: 'log' }; } });
+    permissionsFor: () => ({ has: () => true }), send: async payload => { sent.push({ id, embed: payload.embeds?.[0]?.toJSON?.() || null, files: payload.files, allowedMentions: payload.allowedMentions });
+      return { id: 'log', attachments: new Collection((payload.files || []).map((file, index) => [String(index), { name: file.name, url: `https://cdn.discordapp.com/attachments/${id}/${index}/${file.name}` }])) }; } });
   const message = (id, extra = {}) => ({ id: `message-${id}`, guild, guildId: guild.id, client,
     author: { id, bot: id === 'bot', toString: () => `<@${id}>` }, createdTimestamp: 1000,
     content: `deleted text from ${id}`, channelId: 'source', channel: { id: 'source', name: 'general', toString: () => '<#source>' }, attachments: new Collection(), ...extra });
@@ -31,8 +32,10 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(message('member'));
   await logDeletedMessage(message('bot', { content: '', embeds: [{ title: 'Bot embed', description: 'Original bot content' }] }));
   assert.deepEqual(sent.map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID]);
-  for (const [index, type] of ['Staff', 'Staff', 'Member', 'Bot'].entries()) {
-    assert.match(sent[index].embed.description, new RegExp(`\\*\\*Type:\\*\\* ${type}$`, 'm'));
+  // No audit log here, so who deleted these cannot be verified: Type follows
+  // the deleter, never the author.
+  for (const index of [0, 1, 2, 3]) {
+    assert.match(sent[index].embed.description, /\*\*Deleted by:\*\* Unknown\n> \*\*Type:\*\* Unknown$/m);
     assert.deepEqual(sent[index].allowedMentions, { parse: [] });
   }
   assert.match(JSON.stringify(sent.at(-1).embed), /Bot embed.*Original bot content/s);
@@ -51,11 +54,13 @@ test('deleted human, moderator and bot messages route by author, including bulk 
     ['photo', { name: 'photo.png', url: 'https://cdn.discordapp.com/attachments/one/photo.png', contentType: 'image/png' }],
     ['video', { name: 'video.mp4', url: 'https://cdn.discordapp.com/attachments/one/video.mp4', contentType: 'video/mp4' }],
   ]) }));
-  assert.deepEqual(sent.at(-1).files.map(file => file.name), ['photo.png', 'video.mp4']);
-  assert.deepEqual(sent.at(-1).files.map(file => file.attachment.toString()), ['photo bytes', 'video bytes']);
-  // The photo is shown inside the embed (clickable there); the video stays a
-  // playable attachment because Discord does not play video in bot embeds.
+  // The video goes just above the log (Discord does not play video in bot
+  // embeds) and is linked inside it; the photo is shown inside the embed.
+  assert.equal(sent.at(-2).embed, null);
+  assert.deepEqual(sent.at(-2).files.map(file => [file.name, file.attachment.toString()]), [['video.mp4', 'video bytes']]);
+  assert.deepEqual(sent.at(-1).files.map(file => [file.name, file.attachment.toString()]), [['photo.png', 'photo bytes']]);
   assert.equal(sent.at(-1).embed.image?.url, 'attachment://photo.png');
+  assert.equal(sent.at(-1).embed.fields[0].value, `[video.mp4](https://cdn.discordapp.com/attachments/${MEMBER_MESSAGE_LOG_ID}/0/video.mp4)`);
   assert.equal(sent.at(-1).id, MEMBER_MESSAGE_LOG_ID);
   const destination = guild.channels.cache.get(MEMBER_MESSAGE_LOG_ID);
   const originalSend = destination.send;
@@ -87,8 +92,8 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(automatic);
   assert.equal(sent.at(-1).id, AUTOMOD_LOG_CHANNEL_ID);
   assert.match(JSON.stringify(sent.at(-1).embed), /Deleted by.*<@bot>.*AutoMod/s);
-  // The author is a member, even though AutoMod removed it.
-  assert.match(sent.at(-1).embed.description, /\*\*Type:\*\* Member/);
+  // Type is the remover: AutoMod is Cloudy, a bot.
+  assert.match(sent.at(-1).embed.description, /\*\*Type:\*\* Bot/);
   assert.doesNotMatch(sent.at(-1).embed.description, /Author type|Removed by AutoMod/);
   assert.match(JSON.stringify(sent.at(-1).embed), /Message author.*<@member>/s);
   const count = sent.length;
