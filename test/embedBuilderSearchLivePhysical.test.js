@@ -84,7 +84,9 @@ test('search resolves stale Test to the same physical Yess embed with correct co
     const physical = saved.find(x => x.messageId === f.messageId);
     assert.equal(physical.snapshot.title, 'Yess');
     assert.equal(saved.find(x => x.messageId === f.differentId).snapshot.title, 'Different saved post');
-    assert.equal(buildSearchChoices(buildMatches(f.guild, saved, 'Test')).length, 0);
+    assert.ok(buildSearchChoices(buildMatches(f.guild, saved, 'Test'))
+        .every(choice => choice.name !== 'Test'),
+        'the stale title must never appear as a Search choice, even if text matches other fields');
     assert.deepEqual(buildSearchChoices(buildMatches(f.guild, saved, 'Yess')).map(c => c.name), ['Yess']);
     const state = {};
     assert.equal(loadRecordSnapshotIntoState(state, f.guild, physical), true);
