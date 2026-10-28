@@ -356,10 +356,13 @@ export async function logEvent({
     const audienceChannelId = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
       ? messageLogDestination(guild, data.userId, author, config, data.authorBot, deleter) : null;
     if (requiredMessageDeletion && data.lines) {
-      // The author of the message, not the remover: an AutoMod removal of a
-      // member's message is still a Member message (Type says AutoMod).
+      // "Type", right under "Deleted by": Staff, Member or Bot for the
+      // message's author (AutoMod removing a member's message is Member).
       const type = messageLogAuthorType(guild, data.userId, author, config, data.authorBot);
-      data = { ...data, lines: [...data.lines, formatLogLine('Author type', type)] };
+      const lines = [...data.lines];
+      const deletedByIndex = lines.findIndex(line => line.startsWith('**Deleted by:**'));
+      lines.splice(deletedByIndex + 1, 0, formatLogLine('Type', type));
+      data = { ...data, lines };
     }
     const logChannelId = automod ? AUTOMOD_LOG_CHANNEL_ID : audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);
     if (!logChannelId) {

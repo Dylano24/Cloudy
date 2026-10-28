@@ -5,6 +5,8 @@ import { db } from '../src/utils/database.js';
 import { logDeletedMessage } from '../src/events/messageDelete.js';
 import messageUpdate from '../src/events/messageUpdate.js';
 import brandingCreate from '../src/events/cloudyBrandingMessageCreate.js';
+import { applyTemplatesToExistingMessage } from '../src/events/fullResponseCatalogReady.js';
+import { primeSystemEmbedTemplateData } from '../src/services/systemEmbedCatalogService.js';
 import {
   captureMessageSnapshot,
   clearMessageSnapshotMemory,
@@ -51,7 +53,10 @@ test('an uncached deleted message is logged from its stored copy: author, time, 
   assert.match(log.embed.description, /\*\*Message author:\*\* <@member>/);
   assert.match(log.embed.description, new RegExp(`\\*\\*Message created:\\*\\* <t:${Math.floor(created / 1000)}:f>`));
   assert.match(log.embed.description, /\*\*Channel:\*\* <#source>/);
-  assert.match(log.embed.description, /\*\*Attachments:\*\* 1 \(proof\.png\)/);
+  // Attachment names sit in the Message block; Message created is the last header line.
+  assert.match(log.embed.description, /\*\*Message\*\*\nthe original text\n\n\*\*Attachments:\*\* 1 \(proof\.png\)/);
+  assert.deepEqual(log.embed.description.split('\n').filter(line => line.startsWith('> ')).map(line => line.match(/^> \*\*([^:]+):/)[1]),
+    ['Deleted by', 'Type', 'Channel', 'Message ID', 'Message author', 'Message created']);
   assert.match(log.embed.description, /\*\*Message\*\*\nthe original text/);
   assert.doesNotMatch(log.embed.description, /not cached/);
   assert.deepEqual(log.files.map(file => file.name), ['proof.png']);
@@ -139,4 +144,24 @@ test('message logs stay discoverable in Embed Builder Search as one entry for th
   await brandingCreate.execute(log('1300000000000000103'));
   rows = (await getEmbedRegistry(guild.id)).filter(row => row.title === 'Message deleted');
   assert.deepEqual(rows.map(row => [row.messageId, row.manualSaved]).sort(), [['1300000000000000102', true], ['1300000000000000103', false]]);
+});
+
+test('the response-catalog pass never edits Staff/Member/AutoMod message logs after sending', async () => {
+  setup();
+  // A catalog template captured from an older log (different colour/footer).
+  assert.equal(primeSystemEmbedTemplateData('message deleted', 'staff-message-logs',
+    { title: 'Message deleted', color: 0x123456, footer: { text: 'Old footer' } }, CLOUDY_GUILD_ID), true);
+  const edits = [];
+  const message = channelId => ({ id: '1300000000000000201', guildId: CLOUDY_GUILD_ID, channelId,
+    channel: { id: channelId, name: 'staff-message-logs' }, client: { user: { id: 'bot' } },
+    author: { id: 'bot' }, editable: true, content: '', components: [],
+    embeds: [{ title: 'Message deleted', description: '> **Deleted by:** <@member>', color: 0xFFFFFF }],
+    edit: async payload => { edits.push(channelId); return payload; } });
+  for (const channelId of [MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID]) {
+    assert.equal(await applyTemplatesToExistingMessage(message(channelId), { initialCreation: true }), false);
+  }
+  assert.deepEqual(edits, []);
+  // Control: the same message anywhere else is still rewritten by that pass.
+  assert.equal(await applyTemplatesToExistingMessage(message('some-other-channel'), { initialCreation: true }), true);
+  assert.deepEqual(edits, ['some-other-channel']);
 });
