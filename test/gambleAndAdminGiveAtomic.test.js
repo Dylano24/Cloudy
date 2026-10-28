@@ -28,6 +28,7 @@ function fixture(inventory = {}) {
   const interaction = (amount, subcommand = null) => ({
     id: '1532882647838228726', createdTimestamp: Date.now(),
     guildId: '1532882647838228700',
+    guild: { ownerId: '1532882647838228724' },
     user: { id: '1532882647838228724', username: 'owner' },
     deferred: false, replied: false, isChatInputCommand: () => true,
     options: {
