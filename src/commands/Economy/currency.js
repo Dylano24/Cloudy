@@ -2,6 +2,8 @@ import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed, successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
+import { resolveDedicatedChannel } from '../../services/dedicatedChannelService.js';
+import { setResponseLifetime } from '../../utils/responseLifetime.js';
 import {
   canGrantCurrency,
   grantCurrency,
@@ -36,6 +38,9 @@ export default {
         .setDescription('Confirm this server-wide currency grant').setRequired(true))),
 
   async execute(interaction, config, client) {
+    // All /currency responses, including validation errors, follow the
+    // normal ten-second acknowledgement lifetime after the final reply.
+    setResponseLifetime(interaction, 10_000);
     const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
     if (!deferred) return;
 
@@ -44,6 +49,23 @@ export default {
         embeds: [createEmbed({
           title: 'Permission denied',
           description: 'Only Cloudy owners can give currency.',
+          color: 'error',
+        })],
+      });
+      return;
+    }
+
+    // Only the dedicated gambling channel may mint currency. Check before
+    // any account mutation; unlike regular economy commands the shop channel
+    // is not allowed for owner-only /currency.
+    const gamblingChannel = await resolveDedicatedChannel(interaction.guild, 'gambling');
+    if (!gamblingChannel || String(interaction.channelId || interaction.channel?.id || '') !== String(gamblingChannel.id)) {
+      await InteractionHelper.safeEditReply(interaction, {
+        embeds: [createEmbed({
+          title: 'Wrong channel',
+          description: gamblingChannel
+            ? `This command can only be used in the dedicated channel. Please use <#${gamblingChannel.id}>.`
+            : 'The dedicated gambling channel is unavailable. Currency was not added.',
           color: 'error',
         })],
       });
