@@ -6,6 +6,7 @@ import { ModerationService } from '../../services/moderation/moderationService.j
 import { TitanBotError, replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { parseMassActionUserIds } from '../../utils/parseMassActionUserIds.js';
 export default {
     data: new SlashCommandBuilder()
         .setName("masskick")
@@ -40,11 +41,7 @@ export default {
         const reason = interaction.options.getString("reason") || "Mass kick - No reason provided";
 
         try {
-            const userIds = usersInput
-.replace(/<@!?(\d+)>/g, '$1')
-.split(/[\s,]+/)
-.filter(id => id && /^\d+$/.test(id))
-.slice(0, 20);
+            const userIds = parseMassActionUserIds(usersInput);
 
             if (userIds.length === 0) {
                 return await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please provide valid user IDs or mentions. Maximum 20 users at once.' });
