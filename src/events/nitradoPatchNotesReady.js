@@ -10,6 +10,7 @@ import { logger, startupLog } from '../utils/logger.js';
 import { createSingleFlight } from '../utils/singleFlight.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
+import { preparePatchNotesBanner, repairMissingPatchBanner, samePatchArticle } from '../services/patchNotesBannerService.js';
 
 const NITRADO_PATCH_CHANNEL_ID = '1539397467647377530';
 const NITRADO_NEWS_SOURCES = [
@@ -333,31 +334,29 @@ export async function checkForNitradoUpdate(client) {
 
     const botMember = channel.guild?.members?.me;
     const permissions = botMember ? channel.permissionsFor(botMember) : null;
-    const required = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks];
+    const required = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles];
     if (permissions && !permissions.has(required)) {
-      throw new Error(`Cloudy needs View Channel, Send Messages and Embed Links in channel ${NITRADO_PATCH_CHANNEL_ID}`);
+      throw new Error(`Cloudy needs View Channel, Send Messages, Embed Links and Attach Files in channel ${NITRADO_PATCH_CHANNEL_ID}`);
     }
 
     const previousLink = await client.db?.get?.(LAST_NITRADO_KEY).catch(() => null);
+    let recentMessages;
     try {
-      const recentMessages = await channel.messages.fetch({ limit: 100 });
-      for (const message of recentMessages.values()) {
-        if (message.author?.id === client.user.id && message.embeds.some(embed => /^https:\/\/server\.nitrado\.net\//i.test(embed.url || ''))) {
-          await repairNitradoNewsText(message);
-        }
-      }
-      const alreadyPosted = recentMessages.some(message =>
-        message.author.id === client.user.id && message.embeds.some(embed => embed.url === article.link)
-      );
-      if (alreadyPosted) {
-        if (previousLink !== article.link) await client.db?.set?.(LAST_NITRADO_KEY, article.link).catch(() => {});
-        return true;
-      }
+      recentMessages = await channel.messages.fetch({ limit: 100 });
     } catch (historyError) {
       logger.warn('Could not verify recent Nitrado Rust messages; using stored state.', historyError);
     }
+    const existingMessage = recentMessages?.find(message =>
+      message.author.id === client.user.id && message.embeds.some(embed => samePatchArticle(embed.url, article.link))
+    );
+    if (existingMessage) {
+      await repairMissingPatchBanner(existingMessage, article);
+      if (previousLink !== article.link) await client.db?.set?.(LAST_NITRADO_KEY, article.link);
+      return true;
+    }
 
-    if (previousLink === article.link) return true;
+    if (samePatchArticle(previousLink, article.link)) return true;
+    const banner = await preparePatchNotesBanner(article);
 
     const embed = new EmbedBuilder()
       .setColor('#FFFFFF')
@@ -368,7 +367,7 @@ export async function checkForNitradoUpdate(client) {
       .setFooter({ text: 'Cloudy Patch Notes • Source: Nitrado' })
       .setTimestamp(article.publishedAt ? new Date(article.publishedAt) : new Date());
 
-    if (article.image) embed.setImage(article.image);
+    embed.setImage(banner.image.url);
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -377,7 +376,7 @@ export async function checkForNitradoUpdate(client) {
         .setURL(article.link)
     );
 
-    await channel.send({ embeds: [embed], components: [row] });
+    await channel.send({ embeds: [embed], components: [row], files: [banner.file] });
     await client.db?.set?.(LAST_NITRADO_KEY, article.link).catch(() => {});
     lastFailureLogAt = 0;
     logger.info(`Posted Nitrado Rust server update: ${article.title}`);

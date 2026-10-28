@@ -1,3 +1,4 @@
+import { isPatchBannerRepairInProgress } from '../services/patchNotesBannerService.js';
 import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 // BUILDER_SAVED_PARITY_V1
 import { rememberTransientPayloadIntent } from '../utils/transientResponse.js';
@@ -281,6 +282,7 @@ function shouldPrepareMessageEdit(message) {
     && message.author?.id === message.client.user.id
     && !autoApplyingMessageIds.has(message.id)
     && !isEmbedManagerSaveInProgress(message.id)
+    && !isPatchBannerRepairInProgress(message)
     && !isDedicatedGamblingGuideMessage(message)
     && !isBuilderAuthoredMessage(message)
     && String(message.content || '').trim() !== SYSTEM_CATALOG_CONTENT,
