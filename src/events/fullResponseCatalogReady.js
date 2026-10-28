@@ -568,6 +568,10 @@ function patchInteractionCapture() {
       interaction[method] = async (payload, ...args) => {
         let outgoing = payload;
         try {
+          // Private casino help must show its current source text, not a stale saved response template.
+          if (/^game_help:(?:blackjack|baccarat|roulette)$/.test(String(source.customId || ''))) {
+            return original(payload, ...args);
+          }
           if (isStaffRobberyProtectionPayload(payload)) return original(payload, ...args);
           if (isBuilderAuthoredInteraction(source)) {
             if (!isBotResponsePayload(payload)) return original(payload, ...args);
