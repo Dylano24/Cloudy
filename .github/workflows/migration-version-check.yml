@@ -63,7 +63,7 @@ jobs:
         run: node --test test/economyPostgresTransfer.integration.test.js test/economyPostgresDaily.integration.test.js test/economyPostgresRobbery.integration.test.js
 
       - name: Verify focused audit regression tests
-        run: timeout --signal=TERM --kill-after=10s 4m node --test --test-timeout=30000 test/publicApiRateLimitOrder.test.js test/economyAtomicTransfer.test.js test/massModerationTargets.test.js test/robberyVictimBalancePersistence.test.js test/robCommandAtomic.test.js test/begAndCrimeAtomic.test.js test/interactionEditReplyNoErrorMessage.test.js test/levelingLeaderboardConcurrency.test.js test/economyAtomicDailyClaim.test.js test/dailyCommandAtomic.test.js test/workCommandAtomic.test.js test/economyBankMovementsAtomic.test.js test/cloudyLegacyBrandMigration.test.js test/moderationDeliveryLatency.test.js test/appealDeliveryPersistence.test.js test/cleanedCommandImportsSmoke.test.js
+        run: timeout --signal=TERM --kill-after=10s 4m node --test --test-timeout=30000 test/publicApiRateLimitOrder.test.js test/economyAtomicTransfer.test.js test/massModerationTargets.test.js test/robberyVictimBalancePersistence.test.js test/robCommandAtomic.test.js test/begAndCrimeAtomic.test.js test/fishAndMineAtomic.test.js test/interactionEditReplyNoErrorMessage.test.js test/levelingLeaderboardConcurrency.test.js test/economyAtomicDailyClaim.test.js test/dailyCommandAtomic.test.js test/workCommandAtomic.test.js test/economyBankMovementsAtomic.test.js test/cloudyLegacyBrandMigration.test.js test/moderationDeliveryLatency.test.js test/appealDeliveryPersistence.test.js test/cleanedCommandImportsSmoke.test.js
 
       - name: Verify Embed Builder registry, Search and Modify regressions
         run: |
