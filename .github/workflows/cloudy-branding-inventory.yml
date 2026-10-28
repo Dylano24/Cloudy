@@ -30,7 +30,7 @@ jobs:
           node scripts/audit-cloudy-branding.mjs > cloudy-branding-audit.json
           jq '{scanned, lines, matchingFiles, totals, byArea, omittedHits}' cloudy-branding-audit.json
           echo "Legacy runtime references:"
-          jq -r '.hits[] | select(.area == "runtime") | "\(.path):\(.line) [\(.kind)] \(.snippet)"' cloudy-branding-audit.json | head -n 150 || true
+          jq -r '.hits[] | select(.kind != "Dylano24") | "\(.path):\(.line) [\(.kind)] \(.snippet)"' cloudy-branding-audit.json | head -n 250 || true
       - name: Attach complete read only inventory
         uses: actions/upload-artifact@v4
         with:
