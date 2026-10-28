@@ -23,9 +23,17 @@ No production deployment or database migration is included in this draft PR.
 
 ## Additional risk requiring separately designed changes
 
-**Money transfer is not atomic:** `EconomyService.transferMoney` writes the sender, then the receiver, and attempts a second sender write on failure. A process crash between writes, or failure of the rollback write, can leave balances inconsistent. A correct fix requires a PostgreSQL transaction across both accounts with appropriate concurrent-update handling, including compatibility with the existing storage key layout and any other account writers. Do not replace this with only an in-memory mutex: that would not ensure durable atomicity.
+**Economy transfer repaired in this draft (pending tests):** `EconomyService.transferMoney` now selects a PostgreSQL transaction through the existing database wrapper in production. The transaction creates missing accounts, locks sender and recipient rows in stable order, validates amounts, then writes both wallets and full JSON account records. A failed write rolls back both records; no partial transfer should be acknowledged. The old nonproduction memory/test fixture flow is retained. `test/economyAtomicTransfer.test.js` covers a successful transfer, rollback on failed second write, insufficient funds, initial-account balance, and production dispatch. These tests were added but were **not yet confirmed passing** when this document was updated. A real PostgreSQL integration test is still required.
+
+**Residual economy concurrency risk:** other earnings/games account writers still perform read/modify/write through the existing generic storage interface. Concurrent external account writes made from old snapshots can overwrite balances even if transfers themselves use row locks. Fixing this comprehensively would mean migrating all balance-changing code paths to one atomic account-mutation API and validating legacy data; this remains open.
 
 **Data and behavior risks noted in earlier full audit:** account changes made by multiple modules and whole configuration replacements may conflict under concurrency; ticket transcript memory and cleanup maps may grow; and live Discord/API latency must be measured rather than inferred from local test timings. The source-level review here does not independently re-prove every historical claim.
+
+## Other confirmed code paths worth profiling
+
+- `src/services/leveling/leveling.js`: leaderboard loads every member and then reads per-user level data. On a large guild, that is many independent reads. Redesign requires ensuring the leaderboard's current filtering/ranking remains identical.
+- `src/events/messageCreate.js`: when a Reappear embed moves, the event handler may wait for a deliberate two-second Discord deletion/repost interval before continuing to prefix commands and leveling. This is a code-level latency path; its actual impact requires production traces before changing event sequencing.
+- `src/commands/Moderation/massban.js`: user IDs are bounded to 20 but are not deduplicated before the ban loop; repeated IDs can cause unnecessary lookups. Not modified in this patch.
 
 ## Comprehensive review areas and safety requirements
 
