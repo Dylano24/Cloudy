@@ -9,6 +9,14 @@ import {
 } from '../src/utils/economyGamblingPresentation.js';
 import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
+test('crime failure keeps You capitalized after jail!', () => {
+  const message = 'You were caught while attempting Art Theft and have been sent to jail! You were fined 1,200 coins and will be in jail for 2 hours.';
+  const normalized = economySentenceCase(message);
+  assert.match(normalized, /jail! You were fined 1,200 coins/);
+  assert.equal(normalized.includes('jail! you'), false);
+  assert.equal(economySentenceCase('You worked and earned $35!'), 'You worked and earned $35!');
+});
+
 test('titles and body labels use sentence case without damaging usernames or mentions', () => {
   assert.equal(economySentenceCase('New Bank Balance'), 'New bank balance');
   assert.equal(economySentenceCase('The Bank'), 'The bank');

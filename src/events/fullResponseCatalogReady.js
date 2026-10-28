@@ -38,6 +38,16 @@ const HISTORY_LIMIT = 100;
 const STARTUP_SCAN_DELAY_MS = 90_000;
 const SYSTEM_CATALOG_CONTENT = 'System & error embed templates';
 const autoApplyingMessageIds = new Set();
+
+// A staff-targeted robbery attempt has no fine or balance change. Never
+// substitute a saved ordinary Robbery failed template into this denial.
+function isStaffRobberyProtectionPayload(payload) {
+  return Array.isArray(payload?.embeds) && payload.embeds.some(embed => {
+    const data = embed?.toJSON?.() || embed;
+    return String(data?.title || '').trim() === 'Robbery failed'
+      && String(data?.description || '').trim() === 'Cloudy staff members cannot be robbed.';
+  });
+}
 const FIXED_NON_TICKET_LOG_CHANNEL_IDS = new Set([
   '1539375620885323826',
   '1539371111240831078',
@@ -162,6 +172,7 @@ function isBuilderAuthoredMessage(message) {
 }
 
 function applyPayloadTemplates(payload, source) {
+  if (isStaffRobberyProtectionPayload(payload)) return payload;
   // This specific Commands guide is already finalized before sending.
   // Never apply a stale runtime catalog title over it.
   if (isDedicatedGamblingGuideMessage(payload)) return payload;
@@ -327,6 +338,7 @@ function patchMessageEdits() {
 }
 
 function capturePayload(payload, source) {
+  if (isStaffRobberyProtectionPayload(payload)) return false;
   if (isPrivateReportCasePayload(payload)) return false;
   if (payload == null) return false;
 
@@ -368,6 +380,7 @@ function embedJson(embed) {
 }
 
 export async function applyTemplatesToExistingMessage(message, { initialCreation = false } = {}) {
+  if (isStaffRobberyProtectionPayload(message)) return false;
   if (isPrivateReportCasePayload(message)) return false;
   // This was the missing second edit: MESSAGE_CREATE applied old catalog
   // styling after Discord already displayed the correctly titled guide.
@@ -507,6 +520,7 @@ function seedKnownGameResponses() {
 }
 
 export async function applySavedResponsePayloadTemplates(payload, source) {
+  if (isStaffRobberyProtectionPayload(payload)) return payload;
   if (isDedicatedGamblingGuideMessage(payload)) return payload;
   const builderInteraction = isBuilderAuthoredInteraction(source);
   if (isPrivateReportCasePayload(payload) || (builderInteraction && !isBotResponsePayload(payload))) return payload;
@@ -554,6 +568,7 @@ function patchInteractionCapture() {
       interaction[method] = async (payload, ...args) => {
         let outgoing = payload;
         try {
+          if (isStaffRobberyProtectionPayload(payload)) return original(payload, ...args);
           if (isBuilderAuthoredInteraction(source)) {
             if (!isBotResponsePayload(payload)) return original(payload, ...args);
             outgoing = await applySavedResponsePayloadTemplates(payload, source);

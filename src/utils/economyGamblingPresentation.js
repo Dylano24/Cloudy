@@ -67,7 +67,7 @@ export function economySentenceCase(value) {
         }
         return isLabel ? lower : word;
       });
-    }).join('');
+    }).join('').replace(/(\bjail!\s+)you\b/g, '$1You');
   }).join('\n');
 }
 
