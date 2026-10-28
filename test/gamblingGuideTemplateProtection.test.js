@@ -33,6 +33,11 @@ test('only the dedicated Gambling guide is exempt from automatic response templa
     components: [],
   }), false);
   assert.equal(isDedicatedGamblingGuideMessage({
+    channel: { name: '🎲｜gambling' },
+    embeds: [{ title: 'Games & economy', description: 'Owner-edited instructions' }],
+    components: [],
+  }), true);
+  assert.equal(isDedicatedGamblingGuideMessage({
     embeds: [{ title: 'Shop & Economy', description }],
     components: commands,
   }), false);
