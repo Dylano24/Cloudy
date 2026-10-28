@@ -9,6 +9,7 @@ import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID } from '../services/mes
 import { prepareDeletedMessageMedia } from '../services/deletedMessageMediaService.js';
 import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
 import { forgetMessageSnapshot, getMessageSnapshot } from '../services/messageSnapshotService.js';
+import { storeDeletedVideo } from '../services/deletedMediaService.js';
 
 // The log description holds up to 4096 characters; keep room for the
 // header lines. Longer text is attached in full as a .txt file.
@@ -158,7 +159,19 @@ export async function logDeletedMessage(message, options = {}) {
     if (media.links.length) fullBody += `\n\nAttachments not copied:\n${media.links.join('\n')}`;
   }
 
-  const files = [...media.files];
+  let files = [...media.files];
+  // Videos cannot play inside a bot embed. Host them on Cloudy's own page
+  // and link that page in the log instead of uploading them to Discord.
+  const videoLinks = [];
+  for (const video of media.videos || []) {
+    const file = files.find(entry => entry.name === video.name);
+    if (!file) continue;
+    const url = await storeDeletedVideo(file.attachment, { name: video.name, contentType: video.type })
+      .catch(error => { logger.warn(`Deleted video could not be stored: ${error.message}`); return null; });
+    if (!url) continue;
+    videoLinks.push({ name: video.name, url });
+    files = files.filter(entry => entry !== file);
+  }
   // The first photo is shown inside the embed (clickable there). It must be
   // in the first upload batch of 10, which carries the embed.
   const embedImage = (media.images || []).find(name => {
@@ -186,7 +199,7 @@ export async function logDeletedMessage(message, options = {}) {
       deletedById: deletedBy.id,
       deletedByBot: deletedBy.bot === true,
       deletionSource: deletedBy.source,
-      videoNames: media.videos || [],
+      videoLinks,
       channelId,
     }
   });

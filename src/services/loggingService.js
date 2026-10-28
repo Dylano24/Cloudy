@@ -404,29 +404,12 @@ export async function logEvent({
       return null;
     }
 
-    // A video cannot play inside a bot embed, and its link only exists once
-    // Discord stores it. Send the video(s) first, right above the log, then
-    // link them in the log itself: no edit afterwards.
-    let videoLinks = '';
-    if (eventType === EVENT_TYPES.MESSAGE_DELETE && data.videoNames?.length && attachments.length) {
-      const videos = attachments.filter(file => data.videoNames.includes(file.name)).slice(0, 10);
-      if (videos.length) {
-        try {
-          const videoMessage = await channel.send({ files: videos, allowedMentions: { parse: [] } });
-          const stored = [...(videoMessage?.attachments?.values?.() || [])];
-          const links = [];
-          for (const [index, video] of stored.entries()) {
-            const name = String(video.name || videos[index]?.name || 'video').replace(/[[\]]/g, '_');
-            const link = `[${name}](${video.url})`;
-            if (video.url && [...links, link].join('\n').length <= 1024) links.push(link);
-          }
-          videoLinks = links.join('\n');
-          attachments = attachments.filter(file => !videos.includes(file));
-        } catch (error) {
-          // The videos stay attachments of the log message itself.
-          logger.warn(`Deleted-message video upload failed for guild ${guildId}: ${error.message}`);
-        }
-      }
+    // Deleted videos are hosted on Cloudy's own page (they cannot play inside
+    // a bot embed); the log links them in a Video field.
+    const videoLinks = [];
+    for (const video of eventType === EVENT_TYPES.MESSAGE_DELETE ? data.videoLinks || [] : []) {
+      const link = `[${String(video.name || 'video').replace(/[[\]]/g, '_')}](${video.url})`;
+      if ([...videoLinks, link].join('\n').length <= 1024) videoLinks.push(link);
     }
 
     const embed = createLogEmbed(guild, eventType, data);
@@ -445,7 +428,7 @@ export async function logEvent({
     // A deleted photo is shown inside the log embed, after any saved
     // template, so the deleted content always wins over a template image.
     if (eventType === EVENT_TYPES.MESSAGE_DELETE && data.image) presentedEmbed.setImage(data.image);
-    if (videoLinks) presentedEmbed.addFields({ name: videoLinks.includes('\n') ? 'Videos' : 'Video', value: videoLinks });
+    if (videoLinks.length) presentedEmbed.addFields({ name: videoLinks.length > 1 ? 'Videos' : 'Video', value: videoLinks.join('\n') });
     const messageOptions = { embeds: [presentedEmbed] };
     if (allowedMentions) messageOptions.allowedMentions = allowedMentions;
     else if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };

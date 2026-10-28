@@ -24,6 +24,7 @@ import { embedColorPickerPage } from './web/embedColorPickerPage.js';
 import { registerAppealsApi } from './web/appealsApi.js';
 import { registerWebsiteAssistantApi } from './web/websiteAssistantApi.js';
 import { registerEmbedMediaRoutes } from './services/embedMediaStorageService.js';
+import { registerDeletedMediaRoutes } from './services/deletedMediaService.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 import { getBuiltInSystemCatalogCoverage } from './services/systemEmbedCatalogService.js';
 
@@ -206,6 +207,8 @@ class CloudyBot extends Client {
     registerWebsiteAssistantApi(app);
     // Read-only immutable images served from Cloudy's persistent media volume.
     registerEmbedMediaRoutes(app);
+    // Private video pages for deleted-message logs (unguessable links).
+    registerDeletedMediaRoutes(app);
 
     app.get('/health', (req, res) => {
       const dbStatus = this.db?.getStatus?.() || { isDegraded: 'unknown' };
