@@ -73,3 +73,26 @@ test('Gambling guide does not receive a second visible title edit after posting'
   assert.equal(matched, true);
   assert.equal(edits, 0);
 });
+
+test('Gambling guide outgoing title stays canonical with customized description', () => {
+  const original = new Embed({ title: ' Games & economy ', description: 'Custom saved guide wording', color: 0x123456, footer: { text: 'My footer' } });
+  const before = original.toJSON();
+  const payload = buildDedicatedGuidePayload('gambling', { embeds: [original], components: buildDedicatedGuidePayload('gambling').components });
+  assert.equal(payload.embeds[0].title, 'Games & Economy');
+  assert.deepEqual({ ...payload.embeds[0], title: ' Games & economy ' }, before);
+  assert.deepEqual(original.toJSON(), before, 'No mutation of the existing embed');
+  const custom = buildDedicatedGuidePayload('gambling', { embeds: [new Embed({ title: 'My games', description: 'Keep title' })] });
+  assert.equal(custom.embeds[0].title, 'My games');
+});
+
+test('Gambling title is never visibly edited after a reappeared post with custom text', async () => {
+  let edits = 0;
+  const matched = await applySavedEmbedTemplates({
+    guildId: 'guild', channelId: 'gambling', editable: true,
+    channel: { name: '🎲｜gambling' },
+    embeds: [new Embed({ title: 'Games & Economy', description: 'Customized text' })],
+    edit: async () => { edits++; },
+  }, { initialCreation: true });
+  assert.equal(matched, true);
+  assert.equal(edits, 0);
+});

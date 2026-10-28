@@ -545,10 +545,11 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
   // The dedicated Gambling guide has a fixed title. A stale saved template
   // can otherwise edit a newly posted/Reappear guide back to lowercase
   // moments after Discord first shows the correct title.
-  const isGamblingGuide = String(message.channel?.name || '').toLowerCase().includes('gambling')
+  const isGamblingGuide = String(
+    message.channel?.name || message.guild?.channels?.cache?.get?.(message.channelId)?.name || '',
+  ).toLowerCase().includes('gambling')
     && message.embeds.some(embed =>
-      /^Games & economy$/i.test(String(embed?.title || ''))
-      && embed.description === 'All Cloudy gaming and economy commands must be used in this channel. Click the button below to view all available commands.');
+      /^games\s*&\s*economy$/i.test(String(embed?.title || '').trim()));
   // Its outgoing payload is already normalized by the guide/Reappear
   // sender. Never do a second, visible edit immediately after creation.
   if (isGamblingGuide) return true;
