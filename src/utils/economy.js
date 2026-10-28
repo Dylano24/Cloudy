@@ -1,6 +1,6 @@
 // economy.js
 
-import { getEconomyKey as getEconomyStorageKey } from './database.js';
+import { getEconomyKey as getEconomyStorageKey, getEconomyPrefix } from './database.js';
 import { BotConfig } from '../config/bot.js';
 import { normalizeEconomyData } from './schemas.js';
 import { logger } from './logger.js';
@@ -29,6 +29,24 @@ export function getEconomyKey(guildId, userId) {
     }
     
     return getEconomyStorageKey(validGuildId, validUserId);
+}
+
+/**
+ * Values for the economy keys listed by `client.db.list(getEconomyPrefix(guildId))`,
+ * in key order and identical to `client.db.get(key, defaultValue)` for each key.
+ * One whole-guild query replaces one query per account. A key the bulk read
+ * does not cover (or a storage backend without it) keeps the per-key read.
+ */
+export async function readGuildEconomyValues(client, guildId, keys, defaultValue = null) {
+    const prefix = getEconomyPrefix(guildId);
+    const accounts = typeof client?.db?.getGuildEconomyAccounts === 'function'
+        ? await client.db.getGuildEconomyAccounts(guildId)
+        : null;
+    return Promise.all(keys.map(key => {
+        const userId = typeof key === 'string' && key.startsWith(prefix) ? key.slice(prefix.length) : '';
+        if (accounts && userId && !userId.includes(':') && accounts.has(userId)) return accounts.get(userId);
+        return client.db.get(key, defaultValue);
+    }));
 }
 
 export function getMaxBankCapacity(userData) {
