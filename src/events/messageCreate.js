@@ -421,13 +421,6 @@ async function processEmbedReappear(message) {
         continue;
       }
 
-      if (await getFromDb(disableKey, null)) {
-        await sent.delete().catch(() => {});
-        removedIds.add(originalMessageId);
-        await deleteFromDb(key);
-        continue;
-      }
-
       config.count = 0;
       config.messageId = sent.id;
       config.updatedAt = new Date().toISOString();
