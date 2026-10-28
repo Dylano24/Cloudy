@@ -218,3 +218,17 @@ test('wrong-channel currency response uses the standard red Cloudy error embed',
   assert.match(data.description, /<#1533188412507558130>/);
   assert.equal(data.color, 0x7A1712);
 });
+
+test('confirmation required uses a red sidebar in gambling and never mints cash', async () => {
+  const { interaction, replies } = currencyInteraction('1533188412507558130', 'everyone');
+  interaction.options.getBoolean = () => false;
+  let mutations = 0;
+  const client = { db: { mutateEconomyAccount: () => { mutations++; } } };
+  await currencyCommand.execute(interaction, {}, client);
+  assert.equal(mutations, 0);
+  assert.equal(getResponseLifetime(interaction), TRANSIENT_MESSAGE_MS);
+  assert.equal(replies.length, 1);
+  const embed = replies[0].embeds[0].toJSON();
+  assert.equal(embed.title, 'Confirmation required');
+  assert.equal(embed.color, 0x7A1712);
+});
