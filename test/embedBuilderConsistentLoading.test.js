@@ -235,15 +235,16 @@ test('an older pending preview cannot overwrite a newer manager selection', asyn
   assert.equal(fixture.state.title, 'Newer draft');
 });
 
-test('cold and warm saved Search selections preserve the latest saved family overlay', async t => {
+test('cold and warm saved Search selections preserve the exact manual Save without stale family overlays', async t => {
   const record = savedRecord('search-cold-family-authority');
-  t.mock.method(db, 'get', async () => [record]);
+  t.mock.method(db, 'get', async key =>
+    key.startsWith('cloudy:embed-registry-deleted:') ? [] : [record]);
   await getEmbedRegistry(record.guildId);
   const scopeGate = deferred();
   t.after(() => scopeGate.resolve({}));
-  const family = {
-    schemaVersion: 3, title: 'Rules panel', description: 'Latest saved family body',
-    color: 0x654321, fields: [{ name: 'Rules', value: 'Latest saved field', inline: true }],
+  const obsoleteFamily = {
+    schemaVersion: 3, title: 'Rules panel', description: 'Old shared family body',
+    color: 0x654321, fields: [{ name: 'Rules', value: 'Old shared field', inline: true }],
   };
   t.mock.method(db, 'get', async key =>
     key.endsWith(':__global__') ? scopeGate.promise : {});
@@ -252,17 +253,24 @@ test('cold and warm saved Search selections preserve the latest saved family ove
   const interaction = {
     ...fixture.opening, options: { getString: () => record.channelId + ':' + record.messageId + ':0' },
   };
-  let cold;
-  const pending = loadEmbedBuilderSearchSelection(interaction).then(value => { cold = value; return value; });
+  let coldResolved = false;
+  const pending = loadEmbedBuilderSearchSelection(interaction).then(value => {
+    coldResolved = true;
+    return value;
+  });
   await settle();
-  assert.equal(cold, undefined, 'unknown saved overlays cannot be bypassed based on snapshot completeness');
-  scopeGate.resolve({ 'rules panel': family });
-  await pending;
+  assert.equal(coldResolved, true,
+    'manual saved snapshots must not wait for unrelated shared-template storage');
+  // A previous template family can arrive later; it must never replace what
+  // the user manually saved on this exact physical Discord message.
+  scopeGate.resolve({ 'rules panel': obsoleteFamily });
+  const cold = await pending;
   const coldState = {};
   applyInitialSearchSelectionToState({ ...interaction, __cloudyInitialBuilderSelection: cold }, coldState);
-  assert.equal(coldState.message, 'Latest saved family body');
-  assert.equal(coldState.sideColor, 0x654321);
-  assert.deepEqual(coldState.embedFields, family.fields);
+  assert.equal(coldState.message, 'Exact saved body');
+  assert.equal(coldState.sideColor, 0x123456);
+  assert.deepEqual(coldState.embedFields, record.snapshot.fields);
+  assert.equal(coldState.mediaUrl, record.snapshot.image.url);
   t.mock.method(db, 'get', async () => assert.fail('warm selection must not repeat storage reads'));
   const warm = await loadEmbedBuilderSearchSelection(interaction);
   const warmState = {};
@@ -270,6 +278,7 @@ test('cold and warm saved Search selections preserve the latest saved family ove
   assert.equal(warmState.message, coldState.message);
   assert.equal(warmState.sideColor, coldState.sideColor);
   assert.deepEqual(warmState.embedFields, coldState.embedFields);
+  assert.equal(warmState.mediaUrl, coldState.mediaUrl);
 });
 
 test('independent runtime preview and saved-scope reads start together for one selected source', async t => {
