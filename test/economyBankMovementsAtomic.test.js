@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import deposit from '../src/commands/Economy/deposit.js';
 import withdraw from '../src/commands/Economy/withdraw.js';
-import { getInitialEconomyData } from '../src/utils/economy.js';
+import { getInitialEconomyData, getMaxBankCapacity } from '../src/utils/economy.js';
 
 function fixture({ wallet = 900, bank = 100 } = {}) {
   let account = { ...getInitialEconomyData(), wallet, bank };
@@ -72,9 +72,10 @@ test('simultaneous /withdraw commands cannot spend an empty bank twice', async (
 });
 
 test('a deposit respects max bank capacity while preserving user warning text', async () => {
-  const f = fixture({ wallet: 500, bank: 9990 });
+  const maxBank = getMaxBankCapacity(getInitialEconomyData());
+  const f = fixture({ wallet: 500, bank: maxBank - 10 });
   await deposit.execute(f.interaction('50'), {}, f.client);
-  assert.equal(f.read().bank, 10000);
+  assert.equal(f.read().bank, maxBank);
   assert.equal(f.read().wallet, 490);
   assert.equal(f.warnings.length, 1);
   assert.match(JSON.stringify(f.warnings[0]), /only had space/);
