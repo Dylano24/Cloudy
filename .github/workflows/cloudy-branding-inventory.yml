@@ -29,8 +29,10 @@ jobs:
         run: |
           node scripts/audit-cloudy-branding.mjs > cloudy-branding-audit.json
           jq '{scanned, lines, matchingFiles, totals, byArea, omittedHits}' cloudy-branding-audit.json
-          echo "Legacy runtime references:"
-          jq -r '.hits[] | select(.kind != "Dylano24") | "\(.path):\(.line) [\(.kind)] \(.snippet)"' cloudy-branding-audit.json | head -n 250 || true
+          echo "All files with remaining legacy names:"
+          jq -r '.hits[] | select(.kind != "Dylano24") | "\(.path) [\(.kind)]"' cloudy-branding-audit.json | sort -u
+          echo "User-facing and project-level legacy details:"
+          jq -r '.hits[] | select(.area == "project" or .area == "scripts") | "\(.path):\(.line) [\(.kind)] \(.snippet)"' cloudy-branding-audit.json | head -n 120 || true
       - name: Attach complete read only inventory
         uses: actions/upload-artifact@v4
         with:
