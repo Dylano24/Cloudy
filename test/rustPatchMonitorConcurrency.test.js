@@ -7,9 +7,20 @@ import { startRustPatchNotes } from '../src/services/rustPatchNotesService.js';
 const CHANNEL_ID = '1533886914459861103';
 const POLL_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
-const feed = '<rss><channel><item><title>Test official patch</title><link>https://rust.facepunch.com/news/test-official-patch</link><category>devblog</category><description>Official patch text</description></item></channel></rss>';
+const feed = '<rss><channel><item><title>Test official patch</title><link>https://rust.facepunch.com/news/test-official-patch</link><category>devblog</category><enclosure type="image/png" url="https://files.facepunch.com/test.png"/><description>Official patch text</description></item></channel></rss>';
 const response = () => ({ ok: true, text: async () => feed });
 const settle = () => new Promise(resolve => { setImmediate(resolve); });
+function mockFeed(t, implementation) {
+  const mock = t.mock.fn(implementation);
+  t.mock.method(globalThis, 'fetch', async url => {
+    if (url === 'https://files.facepunch.com/test.png') return {
+      ok: true, headers: new Headers({ 'content-type': 'image/png' }),
+      arrayBuffer: async () => Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64'),
+    };
+    return mock(url);
+  });
+  return mock;
+}
 
 function fixture({ ready = true, channelPresent = true } = {}) {
   const history = new Collection();
@@ -46,7 +57,7 @@ function fixture({ ready = true, channelPresent = true } = {}) {
 test('concurrent ready and app starts share one initial check, post and interval', async t => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
   let releaseFetch;
-  const fetchMock = t.mock.method(globalThis, 'fetch', () => new Promise(resolve => { releaseFetch = resolve; }));
+  const fetchMock = mockFeed(t, () => new Promise(resolve => { releaseFetch = resolve; }));
   const f = fixture();
 
   startRustPatchNotes(f.client);
@@ -71,7 +82,7 @@ test('concurrent ready and app starts share one initial check, post and interval
 
 test('repeated starts before readiness register one ready callback', async t => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
-  const fetchMock = t.mock.method(globalThis, 'fetch', async () => response());
+  const fetchMock = mockFeed(t, async () => response());
   const f = fixture({ ready: false });
 
   startRustPatchNotes(f.client);
@@ -86,7 +97,7 @@ test('repeated starts before readiness register one ready callback', async t => 
 
 test('slow interval checks share their in-flight request and resume after completion', async t => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
-  const fetchMock = t.mock.method(globalThis, 'fetch', async () => response());
+  const fetchMock = mockFeed(t, async () => response());
   const f = fixture();
   startRustPatchNotes(f.client);
   await settle();
@@ -111,7 +122,7 @@ test('slow interval checks share their in-flight request and resume after comple
 
 test('failed startup keeps the one-minute retry and shares it with an overlapping poll', async t => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
-  const fetchMock = t.mock.method(globalThis, 'fetch', async () => response());
+  const fetchMock = mockFeed(t, async () => response());
   const f = fixture({ channelPresent: false });
   startRustPatchNotes(f.client);
   await settle();
@@ -136,7 +147,7 @@ test('failed startup keeps the one-minute retry and shares it with an overlappin
 
 test('a separate client gets its own monitor instead of sharing another client state', async t => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
-  const fetchMock = t.mock.method(globalThis, 'fetch', async () => response());
+  const fetchMock = mockFeed(t, async () => response());
   const a = fixture();
   const b = fixture();
   startRustPatchNotes(a.client);

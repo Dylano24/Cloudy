@@ -20,6 +20,7 @@ const PATCH_DESTINATIONS = Object.freeze([
 const REQUIRED_POST_PERMISSIONS = [
     PermissionFlagsBits.SendMessages,
     PermissionFlagsBits.EmbedLinks,
+    PermissionFlagsBits.AttachFiles,
 ];
 // Both Ready and GuildCreate can run during a reconnect; never duplicate REST edits.
 const pendingRecovery = new WeakMap();
@@ -64,6 +65,7 @@ async function ensureChannelPermissions(channel, member, patchDestination = fals
         ...(patchDestination ? {
             SendMessages: true,
             EmbedLinks: true,
+            AttachFiles: true,
         } : {}),
     };
 
