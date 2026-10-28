@@ -114,7 +114,7 @@ export async function getReactionRoleMessage(client, guildId, messageId) {
         const data = await client.db.get(key);
         return data || null;
     } catch (error) {
-        if (error.name === 'TitanBotError') {
+        if (error.name === 'CloudyError') {
             throw error;
         }
         logger.error(`Error getting reaction role message ${messageId} in guild ${guildId}:`, error);
@@ -186,7 +186,7 @@ export async function createReactionRoleMessage(client, guildId, channelId, mess
         logger.info(`Created reaction role message ${messageId} in guild ${guildId} with ${roleIds.length} roles`);
         return reactionRoleData;
     } catch (error) {
-        if (error.name === 'TitanBotError') {
+        if (error.name === 'CloudyError') {
             throw error;
         }
         logger.error(`Error creating reaction role message in guild ${guildId}:`, error);
@@ -221,7 +221,7 @@ export async function addReactionRole(client, guildId, messageId, emoji, roleId)
         logger.info(`Added reaction role for emoji ${emoji} to message ${messageId} in guild ${guildId}`);
         return true;
     } catch (error) {
-        if (error.name === 'TitanBotError') {
+        if (error.name === 'CloudyError') {
             throw error;
         }
         logger.error(`Error adding reaction role in guild ${guildId}:`, error);
@@ -253,7 +253,7 @@ export async function deleteReactionRoleMessage(client, guildId, messageId) {
         logger.info(`Deleted reaction role message ${messageId} in guild ${guildId}`);
         return true;
     } catch (error) {
-        if (error.name === 'TitanBotError') {
+        if (error.name === 'CloudyError') {
             throw error;
         }
         logger.error(`Error deleting reaction role message in guild ${guildId}:`, error);
@@ -292,7 +292,7 @@ export async function removeReactionRole(client, guildId, messageId, emoji) {
         
         return true;
     } catch (error) {
-        if (error.name === 'TitanBotError') {
+        if (error.name === 'CloudyError') {
             throw error;
         }
         logger.error(`Error removing reaction role in guild ${guildId}:`, error);
@@ -408,7 +408,7 @@ export async function getAllReactionRoleMessages(client, guildId) {
         });
         return messages;
     } catch (error) {
-        if (error.name === 'TitanBotError') {
+        if (error.name === 'CloudyError') {
             throw error;
         }
         logger.error(`Error getting all reaction role messages for guild ${guildId}:`, error);
@@ -449,7 +449,7 @@ export async function setReactionRoleChannel(client, guildId, messageId, channel
         logger.info(`Set channel ${channelId} for reaction role message ${messageId}`);
         return true;
     } catch (error) {
-        if (error.name === 'TitanBotError') {
+        if (error.name === 'CloudyError') {
             throw error;
         }
         logger.error(`Error setting channel for reaction role message ${messageId}:`, error);
