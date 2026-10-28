@@ -28,15 +28,24 @@ test('an old in-flight registry read cannot replace a successfully saved Search 
   const guildId = 'search-delayed-read-after-save';
   let resolveRead;
   const oldRead = new Promise(resolve => { resolveRead = resolve; });
+  let signalReadStarted;
+  const oldReadStarted = new Promise(resolve => { signalReadStarted = resolve; });
+  t.after(() => resolveRead([]));
   let reads = 0;
   t.mock.method(db, 'get', async (key, fallback) => {
     if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
-    // Hold the registry snapshot read, not the tombstone check: a Save
-    // must still succeed while an older Search read is in flight.
-    return ++reads === 1 ? oldRead : fallback;
+    // Hold the Search read, never the tombstone lookup. Explicitly wait
+    // until the old read has started before the concurrent Save begins:
+    // otherwise scheduling could block the Save instead of the Search.
+    if (++reads === 1) {
+      signalReadStarted();
+      return oldRead;
+    }
+    return fallback;
   });
   t.mock.method(db, 'set', async () => true);
   const pending = getEmbedRegistry(guildId);
+  await oldReadStarted;
   const embed = { title: 'New saved title', description: 'Saved content' };
   assert.equal(await registerCloudyEmbedMessage({
     id: 'saved-message', guildId, channelId: 'channel',
