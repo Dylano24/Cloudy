@@ -6,7 +6,7 @@ export const GAME_HELP = {
     '**How to play blackjack**',
     'Beat the dealer by getting closer to **21** without going over. Going over 21 is a bust and loses your bet. If the dealer busts and you do not, you win. Matching totals return your bet.',
     '**Card values:** 2 to 10 count as their number. J, Q and K count as 10. An ace counts as 1 or 11, whichever keeps your hand at 21 or below. The dealer draws until reaching at least 17.',
-    '**Hit:** draw another card.\n**Stand:** keep your total and let the dealer play.\n**Double Down:** add an equal bet, draw exactly one card, then stand. Available on a two card hand with enough cash.\n**Split:** split two matching ranks into two hands with an equal extra bet. Play each hand separately.',
+    '**Hit:** draw another card.\n**Stand:** keep your total and let the dealer play.\n**Double down:** add an equal bet, draw exactly one card, then stand. Available on a two card hand with enough cash.\n**Split:** split two matching ranks into two hands with an equal extra bet. Play each hand separately.',
   ].join('\n\n'),
   baccarat: [
     '**How to play baccarat**',
@@ -26,7 +26,7 @@ export const GAME_HELP = {
 
 export function gameHelpRow(game) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`game_help:${game}`).setLabel('Help').setEmoji('❔').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`game_help:${game}`).setLabel('How to play').setEmoji('❔').setStyle(ButtonStyle.Secondary),
   );
 }
 
