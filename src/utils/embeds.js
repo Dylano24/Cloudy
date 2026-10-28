@@ -12,8 +12,8 @@ import {
 } from './embedColorPolicy.js';
 
 const EMOJI_REGEX = /[\p{Extended_Pictographic}\uFE0F]/gu;
-const EMBED_FOOTER_SYMBOL = Symbol('titanbotFooterText');
-const EMBED_BASE_DESCRIPTION_SYMBOL = Symbol('titanbotBaseDescription');
+const EMBED_FOOTER_SYMBOL = Symbol('cloudyFooterText');
+const EMBED_BASE_DESCRIPTION_SYMBOL = Symbol('cloudyBaseDescription');
 const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 const WRONG_CHANNEL_COLOR = CLOUDY_RED_COLOR;
