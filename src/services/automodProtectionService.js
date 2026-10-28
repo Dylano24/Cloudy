@@ -118,9 +118,19 @@ function getImageUrls(message) {
   return [...new Set(urls)].slice(0, 4);
 }
 
+// An invalid or revoked key (401/403) fails every request the same way.
+// Pause for a while instead of sending one doomed request per image.
+const MODERATION_AUTH_BACKOFF_MS = 15 * 60_000;
+let moderationAuthFailedUntil = 0;
+const moderationPaused = () => Date.now() < moderationAuthFailedUntil;
+function pauseModerationAfterAuthFailure() {
+  moderationAuthFailedUntil = Date.now() + MODERATION_AUTH_BACKOFF_MS;
+}
+
 async function moderateImageUrl(url) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || !url) return { unsafe: false, unavailable: true };
+  if (moderationPaused()) return { unsafe: false, unavailable: true };
 
   try {
     const response = await fetch('https://api.openai.com/v1/moderations', {
@@ -137,7 +147,12 @@ async function moderateImageUrl(url) {
     });
 
     if (!response.ok) {
-      logger.warn(`Image moderation request failed with status ${response.status}`);
+      if (response.status === 401 || response.status === 403) {
+        pauseModerationAfterAuthFailure();
+        logger.warn(`Image moderation request failed with status ${response.status}: check OPENAI_API_KEY; paused for 15 minutes`);
+      } else {
+        logger.warn(`Image moderation request failed with status ${response.status}`);
+      }
       return { unsafe: false, unavailable: true };
     }
 

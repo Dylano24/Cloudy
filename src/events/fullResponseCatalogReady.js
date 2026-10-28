@@ -29,6 +29,7 @@ import { getGuildConfig } from '../services/config/guildConfig.js';
 import { isBotResponsePayload } from '../utils/botResponseIntent.js';
 import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
 import { DEDICATED_MESSAGE_LOG_CHANNEL_IDS } from '../services/messageLogDestination.js';
+import { resolveUpdatedMessage } from '../utils/updatedMessage.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogCapture');
 const MESSAGE_EDIT_PATCH_MARKER = Symbol.for('cloudy.fullResponseCatalogMessageEdit');
@@ -660,6 +661,9 @@ export default {
     seedKnownGameResponses();
 
     client.on(Events.MessageCreate, async message => {
+      // Only Cloudy's own messages are captured or templated here; return
+      // before the per-message guild config read for everyone else.
+      if (message?.author?.id !== message?.client?.user?.id) return;
       if (isDedicatedGamblingGuideMessage(message)) return;
       if (String(message?.content || '').trim() === SYSTEM_CATALOG_CONTENT || isBuilderAuthoredMessage(message)) return;
       try {
@@ -672,9 +676,7 @@ export default {
     });
 
     client.on(Events.MessageUpdate, async (oldMessage, newMessage) => {
-      const message = newMessage?.partial
-        ? await newMessage.fetch().catch(() => null)
-        : newMessage;
+      const message = await resolveUpdatedMessage(newMessage, { cloudyOnly: true });
       if (!message) return;
       if (isDedicatedGamblingGuideMessage(message)) return;
       if (String(message.content || '').trim() === SYSTEM_CATALOG_CONTENT || isBuilderAuthoredMessage(message)) return;

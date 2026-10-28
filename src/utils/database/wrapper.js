@@ -12,6 +12,41 @@ function redisCacheTtlForKey(key) {
     return 0;
 }
 
+// Redis-cached keys are read on hot paths: the Reappear index is read for
+// every user message in a channel. Most channels have no rule, so the key is
+// simply absent and every message cost a PostgreSQL query. Remember "absent"
+// for the same TTL. Every write/delete through setInDb/deleteFromDb clears it
+// at once, and a read that raced with a write never records "absent".
+const knownMissing = new Map();
+const keyWriteCounts = new Map();
+const MAX_KNOWN_MISSING = 10_000;
+
+function isKnownMissing(key) {
+    const expiresAt = knownMissing.get(key);
+    if (!expiresAt) return false;
+    if (Date.now() < expiresAt) return true;
+    knownMissing.delete(key);
+    return false;
+}
+
+function rememberMissing(key, ttl) {
+    knownMissing.delete(key);
+    knownMissing.set(key, Date.now() + ttl);
+    while (knownMissing.size > MAX_KNOWN_MISSING) knownMissing.delete(knownMissing.keys().next().value);
+}
+
+function noteKeyWrite(key) {
+    knownMissing.delete(key);
+    keyWriteCounts.set(key, (keyWriteCounts.get(key) || 0) + 1);
+    if (keyWriteCounts.size > MAX_KNOWN_MISSING) keyWriteCounts.delete(keyWriteCounts.keys().next().value);
+}
+
+// Test helper.
+export function clearKnownMissingKeys() {
+    knownMissing.clear();
+    keyWriteCounts.clear();
+}
+
 function requiresPersistentStorage(key) {
     if (typeof key !== 'string') return false;
     return /^guild:[^:]+:config$/.test(key) || /^guild:[^:]+:ticket:/.test(key);
@@ -246,6 +281,8 @@ export async function initializeDatabase() {
 export async function getFromDb(key, defaultValue = null, options = {}) {
     try {
         const cacheTtl = redisCacheTtlForKey(key);
+        if (cacheTtl > 0 && !options.strict && isKnownMissing(key)) return defaultValue;
+        const writesBefore = cacheTtl > 0 ? keyWriteCounts.get(key) || 0 : 0;
         if (cacheTtl > 0) {
             const cached = await redisGetJson(key);
             if (cached !== null) return cached;
@@ -254,6 +291,8 @@ export async function getFromDb(key, defaultValue = null, options = {}) {
         const value = await db.get(key, null, options);
         if (value !== null && cacheTtl > 0) {
             void redisSetJson(key, value, cacheTtl);
+        } else if (value === null && cacheTtl > 0 && (keyWriteCounts.get(key) || 0) === writesBefore) {
+            rememberMissing(key, cacheTtl);
         }
         return value === null ? defaultValue : value;
     } catch (error) {
@@ -265,7 +304,13 @@ export async function getFromDb(key, defaultValue = null, options = {}) {
 
 export async function setInDb(key, value, ttl = null) {
     try {
-        const result = await db.set(key, value, ttl);
+        const tracked = redisCacheTtlForKey(key) > 0;
+        if (tracked) noteKeyWrite(key);
+        const result = await Promise.resolve(db.set(key, value, ttl)).finally(() => {
+            // A read that finished while this write was in flight may have
+            // recorded "absent": clear it once the write has landed.
+            if (tracked) noteKeyWrite(key);
+        });
         const ok = result !== false;
         const cacheTtl = redisCacheTtlForKey(key);
         if (ok && cacheTtl > 0) {
@@ -280,7 +325,11 @@ export async function setInDb(key, value, ttl = null) {
 
 export async function deleteFromDb(key) {
     try {
-        const result = await db.delete(key);
+        const tracked = redisCacheTtlForKey(key) > 0;
+        if (tracked) noteKeyWrite(key);
+        const result = await Promise.resolve(db.delete(key)).finally(() => {
+            if (tracked) noteKeyWrite(key);
+        });
         const ok = result !== false;
         if (redisCacheTtlForKey(key) > 0) {
             void redisDelete(key);
