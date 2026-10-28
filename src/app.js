@@ -42,7 +42,7 @@ function runtimeBuildInfo() {
   };
 }
 
-class TitanBot extends Client {
+class CloudyBot extends Client {
   constructor() {
     super({
       partials: [Partials.Message, Partials.Channel],
@@ -77,7 +77,7 @@ class TitanBot extends Client {
 
   async start() {
     try {
-      startupLog('Starting TitanBot...');
+      startupLog('Starting Cloudy...');
       const buildInfo = runtimeBuildInfo();
       startupLog(
         `Build: ${buildInfo.commit || 'unknown'}`
@@ -499,7 +499,7 @@ class TitanBot extends Client {
 }
 
 try {
-  const bot = new TitanBot();
+  const bot = new CloudyBot();
   
   const setupShutdown = () => {
     process.on('SIGTERM', () => bot.shutdown('SIGTERM'));
@@ -539,4 +539,4 @@ try {
   process.exit(1);
 }
 
-export default TitanBot;
+export default CloudyBot;
