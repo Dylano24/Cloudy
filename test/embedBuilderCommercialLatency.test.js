@@ -154,7 +154,7 @@ test('slash autocomplete uses the non-blocking Search loader and never the full 
   assert.ok(fastStart >= 0 && fastEnd > fastStart);
   const fast = source.slice(fastStart, fastEnd);
 
-  assert.match(fast, /peekEmbedRegistry\(guildId\)/);
+  assert.match(fast, /peekEmbedRegistry\(guildId(?:, \{ clone: false \})?\)/);
   assert.match(fast, /cached\?\.records\?\.length/);
   assert.doesNotMatch(fast, /await getEmbedRegistry/);
   assert.doesNotMatch(fast, /getFastCanonicalBuilderRecords\(interaction\.guild\)/);

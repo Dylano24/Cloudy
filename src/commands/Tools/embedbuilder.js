@@ -579,15 +579,18 @@ async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, stat
         markDelete('search_updated');
         await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
         resetBuilderAfterRecordDeletion(state);
-        await refreshBuilder(buttonInteraction, state);
-        await sendBuilderDeleteNotice(
-            buttonInteraction,
-            'Removed from Builder',
-            logTarget && ['exists', 'missing'].includes(logPresence?.status)
-                ? 'The selected Discord log message and its Builder Search entry were removed. Shared response templates remain operational.'
-                : 'The virtual catalog entry was removed from Builder Search. No separate physical log message was attached.',
-            0x57F287,
-        );
+        // The confirmation never waits for the preview/dashboard repaint.
+        await Promise.all([
+            refreshBuilder(buttonInteraction, state),
+            sendBuilderDeleteNotice(
+                buttonInteraction,
+                'Removed from Builder',
+                logTarget && ['exists', 'missing'].includes(logPresence?.status)
+                    ? 'The selected Discord log message and its Builder Search entry were removed. Shared response templates remain operational.'
+                    : 'The virtual catalog entry was removed from Builder Search. No separate physical log message was attached.',
+                0x57F287,
+            ),
+        ]);
         markDelete('first_visible');
         return true;
     }
@@ -721,13 +724,16 @@ async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, stat
     clearBuilderRecordCaches(guild.id);
     await cleanupBuilderButtonUi(buttonInteraction, state).catch(() => {});
     resetBuilderAfterRecordDeletion(state);
-    await refreshBuilder(buttonInteraction, state);
-    await sendBuilderDeleteNotice(
-        buttonInteraction,
-        'Removed from Builder',
-        'The Discord message, saved Builder record and Reappear rule were removed. You can use Post to publish this draft again.',
-        0x57F287,
-    );
+    // The confirmation never waits for the preview/dashboard repaint.
+    await Promise.all([
+        refreshBuilder(buttonInteraction, state),
+        sendBuilderDeleteNotice(
+            buttonInteraction,
+            'Removed from Builder',
+            'The Discord message, saved Builder record and Reappear rule were removed. You can use Post to publish this draft again.',
+            0x57F287,
+        ),
+    ]);
     markDelete('first_visible');
     return true;
 }

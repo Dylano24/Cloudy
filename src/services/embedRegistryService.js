@@ -702,14 +702,18 @@ const registrySearchCache = new Map();
 // synchronously and refreshes in the background, so a keystroke never waits on
 // a storage read while a registry write is queued.
 const registryLastKnown = new Map();
-export function peekEmbedRegistry(guildId, { current = false } = {}) {
+export function peekEmbedRegistry(guildId, { current = false, clone = true } = {}) {
     const key = String(guildId);
     const known = registryLastKnown.get(key);
     // A channel menu must not reuse a snapshot from before Save/Delete or an
     // in-flight mutation. Autocomplete keeps its existing last-known behavior.
     if (current && (!known || known.generation !== getEmbedRegistryGeneration(key)
         || registryMutationQueues.has(key))) return null;
-    return known ? structuredClone(known.records.filter(record => !isRecentlyPurgedMessage(record))) : null;
+    if (!known) return null;
+    const records = known.records.filter(record => !isRecentlyPurgedMessage(record));
+    // clone:false is for strictly read-only callers (Search ranking). It avoids
+    // deep-copying the whole registry after every bot-message registration.
+    return clone ? structuredClone(records) : records;
 }
 export async function getEmbedRegistry(guildId, { cached = false } = {}) {
     await loadPermanentPurgeSet(guildId);
