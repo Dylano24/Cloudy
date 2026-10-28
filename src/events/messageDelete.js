@@ -1,5 +1,5 @@
 import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback, resolveMessageDeleter } from '../services/deletionAttributionService.js';
-import { Events } from 'discord.js';
+import { Events, SnowflakeUtil } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { getReactionRoleMessage, deleteReactionRoleMessage } from '../services/reactionRoleService.js';
@@ -8,16 +8,25 @@ import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js'
 import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID } from '../services/messageLogDestination.js';
 import { prepareDeletedMessageMedia } from '../services/deletedMessageMediaService.js';
 import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
+import { forgetMessageSnapshot, getMessageSnapshot } from '../services/messageSnapshotService.js';
 
-const MAX_LOGGED_MESSAGE_CONTENT_LENGTH = 1024;
+// The log description holds up to 4096 characters; keep room for the
+// header lines. Longer text is attached in full as a .txt file.
+const MAX_LOGGED_MESSAGE_CONTENT_LENGTH = 3500;
 
 export default {
   name: Events.MessageDelete,
   once: false,
 
   async execute(message) {
+    const detectedAt = Date.now();
     try {
       if (!message.guild) return;
+
+      // The log does not depend on the cleanup below; start it at once so
+      // registry/database work never delays the deletion log.
+      const logging = logDeletedMessage(message, { detectedAt })
+        .catch(error => logger.error('Error logging deleted message:', error));
 
       const mayBeRegisteredEmbed = message.partial
         || !message.author
@@ -45,7 +54,7 @@ export default {
               data: {
                 title: 'Reaction Role Removed',
                 lines: [
-                  formatLogLine('Channel', message.channel ? `${message.channel.name} ${message.channel.toString()}` : 'Unknown'),
+                  formatLogLine('Channel', channelMention(message.channelId || message.channel?.id)),
                   formatLogLine('Message ID', `\`${message.id}\``),
                   formatLogLine('Cleanup', 'Database entry removed automatically'),
                 ],
@@ -60,7 +69,7 @@ export default {
         logger.warn(`Failed to clean up reaction role data for deleted message ${message.id}:`, reactionRoleCleanupError);
       }
 
-      await logDeletedMessage(message);
+      await logging;
 
     } catch (error) {
       logger.error('Error in messageDelete event:', error);
@@ -68,36 +77,82 @@ export default {
   }
 };
 
+function channelMention(channelId) {
+  return channelId ? `<#${channelId}>` : 'Unknown';
+}
+
+function createdTimestamp(message, snapshot) {
+  const known = Number(message.createdTimestamp) || Number(snapshot?.createdTimestamp);
+  if (Number.isFinite(known) && known > 0) return known;
+  // A message ID is a Discord snowflake: it always contains its creation time.
+  try {
+    return /^\d{17,20}$/.test(String(message.id)) ? SnowflakeUtil.timestampFrom(String(message.id)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function attachmentList(message, snapshot) {
+  const live = [...(message.attachments?.values?.() || [])];
+  if (live.length || !snapshot?.attachments?.length) return live;
+  return snapshot.attachments;
+}
+
+function embedSummary(embeds = []) {
+  return embeds.map(embed => [embed.title, embed.description, ...(embed.fields || []).map(field => `${field.name}: ${field.value}`)].filter(Boolean).join('\n')).join('\n\n');
+}
+
 export async function logDeletedMessage(message, options = {}) {
   if (!message.guild) return;
-  if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID].includes(message.channelId) || isBotActionFeedback(message)) return;
-  const deletedBy = await resolveMessageDeleter(message, options);
-  const media = await prepareDeletedMessageMedia(message);
+  const guildId = message.guild.id;
+  const channelId = message.channelId || message.channel?.id || null;
+  if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID].includes(channelId) || isBotActionFeedback(message)) return;
+  const detectedAt = options.detectedAt ?? Date.now();
+
+  // An uncached (partial) message has no author/content. Use the copy
+  // Cloudy stored when the message was sent or last edited.
+  const uncached = message.partial || !message.author;
+  const snapshot = !uncached ? null
+    : options.snapshot !== undefined ? options.snapshot : await getMessageSnapshot(guildId, message.id);
+  const authorId = message.author?.id || snapshot?.authorId || null;
+  const authorBot = message.author ? message.author.bot === true : snapshot?.authorBot === true;
+  const attachments = attachmentList(message, snapshot);
+
+  const [deletedBy, media] = await Promise.all([
+    options.deletedBy || resolveMessageDeleter(message, { bulk: options.bulk === true, authorId, authorBot, detectedAt }),
+    prepareDeletedMessageMedia({ attachments: new Map(attachments.map((attachment, index) => [attachment.id || String(index), attachment])) }),
+  ]);
+  // With neither cache nor snapshot, the matching audit entry names the author.
+  const resolvedAuthorId = authorId || deletedBy.authorId || null;
+  const created = createdTimestamp(message, snapshot);
 
   const metaLines = [
     formatLogLine('Deleted by', deletedBy.label),
-    formatLogLine('Channel', message.channel ? `${message.channel.name} ${message.channel.toString()}` : 'Unknown'),
+    formatLogLine('Type', deletedBy.type || 'Deleted'),
+    formatLogLine('Channel', channelMention(channelId)),
     formatLogLine('Message ID', `\`${message.id}\``),
-    formatLogLine('Message author', message.author ? message.author.toString() : 'Unknown'),
-    formatLogLine('Message created', Number.isFinite(message.createdTimestamp) ? `<t:${Math.floor(message.createdTimestamp / 1000)}:R>` : 'Unknown'),
+    formatLogLine('Message author', resolvedAuthorId ? `<@${resolvedAuthorId}>` : 'Unknown'),
+    formatLogLine('Message created', created ? `<t:${Math.floor(created / 1000)}:f>` : 'Unknown'),
   ];
 
-  let messageBody = null;
-  let fullBody = message.content || '';
-  if (message.content) {
-    messageBody = message.content.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH
-      ? `${message.content.substring(0, MAX_LOGGED_MESSAGE_CONTENT_LENGTH - 3)}...`
-      : message.content;
+  const content = message.content || (uncached ? snapshot?.content : '') || '';
+  let fullBody = content || embedSummary(message.embeds || []) || (uncached ? snapshot?.embedText : '') || '';
+  const stickers = [...(message.stickers?.values?.() || [])].map(sticker => sticker.name).filter(Boolean);
+  const stickerNames = stickers.length ? stickers : (uncached ? snapshot?.stickers || [] : []);
+  if (stickerNames.length) fullBody = [fullBody, `Stickers: ${stickerNames.join(', ')}`].filter(Boolean).join('\n\n');
+
+  let messageBody = fullBody
+    ? (fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH
+      ? `${fullBody.substring(0, MAX_LOGGED_MESSAGE_CONTENT_LENGTH - 3)}...`
+      : fullBody)
+    : null;
+  if (!messageBody && uncached && !snapshot && !attachments.length) {
+    messageBody = 'Content unavailable: this message was not cached before deletion.';
   }
 
-  if (!messageBody && message.embeds?.length) {
-    fullBody = message.embeds.map(embed => [embed.title, embed.description, ...(embed.fields || []).map(field => `${field.name}: ${field.value}`)].filter(Boolean).join('\n')).join('\n\n');
-    messageBody = fullBody.slice(0, MAX_LOGGED_MESSAGE_CONTENT_LENGTH);
-  }
-  if (!messageBody && message.partial) messageBody = 'Message content was not cached before deletion.';
-
-  if (message.attachments?.size > 0) {
-    metaLines.push(formatLogLine('Attachments', String(message.attachments.size)));
+  if (attachments.length > 0) {
+    const names = attachments.map(attachment => attachment.name).filter(Boolean).join(', ');
+    metaLines.push(formatLogLine('Attachments', names ? `${attachments.length} (${names})`.slice(0, 900) : String(attachments.length)));
     if (media.links.length) fullBody += `\n\nAttachments not copied:\n${media.links.join('\n')}`;
   }
 
@@ -108,20 +163,21 @@ export async function logDeletedMessage(message, options = {}) {
 
   await logEvent({
     client: message.client,
-    guildId: message.guild.id,
+    guildId,
     eventType: EVENT_TYPES.MESSAGE_DELETE,
     attachments: files,
     data: {
       title: 'Message deleted',
-      attachmentFallback: [...message.attachments?.values?.() || []].map(attachment => attachment.url).filter(Boolean).join('\n'),
+      attachmentFallback: attachments.map(attachment => attachment.url).filter(Boolean).join('\n'),
       lines: metaLines,
       quoted: true,
-      section: messageBody ? { title: 'Message', body: messageBody || '*(empty message)*' } : null,
-      userId: message.author?.id,
-      authorBot: message.author?.bot === true,
+      section: messageBody ? { title: 'Message', body: messageBody } : null,
+      userId: resolvedAuthorId,
+      authorBot,
       deletedById: deletedBy.id,
       deletionSource: deletedBy.source,
-      channelId: message.channelId || message.channel?.id,
+      channelId,
     }
   });
+  if (snapshot || !uncached) await forgetMessageSnapshot(guildId, message.id);
 }

@@ -1,9 +1,18 @@
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { PermissionFlagsBits } from 'discord.js';
+import { AUTOMOD_LOG_CHANNEL_ID } from './deletionAttributionService.js';
 
 export const CLOUDY_GUILD_ID = '1532882647838228723';
 export const OWNER_MOD_MESSAGE_LOG_ID = '1555895354187325552';
 export const MEMBER_MESSAGE_LOG_ID = '1555891729297580084';
+export const AUTOMOD_MESSAGE_LOG_ID = AUTOMOD_LOG_CHANNEL_ID;
+// Staff, Member and AutoMod message logs: styled completely in their send
+// path and never rewritten by generic template/branding listeners.
+export const DEDICATED_MESSAGE_LOG_CHANNEL_IDS = new Set([
+  OWNER_MOD_MESSAGE_LOG_ID,
+  MEMBER_MESSAGE_LOG_ID,
+  AUTOMOD_MESSAGE_LOG_ID,
+]);
 
 export function messageLogAuthorType(guild, userId, member, config = {}, authorBot = false) {
   if (authorBot || member?.user?.bot) return 'Bot';

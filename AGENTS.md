@@ -30,6 +30,13 @@ This file is the persistent working context for every Codex session that edits t
 - A manual Discord deletion removes a post that was only published (`explicitSave: false`); an explicitly Saved one stays as a detached template and is never reposted automatically.
 - `node scripts/embed-registry-audit.js --guild <id> [--title pop] [--verify-discord]` writes a backup and reports duplicates read-only.
 
+## Staff/Member/AutoMod message logs
+
+- Deletion log lines, in order: Deleted by, Type, Channel (`<#id>` only), Message ID, Message author, Message created (`<t:X:f>`), Author type (the message author's type, also for AutoMod removals).
+- `deletionAttributionService` never guesses: Cloudy's own deletions are recorded at the REST call; another person's deletion must match a NEW audit `extra.count` increment for that channel and author; a self-deletion is named only after the last audit check (~0.8 s) against a startup baseline. Ambiguous bursts stay `Unknown`.
+- Uncached deletions use `messageSnapshotService` (Redis, `MESSAGE_SNAPSHOT_TTL_HOURS`, default 72; removed once logged).
+- These channels are styled in `logEvent` (Cloudy footer at send) and skipped by the generic branding listeners. The registry keeps only the newest automatic row per log channel and log type.
+
 ## Current non-ticket log rules
 
 Ticket logs are excluded from all rules in this section and must remain unchanged.
