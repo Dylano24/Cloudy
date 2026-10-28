@@ -2,7 +2,7 @@ import { getColor } from '../../config/bot.js';
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder } from 'discord.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
-import { TitanBotError, ErrorTypes, replyUserError } from '../../utils/errorHandler.js';
+import { CloudyError, ErrorTypes, replyUserError } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import {
     DASHBOARD_IDLE_MS,
@@ -159,7 +159,7 @@ export default {
     async execute(interaction, config, client) {
         try {
             if (!hasManageGuildPermission(interaction.member)) {
-                throw new TitanBotError(
+                throw new CloudyError(
                     'User lacks ManageGuild permission',
                     ErrorTypes.PERMISSION,
                     'You need **Manage Server** permission to use this command.'
@@ -182,9 +182,9 @@ export default {
             try {
                 let errorMessage = 'An error occurred while executing this command.';
 
-                if (error instanceof TitanBotError) {
+                if (error instanceof CloudyError) {
                     errorMessage = error.userMessage || 'An error occurred. Please try again.';
-                    logger.debug(`TitanBotError [${error.type}]: ${error.message}`, error.context || {});
+                    logger.debug(`CloudyError [${error.type}]: ${error.message}`, error.context || {});
                 } else {
                     logger.error('Unexpected error in jointocreate command:', error);
                     errorMessage = 'An unexpected error occurred. Please try again or contact support.';
@@ -234,7 +234,7 @@ async function handleSetupSubcommand(interaction, client) {
                 const primaryTrigger = activeTriggerChannels[0];
                 const errorMessage = `This server already has a Join to Create channel set up: ${primaryTrigger}\n\nUse \`/jointocreate dashboard\` to modify it, or remove it first before creating a new one.`;
 
-                throw new TitanBotError(
+                throw new CloudyError(
                     'Guild already has a Join to Create channel',
                     ErrorTypes.VALIDATION,
                     errorMessage,
@@ -285,8 +285,8 @@ async function handleSetupSubcommand(interaction, client) {
         return responseMessage;
     } catch (error) {
         logger.error('Error in handleSetupSubcommand:', error);
-        if (error instanceof TitanBotError) throw error;
-        throw new TitanBotError(
+        if (error instanceof CloudyError) throw error;
+        throw new CloudyError(
             `Setup failed: ${error.message}`,
             ErrorTypes.DISCORD_API,
             'Failed to set up Join to Create system. Please check bot permissions.'
@@ -323,7 +323,7 @@ async function handleConfigSubcommand(interaction, client) {
         const message = await interaction.fetchReply();
 
         if (!message || typeof message.createMessageComponentCollector !== 'function') {
-            throw new TitanBotError(
+            throw new CloudyError(
                 'Failed to fetch interaction reply for collector setup',
                 ErrorTypes.DISCORD_API,
                 'Failed to open configuration controls. Please run `/jointocreate dashboard` again.'
@@ -363,11 +363,11 @@ async function handleConfigSubcommand(interaction, client) {
                 }
                 touchDashboardSessionMessage(message, buttonInteraction);
             } catch (error) {
-                const userMessage = error instanceof TitanBotError
+                const userMessage = error instanceof CloudyError
                     ? error.userMessage || 'An error occurred.'
                     : 'An error occurred while processing your request.';
 
-                if (error instanceof TitanBotError) {
+                if (error instanceof CloudyError) {
                     logger.debug(`Button interaction validation error: ${error.message}`, error.context || {});
                 } else {
                     logger.error('Unexpected error in config button interaction:', error);
@@ -384,8 +384,8 @@ async function handleConfigSubcommand(interaction, client) {
             await deleteLifecycleMessage(message, interaction);
         });
     } catch (error) {
-        if (error instanceof TitanBotError) throw error;
-        throw new TitanBotError(
+        if (error instanceof CloudyError) throw error;
+        throw new CloudyError(
             `Config failed: ${error.message}`,
             ErrorTypes.DATABASE,
             'Failed to load configuration.'
@@ -434,7 +434,7 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
 
         const newTemplate = modalSubmission.fields.getTextInputValue('name_template').trim();
         if (!newTemplate) {
-            throw new TitanBotError(
+            throw new CloudyError(
                 'Channel name template cannot be empty',
                 ErrorTypes.VALIDATION,
                 'Channel name template cannot be empty.'
@@ -450,7 +450,7 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
 
         const savedConfig = await getChannelConfiguration(client, interaction.guild.id, triggerChannel.id);
         if (savedConfig.channelConfig?.nameTemplate !== newTemplate) {
-            throw new TitanBotError(
+            throw new CloudyError(
                 'Channel name template did not persist',
                 ErrorTypes.DATABASE,
                 'The channel name could not be saved. Please try again.'
@@ -471,7 +471,7 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
                 .catch(() => false);
         }
         if (!dashboardUpdated) {
-            throw new TitanBotError(
+            throw new CloudyError(
                 'Saved channel name template but dashboard refresh failed',
                 ErrorTypes.DISCORD_API,
                 'The channel name was saved, but the dashboard could not be refreshed. Run the dashboard command again.'
@@ -492,9 +492,9 @@ async function handleNameTemplateModal(interaction, triggerChannel, client, dash
         if (successMessage) scheduleTransientDeletion(modalSubmission, successMessage);
     } catch (error) {
         if (error.code === 'INTERACTION_COLLECTOR_ERROR') return;
-        if (error instanceof TitanBotError) throw error;
+        if (error instanceof CloudyError) throw error;
         logger.error('Unexpected error in name template modal:', error);
-        throw new TitanBotError(
+        throw new CloudyError(
             `Modal error: ${error.message}`,
             ErrorTypes.UNKNOWN,
             'An error occurred while updating the template.'
@@ -548,9 +548,9 @@ async function handleUserLimitModal(interaction, triggerChannel, client, dashboa
         });
     } catch (error) {
         if (error.code === 'INTERACTION_COLLECTOR_ERROR') return;
-        if (error instanceof TitanBotError) throw error;
+        if (error instanceof CloudyError) throw error;
         logger.error('Unexpected error in user limit modal:', error);
-        throw new TitanBotError(
+        throw new CloudyError(
             `Modal error: ${error.message}`,
             ErrorTypes.UNKNOWN,
             'An error occurred while updating the user limit.'
@@ -604,9 +604,9 @@ async function handleBitrateModal(interaction, triggerChannel, client, dashboard
         });
     } catch (error) {
         if (error.code === 'INTERACTION_COLLECTOR_ERROR') return;
-        if (error instanceof TitanBotError) throw error;
+        if (error instanceof CloudyError) throw error;
         logger.error('Unexpected error in bitrate modal:', error);
-        throw new TitanBotError(
+        throw new CloudyError(
             `Modal error: ${error.message}`,
             ErrorTypes.UNKNOWN,
             'An error occurred while updating the bitrate.'
@@ -694,9 +694,9 @@ async function handleChannelDeletion(interaction, triggerChannel, client) {
             }
         });
     } catch (error) {
-        if (error instanceof TitanBotError) throw error;
+        if (error instanceof CloudyError) throw error;
         logger.error('Unexpected error in handleChannelDeletion:', error);
-        throw new TitanBotError(
+        throw new CloudyError(
             `Deletion error: ${error.message}`,
             ErrorTypes.UNKNOWN,
             'An error occurred while removing the channel.'
