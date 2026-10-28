@@ -63,4 +63,4 @@ jobs:
         run: node --test test/economyPostgresTransfer.integration.test.js test/economyPostgresDaily.integration.test.js
 
       - name: Verify focused audit regression tests
-        run: node --test test/publicApiRateLimitOrder.test.js test/economyAtomicTransfer.test.js test/massModerationTargets.test.js test/robberyVictimBalancePersistence.test.js test/interactionEditReplyNoErrorMessage.test.js test/levelingLeaderboardConcurrency.test.js test/economyAtomicDailyClaim.test.js test/dailyCommandAtomic.test.js test/cloudyLegacyBrandMigration.test.js
+        run: node --test test/publicApiRateLimitOrder.test.js test/economyAtomicTransfer.test.js test/massModerationTargets.test.js test/robberyVictimBalancePersistence.test.js test/interactionEditReplyNoErrorMessage.test.js test/levelingLeaderboardConcurrency.test.js test/economyAtomicDailyClaim.test.js test/dailyCommandAtomic.test.js test/cloudyLegacyBrandMigration.test.js test/moderationDeliveryLatency.test.js
