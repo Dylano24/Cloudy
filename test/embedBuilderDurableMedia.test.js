@@ -124,7 +124,7 @@ test('a saved GIF migrates from Discord attachment to immutable URL on title edi
   assert.equal((await saveModifiedEmbed(guild,state)).ok,true);
   assert.equal(message.editCalls.length,2);
   assert.equal(message.embeds[0].image.url,image);
-  assert.equal(message.embeds[0].thumbnail,undefined);
+  assert.ok(message.embeds[0].thumbnail == null, 'logo removal leaves no thumbnail');
   assert.equal((await getEmbedRegistry(guildId)).length,1);
   assert.equal((await getEmbedRegistry(guildId))[0].snapshot.title,'TEST 3');
 });
