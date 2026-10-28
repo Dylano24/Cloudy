@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { db } from '../src/utils/database.js';
 import { logDeletedMessage } from '../src/events/messageDelete.js';
 import {
@@ -11,7 +14,7 @@ import {
 } from '../src/services/deletionAttributionService.js';
 import { CLOUDY_GUILD_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
 
-function setup({ failVideoUpload = false } = {}) {
+function setup() {
   const values = new Map();
   const storage = { get: async key => values.get(key) || null, set: async (key, value) => { values.set(key, value); return true; }, delete: async key => values.delete(key) };
   db.initialized = true; db.useFallback = false; db.connectionType = 'test'; db.db = storage;
@@ -30,7 +33,6 @@ function setup({ failVideoUpload = false } = {}) {
     permissionsFor: () => ({ has: () => true }),
     send: async payload => {
       const files = payload.files || [];
-      if (failVideoUpload && !payload.embeds && files.some(file => file.name.endsWith('.mp4'))) throw new Error('Request entity too large');
       sent.push({ id, payload, embed: payload.embeds?.[0]?.toJSON?.() || null, files });
       return { id: `log-${sent.length}`, attachments: new Collection(files.map((file, index) => [String(index),
         { name: file.name, url: `https://cdn.discordapp.com/attachments/${id}/${index}/${file.name}?ex=1` }])) };
@@ -80,37 +82,40 @@ test('Type names the one who deleted the message: Staff, Bot, or Member only for
   assert.ok(sent.every(entry => !/Author type/.test(entry.embed.description)));
 });
 
-test('a deleted video is sent just above the log and linked inside the embed, without editing the log', async t => {
-  t.mock.method(globalThis, 'fetch', async url => new Response(Buffer.from(url.endsWith('.mp4') ? 'video bytes' : 'photo bytes'),
-    { headers: { 'content-type': url.endsWith('.mp4') ? 'video/mp4' : 'image/png' } }));
+test('a deleted video is hosted on Cloudy\'s own page and linked in the log; nothing is shown above the log', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cloudy-deleted-media-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  process.env.CLOUDY_EMBED_MEDIA_DIR = dir;
+  process.env.CLOUDY_EMBED_MEDIA_BASE_URL = 'https://cloudy.test';
+  t.after(() => { delete process.env.CLOUDY_EMBED_MEDIA_DIR; delete process.env.CLOUDY_EMBED_MEDIA_BASE_URL; });
+  t.mock.method(globalThis, 'fetch', async url => new Response(Buffer.from(url.endsWith('.mov') ? 'video bytes' : 'photo bytes'),
+    { headers: { 'content-type': url.endsWith('.mov') ? 'video/quicktime' : 'image/png' } }));
   const { sent, message } = setup();
   const deleted = message('1300000000000000501', 'member', { content: '', attachments: new Collection([
     ['p', { id: 'p', name: 'photo.png', contentType: 'image/png', url: 'https://cdn.discordapp.com/attachments/1/2/photo.png' }],
-    ['v', { id: 'v', name: 'clip.mp4', contentType: 'video/mp4', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4' }],
+    ['v', { id: 'v', name: 'clip.mov', contentType: 'video/quicktime', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mov' }],
   ]) });
   rememberMessageDeleter(deleted, { id: 'mod' });
   await logDeletedMessage(deleted);
 
-  assert.equal(sent.length, 2);
-  // 1. The video on its own, so Discord gives it a lasting link.
-  assert.equal(sent[0].embed, null);
-  assert.deepEqual(sent[0].files.map(file => file.name), ['clip.mp4']);
-  // 2. The log: photo inside the embed, video as a clickable link.
-  const log = sent[1];
+  // One Discord message: the log. The video is not uploaded to Discord.
+  assert.equal(sent.length, 1);
+  const log = sent[0];
   assert.deepEqual(log.files.map(file => file.name), ['photo.png']);
   assert.equal(log.embed.image.url, 'attachment://photo.png');
-  // Staff deleted it, so both go to the staff log, video directly above.
-  assert.deepEqual(sent.map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID]);
-  assert.deepEqual(log.embed.fields, [{
-    name: 'Video',
-    value: `[clip.mp4](https://cdn.discordapp.com/attachments/${OWNER_MOD_MESSAGE_LOG_ID}/0/clip.mp4?ex=1)`,
-  }]);
-  assert.match(log.embed.description, /\*\*Message created:\*\* <t:1700000000:f>\n\n\*\*Message\*\*\n\*\*Attachments:\*\* 2/);
+  assert.equal(log.embed.fields.length, 1);
+  assert.equal(log.embed.fields[0].name, 'Video');
+  const link = log.embed.fields[0].value.match(/^\[clip\.mov\]\((https:\/\/cloudy\.test\/deleted-media\/([A-Za-z0-9_-]{32}))\)$/);
+  assert.ok(link, log.embed.fields[0].value);
+  // The hosted copy is exactly the deleted video.
+  assert.equal((await readFile(join(dir, 'deleted-media', link[2] + '.video'))).toString(), 'video bytes');
+  assert.match(log.embed.description, /\*\*Attachments:\*\* 2 \(photo\.png, clip\.mov\)/);
 });
 
-test('if the separate video upload fails, the video stays attached to the log itself', async t => {
+test('without video storage the video stays attached to the log itself (never lost)', async t => {
+  delete process.env.CLOUDY_EMBED_MEDIA_DIR;
   t.mock.method(globalThis, 'fetch', async () => new Response(Buffer.from('video bytes'), { headers: { 'content-type': 'video/mp4' } }));
-  const { sent, message } = setup({ failVideoUpload: true });
+  const { sent, message } = setup();
   const deleted = message('1300000000000000601', 'member', { attachments: new Collection([
     ['v', { id: 'v', name: 'clip.mp4', contentType: 'video/mp4', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4' }],
   ]) });

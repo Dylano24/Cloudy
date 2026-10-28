@@ -54,13 +54,11 @@ test('deleted human, moderator and bot messages route by author, including bulk 
     ['photo', { name: 'photo.png', url: 'https://cdn.discordapp.com/attachments/one/photo.png', contentType: 'image/png' }],
     ['video', { name: 'video.mp4', url: 'https://cdn.discordapp.com/attachments/one/video.mp4', contentType: 'video/mp4' }],
   ]) }));
-  // The video goes just above the log (Discord does not play video in bot
-  // embeds) and is linked inside it; the photo is shown inside the embed.
-  assert.equal(sent.at(-2).embed, null);
-  assert.deepEqual(sent.at(-2).files.map(file => [file.name, file.attachment.toString()]), [['video.mp4', 'video bytes']]);
-  assert.deepEqual(sent.at(-1).files.map(file => [file.name, file.attachment.toString()]), [['photo.png', 'photo bytes']]);
+  // Without video hosting (no media volume here) the video stays attached
+  // to the log itself; the photo is shown inside the embed.
+  assert.deepEqual(sent.at(-1).files.map(file => [file.name, file.attachment.toString()]), [['photo.png', 'photo bytes'], ['video.mp4', 'video bytes']]);
   assert.equal(sent.at(-1).embed.image?.url, 'attachment://photo.png');
-  assert.equal(sent.at(-1).embed.fields[0].value, `[video.mp4](https://cdn.discordapp.com/attachments/${MEMBER_MESSAGE_LOG_ID}/0/video.mp4)`);
+  assert.equal(sent.at(-1).embed.fields, undefined);
   assert.equal(sent.at(-1).id, MEMBER_MESSAGE_LOG_ID);
   const destination = guild.channels.cache.get(MEMBER_MESSAGE_LOG_ID);
   const originalSend = destination.send;
