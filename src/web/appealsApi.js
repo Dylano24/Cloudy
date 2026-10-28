@@ -106,7 +106,18 @@ export function registerAppealsApi(app, client) {
         }],
       });
 
-      if (await client.db.set(appealReviewKey(review.guildId, id), { ...review, messageId: sent.id }) === false) throw new Error('Appeal review could not be saved.');
+      // A publicly visible appeal must never be left without the persisted
+      // review record required by staff buttons. Roll back the Discord post
+      // on a confirmed rejected write so retries do not create orphan posts.
+      const persisted = await client.db.set(
+        appealReviewKey(review.guildId, id), { ...review, messageId: sent.id },
+      );
+      if (persisted === false) {
+        await sent.delete().catch(deleteError => {
+          logger.warn('[Appeals] Could not remove unsaved appeal message:', deleteError);
+        });
+        throw new Error('Appeal review could not be saved.');
+      }
 
       logger.info(`[Appeals] Delivered ${id} to channel ${channel.id}.`);
       return res.status(200).json({ ok: true, id });
