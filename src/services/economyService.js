@@ -32,6 +32,65 @@ class EconomyService {
 
   static async claimDaily(client, guildId, userId) {
     logger.debug(`[ECONOMY_SERVICE] claimDaily requested`, { userId, guildId });
+
+    if (client.db?.getConnectionType?.() === 'postgresql'
+        && typeof client.db.mutateEconomyAccount === 'function') {
+      const now = Date.now();
+      try {
+        const { account } = await client.db.mutateEconomyAccount(
+          guildId, userId, getInitialEconomyData(), data => {
+            const remaining = (data.lastDaily || 0) + this.DAILY_COOLDOWN - now;
+            if (remaining > 0) {
+              const error = new Error('Daily cooldown active');
+              error.code = 'ECONOMY_DAILY_COOLDOWN';
+              error.remaining = remaining;
+              throw error;
+            }
+            const nextWallet = (data.wallet || 0) + this.DAILY_AMOUNT;
+            if (!Number.isSafeInteger(nextWallet) || nextWallet < 0) {
+              const error = new Error('Invalid balance state');
+              error.code = 'ECONOMY_UNSAFE_BALANCE';
+              throw error;
+            }
+            data.wallet = nextWallet;
+            data.lastDaily = now;
+          },
+        );
+        logger.info('[ECONOMY_TRANSACTION] Daily claimed', {
+          userId, guildId, amount: this.DAILY_AMOUNT,
+          newWallet: account.wallet,
+          timestamp: new Date().toISOString(),
+          source: 'claim_daily',
+        });
+        return {
+          earned: this.DAILY_AMOUNT,
+          newWallet: account.wallet,
+          nextClaimTime: new Date(now + this.DAILY_COOLDOWN),
+        };
+      } catch (error) {
+        if (error?.code === 'ECONOMY_DAILY_COOLDOWN') {
+          throw createError(
+            'Daily cooldown active',
+            ErrorTypes.RATE_LIMIT,
+            `You need to wait before claiming daily again. Try again in **${this.formatDuration(error.remaining)}**.`,
+            { remaining: error.remaining, cooldownType: 'daily' },
+          );
+        }
+        if (error?.code === 'ECONOMY_UNSAFE_BALANCE') {
+          throw createError(
+            'Invalid balance state', ErrorTypes.VALIDATION,
+            'Operation would create an invalid account balance.',
+            { operation: 'claimDaily', userId, guildId },
+          );
+        }
+        logger.error('[ECONOMY_SERVICE] Atomic daily claim failed', error, { userId, guildId });
+        throw createError(
+          'Failed to save daily claim', ErrorTypes.DATABASE,
+          'Failed to process your daily. Please try again.',
+          { userId, guildId },
+        );
+      }
+    }
     
     const userData = await getEconomyData(client, guildId, userId);
     if (!userData) {
