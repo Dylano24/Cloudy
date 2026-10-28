@@ -28,7 +28,7 @@ on:
 
 concurrency:
   group: fast-quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -36,7 +36,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -60,13 +60,38 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
 
-      # Separate gates make lint, dependency and full-suite failures diagnosable.
-      # Bound node test workers to protect GitHub-hosted runners from memory spikes.
+      # Static checks are independent of test-suite hangs.
       - name: Dependency audit
         run: npm audit --audit-level=moderate
 
       - name: Lint entire repository
         run: npm run lint:fast
-
-      - name: Run complete regression suite
-        run: node --test --test-concurrency=6
+ 
+  full-regressions:
+    name: Full regression suite (shard ${{ matrix.shard }}/8)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+      - name: Run isolated test shard with bounded execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Node sharding covers the entire discovered regression suite.
+          # A hung test fails its named shard rather than holding every check
+          # for 25 minutes or being silently treated as passing.
+          timeout --signal=TERM --kill-after=10s 9m \
+            node --test --test-concurrency=3 --test-timeout=120000 \
+            --test-shard=${{ matrix.shard }}/8
