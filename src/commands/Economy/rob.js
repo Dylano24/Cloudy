@@ -144,16 +144,22 @@ export default {
             });
         }
 
-        const resultEmbed = outcome.kind === 'success'
-            ? successEmbed(
+        // Preserve explicit resultEmbed assignments: the source-based
+        // Embed Builder catalog discovers the fields/footer through this
+        // variable in addition to rendering the runtime response.
+        let resultEmbed;
+        if (outcome.kind === 'success') {
+            resultEmbed = successEmbed(
                 'Robbery successful',
-                `You successfully stole **$${outcome.amount.toLocaleString()}** from ${victimUser.username}!`
-            )
-            : buildUserErrorEmbed(
+                `You successfully stole **${outcome.amount.toLocaleString()}** from ${victimUser.username}!`
+            );
+        } else {
+            resultEmbed = buildUserErrorEmbed(
                 'unknown',
-                `You failed the robbery and were caught! You were fined **$${outcome.amount.toLocaleString()}** of your own cash.`,
+                `You failed the robbery and were caught! You were fined **${outcome.amount.toLocaleString()}** of your own cash.`,
                 { titleOverride: 'Robbery failed' }
             );
+        }
 
         resultEmbed
             .addFields(
