@@ -10,28 +10,12 @@ import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
 import { createSingleFlight } from '../utils/singleFlight.js';
+import { preparePatchNotesBanner, repairMissingPatchBanner, samePatchArticle } from './patchNotesBannerService.js';
 
 const RUST_PATCH_CHANNEL_ID = '1533886914459861103';
 const RUST_NEWS_FEED = 'https://rust.facepunch.com/rss/news';
 const LAST_PATCH_KEY = `global:rust:patch-notes:${RUST_PATCH_CHANNEL_ID}:last-link:v6`;
 
-const LATEST_KNOWN_PATCH = {
-    title: 'Power Trip',
-    link: 'https://rust.facepunch.com/news/power-trip',
-    description: "This month's update brings Player Maintained Monuments, including a Satellite Crash, Dome Pumping and a restorable Power Plant, plus balances, bug fixes, optimisations and improvements.",
-    publishedAt: '2026-08-06T18:00:00Z',
-    image: 'https://files.facepunch.com/lewis/2026/August/pt_hero.jpg',
-    body: [
-        '### Player Maintained Monuments',
-        'Restore and power key monuments across the island, including Power Plant production and new monument interactions.',
-        '',
-        '### Satellite Crash',
-        'Trigger a new server-wide satellite event and compete for its unique loot.',
-        '',
-        '### Balances & Improvements',
-        'Includes balancing changes, bug fixes, optimisations and quality-of-life improvements.',
-    ].join('\n'),
-};
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const STARTUP_RETRY_MS = 60 * 1000;
 const FAILURE_LOG_INTERVAL_MS = 60 * 60 * 1000;
@@ -86,8 +70,9 @@ function readTag(xml, tag) {
 }
 
 function readImage(xml) {
-    const enclosure = xml.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]*type=["']image\//i);
-    if (enclosure?.[1]) return decodeXml(enclosure[1]);
+    const enclosure = (xml.match(/<enclosure\b[^>]*>/gi) || []).find(tag => /type=["']image\//i.test(tag));
+    const enclosureUrl = enclosure?.match(/\burl=["']([^"']+)["']/i)?.[1];
+    if (enclosureUrl) return decodeXml(enclosureUrl);
 
     const media = xml.match(/<media:(?:content|thumbnail)[^>]+url=["']([^"']+)["']/i);
     if (media?.[1]) return decodeXml(media[1]);
@@ -136,7 +121,7 @@ export async function repairEncodedPatchText(message) {
 
 async function checkForRustPatch(client) {
     try {
-        let patch = LATEST_KNOWN_PATCH;
+        let patch;
 
         try {
             const feedUrl = `${RUST_NEWS_FEED}?cloudy=${Date.now()}`;
@@ -152,9 +137,10 @@ async function checkForRustPatch(client) {
                 throw new Error(`Rust feed returned HTTP ${response.status}`);
             }
 
-            patch = parseLatestPatch(await response.text()) || LATEST_KNOWN_PATCH;
+            patch = parseLatestPatch(await response.text());
+            if (!patch) throw new Error('No official Rust patch in feed');
         } catch (feedError) {
-            logger.warn('Could not fetch the Rust feed; posting the latest known official patch.', feedError);
+            throw new Error('Could not fetch current official Rust patch; retrying later', { cause: feedError });
         }
 
         const channel = await resolveCloudyChannel(client, 'rustPatch', { textOnly: true });
@@ -168,38 +154,43 @@ async function checkForRustPatch(client) {
             PermissionFlagsBits.ViewChannel,
             PermissionFlagsBits.SendMessages,
             PermissionFlagsBits.EmbedLinks,
+            PermissionFlagsBits.AttachFiles,
         ];
 
         if (permissions && !permissions.has(requiredPermissions)) {
             throw new Error(
-                `Cloudy needs View Channel, Send Messages and Embed Links in channel ${RUST_PATCH_CHANNEL_ID}`
+                `Cloudy needs View Channel, Send Messages, Embed Links and Attach Files in channel ${RUST_PATCH_CHANNEL_ID}`
             );
         }
 
         const previousLink = await client.db.get(LAST_PATCH_KEY);
 
+        let recentMessages;
         try {
-            const recentMessages = await channel.messages.fetch({ limit: 100 });
+            recentMessages = await channel.messages.fetch({ limit: 100 });
+        } catch (historyError) {
+            logger.warn('Could not verify recent Rust patch messages; using stored state.', historyError);
+        }
+        if (recentMessages) {
             const existingMessage = recentMessages.find(message =>
                 message.author.id === client.user.id &&
-                message.embeds.some(embed => embed.url === patch.link)
+                message.embeds.some(embed => samePatchArticle(embed.url, patch.link))
             );
 
             if (existingMessage) {
-                await repairEncodedPatchText(existingMessage);
+                await repairMissingPatchBanner(existingMessage, patch);
                 if (previousLink !== patch.link) {
                     await client.db.set(LAST_PATCH_KEY, patch.link);
                 }
                 return true;
             }
-        } catch (historyError) {
-            logger.warn('Could not verify recent Rust patch messages; using stored state.', historyError);
         }
 
-        if (previousLink === patch.link) {
+        if (samePatchArticle(previousLink, patch.link)) {
             return true;
         }
 
+        const banner = await preparePatchNotesBanner(patch);
         const articlePreview =
             patch.body ||
             patch.description ||
@@ -214,7 +205,7 @@ async function checkForRustPatch(client) {
             .setFooter({ text: 'Cloudy Patch Notes • Source: Facepunch Studios' })
             .setTimestamp(patch.publishedAt ? new Date(patch.publishedAt) : new Date());
 
-        if (patch.image) embed.setImage(patch.image);
+        embed.setImage(banner.image.url);
 
         const linkRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -226,6 +217,7 @@ async function checkForRustPatch(client) {
         await channel.send({
             embeds: [embed],
             components: [linkRow],
+            files: [banner.file],
         });
         await client.db.set(LAST_PATCH_KEY, patch.link);
         lastPatchChannelWarningAt = 0;

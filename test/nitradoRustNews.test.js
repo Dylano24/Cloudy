@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 import { Collection, ChannelType } from 'discord.js';
 import { articleLooksLikeRustServerNews, checkForNitradoUpdate, fetchLatestNitradoRustArticle, repairNitradoNewsText } from '../src/events/nitradoPatchNotesReady.js';
 
-const article = (title, slug, date) => ({ node: { title, slug, date, excerpt: '<p>Official server update. You and [&#8230;]</p>' } });
+const article = (title, slug, date) => ({ node: { title, slug, date, excerpt: '<p>Official server update. You and [&#8230;]</p>', featuredImage: { node: { sourceUrl: 'https://newsimg.nitrado.net/test.png' } } } });
 test('Nitrado uses public news API, selects newest Rust update and posts once across repeated checks', async t => {
   t.mock.method(globalThis, 'fetch', async url => {
+    if (url === 'https://newsimg.nitrado.net/test.png') return {
+      ok: true, headers: new Headers({ 'content-type': 'image/png' }),
+      arrayBuffer: async () => Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64'),
+    };
     assert.match(url, /^https:\/\/newsapi\.nitrado\.net\/graphql\?query=/);
     return { ok: true, json: async () => ({ data: { posts: { edges: [
       article('Rust Servers Update', 'rust-servers-update', '2025-01-01T12:00:00Z'),

@@ -58,3 +58,32 @@ test('an empty saved media setting cannot erase the live official Rust banner', 
 
   assert.equal(decorated.embed.toJSON().image.url, banner);
 });
+
+for (const url of ['https://rust.facepunch.com/news/halloween-2026/', 'https://server.nitrado.net/en-US/news/rust-update']) {
+  test(`saved runtime decorations keep the newly uploaded article banner: ${url}`, async () => {
+    const guildId = `required-banner-${new URL(url).hostname}`;
+    const channelId = 'patch-channel';
+    await saveEmbedTemplateDecoration(guildId, channelId, ['Official update'], { title: 'Official update', image: { url: 'https://example.com/stale-banner.jpg' } }, { applyImage: true });
+    const runtime = new EmbedBuilder({ title: 'Official update', url, image: { url: 'attachment://patch-notes-banner.png' } });
+    const decorated = await decorateEmbedWithSavedTemplate(guildId, channelId, runtime);
+    assert.equal(decorated.embed.toJSON().image.url, 'attachment://patch-notes-banner.png');
+  });
+}
+
+test('runtime catalog cannot remove the required article banner while applying saved styling', async () => {
+  const { primeSystemEmbedTemplateData, applyRuntimeEmbedTemplateData } = await import('../src/services/systemEmbedCatalogService.js');
+  primeSystemEmbedTemplateData('official catalog patch', 'patches/banner', { title: 'Official catalog patch', color: 123 });
+  const decorated = applyRuntimeEmbedTemplateData({ title: 'Official catalog patch', color: 456, url: 'https://server.nitrado.net/en-US/news/rust-update', image: { url: 'attachment://patch-notes-banner.png' } }, { channel: { name: 'patches/banner' } });
+  assert.equal(decorated.color, 123);
+  assert.equal(decorated.image?.url, 'attachment://patch-notes-banner.png');
+});
+
+test('Discord hosted article banners survive the MessageCreate saved-template pass', async () => {
+  const guildId = 'discord-hosted-patch';
+  const channelId = 'patch-channel';
+  await saveEmbedTemplateDecoration(guildId, channelId, ['Hosted update'], { title: 'Hosted update', image: { url: 'https://example.com/stale-image.jpg' } }, { applyImage: true });
+  const banner = 'https://cdn.discordapp.com/attachments/123/456/patch-notes-banner.png?ex=123';
+  const runtime = new EmbedBuilder({ title: 'Hosted update', url: 'https://server.nitrado.net/en-US/news/rust-update', image: { url: banner } });
+  const result = await decorateEmbedWithSavedTemplate(guildId, channelId, runtime);
+  assert.equal(result.embed.toJSON().image?.url, banner);
+});
