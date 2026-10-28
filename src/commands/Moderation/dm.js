@@ -72,24 +72,7 @@ export default {
                 ]
             });
 
-            await logEvent({
-                client: interaction.client,
-                guild: interaction.guild,
-                event: {
-                    action: "DM Sent",
-                    target: `${targetUser.tag} (${targetUser.id})`,
-                    executor: `${interaction.user.tag} (${interaction.user.id})`,
-                    reason: `Anonymous: ${anonymous ? 'Yes' : 'No'}`,
-                    metadata: {
-                        userId: targetUser.id,
-                        moderatorId: interaction.user.id,
-                        anonymous,
-                        messageLength: sanitized.length
-                    }
-                }
-            });
-
-            return await InteractionHelper.safeEditReply(interaction, {
+            await InteractionHelper.safeEditReply(interaction, {
                 embeds: [
                     successEmbed(
                         "DM Sent",
@@ -97,14 +80,45 @@ export default {
                     ),
                 ],
             });
+
+            // Delivery is already complete; a logging outage must not
+            // incorrectly report that the member never received the DM.
+            try {
+                await logEvent({
+                    client: interaction.client,
+                    guild: interaction.guild,
+                    event: {
+                        action: "DM Sent",
+                        target: `${targetUser.tag} (${targetUser.id})`,
+                        executor: `${interaction.user.tag} (${interaction.user.id})`,
+                        reason: `Anonymous: ${anonymous ? 'Yes' : 'No'}`,
+                        metadata: {
+                            userId: targetUser.id,
+                            moderatorId: interaction.user.id,
+                            anonymous,
+                            messageLength: sanitized.length
+                        }
+                    }
+                });
+            } catch (auditError) {
+                logger.warn('Sent staff DM but could not persist its audit log:', auditError);
+            }
+            return;
         } catch (error) {
             logger.error('DM command error:', error);
             
-if (error.code === 50007) {
-                return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: `Could not send a DM to ${targetUser.tag}. They may have DMs disabled.` });
+if ([50007, 50278].includes(Number(error?.code))) {
+                return await replyUserError(interaction, {
+                    type: ErrorTypes.UNKNOWN,
+                    message: `Could not send a DM to ${targetUser.tag}. They may have DMs disabled or no shared server with Cloudy.`,
+                });
             }
-            
-            return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: `Failed to send DM: ${error.message}` });
+
+            // Raw Discord/API error text may contain internal details.
+            return await replyUserError(interaction, {
+                type: ErrorTypes.UNKNOWN,
+                message: 'Could not send the DM. Please try again.',
+            });
         }
     }
 };
