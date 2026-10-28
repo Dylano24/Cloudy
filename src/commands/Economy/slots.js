@@ -14,7 +14,7 @@ export default {
   execute: withErrorHandling(async (interaction, config, client) => {
     const deferred = await InteractionHelper.safeDefer(interaction);
     if (!deferred) return;
-    const { amount, userData } = await takeBet(interaction, client);
+    const { amount, userData } = await takeBet(interaction, client, { settleImmediately: true });
     const reels = Array.from({ length: 3 }, () => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
     const multiplier = reels[0] === reels[1] && reels[1] === reels[2] ? MULTIPLIERS[reels[0]] : 0;
     const result = await settleBet(interaction, client, userData, amount, multiplier);
