@@ -318,6 +318,13 @@ async function processEmbedReappear(message) {
     const configs = await getFromDb(indexKey, []);
     if (!Array.isArray(configs) || !configs.length) return;
 
+    // A confirmed Builder Delete is persisted separately from the visible
+    // registry. Do not allow a legacy/orphan Reappear rule to resurrect an
+    // owner-deleted message, even after a bot restart or registry cache miss.
+    const permanentlyDeleted = new Set(
+      await getFromDb(`cloudy:embed-registry-deleted:${message.guild.id}`, []) || [],
+    );
+
     // Reappear ownership is independent from Search/registry indexing.
     // Delete writes an exact tombstone for the one embed being removed; only
     // that tombstone may disable this rule. Search/catalog updates must never
@@ -359,7 +366,18 @@ async function processEmbedReappear(message) {
       // from the Embed Registry: registry/Search indexing is asynchronous and
       // can temporarily miss or reclassify a freshly posted Builder embed.
       const disabled = await getFromDb(disableKey, null);
-      if (disabled) {
+      const deletedOrigin = permanentlyDeleted.has(`${message.channel.id}:${originalMessageId}`)
+        || (config?.messageId && permanentlyDeleted.has(`${message.channel.id}:${config.messageId}`));
+      if (disabled || deletedOrigin) {
+        if (deletedOrigin && !disabled) {
+          // Tombstone first so another in-flight event cannot restore the rule.
+          const marked = await setInDb(disableKey, {
+            disabled: true,
+            reason: 'builder-message-permanently-deleted',
+            disabledAt: new Date().toISOString(),
+          });
+          if (!marked) continue;
+        }
         const activeMessageId = config.messageId ? String(config.messageId) : null;
         if (activeMessageId) {
           const activeMessage = await message.channel.messages.fetch(activeMessageId).catch(() => null);
@@ -381,22 +399,39 @@ async function processEmbedReappear(message) {
         continue;
       }
 
+      // Never recreate an old embed when its current physical message was
+      // removed directly in Discord. The previous implementation treated a
+      // confirmed 10008 as permission to send the old saved content again.
+      const previousMessageId = config.messageId ? String(config.messageId) : null;
+      let previous = null;
+      let sourceMissing = !previousMessageId;
+      if (previousMessageId) {
+        try {
+          previous = await message.channel.messages.fetch(previousMessageId, { force: true });
+          sourceMissing = !previous;
+        } catch (error) {
+          if (Number(error?.code) === 10008) sourceMissing = true;
+          else throw error; // Temporary API failures must not delete the rule.
+        }
+      }
+      if (sourceMissing) {
+        // Disable the exact old rule, not a newer Test embed in this channel.
+        if (!await setInDb(disableKey, {
+          disabled: true, reason: 'physical-message-deleted',
+          disabledAt: new Date().toISOString(),
+        })) continue;
+        removedIds.add(originalMessageId);
+        await deleteFromDb(key);
+        continue;
+      }
+
       // Persist the pending move before removing the visible copy so a failed
       // send or restart leaves the saved embed ready for the next-message retry.
       if (!await setInDb(key, config)) continue;
-      const previousMessageId = config.messageId ? String(config.messageId) : null;
-      if (previousMessageId) {
-        const previous = await message.channel.messages.fetch(previousMessageId).catch(error => {
-          if (Number(error?.code) === 10008) return null;
-          throw error;
-        });
-        if (previous) {
-          const removedPrevious = await previous.delete().then(() => true).catch(() => false);
-          if (!removedPrevious) continue;
-          // Give Discord clients time to process deletion before the replacement.
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
+      const removedPrevious = await previous.delete().then(() => true).catch(() => false);
+      if (!removedPrevious) continue;
+      // Give Discord clients time to process deletion before the replacement.
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       if (await getFromDb(disableKey, null)) {
         removedIds.add(originalMessageId);
