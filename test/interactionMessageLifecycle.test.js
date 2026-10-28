@@ -246,6 +246,12 @@ test('Embed Builder post channel picker is exempt from 10-second cleanup until a
   );
   assert.match(
     postMessageSource,
-    /collector\.stop\('posted'\);[\s\S]*?deleteMessage\(channelPickerMessage\.id\)/,
+    /collector\.stop\('posted'\);[\s\S]*?confirmBuilderPostedMessage\(channelInteraction, successPayload\)/,
+    'the original private picker becomes the success confirmation',
+  );
+  assert.doesNotMatch(
+    postMessageSource,
+    /deleteMessage\(channelPickerMessage\.id\)|channelPickerMessage\.delete\(/,
+    'never delete the ephemeral picker after Post: Discord would show Original message was deleted',
   );
 });

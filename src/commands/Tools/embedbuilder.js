@@ -1912,6 +1912,18 @@ async function openPrivateBuilderEditor(buttonInteraction, state, mode) {
     if (message?.id) state.builderChildMessages.set(message.id, message);
 }
 
+// Keep the ephemeral picker as the component interaction's message after
+// a successful Post. Deleting it (including after 10 seconds) makes Discord
+// show "Original message was deleted" above the success confirmation.
+export async function confirmBuilderPostedMessage(interaction, payload) {
+    const updated = await interaction.editReply(payload)
+        .then(() => true).catch(() => false);
+    if (updated) return true;
+    await interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral })
+        .catch(() => null);
+    return false;
+}
+
 async function postMessage(buttonInteraction, state, guild, forceNew = false) {
     const isRepost = Boolean(state.modifyTarget);
     if (state.modifyTarget && !forceNew) {
@@ -2022,31 +2034,9 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         // message. Deleting it before followUp creates Discord's visible
         // "Message could not be loaded" reply reference. Replace the picker
         // in-place instead, then expire the private success feedback.
-        const updated = await channelInteraction.editReply(successPayload)
-            .then(() => true)
-            .catch(() => false);
-        if (!updated) {
-            // Leave the original component message available as a reference
-            // until this fallback confirmation has been sent.
-            const sentMessage = await channelInteraction.followUp({
-                ...successPayload,
-                flags: MessageFlags.Ephemeral,
-            }).catch(() => null);
-            if (sentMessage) removeTransientMessage(channelInteraction, sentMessage);
-        } else if (channelPickerMessage?.id) {
-            // Keep the edited success confirmation visible long enough to be
-            // read, then remove it using the original picker webhook token.
-            // Never delete the referenced picker BEFORE acknowledging Post.
-            const feedbackTimer = setTimeout(async () => {
-                if (buttonInteraction.webhook?.deleteMessage) {
-                    const deleted = await buttonInteraction.webhook.deleteMessage(channelPickerMessage.id)
-                        .then(() => true).catch(() => false);
-                    if (deleted) return;
-                }
-                await channelPickerMessage.delete?.().catch(() => {});
-            }, TRANSIENT_RESPONSE_TIMEOUT);
-            feedbackTimer.unref?.();
-        }
+        await confirmBuilderPostedMessage(channelInteraction, successPayload);
+        // The success message is ephemeral and expires naturally in Discord.
+        // Never delete it (or its original picker) with a cleanup timer.
         state.builderChildMessages?.delete?.(channelPickerMessage?.id);
 
         state.finishBuilder?.('posted');
@@ -2509,12 +2499,24 @@ export default {
                 }
             });
 
-            collector.on('end', async () => {
-                // BUILDER_PREVIEW_SESSION_CLEANUP_V1: dashboard cleanup and preview cleanup are one
-                // lifecycle. This also covers the five-minute inactivity path,
-                // where the dashboard is removed by builderSessionCleanup first.
-                await deleteBuilderPreviewMessage(state).catch(() => {});
-                await deleteBuilderDashboardMessage(state).catch(() => {});
+            collector.on('end', async (_collected, reason) => {
+                const completedPost = reason === 'posted';
+                // A successful Post has a private success reply linked to the
+                // Builder interaction. Deleting its source preview/dashboard
+                // makes Discord display "Original message was deleted".
+                // Keep the two ephemeral originals, disable their controls,
+                // and let Discord expire them. All other close/idle paths
+                // retain their previous immediate cleanup behavior.
+                if (completedPost) {
+                    unregisterBuilderPreviewMessage(state.builderMessage || state.builderMessageId);
+                    await Promise.allSettled([
+                        state.builderMessage?.edit?.({ components: [] }),
+                        state.builderDashboardMessage?.edit?.({ components: [] }),
+                    ]);
+                } else {
+                    await deleteBuilderPreviewMessage(state).catch(() => {});
+                    await deleteBuilderDashboardMessage(state).catch(() => {});
+                }
                 await cleanupBuilderButtonUi(interaction, state).catch(() => {});
                 const currentSession = ACTIVE_BUILDER_SESSIONS.get(builderSessionKey(interaction));
                 if (currentSession?.collector === collector) {
@@ -2546,11 +2548,13 @@ export default {
 
                 // The Builder/dashboard itself is temporary UI. The only messages
                 // that survive completion are the real embed that was saved or posted.
-                const rootDeleted = await dashboardMessage.delete?.()
-                    .then(() => true)
-                    .catch(() => false);
-                if (!rootDeleted) {
-                    await interaction.deleteReply().catch(() => {});
+                if (!completedPost) {
+                    const rootDeleted = await dashboardMessage.delete?.()
+                        .then(() => true)
+                        .catch(() => false);
+                    if (!rootDeleted) {
+                        await interaction.deleteReply().catch(() => {});
+                    }
                 }
                 deleteEmbedColorPickerSession(colorSessionToken);
             });
