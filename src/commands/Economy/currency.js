@@ -103,7 +103,7 @@ export default {
           embeds: [createEmbed({
             title: 'Confirmation required',
             description: 'No currency was created. Set confirm to True to give every member the selected amount.',
-            color: 'warning',
+            color: 'error',
           })],
         });
         return;
