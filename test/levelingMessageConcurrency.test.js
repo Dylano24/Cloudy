@@ -101,13 +101,13 @@ test('rejected persistence throws and prevents level-up messages or role awards'
   const f = fixture(options);
   const logLookups = t.mock.method(f.client.guilds.cache, 'get');
   await assert.rejects(addXp(f.client, f.guild, f.member, 2, { messageAward: true }),
-    error => error.name === 'TitanBotError' && error.type === 'database');
+    error => error.name === 'CloudyError' && error.type === 'database');
   assert.equal(f.state.totalXp, 49);
   assert.equal(f.announcements.length, 0);
   assert.equal(f.roleAwards.length, 0);
   assert.equal(logLookups.mock.callCount(), 0);
   await assert.rejects(saveUserLevelData(f.client, f.guild.id, f.member.id, f.state),
-    error => error.name === 'TitanBotError' && error.type === 'database');
+    error => error.name === 'CloudyError' && error.type === 'database');
   options.rejectWrites = false;
   assert.ok(await addXp(f.client, f.guild, f.member, 2, { messageAward: true }));
   assert.equal(f.state.totalXp, 51);

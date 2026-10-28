@@ -2,7 +2,7 @@
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { logger } from './logger.js';
-import { TitanBotError, ErrorTypes } from './errorHandler.js';
+import { CloudyError, ErrorTypes } from './errorHandler.js';
 import { unwrapReplitData } from './database.js';
 import { Mutex } from './mutex.js';
 import { 
@@ -58,7 +58,7 @@ export async function saveGiveaway(client, guildId, giveawayData) {
         }
 
         if (!giveawayData || !giveawayData.messageId) {
-            throw new TitanBotError(
+            throw new CloudyError(
                 'Invalid giveaway data: missing messageId',
                 ErrorTypes.VALIDATION,
                 'Cannot save giveaway without a message ID.',
@@ -79,7 +79,7 @@ export async function saveGiveaway(client, guildId, giveawayData) {
         });
     } catch (error) {
         logger.error(`Error saving giveaway in guild ${guildId}:`, error);
-        if (error instanceof TitanBotError) {
+        if (error instanceof CloudyError) {
             throw error;
         }
         return false;
@@ -94,7 +94,7 @@ export async function deleteGiveaway(client, guildId, messageId) {
         }
 
         if (!messageId) {
-            throw new TitanBotError(
+            throw new CloudyError(
                 'Missing messageId parameter',
                 ErrorTypes.VALIDATION,
                 'Cannot delete giveaway without a message ID.',
@@ -120,7 +120,7 @@ export async function deleteGiveaway(client, guildId, messageId) {
         });
     } catch (error) {
         logger.error(`Error deleting giveaway ${messageId} in guild ${guildId}:`, error);
-        if (error instanceof TitanBotError) {
+        if (error instanceof CloudyError) {
             throw error;
         }
         return false;

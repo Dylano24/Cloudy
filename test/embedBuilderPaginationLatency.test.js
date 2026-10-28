@@ -43,7 +43,13 @@ async function openManager(t, guildId, beforeBackgroundPaint = async () => {}, v
   db.initialized = true;
   db.useFallback = false;
   db.connectionType = 'test';
-  db.db = { get: async () => ++storageReads === 1 ? [record] : backgroundRead.promise };
+  db.db = { get: async key => {
+    // The permanent Delete tombstone lives in a separate key. Returning a
+    // registry row here would corrupt the fixture's storage semantics and
+    // leave the real registry preload blocked on the background gate.
+    if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
+    return ++storageReads === 1 ? [record] : backgroundRead.promise;
+  } };
   const collector = new EventEmitter();
   collector.stop = reason => {
     if (collector.ended) return;

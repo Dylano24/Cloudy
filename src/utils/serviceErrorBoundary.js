@@ -1,6 +1,6 @@
 // serviceErrorBoundary.js
 
-import { createError, ErrorTypes, TitanBotError, categorizeError } from './errorHandler.js';
+import { createError, ErrorTypes, CloudyError, categorizeError } from './errorHandler.js';
 import { resolveErrorCode, getErrorMetadata } from './errorRegistry.js';
 
 function normalizeBoundaryContext(context = {}) {
@@ -12,7 +12,7 @@ function normalizeBoundaryContext(context = {}) {
 }
 
 export function ensureTypedServiceError(error, options = {}) {
-  if (error instanceof TitanBotError) {
+  if (error instanceof CloudyError) {
     return error;
   }
 

@@ -18,12 +18,17 @@ test('peekEmbedRegistry serves the last read synchronously while a registry writ
   let stored = [record];
   let releaseWrite;
   const writeGate = new Promise(resolve => { releaseWrite = resolve; });
-  t.mock.method(db, 'get', async () => { reads++; return structuredClone(stored); });
+  t.mock.method(db, 'get', async (key) => {
+    reads++;
+    // The registry now checks permanent Delete tombstones on a cold read.
+    if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
+    return structuredClone(stored);
+  });
   t.mock.method(db, 'set', async (_key, value) => { await writeGate; stored = value; return true; });
 
   assert.equal(peekEmbedRegistry(record.guildId), null, 'cold process has nothing to peek');
   await getEmbedRegistry(record.guildId, { cached: true });
-  assert.equal(reads, 1);
+  assert.equal(reads, 2, 'initial load reads both tombstones and registry');
 
   // A queued mutation bypasses the 5 s search cache; the peek must still answer
   // without a storage read so autocomplete never waits on the write queue.

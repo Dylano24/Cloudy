@@ -55,6 +55,14 @@ export function formatCurrency(amount) {
     return `${amount.toLocaleString()} ${currencyName}`;
 }
 
+// Reuse the same account defaults for ordinary reads and atomic transfers.
+export function getInitialEconomyData() {
+    return normalizeEconomyData({}, {
+        ...DEFAULT_ECONOMY_DATA,
+        wallet: ECONOMY_CONFIG.startingBalance ?? DEFAULT_ECONOMY_DATA.wallet,
+    });
+}
+
 export async function getEconomyData(client, guildId, userId) {
     try {
         if (!client.db || typeof client.db.get !== 'function') {
@@ -63,12 +71,7 @@ export async function getEconomyData(client, guildId, userId) {
 
         const key = getEconomyKey(guildId, userId);
         const data = await client.db.get(key, {});
-        const defaults = {
-            ...DEFAULT_ECONOMY_DATA,
-            wallet: ECONOMY_CONFIG.startingBalance ?? DEFAULT_ECONOMY_DATA.wallet,
-        };
-        
-        return normalizeEconomyData(data, defaults);
+        return normalizeEconomyData(data, getInitialEconomyData());
     } catch (error) {
         logger.error(`Error getting economy data for user ${userId}`, error);
         throw createError('Economy account read failed', ErrorTypes.DATABASE, 'Could not load the economy account. Please try again.');

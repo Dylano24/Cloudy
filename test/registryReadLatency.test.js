@@ -10,7 +10,10 @@ test('parallel Builder registry reads share storage work but preserve isolated r
   let release;
   const gate = new Promise(resolve => { release = resolve; });
   const original = db.db;
-  db.db = { get: async () => {
+  db.db = { get: async key => {
+    // Persistent deletion guards are a separate DB lookup and must never
+    // be confused with the shared registry payload read.
+    if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
     reads++;
     await gate;
     return [{ guildId: 'read-latency', channelId: 'channel', messageId: 'message', title: 'Saved artwork', source: 'embed-builder', snapshot: { title: 'Saved artwork' } }];
