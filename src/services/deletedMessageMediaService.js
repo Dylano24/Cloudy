@@ -88,7 +88,7 @@ export async function prepareDeletedMessageMedia(message, fetchFile = fetch) {
       if (photo) name = embeddableName(name);
       files.push({ attachment: copied.buffer, name, description: attachment.description || undefined });
       if (photo) images.push(name);
-      else if (/^video\//.test(copied.type)) videos.push(name);
+      else if (/^video\//.test(copied.type)) videos.push({ name, type: copied.type });
       remaining -= copied.size;
     } catch (error) {
       links.push(`${name}: ${attachment.url} (${error.message})`);
