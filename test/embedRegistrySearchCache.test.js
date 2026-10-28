@@ -7,7 +7,12 @@ test('search cache shares successful reads and is invalidated by a registry muta
   let reads = 0;
   const record = { guildId: 'search-cache', channelId: 'channel', messageId: 'message', title: 'Saved', source: 'embed-builder', manualSaved: true, snapshot: { title: 'Saved' } };
   let stored = [record];
-  t.mock.method(db, 'get', async () => { reads++; return structuredClone(stored); });
+  t.mock.method(db, 'get', async key => {
+    // Permanent Delete tombstones have their own storage key and read.
+    if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
+    reads++;
+    return structuredClone(stored);
+  });
   t.mock.method(db, 'set', async (_key, value) => { stored = value; return true; });
   const first = await getEmbedRegistry(record.guildId, { cached: true });
   first[0].title = 'Caller edit';
@@ -24,7 +29,12 @@ test('an old in-flight registry read cannot replace a successfully saved Search 
   let resolveRead;
   const oldRead = new Promise(resolve => { resolveRead = resolve; });
   let reads = 0;
-  t.mock.method(db, 'get', async (_key, fallback) => ++reads === 1 ? oldRead : fallback);
+  t.mock.method(db, 'get', async (key, fallback) => {
+    if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
+    // Hold the registry snapshot read, not the tombstone check: a Save
+    // must still succeed while an older Search read is in flight.
+    return ++reads === 1 ? oldRead : fallback;
+  });
   t.mock.method(db, 'set', async () => true);
   const pending = getEmbedRegistry(guildId);
   const embed = { title: 'New saved title', description: 'Saved content' };
@@ -40,7 +50,11 @@ test('an old in-flight registry read cannot replace a successfully saved Search 
 
 test('search never caches a failed registry read', async t => {
   let reads = 0;
-  t.mock.method(db, 'get', async () => { if (++reads === 1) throw new Error('offline'); return []; });
+  t.mock.method(db, 'get', async key => {
+    if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
+    if (++reads === 1) throw new Error('offline');
+    return [];
+  });
   await assert.rejects(getEmbedRegistry('search-cache-recovery', { cached: true }));
   assert.deepEqual(await getEmbedRegistry('search-cache-recovery', { cached: true }), []);
   assert.equal(reads, 2);
