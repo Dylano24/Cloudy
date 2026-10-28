@@ -45,11 +45,11 @@ function fixture(t, guildId, { unavailable = false } = {}) {
         id: channelId, name: 'general', guildId,
         permissionsFor: () => ({ has: () => true }),
         messages: { fetch: async (id, opts) => {
-            assert.equal(id, messageId);
+            assert.ok([messageId, differentId].includes(id));
             assert.equal(opts?.force, true);
             reads++;
             if (unavailable) throw new Error('Temporary Discord outage');
-            return physical;
+            return id === differentId ? physicalDistinct : physical;
         }},
     };
     const guild = { id: guildId, client: { user: { id: 'cloudy' } },
@@ -61,12 +61,17 @@ function fixture(t, guildId, { unavailable = false } = {}) {
         embeds: [new Embed(latest)], components: [],
         createdAt: new Date('2026-10-28T08:47:00Z'),
     };
+    const physicalDistinct = {
+        ...physical, id: differentId,
+        embeds: [new Embed(distinct.snapshot)],
+    };
     return { guild, record, messageId, differentId, reads: () => reads, old, latest };
 }
 
 test('search resolves stale Test to the same physical Yess embed with correct color, logo and GIF', async t => {
     const f = fixture(t, 'search-physical-yess-parity-20261028');
-    const [stale] = await getEmbedRegistry(f.guild.id);
+    const records = await getEmbedRegistry(f.guild.id);
+    const stale = records.find(x => x.messageId === f.messageId);
     assert.equal(stale.snapshot.title, 'Test');
     const updated = await refreshManualBuilderSearchRecord(f.guild, stale);
     assert.equal(updated.messageId, f.messageId);
@@ -90,7 +95,8 @@ test('search resolves stale Test to the same physical Yess embed with correct co
 
 test('no registry deletion or phantom overwrite when the exact Discord message cannot be fetched', async t => {
     const f = fixture(t, 'physical-search-temporary-unavailable', { unavailable: true });
-    const [record] = await getEmbedRegistry(f.guild.id);
+    const records = await getEmbedRegistry(f.guild.id);
+    const record = records.find(x => x.messageId === f.messageId);
     t.mock.method(db, 'set', async () => assert.fail('temporary fetch failure must never delete or persist stale content'));
     const result = await refreshManualBuilderSearchRecord(f.guild, record);
     assert.equal(result, record);
