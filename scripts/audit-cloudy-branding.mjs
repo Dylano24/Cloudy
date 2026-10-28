@@ -10,8 +10,8 @@ const candidates = paths.filter(path =>
   && !/(?:^|\/)(?:node_modules|dist|vendor|coverage|\.git)(?:\/|$)/.test(path)
   && !/package-lock\.json$|\.map$|\.min\.(?:js|css)$|\.b64(?:\.|$)/.test(path));
 const patterns = [
-  { name: 'TitanBot', regex: /\btitanbot\b/ig },
-  { name: 'Titan (standalone)', regex: /\btitan(?!bot)\b/ig },
+  { name: 'TitanBot identifier or label', regex: /titanbot/ig },
+  { name: 'Titan standalone label', regex: /\btitan(?!bot)(?:[\s_-]+(?:bot|manager))?\b/ig },
   { name: 'Titan prefix', regex: /\btitan[_-][a-z][\w-]*/ig },
   { name: 'Touchpoint Support', regex: /\btouchpoint\s+support\b/ig },
   { name: 'Dylano24', regex: /\bdylano24\b/ig },
