@@ -2499,12 +2499,24 @@ export default {
                 }
             });
 
-            collector.on('end', async () => {
-                // BUILDER_PREVIEW_SESSION_CLEANUP_V1: dashboard cleanup and preview cleanup are one
-                // lifecycle. This also covers the five-minute inactivity path,
-                // where the dashboard is removed by builderSessionCleanup first.
-                await deleteBuilderPreviewMessage(state).catch(() => {});
-                await deleteBuilderDashboardMessage(state).catch(() => {});
+            collector.on('end', async (_collected, reason) => {
+                const completedPost = reason === 'posted';
+                // A successful Post has a private success reply linked to the
+                // Builder interaction. Deleting its source preview/dashboard
+                // makes Discord display "Original message was deleted".
+                // Keep the two ephemeral originals, disable their controls,
+                // and let Discord expire them. All other close/idle paths
+                // retain their previous immediate cleanup behavior.
+                if (completedPost) {
+                    unregisterBuilderPreviewMessage(state.builderMessage || state.builderMessageId);
+                    await Promise.allSettled([
+                        state.builderMessage?.edit?.({ components: [] }),
+                        state.builderDashboardMessage?.edit?.({ components: [] }),
+                    ]);
+                } else {
+                    await deleteBuilderPreviewMessage(state).catch(() => {});
+                    await deleteBuilderDashboardMessage(state).catch(() => {});
+                }
                 await cleanupBuilderButtonUi(interaction, state).catch(() => {});
                 const currentSession = ACTIVE_BUILDER_SESSIONS.get(builderSessionKey(interaction));
                 if (currentSession?.collector === collector) {
@@ -2536,11 +2548,13 @@ export default {
 
                 // The Builder/dashboard itself is temporary UI. The only messages
                 // that survive completion are the real embed that was saved or posted.
-                const rootDeleted = await dashboardMessage.delete?.()
-                    .then(() => true)
-                    .catch(() => false);
-                if (!rootDeleted) {
-                    await interaction.deleteReply().catch(() => {});
+                if (!completedPost) {
+                    const rootDeleted = await dashboardMessage.delete?.()
+                        .then(() => true)
+                        .catch(() => false);
+                    if (!rootDeleted) {
+                        await interaction.deleteReply().catch(() => {});
+                    }
                 }
                 deleteEmbedColorPickerSession(colorSessionToken);
             });
