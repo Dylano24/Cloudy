@@ -421,7 +421,11 @@ function decorateEmbedData(embed, stored, options = {}) {
             fallbackToRuntimeOnMismatch: true,
             literalCustomEmoji: true,
           }).slice(0, 256),
-          value: template.preserveRuntimeFieldValues && runtimeField.value != null
+          // Next work is a live Discord timestamp. A saved example such as
+          // <t:in an hour:R> must never replace the actual Unix timestamp.
+          value: (/^next work$/i.test(String(runtimeField.name || '').trim())
+              && /^<t:\d{10,13}:R>$/.test(String(runtimeField.value || '').trim()))
+            || (template.preserveRuntimeFieldValues && runtimeField.value != null)
             ? String(runtimeField.value).slice(0, 1024)
             : renderDynamic(templateField.value, runtimeField.value || templateField.value, {
             fallbackToRuntimeOnMismatch: true,
