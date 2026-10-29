@@ -20,7 +20,7 @@ import { shutdownMusic } from './services/music/playerHandler.js';
 import { startRustPatchNotes } from './services/rustPatchNotesService.js';
 import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
-import { applyEmbedColorPickerSession, getEmbedEditorMedia } from './services/embedColorPickerSessionService.js';
+import { applyEmbedColorPickerSession } from './services/embedColorPickerSessionService.js';
 import { embedColorPickerPage } from './web/embedColorPickerPage.js';
 import { registerAppealsApi } from './web/appealsApi.js';
 import { registerWebsiteAssistantApi } from './web/websiteAssistantApi.js';
@@ -301,18 +301,6 @@ class CloudyBot extends Client {
         ).catch(() => null);
       }
       res.type('html').send(embedColorPickerPage());
-    });
-
-    // CLOUDY_EDITOR_OWN_PREVIEW_V1: the Builder's uploaded image for the editor's
-    // own preview. Only images, only for a live editor session token.
-    app.get('/api/embed-color/:token/media', (req, res) => {
-      const media = getEmbedEditorMedia(req.params.token);
-      const extension = String(media?.name || '').split('.').pop().toLowerCase();
-      const type = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[extension];
-      if (!media || !type) return res.status(404).end();
-      res.set('Cache-Control', 'private, no-store');
-      res.set('X-Content-Type-Options', 'nosniff');
-      return res.type(type).send(media.buffer);
     });
 
     app.post('/api/embed-color/:token', async (req, res) => {
