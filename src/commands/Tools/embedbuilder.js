@@ -35,6 +35,8 @@ import { markBotResponsePayload } from '../../utils/botResponseIntent.js';
 import {
     createEmbedColorPickerSession,
     deleteEmbedColorPickerSession,
+    refreshEmbedEditorHold,
+    wasEmbedEditorRecentlyUsed,
     } from '../../services/embedColorPickerSessionService.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from '../../services/cloudyBrandingService.js';
 import { CLOUDY_LOGO_URL,
@@ -1604,6 +1606,14 @@ async function refreshBuilderPreviewOnly(interaction, state) {
     return queueBuilderRefresh(interaction, state, false);
 }
 
+// The same Builder continues in new messages (/embedbuilder again): its draft
+// and editor stay; only these old messages go (when Discord still allows it).
+async function retireResumedBuilderMessages(interaction, previewMessage, dashboardMessage) {
+    unregisterBuilderPreviewMessage(previewMessage);
+    await Promise.allSettled([previewMessage, dashboardMessage].map(message =>
+        interaction.webhook?.deleteMessage?.(message.id) ?? message.delete?.()));
+}
+
 // discord.js hands a submitted form to every open wait of this user, so a
 // form that was closed and opened again would answer the same submit twice
 // (Discord rejects the second answer: "Unknown interaction"). Each opened form
@@ -2249,7 +2259,22 @@ export default {
             // Explicit Post/Save routes remain the only physical mutations.
             const builderBotManaged = false;
 
-            const state = {
+            // Discord removes private messages from the screen after a while
+            // (or when the app reloads), e.g. during a long editor session.
+            // While the editor is open, or up to 5 minutes after leaving it,
+            // /embedbuilder brings back the SAME open Builder: its draft,
+            // picture and settings, with the editor still connected. Otherwise
+            // (and with a Search) it opens a new Builder as before.
+            const resumeKey = builderSessionKey(interaction);
+            const openSession = ACTIVE_BUILDER_SESSIONS.get(resumeKey);
+            const searchRequested = Boolean(String(interaction.options?.getString?.('search') || '').trim())
+                || Boolean(interaction.__cloudyInitialBuilderSelection)
+                || Boolean(globalThis.__cloudyEmbedBuilderSearchSelections?.get?.(resumeKey));
+            const resumedState = !searchRequested && openSession?.state && openSession.collector
+                && !openSession.collector.ended
+                && wasEmbedEditorRecentlyUsed(openSession.state.colorSessionToken) ? openSession.state : null;
+
+            const state = resumedState || {
                 builderBotManaged,
                 builderUserId: interaction.user.id,
                 title: null,
@@ -2292,7 +2317,7 @@ export default {
                 delete interaction.__cloudyInitialBuilderSelection;
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
             }
-            const initialSavedRecordLoaded = applyInitialSearchSelectionToState(interaction, state);
+            const initialSavedRecordLoaded = resumedState ? false : applyInitialSearchSelectionToState(interaction, state);
             state.lastRenderedSaveEnabled = canSaveBuilderState(state);
             if (initialSavedRecordLoaded) {
                 globalThis.__cloudyEmbedBuilderSearchSelections?.delete?.(pendingSearchKey);
@@ -2308,7 +2333,12 @@ export default {
             }));
 
             prepareEmbedManager(interaction.guild, state);
-            const colorSessionToken = createEmbedColorPickerSession({
+            if (resumedState) {
+                // Old preview edits must not race the new messages.
+                state.previewEditPending = null;
+                state.previewEditRunning = false;
+            }
+            const colorSessionToken = resumedState ? resumedState.colorSessionToken : createEmbedColorPickerSession({
                 userId: interaction.user.id,
                 emojis: editorEmojis,
                 getEditorState: () => ({
@@ -2374,6 +2404,9 @@ export default {
             const initialShown = await InteractionHelper.safeReply(interaction, {
                 embeds: [buildPreviewEmbed(state)],
                 components: getBuilderPreviewComponents(state),
+                // A resumed draft can hold a converted GIF that is not posted yet.
+                ...(state.mediaBuffer && state.mediaName
+                    ? { files: [{ attachment: state.mediaBuffer, name: state.mediaName }] } : {}),
                 flags: MessageFlags.Ephemeral,
             });
             if (initialShown) {
@@ -2418,13 +2451,20 @@ export default {
             const sessionKey = builderSessionKey(interaction);
             const previousSession = ACTIVE_BUILDER_SESSIONS.get(sessionKey);
             if (previousSession && previousSession.collector !== collector) {
-                previousSession.collector?.stop?.('replaced');
-                await previousSession.message?.delete?.().catch(() => {});
+                if (resumedState) {
+                    previousSession.collector?.stop?.('resumed');
+                } else {
+                    previousSession.collector?.stop?.('replaced');
+                    await previousSession.message?.delete?.().catch(() => {});
+                }
             }
             ACTIVE_BUILDER_SESSIONS.set(sessionKey, {
                 collector,
                 message: dashboardMessage,
+                state,
             });
+            // An open editor keeps holding the Builder in its new messages.
+            if (resumedState) await refreshEmbedEditorHold(colorSessionToken).catch(() => {});
             state.finishBuilder = reason => {
                 if (!collector.ended) collector.stop(reason || 'completed');
             };
@@ -2697,6 +2737,7 @@ export default {
             });
 
             collector.on('end', async (_collected, reason) => {
+                if (reason === 'resumed') return retireResumedBuilderMessages(interaction, previewMessage, dashboardMessage);
                 const completedPost = reason === 'posted';
                 // Remove helper replies before the dashboard they refer to.
                 await deleteBuilderChildMessages(interaction, state).catch(() => {});
