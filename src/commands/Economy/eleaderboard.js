@@ -28,12 +28,22 @@ export async function buildEconomyLeaderboardEmbed(client, guildId, userId) {
 
     // One whole-guild read instead of one database query per account. Values
     // and their order (and therefore tie order) are unchanged.
-    const values = await readGuildEconomyValues(client, guildId, allKeys);
+    const guild = client.guilds?.cache?.get(guildId) || await client.guilds?.fetch?.(guildId);
+    if (!guild?.members?.fetch) {
+        throw createError('Current server membership unavailable', ErrorTypes.VALIDATION,
+            'The current server member list could not be verified. Please try again.');
+    }
+    // Fetch the actual current membership rather than trusting a partial or
+    // stale cache. Read balances in parallel and filter before ranking/limiting.
+    const [values, members] = await Promise.all([
+        readGuildEconomyValues(client, guildId, allKeys),
+        guild.members.fetch(),
+    ]);
     const allUserData = allKeys.map((key, index) => {
         const userId = key.replace(prefix, "");
         const userData = values[index];
 
-        if (userData) {
+        if (userData && members.has(userId)) {
             return {
                 userId: userId,
                 net_worth: (userData.wallet || 0) + (userData.bank || 0),
@@ -49,16 +59,14 @@ export async function buildEconomyLeaderboardEmbed(client, guildId, userId) {
     const userRank =
         allUserData.findIndex((u) => u.userId === userId) +
         1;
-    const rankEmoji = ["🥇", "🥈", "🥉"];
     const leaderboardEntries = [];
 
     for (let i = 0; i < topUsers.length; i++) {
         const user = topUsers[i];
         const rank = i + 1;
-        const emoji = rankEmoji[i] || `**#${rank}**`;
 
         leaderboardEntries.push(
-            `${emoji} <@${user.userId}> - 🏦 ${user.net_worth.toLocaleString()}`,
+            `**#${rank}** <@${user.userId}> - 🏦 ${user.net_worth.toLocaleString()}`,
         );
     }
 

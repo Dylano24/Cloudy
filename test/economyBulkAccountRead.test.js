@@ -48,7 +48,8 @@ function clientFor({ bulk }) {
     list: database.list.bind(database),
   };
   wrapper.initialized = true;
-  return { client: { db: wrapper }, queries };
+  const guild = { members: { fetch: async () => new Collection(Object.keys(users).map(id => [id, { id }])) } };
+  return { client: { db: wrapper, guilds: { cache: new Collection([[GUILD, guild]]) } }, queries };
 }
 
 test('whole-guild economy read returns exactly what each per-account read returns', async () => {
