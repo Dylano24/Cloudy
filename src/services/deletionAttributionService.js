@@ -44,6 +44,12 @@ const trackers = new Map();
 const cloudyDeletions = new Map();
 const CLOUDY_DELETION_TTL_MS = 120_000;
 const CHANNEL_MESSAGE_ROUTE = /^\/channels\/\d+\/messages\/(\d+)$/;
+// A message deleted through an interaction's own link is always one of
+// Cloudy's replies to an action (button/command/form reply, picker, notice).
+const INTERACTION_MESSAGE_ROUTE = /^\/webhooks\/\d+\/[^/]+\/messages\/(\d+)$/;
+const INTERACTION_RESPONSE_ROUTE = /^\/(?:webhooks|interactions)\//;
+// Cloudy can only delete an interaction message while its 15-minute link works.
+const INTERACTION_MESSAGE_TTL_MS = 20 * 60_000;
 const BULK_DELETE_ROUTE = /^\/channels\/\d+\/messages\/bulk-delete$/;
 const RECORDER_INSTALLED = Symbol('cloudyDeletionRecorder');
 
@@ -61,6 +67,31 @@ export function rememberMessageDeleter(message, user, source = 'staff') {
   intents.set(key, intent);
   const timer = setTimeout(() => { if (intents.get(key) === intent) intents.delete(key); }, 120_000);
   timer.unref?.();
+}
+
+// Cloudy's private replies (only the clicking person sees them) never arrive
+// as a normal message, so a deletion finds no content, author or snapshot.
+// Their IDs are remembered when Discord returns them, and when Cloudy deletes
+// an interaction message, so such a deletion is never logged as "Unknown".
+const interactionMessages = new Map();
+
+export function rememberInteractionMessage(messageId) {
+  const key = String(messageId || '');
+  if (!/^\d+$/.test(key)) return;
+  const mark = Date.now();
+  interactionMessages.set(key, mark);
+  const timer = setTimeout(() => { if (interactionMessages.get(key) === mark) interactionMessages.delete(key); }, INTERACTION_MESSAGE_TTL_MS);
+  timer.unref?.();
+}
+
+export function isCloudyInteractionMessage(messageId) {
+  return interactionMessages.has(String(messageId || ''));
+}
+
+function rememberPrivateResponse(route, result) {
+  if (!INTERACTION_RESPONSE_ROUTE.test(route)) return;
+  const message = result?.resource?.message || result;
+  if (message?.id && (Number(message.flags) & MessageFlags.Ephemeral)) rememberInteractionMessage(message.id);
 }
 
 function markCloudyDeletions(ids, state) {
@@ -103,11 +134,26 @@ export function installCloudyDeletionRecorder(rest) {
     };
   };
   wrap('delete', route => {
+    const reply = INTERACTION_MESSAGE_ROUTE.exec(route)?.[1];
+    if (reply) {
+      rememberInteractionMessage(reply);
+      return [reply];
+    }
     const id = CHANNEL_MESSAGE_ROUTE.exec(route)?.[1];
     return id ? [id] : [];
   });
   wrap('post', (route, options) => (BULK_DELETE_ROUTE.test(route) && Array.isArray(options?.body?.messages)
     ? options.body.messages.map(String) : []));
+  // Private replies as Discord returns them (reply, follow-up, edit, fetch).
+  for (const method of ['post', 'patch', 'get']) {
+    const original = rest[method];
+    if (typeof original !== 'function') continue;
+    rest[method] = async function observedRequest(fullRoute, options) {
+      const result = await original.call(this, fullRoute, options);
+      try { rememberPrivateResponse(String(fullRoute || ''), result); } catch { /* observation only */ }
+      return result;
+    };
+  }
   rest[RECORDER_INSTALLED] = true;
   return true;
 }
@@ -547,4 +593,5 @@ export function resetDeletionAttributionState() {
   cloudyDeletions.clear();
   cloudyMoveDeletions.clear();
   transientBotMessages.clear();
+  interactionMessages.clear();
 }

@@ -292,7 +292,7 @@ class CloudyBot extends Client {
       // the Builder hold as soon as the editor URL is opened so the live preview
       // cannot hit its normal 5-minute cleanup while the editor page is loading
       // or being used. The page's explicit editor-open handshake then owns the
-      // editor lease (it ends only after 14 minutes without contact).
+      // editor lease (it ends only after 60 minutes without contact).
       const token = String(req.query?.session || '').trim();
       if (token) {
         await applyEmbedColorPickerSession(
