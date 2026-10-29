@@ -100,11 +100,13 @@ test('yt-dlp media posts as native Discord video and removes temporary files', a
   const message = await makeExtractedVideoAttachmentMessage('https://example.org/watch/clip', 10_000, {
     runner: async (binary, args) => {
       assert.equal(binary, 'yt-dlp');
+      if (args.includes('--print')) return '8';
       const output = args[args.indexOf('--output') + 1];
       tempPath = output.replace('%(ext)s', 'mp4');
       await writeFile(tempPath, bytes);
     },
     convert: async () => { throw new Error('should not convert playable MP4'); },
+    clip: async input => input,
   });
   assert.equal(message.files[0].name, 'cloudy-video.mp4');
   assert.deepEqual(message.files[0].attachment, bytes);
@@ -121,8 +123,10 @@ test('oversized extracted videos are converted locally instead of linked or trun
   let converted = 0;
   const message = await makeExtractedVideoAttachmentMessage('https://example.org/watch/big', 80, {
     runner: async (_binary, args) => {
+      if (args.includes('--print')) return 'NA';
       await writeFile(args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4'), original);
     },
+    clip: async input => input,
     convert: async (_input, destination, limit) => {
       assert.equal(limit, 80);
       converted++;
