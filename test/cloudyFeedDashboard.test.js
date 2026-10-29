@@ -153,7 +153,7 @@ test('Edit feed has Start time between Auto message and 18+ content and preserve
     ['Feed name', 'Website URL', 'Auto message', 'Start time', '18+ content']);
   assert.equal(modal.components[3].component.custom_id, 'start');
   assert.equal(modal.components[3].component.required, false);
-  assert.equal(modal.components[3].component.placeholder, '20:00 or 30-10 20:00');
+  assert.equal(modal.components[3].component.placeholder, '00:00');
   assert.doesNotMatch(JSON.stringify(modal), /mediaType|Media type/);
   assert.doesNotMatch(JSON.stringify(modal), /feedChannel|Channel \(optional\)|channel.*select/i);
 });
@@ -182,7 +182,7 @@ test('Add feed form: Feed name, Website URL, Auto message, Start time, 18+ conte
   const start = modal.components[3].components[0];
   assert.equal(start.custom_id, 'start');
   assert.equal(start.required, false);
-  assert.equal(start.placeholder, '20:00 or 30-10 20:00');
+  assert.equal(start.placeholder, '00:00');
   assert.equal(start.value, undefined);
   assert.doesNotMatch(JSON.stringify(modal), /mediaType|Media type/);
 });
