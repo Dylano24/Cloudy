@@ -1,4 +1,4 @@
-import { AuditLogEvent } from 'discord.js';
+import { AuditLogEvent, MessageFlags, MessageType } from 'discord.js';
 
 export const AUTOMOD_LOG_CHANNEL_ID = '1556209466679238696';
 
@@ -502,10 +502,42 @@ export async function resolveBulkDeletion(sample, messages = [], {
   };
 }
 
+// Cloudy status notices that delete themselves after 10 seconds. Marked when
+// their timer starts, so the deletion (by the timer or by anyone earlier) is
+// never logged.
+const transientBotMessages = new Map();
+
+export function rememberTransientBotMessage(messageId) {
+  const key = String(messageId || '');
+  if (!key) return;
+  const mark = Date.now();
+  transientBotMessages.set(key, mark);
+  const timer = setTimeout(() => { if (transientBotMessages.get(key) === mark) transientBotMessages.delete(key); }, CLOUDY_DELETION_TTL_MS);
+  timer.unref?.();
+}
+
+const ACTION_FEEDBACK_TITLE = /^(?:success|error|warning|permission denied|report submitted|message submitted|messages purged|ticket (?:created|deleted|closed|reopened|claimed|unclaimed)|spam detected|image removed)$/i;
+
+function feedbackTitle(embed) {
+  // "✅ Message submitted!" is the same status as "Message submitted".
+  return String(embed?.title || embed?.data?.title || '')
+    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+}
+
+/**
+ * Cloudy's own answer to someone's action: a command, button or modal reply
+ * (public or private), a reply to a prefix command, a 10-second status
+ * notice or a known status title. Its deletion is not logged: the message
+ * logs keep real messages, AutoMod, purges and posted embeds.
+ */
 export function isBotActionFeedback(message) {
-  if (!message.author?.bot || message.author.id !== message.client.user?.id) return false;
-  if (message.flags?.has?.(64) || (Number(message.flags?.bitfield || message.flags || 0) & 64)) return true;
-  return (message.embeds || []).some(embed => /^(?:success|error|warning|permission denied|report submitted|message submitted|messages purged|ticket (?:created|deleted|closed|reopened|claimed|unclaimed)|spam detected|image removed)$/i.test(String(embed.title || embed.data?.title || '').trim()));
+  if (!message?.author?.bot || message.author.id !== message.client?.user?.id) return false;
+  if (message.flags?.has?.(MessageFlags.Ephemeral)
+    || (Number(message.flags?.bitfield || message.flags || 0) & MessageFlags.Ephemeral)) return true;
+  if (message.interactionMetadata || message.interaction) return true;
+  if (message.type === MessageType.Reply && message.reference?.messageId) return true;
+  if (transientBotMessages.has(String(message.id))) return true;
+  return (message.embeds || []).some(embed => ACTION_FEEDBACK_TITLE.test(feedbackTitle(embed)));
 }
 
 // Test helper: forget all per-guild audit tracking, intents and marks.
@@ -514,4 +546,5 @@ export function resetDeletionAttributionState() {
   intents.clear();
   cloudyDeletions.clear();
   cloudyMoveDeletions.clear();
+  transientBotMessages.clear();
 }

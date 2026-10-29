@@ -1,38 +1,21 @@
-import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder } from 'discord.js';
 import { successEmbed, warningEmbed, buildUserErrorEmbed } from '../../utils/embeds.js';
 import { getEconomyData, setEconomyData, getInitialEconomyData } from '../../utils/economy.js';
 import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { BotConfig } from '../../config/bot.js';
-import { memberHasConfiguredModeratorRole } from '../../utils/permissionGuard.js';
-import { hasCloudyOwnerMember } from '../../services/ownerRoleAccess.js';
+import { isCloudyStaffMember } from '../../services/cloudyStaffAccess.js';
 
 const ROB_COOLDOWN = BotConfig.economy?.cooldowns?.rob ?? 4 * 60 * 60 * 1000;
 const BASE_ROB_SUCCESS_CHANCE = BotConfig.economy?.robSuccessRate ?? 0.4;
 const ROB_PERCENTAGE = 0.15;
 const FINE_PERCENTAGE = 0.1;
 
-const STAFF_ROLE_NAMES = new Set(['staff', 'owner', 'admin', 'administrator', 'moderator']);
+// Discord: Unknown Member / Unknown User.
+const UNKNOWN_MEMBER_CODES = new Set([10007, 10013]);
 
-export function isProtectedRobberyTarget(member, guildConfig = {}, guild = null) {
-    if (!member) return false;
-    const roles = member.roles?.cache;
-    const roleId = role => typeof role === 'string' ? role : role?.id;
-    const configured = [
-        guildConfig?.modRole, guildConfig?.adminRole, guildConfig?.ticketStaffRoleId,
-    ].some(role => Boolean(roleId(role) && roles?.has?.(roleId(role))));
-
-    return String(guild?.ownerId || member.guild?.ownerId || '') === String(member.id)
-        || Boolean(member.permissions?.has?.(PermissionFlagsBits.Administrator))
-        || hasCloudyOwnerMember(member)
-        || memberHasConfiguredModeratorRole(
-            roles ? member : null, guildConfig,
-        )
-        || configured
-        || Boolean(Array.from(roles?.values?.() || []).some(role =>
-            STAFF_ROLE_NAMES.has(String(role.name || '').trim().toLowerCase())));
-}
-
+// Cloudy staff cannot be robbed.
+export const isProtectedRobberyTarget = isCloudyStaffMember;
 
 function applyRobbery(robberData, victimData, victimUser) {
     // Called after both accounts have been row-locked by PostgreSQL.
@@ -129,20 +112,24 @@ export default {
         if (!victimMember && guild?.members?.fetch) {
             try {
                 victimMember = await guild.members.fetch(victimUser.id);
-            } catch {
-                throw createError(
-                    'Cannot verify robbery target',
-                    ErrorTypes.VALIDATION,
-                    "Unable to verify this member's staff status. Please try again.",
-                    { victimId: victimUser.id }
-                );
+            } catch (error) {
+                // Someone who left the server is not a member any more; any
+                // other lookup failure may succeed on a retry.
+                if (!UNKNOWN_MEMBER_CODES.has(Number(error?.code))) {
+                    throw createError(
+                        'Cannot verify robbery target',
+                        ErrorTypes.VALIDATION,
+                        "Unable to verify this member's status. Please try again.",
+                        { victimId: victimUser.id }
+                    );
+                }
             }
         }
         if (guild && !victimMember) {
             throw createError(
                 'Robbery target not found',
                 ErrorTypes.VALIDATION,
-                "Unable to verify this member's staff status. Please try again.",
+                "Unable to verify this member's status. They are no longer in this server.",
                 { victimId: victimUser.id }
             );
         }

@@ -1,8 +1,7 @@
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { createEmbed, successEmbed, buildUserErrorEmbed } from '../../utils/embeds.js';
+import { createEmbed, successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
-import { resolveDedicatedChannel } from '../../services/dedicatedChannelService.js';
 import { setResponseLifetime } from '../../utils/responseLifetime.js';
 import {
   canGrantCurrency,
@@ -11,8 +10,8 @@ import {
   parseCurrencyAmount,
 } from '../../services/currencyGrantService.js';
 
-const amountOption = option => option.setName('amount')
-  .setDescription('Amount of cash to create for each user')
+const amountOption = description => option => option.setName('amount')
+  .setDescription(description)
   .setRequired(true).setMinValue(1);
 
 export default {
@@ -20,53 +19,39 @@ export default {
   category: 'Economy',
   data: new SlashCommandBuilder()
     .setName('give')
-    .setDescription('Owner only: give money to a user, yourself, or everyone')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDescription('Staff only: give money to a user, yourself, or everyone')
+    // Visible to staff (Timeout Members); canGrantCurrency decides who may use it.
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .setDMPermission(false)
     .addSubcommandGroup(group => group.setName('money')
       .setDescription('Add money to a user, yourself, or everyone')
       .addSubcommand(sub => sub.setName('user')
-        .setDescription('Give cash to a selected member')
+        .setDescription('Give money to a selected member')
         .addUserOption(option => option.setName('user')
-          .setDescription('Member who receives the cash').setRequired(true))
-        .addIntegerOption(amountOption))
+          .setDescription('Member who receives the money').setRequired(true))
+        .addIntegerOption(amountOption('Amount of money to give to this user')))
       .addSubcommand(sub => sub.setName('me')
-        .setDescription('Add cash to your own balance')
-        .addIntegerOption(amountOption))
+        .setDescription('Add money to your own balance')
+        .addIntegerOption(amountOption('Amount of money to give to myself')))
       .addSubcommand(sub => sub.setName('everyone')
-        .setDescription('Give the same cash amount to every non-bot member')
-        .addIntegerOption(amountOption))),
+        .setDescription('Give the same amount of money to every non-bot member')
+        .addIntegerOption(amountOption('Amount of money to give to each user')))),
 
   async execute(interaction, config, client) {
-    // All /give money responses, including validation errors, follow the
-    // normal ten-second acknowledgement lifetime after the final reply.
+    // All /give money responses, including validation errors, are private
+    // and follow the normal ten-second acknowledgement lifetime. Staff may
+    // use it in any channel.
     setResponseLifetime(interaction, 10_000);
     const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
     if (!deferred) return;
 
-    if (!canGrantCurrency(interaction)) {
+    if (!canGrantCurrency(interaction, config)) {
       await InteractionHelper.safeEditReply(interaction, {
         embeds: [createEmbed({
           title: 'Permission denied',
-          description: 'Only Cloudy owners can give currency.',
+          description: 'Only Cloudy staff can give money.',
           color: 'error',
         })],
-      });
-      return;
-    }
-
-    // Only the dedicated gambling channel may mint currency. Check before
-    // any account mutation; unlike regular economy commands the shop channel
-    // is not allowed for owner-only /give money.
-    const gamblingChannel = await resolveDedicatedChannel(interaction.guild, 'gambling');
-    if (!gamblingChannel || String(interaction.channelId || interaction.channel?.id || '') !== String(gamblingChannel.id)) {
-      await InteractionHelper.safeEditReply(interaction, {
-        embeds: [buildUserErrorEmbed('validation',
-          gamblingChannel
-            ? `This command can only be used in the dedicated channel. Please use <#${gamblingChannel.id}> to give currency.`
-            : 'The dedicated gambling channel is unavailable. Currency was not added.',
-          { titleOverride: 'Wrong channel', preserveText: true },
-        )],
       });
       return;
     }
@@ -89,7 +74,7 @@ export default {
         const newCash = await grantCurrency(client, guildId, recipient.id, amount);
         await InteractionHelper.safeEditReply(interaction, {
           embeds: [successEmbed('Money added',
-            `Added **${format(amount)}** to **${recipient.username}**.\nNew cash balance: **${format(newCash)}**.`)],
+            `Added **${format(amount)}** to **${recipient.username}**.\nNew money balance: **${format(newCash)}**.`)],
         });
         logger.info('[CURRENCY] Owner granted currency', {
           guildId, actorId: interaction.user.id, recipientId: recipient.id, amount,
@@ -113,7 +98,7 @@ export default {
         embeds: [createEmbed({
           title: failed ? 'Money partially added' : 'Money added',
           description: `Added **${format(amount)}** to **${results.granted}** ${results.granted === 1 ? 'user' : 'users'}.`
-            + (failed ? `\n**${failed}** failed. Do not repeat the command blindly; some members already received their cash.` : ''),
+            + (failed ? `\n**${failed}** failed. Do not repeat the command blindly; some members already received their money.` : ''),
           color: failed ? 'warning' : 'success',
         })],
       });
