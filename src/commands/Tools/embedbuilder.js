@@ -98,7 +98,7 @@ const CHANNEL_PAGE_SIZE = 100;
 const CHANNEL_SELECT_SIZE = 25;
 const OWNER_SERVER_LIMIT = 125;
 const BUILDER_IDLE_TIMEOUT = 5 * 60_000;
-const BUILDER_EDITOR_IDLE_TIMEOUT = 60 * 60_000;
+const BUILDER_EDITOR_IDLE_TIMEOUT = 14 * 60_000;
 const ACTIVE_BUILDER_SESSIONS = new Map();
 
 function builderSessionKey(interaction) {

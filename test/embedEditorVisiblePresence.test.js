@@ -11,7 +11,7 @@ import {
 import { touchBuilderSessionMessage } from '../src/utils/builderSessionCleanup.js';
 
 test('editor close releases the fixed hold while background pause stays ignored', async () => {
-  assert.equal(EMBED_EDITOR_IDLE_MS, 60 * 60_000);
+  assert.equal(EMBED_EDITOR_IDLE_MS, 14 * 60_000);
 
   const builderMessage = {
     id: 'editor-close-five-minute-builder',

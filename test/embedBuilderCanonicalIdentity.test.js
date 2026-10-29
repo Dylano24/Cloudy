@@ -1103,3 +1103,56 @@ test('/embedbuilder brings back the same open Builder without the editor, while 
   await settle();
   assert.ok(world.deletedPrivate.includes(oldDashboard.id), 'the old controls are removed');
 });
+
+test('the real Builder: the editor holds controls and preview together; after closing it, clicks restart the 5 minutes; then both close and the posted embed stays', async t => {
+  const { registerBuilderSessionCollector, touchBuilderSessionMessage } = await import('../src/utils/builderSessionCleanup.js');
+  const world = createWorld(t);
+  const b = await openBuilder(t, world);
+  await b.edit('title', 'Kept while editing');
+  await b.edit('message', 'Posted first');
+  await b.post();
+  await drainGateway(world);
+  const [posted] = physical(world);
+  const panel = b.dashboard;
+  const preview = b.preview;
+
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // What installBuilderSessionCleanup does for the real Discord panel.
+  assert.equal(registerBuilderSessionCollector(panel, panel.collector), true);
+  touchBuilderSessionMessage(panel);
+  panel.collector.on('collect', () => touchBuilderSessionMessage(panel));
+  const MINUTE = 60_000;
+  const gone = () => [panel.id, preview.id].filter(id => world.deletedPrivate.includes(id));
+
+  // Browser editor open, then the owner switches apps: Safari sends nothing for 13 minutes.
+  assert.equal((await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_OPEN__:phone', { editorInstanceId: 'phone' })).ok, true);
+  t.mock.timers.tick(13 * MINUTE);
+  await settle();
+  assert.deepEqual(gone(), [], 'controls and preview stay while the editor is open');
+  // Back in the editor: its heartbeat arrives at once, then every few minutes for 30 minutes.
+  assert.equal((await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_HEARTBEAT__', { editorInstanceId: 'phone' })).ok, true);
+  for (let minute = 0; minute < 30; minute += 10) {
+    t.mock.timers.tick(10 * MINUTE);
+    assert.equal((await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_HEARTBEAT__', { editorInstanceId: 'phone' })).ok, true);
+  }
+  await settle();
+  assert.deepEqual(gone(), []);
+
+  // Closing the editor leaves the Builder usable; each click restarts the 5 minutes.
+  assert.equal((await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_CLOSE__', { editorInstanceId: 'phone' })).ok, true);
+  for (let i = 0; i < 3; i += 1) {
+    t.mock.timers.tick(4 * MINUTE);
+    panel.collector.emit('collect', b.component('simple_embed_unknown_noop'));
+  }
+  await settle();
+  assert.deepEqual(gone(), [], 'clicks keep the Builder open');
+  assert.equal(panel.collector.ended, false);
+
+  // Five minutes without any activity: controls and preview close together.
+  t.mock.timers.tick(5 * MINUTE);
+  await settle();
+  assert.deepEqual(gone().sort(), [panel.id, preview.id].sort());
+  assert.equal(physical(world).length, 1, 'the posted embed is never part of the cleanup');
+  assert.equal(physical(world)[0].id, posted.id);
+  assert.equal(registry(world).length, 1, 'its saved data stays');
+});

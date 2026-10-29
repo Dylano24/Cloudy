@@ -23,7 +23,7 @@ function editorSession(overrides = {}) {
   });
 }
 
-test('an open editor has no timer: every contact restarts the 60-minute idle window', async t => {
+test('an open editor has no timer: every contact restarts the 14-minute idle window', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const token = editorSession();
   try {
@@ -41,7 +41,7 @@ test('an open editor has no timer: every contact restarts the 60-minute idle win
   }
 });
 
-test('60 minutes without any contact from the page (closed or asleep) ends the editor', async t => {
+test('14 minutes without any contact from the page (closed or asleep) ends the editor', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const token = editorSession();
   try {
@@ -157,15 +157,90 @@ test('activity on the Builder controls keeps the preview above them alive', asyn
   assert.match(source, /linkBuilderSessionPreview\(dashboardMessage, previewMessage\)/);
 });
 
-test('other things on the phone for 45 minutes (no contact from the page) keep the editor and the Builder', async t => {
+async function linkedBuilder(prefix) {
+  const {
+    linkBuilderSessionPreview, registerBuilderPreviewMessage, registerBuilderSessionCollector, touchBuilderSessionMessage,
+  } = await import('../src/utils/builderSessionCleanup.js');
+  const deleted = [];
+  const panel = { id: `${prefix}-panel`, embeds: [{ title: 'Message builder' }], delete: async () => deleted.push('panel') };
+  const preview = { id: `${prefix}-preview`, embeds: [{ title: 'Rules' }], delete: async () => deleted.push('preview') };
+  registerBuilderPreviewMessage(preview);
+  registerBuilderSessionCollector(panel, { ended: false, resetTimer() {}, stop() { this.ended = true; } });
+  linkBuilderSessionPreview(panel, preview);
+  touchBuilderSessionMessage(panel);
+  const token = editorSession({
+    // Same as the Builder's onEditorHold: hold the controls and the preview.
+    onEditorHold: async () => {
+      touchBuilderSessionMessage(panel);
+      touchBuilderSessionMessage(preview);
+    },
+  });
+  return { deleted, panel, preview, token, touch: () => touchBuilderSessionMessage(panel) };
+}
+
+test('switching apps on the phone is not a close: 13 minutes without contact keep the editor, the controls and the preview', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const token = editorSession();
+  const b = await linkedBuilder('apps');
   try {
-    assert.equal((await applyEmbedColorPickerSession(token, open('phone'), page('phone'))).ok, true);
-    t.mock.timers.tick(45 * MINUTE);
-    const back = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('phone'));
-    assert.equal(back.ok, true, 'back in the editor after 45 minutes: it is still open');
+    assert.equal((await applyEmbedColorPickerSession(b.token, open('phone'), page('phone'))).ok, true);
+    // In another app: Safari sends nothing (no heartbeat, no close).
+    t.mock.timers.tick(13 * MINUTE);
+    await settle();
+    assert.deepEqual(b.deleted, [], 'nothing of the Builder closed');
+    const back = await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_HEARTBEAT__', page('phone'));
+    assert.equal(back.ok, true, 'back in the editor: it is still open');
+    // The heartbeat started a fresh 14 minutes.
+    t.mock.timers.tick(13 * MINUTE);
+    await settle();
+    assert.deepEqual(b.deleted, []);
   } finally {
-    deleteEmbedColorPickerSession(token);
+    deleteEmbedColorPickerSession(b.token);
+  }
+});
+
+test('no close event: after the 14-minute editor fallback the normal 5 minutes follow, then controls and preview close together', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const b = await linkedBuilder('fallback');
+  try {
+    assert.equal((await applyEmbedColorPickerSession(b.token, open('gone'), page('gone'))).ok, true);
+    t.mock.timers.tick(EMBED_EDITOR_IDLE_MS);
+    await settle();
+    assert.deepEqual(b.deleted, [], 'the Builder stays after the editor fallback');
+    t.mock.timers.tick(5 * MINUTE - 1);
+    await settle();
+    assert.deepEqual(b.deleted, []);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.deepEqual(b.deleted.sort(), ['panel', 'preview']);
+  } finally {
+    deleteEmbedColorPickerSession(b.token);
+  }
+});
+
+test('after closing the editor every Builder click restarts the 5 minutes for controls and preview', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const b = await linkedBuilder('clicks');
+  try {
+    assert.equal((await applyEmbedColorPickerSession(b.token, open('page'), page('page'))).ok, true);
+    // 30 minutes in the editor (heartbeats keep arriving).
+    for (let minute = 0; minute < 30; minute += 10) {
+      t.mock.timers.tick(10 * MINUTE);
+      assert.equal((await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_HEARTBEAT__', page('page'))).ok, true);
+    }
+    await settle();
+    assert.deepEqual(b.deleted, [], 'nothing closes while the editor is open');
+    assert.equal((await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_CLOSE__', page('page'))).ok, true);
+    // Still usable in Discord: a click every 4 minutes keeps everything.
+    for (let i = 0; i < 4; i += 1) {
+      t.mock.timers.tick(4 * MINUTE);
+      b.touch();
+    }
+    await settle();
+    assert.deepEqual(b.deleted, [], 'clicks keep the Builder open');
+    t.mock.timers.tick(5 * MINUTE);
+    await settle();
+    assert.deepEqual(b.deleted.sort(), ['panel', 'preview']);
+  } finally {
+    deleteEmbedColorPickerSession(b.token);
   }
 });

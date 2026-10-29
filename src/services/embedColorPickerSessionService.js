@@ -12,11 +12,10 @@ const PAUSE_PREFIX = '__CLOUDY_EMBED_PAUSE__'; // EMBED_EDITOR_CLOSE_RETURNS_5M_
 const OPEN_PREFIX = '__CLOUDY_EMBED_OPEN__:'; // EMBED_EDITOR_EXACT_OPEN_LEASE_V2
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
 const EDIT_FLUSH_DELAY_MS = 0; // BUILDER_NATIVE_COLOR_INSTANT_V1: flush edits on the next event-loop turn
-// EMBED_EDITOR_EXACT_OPEN_LEASE_V2: the editor ends only after 60 minutes
+// EMBED_EDITOR_EXACT_OPEN_LEASE_V2: the editor ends only after 14 minutes
 // WITHOUT any contact from its page. An open page sends a heartbeat every 20
 // seconds, so while you are in the editor there is no timer.
-// (owner's choice: 60 minutes, so other things on the phone in between are fine)
-export const EMBED_EDITOR_IDLE_MS = 60 * 60_000;
+export const EMBED_EDITOR_IDLE_MS = 14 * 60_000;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -73,7 +72,7 @@ function scheduleSessionIdleExpiry(token, session, editorInstanceId) {
         session.activeEditorInstanceId = null;
         session.holdActive = false;
         session.editorReleasedAt = Date.now();
-        // 60m without contact ends only the editor hold. The Builder then gets a fresh normal 5m.
+        // 14m without contact ends only the editor hold. The Builder then gets a fresh normal 5m.
         releaseBuilderSessionHold(token);
     }, EMBED_EDITOR_IDLE_MS);
     session.idleTimer.unref?.();
@@ -171,7 +170,7 @@ async function ensureEditorHold(token, session) {
         releaseBuilderSessionHold(token);
         if (error?.code === 'EMBED_BUILDER_EXPIRED') {
             // An old Discord interaction must not invalidate the browser editor.
-            // Keep accepting/saving editor state until the real 60-minute idle timer expires.
+            // Keep accepting/saving editor state until the real 14-minute idle timer expires.
             session.holdActive = false;
             return { ok: true, previewUnavailable: true };
         }
@@ -183,7 +182,7 @@ async function ensureEditorHold(token, session) {
 
 async function touchEditorSession(token, session) {
     // EMBED_EDITOR_CLOSE_RETURNS_5M_V6: the heartbeat proves the page is still open (the
-    // caller restarts the 60m idle window) and keeps the same Builder held.
+    // caller restarts the 14m idle window) and keeps the same Builder held.
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
 
@@ -248,7 +247,7 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         expiredEditorInstanceIds: new Set(),
     };
     sessions.set(token, session);
-    // The 60m idle window starts only when Editor/Color Picker is actually opened.
+    // The 14m idle window starts only when Editor/Color Picker is actually opened.
     return token;
 }
 
@@ -310,7 +309,7 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
 
     // Backwards compatibility for an already-cached pre-instance editor page or
     // internal caller: its first request opens a legacy editor lease, which
-    // then follows the same 60m idle rule.
+    // then follows the same 14m idle rule.
     if (!explicitInstanceId && !session.activeEditorInstanceId) {
         const opened = await openEditorLease(token, session, instanceId);
         if (!opened.ok) return opened;
@@ -320,7 +319,7 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
     if (!active.ok) return active;
 
     // Any contact from the open page (heartbeat, state, typing, emoji, color)
-    // restarts the 60m idle window: there is no timer while you work in it.
+    // restarts the 14m idle window: there is no timer while you work in it.
     scheduleSessionIdleExpiry(token, session, instanceId);
 
     if (value === HEARTBEAT_PREFIX) {
