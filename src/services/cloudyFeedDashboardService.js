@@ -232,7 +232,7 @@ function textLabel(id, label, required, placeholder, defaultValue) {
 }
 
 // Netherlands time. Empty: the feed starts after its Auto message time, as before.
-const START_PLACEHOLDER = '20:00 or 30-10 20:00';
+const START_PLACEHOLDER = '00:00';
 
 export function feedModal(session) {
   const editing = session.action === 'edit';
