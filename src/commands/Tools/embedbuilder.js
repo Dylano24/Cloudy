@@ -25,6 +25,7 @@ import { successEmbed } from '../../utils/embeds.js';
 import { commercialBuilderTitle } from '../../utils/builderCommercialTitle.js';
 import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
+import { rememberMessageDeleter } from '../../services/deletionAttributionService.js';
 import { createBuilderPerformanceTracker } from '../../utils/interactionLatency.js';
 import { CloudyError,
     replyUserError,
@@ -513,6 +514,8 @@ async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, stat
         const logPresence = pending.logPresence;
         if (logTarget && logPresence?.status === 'exists') {
             try {
+                // A Builder Delete is logged in the AutoMod log, by its staff member.
+                rememberMessageDeleter(logPresence.message, buttonInteraction.user, 'embed-builder');
                 await logPresence.message.delete();
                 logPresence.message.channel?.messages?.cache?.delete?.(String(logTarget.messageId));
             } catch (error) {
@@ -626,6 +629,7 @@ async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, stat
         const activeMessage = reappearChannel?.messages?.fetch
             ? await reappearChannel.messages.fetch(activeReappearMessageId).catch(() => null)
             : null;
+        if (activeMessage) rememberMessageDeleter(activeMessage, buttonInteraction.user, 'embed-builder');
         await activeMessage?.delete?.().catch(() => {});
         // The moved Reappear copy is the same Builder item. Its registry row
         // must go too, or Search keeps offering an embed that was deleted.
@@ -644,6 +648,8 @@ async function savePendingBuilderDeletionUnlocked(buttonInteraction, guild, stat
         // The owner confirmed Delete. Delete the actual Cloudy-owned Discord
         // message first. Never claim success if REST deletion is denied.
         try {
+            // A Builder Delete is logged in the AutoMod log, by its staff member.
+            rememberMessageDeleter(presence.message, buttonInteraction.user, 'embed-builder');
             await presence.message.delete();
             presence.message.channel?.messages?.cache?.delete?.(String(pending.messageId));
         } catch (error) {
