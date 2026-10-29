@@ -34,7 +34,9 @@ export default {
     if (isEmbedManagerSaveInProgress(message.id)) return;
 
     const oldEmbeds = oldMessage?.embeds || [];
-    const welcomeEmbed = message.embeds?.find(isWelcomeEmbed) || null;
+    // A message log can show a deleted welcome embed; it is not the template.
+    const welcomeEmbed = DEDICATED_MESSAGE_LOG_CHANNEL_IDS.has(message.channelId)
+      ? null : message.embeds?.find(isWelcomeEmbed) || null;
 
     // Welcome messages are repeated per member, but they represent one editable
     // template. Persist edits made to any welcome message so every future
