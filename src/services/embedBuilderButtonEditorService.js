@@ -599,7 +599,8 @@ async function showAddResponseModal(componentInteraction, state, refreshBuilder,
 }
 async function showAddLinkModal(componentInteraction, state, refreshBuilder, panelMessage) {
   const modal = new ModalBuilder()
-    .setCustomId('embed_button_add_link_modal')
+    // One id per opened form: only the form that was sent responds.
+    .setCustomId(`embed_button_add_link_modal:${componentInteraction.id}`)
     .setTitle('Add link button')
     .addComponents(
       new ActionRowBuilder().addComponents(
@@ -623,7 +624,7 @@ async function showAddLinkModal(componentInteraction, state, refreshBuilder, pan
 
   await componentInteraction.showModal(modal);
   const submitted = await componentInteraction.awaitModalSubmit({
-    filter: interaction => interaction.customId === 'embed_button_add_link_modal'
+    filter: interaction => interaction.customId === `embed_button_add_link_modal:${componentInteraction.id}`
       && interaction.user.id === componentInteraction.user.id,
     time: 120_000,
   }).catch(() => null);
@@ -671,7 +672,7 @@ async function showEditButtonModal(componentInteraction, state, key, refreshBuil
 
   const isLink = Number(component.style) === ButtonStyle.Link;
   const modal = new ModalBuilder()
-    .setCustomId(`embed_button_edit_modal:${rowIndex}:${componentIndex}`)
+    .setCustomId(`embed_button_edit_modal:${rowIndex}:${componentIndex}:${componentInteraction.id}`)
     .setTitle('Edit button')
     .addComponents(
       new ActionRowBuilder().addComponents(
@@ -696,7 +697,7 @@ async function showEditButtonModal(componentInteraction, state, key, refreshBuil
 
   await componentInteraction.showModal(modal);
   const submitted = await componentInteraction.awaitModalSubmit({
-    filter: interaction => interaction.customId === `embed_button_edit_modal:${rowIndex}:${componentIndex}`
+    filter: interaction => interaction.customId === `embed_button_edit_modal:${rowIndex}:${componentIndex}:${componentInteraction.id}`
       && interaction.user.id === componentInteraction.user.id,
     time: 120_000,
   }).catch(() => null);

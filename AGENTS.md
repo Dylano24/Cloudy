@@ -30,6 +30,9 @@ This file is the persistent working context for every Codex session that edits t
 - Delete removes the row, its Reappear chain and active copy permanently (persistent tombstone).
 - A manual Discord deletion removes a post that was only published (`explicitSave: false`); an explicitly Saved one stays as a detached template and is never reposted automatically.
 - `node scripts/embed-registry-audit.js --guild <id> [--title pop] [--verify-discord]` writes a backup and reports duplicates read-only.
+- The Builder preview lives exactly as long as its control panel (`linkBuilderSessionPreview`): activity on the panel keeps the preview alive; it has no buttons of its own.
+- After Post/Save of a newly uploaded banner the private preview keeps showing Discord's own upload link (`builderPreviewBanner.js`), so it appears at once; the posted message always uses Cloudy's permanent media link.
+- Every Builder form (title/message, footer, picture, add link, edit button) gets a unique custom id per opening, so a form that was closed and opened again never answers one submit twice.
 
 ## Staff/Member/AutoMod message logs
 

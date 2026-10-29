@@ -267,7 +267,13 @@ async function openBuilder(t, world, { search = null } = {}) {
         return message;
       },
       async showModal(modal) { this.modal = modal; },
-      async awaitModalSubmit() { return extra.modalSubmit || null; },
+      async awaitModalSubmit(options) {
+        if (extra.awaitModalSubmit) return extra.awaitModalSubmit.call(this, options);
+        const submit = extra.modalSubmit || null;
+        // The submit belongs to the form this click opened.
+        if (submit && submit.customId === undefined) submit.customId = this.modal?.toJSON?.().custom_id;
+        return submit && (!options?.filter || options.filter(submit)) ? submit : null;
+      },
     };
     return self;
   }
@@ -292,7 +298,7 @@ async function openBuilder(t, world, { search = null } = {}) {
 
   async function addGif(url = GIF_URL) {
     const submit = {
-      customId: 'simple_embed_media_modal', user: OWNER,
+      user: OWNER,
       fields: { getUploadedFiles: () => new Collection([['gif', { url, name: 'pop-party.gif', contentType: 'image/gif' }]]) },
       async deferUpdate() { this.deferred = true; },
       async reply() {}, async followUp() {},
@@ -835,3 +841,58 @@ function runInFreshProcess(world, queries) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+test('a picture form that was closed and opened again answers the submit only once', async t => {
+  const world = createWorld(t);
+  const b = await openBuilder(t, world);
+  // discord.js gives a submitted form to every open wait of this user.
+  const waits = [];
+  const awaitModalSubmit = function (options) {
+    return new Promise(resolve => { waits.push({ filter: options.filter, resolve }); });
+  };
+  const collect = b.dashboard.collector.listeners('collect')[0];
+  const first = b.component('simple_embed_media', { awaitModalSubmit });
+  const second = b.component('simple_embed_media', { awaitModalSubmit });
+  const firstRun = collect(first);
+  const secondRun = collect(second);
+  await settle();
+  assert.equal(waits.length, 2, 'the first form was closed without sending, the second is open');
+  const firstId = first.modal.toJSON().custom_id;
+  const secondId = second.modal.toJSON().custom_id;
+  assert.notEqual(firstId, secondId);
+
+  let acknowledgements = 0;
+  const submit = {
+    customId: secondId, user: OWNER,
+    fields: { getUploadedFiles: () => new Collection([['gif', { url: GIF_URL, name: 'pop-party.gif', contentType: 'image/gif' }]]) },
+    async deferUpdate() { acknowledgements += 1; this.deferred = true; },
+    async reply() {}, async followUp() {},
+  };
+  for (const wait of waits) wait.resolve(wait.filter(submit) ? submit : null);
+  await Promise.all([firstRun, secondRun]);
+  await settle();
+  assert.equal(acknowledgements, 1, 'Discord gets one answer, never a rejected second one');
+  assert.equal(b.preview.embeds[0].toJSON().image?.url, GIF_URL);
+});
+
+test('each Builder form id is unique per opening and is routed only to its own wait', async () => {
+  const fs = await import('node:fs');
+  const router = fs.readFileSync('src/events/interactionCreate.js', 'utf8');
+  for (const prefix of ['simple_embed_content_modal:', 'simple_embed_footer_modal:', 'simple_embed_media_modal:']) {
+    assert.ok(router.includes(`startsWith('${prefix}')`), prefix + ' is handled by the Builder itself');
+  }
+  const editor = fs.readFileSync('src/services/embedBuilderButtonEditorService.js', 'utf8');
+  assert.match(editor, /embed_button_add_link_modal:\$\{componentInteraction\.id\}/);
+  assert.match(editor, /embed_button_edit_modal:\$\{rowIndex\}:\$\{componentIndex\}:\$\{componentInteraction\.id\}/);
+});
+
+test('Add media on a Builder that already has a picture replaces it at once, without Remove media', async t => {
+  const world = createWorld(t);
+  const b = await openBuilder(t, world);
+  await b.addGif('https://cdn.discordapp.com/ephemeral-attachments/1/2/first.png?ex=a');
+  assert.equal(b.preview.embeds[0].toJSON().image?.url, 'https://cdn.discordapp.com/ephemeral-attachments/1/2/first.png?ex=a');
+  const replaced = await b.addGif('https://cdn.discordapp.com/ephemeral-attachments/1/3/second.gif?ex=b');
+  assert.equal(replaced.modal.toJSON().custom_id.startsWith('simple_embed_media_modal:'), true);
+  assert.equal(b.preview.embeds[0].toJSON().image?.url, 'https://cdn.discordapp.com/ephemeral-attachments/1/3/second.gif?ex=b');
+  assert.match(b.dashboardText(), /Media\*\* › Picture \/ GIF set/);
+});
