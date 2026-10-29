@@ -72,7 +72,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 ## Cloudy Feed
 
 - Add/Edit feed form (owner's choice, in this order): Feed name, Website URL, Auto message, Start time, 18+ content. Media type is not in the form: for Add it is chosen on the channel step (the form opens once both media type and channel are chosen); for an existing feed it is the select on the Manage screen, saved at once.
-- Start time is optional Netherlands time (`Europe/Amsterdam`): `20:00` (today, or tomorrow once passed), `30-10 20:00` or `30-10-2026 20:00`, within one year. The first post waits for it (`startAt`), then the Auto message interval applies; empty means the old behaviour. Edit shows a future Start time and keeps it when unchanged; Pause/Resume keeps it.
+- Start time is optional EU/Netherlands time (`Europe/Amsterdam`), placeholder `00:00` (owner's choice): `20:00` (today, or tomorrow once passed), `30-10 20:00` or `30-10-2026 20:00`, within one year. The first post waits for it (`startAt`), then the Auto message interval applies; empty means the old behaviour. Edit shows a future Start time and keeps it when unchanged; Pause/Resume keeps it.
 - Every feed video is a 10-second clip from the middle (`cloudyFeedVideoClip.js`); videos of 10 s or shorter stay as they are. Long website videos download only their middle (yt-dlp `--download-sections`, ffmpeg through the guarded proxy, HTTPS only via `-protocol_whitelist`, size capped); Cloudy's own ffmpeg only reads local files.
 
 ## Current verified state
