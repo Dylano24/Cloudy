@@ -2207,6 +2207,7 @@ async function postMessage(buttonInteraction, state, guild, forceNew = false) {
         // Only the channel-picker collector is complete after this post.
         collector.stop('posted');
         state.reappearTouched = false;
+        state.builderCommitted = true;
         const successPayload = markBotResponsePayload({
             embeds: [isRepost
                 ? successEmbed('Message reposted', `Your message has been reposted to ${posted.destination}.`)
@@ -2261,10 +2262,12 @@ export default {
 
             // Discord removes private messages from the screen after a while
             // (or when the app reloads), e.g. during a long editor session.
-            // While the editor is open, or up to 5 minutes after leaving it,
-            // /embedbuilder brings back the SAME open Builder: its draft,
-            // picture and settings, with the editor still connected. Otherwise
-            // (and with a Search) it opens a new Builder as before.
+            // While Cloudy still holds the Builder (not closed, not expired)
+            // and nothing was Posted/Saved from it yet, or while the editor is
+            // open or was left up to 5 minutes ago, /embedbuilder brings back
+            // the SAME open Builder: its draft, picture and settings, with the
+            // editor still connected. Otherwise (and with a Search) it opens a
+            // new Builder as before.
             const resumeKey = builderSessionKey(interaction);
             const openSession = ACTIVE_BUILDER_SESSIONS.get(resumeKey);
             const searchRequested = Boolean(String(interaction.options?.getString?.('search') || '').trim())
@@ -2272,7 +2275,9 @@ export default {
                 || Boolean(globalThis.__cloudyEmbedBuilderSearchSelections?.get?.(resumeKey));
             const resumedState = !searchRequested && openSession?.state && openSession.collector
                 && !openSession.collector.ended
-                && wasEmbedEditorRecentlyUsed(openSession.state.colorSessionToken) ? openSession.state : null;
+                && (!openSession.state.builderCommitted
+                    || wasEmbedEditorRecentlyUsed(openSession.state.colorSessionToken))
+                ? openSession.state : null;
 
             const state = resumedState || {
                 builderBotManaged,
@@ -2600,6 +2605,7 @@ export default {
                                 }
                                 await buttonInteraction.deferUpdate().catch(() => {});
                                 await saveExistingEmbed(buttonInteraction, interaction.guild, state);
+                                state.builderCommitted = true;
                                 break;
                             }
                             await saveExistingEmbed(buttonInteraction, interaction.guild, state);
@@ -2666,6 +2672,7 @@ export default {
                                 fetchReply: true,
                             })).catch(() => null);
                             if (confirmation) removeTransientMessage(buttonInteraction, confirmation);
+                            state.builderCommitted = true;
                             await refreshBuilder(buttonInteraction, state);
                             break;
                         }
