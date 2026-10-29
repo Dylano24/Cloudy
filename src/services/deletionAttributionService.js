@@ -112,6 +112,28 @@ export function installCloudyDeletionRecorder(rest) {
   return true;
 }
 
+// Messages Cloudy deletes only to move them to the bottom of the channel
+// (Reappear, sticky guides). Each maps to whether Cloudy's own delete
+// request succeeded; only then is the deletion a move instead of a removal.
+const cloudyMoveDeletions = new Map();
+
+/** Deletes a Cloudy message that is being moved; same result as message.delete(). */
+export function deleteMessageForMove(message) {
+  const deletion = message.delete();
+  const key = String(message.id);
+  const mark = { done: Promise.resolve(deletion).then(() => true, () => false) };
+  cloudyMoveDeletions.set(key, mark);
+  const timer = setTimeout(() => { if (cloudyMoveDeletions.get(key) === mark) cloudyMoveDeletions.delete(key); }, CLOUDY_DELETION_TTL_MS);
+  timer.unref?.();
+  return deletion;
+}
+
+/** True only when Cloudy deleted this message itself to move it. */
+export async function wasDeletedForMove(messageId) {
+  const mark = cloudyMoveDeletions.get(String(messageId));
+  return mark ? mark.done : false;
+}
+
 function cloudyResult(client, type = DELETION_TYPES.cloudy) {
   const id = client?.user?.id;
   return id ? { id: String(id), label: `<@${id}>`, source: 'cloudy', type, bot: true } : { ...UNKNOWN };
@@ -491,4 +513,5 @@ export function resetDeletionAttributionState() {
   trackers.clear();
   intents.clear();
   cloudyDeletions.clear();
+  cloudyMoveDeletions.clear();
 }

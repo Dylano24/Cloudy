@@ -1,3 +1,5 @@
+import { deleteMessageForMove } from './deletionAttributionService.js';
+
 const DEFAULT_REFRESH_DELAY_MS = 1500;
 
 function isNewerId(id, otherId) {
@@ -81,7 +83,7 @@ export function createStickyGuideManager({
       });
       for (const guide of guides.values()) {
         try {
-          await guide.delete();
+          await deleteMessageForMove(guide);
         } catch (error) {
           if (Number(error.code) !== 10008) throw error;
         }
@@ -118,7 +120,7 @@ export function createStickyGuideManager({
     const remainingIds = [];
     for (const message of stale) {
       try {
-        await message.delete();
+        await deleteMessageForMove(message);
       } catch (error) {
         if (error.code !== 10008) {
           remainingIds.push(message.id);

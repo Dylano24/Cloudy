@@ -1,4 +1,4 @@
-import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback, resolveMessageDeleter } from '../services/deletionAttributionService.js';
+import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback, resolveMessageDeleter, wasDeletedForMove } from '../services/deletionAttributionService.js';
 import { Events, SnowflakeUtil } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
@@ -109,6 +109,12 @@ export async function logDeletedMessage(message, options = {}) {
   const channelId = message.channelId || message.channel?.id || null;
   if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID].includes(channelId) || isBotActionFeedback(message)) return;
   const detectedAt = options.detectedAt ?? Date.now();
+  // Reappear and sticky guides delete the old copy to move it to the bottom:
+  // that is not a removal, so it is not logged.
+  if (await wasDeletedForMove(message.id)) {
+    await forgetMessageSnapshot(guildId, message.id);
+    return;
+  }
 
   // An uncached (partial) message has no author/content. Use the copy
   // Cloudy stored when the message was sent or last edited.
