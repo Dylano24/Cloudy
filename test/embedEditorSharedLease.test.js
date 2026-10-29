@@ -10,9 +10,9 @@ import {
   touchBuilderSessionMessage,
 } from '../src/utils/builderSessionCleanup.js';
 
-test('Builder is five minutes outside editor; the editor ends only after fourteen minutes without contact', () => {
+test('Builder is five minutes outside editor; the editor ends only after sixty minutes without contact', () => {
   assert.equal(BUILDER_SESSION_IDLE_MS, 5 * 60_000);
-  assert.equal(EMBED_EDITOR_IDLE_MS, 14 * 60_000);
+  assert.equal(EMBED_EDITOR_IDLE_MS, 60 * 60_000);
 
   const source = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
   assert.match(source, /EMBED_EDITOR_EXACT_OPEN_LEASE_V2/);
@@ -20,7 +20,7 @@ test('Builder is five minutes outside editor; the editor ends only after fourtee
   assert.match(source, /scheduleSessionIdleExpiry\(token, session, instanceId\)/);
   assert.match(source, /Closing starts a fresh normal 5m Builder inactivity window/i);
   assert.match(source, /releaseBuilderSessionHold\(token\)/);
-  assert.match(source, /Any contact from the open page[\s\S]*restarts the 14m idle window/i);
+  assert.match(source, /Any contact from the open page[\s\S]*restarts the 60m idle window/i);
   assert.match(source, /editor_lifecycle_ignored/);
   assert.match(source, /session\.onEditorUpdate\('__heartbeat__', ''\)/);
   assert.doesNotMatch(source, /real editor activity[\s\S]*reset 14 minutes/i);

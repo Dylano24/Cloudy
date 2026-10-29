@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -895,4 +895,129 @@ test('Add media on a Builder that already has a picture replaces it at once, wit
   assert.equal(replaced.modal.toJSON().custom_id.startsWith('simple_embed_media_modal:'), true);
   assert.equal(b.preview.embeds[0].toJSON().image?.url, 'https://cdn.discordapp.com/ephemeral-attachments/1/3/second.gif?ex=b');
   assert.match(b.dashboardText(), /Media\*\* › Picture \/ GIF set/);
+});
+
+test('saving again and again, re-adding the same picture, keeps one message, one banner and one Search item', async t => {
+  const mediaDir = mkdtempSync(path.join(tmpdir(), 'cloudy-repeat-save-'));
+  const previous = { dir: process.env.CLOUDY_EMBED_MEDIA_DIR, base: process.env.CLOUDY_EMBED_MEDIA_BASE_URL };
+  process.env.CLOUDY_EMBED_MEDIA_DIR = mediaDir;
+  process.env.CLOUDY_EMBED_MEDIA_BASE_URL = 'https://cloudy.example.com';
+  t.after(() => {
+    for (const [key, value] of [['CLOUDY_EMBED_MEDIA_DIR', previous.dir], ['CLOUDY_EMBED_MEDIA_BASE_URL', previous.base]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(mediaDir, { recursive: true, force: true });
+  });
+  // The same picture, uploaded again each time (Discord gives a new upload link).
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+  t.mock.method(globalThis, 'fetch', async () => new Response(png, { status: 200 }));
+  const upload = n => `https://cdn.discordapp.com/ephemeral-attachments/1534506224312389863/19${n}0000000000000000/banner.png?ex=${n}`;
+
+  const world = createWorld(t);
+  const b = await openBuilder(t, world);
+  await b.edit('title', 'Rules');
+  await b.edit('message', 'Version 0');
+  await b.addGif(upload(1));
+  await b.post();
+  await drainGateway(world);
+  const [posted] = physical(world);
+  const permanent = posted.embeds[0].image.url;
+  assert.match(permanent, /^https:\/\/cloudy\.example\.com\/cloudy-embed-media\/[a-f0-9]{64}\.png$/);
+
+  for (let round = 1; round <= 3; round += 1) {
+    await b.addGif(upload(round + 1));
+    await b.edit('message', 'Version ' + round);
+    await b.save();
+    await drainGateway(world);
+    const messages = physical(world);
+    assert.equal(messages.length, 1, 'still one message after Save ' + round);
+    assert.equal(messages[0].id, posted.id, 'Save edits the same message');
+    assert.equal(messages[0].embeds.length, 1, 'no second embed');
+    assert.equal(messages[0].embeds[0].image.url, permanent, 'the same picture keeps the same banner link');
+    assert.equal(messages[0].embeds[0].description, 'Version ' + round);
+    assert.equal(registry(world).filter(row => row.messageId === posted.id).length, 1, 'one Search item');
+  }
+  assert.equal(registry(world).length, 1);
+  assert.equal(readdirSync(mediaDir).filter(name => !name.startsWith('.')).length, 1, 'one stored copy of the picture');
+});
+
+test('saving after every kind of change (other picture, no picture, colour, logo, footer, text) never leaves a duplicate', async t => {
+  const mediaDir = mkdtempSync(path.join(tmpdir(), 'cloudy-mixed-save-'));
+  const previous = { dir: process.env.CLOUDY_EMBED_MEDIA_DIR, base: process.env.CLOUDY_EMBED_MEDIA_BASE_URL };
+  process.env.CLOUDY_EMBED_MEDIA_DIR = mediaDir;
+  process.env.CLOUDY_EMBED_MEDIA_BASE_URL = 'https://cloudy.example.com';
+  t.after(() => {
+    for (const [key, value] of [['CLOUDY_EMBED_MEDIA_DIR', previous.dir], ['CLOUDY_EMBED_MEDIA_BASE_URL', previous.base]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(mediaDir, { recursive: true, force: true });
+  });
+  // Three different pictures; each upload gets its own Discord link.
+  const picture = name => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(name)]);
+  t.mock.method(globalThis, 'fetch', async url => new Response(picture(new URL(url).pathname.split('/').at(-1)), { status: 200 }));
+  let uploads = 0;
+  const upload = name => `https://cdn.discordapp.com/ephemeral-attachments/1534506224312389863/1${String(++uploads).padStart(18, '0')}/${name}?ex=${uploads}`;
+
+  const world = createWorld(t);
+  const b = await openBuilder(t, world);
+  await b.edit('title', 'Rules');
+  await b.edit('message', 'Start');
+  await b.addGif(upload('a.png'));
+  await b.post();
+  await drainGateway(world);
+  const [posted] = physical(world);
+  const linkA = posted.embeds[0].image.url;
+  const editPayloads = [];
+  const originalEdit = posted.edit.bind(posted);
+  posted.edit = async payload => { editPayloads.push(payload); return originalEdit(payload); };
+
+  const PERMANENT = /^https:\/\/cloudy\.example\.com\/cloudy-embed-media\/[a-f0-9]{64}\.png$/;
+  async function saveAndCheck(label, expectImage) {
+    await b.save();
+    await drainGateway(world);
+    const messages = physical(world);
+    assert.equal(messages.length, 1, label + ': still one message');
+    assert.equal(messages[0].id, posted.id, label + ': Save edits the same message');
+    assert.equal(messages[0].embeds.length, 1, label + ': one embed');
+    const image = messages[0].embeds[0].image?.url ?? null;
+    if (expectImage instanceof RegExp) assert.match(image || '', expectImage, label + ': banner');
+    else assert.equal(image, expectImage, label + ': banner');
+    assert.equal(registry(world).length, 1, label + ': one Search item');
+    assert.ok(editPayloads.every(payload => !payload.files?.length), label + ': no extra loose image uploaded');
+    return messages[0];
+  }
+
+  await b.addGif(upload('b.png'));
+  await b.edit('message', 'Other picture');
+  let saved = await saveAndCheck('other picture', PERMANENT);
+  const linkB = saved.embeds[0].image.url;
+  assert.notEqual(linkB, linkA);
+  assert.equal(saved.embeds[0].description, 'Other picture');
+
+  await b.color('#FF0000');
+  await b.edit('footer', 'New footer');
+  saved = await saveAndCheck('colour and footer', linkB);
+  assert.equal(saved.embeds[0].color, 0xFF0000);
+  assert.match(saved.embeds[0].footer?.text || '', /^New footer/);
+
+  await b.click('simple_embed_remove_logo');
+  saved = await saveAndCheck('logo removed', linkB);
+  assert.equal(saved.embeds[0].thumbnail ?? null, null);
+  await b.click('simple_embed_logo');
+  saved = await saveAndCheck('logo added', linkB);
+  assert.ok(saved.embeds[0].thumbnail?.url);
+
+  await b.click('simple_embed_clear_media');
+  await saveAndCheck('picture removed', null);
+
+  await b.addGif(upload('c.png'));
+  saved = await saveAndCheck('new picture after removing', PERMANENT);
+  assert.notEqual(saved.embeds[0].image.url, linkB);
+
+  await b.addGif(upload('a.png'));
+  await b.edit('title', 'Rules (final)');
+  saved = await saveAndCheck('first picture again', linkA);
+  assert.equal(saved.embeds[0].title, 'Rules (final)');
 });
