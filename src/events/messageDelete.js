@@ -107,11 +107,12 @@ export async function logDeletedMessage(message, options = {}) {
   if (!message.guild) return;
   const guildId = message.guild.id;
   const channelId = message.channelId || message.channel?.id || null;
-  if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID].includes(channelId) || isBotActionFeedback(message)) return;
+  if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID].includes(channelId)) return;
   const detectedAt = options.detectedAt ?? Date.now();
   // Reappear and sticky guides delete the old copy to move it to the bottom:
-  // that is not a removal, so it is not logged.
-  if (await wasDeletedForMove(message.id)) {
+  // that is not a removal, so it is not logged. Cloudy's own replies to an
+  // action (status, command and button replies) are not logged either.
+  if (isBotActionFeedback(message) || await wasDeletedForMove(message.id)) {
     await forgetMessageSnapshot(guildId, message.id);
     return;
   }
@@ -121,6 +122,10 @@ export async function logDeletedMessage(message, options = {}) {
   const uncached = message.partial || !message.author;
   const snapshot = !uncached ? null
     : options.snapshot !== undefined ? options.snapshot : await getMessageSnapshot(guildId, message.id);
+  if (snapshot?.feedback) {
+    await forgetMessageSnapshot(guildId, message.id);
+    return;
+  }
   const authorId = message.author?.id || snapshot?.authorId || null;
   const authorBot = message.author ? message.author.bot === true : snapshot?.authorBot === true;
   const attachments = attachmentList(message, snapshot);

@@ -72,10 +72,36 @@ test('without any stored copy the creation time still comes from the message ID'
   assert.match(description, /not cached before deletion/);
 });
 
-test('message logs and Cloudy status replies are never stored', async () => {
+test('message logs are never stored; Cloudy status replies keep only a not-logged marker', async () => {
   const { client, guild } = setup();
   assert.equal(await captureMessageSnapshot({ id: '1', guildId: guild.id, channelId: MEMBER_MESSAGE_LOG_ID, client, author: { id: 'bot', bot: true }, content: 'log', embeds: [], attachments: new Collection() }), false);
-  assert.equal(await captureMessageSnapshot({ id: '2', guildId: guild.id, channelId: 'source', client, author: { id: 'bot', bot: true }, content: '', embeds: [{ title: 'Success' }], attachments: new Collection() }), false);
+  await captureMessageSnapshot({ id: '2', guildId: guild.id, channelId: 'source', client, author: { id: 'bot', bot: true }, content: 'secret', embeds: [{ title: 'Success' }], attachments: new Collection() });
+  const marker = await getMessageSnapshot(guild.id, '2');
+  assert.equal(marker.feedback, true);
+  assert.equal(marker.content, undefined);
+  assert.equal(marker.embedText, undefined);
+});
+
+test('Cloudy replies to an action are never message-logged, also after a restart; posted embeds and member messages are', async () => {
+  const { client, guild, sent } = setup();
+  const base = { guild, guildId: guild.id, channelId: 'gambling', client, createdTimestamp: 1_700_000_000_000,
+    author: { id: 'bot', bot: true }, content: '', stickers: new Collection(), attachments: new Collection() };
+  // A public slash-command reply, deleted while cached and after a restart.
+  await logDeletedMessage({ ...base, id: '1300000000000000201', interactionMetadata: { id: 'i' }, embeds: [{ title: 'Robbery failed' }] });
+  const reply = { ...base, id: '1300000000000000202', interactionMetadata: { id: 'i' }, embeds: [{ title: 'Invalid input' }] };
+  await captureMessageSnapshot(reply);
+  await logDeletedMessage({ id: reply.id, guild, guildId: guild.id, channelId: 'gambling', client, partial: true, author: null, content: null, attachments: new Collection() });
+  assert.equal(sent.length, 0);
+  assert.equal(await getMessageSnapshot(guild.id, reply.id), null);
+
+  // An embed Cloudy posted to the channel (Embed Builder, panel) is still logged.
+  await logDeletedMessage({ ...base, id: '1300000000000000203', embeds: [{ title: 'Server rules', description: 'Be kind.' }] });
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].embed.description, /Server rules/);
+  // A member's message is still logged.
+  await logDeletedMessage({ ...base, id: '1300000000000000204', author: { id: 'member', bot: false }, content: 'hello', embeds: [] });
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].id, MEMBER_MESSAGE_LOG_ID);
 });
 
 test('edit logs use the stored "before", one channel mention, and skip link-preview updates', async () => {

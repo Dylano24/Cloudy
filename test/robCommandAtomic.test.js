@@ -133,3 +133,28 @@ test('staff robbery is rejected before any account access, fine or cooldown', as
   assert.match(JSON.stringify(f.payloads[0]), /Robbery failed/);
   assert.match(JSON.stringify(f.payloads[0]), /Cloudy staff members cannot be robbed/);
 });
+
+test('a target who left the server is reported as a member, never as staff', async () => {
+  for (const [code, expected] of [
+    [10007, /Unable to verify this member's status\. They are no longer in this server\./],
+    [500, /Unable to verify this member's status\. Please try again\./],
+  ]) {
+    const f = fixture();
+    const attempt = f.interaction();
+    attempt.guild = {
+      id: guildId,
+      ownerId: robberId,
+      members: {
+        cache: new Map(),
+        fetch: async () => { throw Object.assign(new Error('lookup failed'), { code }); },
+      },
+    };
+    await assert.rejects(rob.execute(attempt, {}, f.client), error => {
+      assert.match(error.userMessage || error.message, expected);
+      assert.doesNotMatch(error.userMessage || error.message, /staff/i);
+      return true;
+    });
+    assert.equal(f.commits(), 0);
+    assert.equal(f.read(robberId).lastRob, 0);
+  }
+});
