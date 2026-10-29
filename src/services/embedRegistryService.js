@@ -962,6 +962,11 @@ export async function registerCloudyEmbedMessages(messages, source = 'cloudy', {
                     };
                     return addition;
                 })
+                // A Staff/Member/AutoMod log is one entry: its first embed. A
+                // deleted embed shown under it is never a new Search item.
+                .filter(addition => addition.embedIndex === 0
+                    || (manualSave && addition.embedIndex === manualSaveIndex)
+                    || !DEDICATED_MESSAGE_LOG_CHANNEL_IDS.has(String(message.channelId || message.channel?.id || '')))
                 .filter(addition => isSystemCatalogMessage(message)
                     || isManualBuilderMessage
                     || isBotHistoryMessage

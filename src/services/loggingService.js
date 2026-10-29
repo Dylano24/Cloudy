@@ -430,7 +430,11 @@ export async function logEvent({
     // template, so the deleted content always wins over a template image.
     if (eventType === EVENT_TYPES.MESSAGE_DELETE && data.image) presentedEmbed.setImage(data.image);
     if (videoLinks.length) presentedEmbed.addFields({ name: videoLinks.length > 1 ? 'Videos' : 'Video', value: videoLinks.join('\n') });
-    const messageOptions = { embeds: [presentedEmbed] };
+    // A deleted embed shown under the log details (Embed Builder Delete). It is
+    // sent as it was: plain data, so no template, footer or colour pass.
+    const embedCopies = eventType === EVENT_TYPES.MESSAGE_DELETE && Array.isArray(data.embedCopies)
+      ? data.embedCopies.slice(0, 9) : [];
+    const messageOptions = { embeds: [presentedEmbed, ...embedCopies] };
     if (allowedMentions) messageOptions.allowedMentions = allowedMentions;
     else if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };
     if (content) {
@@ -456,7 +460,12 @@ export async function logEvent({
             const fallback = { ...messageOptions };
             delete fallback.files;
             // Without the upload there is no attachment:// image to show.
-            if (data.image) fallback.embeds = [EmbedBuilder.from(presentedEmbed).setImage(null)];
+            if (data.image || embedCopies.length) {
+              fallback.embeds = [
+                data.image ? EmbedBuilder.from(presentedEmbed).setImage(null) : presentedEmbed,
+                ...embedCopies.map(withoutUploadedImages),
+              ];
+            }
             fallback.content = `Media could not be copied.\n${data.attachmentFallback || ''}`.slice(0, 2000);
             sent = await channel.send(fallback);
           } else {
@@ -474,6 +483,16 @@ export async function logEvent({
     logger.error('Error in logEvent:', error);
     return null;
   }
+}
+
+function withoutUploadedImages(embed) {
+  const copy = { ...embed };
+  const uploaded = url => String(url || '').startsWith('attachment://');
+  if (uploaded(copy.image?.url)) delete copy.image;
+  if (uploaded(copy.thumbnail?.url)) delete copy.thumbnail;
+  if (uploaded(copy.author?.icon_url)) copy.author = { ...copy.author, icon_url: undefined };
+  if (uploaded(copy.footer?.icon_url)) copy.footer = { ...copy.footer, icon_url: undefined };
+  return copy;
 }
 
 function createLogEmbed(guild, eventType, data) {
