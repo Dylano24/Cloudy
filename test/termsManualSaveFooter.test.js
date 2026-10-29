@@ -4,19 +4,19 @@ import { stampTermsFooterOnSave, syncExistingTermsFooter } from '../src/services
 
 const original = { title: '📜 Terms of service', description: 'Saved text', color: 0xFFFFFF, footer: { text: '© Cloudy Inc. • Last updated 07 October 2026 • 18:17', icon_url: 'https://example.com/icon.png' } };
 
-test('Terms title and emoji changes receive Amsterdam Save date and time with the same footer layout', () => {
+test('Terms title and emoji changes receive Amsterdam Save date without showing the time', () => {
   const next = { ...original, title: '✅ Updated conditions' };
   const result = stampTermsFooterOnSave(original, next, { now: new Date('2026-10-09T12:32:00Z') });
-  assert.equal(result.footer.text, '© Cloudy Inc. • Last updated 09 October 2026 • 14:32');
+  assert.equal(result.footer.text, '© Cloudy Inc. • Last updated 09 October 2026');
   const later = stampTermsFooterOnSave(result, structuredClone(result), { channelId: '1533191366190829768', now: new Date('2026-10-10T13:45:00Z') });
-  assert.equal(later.footer.text, '© Cloudy Inc. • Last updated 10 October 2026 • 15:45');
+  assert.equal(later.footer.text, '© Cloudy Inc. • Last updated 10 October 2026');
   assert.equal(result.footer.icon_url, original.footer.icon_url);
   assert.equal(result.description, original.description);
 });
 
 test('every Terms Save refreshes the date while unrelated embeds keep their footer', () => {
   const result = stampTermsFooterOnSave(original, structuredClone(original), { now: new Date('2026-10-09T12:32:00Z') });
-  assert.equal(result.footer.text, '© Cloudy Inc. • Last updated 09 October 2026 • 14:32');
+  assert.equal(result.footer.text, '© Cloudy Inc. • Last updated 09 October 2026');
   const unrelated = { ...original, title: 'Privacy policy' };
   assert.deepEqual(stampTermsFooterOnSave(unrelated, { ...unrelated, description: 'Changed' }), { ...unrelated, description: 'Changed' });
 });
@@ -24,23 +24,56 @@ test('every Terms Save refreshes the date while unrelated embeds keep their foot
 test('Terms of sale and renamed Terms in their channel keep automatic dating on future Saves', () => {
   for (const title of ['Terms of sale', 'Store terms of sale']) {
     const before = { ...original, title };
-    assert.match(stampTermsFooterOnSave(before, { ...before, description: 'Updated' }).footer.text, /^© Cloudy Inc\. • Last updated \d{2} [A-Za-z]+ \d{4} • \d{2}:\d{2}$/);
+    assert.match(stampTermsFooterOnSave(before, { ...before, description: 'Updated' }).footer.text, /^© Cloudy Inc\. • Last updated \d{2} [A-Za-z]+ \d{4}$/);
   }
   const renamed = { ...original, title: 'Updated conditions' };
   assert.notEqual(stampTermsFooterOnSave(renamed, { ...renamed, description: 'Changed' }, { channelId: '1533191366190829768' }).footer.text, original.footer.text);
   for (const channelId of ['1554538587075248139', '1554538589960802354']) {
-    assert.equal(stampTermsFooterOnSave(renamed, structuredClone(renamed), { channelId, now: new Date('2026-10-09T12:32:00Z') }).footer.text, '© Cloudy Inc. • Last updated 09 October 2026 • 14:32');
+    assert.equal(stampTermsFooterOnSave(renamed, structuredClone(renamed), { channelId, now: new Date('2026-10-09T12:32:00Z') }).footer.text, '© Cloudy Inc. • Last updated 09 October 2026');
   }
 });
 
 test('winter Save uses Amsterdam timezone and the previous UTC day correctly', () => {
   const result = stampTermsFooterOnSave(original, { ...original, description: 'Changed' }, { now: new Date('2026-12-31T23:05:00Z') });
-  assert.equal(result.footer.text, '© Cloudy Inc. • Last updated 01 January 2027 • 00:05');
+  assert.equal(result.footer.text, '© Cloudy Inc. • Last updated 01 January 2027');
 });
 
-test('startup reconciliation never overwrites a manually dated Discord Terms footer', async () => {
-  const message = { embeds: [original], edit: async () => { assert.fail('must preserve saved date'); } };
-  assert.equal(await syncExistingTermsFooter(message, 'Terms of service'), false);
+test('existing Terms messages remove only the last separator and time, preserving date and every other field', async () => {
+  for (const title of ['Terms of service', 'Store terms of sale']) {
+    const before = {
+      ...original,
+      title,
+      fields: [{ name: 'Legal text', value: 'Keep every word and every field' }],
+      footer: { ...original.footer, text: '© Cloudy Inc. • Last updated 23 October 2026 • 18:17' },
+    };
+    const sibling = { title: 'Different message', footer: { text: 'Untouched' } };
+    const message = {
+      embeds: [before, sibling],
+      edits: 0,
+      async edit({ embeds }) { this.edits++; this.embeds = embeds; },
+    };
+    assert.equal(await syncExistingTermsFooter(message, title), true);
+    assert.equal(message.embeds[0].footer.text, '© Cloudy Inc. • Last updated 23 October 2026');
+    assert.deepEqual(
+      { ...message.embeds[0], footer: before.footer },
+      before,
+      'only footer text may change',
+    );
+    assert.equal(message.embeds[0].footer.icon_url, before.footer.icon_url);
+    assert.deepEqual(message.embeds[1], sibling);
+    assert.equal(await syncExistingTermsFooter(message, title), false);
+    assert.equal(message.edits, 1, 'no repeat edit on the next restart');
+  }
+});
+
+test('a renamed Terms message keeps automatic dating after its time has been removed', () => {
+  const before = { ...original, title: 'Updated conditions',
+    footer: { ...original.footer, text: '© Cloudy Inc. • Last updated 23 October 2026' } };
+  const changed = stampTermsFooterOnSave(before, { ...before, description: 'New terms text' }, {
+    channelId: '1533191366190829768', now: new Date('2026-10-29T10:10:00Z'),
+  });
+  assert.equal(changed.footer.text, '© Cloudy Inc. • Last updated 29 October 2026');
+  assert.equal(changed.footer.icon_url, before.footer.icon_url);
 });
 
 test('real Builder Save stamps only the selected Terms embed even without content changes', async t => {
