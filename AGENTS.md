@@ -66,6 +66,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Ticket logs, fixed non-ticket log rules above, manually saved Embed Builder colors, and explicitly user-selected color previews are excluded from default color normalization.
 - For every other newly generated embed, green defaults normalize to `#00C49D`; any non-green default color normalizes to `#FFFFFF`.
 - Interactive configuration/dashboard messages (including Ticket Dashboard, Join to Create, and Embed Builder) delete after five minutes of inactivity. Activity resets the five-minute window.
+- While the Embed Builder's browser editor (content/footer/colour page) is open it holds the Builder with no timer: every page contact (20-second heartbeat, typing, colour) restarts a 14-minute idle window; closing the page starts the normal 5 minutes. Discord only lets Cloudy edit the private Builder preview for 15 minutes after `/embedbuilder`; after that the preview is marked paused (the editor session is NOT deleted), the editor page shows its own live preview (`CLOUDY_EDITOR_OWN_PREVIEW_V1`, exact `buildPreviewEmbed` data, uploaded media via `/api/embed-color/:token/media`), and Save/Post in Discord apply everything.
 
 ## Current verified state
 

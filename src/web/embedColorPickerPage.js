@@ -52,14 +52,55 @@ export function embedColorPickerPage() {
     .quick-label { margin-top: 18px; } .quick { display: grid; grid-template-columns: repeat(9, 1fr); gap: 8px; }
     .quick button { width: auto; aspect-ratio: 1; margin: 0; padding: 0; border: 2px solid transparent; border-radius: 7px; background: var(--swatch); box-shadow: inset 0 0 0 1px #0004; }
     .quick button:hover, .quick button:focus-visible { border-color: #fff; background: var(--swatch); }
+    #previewSection { margin: 0 0 20px; }
+    #previewToggle { width: 100%; border: 1px solid #3d3f48; background: #1e1f22; color: #f2f3f5; border-radius: 8px; padding: 12px 14px; font: 700 15px inherit; cursor: pointer; text-align: left; }
+    #previewToggle:hover, #previewToggle:focus-visible { border-color: #5865f2; background: #2b2d31; outline: 0; }
+    #previewNote { margin: 10px 0 0; font-size: 13px; color: #fee75c; }
+    .dc-embed { max-width: 520px; margin-top: 10px; background: #2b2d31; border-radius: 4px; border-left: 4px solid #1e1f22; padding: 8px 16px 16px 12px; font-size: 14px; line-height: 1.375; color: #dbdee1; overflow-wrap: anywhere; }
+    .dc-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; }
+    .dc-author { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 14px; font-weight: 600; color: #f2f3f5; }
+    .dc-author img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+    .dc-title { margin-top: 8px; font-size: 16px; font-weight: 600; color: #f2f3f5; }
+    .dc-title a { color: #00a8fc; text-decoration: none; }
+    .dc-desc { margin-top: 8px; }
+    .dc-desc h1, .dc-desc h2, .dc-desc h3 { margin: 8px 0 0; color: #f2f3f5; line-height: 1.25; }
+    .dc-desc h1 { font-size: 24px; } .dc-desc h2 { font-size: 20px; } .dc-desc h3 { font-size: 16px; }
+    .dc-desc .subtext { font-size: 12px; color: #949ba4; }
+    .dc-desc ul { margin: 4px 0; padding-left: 20px; }
+    .dc-desc blockquote { margin: 2px 0; padding-left: 12px; border-left: 4px solid #4e5058; }
+    .dc-desc code { background: #1e1f22; border-radius: 3px; padding: 0 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 85%; }
+    .dc-desc pre { margin: 6px 0 0; background: #1e1f22; border-radius: 4px; padding: 7px; white-space: pre-wrap; }
+    .dc-desc pre code { background: none; padding: 0; }
+    .dc-desc .mention { background: #5865f24d; color: #c9cdfb; border-radius: 3px; padding: 0 2px; font-weight: 500; }
+    .dc-desc .spoiler { background: #1e1f22; border-radius: 3px; padding: 0 2px; }
+    .dc-desc .emoji { width: 22px; height: 22px; object-fit: contain; vertical-align: -5px; }
+    .dc-desc a { color: #00a8fc; text-decoration: none; }
+    .dc-fields { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+    .dc-field { grid-column: span 12; min-width: 0; }
+    .dc-field.inline { grid-column: span 4; }
+    .dc-field-name { font-weight: 600; color: #f2f3f5; margin-bottom: 2px; }
+    .dc-field .dc-desc { margin-top: 0; }
+    .dc-thumb { margin-top: 8px; }
+    .dc-thumb img { width: 80px; height: 80px; object-fit: contain; border-radius: 4px; }
+    .dc-image { margin-top: 16px; }
+    .dc-image img { display: block; max-width: 100%; max-height: 300px; border-radius: 4px; }
+    .dc-footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #b5bac1; }
+    .dc-footer img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
     .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <main>
+    <section id="previewSection" class="hidden">
+      <button id="previewToggle" type="button" aria-expanded="true" aria-controls="previewBody">👁️ Preview</button>
+      <div id="previewBody">
+        <div id="embedPreview" class="dc-embed"></div>
+        <p id="previewNote" class="hidden" role="status"></p>
+      </div>
+    </section>
     <section id="editorMode" class="hidden">
       <h1 id="editorTitle">Edit title and message</h1>
-      <p id="editorDescription">Click inside a field, then choose an emoji. It is inserted exactly at your cursor and the Discord preview updates automatically.</p>
+      <p id="editorDescription">Click inside a field, then choose an emoji. It is inserted exactly at your cursor and the preview updates automatically.</p>
       <div id="contentFields">
         <div class="row"><label for="titleEditor">Title</label><span id="titleCount" class="count">0 / 256</span></div>
         <input id="titleInput" type="text" maxlength="256" class="hidden" aria-hidden="true">
@@ -124,8 +165,8 @@ export function embedColorPickerPage() {
       return data.color;
     }
 
-    // Opening/reopening is the ONLY action that starts a fresh 14 minutes.
-    // Every other request waits for this handshake but never extends it.
+    // Opening registers this page; after that every request (heartbeat,
+    // typing, colour) keeps it open. 14 minutes without contact closes it.
     const editorOpenPromise = token
       ? callSession('__CLOUDY_EMBED_OPEN__:' + editorInstanceId)
       : Promise.resolve(null);
@@ -136,7 +177,8 @@ export function embedColorPickerPage() {
       heartbeatInFlight = true;
       try {
         await editorOpenPromise;
-        await callSession('__CLOUDY_EMBED_HEARTBEAT__');
+        const heartbeat = await callSession('__CLOUDY_EMBED_HEARTBEAT__');
+        if (typeof applyServerPreview === 'function') applyServerPreview(heartbeat);
       } catch {
         // Actual editor actions surface expiry/errors to the user; heartbeat stays silent.
       } finally {
@@ -181,6 +223,171 @@ export function embedColorPickerPage() {
     window.addEventListener('beforeunload', closeEditorSession, { once: true });
     void keepEditorSessionActive();
 
+    // CLOUDY_EDITOR_OWN_PREVIEW_V1: the editor's own live preview. Cloudy sends
+    // the exact Builder preview; the fields edited here are applied as you
+    // type. Discord only lets Cloudy update its private Builder preview for
+    // 15 minutes after /embedbuilder, so this one keeps working after that.
+    const NL = String.fromCharCode(10);
+    const BS = String.fromCharCode(92);
+    const BT = String.fromCharCode(96);
+    const previewSection = document.getElementById('previewSection');
+    const previewBody = document.getElementById('previewBody');
+    const previewToggle = document.getElementById('previewToggle');
+    const embedPreview = document.getElementById('embedPreview');
+    const previewNote = document.getElementById('previewNote');
+    let basePreview = null;
+    let previewOverrides = {};
+    let discordPreviewPaused = false;
+    let mediaStamp = Date.now();
+    const maskedLink = new RegExp(BS + '[([^' + BS + ']]+)' + BS + ']' + BS + '((https?:[^ )]+)' + BS + ')', 'g');
+
+    previewToggle.addEventListener('click', () => {
+      const open = previewBody.classList.toggle('hidden') === false;
+      previewToggle.setAttribute('aria-expanded', String(open));
+    });
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function inlineMarkdown(html) {
+      return html
+        .replace(/&lt;(a?):([A-Za-z0-9_]+):([0-9]+)&gt;/g, (match, animated, name, id) =>
+          '<img class="emoji" alt=":' + name + ':" src="https://cdn.discordapp.com/emojis/' + id + '.' + (animated ? 'gif' : 'webp') + '?size=48">')
+        .replace(/&lt;@&amp;[0-9]+&gt;/g, '<span class="mention">@role</span>')
+        .replace(/&lt;@!?[0-9]+&gt;/g, '<span class="mention">@user</span>')
+        .replace(/&lt;#[0-9]+&gt;/g, '<span class="mention">#channel</span>')
+        .replace(/&lt;t:([0-9]+)(:[tTdDfFR])?&gt;/g, (match, seconds) =>
+          '<span class="mention">' + escapeHtml(new Date(Number(seconds) * 1000).toLocaleString()) + '</span>')
+        .replace(maskedLink, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/[*][*]([^*]+)[*][*]/g, '<strong>$1</strong>')
+        .replace(/__([^_]+)__/g, '<u>$1</u>')
+        .replace(/[*]([^*]+)[*]/g, '<em>$1</em>')
+        .replace(/(^|[^A-Za-z0-9_])_([^_]+)_(?![A-Za-z0-9_])/g, '$1<em>$2</em>')
+        .replace(/~~([^~]+)~~/g, '<s>$1</s>')
+        .replace(/[|][|]([^|]+)[|][|]/g, '<span class="spoiler">$1</span>');
+    }
+
+    function inlineText(raw) {
+      return String(raw || '').split(BT).map((part, index) =>
+        index % 2 === 1 ? '<code>' + escapeHtml(part) + '</code>' : inlineMarkdown(escapeHtml(part))).join('');
+    }
+
+    function renderLines(text) {
+      const out = [];
+      let list = false;
+      for (const line of text.split(NL)) {
+        const subtext = line.match(/^-# +(.*)$/);
+        const bullet = !subtext && line.match(/^ *[-*] +(.*)$/);
+        if (bullet) {
+          if (!list) { out.push('<ul>'); list = true; }
+          out.push('<li>' + inlineText(bullet[1]) + '</li>');
+          continue;
+        }
+        if (list) { out.push('</ul>'); list = false; }
+        const heading = line.match(/^(#{1,3}) +(.*)$/);
+        const quote = line.match(/^> ?(.*)$/);
+        if (subtext) out.push('<div class="subtext">' + inlineText(subtext[1]) + '</div>');
+        else if (heading) out.push('<h' + heading[1].length + '>' + inlineText(heading[2]) + '</h' + heading[1].length + '>');
+        else if (quote) out.push('<blockquote>' + (inlineText(quote[1]) || '&nbsp;') + '</blockquote>');
+        else out.push(inlineText(line) + '<br>');
+      }
+      if (list) out.push('</ul>');
+      return out.join('').replace(/(<br>)+$/, '');
+    }
+
+    function renderMarkdown(raw) {
+      const fence = BT + BT + BT;
+      return String(raw || '').split(fence).map((part, index) => {
+        if (index % 2 === 0) return renderLines(part);
+        const lines = part.split(NL);
+        const body = lines.length > 1 && /^[A-Za-z0-9_+-]*$/.test(lines[0]) ? lines.slice(1).join(NL) : part;
+        return '<pre><code>' + escapeHtml(body) + '</code></pre>';
+      }).join('');
+    }
+
+    function previewImageUrl(url) {
+      const value = String(url || '');
+      if (value.startsWith('attachment://')) return apiUrl + '/media?v=' + mediaStamp;
+      return /^https?:/i.test(value) ? value : '';
+    }
+
+    function renderEmbedPreview() {
+      if (!basePreview) return;
+      const data = Object.assign({}, basePreview, previewOverrides);
+      embedPreview.style.borderLeftColor = Number.isInteger(data.color)
+        ? '#' + data.color.toString(16).padStart(6, '0') : '#1e1f22';
+      let main = '';
+      if (data.author && data.author.name) {
+        const icon = previewImageUrl(data.author.icon_url);
+        main += '<div class="dc-author">' + (icon ? '<img alt="" src="' + escapeHtml(icon) + '">' : '')
+          + '<span>' + escapeHtml(data.author.name) + '</span></div>';
+      }
+      if (data.title) {
+        const title = inlineText(data.title);
+        main += '<div class="dc-title">' + (/^https?:/i.test(String(data.url || ''))
+          ? '<a href="' + escapeHtml(data.url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : title) + '</div>';
+      }
+      if (data.description) main += '<div class="dc-desc">' + renderMarkdown(data.description) + '</div>';
+      const fields = Array.isArray(data.fields) ? data.fields : [];
+      if (fields.length) {
+        main += '<div class="dc-fields">' + fields.map(field =>
+          '<div class="dc-field' + (field && field.inline ? ' inline' : '') + '"><div class="dc-field-name">'
+          + inlineText(field && field.name) + '</div><div class="dc-desc">' + renderMarkdown(field && field.value) + '</div></div>').join('') + '</div>';
+      }
+      const thumbnail = previewImageUrl(data.thumbnail && data.thumbnail.url);
+      const image = previewImageUrl(data.image && data.image.url);
+      let html = '<div class="dc-grid"><div>' + main + '</div>'
+        + (thumbnail ? '<div class="dc-thumb"><img alt="" src="' + escapeHtml(thumbnail) + '"></div>' : '') + '</div>';
+      if (image) html += '<div class="dc-image"><img alt="" src="' + escapeHtml(image) + '"></div>';
+      if (data.footer && data.footer.text) {
+        const icon = previewImageUrl(data.footer.icon_url);
+        html += '<div class="dc-footer">' + (icon ? '<img alt="" src="' + escapeHtml(icon) + '">' : '')
+          + '<span>' + escapeHtml(data.footer.text) + '</span></div>';
+      }
+      embedPreview.innerHTML = html;
+      previewSection.classList.remove('hidden');
+    }
+
+    function applyServerPreview(raw) {
+      let data = raw;
+      if (typeof raw === 'string') {
+        try { data = JSON.parse(raw); } catch { return; }
+      }
+      if (!data || typeof data !== 'object') return;
+      if (data.preview && typeof data.preview === 'object') {
+        const imageChanged = JSON.stringify(data.preview.image || null) !== JSON.stringify((basePreview && basePreview.image) || null);
+        basePreview = data.preview;
+        if (imageChanged) mediaStamp = Date.now();
+      }
+      if (typeof data.discordPreviewPaused === 'boolean') discordPreviewPaused = data.discordPreviewPaused;
+      previewNote.textContent = discordPreviewPaused
+        ? 'Discord stopped updating the preview in Discord (Discord allows that only for 15 minutes after /embedbuilder). Keep editing here: your changes are kept. Press Save or Post in the Builder in Discord to apply them.'
+        : '';
+      previewNote.classList.toggle('hidden', !discordPreviewPaused);
+      renderEmbedPreview();
+    }
+
+    function setPreviewOverride(field, value) {
+      const text = String(value || '');
+      if (field === 'title') previewOverrides.title = text.trim().slice(0, 256);
+      else if (field === 'message') previewOverrides.description = text.slice(0, 4096);
+      else if (field === 'footer') {
+        previewOverrides.footer = text.trim()
+          ? Object.assign({}, basePreview && basePreview.footer, { text: text.trim().slice(0, 2048) }) : null;
+      } else {
+        const match = String(field).match(/^embed_field_(name|value):([0-9]+)$/);
+        if (!match) return;
+        const fields = (previewOverrides.fields || (basePreview && basePreview.fields) || []).map(entry => Object.assign({}, entry));
+        if (!fields[Number(match[2])]) return;
+        fields[Number(match[2])][match[1]] = text;
+        previewOverrides.fields = fields;
+      }
+      renderEmbedPreview();
+    }
+
     if (mode === 'content' || mode === 'footer') {
       const editorMode = document.getElementById('editorMode');
       const status = document.getElementById('status');
@@ -217,7 +424,7 @@ export function embedColorPickerPage() {
       editorMode.classList.remove('hidden');
       if (mode === 'footer') {
         document.getElementById('editorTitle').textContent = 'Edit footer';
-        document.getElementById('editorDescription').textContent = 'Edit the footer here. Changes are sent straight to the live Discord preview.';
+        document.getElementById('editorDescription').textContent = 'Edit the footer here. Changes appear in the preview right away.';
         contentFields.classList.add('hidden');
         footerFields.classList.remove('hidden');
         emojiSection.classList.add('hidden');
@@ -262,7 +469,9 @@ export function embedColorPickerPage() {
           await Promise.all(pending.map(([field, update]) =>
             callSession('__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field, value: update.value }))
           ));
-          if (!pendingSaves.size && latestSequence === saveSequence) setStatus('Live preview updated.', 'ok');
+          if (!pendingSaves.size && latestSequence === saveSequence) {
+            setStatus(discordPreviewPaused ? 'Saved. Press Save or Post in Discord to apply it.' : 'Live preview updated.', 'ok');
+          }
         } catch (error) {
           if (latestSequence === saveSequence) setStatus(error.message || 'Could not update the preview.', 'error');
         } finally {
@@ -284,7 +493,8 @@ export function embedColorPickerPage() {
         const field = fieldName(input);
         const value = field === 'title' ? titleInput.value : field === 'message' ? messageInput.value : input.value;
         pendingSaves.set(field, { value, sequence: ++saveSequence });
-        setStatus('Updating Discord preview…');
+        setPreviewOverride(field, value);
+        setStatus(discordPreviewPaused ? 'Saving…' : 'Updating Discord preview…');
         scheduleSaveFlush();
       }
 
@@ -930,6 +1140,7 @@ export function embedColorPickerPage() {
           renderTitleEditor(lastValidTitle);
           renderMessageEditor(lastValidMessage);
           renderExistingFields(data.fields);
+          applyServerPreview(data);
           updateCount(titleEditor); updateCount(messageEditor); updateCount(footerInput);
           setStatus(mode === 'footer' ? 'Footer editor ready.' : 'Emoji editor ready.');
         } catch (error) {
@@ -949,7 +1160,7 @@ export function embedColorPickerPage() {
       let hue = 0, saturation = 0, value = 0;
       function hsvToRgb(h, s, v) { const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c; let r = 0, g = 0, b = 0; if (h < 60) [r,g,b] = [c,x,0]; else if (h < 120) [r,g,b] = [x,c,0]; else if (h < 180) [r,g,b] = [0,c,x]; else if (h < 240) [r,g,b] = [0,x,c]; else if (h < 300) [r,g,b] = [x,0,c]; else [r,g,b] = [c,0,x]; return [r,g,b].map(n => Math.round((n + m) * 255)); }
       function rgbToHsv(r, g, b) { r /= 255; g /= 255; b /= 255; const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min; let h = 0; if (d) { if (max === r) h = 60 * (((g - b) / d + 6) % 6); else if (max === g) h = 60 * ((b - r) / d + 2); else h = 60 * ((r - g) / d + 4); } return [h, max ? d / max : 0, max]; }
-      function draw() { const rgb = hsvToRgb(hue, saturation, value); const valueHex = '#' + rgb.map(n => n.toString(16).padStart(2, '0')).join('').toUpperCase(); document.documentElement.style.setProperty('--hue', hue); area.style.setProperty('--hue', hue); hueInput.value = String(Math.round(hue)); cursor.style.left = (saturation * 100) + '%'; cursor.style.top = ((1 - value) * 100) + '%'; hex.value = valueHex; swatch.style.background = valueHex; }
+      function draw() { const rgb = hsvToRgb(hue, saturation, value); const valueHex = '#' + rgb.map(n => n.toString(16).padStart(2, '0')).join('').toUpperCase(); document.documentElement.style.setProperty('--hue', hue); area.style.setProperty('--hue', hue); hueInput.value = String(Math.round(hue)); cursor.style.left = (saturation * 100) + '%'; cursor.style.top = ((1 - value) * 100) + '%'; hex.value = valueHex; swatch.style.background = valueHex; previewOverrides.color = parseInt(valueHex.slice(1), 16); renderEmbedPreview(); }
       function setFromHex(raw) { const match = raw.trim().match(/^#?([0-9a-f]{6})$/i); if (!match) return false; const code = match[1]; const [h,s,v] = rgbToHsv(parseInt(code.slice(0,2),16), parseInt(code.slice(2,4),16), parseInt(code.slice(4,6),16)); hue = h; saturation = s; value = v; draw(); return true; }
       function setPoint(event) { const rect = area.getBoundingClientRect(); saturation = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)); value = 1 - Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)); draw(); }
       area.addEventListener('pointerdown', event => { area.setPointerCapture(event.pointerId); setPoint(event); });
@@ -958,7 +1169,14 @@ export function embedColorPickerPage() {
       hex.addEventListener('change', () => { if (!setFromHex(hex.value)) draw(); });
       ['#000000','#FFFFFF','#5865F2','#57F287','#FEE75C','#ED4245','#EB459E','#9B59B6','#3498DB','#1ABC9C','#E67E22','#95A5A6','#2C3E50','#11806A','#206694','#71368A','#AD1457','#992D22'].forEach(color => { const button = document.createElement('button'); button.type = 'button'; button.style.setProperty('--swatch', color); button.title = color; button.setAttribute('aria-label', color); button.addEventListener('click', () => setFromHex(color)); quick.appendChild(button); });
       const initial = params.get('color'); if (!setFromHex(initial || '#000000')) draw();
-      apply.addEventListener('click', async () => { if (!token) { status.textContent = 'This color session has expired. Reopen it from Discord.'; status.className = 'error'; return; } apply.disabled = true; status.textContent = 'Applying color…'; status.className = ''; try { await editorOpenPromise; await callSession(hex.value); status.textContent = 'Color applied to your Discord preview.'; status.className = 'ok'; } catch (error) { status.textContent = error.message || 'Could not apply the color.'; status.className = 'error'; } finally { apply.disabled = false; } });
+      // CLOUDY_EDITOR_OWN_PREVIEW_V1: show the embed with the colour being picked.
+      if (token) {
+        editorOpenPromise
+          .then(() => callSession('__CLOUDY_EMBED_PREVIEW__'))
+          .then(applyServerPreview)
+          .catch(() => {});
+      }
+      apply.addEventListener('click', async () => { if (!token) { status.textContent = 'This color session has expired. Reopen it from Discord.'; status.className = 'error'; return; } apply.disabled = true; status.textContent = 'Applying color…'; status.className = ''; try { await editorOpenPromise; await callSession(hex.value); status.textContent = discordPreviewPaused ? 'Color saved. Press Save or Post in Discord to apply it.' : 'Color applied to your Discord preview.'; status.className = 'ok'; } catch (error) { status.textContent = error.message || 'Could not apply the color.'; status.className = 'error'; } finally { apply.disabled = false; } });
     }
   </script>
 </body>
