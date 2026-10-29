@@ -11,6 +11,7 @@ import { makeExtractedImageAttachmentMessage } from './cloudyFeedPictureExtracto
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
+import { withCloudyFeedNonce } from '../utils/cloudyFeedPosts.js';
 
 const PREFIX = 'cloudyfeed:';
 const MAX_FEEDS = 5;
@@ -389,7 +390,8 @@ async function processGuild(client, guild) {
           feed.recentUrls = [...seen, mediaItemKey(item)].slice(-200);
           feed.nextAt = next;
           await saveFeeds(client, guild.id, feeds);
-          await channel.send(post);
+          // Marked so the post counts for Reappear in this channel.
+          await channel.send(withCloudyFeedNonce(post));
           feed.lastError = null;
           feed.lastPostedAt = Date.now();
         }
