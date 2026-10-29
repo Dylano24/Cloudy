@@ -64,10 +64,11 @@ test('channel picker has a Back button for new feeds and edit feeds', () => {
   const session = { id: 'session123', guildId: '1532882647838228723' };
   const create = channelChooser(session);
   const edit = channelChooser(session, true);
-  assert.equal(create.components.length, 2);
-  assert.equal(create.components[0].components[0].data.placeholder, 'Select a channel');
-  assert.deepEqual(create.components[1].components.map(b => b.data.label), ['Back']);
-  assert.equal(create.components[1].components[0].data.custom_id, 'cloudyfeed:back:session123');
+  assert.equal(create.components.length, 3);
+  assert.equal(create.components[1].components[0].data.placeholder, 'Select a channel');
+  assert.deepEqual(create.components[2].components.map(b => b.data.label), ['Back']);
+  assert.equal(create.components[2].components[0].data.custom_id, 'cloudyfeed:back:session123');
+  assert.equal(edit.components.length, 2);
   assert.deepEqual(edit.components[1].components.map(b => b.data.label), ['Keep current channel', 'Back']);
 });
 
@@ -137,7 +138,7 @@ test('all feed embeds keep C logo and footer without a white separator', () => {
   assert.doesNotMatch(JSON.stringify(main.embeds[0].toJSON()), /https:\/\/example.org/);
 });
 
-test('Edit feed keeps the original fields, adds only the required media selector and preserves the current channel', () => {
+test('Edit feed has Start time between Auto message and 18+ content and preserves the current channel', () => {
   const session = {
     id: 'session1', action: 'edit',
     feed: {
@@ -149,9 +150,11 @@ test('Edit feed keeps the original fields, adds only the required media selector
   assert.equal(modal.title, 'Edit feed');
   assert.equal(modal.components.length, 5);
   assert.deepEqual(modal.components.map(x => x.label),
-    ['Feed name', 'Website URL', 'Auto message', '18+ content', 'Media type']);
-  assert.deepEqual(modal.components[4].component.options.map(x => x.label),
-    ['Videos only', 'Pictures only']);
+    ['Feed name', 'Website URL', 'Auto message', 'Start time', '18+ content']);
+  assert.equal(modal.components[3].component.custom_id, 'start');
+  assert.equal(modal.components[3].component.required, false);
+  assert.equal(modal.components[3].component.placeholder, '20:00 or 30-10 20:00');
+  assert.doesNotMatch(JSON.stringify(modal), /mediaType|Media type/);
   assert.doesNotMatch(JSON.stringify(modal), /feedChannel|Channel \(optional\)|channel.*select/i);
 });
 
@@ -170,30 +173,67 @@ test('Feed name label has Enter name placeholder without changing saved names', 
   assert.match(JSON.stringify(edit), /"value":"My feed"/);
 });
 
-test('Add feed requires exactly one media type with no All media option', () => {
+test('Add feed form: Feed name, Website URL, Auto message, Start time, 18+ content', () => {
   const modal = feedModal({ id: 'abc', action: 'add' }).toJSON();
+  assert.equal(modal.title, 'Add feed');
   assert.equal(modal.components.length, 5);
-  const label = modal.components[4];
-  assert.equal(label.label, 'Media type');
-  assert.equal(label.component.custom_id, 'mediaType');
-  assert.equal(label.component.required, true);
-  assert.equal(label.component.min_values, 1);
-  assert.equal(label.component.max_values, 1);
-  assert.deepEqual(label.component.options.map(option => [option.label, option.value]),
-    [['Videos only', 'video'], ['Pictures only', 'picture']]);
-  assert.equal(label.component.options.some(option => option.default), false);
+  assert.deepEqual(modal.components.map(row => row.components[0].label),
+    ['Feed name', 'Website URL', 'Auto message', 'Start time', '18+ content']);
+  const start = modal.components[3].components[0];
+  assert.equal(start.custom_id, 'start');
+  assert.equal(start.required, false);
+  assert.equal(start.placeholder, '20:00 or 30-10 20:00');
+  assert.equal(start.value, undefined);
+  assert.doesNotMatch(JSON.stringify(modal), /mediaType|Media type/);
 });
 
-test('Edit feed preselects existing type but requires a choice for legacy feeds', () => {
-  const base = { id: 'f', name: 'My feed', source: 'https://example.org/', minutes: 1, adult: false };
+test('Add feed chooses exactly one media type on the channel step, with no All media option', () => {
+  const create = channelChooser({ id: 'abc' });
+  const menu = create.components[0].components[0].toJSON();
+  assert.equal(menu.custom_id, 'cloudyfeed:media:abc');
+  assert.equal(menu.placeholder, 'Choose media type');
+  assert.equal(menu.min_values, 1);
+  assert.equal(menu.max_values, 1);
+  assert.deepEqual(menu.options.map(option => [option.label, option.value]),
+    [['Videos only', 'video'], ['Pictures only', 'picture']]);
+  assert.equal(menu.options.some(option => option.default), false);
+  assert.equal(create.embeds[0].toJSON().description,
+    'Select the media type and the channel where Cloudy should post.');
+
+  // A choice made first stays visible while the other one is still open.
+  const chosen = channelChooser({ id: 'abc', mediaType: 'picture', channelId: '1532882647838228724' });
+  assert.deepEqual(chosen.components[0].components[0].toJSON().options.filter(x => x.default).map(x => x.value),
+    ['picture']);
+  assert.deepEqual(chosen.components[1].components[0].toJSON().default_values,
+    [{ id: '1532882647838228724', type: 'channel' }]);
+});
+
+test('Manage feed preselects the existing media type and shows none for legacy feeds', () => {
+  const base = { id: 'f', name: 'My feed', source: 'https://example.org/', channelId: '123456789012345678',
+    minutes: 1, adult: false, active: true };
   for (const type of ['video', 'picture']) {
-    const modal = feedModal({ id: 'abc', action: 'edit', feed: { ...base, mediaType: type } }).toJSON();
-    const label = modal.components[4];
-    assert.equal(label.component.required, true);
-    assert.deepEqual(label.component.options.filter(x => x.default).map(x => x.value), [type]);
+    const detail = feedDetail({ id: 'abc' }, { ...base, mediaType: type });
+    const menu = detail.components[1].components[0].toJSON();
+    assert.equal(menu.custom_id, 'cloudyfeed:media:abc');
+    assert.deepEqual(menu.options.filter(x => x.default).map(x => x.value), [type]);
   }
-  const legacy = feedModal({ id: 'abc', action: 'edit', feed: base }).toJSON();
-  assert.equal(legacy.components[4].component.options.some(x => x.default), false);
+  const legacy = feedDetail({ id: 'abc' }, base).components[1].components[0].toJSON();
+  assert.equal(legacy.options.some(x => x.default), false);
+});
+
+test('Start time shows on the feed and in Edit feed only while it is still to come', () => {
+  const base = { id: 'f', name: 'My feed', source: 'https://example.org/', channelId: '123456789012345678',
+    minutes: 60, adult: false, active: true, mediaType: 'video' };
+  const startAt = Date.now() + 3 * 60 * 60_000;
+  const future = feedDetail({ id: 'abc' }, { ...base, startAt }).embeds[0].toJSON().fields[0].value;
+  assert.match(future, new RegExp('Auto message:\\*\\* 1h\\n\\*\\*Starts:\\*\\* <t:' + Math.floor(startAt / 1000) + ':f>'));
+  const past = feedDetail({ id: 'abc' }, { ...base, startAt: Date.now() - 1000 }).embeds[0].toJSON().fields[0].value;
+  assert.doesNotMatch(past, /Starts:/);
+
+  const edit = feedModal({ id: 'abc', action: 'edit', feed: { ...base, startAt } }).toJSON();
+  assert.match(edit.components[3].component.value, /^\d{2}-\d{2}(?:-\d{4})? \d{2}:\d{2}$/);
+  const started = feedModal({ id: 'abc', action: 'edit', feed: { ...base, startAt: Date.now() - 1000 } }).toJSON();
+  assert.equal(started.components[3].component.value, undefined);
 });
 
 test('Feed details show only the selected media type and no unwanted mode', () => {
