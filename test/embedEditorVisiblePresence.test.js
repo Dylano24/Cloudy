@@ -85,11 +85,11 @@ test('pagehide and beforeunload close the editor, while visibility alone does no
   assert.doesNotMatch(page, /visibilityState === 'hidden'[\s\S]*(?:pause|close)EditorSession/);
 });
 
-test('heartbeat keeps the same Builder preview warm without restarting fourteen minutes', () => {
+test('heartbeat keeps the same Builder preview warm and restarts the fourteen-minute idle window', () => {
   const session = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
   assert.match(session, /EMBED_EDITOR_CLOSE_RETURNS_5M_V6/);
   assert.match(session, /session\.onEditorUpdate\('__heartbeat__', ''\)/);
-  assert.match(session, /heartbeat NEVER restarts the fixed 14m lease/i);
+  assert.match(session, /heartbeat proves the page is still open/i);
   assert.match(session, /Closing starts a fresh normal 5m Builder inactivity window/i);
 });
 
