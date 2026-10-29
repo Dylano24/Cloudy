@@ -885,3 +885,14 @@ test('each Builder form id is unique per opening and is routed only to its own w
   assert.match(editor, /embed_button_add_link_modal:\$\{componentInteraction\.id\}/);
   assert.match(editor, /embed_button_edit_modal:\$\{rowIndex\}:\$\{componentIndex\}:\$\{componentInteraction\.id\}/);
 });
+
+test('Add media on a Builder that already has a picture replaces it at once, without Remove media', async t => {
+  const world = createWorld(t);
+  const b = await openBuilder(t, world);
+  await b.addGif('https://cdn.discordapp.com/ephemeral-attachments/1/2/first.png?ex=a');
+  assert.equal(b.preview.embeds[0].toJSON().image?.url, 'https://cdn.discordapp.com/ephemeral-attachments/1/2/first.png?ex=a');
+  const replaced = await b.addGif('https://cdn.discordapp.com/ephemeral-attachments/1/3/second.gif?ex=b');
+  assert.equal(replaced.modal.toJSON().custom_id.startsWith('simple_embed_media_modal:'), true);
+  assert.equal(b.preview.embeds[0].toJSON().image?.url, 'https://cdn.discordapp.com/ephemeral-attachments/1/3/second.gif?ex=b');
+  assert.match(b.dashboardText(), /Media\*\* › Picture \/ GIF set/);
+});
