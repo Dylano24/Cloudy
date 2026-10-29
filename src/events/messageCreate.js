@@ -23,6 +23,7 @@ import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../utils/bui
 import { acquireEmbedBuilderMessageMutation } from '../services/embedBuilderMutationLock.js';
 import { canonicalGamblingGuideEmbedData } from '../services/dedicatedChannelService.js';
 import { deleteMessageForMove } from '../services/deletionAttributionService.js';
+import { isCloudyFeedPost } from '../utils/cloudyFeedPosts.js';
 import {
   getCountingGameConfig,
   saveCountingGameConfig,
@@ -41,7 +42,13 @@ export default {
       // Viewing or running commands must never create persistent Builder items.
       // Explicit Builder Post/Save and source-catalog registration are handled
       // by their own workflows; live channel browsing discovers real messages.
-      if (message.author.id === client.user?.id) return;
+      if (message.author.id === client.user?.id) {
+        // A Cloudy Feed photo/video is channel content: it counts for Reappear
+        // like a member's post. Cloudy's other messages (including Reappear's
+        // own moved copy) never do.
+        if (isCloudyFeedPost(message)) await handleEmbedReappear(message);
+        return;
+      }
 
       logger.debug('Message received', {
         event: 'message.received',
