@@ -39,7 +39,7 @@ test('native Discord video attachment has no outbound URL or link-only fallback'
   const message = await makeVideoAttachmentMessage('https://cdn.example.org/a.mp4', 100, async (url, limit) => {
     urls.push({ url, limit });
     return { buffer: mp4, extension: 'mp4' };
-  });
+  }, async (buffer, extension) => ({ buffer, extension }));
   assert.deepEqual(urls, [{ url: 'https://cdn.example.org/a.mp4', limit: 100 }]);
   assert.equal(message.files.length, 1);
   assert.equal(message.files[0].name, 'cloudy-video.mp4');

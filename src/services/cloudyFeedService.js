@@ -12,6 +12,7 @@ import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
 import { withCloudyFeedNonce } from '../utils/cloudyFeedPosts.js';
+import { formatStartTime, parseStartTime } from './cloudyFeedStartTime.js';
 
 const PREFIX = 'cloudyfeed:';
 const MAX_FEEDS = 5;
@@ -221,6 +222,11 @@ export function mediaSourceProblem(items, source, mediaType) {
   return null;
 }
 
+// The first post waits for a future Start time; otherwise the normal interval applies.
+function firstPostAt(startAt, minutes, now) {
+  return Number.isFinite(startAt) && startAt > now ? startAt : now + minutes * 60_000;
+}
+
 export function mediaItemKey(item) {
   return item.dedupKey || item.video || item.image || item.url;
 }
@@ -241,6 +247,7 @@ export async function applyAction(interaction, guild, action, input = {}) {
       // The /auto feed modal supplies and requires this choice; older internal
       // callers without this field retain their existing behavior.
       const mediaType = Object.hasOwn(input, 'mediaType') ? parseMediaType(get('mediaType')) : undefined;
+      const startAt = Object.hasOwn(input, 'start') ? parseStartTime(get('start'), now) : null;
       const channel = await validateChannel(guild, get('channel'), adult);
       const items = await readWebsiteItems(source, mediaType);
       const problem = mediaSourceProblem(items, source, mediaType);
@@ -248,8 +255,8 @@ export async function applyAction(interaction, guild, action, input = {}) {
       const id = randomUUID().slice(0, 8);
       const name = (get('name') || (host => host.charAt(0).toUpperCase() + host.slice(1))(new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0])).slice(0, 64);
       feeds.push({ id, name, source, channelId: channel.id, channelName: channel.name,
-        minutes, adult, mediaType, active: true,
-        nextAt: now + minutes * 60_000, recentUrls: [], lastError: null, lastCheck: now, lastUsCheck: now });
+        minutes, adult, mediaType, active: true, ...(startAt ? { startAt } : {}),
+        nextAt: firstPostAt(startAt, minutes, now), recentUrls: [], lastError: null, lastCheck: now, lastUsCheck: now });
     } else {
       const id = get('feedId');
       const feed = feeds.find(value => value.id === id);
@@ -258,7 +265,7 @@ export async function applyAction(interaction, guild, action, input = {}) {
         feeds.splice(feeds.indexOf(feed), 1);
       } else if (action === 'pause') {
         feed.active = !feed.active;
-        feed.nextAt = now + feed.minutes * 60_000;
+        feed.nextAt = firstPostAt(feed.startAt, feed.minutes, now);
       } else if (action === 'edit') {
         const newUrl = get('source');
         const source = newUrl ? validateSourceUrl(newUrl).href : feed.source;
@@ -266,6 +273,12 @@ export async function applyAction(interaction, guild, action, input = {}) {
         const adult = parseAdult(get('adult'), feed.adult);
         const mediaType = Object.hasOwn(input, 'mediaType')
           ? parseMediaType(get('mediaType')) : feed.mediaType;
+        // An unchanged or omitted Start time keeps the saved one.
+        const startText = Object.hasOwn(input, 'start') ? get('start') : null;
+        const startAt = startText === null || (Number.isFinite(feed.startAt)
+          && startText === formatStartTime(feed.startAt, now))
+          ? feed.startAt ?? null
+          : parseStartTime(startText, now);
         const channel = await validateChannel(guild, get('channel') || feed.channelId, adult);
         const sourceChanged = source !== feed.source;
         const typeChanged = mediaType !== feed.mediaType;
@@ -277,7 +290,7 @@ export async function applyAction(interaction, guild, action, input = {}) {
         }
         const name = (get('name') || feed.name || new URL(source).hostname.replace(/^(?:www|nl)\./i, '').split('.')[0]).slice(0, 64);
         Object.assign(feed, { name, source, channelId: channel.id, channelName: channel.name,
-          adult, minutes, mediaType, nextAt: now + minutes * 60_000,
+          adult, minutes, mediaType, startAt, nextAt: firstPostAt(startAt, minutes, now),
           ...(sourceChanged || typeChanged ? { lastError: null, lastCheck: now, lastUsCheck: now } : {}) });
       }
     }

@@ -2,6 +2,7 @@ import https from 'node:https';
 import dns from 'node:dns';
 import { AttachmentBuilder } from 'discord.js';
 import { publicIp, validateSourceUrl } from './cloudyFeedParser.js';
+import { clipVideoBuffer } from './cloudyFeedVideoClip.js';
 
 // Keep downloads within practical Discord upload limits, bot memory and bandwidth.
 const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
@@ -104,11 +105,21 @@ export async function downloadPlayableVideo(rawUrl, limitBytes = FALLBACK_UPLOAD
   });
 }
 
-export async function makeVideoAttachmentMessage(videoUrl, guildLimit, downloader = downloadPlayableVideo) {
+function playableVideo(buffer, extension, sizeLimit) {
+  return Buffer.isBuffer(buffer) && Boolean(videoFileType(buffer)) && videoFileType(buffer) === extension
+    && buffer.length <= sizeLimit;
+}
+
+export async function makeVideoAttachmentMessage(videoUrl, guildLimit,
+  downloader = downloadPlayableVideo, clip = clipVideoBuffer) {
   const sizeLimit = videoUploadLimit(guildLimit);
-  const { buffer, extension } = await downloader(videoUrl, sizeLimit);
-  if (!Buffer.isBuffer(buffer) || !videoFileType(buffer) || videoFileType(buffer) !== extension
-      || buffer.length > sizeLimit) {
+  const downloaded = await downloader(videoUrl, sizeLimit);
+  if (!playableVideo(downloaded?.buffer, downloaded?.extension, sizeLimit)) {
+    throw new Error('Video is not a supported playable Discord attachment.');
+  }
+  // Every feed video is a 10-second clip from the middle; shorter ones stay as they are.
+  const { buffer, extension } = await clip(downloaded.buffer, downloaded.extension, sizeLimit);
+  if (!playableVideo(buffer, extension, sizeLimit)) {
     throw new Error('Video is not a supported playable Discord attachment.');
   }
   // Discord renders this directly in the channel as its own playable attachment.

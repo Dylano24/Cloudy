@@ -15,6 +15,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { readFeeds, applyAction } from './cloudyFeedService.js';
+import { formatStartTime } from './cloudyFeedStartTime.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
@@ -118,6 +119,7 @@ export function feedDetail(session, feed) {
       value: '**Source:** ' + feed.source.slice(0, 250)
         + '\n**Channel:** <#' + feed.channelId + '>'
         + '\n**Auto message:** ' + formatAutoMessage(feed.minutes)
+        + (feed.startAt > Date.now() ? '\n**Starts:** <t:' + Math.floor(feed.startAt / 1000) + ':f>' : '')
         + (selectedMediaLabel(feed.mediaType) ? '\n**Media type:** ' + selectedMediaLabel(feed.mediaType) : '')
         + '\n**Status:** ' + (feed.active ? 'Active' : 'Paused')
         + '\n' + feedStatusLine(feed),
@@ -133,7 +135,24 @@ export function feedDetail(session, feed) {
     new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id)
       .setLabel('Back').setStyle(ButtonStyle.Secondary),
   );
-  return { embeds: [embed], components: [row], allowedMentions: { parse: [] } };
+  // Media type is chosen outside the Edit feed form (it holds five fields).
+  return {
+    embeds: [embed],
+    components: [row, new ActionRowBuilder().addComponents(mediaTypeMenu(session, feed.mediaType))],
+    allowedMentions: { parse: [] },
+  };
+}
+
+function mediaTypeMenu(session, value) {
+  return new StringSelectMenuBuilder()
+    .setCustomId(PREFIX + 'media:' + session.id)
+    .setPlaceholder('Choose media type')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      { label: 'Videos only', value: 'video', default: value === 'video' },
+      { label: 'Pictures only', value: 'picture', default: value === 'picture' },
+    );
 }
 
 export function channelChooser(session, edit = false) {
@@ -143,6 +162,7 @@ export function channelChooser(session, edit = false) {
     .setMinValues(1)
     .setMaxValues(1)
     .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
+  if (!edit && session.channelId) picker.setDefaultChannels(session.channelId);
   const buttons = [];
   if (edit) {
     buttons.push(new ButtonBuilder().setCustomId(PREFIX + 'keep:' + session.id)
@@ -151,11 +171,14 @@ export function channelChooser(session, edit = false) {
   buttons.push(new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id)
     .setLabel('Back').setStyle(ButtonStyle.Secondary));
   const components = [
+    ...(edit ? [] : [new ActionRowBuilder().addComponents(mediaTypeMenu(session, session.mediaType))]),
     new ActionRowBuilder().addComponents(picker),
     new ActionRowBuilder().addComponents(buttons),
   ];
   return {
-    embeds: choiceEmbed('Select the channel where Cloudy should post.'),
+    embeds: choiceEmbed(edit
+      ? 'Select the channel where Cloudy should post.'
+      : 'Select the media type and the channel where Cloudy should post.'),
     components,
     allowedMentions: { parse: [] },
   };
@@ -208,19 +231,8 @@ function textLabel(id, label, required, placeholder, defaultValue) {
   return new LabelBuilder().setLabel(label).setTextInputComponent(field);
 }
 
-function mediaTypeSelect(value) {
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId('mediaType')
-    .setPlaceholder('Choose media type')
-    .setRequired(true)
-    .setMinValues(1)
-    .setMaxValues(1)
-    .addOptions(
-      { label: 'Videos only', value: 'video', default: value === 'video' },
-      { label: 'Pictures only', value: 'picture', default: value === 'picture' },
-    );
-  return new LabelBuilder().setLabel('Media type').setStringSelectMenuComponent(menu);
-}
+// Netherlands time. Empty: the feed starts after its Auto message time, as before.
+const START_PLACEHOLDER = '20:00 or 30-10 20:00';
 
 export function feedModal(session) {
   const editing = session.action === 'edit';
@@ -232,17 +244,18 @@ export function feedModal(session) {
       input('name', 'Feed name', false, 'Enter name', ''),
       input('source', 'Website URL', true, 'https://example.com', ''),
       input('duration', 'Auto message', true, '1m or 1h', ''),
+      input('start', 'Start time', false, START_PLACEHOLDER, ''),
       input('adult', '18+ content', false, 'yes / no', ''),
     );
-    return modal.addLabelComponents(mediaTypeSelect());
-
+    return modal;
   }
+  const startAt = session.feed.startAt > Date.now() ? formatStartTime(session.feed.startAt) : '';
   return modal.addLabelComponents(
     textLabel('name', 'Feed name', false, 'Enter name', readableFeedName(session.feed)),
     textLabel('source', 'Website URL', false, 'https://example.com', session.feed?.source),
     textLabel('duration', 'Auto message', false, '1m or 1h', formatAutoMessage(session.feed.minutes)),
+    textLabel('start', 'Start time', false, START_PLACEHOLDER, startAt),
     textLabel('adult', '18+ content', false, 'yes / no', session.feed.adult ? 'yes' : 'no'),
-    mediaTypeSelect(session.feed.mediaType),
   );
 }
 
@@ -307,7 +320,7 @@ export async function openCloudyFeedDashboard(interaction, client) {
   const session = {
     id: makeId(), guildId: guild.id, userId: interaction.user.id,
     root: interaction, guild, timer: null, action: null, feed: null,
-    channelId: null, modalOpen: false, view: 'dashboard',
+    channelId: null, mediaType: null, modalOpen: false, view: 'dashboard',
   };
   sessions.set(session.id, session);
   try {
@@ -318,6 +331,18 @@ export async function openCloudyFeedDashboard(interaction, client) {
     closeSession(session, false);
     throw error;
   }
+}
+
+// Add feed: the form opens once both the media type and the channel are chosen.
+async function openAddFormWhenReady(interaction, session) {
+  if (session.mediaType && session.channelId) {
+    session.view = 'modal';
+    await interaction.showModal(feedModal(session));
+    keepSessionAlive(session, true);
+    return;
+  }
+  session.view = 'channel';
+  await interaction.update(channelChooser(session));
 }
 
 export async function handleCloudyFeedControls(interaction, client) {
@@ -368,6 +393,7 @@ export async function handleCloudyFeedControls(interaction, client) {
         session.action = 'add';
         session.feed = null;
         session.channelId = null;
+        session.mediaType = null;
         session.view = 'channel';
         await interaction.update(channelChooser(session));
         return true;
@@ -427,9 +453,29 @@ export async function handleCloudyFeedControls(interaction, client) {
         return true;
       }
       session.channelId = interaction.values[0];
-      session.view = 'modal';
-      await interaction.showModal(feedModal(session));
-      keepSessionAlive(session, true);
+      await openAddFormWhenReady(interaction, session);
+      return true;
+    }
+
+    if (type === 'media' && interaction.isStringSelectMenu()) {
+      const mediaType = interaction.values[0];
+      if (session.action === 'add') {
+        session.mediaType = mediaType;
+        await openAddFormWhenReady(interaction, session);
+        return true;
+      }
+      if (!session.feed || session.view !== 'detail') {
+        await silentAck(interaction);
+        return true;
+      }
+      // Manage feed: a new media type is saved straight away.
+      const feedId = session.feed.id;
+      await interaction.deferUpdate();
+      const feeds = await applyAction(interaction, guild, 'edit', { feedId, mediaType });
+      if (!feeds) throw new Error('Cloudy feed is busy. Please try again.');
+      const saved = feeds.find(feed => feed.id === feedId) || null;
+      Object.assign(session, { feed: saved, view: saved ? 'detail' : 'dashboard' });
+      await interaction.editReply(saved ? feedDetail(session, saved) : dashboardForSession(session, feeds));
       return true;
     }
 
@@ -449,12 +495,12 @@ export async function handleCloudyFeedControls(interaction, client) {
       const source = interaction.fields.getTextInputValue('source').trim();
       const duration = interaction.fields.getTextInputValue('duration').trim();
       const adult = interaction.fields.getTextInputValue('adult').trim();
-      const mediaType = interaction.fields.getStringSelectValues('mediaType')[0];
+      const start = interaction.fields.getTextInputValue('start').trim();
       const minutes = parseAutoMessageTime(duration, session.action === 'edit' ? session.feed?.minutes : undefined);
       const data = {
-        name, source, minutes: String(minutes), adult, mediaType,
+        name, source, minutes: String(minutes), adult, start,
         channel: session.channelId,
-        ...(session.action === 'edit' ? { feedId: session.feed.id } : {}),
+        ...(session.action === 'edit' ? { feedId: session.feed.id } : { mediaType: session.mediaType }),
       };
       const feeds = await applyAction(interaction, guild, session.action, data);
       if (!feeds) throw new Error('Cloudy feed is busy. Please try again.');
