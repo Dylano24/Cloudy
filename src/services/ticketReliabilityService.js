@@ -225,7 +225,7 @@ async function findMainTicketMessage(channel, ticketData = null, preferredMessag
   return recent?.find?.(isMain) || null;
 }
 
-async function stabilizeCreatedTicket(channel, fallbackTicketData = null, preferredMessage = null) {
+export async function stabilizeCreatedTicket(channel, fallbackTicketData = null, preferredMessage = null) {
   const ticketData = fallbackTicketData
     || await getTicketData(channel.guild.id, channel.id).catch(() => null);
   if (!ticketData) return null;
@@ -256,10 +256,11 @@ async function stabilizeCreatedTicket(channel, fallbackTicketData = null, prefer
 
   // The main message and scheduled channel-name sync read the same durable
   // ticket record but touch different resources, so neither must block the other.
-  await Promise.all([
-    syncCloudyTicketMessage(channel, mainMessage),
-    syncCloudyTicketChannelName(channel),
-  ]);
+  // The main-message paint (saved ticket template) runs in its own per-channel
+  // queue and never throws, so the creator's "Ticket created" reply does not
+  // wait for that extra Discord edit.
+  void syncCloudyTicketMessage(channel, mainMessage).catch(() => {});
+  await syncCloudyTicketChannelName(channel);
   return { channel, ticketData };
 }
 
