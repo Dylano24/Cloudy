@@ -8,7 +8,7 @@ test('all casino games use How to play without changing their button actions', (
   for (const game of ['blackjack', 'baccarat', 'roulette']) {
     const row = gameHelpRow(game).toJSON();
     assert.equal(row.components.length, 1);
-    assert.equal(row.components[0].label, game === 'roulette' ? '❔ How to play' : '? How to play');
+    assert.equal(row.components[0].label, '? How to play');
     assert.equal(row.components[0].emoji, undefined, 'Discord must not add a separate emoji gap');
     assert.equal(row.components[0].custom_id, `game_help:${game}`);
   }
