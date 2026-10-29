@@ -24,7 +24,9 @@ test('staff money scopes replace currency and the obsolete economy give command'
   assert.deepEqual(data.options[0].options.map(option => option.name), ['user', 'me', 'everyone']);
   assert.deepEqual(data.options[0].options[2].options.map(option => option.name), ['amount']);
   assert.deepEqual(data.options[0].options.map(option => option.options.at(-1).description),
-    ['Amount of money to give', 'Amount of money to give', 'Amount of money to give to each user']);
+    ['Amount of money to give to this user', 'Amount of money to give to myself', 'Amount of money to give to each user']);
+  // /give money never says "cash".
+  assert.doesNotMatch(JSON.stringify(data), /cash/i);
   assert.deepEqual(economyCommand.data.toJSON().options.map(option => option.name), ['dashboard']);
 });
 
@@ -200,7 +202,8 @@ test('currency still grants to owner in gambling with the same ten-second reply 
   assert.deepEqual(changes, [{ guild: guildId, user: ownerId, wallet: 125 }]);
   assert.equal(replies.length, 1);
   assert.match(JSON.stringify(replies[0]), /Money added/);
-  assert.doesNotMatch(JSON.stringify(replies[0]), /balance was not deducted/);
+  assert.match(JSON.stringify(replies[0]), /New money balance/);
+  assert.doesNotMatch(JSON.stringify(replies[0]), /balance was not deducted|cash/i);
 });
 
 test('currency ephemeral reply deletes after its lifecycle even inside staff message logs', async () => {
