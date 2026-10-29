@@ -126,3 +126,33 @@ test('the open editor also holds the Builder preview: idle in the editor never c
     deleteEmbedColorPickerSession(token);
   }
 });
+
+test('activity on the Builder controls keeps the preview above them alive', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const {
+    linkBuilderSessionPreview, registerBuilderPreviewMessage, registerBuilderSessionCollector, touchBuilderSessionMessage,
+  } = await import('../src/utils/builderSessionCleanup.js');
+  const deleted = [];
+  const panel = { id: 'linked-panel-1', embeds: [{ title: 'Message builder' }], delete: async () => deleted.push('panel') };
+  const preview = { id: 'linked-preview-1', embeds: [{ title: 'Rules' }], delete: async () => deleted.push('preview') };
+  registerBuilderPreviewMessage(preview);
+  registerBuilderSessionCollector(panel, { ended: false, resetTimer() {}, stop() { this.ended = true; } });
+  assert.equal(linkBuilderSessionPreview(panel, preview), true);
+  touchBuilderSessionMessage(preview, async () => deleted.push('preview'));
+
+  // A click on the controls every minute (for example opening a form) without a preview edit.
+  for (let minute = 0; minute < 8; minute += 1) {
+    t.mock.timers.tick(MINUTE);
+    touchBuilderSessionMessage(panel);
+  }
+  await settle();
+  assert.deepEqual(deleted, [], 'nothing closes while the Builder is in use');
+
+  // Five minutes without any activity close both together.
+  t.mock.timers.tick(5 * MINUTE);
+  await settle();
+  assert.deepEqual(deleted.sort(), ['panel', 'preview']);
+
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  assert.match(source, /linkBuilderSessionPreview\(dashboardMessage, previewMessage\)/);
+});

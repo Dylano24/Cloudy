@@ -50,6 +50,7 @@ import {
     } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
 import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from '../../services/embedMediaStorageService.js';
+import { previewBannerUrl, rememberPreviewBanner } from '../../utils/builderPreviewBanner.js';
 import { applyInitialSearchSelectionToState,
     followMovedBuilderTarget,
     loadRecordSnapshotIntoState,
@@ -67,7 +68,7 @@ import {
     relinkDetachedEmbedRegistryMessage,
     } from '../../services/embedRegistryService.js';
 import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../../utils/builderOwnedSends.js';
-import { touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
+import { linkBuilderSessionPreview, touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { findExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { hideSystemCatalogFromBuilder, hideBuilderSearchTitlesFromBuilder } from '../../services/systemEmbedCatalogService.js';
@@ -883,7 +884,7 @@ function buildSingleEmbed(state, description = null, options = {}) {
     if (includeMedia && state.mediaBuffer && state.mediaName) {
         data.image = { url: `attachment://${state.mediaName}` };
     } else if (includeMedia && state.mediaUrl) {
-        data.image = { url: state.mediaUrl };
+        data.image = { url: preview ? previewBannerUrl(state) : state.mediaUrl };
     }
 
     return new EmbedBuilder(data);
@@ -941,7 +942,7 @@ function buildPreviewEmbed(state) {
         if (state.mediaBuffer && state.mediaName) {
             data.image = { url: `attachment://${state.mediaName}` };
         } else if (state.mediaUrl) {
-            data.image = { url: state.mediaUrl };
+            data.image = { url: previewBannerUrl(state) };
         } else {
             delete data.image;
         }
@@ -1026,10 +1027,12 @@ async function postBuiltMessage(channel, state, guild, member, { explicitSave = 
         || /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(String(state.mediaUrl || ''))
     )) {
         try {
+            const discordUrl = state.mediaBuffer ? null : state.mediaUrl;
             const url = state.mediaBuffer
                 ? await storeEmbedMediaBuffer(state.mediaBuffer)
                 : await storeExistingDiscordEmbedMedia(state.mediaUrl);
             state.mediaUrl = url;
+            rememberPreviewBanner(state, url, discordUrl);
             state.mediaBuffer = null;
             state.mediaName = null;
             state.mediaConvertedFromVideo = false;
@@ -1601,9 +1604,17 @@ async function refreshBuilderPreviewOnly(interaction, state) {
     return queueBuilderRefresh(interaction, state, false);
 }
 
+// discord.js hands a submitted form to every open wait of this user, so a
+// form that was closed and opened again would answer the same submit twice
+// (Discord rejects the second answer: "Unknown interaction"). Each opened form
+// has its own id: only the form that was actually sent responds.
+function builderModalId(base, buttonInteraction) {
+    return `${base}:${buttonInteraction.id}`;
+}
+
 async function editContent(buttonInteraction, state) {
     const modal = new ModalBuilder()
-        .setCustomId('simple_embed_content_modal')
+        .setCustomId(builderModalId('simple_embed_content_modal', buttonInteraction))
         .setTitle('Edit title and message')
         .addComponents(
             new ActionRowBuilder().addComponents(
@@ -1632,7 +1643,7 @@ async function editContent(buttonInteraction, state) {
 
     const submitted = await buttonInteraction.awaitModalSubmit({
         filter: interaction =>
-            interaction.customId === 'simple_embed_content_modal' &&
+            interaction.customId === builderModalId('simple_embed_content_modal', buttonInteraction) &&
             interaction.user.id === buttonInteraction.user.id,
         time: 120_000,
     }).catch(() => null);
@@ -1649,7 +1660,7 @@ async function editContent(buttonInteraction, state) {
 
 async function editBottomLine(buttonInteraction, state) {
     const modal = new ModalBuilder()
-        .setCustomId('simple_embed_footer_modal')
+        .setCustomId(builderModalId('simple_embed_footer_modal', buttonInteraction))
         .setTitle('Edit footer')
         .addComponents(
             new ActionRowBuilder().addComponents(
@@ -1669,7 +1680,7 @@ async function editBottomLine(buttonInteraction, state) {
 
     const submitted = await buttonInteraction.awaitModalSubmit({
         filter: interaction =>
-            interaction.customId === 'simple_embed_footer_modal' &&
+            interaction.customId === builderModalId('simple_embed_footer_modal', buttonInteraction) &&
             interaction.user.id === buttonInteraction.user.id,
         time: 120_000,
     }).catch(() => null);
@@ -1692,7 +1703,7 @@ async function editMedia(buttonInteraction, state) {
         .setRequired(true);
 
     const modal = new ModalBuilder()
-        .setCustomId('simple_embed_media_modal')
+        .setCustomId(builderModalId('simple_embed_media_modal', buttonInteraction))
         .setTitle('Add picture or video')
         .addLabelComponents(
             new LabelBuilder()
@@ -1706,7 +1717,7 @@ async function editMedia(buttonInteraction, state) {
 
     const submitted = await buttonInteraction.awaitModalSubmit({
         filter: interaction =>
-            interaction.customId === 'simple_embed_media_modal' &&
+            interaction.customId === builderModalId('simple_embed_media_modal', buttonInteraction) &&
             interaction.user.id === buttonInteraction.user.id,
         time: 120_000,
     }).catch(() => null);
@@ -2390,6 +2401,8 @@ export default {
 
             state.builderDashboardMessage = dashboardMessage;
             state.builderDashboardMessageId = dashboardMessage.id;
+            // The preview lives exactly as long as the controls below it.
+            linkBuilderSessionPreview(dashboardMessage, previewMessage);
             state.builderDashboardWebhook = builderBotManaged ? null : interaction.webhook;
             const collector = dashboardMessage.createMessageComponentCollector({
                 filter: buttonInteraction =>

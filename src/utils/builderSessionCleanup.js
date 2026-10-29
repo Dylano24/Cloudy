@@ -16,6 +16,9 @@ const sessionHoldIds = new Map();
 const holdMessages = new Map();
 const editorHoldContext = new AsyncLocalStorage();
 const builderPreviewMessageIds = new Set();
+// Builder control panel id -> the preview above it. Activity on the panel
+// keeps the preview alive too: it has no buttons of its own.
+const sessionPreviews = new Map();
 
 function embedTitle(embed) {
   return String(embed?.title ?? embed?.data?.title ?? '').trim().toLowerCase();
@@ -89,6 +92,12 @@ export function registerBuilderSessionCollector(message, collector) {
   if (!isBuilderSessionMessage(message) || !collector) return false;
   disableNativeBuilderCollectorIdle(collector);
   sessionCollectors.set(String(message.id), collector);
+  return true;
+}
+
+export function linkBuilderSessionPreview(panelMessage, previewMessage) {
+  if (!isBuilderSessionMessage(panelMessage) || !previewMessage?.id) return false;
+  sessionPreviews.set(String(panelMessage.id), previewMessage);
   return true;
 }
 
@@ -231,6 +240,7 @@ export async function deleteBuilderSessionMessage(message) {
   const collector = sessionCollectors.get(key);
   sessionCollectors.delete(key);
   parentSessions.delete(key);
+  sessionPreviews.delete(key);
   removeMessageFromHolds(key);
   builderPreviewMessageIds.delete(key);
   const deleteThroughWebhook = sessionDeleters.get(key);
@@ -283,6 +293,10 @@ export function touchBuilderSessionMessage(message, deleteMessage = null, visite
   const parentMessage = parentSessions.get(key);
   if (parentMessage) {
     touchBuilderSessionMessage(parentMessage, null, visited);
+  }
+  const previewMessage = sessionPreviews.get(key);
+  if (previewMessage) {
+    touchBuilderSessionMessage(previewMessage, null, visited);
   }
 
   return true;
@@ -338,6 +352,7 @@ export function installBuilderSessionCleanup() {
 
     collector.on('end', (_collected, reason) => {
       sessionCollectors.delete(String(this.id));
+      sessionPreviews.delete(String(this.id));
       if (shouldDeleteBuilderSessionOnCollectorEnd(reason) && !isBuilderSessionHeld(this.id)) {
         void deleteBuilderSessionMessage(this);
       }
