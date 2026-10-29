@@ -1347,9 +1347,9 @@ const BUILDER_PREVIEW_UNAVAILABLE_CODES = new Set([10008, 10062, 50027]);
 
 function markBuilderPreviewUnavailable(state) {
     // Discord no longer lets Cloudy edit this private preview (its 15-minute
-    // interaction limit, or it was dismissed). The browser editor has its own
-    // live preview and keeps editing the Builder state; Save/Post in Discord
-    // still apply everything. The editor ends with the Builder itself.
+    // interaction limit, or it was dismissed). The browser editor stays open
+    // and keeps editing the Builder state; Save/Post in Discord still apply
+    // everything. The editor ends with the Builder itself.
     state.builderPreviewUnavailable = true;
     return false;
 }
@@ -2304,13 +2304,6 @@ export default {
                     fields: Array.isArray(state.embedFields) ? state.embedFields : [],
                     templateKind: state.modifyTarget?.templateKind || 'embed', // CONTENT_TEMPLATE_EDITOR_V1
                 }),
-                // The editor page renders this exact preview itself, so it keeps
-                // working after Discord stops accepting preview edits.
-                getPreviewEmbed: () => buildPreviewEmbed(state).toJSON(),
-                isPreviewPaused: () => Boolean(state.builderPreviewUnavailable),
-                getPreviewMedia: () => (state.mediaBuffer && state.mediaName
-                    ? { buffer: state.mediaBuffer, name: state.mediaName }
-                    : null),
                 onEditorHold: async () => {
                     // BUILDER_NATIVE_COLOR_INSTANT_V1: heartbeat only extends the existing Builder lifetime.
                     // Do not spend a Discord edit every 20 seconds just to prove it is alive.
