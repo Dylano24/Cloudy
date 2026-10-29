@@ -1021,3 +1021,68 @@ test('saving after every kind of change (other picture, no picture, colour, logo
   saved = await saveAndCheck('first picture again', linkA);
   assert.equal(saved.embeds[0].title, 'Rules (final)');
 });
+
+test('/embedbuilder brings back the same open Builder after Discord removed it from the screen; the editor keeps working', async t => {
+  const world = createWorld(t);
+  const first = await openBuilder(t, world);
+  await first.edit('title', 'Long editor session');
+  await first.edit('message', 'Written over many minutes');
+  await first.addGif();
+  // The browser editor is open.
+  assert.equal((await applyEmbedColorPickerSession(first.token, '__CLOUDY_EMBED_OPEN__:phone', { editorInstanceId: 'phone' })).ok, true);
+  const oldPreview = first.preview;
+  const oldDashboard = first.dashboard;
+
+  // Back in Discord the private Builder is gone; the owner runs /embedbuilder.
+  const again = await openBuilder(t, world);
+  assert.equal(again.token, first.token, 'the same editor stays connected');
+  assert.notEqual(again.preview.id, oldPreview.id);
+  const preview = again.preview.embeds[0].toJSON();
+  assert.equal(preview.title, 'Long editor session');
+  assert.equal(preview.description, 'Written over many minutes');
+  assert.equal(preview.image?.url, GIF_URL);
+  assert.match(again.dashboardText(), /Media\*\* › Picture \/ GIF set/);
+  await settle();
+  assert.ok(world.deletedPrivate.includes(oldPreview.id), 'the old preview is removed when Discord still allows it');
+  assert.ok(world.deletedPrivate.includes(oldDashboard.id), 'the old controls are removed too');
+
+  // Typing in the same editor page updates the new preview.
+  assert.equal((await applyEmbedColorPickerSession(again.token, '__CLOUDY_EMBED_HEARTBEAT__', { editorInstanceId: 'phone' })).ok, true);
+  const typed = await applyEmbedColorPickerSession(again.token,
+    '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'title', value: 'Still the same Builder' }),
+    { editorInstanceId: 'phone' });
+  assert.equal(typed.ok, true);
+  await flushPendingEmbedEditorUpdates(again.token);
+  await settle();
+  assert.equal(again.preview.embeds[0].toJSON().title, 'Still the same Builder');
+
+  // The open editor holds the new Builder messages (no 5-minute timer).
+  const { deleteBuilderSessionMessage } = await import('../src/utils/builderSessionCleanup.js');
+  assert.equal(await deleteBuilderSessionMessage(again.dashboard), false, 'held while the editor is open');
+});
+
+test('/embedbuilder with a Search still opens the chosen embed instead of the open draft', async t => {
+  const world = createWorld(t);
+  const first = await openBuilder(t, world);
+  await first.edit('title', 'Open draft');
+  const searched = await openBuilder(t, world, { search: 'something else' });
+  assert.notEqual(searched.token, first.token);
+  assert.notEqual(searched.preview.embeds[0].toJSON().title, 'Open draft');
+});
+
+test('/embedbuilder within 5 minutes after closing the editor still brings back the same Builder', async t => {
+  const world = createWorld(t);
+  const first = await openBuilder(t, world);
+  assert.equal((await applyEmbedColorPickerSession(first.token, '__CLOUDY_EMBED_OPEN__:page', { editorInstanceId: 'page' })).ok, true);
+  const typed = await applyEmbedColorPickerSession(first.token,
+    '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'title', value: 'Written in the editor' }), { editorInstanceId: 'page' });
+  assert.equal(typed.ok, true);
+  await flushPendingEmbedEditorUpdates(first.token);
+  // The owner closes the editor; back in Discord the Builder is no longer shown.
+  assert.equal((await applyEmbedColorPickerSession(first.token, '__CLOUDY_EMBED_CLOSE__', { editorInstanceId: 'page' })).ok, true);
+  const again = await openBuilder(t, world);
+  assert.equal(again.token, first.token);
+  assert.equal(again.preview.embeds[0].toJSON().title, 'Written in the editor');
+  // And the editor can be opened again from the new Builder.
+  assert.equal((await applyEmbedColorPickerSession(again.token, '__CLOUDY_EMBED_OPEN__:page2', { editorInstanceId: 'page2' })).ok, true);
+});
