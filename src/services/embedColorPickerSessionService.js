@@ -11,7 +11,6 @@ const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const PAUSE_PREFIX = '__CLOUDY_EMBED_PAUSE__'; // EMBED_EDITOR_CLOSE_RETURNS_5M_V6: compatibility with cached V3 pages
 const OPEN_PREFIX = '__CLOUDY_EMBED_OPEN__:'; // EMBED_EDITOR_EXACT_OPEN_LEASE_V2
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
-const PREVIEW_PREFIX = '__CLOUDY_EMBED_PREVIEW__';
 const EDIT_FLUSH_DELAY_MS = 0; // BUILDER_NATIVE_COLOR_INSTANT_V1: flush edits on the next event-loop turn
 // EMBED_EDITOR_EXACT_OPEN_LEASE_V2: the editor ends only after 14 minutes
 // WITHOUT any contact from its page. An open page sends a heartbeat every 20
@@ -207,10 +206,7 @@ async function touchEditorSession(token, session) {
     return { ok: true };
 }
 
-export function createEmbedColorPickerSession({
-    userId, onColor, getEditorState, onEditorUpdate, onEditorHold,
-    getPreviewEmbed = null, isPreviewPaused = null, getPreviewMedia = null, emojis = [],
-}) {
+export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, onEditorHold, emojis = [] }) {
     const token = randomBytes(32).toString('hex');
     const session = {
         userId,
@@ -218,9 +214,6 @@ export function createEmbedColorPickerSession({
         getEditorState,
         onEditorUpdate,
         onEditorHold,
-        getPreviewEmbed,
-        isPreviewPaused,
-        getPreviewMedia,
         emojis: sanitizeEmojis(emojis),
         holdActive: false,
         pendingEditorUpdates: new Map(),
@@ -235,35 +228,6 @@ export function createEmbedColorPickerSession({
     sessions.set(token, session);
     // The 14m idle window starts only when Editor/Color Picker is actually opened.
     return token;
-}
-
-// What the editor page shows as its own live preview: the exact Builder
-// preview embed, and whether Discord still accepts preview edits.
-function callOrFallback(callback, fallback) {
-    try {
-        return typeof callback === 'function' ? callback() : fallback;
-    } catch {
-        return fallback;
-    }
-}
-
-function previewSnapshot(session) {
-    return {
-        preview: callOrFallback(session.getPreviewEmbed, null) || null,
-        discordPreviewPaused: Boolean(callOrFallback(session.isPreviewPaused, false)),
-    };
-}
-
-/** The Builder's uploaded image (banner) for the editor's own preview. */
-export function getEmbedEditorMedia(token) {
-    const session = sessions.get(String(token || ''));
-    if (!session || typeof session.getPreviewMedia !== 'function') return null;
-    try {
-        const media = session.getPreviewMedia();
-        return media?.buffer && media?.name ? media : null;
-    } catch {
-        return null;
-    }
 }
 
 export function discardPendingEmbedEditorUpdates(token) {
@@ -339,15 +303,11 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
     if (value === HEARTBEAT_PREFIX) {
         const touched = await touchEditorSession(token, session);
         if (!touched.ok) return touched;
-        return { ok: true, color: JSON.stringify({ type: 'heartbeat', ...previewSnapshot(session) }) };
+        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
     }
 
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
-
-    if (value === PREVIEW_PREFIX) {
-        return { ok: true, color: JSON.stringify({ type: 'editor_preview', ...previewSnapshot(session) }) };
-    }
 
     if (value === STATE_PREFIX) {
         const state = sanitizeEditorState(await session.getEditorState?.() || {});
@@ -357,7 +317,6 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
                 type: 'editor_state',
                 ...state,
                 emojis: session.emojis,
-                ...previewSnapshot(session),
             }),
         };
     }
