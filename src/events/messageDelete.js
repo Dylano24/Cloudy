@@ -99,6 +99,61 @@ function attachmentList(message, snapshot) {
   return snapshot.attachments;
 }
 
+// Discord allows 6000 characters across all embeds of one message; keep room
+// for the log details above the copied embed.
+const MAX_EMBED_COPY_CHARS = 4500;
+const COPIED_EMBED_LIMIT = 9;
+const UPLOAD_BATCH_SIZE = 10;
+
+function copiedEmbedLength(embed) {
+  return [embed.title, embed.description, embed.author?.name, embed.footer?.text,
+    ...(embed.fields || []).flatMap(field => [field.name, field.value])]
+    .reduce((total, value) => total + String(value || '').length, 0);
+}
+
+/**
+ * The deleted embeds themselves (colour bar, banner, thumbnail, fields,
+ * footer), for a log that shows them under its details. Buttons are not
+ * copied. An image that was an attachment of the deleted message points to
+ * its copy uploaded with the log. Empty when they would not fit.
+ */
+export function deletedEmbedCopies(message, attachments = [], files = []) {
+  const uploaded = new Set(files.slice(0, UPLOAD_BATCH_SIZE).map(file => String(file.name)));
+  const viaUpload = url => {
+    if (!url) return undefined;
+    const path = String(url).split('?')[0];
+    const source = attachments.find(attachment => (attachment.id && path.includes(`/${attachment.id}/`))
+      || [attachment.url, attachment.proxyURL].filter(Boolean).some(value => String(value).split('?')[0] === path));
+    if (!source) return url;
+    const name = [String(source.name || ''), String(source.name || '').replace(/[^\w.-]/g, '_')]
+      .find(candidate => uploaded.has(candidate));
+    return name ? `attachment://${name}` : url;
+  };
+  const copies = [];
+  for (const embed of message.embeds || []) {
+    if (copies.length >= COPIED_EMBED_LIMIT) break;
+    const data = embed?.toJSON?.() || embed?.data || embed || {};
+    if (data.type && data.type !== 'rich') continue;
+    const copy = {};
+    for (const key of ['title', 'description', 'url', 'color', 'timestamp']) {
+      if (data[key] != null && data[key] !== '') copy[key] = data[key];
+    }
+    if (data.author?.name) {
+      copy.author = { name: data.author.name, url: data.author.url || undefined, icon_url: viaUpload(data.author.icon_url) };
+    }
+    // The Builder's invisible footer marker identifies its own posts; a log
+    // copy must never look like one.
+    const footerText = String(data.footer?.text || '').replace(/\u200B+$/u, '');
+    if (footerText) copy.footer = { text: footerText, icon_url: viaUpload(data.footer.icon_url) };
+    if (data.fields?.length) copy.fields = data.fields.map(({ name, value, inline }) => ({ name, value, inline: Boolean(inline) }));
+    if (data.image?.url) copy.image = { url: viaUpload(data.image.url) };
+    if (data.thumbnail?.url) copy.thumbnail = { url: viaUpload(data.thumbnail.url) };
+    if (copy.title || copy.description || copy.fields || copy.image || copy.thumbnail || copy.author || copy.footer) copies.push(copy);
+  }
+  const total = copies.reduce((sum, copy) => sum + copiedEmbedLength(copy), 0);
+  return total <= MAX_EMBED_COPY_CHARS ? copies : [];
+}
+
 function embedSummary(embeds = []) {
   return embeds.map(embed => [embed.title, embed.description, ...(embed.fields || []).map(field => `${field.name}: ${field.value}`)].filter(Boolean).join('\n')).join('\n\n');
 }
@@ -183,13 +238,18 @@ export async function logDeletedMessage(message, options = {}) {
     videoLinks.push({ name: video.name, url });
     files = files.filter(entry => entry !== file);
   }
+  // An Embed Builder Delete shows the deleted embed itself (colour bar,
+  // banner, fields) under the log details instead of its text.
+  const embedCopies = deletedBy.source === 'embed-builder' && !uncached
+    ? deletedEmbedCopies(message, attachments, files) : [];
+  if (embedCopies.length) messageBody = null;
   // The first photo is shown inside the embed (clickable there). It must be
   // in the first upload batch of 10, which carries the embed.
-  const embedImage = (media.images || []).find(name => {
+  const embedImage = embedCopies.length ? null : (media.images || []).find(name => {
     const index = files.findIndex(file => file.name === name);
     return index >= 0 && index < 10;
   });
-  if (fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH || media.links.length) {
+  if ((!embedCopies.length && fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH) || media.links.length) {
     files.push({ attachment: Buffer.from(fullBody), name: `deleted-message-${message.id}.txt` });
   }
 
@@ -211,6 +271,7 @@ export async function logDeletedMessage(message, options = {}) {
       deletedByBot: deletedBy.bot === true,
       deletionSource: deletedBy.source,
       videoLinks,
+      embedCopies,
       channelId,
     }
   });
