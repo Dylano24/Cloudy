@@ -72,7 +72,7 @@ function applyRobbery(robberData, victimData, victimUser) {
 export default {
     data: new SlashCommandBuilder()
         .setName('rob')
-        .setDescription('Attempt to rob another user (very risky)')
+        .setDescription("Steal some of another member's cash. Money in the bank is safe.")
         .addUserOption(option =>
             option
                 .setName('user')
@@ -198,7 +198,7 @@ export default {
         if (outcome.kind === 'success') {
             resultEmbed = successEmbed(
                 'Robbery successful',
-                `You successfully stole **${outcome.amount.toLocaleString()}** from ${victimUser.username}!`
+                `You stole **$${outcome.amount.toLocaleString()}** from ${victimUser.username}'s cash. Money in the bank cannot be robbed.`
             );
         } else {
             resultEmbed = buildUserErrorEmbed(

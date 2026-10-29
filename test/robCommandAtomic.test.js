@@ -65,6 +65,11 @@ test('concurrent successful /rob cannot double-spend the victim or bypass cooldo
   assert.equal(f.read(victimId).lastDaily, 1234);
   assert.equal(f.payloads.length, 1);
   assert.match(JSON.stringify(f.payloads[0]), /Robbery successful/);
+  // Only cash can be robbed; the bank is never touched.
+  assert.equal(f.read(victimId).bank, 30);
+  assert.match(f.payloads[0].embeds[0].toJSON().description,
+    /^You stole \*\*\$300\*\* from victim's cash\. Money in the bank cannot be robbed\.$/);
+  assert.equal(rob.data.toJSON().description, "Steal some of another member's cash. Money in the bank is safe.");
 });
 
 test('protected victim blocks robbery and charges only the robber cooldown', async () => {
