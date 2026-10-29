@@ -12,33 +12,33 @@ import {
 } from '../../services/currencyGrantService.js';
 
 const amountOption = option => option.setName('amount')
-  .setDescription('Amount of cash to create for each recipient')
+  .setDescription('Amount of cash to create for each user')
   .setRequired(true).setMinValue(1);
 
 export default {
   slashOnly: true,
   category: 'Economy',
   data: new SlashCommandBuilder()
-    .setName('currency')
-    .setDescription('Owner only: create Cloudy currency without spending your cash')
+    .setName('give')
+    .setDescription('Owner only: give money to a user, yourself, or everyone')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
-    .addSubcommand(sub => sub.setName('user')
-      .setDescription('Give cash to a selected member')
-      .addUserOption(option => option.setName('user')
-        .setDescription('Member who receives the cash').setRequired(true))
-      .addIntegerOption(amountOption))
-    .addSubcommand(sub => sub.setName('me')
-      .setDescription('Add cash to your own balance')
-      .addIntegerOption(amountOption))
-    .addSubcommand(sub => sub.setName('everyone')
-      .setDescription('Give the same cash amount to every non-bot member')
-      .addIntegerOption(amountOption)
-      .addBooleanOption(option => option.setName('confirm')
-        .setDescription('Confirm this server-wide currency grant').setRequired(true))),
+    .addSubcommandGroup(group => group.setName('money')
+      .setDescription('Add money to a user, yourself, or everyone')
+      .addSubcommand(sub => sub.setName('user')
+        .setDescription('Give cash to a selected member')
+        .addUserOption(option => option.setName('user')
+          .setDescription('Member who receives the cash').setRequired(true))
+        .addIntegerOption(amountOption))
+      .addSubcommand(sub => sub.setName('me')
+        .setDescription('Add cash to your own balance')
+        .addIntegerOption(amountOption))
+      .addSubcommand(sub => sub.setName('everyone')
+        .setDescription('Give the same cash amount to every non-bot member')
+        .addIntegerOption(amountOption))),
 
   async execute(interaction, config, client) {
-    // All /currency responses, including validation errors, follow the
+    // All /give money responses, including validation errors, follow the
     // normal ten-second acknowledgement lifetime after the final reply.
     setResponseLifetime(interaction, 10_000);
     const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
@@ -57,7 +57,7 @@ export default {
 
     // Only the dedicated gambling channel may mint currency. Check before
     // any account mutation; unlike regular economy commands the shop channel
-    // is not allowed for owner-only /currency.
+    // is not allowed for owner-only /give money.
     const gamblingChannel = await resolveDedicatedChannel(interaction.guild, 'gambling');
     if (!gamblingChannel || String(interaction.channelId || interaction.channel?.id || '') !== String(gamblingChannel.id)) {
       await InteractionHelper.safeEditReply(interaction, {
@@ -88,8 +88,8 @@ export default {
         }
         const newCash = await grantCurrency(client, guildId, recipient.id, amount);
         await InteractionHelper.safeEditReply(interaction, {
-          embeds: [successEmbed('Currency added',
-            `Added **${format(amount)}** to **${recipient.username}**.\nNew cash balance: **${format(newCash)}**.\nYour balance was not deducted.`)],
+          embeds: [successEmbed('Money added',
+            `Added **${format(amount)}** to **${recipient.username}**.\nNew cash balance: **${format(newCash)}**.`)],
         });
         logger.info('[CURRENCY] Owner granted currency', {
           guildId, actorId: interaction.user.id, recipientId: recipient.id, amount,
@@ -98,16 +98,6 @@ export default {
       }
 
       if (scope !== 'everyone') throw new Error('Unknown currency command.');
-      if (interaction.options.getBoolean('confirm') !== true) {
-        await InteractionHelper.safeEditReply(interaction, {
-          embeds: [createEmbed({
-            title: 'Confirmation required',
-            description: 'No currency was created. Set confirm to True to give every member the selected amount.',
-            color: 'error',
-          })],
-        });
-        return;
-      }
 
       // A complete guild fetch is required: using a partial cache would
       // silently exclude offline members from an "everyone" grant.
@@ -121,10 +111,9 @@ export default {
       const failed = results.failed.length;
       await InteractionHelper.safeEditReply(interaction, {
         embeds: [createEmbed({
-          title: failed ? 'Currency partially added' : 'Currency added',
-          description: `Added **${format(amount)}** to **${results.granted}** member(s).`
-            + (failed ? `\n**${failed}** failed. Do not repeat the command blindly; some members already received their cash.` : '')
-            + '\nYour balance was not deducted.',
+          title: failed ? 'Money partially added' : 'Money added',
+          description: `Added **${format(amount)}** to **${results.granted}** ${results.granted === 1 ? 'user' : 'users'}.`
+            + (failed ? `\n**${failed}** failed. Do not repeat the command blindly; some members already received their cash.` : ''),
           color: failed ? 'warning' : 'success',
         })],
       });

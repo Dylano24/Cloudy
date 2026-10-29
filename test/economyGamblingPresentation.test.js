@@ -86,3 +86,23 @@ test('supports discord.js EmbedBuilder and preserves author, footer and banner',
   assert.equal(result.toJSON().author.name, 'SomeGamer');
   assert.equal(result.toJSON().footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
 });
+
+test('success and failure sentences keep capitals after periods, exclamation marks and questions', () => {
+  for (const message of [
+    'You failed the robbery and were caught! You were fined **50,042** of your own cash.',
+    'You spotted an unattended wallet! You grab **$50** and run.',
+    'The police chased you off. You got nothing.',
+    'You won! Your new cash balance is **$100**. Next work is available later.',
+    'Try again? You can work later.',
+  ]) assert.equal(economySentenceCase(message), message);
+  assert.equal(economySentenceCase('You won! **you** earned $10.'), 'You won! **You** earned $10.');
+  assert.equal(economySentenceCase('You won! Read https://example.com/you?you=1 and `you. your`.'),
+    'You won! Read https://example.com/you?you=1 and `you. your`.');
+});
+
+test('quoted punctuation does not turn a continuing clause into a new sentence', () => {
+  assert.equal(economySentenceCase("Someone yelled, 'Get a job!' and walked past."),
+    "Someone yelled, 'Get a job!' and walked past.");
+  assert.equal(economySentenceCase('You heard "Try again!" but were too late.'),
+    'You heard "Try again!" but were too late.');
+});

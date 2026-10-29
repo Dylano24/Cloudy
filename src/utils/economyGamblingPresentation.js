@@ -57,17 +57,26 @@ export function economySentenceCase(value) {
     return line.split(PROTECTED_PARTS).map(part => {
       if (part.startsWith('http://') || part.startsWith('https://')
           || part.startsWith('<') || part.startsWith('\x60')) return part;
-      return part.replace(WORD, word => {
+      return part.replace(WORD, (word, offset) => {
         const lower = word.toLocaleLowerCase('en');
         const isLabel = UI_WORDS.has(lower);
-        if (firstWord) {
+        const quotedSentenceStart = /^[A-Z]/.test(word)
+          && /(?:^|[\s:,(])[*_~]*["'“‘][*_~]*$/.test(part.slice(0, offset));
+        if (firstWord || quotedSentenceStart) {
           firstWord = false;
           // Keep a username/opaque dynamic token unchanged.
           return isLabel ? lower[0].toLocaleUpperCase('en') + lower.slice(1) : word;
         }
         return isLabel ? lower : word;
+      }).replace(/([.!?][\s*_~()[\]{}"'’]+)([a-z]+)/gi, (match, boundary, word) => {
+        const lower = word.toLocaleLowerCase('en');
+        // Quoted speech may end in ! or ? while the enclosing sentence
+        // continues: "Get a job!" and walked past.
+        if (/["'’]/.test(boundary) && /^(and|but|or)$/.test(lower)) return match;
+        return UI_WORDS.has(lower)
+          ? boundary + word[0].toLocaleUpperCase('en') + word.slice(1) : match;
       });
-    }).join('').replace(/(\bjail!\s+)you\b/g, '$1You');
+    }).join('');
   }).join('\n');
 }
 

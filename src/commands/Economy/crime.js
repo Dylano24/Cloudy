@@ -111,16 +111,17 @@ export default {
             await setEconomyData(client, guildId, userId, userData);
         }
 
+        const crimeDescription = crimeType === 'bank-heist' ? 'a bank heist' : crime.name.toLowerCase();
         if (outcome.isSuccess) {
             const embed = successEmbed(
-                "🕵️ Crime Successful!",
-                `You successfully committed ${crime.name} and earned **${outcome.amountEarned}** coins!`
+                "Crime successful",
+                `You successfully committed ${crimeDescription} and earned **${outcome.amountEarned}** coins!`
             );
             await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
         } else {
             const embed = warningEmbed(
-                "🚔 Crime Failed!",
-                `You were caught while attempting ${crime.name} and have been sent to jail! `
+                "Crime failed",
+                `You were caught while attempting ${crimeDescription} and have been sent to jail! `
                 + `You were fined ${outcome.fine.toLocaleString()} coins and will be in jail for 2 hours.`
             );
             await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
