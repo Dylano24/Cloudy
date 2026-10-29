@@ -324,7 +324,8 @@ export async function logEvent({
     }
 
     const config = await getGuildConfig(client, guildId);
-    const automod = data.deletionSource === 'automod' || /^automod\b/i.test(data.title || '') || (data.lines || []).some(line => /reason.*(?:automod|automatic protection):/i.test(line));
+    // Embed Builder Deletes are logged in the AutoMod log (owner's choice).
+    const automod = ['automod', 'embed-builder'].includes(data.deletionSource) || /^automod\b/i.test(data.title || '') || (data.lines || []).some(line => /reason.*(?:automod|automatic protection):/i.test(line));
     const deleter = data.deletedById ? guild.members.cache?.get(data.deletedById) || await guild.members.fetch(data.deletedById).catch(() => ({ id: data.deletedById })) : null;
     const requiredMessageDeletion = guildId === CLOUDY_GUILD_ID && eventType === EVENT_TYPES.MESSAGE_DELETE;
     const ignore = getIgnoreList(config);
