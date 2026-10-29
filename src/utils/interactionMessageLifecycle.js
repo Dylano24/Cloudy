@@ -288,6 +288,9 @@ export function installInteractionMessageLifecycle() {
           || shouldUseTicketPrivateTransientTimer(interaction, payload, message)
         ) {
           schedule(transientTimers, message, interaction, TRANSIENT_MESSAGE_MS);
+          // The original reply now has its timer; the post-command check in
+          // interactionCreate need not fetch it from Discord again.
+          if (method === 'reply' || method === 'editReply') interaction.__cloudyTransientReplyScheduled = true;
         }
         return result;
       };

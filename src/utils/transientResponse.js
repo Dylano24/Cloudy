@@ -6,6 +6,9 @@ import { rememberTransientBotMessage } from '../services/deletionAttributionServ
 
 const TRANSIENT_TTL_MS = 10_000;
 const transientPayloads = new WeakSet();
+// Several MessageCreate listeners offer the same Cloudy message. One timer per
+// message ID is enough; a second one only sends a failing (404) delete.
+const scheduledMessageIds = new Set();
 export function rememberTransientPayloadIntent(original, outgoing) {
   if (outgoing && typeof outgoing === 'object' && isTransientStatusPayload(original)) {
     transientPayloads.add(outgoing);
@@ -76,10 +79,14 @@ export function scheduleTransientMessageDeletion(message) {
   if (!message || isBuilderSessionMessage(message) || isBuilderOwnedMessage(message)
     || isPersistentBotMessage(message) || !isTransientStatusPayload(null, message)) return false;
   if (!message.deletable || typeof message.delete !== 'function') return false;
+  const messageId = message.id ? String(message.id) : null;
+  if (messageId && scheduledMessageIds.has(messageId)) return false;
+  if (messageId) scheduledMessageIds.add(messageId);
 
   // A status notice is not content: its deletion is never message-logged.
   rememberTransientBotMessage(message.id);
   const timer = setTimeout(() => {
+    if (messageId) scheduledMessageIds.delete(messageId);
     // A split Embed Builder preview can be registered immediately after the
     // Discord reply resolves. Re-check ownership at deletion time so a timer
     // scheduled a few milliseconds earlier can never delete Builder UI.
@@ -97,6 +104,9 @@ export async function scheduleTransientInteractionReplyDeletion(interaction) {
   // Never add a competing 10-second timer after command.execute().
   if (getResponseLifetime(interaction) !== undefined) return false;
   if (!interaction?.replied && !interaction?.deferred) return false;
+  // The response lifecycle already gave this reply its 10-second timer when it
+  // was sent; fetching it again from Discord would only add a duplicate.
+  if (interaction.__cloudyTransientReplyScheduled === true) return false;
   const reply = await interaction.fetchReply?.().catch(() => null);
   // This helper is used outside interactionMessageLifecycle too, so enforce the
   // Builder exclusion here at the final deletion boundary as well.

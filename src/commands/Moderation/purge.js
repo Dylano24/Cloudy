@@ -48,7 +48,9 @@ export default {
       const deleted = await channel.bulkDelete(fetched, true);
       const deletedCount = deleted.size;
 
-      await logEvent({
+      // The moderation log never throws; write it while the reply is sent so
+      // the moderator does not wait for the log channel.
+      const logging = logEvent({
         client,
         guild: interaction.guild,
         event: {
@@ -80,6 +82,7 @@ export default {
           logger.debug('Failed to auto-delete purge response:', err)
         );
       }, 10_000);
+      await logging;
     } catch (error) {
       logger.error('Purge command error:', error);
       await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An unexpected error occurred during message deletion. Note: Messages older than 14 days cannot be bulk deleted.' });
