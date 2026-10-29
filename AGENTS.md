@@ -26,6 +26,7 @@ This file is the persistent working context for every Codex session that edits t
 - Every committed registry write publishes its result to the in-memory Search views at once; never add a cache that is not refreshed by those commits.
 - Save edits the same message ID. Repost creates a new message ID and retires the old one (one identity remains). After Post the Builder edits the posted message.
 - Reappear moves the same identity to the new message (live content, registry row follows, rule remembers all former IDs). It takes the same per-message lock as Save.
+- Reappear counts member messages (text or media) and Cloudy Feed photo/video posts (sent with a `cfeed` nonce, `isCloudyFeedPost`). Other Cloudy or bot messages, including Reappear's own moved copy, never count.
 - Delete removes the row, its Reappear chain and active copy permanently (persistent tombstone).
 - A manual Discord deletion removes a post that was only published (`explicitSave: false`); an explicitly Saved one stays as a detached template and is never reposted automatically.
 - `node scripts/embed-registry-audit.js --guild <id> [--title pop] [--verify-discord]` writes a backup and reports duplicates read-only.
