@@ -2,6 +2,7 @@ import { Events } from 'discord.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { applyPlainResponseTemplate } from '../services/systemEmbedCatalogService.js';
 import { logger } from '../utils/logger.js';
+import { isPrivateCasinoHelpInteraction } from './fullResponseCatalogReady.js';
 
 const PATCH_MARKER = Symbol.for('cloudy.plainResponseCapture');
 
@@ -16,6 +17,8 @@ export default {
     InteractionHelper.patchInteractionResponses = function patchCloudyPlainResponses(interaction) {
       originalPatch(interaction);
       if (!interaction || interaction.__cloudyPlainResponsePatched) return;
+      // The full catalog wrapper also bypasses these current, source-owned guides.
+      if (isPrivateCasinoHelpInteraction(interaction)) return;
 
       for (const method of ['reply', 'editReply', 'followUp']) {
         const original = interaction[method]?.bind(interaction);
