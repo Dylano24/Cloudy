@@ -125,3 +125,41 @@ test('without video storage the video stays attached to the log itself (never lo
   assert.deepEqual(sent[0].files.map(file => file.name), ['clip.mp4']);
   assert.equal(sent[0].embed.fields, undefined);
 });
+
+test('Cloudy\'s private replies are never logged as an unknown, uncached deletion', async () => {
+  const { guild, sent, message } = setup();
+  await primeDeletionAuditBaseline(guild);
+  const rest = {
+    async delete() {},
+    async post(route) {
+      // A private follow-up (the Builder channel picker / "Message sent").
+      if (String(route).startsWith('/webhooks/')) return { id: '1300000000000000501', flags: 64 };
+      // A public reply returned by an interaction callback.
+      return { resource: { message: { id: '1300000000000000503', flags: 0 } } };
+    },
+    async patch() { return { id: '1300000000000000504', flags: 64 }; },
+    async get() { return { id: '1300000000000000505', flags: 64 }; },
+  };
+  installCloudyDeletionRecorder(rest);
+  await rest.post('/webhooks/1534506224312389863/token');
+  await rest.post('/interactions/1/token/callback');
+  await rest.patch('/webhooks/1534506224312389863/token/messages/@original');
+  await rest.get('/webhooks/1534506224312389863/token/messages/@original');
+  // Deleted by its own interaction link (removed after 10 seconds).
+  await rest.delete('/webhooks/1534506224312389863/token/messages/1300000000000000502');
+
+  // Discord reports these deletions without content or author (never cached).
+  const uncached = id => ({ id, guild, guildId: guild.id, client: guild.client, channelId: 'source',
+    channel: { id: 'source', name: 'general' }, partial: true, author: null, content: null,
+    embeds: [], attachments: new Collection() });
+  sent.length = 0;
+  for (const id of ['1300000000000000501', '1300000000000000502', '1300000000000000504', '1300000000000000505']) {
+    await logDeletedMessage(uncached(id), { snapshot: null });
+  }
+  assert.equal(sent.length, 0, 'no "Unknown / not cached" log for Cloudy\'s own private replies');
+
+  // A public reply is not marked by this rule, and a member's message is still logged.
+  await logDeletedMessage(message('1300000000000000506', 'member'));
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].embed.description, /\*\*Message author:\*\* <@member>/);
+});

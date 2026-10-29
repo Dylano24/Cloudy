@@ -23,7 +23,7 @@ function editorSession(overrides = {}) {
   });
 }
 
-test('an open editor has no timer: every contact restarts the 14-minute idle window', async t => {
+test('an open editor has no timer: every contact restarts the 60-minute idle window', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const token = editorSession();
   try {
@@ -41,7 +41,7 @@ test('an open editor has no timer: every contact restarts the 14-minute idle win
   }
 });
 
-test('14 minutes without any contact from the page (closed or asleep) ends the editor', async t => {
+test('60 minutes without any contact from the page (closed or asleep) ends the editor', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const token = editorSession();
   try {
@@ -155,4 +155,17 @@ test('activity on the Builder controls keeps the preview above them alive', asyn
 
   const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
   assert.match(source, /linkBuilderSessionPreview\(dashboardMessage, previewMessage\)/);
+});
+
+test('other things on the phone for 45 minutes (no contact from the page) keep the editor and the Builder', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const token = editorSession();
+  try {
+    assert.equal((await applyEmbedColorPickerSession(token, open('phone'), page('phone'))).ok, true);
+    t.mock.timers.tick(45 * MINUTE);
+    const back = await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('phone'));
+    assert.equal(back.ok, true, 'back in the editor after 45 minutes: it is still open');
+  } finally {
+    deleteEmbedColorPickerSession(token);
+  }
 });
