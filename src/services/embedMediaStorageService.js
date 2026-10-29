@@ -4,6 +4,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { convertToStorableImage, imageSignature } from './embedMediaImageConvert.js';
+import { logger } from '../utils/logger.js';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const MEDIA_ROUTE = '/cloudy-embed-media';
@@ -34,12 +36,23 @@ function imageExtension(buffer) {
   return null;
 }
 
-export async function storeEmbedMediaBuffer(input) {
+export async function storeEmbedMediaBuffer(input, { convert = convertToStorableImage } = {}) {
   if (!embedMediaStorageEnabled()) return null;
-  const buffer = Buffer.from(input || []);
+  let buffer = Buffer.from(input || []);
   if (!buffer.length || buffer.length > MAX_BYTES) throw new Error('Invalid Embed Builder media size');
-  const extension = imageExtension(buffer);
-  if (!extension) throw new Error('Unsupported Embed Builder media data');
+  let extension = imageExtension(buffer);
+  if (!extension) {
+    // e.g. an iPhone HEIC photo: Discord shows it, a banner link needs JPG/PNG.
+    const signature = imageSignature(buffer);
+    buffer = await convert(buffer).catch(error => {
+      logger.warn(`[EMBED_MEDIA] Picture could not be converted (${signature}): ${error?.message || error}`);
+      return Buffer.alloc(0);
+    });
+    extension = imageExtension(buffer);
+    if (!extension || buffer.length > MAX_BYTES) {
+      throw new Error('Unsupported Embed Builder media data');
+    }
+  }
   const filename = createHash('sha256').update(buffer).digest('hex') + '.' + extension;
   const root = mediaDir();
   await mkdir(root, { recursive: true });
@@ -54,8 +67,34 @@ export async function storeEmbedMediaBuffer(input) {
   return mediaBaseUrl() + MEDIA_ROUTE + '/' + filename;
 }
 
-export async function storeExistingDiscordEmbedMedia(url) {
-  if (!embedMediaStorageEnabled()) return null;
+// A Discord upload link always holds the same picture, so its permanent copy
+// is made once: Add media starts it in the background, Post/Save reuse it.
+const pendingStores = new Map();
+const PENDING_STORE_TTL_MS = 30 * 60_000;
+const PENDING_STORE_LIMIT = 100;
+
+export function storeExistingDiscordEmbedMedia(url) {
+  if (!embedMediaStorageEnabled()) return Promise.resolve(null);
+  const key = mediaDir() + '|' + String(url || '');
+  const known = pendingStores.get(key);
+  if (known) return known;
+  const stored = downloadAndStoreDiscordEmbedMedia(url);
+  pendingStores.set(key, stored);
+  if (pendingStores.size > PENDING_STORE_LIMIT) pendingStores.delete(pendingStores.keys().next().value);
+  const timer = setTimeout(() => { if (pendingStores.get(key) === stored) pendingStores.delete(key); }, PENDING_STORE_TTL_MS);
+  timer.unref?.();
+  // A failed copy is tried again on the next Post/Save, never cached.
+  stored.catch(() => { if (pendingStores.get(key) === stored) pendingStores.delete(key); });
+  return stored;
+}
+
+/** Starts the permanent copy of a just-added picture; Post/Save then need not wait. */
+export function prefetchDiscordEmbedMedia(url) {
+  if (!embedMediaStorageEnabled() || !/^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(String(url || ''))) return;
+  storeExistingDiscordEmbedMedia(url).catch(() => {});
+}
+
+async function downloadAndStoreDiscordEmbedMedia(url) {
   const address = new URL(String(url || ''));
   if (address.protocol !== 'https:'
     || !['cdn.discordapp.com', 'media.discordapp.net'].includes(address.hostname)

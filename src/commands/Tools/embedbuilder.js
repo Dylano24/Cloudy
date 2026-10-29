@@ -49,7 +49,7 @@ import {
     refreshAllTicketChannels,
     } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
-import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from '../../services/embedMediaStorageService.js';
+import { embedMediaStorageEnabled, prefetchDiscordEmbedMedia, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from '../../services/embedMediaStorageService.js';
 import { previewBannerUrl, rememberPreviewBanner } from '../../utils/builderPreviewBanner.js';
 import { applyInitialSearchSelectionToState,
     followMovedBuilderTarget,
@@ -1787,6 +1787,9 @@ async function editMedia(buttonInteraction, state) {
     state.mediaBuffer = null;
     state.mediaName = uploadedMedia.name || null;
     state.mediaConvertedFromVideo = false;
+    // Make the permanent copy now (converting e.g. an iPhone photo), so Post
+    // and Save reuse it instead of waiting for it.
+    prefetchDiscordEmbedMedia(uploadedMedia.url);
 
     await refreshBuilder(submitted, state);
 }
