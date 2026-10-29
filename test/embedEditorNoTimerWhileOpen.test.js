@@ -74,3 +74,55 @@ test('the editor page looks exactly as before: no extra preview block or styles'
   assert.doesNotMatch(html, /previewSection|dc-embed|CLOUDY_EDITOR_OWN_PREVIEW/);
   assert.match(html, /<h1 id="editorTitle">Edit title and message<\/h1>/);
 });
+
+const settle = () => new Promise(resolve => { setImmediate(resolve); });
+
+test('the open editor also holds the Builder preview: idle in the editor never closes any part of it', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const {
+    registerBuilderPreviewMessage, registerBuilderSessionCollector, touchBuilderSessionMessage,
+  } = await import('../src/utils/builderSessionCleanup.js');
+  const deleted = [];
+  const dashboard = { id: 'hold-dashboard-1', embeds: [{ title: 'Message builder' }], delete: async () => deleted.push('dashboard') };
+  const preview = { id: 'hold-preview-1', embeds: [{ title: 'Rules' }], delete: async () => deleted.push('preview') };
+  registerBuilderPreviewMessage(preview);
+  registerBuilderSessionCollector(dashboard, { ended: false, resetTimer() {}, stop() { this.ended = true; } });
+  // The preview was edited before the editor opened: its own 5 minutes are running.
+  touchBuilderSessionMessage(preview, async () => deleted.push('preview'));
+
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const hold = source.slice(source.indexOf('onEditorHold: async () => {'), source.indexOf('onEditorUpdate: async'));
+  assert.match(hold, /touchBuilderSessionMessage\(state\.builderDashboardMessage\)/);
+  assert.match(hold, /touchBuilderSessionMessage\(state\.builderMessage\)/);
+
+  const token = editorSession({
+    // Same as the Builder's onEditorHold.
+    onEditorHold: async () => {
+      touchBuilderSessionMessage(dashboard);
+      touchBuilderSessionMessage(preview);
+    },
+  });
+  try {
+    assert.equal((await applyEmbedColorPickerSession(token, open('idle'), page('idle'))).ok, true);
+    // Typing edits the preview outside the hold; it must not restart a timer.
+    touchBuilderSessionMessage(preview, async () => deleted.push('preview'));
+    // 12 minutes in the editor without typing (the page only sends heartbeats).
+    for (let minute = 0; minute < 12; minute += 2) {
+      t.mock.timers.tick(2 * MINUTE);
+      assert.equal((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('idle'))).ok, true);
+    }
+    await settle();
+    assert.deepEqual(deleted, [], 'nothing closes while the editor is open');
+
+    // Leaving the editor starts the normal 5 minutes for the whole Builder.
+    assert.equal((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__', page('idle'))).ok, true);
+    t.mock.timers.tick(5 * MINUTE - 1);
+    await settle();
+    assert.deepEqual(deleted, []);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.deepEqual(deleted.sort(), ['dashboard', 'preview']);
+  } finally {
+    deleteEmbedColorPickerSession(token);
+  }
+});
