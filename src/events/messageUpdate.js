@@ -3,6 +3,8 @@ import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { formatLogLine } from '../utils/logging/logEmbeds.js';
 import { captureMessageSnapshot, getMessageSnapshot } from '../services/messageSnapshotService.js';
+import { enforceProtectedIdentityMessage } from '../services/protectedIdentityService.js';
+import { resolveUpdatedMessage } from '../utils/updatedMessage.js';
 
 const MAX_LOGGED_EDIT_CONTENT_LENGTH = 512;
 // Without a cached or stored "before", only a message Discord itself marks
@@ -31,6 +33,8 @@ export default {
 
   async execute(oldMessage, newMessage) {
     try {
+      newMessage = await resolveUpdatedMessage(newMessage);
+      if (!newMessage) return;
       if (!newMessage.guild) return;
       // Read the stored copy before replacing it with the edited version.
       const oldUnknown = oldMessage?.partial || typeof oldMessage?.content !== 'string';
@@ -50,6 +54,8 @@ export default {
       } else if (before === newMessage.content) {
         return;
       }
+
+      if (await enforceProtectedIdentityMessage(newMessage)) return;
 
       const created = createdAt(newMessage);
       const channelId = newMessage.channelId || newMessage.channel?.id;

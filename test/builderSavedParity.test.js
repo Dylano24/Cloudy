@@ -66,7 +66,9 @@ test('a newer empty peer cannot suppress a complete real preview', () => {
 
 test('leaderboard preview and command use the same live data and rank formatter', async () => {
   const economy = new Map([['guild:parity-guild:economy:user1', { wallet: 50, bank: 100 }], ['guild:parity-guild:economy:user2', { wallet: 200, bank: 0 }]]);
-  const client = { db: { list: async () => [...economy.keys()], get: async key => economy.get(key) } };
+  const guild = { members: { fetch: async () => new Map([['user1', { id: 'user1' }], ['user2', { id: 'user2' }]]) } };
+  const client = { db: { list: async () => [...economy.keys()], get: async key => economy.get(key) },
+    guilds: { cache: new Map([[guildId, guild]]) } };
   const data = (await buildEconomyLeaderboardEmbed(client, guildId, 'user1')).toJSON();
   const preview = await hydrateBuilderPreviewRecord({ id: guildId, client }, record('leaderboard', { title: 'Economy leaderboard' }), null, 'user1');
   assert.deepEqual(preview.snapshot, data);

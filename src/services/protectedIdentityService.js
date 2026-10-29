@@ -22,6 +22,16 @@ const blocked = BLOCKED_IDENTITIES.map(display => ({
     normalized: normalize(display),
 }));
 
+function detectInMessage(value) {
+    const identity = detectInValue(value);
+    if (identity) return identity;
+    // Standalone surnames are blocked in messages only. Keep profile checks
+    // on the existing full identities, and do not match parts of other words.
+    const text = String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+    const match = text.match(/(?:^|[^\p{L}\p{N}])(miro|piazzini)(?=$|[^\p{L}\p{N}])/iu);
+    return match ? { display: match[1].toLowerCase() === 'miro' ? 'Miro' : 'Piazzini' } : null;
+}
+
 function detectInValue(value) {
     const normalizedValue = normalize(value);
     if (!normalizedValue) return null;
@@ -158,7 +168,7 @@ async function banDetectedMember(member, detection, source) {
 export async function enforceProtectedIdentityMessage(message) {
     if (!message.guild || message.guild.id !== TARGET_GUILD_ID) return false;
 
-    const identity = detectInValue(message.content);
+    const identity = detectInMessage(message.content);
     if (!identity) return false;
 
     const member = message.member || await message.guild.members.fetch(message.author.id).catch(() => null);

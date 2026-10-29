@@ -107,10 +107,10 @@ function markDashboardLifecycleEnded(message, interaction) {
 
 export async function deleteLifecycleMessage(message, interaction) {
   if (!message?.id) return false;
-  // Staff/bot log channels are normally permanent. An ephemeral /currency
+  // Staff/bot log channels are normally permanent. An ephemeral /give money
   // interaction is not a log entry, however, even when invoked from a channel
   // with "logs" in its name. Its explicit ten-second lifetime must still win.
-  const temporaryCurrencyReply = String(interaction?.commandName || '').toLowerCase() === 'currency'
+  const temporaryCurrencyReply = ['currency', 'give'].includes(String(interaction?.commandName || '').toLowerCase())
     && (interaction?.ephemeral === true || isEphemeralLifecycleMessage(null, message));
   if (isPersistentBotMessage(message) && !temporaryCurrencyReply) return false;
 

@@ -13,7 +13,7 @@ export const GAME_HELP = {
     'Choose **Player**, **Banker**, or **Tie** before the cards are dealt. You win when your choice matches the result. Player and Banker are the names of the two hands.',
     '**Card values:** an ace counts as 1, cards 2 to 9 count as their number, and 10, J, Q and K count as 0. Only the last digit of the total counts: 7 + 8 = 15, so the hand is worth 5.',
     'The hand closest to **9** wins. In this bot, each hand automatically draws one extra card if its first two cards total less than 6. You do not need to draw or stand.',
-    '**Player:** a win returns 2 times your bet.\n**Banker:** a win returns 1.95 times your bet, rounded down.\n**Tie:** a win returns 9 times your bet.\nThese returns include your original bet. A tie returns Player and Banker bets.',
+    '**Player:** a win returns 2 times your bet.\n**Banker:** a win returns 1.95 times your bet, rounded down.\n**Tie:** a win returns 9 times your bet.\n\nThese returns include your original bet. A tie returns Player and Banker bets.',
   ].join('\n\n'),
   roulette: [
     '**How to play roulette**',
@@ -27,7 +27,7 @@ export const GAME_HELP = {
 export function gameHelpRow(game) {
   return new ActionRowBuilder().addComponents(
     // Keep the question mark inside the label: Discord adds extra spacing when it is a separate button emoji.
-    new ButtonBuilder().setCustomId(`game_help:${game}`).setLabel('❔ How to play').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`game_help:${game}`).setLabel(game === 'baccarat' ? '? How to play' : '❔ How to play').setStyle(ButtonStyle.Secondary),
   );
 }
 
