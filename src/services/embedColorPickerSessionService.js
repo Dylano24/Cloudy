@@ -72,6 +72,7 @@ function scheduleSessionIdleExpiry(token, session, editorInstanceId) {
         session.expiredEditorInstanceIds.add(instanceId);
         session.activeEditorInstanceId = null;
         session.holdActive = false;
+        session.editorReleasedAt = Date.now();
         // 60m without contact ends only the editor hold. The Builder then gets a fresh normal 5m.
         releaseBuilderSessionHold(token);
     }, EMBED_EDITOR_IDLE_MS);
@@ -207,6 +208,26 @@ async function touchEditorSession(token, session) {
     return { ok: true };
 }
 
+// True while the browser editor page is open, or within `withinMs` after it
+// was closed (the Builder's normal five minutes after leaving the editor).
+export function wasEmbedEditorRecentlyUsed(token, withinMs = 5 * 60_000) {
+    const session = sessions.get(token);
+    if (!session) return false;
+    const pageOpen = session.holdActive && session.activeEditorInstanceId
+        && session.activeEditorInstanceId !== '__legacy_editor__';
+    if (pageOpen) return true;
+    return Number.isFinite(session.editorReleasedAt) && Date.now() - session.editorReleasedAt <= withinMs;
+}
+
+// /embedbuilder brought the same Builder back in new messages: an open
+// editor holds those new messages too.
+export async function refreshEmbedEditorHold(token) {
+    const session = sessions.get(token);
+    if (!session?.holdActive || typeof session.onEditorHold !== 'function') return false;
+    await runWithBuilderSessionHold(token, () => session.onEditorHold());
+    return true;
+}
+
 export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, onEditorHold, emojis = [] }) {
     const token = randomBytes(32).toString('hex');
     const session = {
@@ -281,6 +302,7 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
         clearSessionIdleTimer(session);
         session.activeEditorInstanceId = null;
         session.holdActive = false;
+        session.editorReleasedAt = Date.now();
         // Closing starts a fresh normal 5m Builder inactivity window.
         releaseBuilderSessionHold(token);
         return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };
