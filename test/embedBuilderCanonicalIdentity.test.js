@@ -37,6 +37,7 @@ import { loadRecordSnapshotIntoState, saveModifiedEmbed } from '../src/services/
 import brandingMessageCreate from '../src/events/cloudyBrandingMessageCreate.js';
 import { acquireEmbedBuilderMessageMutation } from '../src/services/embedBuilderMutationLock.js';
 import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../src/utils/builderOwnedSends.js';
+import { deleteMessageForMove } from '../src/services/deletionAttributionService.js';
 
 const BOT = { id: '1500000000000000001' };
 const OWNER = { id: '1500000000000000002' };
@@ -365,6 +366,7 @@ function reappearHandler() {
     move: moveEmbedRegistryMessage,
     ownedPayload: withBuilderOwnedNonce,
     rememberOwned: rememberBuilderOwnedMessage,
+    deleteForMove: deleteMessageForMove,
   };
   return new Function('getFromDb', 'setInDb', 'deleteFromDb', 'logger', 'setTimeout', 'reappearIdentity',
     `const reappearQueues = new Map(); ${source.slice(start)}; return handleEmbedReappear;`)(

@@ -22,6 +22,7 @@ import {
 import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../utils/builderOwnedSends.js';
 import { acquireEmbedBuilderMessageMutation } from '../services/embedBuilderMutationLock.js';
 import { canonicalGamblingGuideEmbedData } from '../services/dedicatedChannelService.js';
+import { deleteMessageForMove } from '../services/deletionAttributionService.js';
 import {
   getCountingGameConfig,
   saveCountingGameConfig,
@@ -312,6 +313,8 @@ const reappearIdentity = {
   move: moveEmbedRegistryMessage,
   ownedPayload: withBuilderOwnedNonce,
   rememberOwned: rememberBuilderOwnedMessage,
+  // Deleting the old copy to move it is not logged as a deleted message.
+  deleteForMove: deleteMessageForMove,
 };
 
 const reappearQueues = new Map();
@@ -483,7 +486,7 @@ async function processEmbedReappear(message) {
           : () => {};
         try {
           if (previous) {
-            const removedPrevious = await previous.delete().then(() => true).catch(() => false);
+            const removedPrevious = await reappearIdentity.deleteForMove(previous).then(() => true).catch(() => false);
             if (!removedPrevious) {
               config.pendingMove = false;
               await setInDb(key, config);

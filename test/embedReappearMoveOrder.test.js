@@ -27,6 +27,7 @@ function fixture({ deleteFails = false, sendFails = false, every = 1, fetchFails
     move: async (_guildId, _channelId, from, sent) => { moves.push([from, sent.id]); return true; },
     ownedPayload: payload => payload,
     rememberOwned: () => {},
+    deleteForMove: message => message.delete(),
   };
   const handle = new Function('getFromDb', 'setInDb', 'deleteFromDb', 'logger', 'setTimeout', 'reappearIdentity', 'canonicalGamblingGuideEmbedData', `const reappearQueues = new Map(); ${source.slice(start)}; return handleEmbedReappear;`)(get, set, remove, { error() {}, warn() {}, info() {} }, (callback, delay) => { actions.push('delay:' + delay); callback(); }, reappearIdentity, canonicalGamblingGuideEmbedData);
   let serial = 0;
