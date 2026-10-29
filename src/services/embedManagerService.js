@@ -3,6 +3,7 @@
 import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
 import { acquireEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
 import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from './embedMediaStorageService.js';
+import { rememberPreviewBanner } from '../utils/builderPreviewBanner.js';
 import {
     BALANCE_RESPONSE_KEY,
     balanceResponseIdentity,
@@ -3360,6 +3361,9 @@ async function saveModifiedEmbedUnlocked(guild, state) {
         liveState.mediaConvertedFromVideo = false;
     } else if (!state.mediaBuffer) {
         liveState.mediaUrl = currentImageUrl || null;
+        // The Builder preview keeps the just-uploaded picture's own Discord
+        // link, so it shows at once (Discord still fetches Cloudy's link).
+        if (movedToDurable && state.mediaTouched) rememberPreviewBanner(liveState, currentImageUrl, requestedImage);
     }
     if (termsFooterUpdated) {
         state.bottomLine = current.footer?.text || embeds[index].footer.text;
