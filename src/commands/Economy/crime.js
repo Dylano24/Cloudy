@@ -11,8 +11,8 @@ const FINE_RATE = 0.2;
 const CRIME_TYPES = [
     { name: "Pickpocketing", min: 100, max: 500, risk: 0.3 },
     { name: "Burglary", min: 300, max: 1000, risk: 0.4 },
-    { name: "Bank Heist", min: 1000, max: 5000, risk: 0.6 },
-    { name: "Art Theft", min: 2000, max: 10000, risk: 0.7 },
+    { name: "Bank heist", min: 1000, max: 5000, risk: 0.6 },
+    { name: "Art theft", min: 2000, max: 10000, risk: 0.7 },
     { name: "Cybercrime", min: 5000, max: 20000, risk: 0.8 },
 ];
 
@@ -75,8 +75,8 @@ export default {
                 .addChoices(
                     { name: 'Pickpocketing', value: 'pickpocketing' },
                     { name: 'Burglary', value: 'burglary' },
-                    { name: 'Bank Heist', value: 'bank-heist' },
-                    { name: 'Art Theft', value: 'art-theft' },
+                    { name: 'Bank heist', value: 'bank-heist' },
+                    { name: 'Art theft', value: 'art-theft' },
                     { name: 'Cybercrime', value: 'cybercrime' },
                 )
         ),
