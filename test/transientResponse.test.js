@@ -11,6 +11,7 @@ import {
 } from '../src/utils/transientResponse.js';
 import { setResponseLifetime } from '../src/utils/responseLifetime.js';
 import { scheduleTicketReplyDeletion } from '../src/utils/ticket/ticketBranding.js';
+import { withBuilderOwnedNonce } from '../src/utils/builderOwnedSends.js';
 
 test('small status replies are transient', () => {
   for (const title of [
@@ -108,5 +109,16 @@ test('games, ticket notices, guides, content panels, report records and dashboar
   for (const name of ['reports', 'owner-mod-message-logs', 'member-message-logs', 'ticket-logs']) {
     assert.equal(scheduleTransientMessageDeletion({ embeds: [{ title: 'Success' }], channel: { name },
       deletable: true, delete: async () => {} }), false, name);
+  }
+});
+
+test('an Embed Builder post with a status-like title is content and never gets the 10-second timer', () => {
+  for (const title of ['Information', 'Notice', 'Updated rules', 'Warning']) {
+    const { nonce } = withBuilderOwnedNonce({ embeds: [] });
+    const post = { id: `post-${title}`, nonce, embeds: [{ title, description: 'Read this first.' }],
+      channel: { name: 'rules' }, deletable: true, delete: async () => { throw new Error('a Builder post must not be deleted'); } };
+    assert.equal(scheduleTransientMessageDeletion(post), false, title);
+    // The same embed without the Builder nonce is a status notice.
+    assert.equal(isTransientStatusPayload(null, { ...post, nonce: null }), true, title);
   }
 });

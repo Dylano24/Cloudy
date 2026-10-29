@@ -9,31 +9,46 @@ import { fillIncomingPaymentTemplate } from '../src/services/incomingPaymentDmSe
 import { getResponseLifetime } from '../src/utils/responseLifetime.js';
 import { TRANSIENT_MESSAGE_MS, deleteLifecycleMessage } from '../src/utils/interactionMessageLifecycle.js';
 import { isPersistentBotMessage } from '../src/utils/transientResponse.js';
-import { MessageFlags } from 'discord.js';
+import { Collection, MessageFlags, PermissionFlagsBits } from 'discord.js';
 
 const guildId = '1532882647838228723';
 const ownerId = '1532882647838228724';
 const memberId = '1532882647838228725';
 
-test('owner-only money scopes replace currency and the obsolete economy give command', () => {
+test('staff money scopes replace currency and the obsolete economy give command', () => {
   const data = currencyCommand.data.toJSON();
   assert.equal(data.name, 'give');
+  assert.match(data.description, /^Staff only:/);
+  assert.equal(data.default_member_permissions, String(PermissionFlagsBits.ModerateMembers));
   assert.equal(data.options[0].name, 'money');
   assert.deepEqual(data.options[0].options.map(option => option.name), ['user', 'me', 'everyone']);
   assert.deepEqual(data.options[0].options[2].options.map(option => option.name), ['amount']);
+  assert.deepEqual(data.options[0].options.map(option => option.options.at(-1).description),
+    ['Amount of money to give to this user', 'Amount of money to give to myself', 'Amount of money to give to each user']);
+  // /give money never says "cash".
+  assert.doesNotMatch(JSON.stringify(data), /cash/i);
   assert.deepEqual(economyCommand.data.toJSON().options.map(option => option.name), ['dashboard']);
 });
 
-test('currency minting only authorizes bot owners, guild owners or Owner role members', () => {
-  const interaction = (role, userId = memberId) => ({
+test('/give money authorizes bot owners, the server owner and Cloudy staff only', () => {
+  const interaction = (role, userId = memberId, permissions = false) => ({
     guildId, guild: { ownerId }, user: { id: userId },
-    member: { roles: { cache: { some: fn => role ? fn({ name: role }) : false } } },
+    member: {
+      id: userId,
+      roles: { cache: new Collection(role ? [['role-id', { id: 'role-id', name: role }]] : []) },
+      permissions: { has: () => permissions },
+    },
   });
   assert.equal(canGrantCurrency(interaction('Owner')), true);
   assert.equal(canGrantCurrency(interaction('oWnEr')), true);
   assert.equal(canGrantCurrency(interaction(null, ownerId)), true);
-  assert.equal(canGrantCurrency(interaction('Administrator')), false);
-  assert.equal(canGrantCurrency(interaction('Moderator')), false);
+  assert.equal(canGrantCurrency(interaction('Staff')), true);
+  assert.equal(canGrantCurrency(interaction('Administrator')), true);
+  assert.equal(canGrantCurrency(interaction('Moderator')), true);
+  assert.equal(canGrantCurrency(interaction('Member', memberId, true)), true);
+  assert.equal(canGrantCurrency(interaction('Member'), { modRole: 'role-id' }), true);
+  assert.equal(canGrantCurrency(interaction('Member')), false);
+  assert.equal(canGrantCurrency(interaction(null)), false);
   assert.equal(canGrantCurrency({ ...interaction('Owner'), guildId: null }), false);
 });
 
@@ -137,24 +152,36 @@ function currencyInteraction(channelId, scope = 'me') {
       getSubcommand: () => scope, getInteger: () => 25,
       getBoolean: () => true,
     },
-    replied: false, deferred: false,
-    async deferReply() { this.deferred = true; },
+    replied: false, deferred: false, deferFlags: null,
+    async deferReply(options) { this.deferred = true; this.deferFlags = options?.flags ?? null; },
     async editReply(payload) { replies.push(payload); this.replied = true; },
   };
   return { interaction, replies };
 }
 
-test('currency replies have a ten-second lifetime and cannot grant outside gambling', async () => {
+function grantingClient(changes) {
+  return { db: {
+    getConnectionType: () => 'postgresql',
+    mutateEconomyAccount: async (guild, user, initial, change) => {
+      const account = { ...initial, wallet: 100 };
+      change(account);
+      changes.push({ guild, user, wallet: account.wallet });
+      return { account };
+    },
+  } };
+}
+
+test('staff can give money in every channel with a private ten-second reply', async () => {
   for (const channelId of ['1533188412507558131', '1533188412507558132']) {
     const { interaction, replies } = currencyInteraction(channelId);
-    let mutations = 0;
-    const client = { db: { mutateEconomyAccount: () => { mutations++; } } };
-    await currencyCommand.execute(interaction, {}, client);
+    const changes = [];
+    await currencyCommand.execute(interaction, {}, grantingClient(changes));
+    assert.equal(interaction.deferFlags, MessageFlags.Ephemeral);
     assert.equal(getResponseLifetime(interaction), TRANSIENT_MESSAGE_MS);
-    assert.equal(mutations, 0);
+    assert.deepEqual(changes, [{ guild: guildId, user: ownerId, wallet: 125 }]);
     assert.equal(replies.length, 1);
-    assert.match(JSON.stringify(replies[0]), /Wrong channel/);
-    assert.match(JSON.stringify(replies[0]), /<#1533188412507558130>/);
+    assert.match(JSON.stringify(replies[0]), /Money added/);
+    assert.doesNotMatch(JSON.stringify(replies[0]), /Wrong channel/);
   }
 });
 
@@ -175,7 +202,8 @@ test('currency still grants to owner in gambling with the same ten-second reply 
   assert.deepEqual(changes, [{ guild: guildId, user: ownerId, wallet: 125 }]);
   assert.equal(replies.length, 1);
   assert.match(JSON.stringify(replies[0]), /Money added/);
-  assert.doesNotMatch(JSON.stringify(replies[0]), /balance was not deducted/);
+  assert.match(JSON.stringify(replies[0]), /New money balance/);
+  assert.doesNotMatch(JSON.stringify(replies[0]), /balance was not deducted|cash/i);
 });
 
 test('currency ephemeral reply deletes after its lifecycle even inside staff message logs', async () => {
@@ -210,15 +238,19 @@ test('ordinary staff logs stay permanent even if a generic timer tries to delete
   assert.deepEqual(deleted, []);
 });
 
-test('wrong-channel currency response uses the standard red Cloudy error embed', async () => {
+test('a member who is not staff gets a private Permission denied and no money is added', async () => {
   const { interaction, replies } = currencyInteraction('1533188412507558132');
-  await currencyCommand.execute(interaction, {}, { db: {} });
+  interaction.user = { id: memberId, username: 'member', bot: false };
+  interaction.member = { id: memberId, roles: { cache: new Collection() }, permissions: { has: () => false } };
+  const changes = [];
+  await currencyCommand.execute(interaction, {}, grantingClient(changes));
+  assert.deepEqual(changes, []);
+  assert.equal(interaction.deferFlags, MessageFlags.Ephemeral);
+  assert.equal(getResponseLifetime(interaction), TRANSIENT_MESSAGE_MS);
   assert.equal(replies.length, 1);
   const data = replies[0].embeds[0].toJSON();
-  assert.equal(data.title, 'Wrong channel');
-  assert.match(data.description, /This command can only be used in the dedicated channel\./);
-  assert.match(data.description, /<#1533188412507558130>/);
-  assert.equal(data.color, 0x7A1712);
+  assert.equal(data.title, 'Permission denied');
+  assert.equal(data.description, 'Only Cloudy staff can give money.');
 });
 
 test('everyone grant needs only an amount and pays every current human member once', async () => {

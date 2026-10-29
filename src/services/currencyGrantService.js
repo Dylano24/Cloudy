@@ -1,13 +1,16 @@
 import { isBotOwner } from '../config/bot.js';
 import { hasCloudyOwnerRole } from './ownerRoleAccess.js';
+import { isCloudyStaffMember } from './cloudyStaffAccess.js';
 import { getEconomyData, getInitialEconomyData, setEconomyData } from '../utils/economy.js';
 
-export function canGrantCurrency(interaction) {
+// /give money: bot owners and Cloudy staff (the same group that cannot be robbed).
+export function canGrantCurrency(interaction, guildConfig = {}) {
   const userId = interaction?.user?.id;
   if (!interaction?.guildId || !userId) return false;
   return isBotOwner(userId)
     || String(interaction.guild?.ownerId || '') === String(userId)
-    || hasCloudyOwnerRole(interaction);
+    || hasCloudyOwnerRole(interaction)
+    || isCloudyStaffMember(interaction.member, guildConfig || {}, interaction.guild);
 }
 
 export function parseCurrencyAmount(rawAmount) {

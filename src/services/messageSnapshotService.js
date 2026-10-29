@@ -56,20 +56,26 @@ export function shouldSnapshotMessage(message) {
   if (!message?.guildId || !message.id || message.partial) return false;
   if (LOG_CHANNEL_IDS.has(String(message.channelId))) return false;
   if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
-  // Join/pin/boost notices have no content worth restoring; Cloudy's own
-  // status replies are never logged when deleted.
-  if (message.system || isBotActionFeedback(message)) return false;
+  // Join/pin/boost notices have no content worth restoring.
+  if (message.system) return false;
+  // Cloudy's own replies to an action are never logged when deleted. Only a
+  // bare marker is kept, so that still holds after a restart.
+  if (isBotActionFeedback(message)) return true;
   return Boolean(message.content || message.attachments?.size || message.embeds?.length || message.stickers?.size);
 }
 
 export function buildMessageSnapshot(message) {
-  return {
+  const identity = {
     v: 1,
     id: String(message.id),
     guildId: String(message.guildId),
     channelId: String(message.channelId),
     authorId: message.author?.id ? String(message.author.id) : null,
     authorBot: message.author?.bot === true,
+  };
+  if (isBotActionFeedback(message)) return { ...identity, feedback: true };
+  return {
+    ...identity,
     webhookId: message.webhookId ? String(message.webhookId) : null,
     content: String(message.content || '').slice(0, MAX_CONTENT),
     createdTimestamp: Number(message.createdTimestamp) || SnowflakeUtil.timestampFrom(message.id),
