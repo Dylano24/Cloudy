@@ -15,12 +15,13 @@ const guildId = '1532882647838228723';
 const ownerId = '1532882647838228724';
 const memberId = '1532882647838228725';
 
-test('owner-only slash currency scopes and confirmation are registered', () => {
+test('owner-only money scopes replace currency and the obsolete economy give command', () => {
   const data = currencyCommand.data.toJSON();
-  assert.equal(data.name, 'currency');
-  assert.deepEqual(data.options.map(option => option.name), ['user', 'me', 'everyone']);
-  assert.equal(data.options[2].options.find(option => option.name === 'confirm')?.required, true);
-  assert.equal(economyCommand.data.toJSON().name, 'economy');
+  assert.equal(data.name, 'give');
+  assert.equal(data.options[0].name, 'money');
+  assert.deepEqual(data.options[0].options.map(option => option.name), ['user', 'me', 'everyone']);
+  assert.deepEqual(data.options[0].options[2].options.map(option => option.name), ['amount']);
+  assert.deepEqual(economyCommand.data.toJSON().options.map(option => option.name), ['dashboard']);
 });
 
 test('currency minting only authorizes bot owners, guild owners or Owner role members', () => {
@@ -173,7 +174,8 @@ test('currency still grants to owner in gambling with the same ten-second reply 
   assert.equal(getResponseLifetime(interaction), TRANSIENT_MESSAGE_MS);
   assert.deepEqual(changes, [{ guild: guildId, user: ownerId, wallet: 125 }]);
   assert.equal(replies.length, 1);
-  assert.match(JSON.stringify(replies[0]), /Currency added/);
+  assert.match(JSON.stringify(replies[0]), /Money added/);
+  assert.doesNotMatch(JSON.stringify(replies[0]), /balance was not deducted/);
 });
 
 test('currency ephemeral reply deletes after its lifecycle even inside staff message logs', async () => {
@@ -185,7 +187,7 @@ test('currency ephemeral reply deletes after its lifecycle even inside staff mes
   };
   assert.equal(isPersistentBotMessage(message), true);
   const interaction = {
-    commandName: 'currency',
+    commandName: 'give',
     ephemeral: true,
     webhook: { deleteMessage: async id => { deleted.push(id); } },
   };
@@ -201,7 +203,7 @@ test('ordinary staff logs stay permanent even if a generic timer tries to delete
     delete: async () => { deleted.push('message'); },
   };
   const interaction = {
-    commandName: 'currency',
+    commandName: 'give',
     webhook: { deleteMessage: async () => { deleted.push('webhook'); } },
   };
   assert.equal(await deleteLifecycleMessage(message, interaction), false);
@@ -219,16 +221,32 @@ test('wrong-channel currency response uses the standard red Cloudy error embed',
   assert.equal(data.color, 0x7A1712);
 });
 
-test('confirmation required uses a red sidebar in gambling and never mints cash', async () => {
+test('everyone grant needs only an amount and pays every current human member once', async () => {
   const { interaction, replies } = currencyInteraction('1533188412507558130', 'everyone');
-  interaction.options.getBoolean = () => false;
-  let mutations = 0;
-  const client = { db: { mutateEconomyAccount: () => { mutations++; } } };
+  delete interaction.options.getBoolean;
+  interaction.guild.memberCount = 3;
+  interaction.guild.members = { fetch: async () => new Map([
+    [ownerId, { id: ownerId, user: { bot: false } }],
+    [memberId, { id: memberId, user: { bot: false } }],
+    ['bot', { id: 'bot', user: { bot: true } }],
+  ]) };
+  const accounts = new Map([[ownerId, { wallet: 100 }], [memberId, { wallet: 10 }]]);
+  const client = { db: {
+    getConnectionType: () => 'postgresql',
+    mutateEconomyAccount: async (guild, id, initial, change) => {
+      assert.equal(guild, guildId);
+      const account = { ...(accounts.get(id) || initial) };
+      change(account);
+      accounts.set(id, account);
+      return { account };
+    },
+  } };
   await currencyCommand.execute(interaction, {}, client);
-  assert.equal(mutations, 0);
+  assert.equal(accounts.get(ownerId).wallet, 125);
+  assert.equal(accounts.get(memberId).wallet, 35);
+  assert.equal(accounts.has('bot'), false);
   assert.equal(getResponseLifetime(interaction), TRANSIENT_MESSAGE_MS);
-  assert.equal(replies.length, 1);
   const embed = replies[0].embeds[0].toJSON();
-  assert.equal(embed.title, 'Confirmation required');
-  assert.equal(embed.color, 0x7A1712);
+  assert.equal(embed.title, 'Money added');
+  assert.doesNotMatch(embed.description, /balance was not deducted|confirm/i);
 });

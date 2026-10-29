@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import gamble from '../src/commands/Economy/gamble.js';
-import economy from '../src/commands/Economy/economy.js';
+import giveMoney from '../src/commands/Economy/currency.js';
 import { getInitialEconomyData } from '../src/utils/economy.js';
 
 function fixture(inventory = {}) {
@@ -71,19 +71,23 @@ test('failed /gamble loses only one bet and starts cooldown', async t => {
   assert.equal(f.writes(), 1);
 });
 
-test('two simultaneous /economy give operations add cash without lost updates', async () => {
+test('two simultaneous /give money me operations add cash without lost updates', async () => {
   const f = fixture();
-  const ownerInteraction = () => Object.assign(f.interaction(100, 'give'), {
-    guild: { ownerId: '1532882647838228724' },
+  const ownerInteraction = () => Object.assign(f.interaction(100, 'me'), {
+    channelId: '1533188412507558130',
+    guild: { ownerId: '1532882647838228724', channels: { cache: { find: fn => {
+      const channel = { id: '1533188412507558130', name: 'gambling', isTextBased: () => true, isSendable: () => true };
+      return fn(channel) ? channel : undefined;
+    } } } },
   });
   const results = await Promise.allSettled([
-    economy.execute(ownerInteraction(), {}, f.client),
-    economy.execute(ownerInteraction(), {}, f.client),
+    giveMoney.execute(ownerInteraction(), {}, f.client),
+    giveMoney.execute(ownerInteraction(), {}, f.client),
   ]);
   assert.equal(results.filter(r => r.status === 'fulfilled').length, 2);
   assert.equal(f.read().wallet, 700);
   assert.equal(f.read().bank, 40);
   assert.equal(f.writes(), 2);
   assert.equal(f.replies.length, 2);
-  assert.match(JSON.stringify(f.replies[1]), /Cash added/);
+  assert.match(JSON.stringify(f.replies[1]), /Money added/);
 });

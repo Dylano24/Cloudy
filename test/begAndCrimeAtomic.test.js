@@ -75,7 +75,7 @@ test('simultaneous successful /crime attempts cannot bypass a cooldown', async t
   assert.equal(f.writes(), 1);
   assert.ok(f.read().wallet > 500);
   assert.ok(f.read().cooldowns.crime > 0);
-  assert.match(JSON.stringify(f.replies[0]), /Crime Successful/);
+  assert.match(JSON.stringify(f.replies[0]), /Crime successful/);
 });
 
 test('failed /crime commits exactly one fine, jail time and cooldown', async t => {
@@ -91,5 +91,5 @@ test('failed /crime commits exactly one fine, jail time and cooldown', async t =
   assert.equal(f.read().wallet, 440);
   assert.ok(f.read().jailedUntil > Date.now());
   assert.ok(f.read().cooldowns.crime > 0);
-  assert.match(JSON.stringify(f.replies[0]), /Crime Failed/);
+  assert.match(JSON.stringify(f.replies[0]), /Crime failed/);
 });
