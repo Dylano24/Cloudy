@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   EMBED_EDITOR_IDLE_MS,
   applyEmbedColorPickerSession,
   createEmbedColorPickerSession,
   deleteEmbedColorPickerSession,
-  getEmbedEditorMedia,
 } from '../src/services/embedColorPickerSessionService.js';
 
 const page = id => ({ editorInstanceId: id });
@@ -57,28 +57,20 @@ test('14 minutes without any contact from the page (closed or asleep) ends the e
   }
 });
 
-test('the editor page gets the exact Builder preview and knows when Discord paused its own preview', async () => {
-  let paused = false;
-  const preview = { title: 'Rules', description: 'Be kind.', color: 0x8E44AD, image: { url: 'attachment://banner.png' } };
-  const token = editorSession({
-    getPreviewEmbed: () => preview,
-    isPreviewPaused: () => paused,
-    getPreviewMedia: () => ({ buffer: Buffer.from('png'), name: 'banner.png' }),
-  });
-  try {
-    await applyEmbedColorPickerSession(token, open('p'), page('p'));
-    const state = JSON.parse((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_STATE__', page('p'))).color);
-    assert.deepEqual(state.preview, preview);
-    assert.equal(state.discordPreviewPaused, false);
-    paused = true;
-    const heartbeat = JSON.parse((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_HEARTBEAT__', page('p'))).color);
-    assert.equal(heartbeat.discordPreviewPaused, true);
-    const fresh = JSON.parse((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_PREVIEW__', page('p'))).color);
-    assert.equal(fresh.type, 'editor_preview');
-    assert.deepEqual(fresh.preview, preview);
-    assert.equal(getEmbedEditorMedia(token).name, 'banner.png');
-    assert.equal(getEmbedEditorMedia('unknown-token'), null);
-  } finally {
-    deleteEmbedColorPickerSession(token);
-  }
+test('a paused Discord preview no longer ends the editor; only an ended Builder does', () => {
+  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
+  const mark = source.slice(source.indexOf('function markBuilderPreviewUnavailable'), source.indexOf('// BUILDER_SINGLE_PREVIEW_TARGET_V1'));
+  assert.match(mark, /state\.builderPreviewUnavailable = true/);
+  assert.doesNotMatch(mark, /deleteEmbedColorPickerSession/);
+  const hold = source.slice(source.indexOf('onEditorHold: async () => {'), source.indexOf('onEditorUpdate: async'));
+  assert.match(hold, /if \(!state\.builderDashboardMessage\)/);
+  assert.doesNotMatch(hold, /builderPreviewUnavailable \|\|/);
+  assert.match(source, /collector\.on\('end'[\s\S]*deleteEmbedColorPickerSession\(colorSessionToken\)/);
+});
+
+test('the editor page looks exactly as before: no extra preview block or styles', async () => {
+  const { embedColorPickerPage } = await import('../src/web/embedColorPickerPage.js');
+  const html = embedColorPickerPage();
+  assert.doesNotMatch(html, /previewSection|dc-embed|CLOUDY_EDITOR_OWN_PREVIEW/);
+  assert.match(html, /<h1 id="editorTitle">Edit title and message<\/h1>/);
 });
