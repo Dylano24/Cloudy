@@ -2314,6 +2314,9 @@ export default {
                         throw error;
                     }
                     touchBuilderSessionMessage(state.builderDashboardMessage);
+                    // The preview above the controls has its own 5-minute timer:
+                    // hold it too, so nothing of the Builder closes while the editor is open.
+                    if (state.builderMessage) touchBuilderSessionMessage(state.builderMessage);
                 },
                 onEditorUpdate: async (field, value) => {
                     // Browser editor lifetime is owned by builderSessionCleanup/onEditorHold.
