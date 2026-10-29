@@ -3,6 +3,7 @@ import { getResponseLifetime } from './responseLifetime.js';
 import { InteractionHelper } from './interactionHelper.js';
 import { isBuilderSessionMessage } from './builderSessionCleanup.js';
 import { isPersistentBotMessage, isTransientStatusPayload } from './transientResponse.js';
+import { rememberTransientBotMessage } from '../services/deletionAttributionService.js';
 
 export const DASHBOARD_IDLE_MS = 5 * 60_000;
 export const TRANSIENT_MESSAGE_MS = 10_000;
@@ -171,6 +172,8 @@ function schedule(store, message, interaction, delay) {
   if (!message?.id) return false;
   const key = String(message.id);
   clearTimer(store, key);
+  // A short-lived reply is not content: its deletion is never message-logged.
+  if (store === transientTimers) rememberTransientBotMessage(key);
 
   const timer = setTimeout(() => {
     store.delete(key);

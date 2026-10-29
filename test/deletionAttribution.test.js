@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AuditLogEvent, Collection, PermissionsBitField, PermissionFlagsBits } from 'discord.js';
+import { AuditLogEvent, Collection, MessageType, PermissionsBitField, PermissionFlagsBits } from 'discord.js';
 import {
   DELETION_TYPES,
   installCloudyDeletionRecorder,
   isBotActionFeedback,
   primeDeletionAuditBaseline,
   rememberMessageDeleter,
+  rememberTransientBotMessage,
   resetDeletionAttributionState,
   resolveBulkDeletion,
   resolveMessageDeleter,
@@ -222,6 +223,29 @@ test('staff deleting a member message routes to staff; author types are Staff/Bo
 test('bot action acknowledgements are excluded while actual bot content is logged', () => {
   const message = { client: { user: { id: 'cloudy' } }, author: { id: 'cloudy', bot: true }, embeds: [{ title: 'Report submitted' }] };
   assert.equal(isBotActionFeedback(message), true);
+  assert.equal(isBotActionFeedback({ ...message, embeds: [{ title: '✅ Message submitted!' }] }), true);
+  assert.equal(isBotActionFeedback({ ...message, embeds: [{ title: 'Ticket deleted' }] }), true);
   assert.equal(isBotActionFeedback({ ...message, embeds: [{ title: 'Rust update', description: 'Actual published content' }] }), false);
   assert.equal(isBotActionFeedback({ ...message, author: { id: 'other-bot', bot: true } }), false);
+});
+
+test('every Cloudy reply to an action is feedback; a posted embed and member messages are not', () => {
+  const posted = { id: 'post', client: { user: { id: 'cloudy' } }, author: { id: 'cloudy', bot: true },
+    type: MessageType.Default, embeds: [{ title: 'Server rules', description: 'Be kind.' }] };
+  // An Embed Builder post or panel sent to the channel stays logged.
+  assert.equal(isBotActionFeedback(posted), false);
+  // Public slash/button replies (e.g. "Invalid input", "Robbery failed") and follow-ups.
+  assert.equal(isBotActionFeedback({ ...posted, embeds: [{ title: 'Robbery failed' }], interactionMetadata: { id: 'i' } }), true);
+  assert.equal(isBotActionFeedback({ ...posted, embeds: [{ title: 'Invalid input' }], interaction: { id: 'i' } }), true);
+  // Private (ephemeral) replies.
+  assert.equal(isBotActionFeedback({ ...posted, flags: { has: flag => flag === 64 } }), true);
+  // A reply to a prefix command.
+  assert.equal(isBotActionFeedback({ ...posted, type: MessageType.Reply, reference: { messageId: 'command' } }), true);
+  // A channel notice that deletes itself after 10 seconds, whatever its title.
+  assert.equal(isBotActionFeedback({ ...posted, id: 'notice', embeds: [{ title: 'Wrong channel' }] }), false);
+  rememberTransientBotMessage('notice');
+  assert.equal(isBotActionFeedback({ ...posted, id: 'notice', embeds: [{ title: 'Wrong channel' }] }), true);
+  // A member's own message, even with a status-like title or a reply, is a real message.
+  const member = { ...posted, author: { id: 'member', bot: false } };
+  assert.equal(isBotActionFeedback({ ...member, embeds: [{ title: 'Success' }], type: MessageType.Reply, reference: { messageId: 'x' } }), false);
 });

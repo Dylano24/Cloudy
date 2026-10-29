@@ -1,6 +1,8 @@
 import { getResponseLifetime } from './responseLifetime.js';
 import { isAdditionalStatusTitle, isAdditionalStatusContent } from './statusReplyPolicy.js';
 import { isBuilderSessionMessage } from './builderSessionCleanup.js';
+import { isBuilderOwnedMessage } from './builderOwnedSends.js';
+import { rememberTransientBotMessage } from '../services/deletionAttributionService.js';
 
 const TRANSIENT_TTL_MS = 10_000;
 const transientPayloads = new WeakSet();
@@ -70,9 +72,13 @@ export function isPersistentBotMessage(message) {
 export function scheduleTransientMessageDeletion(message) {
   // Message Builder / Modify Embed own their lifetime through builderSessionCleanup.
   // Never let a status-like preview route the whole Builder into the 10s cleanup.
-  if (!message || isBuilderSessionMessage(message) || isPersistentBotMessage(message) || !isTransientStatusPayload(null, message)) return false;
+  // An Embed Builder post titled e.g. "Information" is content, not a status.
+  if (!message || isBuilderSessionMessage(message) || isBuilderOwnedMessage(message)
+    || isPersistentBotMessage(message) || !isTransientStatusPayload(null, message)) return false;
   if (!message.deletable || typeof message.delete !== 'function') return false;
 
+  // A status notice is not content: its deletion is never message-logged.
+  rememberTransientBotMessage(message.id);
   const timer = setTimeout(() => {
     // A split Embed Builder preview can be registered immediately after the
     // Discord reply resolves. Re-check ownership at deletion time so a timer
