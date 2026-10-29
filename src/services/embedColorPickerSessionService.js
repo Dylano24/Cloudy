@@ -11,8 +11,12 @@ const HEARTBEAT_PREFIX = '__CLOUDY_EMBED_HEARTBEAT__';
 const PAUSE_PREFIX = '__CLOUDY_EMBED_PAUSE__'; // EMBED_EDITOR_CLOSE_RETURNS_5M_V6: compatibility with cached V3 pages
 const OPEN_PREFIX = '__CLOUDY_EMBED_OPEN__:'; // EMBED_EDITOR_EXACT_OPEN_LEASE_V2
 const CLOSE_PREFIX = '__CLOUDY_EMBED_CLOSE__';
+const PREVIEW_PREFIX = '__CLOUDY_EMBED_PREVIEW__';
 const EDIT_FLUSH_DELAY_MS = 0; // BUILDER_NATIVE_COLOR_INSTANT_V1: flush edits on the next event-loop turn
-export const EMBED_EDITOR_IDLE_MS = 14 * 60_000; // EMBED_EDITOR_EXACT_OPEN_LEASE_V2
+// EMBED_EDITOR_EXACT_OPEN_LEASE_V2: the editor ends only after 14 minutes
+// WITHOUT any contact from its page. An open page sends a heartbeat every 20
+// seconds, so while you are in the editor there is no timer.
+export const EMBED_EDITOR_IDLE_MS = 14 * 60_000;
 
 function parseColor(value) {
     const match = typeof value === 'string' && value.trim().match(/^#?([0-9a-f]{6})$/i);
@@ -68,7 +72,7 @@ function scheduleSessionIdleExpiry(token, session, editorInstanceId) {
         session.expiredEditorInstanceIds.add(instanceId);
         session.activeEditorInstanceId = null;
         session.holdActive = false;
-        // 14m ends only the editor hold. The Builder then gets a fresh normal 5m.
+        // 14m without contact ends only the editor hold. The Builder then gets a fresh normal 5m.
         releaseBuilderSessionHold(token);
     }, EMBED_EDITOR_IDLE_MS);
     session.idleTimer.unref?.();
@@ -85,11 +89,8 @@ async function openEditorLease(token, session, instanceId) {
         return { ok: false, reason: 'editor_expired' };
     }
 
-    if (session.activeEditorInstanceId !== instanceId) {
-        // Only a genuinely new page starts a fresh fixed 14m. Same-page activity does not.
-        session.activeEditorInstanceId = instanceId;
-        scheduleSessionIdleExpiry(token, session, instanceId);
-    }
+    session.activeEditorInstanceId = instanceId;
+    scheduleSessionIdleExpiry(token, session, instanceId);
 
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
@@ -180,8 +181,8 @@ async function ensureEditorHold(token, session) {
 }
 
 async function touchEditorSession(token, session) {
-    // EMBED_EDITOR_CLOSE_RETURNS_5M_V6: heartbeat NEVER restarts the fixed 14m lease. It only
-    // refreshes the same Builder preview while the editor remains open.
+    // EMBED_EDITOR_CLOSE_RETURNS_5M_V6: the heartbeat proves the page is still open (the
+    // caller restarts the 14m idle window) and keeps the same Builder held.
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
 
@@ -206,7 +207,10 @@ async function touchEditorSession(token, session) {
     return { ok: true };
 }
 
-export function createEmbedColorPickerSession({ userId, onColor, getEditorState, onEditorUpdate, onEditorHold, emojis = [] }) {
+export function createEmbedColorPickerSession({
+    userId, onColor, getEditorState, onEditorUpdate, onEditorHold,
+    getPreviewEmbed = null, isPreviewPaused = null, getPreviewMedia = null, emojis = [],
+}) {
     const token = randomBytes(32).toString('hex');
     const session = {
         userId,
@@ -214,6 +218,9 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         getEditorState,
         onEditorUpdate,
         onEditorHold,
+        getPreviewEmbed,
+        isPreviewPaused,
+        getPreviewMedia,
         emojis: sanitizeEmojis(emojis),
         holdActive: false,
         pendingEditorUpdates: new Map(),
@@ -226,8 +233,37 @@ export function createEmbedColorPickerSession({ userId, onColor, getEditorState,
         expiredEditorInstanceIds: new Set(),
     };
     sessions.set(token, session);
-    // 14m starts only when Editor/Color Picker is actually opened.
+    // The 14m idle window starts only when Editor/Color Picker is actually opened.
     return token;
+}
+
+// What the editor page shows as its own live preview: the exact Builder
+// preview embed, and whether Discord still accepts preview edits.
+function callOrFallback(callback, fallback) {
+    try {
+        return typeof callback === 'function' ? callback() : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function previewSnapshot(session) {
+    return {
+        preview: callOrFallback(session.getPreviewEmbed, null) || null,
+        discordPreviewPaused: Boolean(callOrFallback(session.isPreviewPaused, false)),
+    };
+}
+
+/** The Builder's uploaded image (banner) for the editor's own preview. */
+export function getEmbedEditorMedia(token) {
+    const session = sessions.get(String(token || ''));
+    if (!session || typeof session.getPreviewMedia !== 'function') return null;
+    try {
+        const media = session.getPreviewMedia();
+        return media?.buffer && media?.name ? media : null;
+    } catch {
+        return null;
+    }
 }
 
 export function discardPendingEmbedEditorUpdates(token) {
@@ -286,8 +322,8 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
     }
 
     // Backwards compatibility for an already-cached pre-instance editor page or
-    // internal caller: its first request opens one fixed legacy 14m lease. It
-    // still cannot reset that lease through typing/heartbeat/activity.
+    // internal caller: its first request opens a legacy editor lease, which
+    // then follows the same 14m idle rule.
     if (!explicitInstanceId && !session.activeEditorInstanceId) {
         const opened = await openEditorLease(token, session, instanceId);
         if (!opened.ok) return opened;
@@ -296,15 +332,22 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
     const active = requireActiveEditorInstance(session, instanceId);
     if (!active.ok) return active;
 
+    // Any contact from the open page (heartbeat, state, typing, emoji, color)
+    // restarts the 14m idle window: there is no timer while you work in it.
+    scheduleSessionIdleExpiry(token, session, instanceId);
+
     if (value === HEARTBEAT_PREFIX) {
         const touched = await touchEditorSession(token, session);
         if (!touched.ok) return touched;
-        return { ok: true, color: JSON.stringify({ type: 'heartbeat' }) };
+        return { ok: true, color: JSON.stringify({ type: 'heartbeat', ...previewSnapshot(session) }) };
     }
 
-    // State, typing, emoji and color requests do NOT restart the fixed 14m.
     const held = await ensureEditorHold(token, session);
     if (!held.ok) return held;
+
+    if (value === PREVIEW_PREFIX) {
+        return { ok: true, color: JSON.stringify({ type: 'editor_preview', ...previewSnapshot(session) }) };
+    }
 
     if (value === STATE_PREFIX) {
         const state = sanitizeEditorState(await session.getEditorState?.() || {});
@@ -314,6 +357,7 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
                 type: 'editor_state',
                 ...state,
                 emojis: session.emojis,
+                ...previewSnapshot(session),
             }),
         };
     }
