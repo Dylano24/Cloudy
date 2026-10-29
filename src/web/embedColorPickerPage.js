@@ -124,7 +124,7 @@ export function embedColorPickerPage() {
       return data.color;
     }
 
-    // Opening/reopening is the ONLY action that starts a fresh 14 minutes.
+    // Opening/reopening is the ONLY action that starts a fresh 60 minutes.
     // Every other request waits for this handshake but never extends it.
     const editorOpenPromise = token
       ? callSession('__CLOUDY_EMBED_OPEN__:' + editorInstanceId)

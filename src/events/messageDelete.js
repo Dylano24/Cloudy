@@ -1,4 +1,4 @@
-import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback, resolveMessageDeleter, wasDeletedForMove } from '../services/deletionAttributionService.js';
+import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback, isCloudyInteractionMessage, resolveMessageDeleter, wasDeletedForMove } from '../services/deletionAttributionService.js';
 import { Events, SnowflakeUtil } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
@@ -167,7 +167,9 @@ export async function logDeletedMessage(message, options = {}) {
   // Reappear and sticky guides delete the old copy to move it to the bottom:
   // that is not a removal, so it is not logged. Cloudy's own replies to an
   // action (status, command and button replies) are not logged either.
-  if (isBotActionFeedback(message) || await wasDeletedForMove(message.id)) {
+  // Cloudy's private replies are known by ID only: they were never cached.
+  if (isBotActionFeedback(message) || isCloudyInteractionMessage(message.id)
+    || await wasDeletedForMove(message.id)) {
     await forgetMessageSnapshot(guildId, message.id);
     return;
   }
