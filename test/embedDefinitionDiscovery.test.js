@@ -40,7 +40,7 @@ test('source discovery preserves nested dynamic helper calls for robbery outcome
   assert.ok(success);
   assert.equal(
     success.description,
-    'You successfully stole **{dynamic}** from {dynamic}!',
+    "You stole **{dynamic}** from {dynamic}'s cash. Money in the bank cannot be robbed.",
   );
 
   assert.ok(failed);
