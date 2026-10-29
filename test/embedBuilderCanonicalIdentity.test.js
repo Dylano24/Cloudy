@@ -1086,3 +1086,20 @@ test('/embedbuilder within 5 minutes after closing the editor still brings back 
   // And the editor can be opened again from the new Builder.
   assert.equal((await applyEmbedColorPickerSession(again.token, '__CLOUDY_EMBED_OPEN__:page2', { editorInstanceId: 'page2' })).ok, true);
 });
+
+test('/embedbuilder brings back the same open Builder without the editor, while it has not closed yet', async t => {
+  const world = createWorld(t);
+  const first = await openBuilder(t, world);
+  await first.edit('title', 'Draft without editor');
+  await first.addGif();
+  const oldDashboard = first.dashboard;
+  // Discord removed the private Builder from the screen; the owner runs /embedbuilder.
+  const again = await openBuilder(t, world);
+  assert.equal(again.token, first.token, 'same Builder session');
+  assert.notEqual(again.dashboard.id, oldDashboard.id);
+  const preview = again.preview.embeds[0].toJSON();
+  assert.equal(preview.title, 'Draft without editor');
+  assert.equal(preview.image?.url, GIF_URL);
+  await settle();
+  assert.ok(world.deletedPrivate.includes(oldDashboard.id), 'the old controls are removed');
+});
