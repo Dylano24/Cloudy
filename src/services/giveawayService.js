@@ -140,7 +140,7 @@ export const GIVEAWAY_EMOJIS = Object.freeze({
     enter: Object.freeze({ id: '1543303914152001536', name: 'W90250885giveaway' }),
 });
 export const DEFAULT_GIVEAWAY_DESCRIPTION = 'Cloudy Inc. is giving you the chance to win something special!';
-export const DEFAULT_GIVEAWAY_CLAIM = 'Open a ticket within 48 hours to claim your prize.';
+export const DEFAULT_GIVEAWAY_CLAIM = 'Open a ticket within 24 hours to claim your prize.';
 const GIVEAWAY_GREEN = 0x00C49D;
 const GIVEAWAY_WHITE = 0xFFFFFF;
 
