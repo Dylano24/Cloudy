@@ -219,3 +219,30 @@ test('real modules write through Cloudy services: commands, logging, welcome, le
   assert.deepEqual(leveling.roleRewards, { 10: role.id });
   await assert.rejects(() => MODULES.leveling.write(ctx, { 'xpRange.min': 400, 'xpRange.max': 10 }, leveling), /Minimum XP/);
 });
+
+test('a refused write leaves no unhandled rejection and the next write still runs', async () => {
+  const rejections = [];
+  const onRejection = reason => rejections.push(reason);
+  process.on('unhandledRejection', onRejection);
+  try {
+    const { client } = fakeClient();
+    let calls = 0;
+    const modules = {
+      counting: {
+        fields: { enabled: { t: 'bool' } },
+        read: async () => ({ enabled: false }),
+        write: async () => { calls += 1; if (calls === 1) throw Object.assign(new Error('nope'), { status: 400 }); },
+      },
+    };
+    const handle = createDashboardHandler({ client, env: { CLOUDY_DASHBOARD_API_SECRET: SECRET }, nonces: createNonceStore(() => NOW), modules, now: () => NOW });
+    const revision = revisionOf({ enabled: false });
+    const first = await call(handle, { method: 'PATCH', path: `/guilds/${GUILD}/modules/counting`, payload: { revision, changes: { enabled: true } } });
+    assert.equal(first.statusCode, 500);
+    const second = await call(handle, { method: 'PATCH', path: `/guilds/${GUILD}/modules/counting`, payload: { revision, changes: { enabled: true } } });
+    assert.equal(second.statusCode, 200);
+    await new Promise(resolve => { setTimeout(resolve, 20); });
+    assert.equal(rejections.length, 0);
+  } finally {
+    process.off('unhandledRejection', onRejection);
+  }
+});

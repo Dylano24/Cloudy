@@ -586,8 +586,11 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
 
   function withLock(key, task) {
     const previous = locks.get(key) || Promise.resolve();
-    const run = previous.catch(() => undefined).then(task);
-    locks.set(key, run.finally(() => { if (locks.get(key) === run) locks.delete(key); }));
+    const run = previous.then(task);
+    // The stored tail never rejects: a refused change must not leave an
+    // unhandled rejection behind; the caller still receives the error.
+    const tail = run.catch(() => undefined).finally(() => { if (locks.get(key) === tail) locks.delete(key); });
+    locks.set(key, tail);
     return run;
   }
   function allowWrite(actorId) {
