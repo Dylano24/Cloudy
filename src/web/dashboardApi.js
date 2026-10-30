@@ -19,9 +19,8 @@ import { giveawayEndTime, giveawayParticipants, isGiveawayFinished } from '../se
 import { getAllReactionRoleMessages } from '../services/reactionRoleService.js';
 import { getEmbedRegistry } from '../services/embedRegistryService.js';
 import { readFeeds } from '../services/cloudyFeedService.js';
-import { WarningService } from '../services/moderation/warningService.js';
 import { readGuildEconomyValues } from '../utils/economy.js';
-import { getEconomyPrefix } from '../utils/database/keys.js';
+import { getEconomyPrefix, getWarningsPrefix } from '../utils/database/keys.js';
 import { BotConfig } from '../config/bot.js';
 import { getServerCounters, getCounterTypeLabel } from '../services/serverstatsService.js';
 
@@ -442,8 +441,15 @@ function channelName(guild, channelId) {
 }
 
 export const INSIGHTS = {
-  async moderation({ guild }) {
-    const warnings = await WarningService.getGuildWarnings(guild.id, { limit: 50 });
+  async moderation({ client, guild }) {
+    // Same keys WarningService uses (guild:{id}:warnings:{userId}), read through Cloudy's database connection.
+    const prefix = getWarningsPrefix(guild.id);
+    const keys = await client.db.list(prefix).catch(() => []);
+    const lists = await Promise.all((Array.isArray(keys) ? keys : []).slice(0, 500).map(key => client.db.get(key, []).catch(() => [])));
+    const warnings = lists.flatMap(list => (Array.isArray(list) ? list : []))
+      .filter(warning => warning && warning.status !== 'deleted')
+      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0))
+      .slice(0, 50);
     const people = new Set(warnings.map(warning => warning.userId));
     return {
       stats: [{ label: 'Recent warnings', value: String(warnings.length) }, { label: 'Members warned', value: String(people.size) }],
