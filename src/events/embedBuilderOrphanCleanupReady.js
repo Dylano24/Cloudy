@@ -55,21 +55,47 @@ function readableTextChannels(guild) {
     .sort((a, b) => a.position - b.position);
 }
 
+function builderInteractionId(message) {
+  return String(message?.interactionMetadata?.id || message?.interaction?.id || '');
+}
+
+// A public Builder's preview is the reply of the same /embedbuilder
+// interaction as its (orphaned) controls. Nothing else is ever matched.
+export function isOrphanedEmbedBuilderPreview(message, botUserId, orphanInteractionIds, olderThan = Number.POSITIVE_INFINITY) {
+  if (!message?.id || String(message.author?.id || '') !== String(botUserId || '')) return false;
+  if (Number.isFinite(olderThan)
+      && Number.isFinite(Number(message.createdTimestamp))
+      && Number(message.createdTimestamp) >= olderThan) {
+    return false;
+  }
+  const id = builderInteractionId(message);
+  return Boolean(id && orphanInteractionIds.has(id));
+}
+
 export async function removeOrphanedEmbedBuilders(guild, botUserId, olderThan = Number.POSITIVE_INFINITY) {
   let scanned = 0;
   let removed = 0;
 
   for (const channel of readableTextChannels(guild)) {
     let before;
+    const orphanInteractionIds = new Set();
 
     for (let page = 0; page < MAX_PAGES_PER_CHANNEL; page += 1) {
       const batch = await channel.messages.fetch({ limit: PAGE_SIZE, before }).catch(() => null);
       if (!batch?.size) break;
 
       scanned += batch.size;
-      const stale = [...batch.values()].filter(message =>
+      const messages = [...batch.values()];
+      const stale = messages.filter(message =>
         isOrphanedEmbedBuilderMessage(message, botUserId, olderThan),
       );
+      for (const message of stale) {
+        const id = builderInteractionId(message);
+        if (id) orphanInteractionIds.add(id);
+      }
+      // The preview above each orphaned Builder (same page, or the next older one).
+      stale.push(...messages.filter(message => !stale.includes(message)
+        && isOrphanedEmbedBuilderPreview(message, botUserId, orphanInteractionIds, olderThan)));
 
       for (const message of stale) {
         const deleted = await message.delete()

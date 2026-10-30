@@ -85,7 +85,7 @@ test('selected Builder Search is acknowledged before expensive configuration or 
   const source = requireEarlyAckSource();
   const begin = source.indexOf('ResponseCoordinator.attach(interaction)');
   const earlyAck = source.indexOf("interaction.commandName === 'embedbuilder'", begin);
-  const defer = source.indexOf('await interaction.deferReply({ flags: MessageFlags.Ephemeral })', earlyAck);
+  const defer = source.indexOf('await interaction.deferReply(interaction.guildId ? {} : { flags: MessageFlags.Ephemeral })', earlyAck);
   const validations = source.indexOf('validateChatInputPayloadOrThrow(interaction', begin);
   const guildConfig = source.indexOf('const guildConfigPromise = interaction.guild', begin);
   const handler = source.indexOf('await command.execute(interaction', begin);
@@ -140,17 +140,22 @@ test('Search name carries into unsaved automated previews, not manually posted B
   }
 });
 
-test('an acknowledged guild Builder keeps its private preview, dashboard and owner-only controls', async t => {
+test('an acknowledged guild Builder turns its public acknowledgement into the preview, with public owner-only controls', async t => {
   t.mock.method(db, 'get', async () => []);
-  const collector = new EventEmitter();
-  collector.stop = () => { collector.ended = true; collector.emit('end'); };
-  t.after(() => collector.stop());
+  const collectors = [];
+  const newCollector = () => {
+    const collector = new EventEmitter();
+    collector.stop = reason => { if (collector.ended) return; collector.ended = true; collector.emit('end', new Map(), reason); };
+    collectors.push(collector);
+    return collector;
+  };
+  t.after(() => collectors.forEach(collector => collector.stop()));
   let previewPayload;
   let dashboardPayload;
-  let collectorOptions;
+  const collectorOptions = [];
   const preview = { id: 'preview-response', delete: async () => {}, edit: async () => {} };
   const dashboard = { id: 'dashboard-response', delete: async () => {},
-    createMessageComponentCollector(options) { collectorOptions = options; return collector; } };
+    createMessageComponentCollector(options) { collectorOptions.push(options); return newCollector(); } };
   const interaction = {
     id: 'deferred-builder', token: 'test-builder-token', deferred: true, replied: false,
     guildId: 'deferred-builder-guild', guild: { id: 'deferred-builder-guild' },
@@ -167,12 +172,15 @@ test('an acknowledged guild Builder keeps its private preview, dashboard and own
   assert.ok(previewPayload?.embeds?.length);
   assert.equal(previewPayload.flags, undefined);
   assert.equal(dashboardPayload.embeds[0].toJSON().title, 'Message builder');
-  assert.equal(dashboardPayload.flags, MessageFlags.Ephemeral);
+  assert.equal(dashboardPayload.flags, undefined, 'the controls are a normal message (owner\'s choice)');
   assert.ok(dashboardPayload.components.length);
-  assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'owner' }, customId: 'simple_embed_post' }), true);
-  assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'other' }, customId: 'simple_embed_post' }), false);
+  const [ownerOnly, othersOnly] = collectorOptions;
+  assert.equal(ownerOnly.filter({ isButton: () => true, user: { id: 'owner' }, customId: 'simple_embed_post' }), true);
+  assert.equal(ownerOnly.filter({ isButton: () => true, user: { id: 'other' }, customId: 'simple_embed_post' }), false);
+  assert.equal(othersOnly.filter({ isButton: () => true, user: { id: 'other' }, customId: 'simple_embed_post' }), true,
+    'another member gets a private notice');
+  assert.equal(othersOnly.filter({ isButton: () => true, user: { id: 'owner' }, customId: 'simple_embed_post' }), false);
 });
-
 
 test('clicking an offered catalog result uses its complete preview while unrelated storage is stalled', async t => {
   const guildId = 'offered-search-fast-preview';

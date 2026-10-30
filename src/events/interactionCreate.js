@@ -87,14 +87,15 @@ export default {
         // catalog. A delayed timer cannot acknowledge an interaction while
         // that CPU work is blocking the event loop. Acknowledge immediately,
         // before configuration, abuse-policy reads or Search hydration.
-        // Always make the deferred Builder preview private. Discord cannot
-        // turn a public defer into an ephemeral reply after acknowledgement.
+        // The acknowledgement becomes the Builder preview: in a server it is a
+        // normal message (owner's choice, the Discord app never drops it), in
+        // a DM private. Discord cannot change this after acknowledgement.
         if (interaction.isChatInputCommand()
             && interaction.commandName === 'embedbuilder'
             && String(interaction.options?.getString?.('search') || '').trim()
             && !interaction.deferred && !interaction.replied) {
           try {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply(interaction.guildId ? {} : { flags: MessageFlags.Ephemeral });
           } catch (error) {
             logger.error('[EMBED_BUILDER] Search acknowledgement failed:', error);
             return;

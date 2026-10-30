@@ -37,5 +37,5 @@ test('Close, Reset, Delete from builder and Builder end clean child editor state
 
   const endStart = source.indexOf("collector.on('end'");
   assert.ok(endStart >= 0);
-  assert.match(source.slice(endStart, endStart + 1200), /cleanupBuilderButtonUi\(interaction, state\)/);
+  assert.match(source.slice(endStart, endStart + 1500), /cleanupBuilderButtonUi\(interaction, state\)/);
 });

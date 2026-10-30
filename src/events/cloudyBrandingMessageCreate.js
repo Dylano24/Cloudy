@@ -9,6 +9,7 @@ import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
 import { scheduleTransientMessageDeletion } from '../utils/transientResponse.js';
 import { isBuilderOwnedMessage } from '../utils/builderOwnedSends.js';
+import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
 import { DEDICATED_MESSAGE_LOG_CHANNEL_IDS } from '../services/messageLogDestination.js';
 
@@ -59,6 +60,9 @@ export default {
     // template/branding passes must never restyle it (colour, logo, title)
     // and a status-like title must not make it a 10-second transient reply.
     if (isBuilderOwnedMessage(message)) return;
+    // The public Message builder (preview + controls) is the owner's live
+    // draft UI, never a template or status reply.
+    if (isBuilderSessionMessage(message)) return;
 
     // The Commands guide must never be restyled after its first render.
     // Still register it so the Embed Builder can discover the real message.
