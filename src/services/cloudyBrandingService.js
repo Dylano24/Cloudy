@@ -41,11 +41,6 @@ export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
     return { embed, changed: false };
   }
 
-  if (/^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i.test(String(source.title || '').trim())) {
-    if (source.footer?.text === '© Cloudy Inc.' || (!source.timestamp && source.footer?.text?.startsWith('© Cloudy Inc. •'))) return { embed, changed: false };
-    return { embed: new EmbedBuilder({ ...source, footer: { text: '© Cloudy Inc.' } }), changed: true };
-  }
-
   const alreadyHasCorrectFooter = source.footer?.text === CLOUDY_BRANDING;
   let changed = false;
 

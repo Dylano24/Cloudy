@@ -14,34 +14,6 @@ const pendingBuilderPreviewReplyTokens = new Set();
 const manualBuilderSaveMessageIds = new Set();
 const manualBuilderPostScope = new AsyncLocalStorage();
 const APPEAL_TITLE_PATTERN = /^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i;
-const APPEAL_FOOTER_WITH_TIME = /^© Cloudy Inc\. • (?:Today at \d{2}:\d{2}|\d{2}\/\d{2}\/\d{4} \d{2}:\d{2})$/;
-const APPEAL_CLOCK = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' });
-const APPEAL_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', day: '2-digit', month: '2-digit', year: 'numeric' });
-
-// A Discord message ID holds its creation time, so an edit can always restore
-// an appeal's original post time, even after an earlier edit dropped it.
-export function snowflakeTimestamp(id) {
-  if (!/^\d{17,20}$/.test(String(id || ''))) return NaN;
-  return Number(BigInt(id) >> 22n) + 1420070400000;
-}
-
-function appealTimeParts(time) {
-  const date = new Date(time);
-  return Number.isFinite(date.getTime()) ? { clock: APPEAL_CLOCK.format(date), day: APPEAL_DAY.format(date) } : null;
-}
-
-// Appeal footer: `© Cloudy Inc. • Today at HH:mm` (older days: the date).
-export function formatAppealFooter(time, now = Date.now()) {
-  const parts = appealTimeParts(time);
-  if (!parts) return '© Cloudy Inc.';
-  return `© Cloudy Inc. • ${parts.day === APPEAL_DAY.format(new Date(now)) ? `Today at ${parts.clock}` : `${parts.day} ${parts.clock}`}`;
-}
-
-// True when the footer already shows this time (written that day or later).
-export function appealFooterShowsTime(text, time) {
-  const parts = appealTimeParts(time);
-  return Boolean(parts) && [`© Cloudy Inc. • Today at ${parts.clock}`, `© Cloudy Inc. • ${parts.day} ${parts.clock}`].includes(text);
-}
 
 // Scoped exceptions to the global automatic C-logo insertion. Footer branding
 // still applies, and ordinary Cloudy messages keep their original logo policy.
@@ -68,7 +40,7 @@ export async function withManualBuilderSaveLogoChoice(messageId, callback) {
   }
 }
 
-export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomaticLogo = false, appealChannel = false, messageCreatedAt = NaN } = {}) {
+export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomaticLogo = false, appealChannel = false } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   if (Number(payload.flags) & 32768) return payload;
   // Bare tags are companion messages, never separate branded notices.
@@ -80,22 +52,12 @@ export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomat
       const original = source?.toJSON?.() || source || {};
       if (original.type && original.type !== 'rich') return source;
       const title = String(original.title || '').trim();
-      // Appeal embeds intentionally omit footer branding; keep this exception
-      // limited to the dedicated appeal embed titles.
+      // Appeal embeds use the normal Cloudy footer without a time, as reports
+      // do; the handling time is shown in their Handled at field.
       if (appealChannel || APPEAL_TITLE_PATTERN.test(title)) {
-        // Render the separator ourselves: Discord mobile uses a vertical bar
-        // for the native footer/timestamp separator. The time is the appeal's
-        // original post time: the edited message's own creation time, else the
-        // embed timestamp, else (a new post) now.
-        const embedTime = original.timestamp ? new Date(original.timestamp).getTime() : NaN;
-        const postedAt = [messageCreatedAt, embedTime, isNewMessage ? Date.now() : NaN].find(Number.isFinite);
-        // No known time (an edit through an interaction token): keep a footer
-        // that already shows it.
-        if (postedAt === undefined && APPEAL_FOOTER_WITH_TIME.test(original.footer?.text || '')) return source;
-        const text = formatAppealFooter(postedAt);
-        if (!original.timestamp && original.footer?.text === text && !original.footer?.icon_url) return source;
+        if (original.footer?.text === CLOUDY_STANDARD_FOOTER && !original.footer.icon_url && !original.timestamp) return source;
         changed = true;
-        const embed = { ...original, footer: { text } };
+        const embed = { ...original, footer: { text: CLOUDY_STANDARD_FOOTER } };
         delete embed.timestamp;
         return embed;
       }
@@ -197,7 +159,6 @@ export function installCloudyFooterOutput() {
           isNewMessage: options.method === 'POST' || isDeferredInitialReply,
           suppressAutomaticLogo: preserveExplicitLogo,
           appealChannel: /^\/channels\/1554538665068200039\/messages(?:\/\d+)?$/.test(route),
-          messageCreatedAt: snowflakeTimestamp(editedMessageId),
         }),
       };
     } else if (isCallback && [4, 7].includes(options.body?.type)) {

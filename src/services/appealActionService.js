@@ -6,19 +6,30 @@ import { logger, startupLog } from '../utils/logger.js';
 import { appealReviewKey, appealActions, buildAppealActions } from './appealPresentationService.js';
 import { resolveDiscordAppealIdentity } from './appealIdentityService.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
-import { appealFooterShowsTime, formatAppealFooter } from '../utils/cloudyFooter.js';
+import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
 export { appealReviewKey, buildAppealActions } from './appealPresentationService.js';
 
-function balanceAppealNotice(data) {
-  const fields = [...(data.fields || [])];
-  for (let i = 0; i < fields.length - 1; i++) {
-    if (!String(fields[i].value || '').includes('**This appeal has been handled**') || fields[i + 1].name !== 'Staff decision') continue;
-    const value = fields[i].value.replace(/\s*\*\*This appeal has been handled\*\*\s*$/, '\n\n**This appeal has been handled**')
-      + '\n\n**Staff decision**\n' + fields[i + 1].value;
-    if (value.length > 1024) continue;
-    fields.splice(i, 2, { ...fields[i], value });
+const HANDLED_NOTICE = /\s*\*\*This appeal has been handled\*\*(?:\s*\*\*Staff decision\*\*\n([\s\S]*?))?\s*$/;
+
+// A handled appeal shows Handled at (date and time, as reports do) right
+// before Staff decision. The older bold "This appeal has been handled" line,
+// sometimes with Staff decision merged into it, is unfolded into fields.
+export function handledAppealFields(fields, handledAt) {
+  const result = [];
+  for (const field of fields || []) {
+    if (/^This appeal has been handled$/i.test(String(field.name || '').replace(/\*+/g, '').trim())) continue;
+    if (field.name === 'Handled at') continue;
+    const value = String(field.value || '');
+    const notice = value.match(HANDLED_NOTICE);
+    if (!notice) { result.push(field); continue; }
+    result.push({ ...field, value: value.slice(0, notice.index) || '\u200B' });
+    if (notice[1] !== undefined) result.push({ name: 'Staff decision', value: notice[1], inline: false });
   }
-  return { ...data, fields };
+  const handled = { name: 'Handled at', value: `<t:${Math.floor(handledAt / 1000)}:F>`, inline: false };
+  const decision = result.findIndex(field => field.name === 'Staff decision');
+  if (decision === -1) result.push(handled);
+  else result.splice(decision, 0, handled);
+  return result;
 }
 
 const active = new Set();
@@ -124,26 +135,13 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
       const data = embed.toJSON();
       if (index === 0) {
         data.color = 0x00C49D;
-        // Render the handled notice as a bold line after the existing final answer.
-        // An otherwise empty Discord embed field creates disproportionate whitespace
-        // between this notice and Staff decision.
-        const previousFields = [...(data.fields || [])];
-        const notice = '\n\n**This appeal has been handled**';
-        const lastIndex = previousFields.length - 1;
-        const lastField = previousFields[lastIndex];
-        if (lastField && lastField.inline !== true && String(lastField.value || '').length + notice.length <= 1024) {
-          previousFields[lastIndex] = { ...lastField, value: `${lastField.value}${notice}` };
-        } else {
-          // Preserve existing text even if a field is too long to append safely.
-          previousFields.push({ name: 'This appeal has been handled', value: '\u200B', inline: false });
-        }
-        data.fields = [
-          ...previousFields,
+        data.fields = handledAppealFields([
+          ...(data.fields || []),
           { name: 'Staff decision', value: `${action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned'} by <@${member.id}>` },
           { name: 'Reason', value: decision.reason },
-        ];
+        ], Date.parse(decision.reviewedAt) || Date.now());
       }
-      return balanceAppealNotice(data);
+      return data;
     });
     // A completed appeal is final: remove its action row instead of disabling it.
     await message.edit({ embeds, components: [], allowedMentions: { parse: [] } });
@@ -158,41 +156,13 @@ export async function ensureAppealActions(client) {
   const channel = await resolveCloudyChannel(client, 'banTimeoutAppeals', { textOnly: true });
   if (!channel) return;
   const messages = await channel.messages.fetch({ limit: 100 });
-  let restored = 0, footersRestored = 0;
+  let restored = 0, updated = 0;
   for (const message of messages.values()) {
     const embed = message.embeds[0];
     const match = embed?.title?.match(/^(Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(Mute|Ban|Other)$/i);
     const id = embed?.description?.match(/\b(CLD-[A-Z0-9-]+)\b/)?.[1]
       || embed?.footer?.text?.match(/Cloudy Inc\. • (CLD-[A-Z0-9-]+)$/)?.[1];
     if (message.author?.id !== client.user.id || !match || !id) continue;
-    const presentationEmbeds = message.embeds.map(existing => {
-      const data = existing.toJSON();
-      // Restore a footer that lost (or never showed) the original post time
-      // from the message's own creation time; a correct footer stays as is.
-      if (data.timestamp || !appealFooterShowsTime(data.footer?.text, message.createdTimestamp)) {
-        data.footer = { text: formatAppealFooter(message.createdTimestamp) };
-        delete data.timestamp;
-      }
-      const fields = [];
-      for (const field of data.fields || []) {
-        if (/^This appeal has been handled$/i.test(String(field.name || '').replace(/\*+/g, '').trim()) && fields.length) {
-          const previous = fields[fields.length - 1];
-          const notice = '\n\n**This appeal has been handled**';
-          if (String(previous.value || '').length + notice.length <= 1024) {
-            fields[fields.length - 1] = { ...previous, value: previous.value + notice };
-            continue;
-          }
-        }
-        fields.push(field);
-      }
-      data.fields = fields;
-      return data;
-    });
-    const presentationChanged = JSON.stringify(presentationEmbeds) !== JSON.stringify(message.embeds.map(existing => existing.toJSON()));
-    if (presentationEmbeds[0]?.footer?.text !== message.embeds[0]?.toJSON().footer?.text) {
-      footersRestored++;
-      logger.info(`[Appeals] Footer restored for ${message.id}: ${presentationEmbeds[0].footer.text}`);
-    }
     const key = appealReviewKey(channel.guild.id, id);
     let record = await client.db.get(key);
     if (!record) {
@@ -200,6 +170,18 @@ export async function ensureAppealActions(client) {
         discordIdentity: embed.fields.find(field => field.name === 'Discord username / ID')?.value || '', gamertag: embed.fields.find(field => field.name === 'Gamertag')?.value || '' };
       await client.db.set(key, record);
     }
+    // Existing appeals get the normal Cloudy footer and, once handled, the
+    // Handled at line from their saved review time (never a guessed time).
+    const handledAt = ['approved', 'denied'].includes(record.status) ? Date.parse(record.reviewedAt) : NaN;
+    const presentationEmbeds = message.embeds.map((existing, index) => {
+      const data = existing.toJSON();
+      data.footer = { text: CLOUDY_STANDARD_FOOTER };
+      delete data.timestamp;
+      if (index === 0 && Number.isFinite(handledAt)) data.fields = handledAppealFields(data.fields, handledAt);
+      return data;
+    });
+    const presentationChanged = JSON.stringify(presentationEmbeds) !== JSON.stringify(message.embeds.map(existing => existing.toJSON()));
+    if (presentationChanged) updated++;
     const hasAppealActions = message.components.some(row => row.components.some(button => button.customId?.startsWith('appeal_action:')));
     // Restart recovery must never resurrect a completed appeal's disabled controls.
     if (record.status !== 'pending') {
@@ -214,6 +196,6 @@ export async function ensureAppealActions(client) {
       if (!hasAppealActions) restored++;
     }
   }
-  startupLog(`Appeal action buttons ready; ${restored} existing appeals linked; ${footersRestored} footers restored.`);
+  startupLog(`Appeal action buttons ready; ${restored} existing appeals linked; ${updated} appeal layouts updated.`);
 }
 
