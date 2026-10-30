@@ -39,7 +39,7 @@ export async function withManualBuilderSaveLogoChoice(messageId, callback) {
   }
 }
 
-export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomaticLogo = false } = {}) {
+export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomaticLogo = false, appealChannel = false } = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   if (Number(payload.flags) & 32768) return payload;
   // Bare tags are companion messages, never separate branded notices.
@@ -53,7 +53,7 @@ export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomat
       const title = String(original.title || '').trim();
       // Appeal embeds intentionally omit footer branding; keep this exception
       // limited to the dedicated appeal embed titles.
-      if (/^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i.test(title)) {
+      if (appealChannel || /^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i.test(title)) {
         // Render the separator ourselves: Discord mobile uses a vertical bar
         // for the native footer/timestamp separator.
         const timestamp = original.timestamp;
@@ -166,6 +166,7 @@ export function installCloudyFooterOutput() {
         body: withCloudyFooter(options.body, {
           isNewMessage: options.method === 'POST' || isDeferredInitialReply,
           suppressAutomaticLogo: preserveExplicitLogo,
+          appealChannel: /^\/channels\/1554538665068200039\/messages(?:\/\d+)?$/.test(route),
         }),
       };
     } else if (isCallback && [4, 7].includes(options.body?.type)) {
