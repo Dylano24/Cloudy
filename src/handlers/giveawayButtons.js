@@ -27,8 +27,21 @@ const EPHEMERAL = MessageFlags.Ephemeral;
 // Short private notices: their Success/Warning/Error titles give them the
 // standard 10-second lifetime.
 function notice(interaction, embed) {
+    // A private "thinking…" reply is replaced by the notice, never left open.
+    if (interaction.__giveawayPendingReply) {
+        interaction.__giveawayPendingReply = false;
+        return interaction.editReply({ embeds: [embed] });
+    }
     const payload = { embeds: [embed], flags: EPHEMERAL };
     return interaction.replied || interaction.deferred ? interaction.followUp(payload) : interaction.reply(payload);
+}
+
+// Every button is acknowledged before any database work, so a slow moment
+// (e.g. right after a restart) never exceeds Discord's 3-second limit.
+async function deferPrivate(interaction) {
+    const deferred = interaction.deferReply({ flags: EPHEMERAL });
+    interaction.__giveawayPendingReply = true;
+    await deferred;
 }
 const warn = (interaction, text) => notice(interaction, warningEmbed('Warning', text));
 const done = (text) => ({ embeds: [successEmbed('Success', text)], components: [] });
@@ -49,6 +62,7 @@ async function changeEntry(interaction, client, enter) {
             return warn(interaction, 'Please wait a moment before using this giveaway again.');
         }
         await recordUserInteraction(interaction.user.id, interaction.message.id);
+        await interaction.deferUpdate();
         const action = enter ? enterGiveaway : leaveGiveaway;
         const result = await action(client, interaction.guildId, interaction.message.id, interaction.user.id);
         if (result.status === 'missing') return warn(interaction, 'This giveaway is no longer active.');
@@ -56,7 +70,7 @@ async function changeEntry(interaction, client, enter) {
         if (result.status === 'already') return warn(interaction, 'You have already entered this giveaway.');
         if (result.status === 'not-entered') return warn(interaction, 'You have not entered this giveaway.');
         // Refresh the giveaway itself (entry count on the button), then confirm privately.
-        await interaction.update(activeGiveawayPayload(result.giveaway));
+        await interaction.editReply(activeGiveawayPayload(result.giveaway));
         await notice(interaction, successEmbed('Success', enter
             ? 'You entered the giveaway. Good luck!'
             : 'You left the giveaway.'));
@@ -82,9 +96,10 @@ export async function openManagePanel(interaction, client, messageId = interacti
         if (!canManageGiveaways(interaction.member, interaction.guild)) {
             return warn(interaction, 'Only staff can manage giveaways.');
         }
+        await deferPrivate(interaction);
         const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-        if (!giveaway) return warn(interaction, 'This giveaway could not be found.');
-        return interaction.reply({ ...createGiveawayManagePanel(giveaway), flags: EPHEMERAL });
+        if (!giveaway) return interaction.editReply({ embeds: [warningEmbed('Warning', 'This giveaway could not be found.')] });
+        return interaction.editReply(createGiveawayManagePanel(giveaway));
     } catch (error) {
         return onError(interaction, error, 'giveaway_manage');
     }
@@ -117,15 +132,19 @@ export const giveawayAdminHandler = {
             if (!canManageGiveaways(interaction.member, interaction.guild)) {
                 return warn(interaction, 'Only staff can manage giveaways.');
             }
-            const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-            if (!giveaway) return interaction.update(done('This giveaway no longer exists.'));
-
-            if (action === 'panel') return interaction.update(createGiveawayManagePanel(giveaway));
-            if (action === 'participants') return interaction.reply({ ...createParticipantsList(giveaway), flags: EPHEMERAL });
+            // A form must be the first answer, so Edit timer opens it at once.
             if (action === 'timer') return interaction.showModal(giveawayTimerModal(messageId));
-            if (action === 'delete') return interaction.update(createDeleteConfirmation(giveaway));
+            if (action === 'participants') {
+                await deferPrivate(interaction);
+                const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
+                return interaction.editReply(giveaway ? createParticipantsList(giveaway) : done('This giveaway no longer exists.'));
+            }
 
             await interaction.deferUpdate();
+            const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
+            if (!giveaway) return interaction.editReply(done('This giveaway no longer exists.'));
+            if (action === 'panel') return interaction.editReply(createGiveawayManagePanel(giveaway));
+            if (action === 'delete') return interaction.editReply(createDeleteConfirmation(giveaway));
             if (action === 'end') {
                 const { winners } = await finishGiveaway(client, interaction.guild, messageId, { endedBy: interaction.user.id });
                 return interaction.editReply(done(winners.length
@@ -156,6 +175,7 @@ export const giveawayTimerModalHandler = {
                 return warn(interaction, 'Only staff can manage giveaways.');
             }
             const durationMs = parseDuration(interaction.fields.getTextInputValue('duration'));
+            await deferPrivate(interaction);
             const updated = await setGiveawayTimer(client, interaction.guild, messageId, durationMs);
             const endsAt = Math.floor(updated.endsAt / 1000);
             return notice(interaction, successEmbed('Success', `The giveaway now ends <t:${endsAt}:F> (<t:${endsAt}:R>).`));
