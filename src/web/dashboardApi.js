@@ -23,6 +23,7 @@ import { WarningService } from '../services/moderation/warningService.js';
 import { readGuildEconomyValues } from '../utils/economy.js';
 import { getEconomyPrefix } from '../utils/database/keys.js';
 import { BotConfig } from '../config/bot.js';
+import { getServerCounters, getCounterTypeLabel } from '../services/serverstatsService.js';
 
 export const DASHBOARD_PREFIX = '/api/dashboard/v1';
 const MAX_SKEW_SECONDS = 60;
@@ -536,6 +537,16 @@ export const INSIGHTS = {
       tables: [{
         title: 'Embeds', columns: ['Title', 'Channel', 'Source'], empty: 'No embeds found.',
         rows: records.slice(0, 50).map(record => [String(record.name || record.title || 'Untitled').slice(0, 100), channelName(guild, record.channelId), record.source === 'embed-builder' ? 'Embed Builder' : 'Cloudy']),
+      }],
+    };
+  },
+  async serverstats({ client, guild }) {
+    const counters = await getServerCounters(client, guild.id).catch(() => []);
+    return {
+      stats: [{ label: 'Counters', value: String(counters.length) }],
+      tables: [{
+        title: 'Counter channels', columns: ['Counter', 'Channel'], empty: 'No counters yet. Create one with /serverstats create.',
+        rows: counters.slice(0, 25).map(counter => [getCounterTypeLabel(counter.type) || String(counter.type), guild.channels.cache.get(String(counter.channelId))?.name || 'Missing channel']),
       }],
     };
   },
