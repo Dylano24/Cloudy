@@ -11,8 +11,8 @@ import {
     TextInputStyle,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
-import { successEmbed, warningEmbed } from '../utils/embeds.js';
-import { removeAfterTenSeconds } from '../handlers/giveawayButtons.js';
+import { successEmbed } from '../utils/embeds.js';
+import { giveawayWarning, removeAfterTenSeconds } from '../handlers/giveawayButtons.js';
 import { logger } from '../utils/logger.js';
 import { botConfig } from '../config/bot.js';
 import { logEvent, EVENT_TYPES } from './loggingService.js';
@@ -165,10 +165,10 @@ export function giveawayTimingModal(session) {
 
 export async function openGiveawayBuilder(interaction) {
     if (!interaction.inGuild()) {
-        return interaction.reply({ embeds: [warningEmbed('Warning', 'Giveaways only work in a server.')], flags: MessageFlags.Ephemeral });
+        return notice(interaction, giveawayWarning('Giveaways only work in a server.'));
     }
     if (!canManageGiveaways(interaction.member, interaction.guild)) {
-        return interaction.reply({ embeds: [warningEmbed('Warning', 'Only staff can start a giveaway.')], flags: MessageFlags.Ephemeral });
+        return notice(interaction, giveawayWarning('Only staff can start a giveaway.'));
     }
     // One open builder per person: a new /gcreate replaces the old one.
     for (const session of sessions.values()) {
@@ -204,10 +204,10 @@ async function notice(interaction, embed) {
 
 async function postFromBuilder(interaction, client, session) {
     const { draft } = session;
-    if (!draft.prize) return notice(interaction, warningEmbed('Warning', 'Set the prize first with **Edit text**.'));
+    if (!draft.prize) return notice(interaction, giveawayWarning('Set the prize first with **Edit text**.'));
     const channel = interaction.guild.channels.cache.get(draft.channelId)
         || await interaction.guild.channels.fetch(draft.channelId).catch(() => null);
-    if (!channel?.isTextBased?.()) return notice(interaction, warningEmbed('Warning', 'Choose a text channel for the giveaway.'));
+    if (!channel?.isTextBased?.()) return notice(interaction, giveawayWarning('Choose a text channel for the giveaway.'));
 
     await interaction.deferUpdate();
     const giveaway = await postGiveaway(client, interaction.guild, channel, {
@@ -254,11 +254,11 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
     const session = sessions.get(sessionId);
     try {
         if (!session || session.userId !== interaction.user.id) {
-            await notice(interaction, warningEmbed('Warning', 'This giveaway builder has expired. Run /gcreate again.'));
+            await notice(interaction, giveawayWarning('This giveaway builder has expired. Run /gcreate again.'));
             return true;
         }
         if (!canManageGiveaways(interaction.member, interaction.guild)) {
-            await notice(interaction, warningEmbed('Warning', 'Only staff can start a giveaway.'));
+            await notice(interaction, giveawayWarning('Only staff can start a giveaway.'));
             return true;
         }
         keepAlive(session);
@@ -306,7 +306,7 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
     } catch (error) {
         const message = error?.userMessage || 'Something went wrong. Please try again.';
         if (!error?.userMessage) logger.error(`Giveaway builder ${action} failed:`, error);
-        await notice(interaction, warningEmbed('Warning', message)).catch(() => {});
+        await notice(interaction, giveawayWarning(message)).catch(() => {});
         return true;
     }
 }
