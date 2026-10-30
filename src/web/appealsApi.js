@@ -101,7 +101,7 @@ export function registerAppealsApi(app, client) {
             { name: 'Evidence', value: shown(evidence), inline: false },
             { name: 'Additional information', value: shown(additionalInfo), inline: false },
           ],
-          footer: { text: '© Cloudy Inc. •' },
+          footer: { text: '© Cloudy Inc.' },
           timestamp: new Date().toISOString(),
         }],
       });
