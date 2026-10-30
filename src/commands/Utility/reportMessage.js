@@ -20,11 +20,11 @@ import { scheduleTicketReplyDeletion } from '../../utils/ticket/ticketBranding.j
 
 const REPORT_MODAL_TIMEOUT_MS = 14 * 60_000;
 
+// Channel and Content are bold headings with their value below (owner's
+// choice). They stay inside the one Evidence field, so the report keeps its
+// field layout (saved templates and the handled report map fields by order).
 export function reportEvidence(message) {
-  const parts = [
-    `Message: [Open reported message](${message.url})`,
-    `Channel: ${message.channel}`,
-  ];
+  const parts = [`Message: [Open reported message](${message.url})`];
 
   if (message.attachments?.size) {
     parts.push(
@@ -34,12 +34,14 @@ export function reportEvidence(message) {
     );
   }
 
+  parts.push('**Channel**', `${message.channel}`);
+
   const content = String(message.content || '').trim();
   if (content) {
-    const available = Math.max(0, 1024 - parts.join('\n').length - '\nContent: '.length);
-    if (available > 0) parts.push(`Content: ${content.slice(0, available)}`);
+    const available = Math.max(0, 1024 - parts.join('\n').length - '\n**Content**\n'.length);
+    if (available > 0) parts.push('**Content**', content.slice(0, available));
   } else {
-    parts.push('Content: No text content');
+    parts.push('**Content**', 'No text content');
   }
 
   return parts.join('\n').slice(0, 1024);
