@@ -216,7 +216,7 @@ test('ticket removal waits ten seconds', async t => {
 test('Ban denies staff; modal submit rechecks revoked permission', async () => {
   const f = fixture('open', 'staff');
   f.interaction.message = { id: 'report', author: f.client.user };
-  assert.deepEqual(buildReportActions('target')[0].toJSON().components.map(b => b.label), ['Delete', 'Timeout', 'Ban', 'No sanction']);
+  assert.deepEqual(buildReportActions('target')[0].toJSON().components.map(b => b.label), ['Delete', 'Timeout', 'Ban', 'Dismiss']);
   assert.deepEqual(buildReportActions('target')[1].toJSON().components.map(b => b.label), ['Delete + timeout', 'Delete + ban']);
   await handleReportAction(f.interaction, f.client, ['ban', 'target']);
   assert.ok(f.replies.some(p => JSON.stringify(p).includes('Only owners can ban members from reports.')));

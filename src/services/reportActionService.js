@@ -53,7 +53,7 @@ export function buildReportActions(userId) {
       new ButtonBuilder().setCustomId(`report_action:delete:${userId}`).setLabel('Delete').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`report_action:timeout:${userId}`).setLabel('Timeout').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`report_action:ban:${userId}`).setLabel('Ban').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(`report_action:no_sanction:${userId}`).setLabel('No sanction').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`report_action:no_sanction:${userId}`).setLabel('Dismiss').setStyle(ButtonStyle.Secondary),
     ),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`report_action:delete_timeout:${userId}`).setLabel('Delete + timeout').setStyle(ButtonStyle.Primary),

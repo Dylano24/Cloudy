@@ -22,7 +22,7 @@ test('every newly filed report gets its number before the original report is sen
 
 test('report action controls expose no-sanction and both requested combined actions', () => {
   const rows = buildReportActions('target').map(row => row.toJSON().components.map(button => button.label));
-  assert.deepEqual(rows[0], ['Delete', 'Timeout', 'Ban', 'No sanction']);
+  assert.deepEqual(rows[0], ['Delete', 'Timeout', 'Ban', 'Dismiss']);
   assert.deepEqual(rows[1], ['Delete + timeout', 'Delete + ban']);
   assert.equal(
     reportActionText(['delete', 'timeout']),
