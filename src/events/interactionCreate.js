@@ -77,6 +77,8 @@ export default {
 
     // Cloudy feed interactions are handled by their own Owner-only event listener.
     if (interaction.customId?.startsWith('cloudyfeed:')) return;
+    // The Giveaway Builder has its own listener as well.
+    if (interaction.customId?.startsWith('gbuilder:')) return;
     if (interaction.__ticketDashboardFastPathHandled) return;
     // A click on an Embed Builder that already expired removes it.
     if (await removeExpiredBuilderMessage(interaction)) return;
