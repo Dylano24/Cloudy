@@ -8,7 +8,7 @@ import {
   deleteMessageForMove, resetDeletionAttributionState, wasDeletedForMove,
 } from '../src/services/deletionAttributionService.js';
 import { createStickyGuideManager } from '../src/services/stickyGuideService.js';
-import { CLOUDY_GUILD_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
+import { CLOUDY_GUILD_ID, EMBED_LOG_CHANNEL_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
 
 function world() {
   resetDeletionAttributionState();
@@ -21,7 +21,7 @@ function world() {
     channels: { cache: new Collection(), fetch: async id => guild.channels.cache.get(id) || null }, iconURL: () => null };
   client.guilds.cache.set(guild.id, guild);
   const sent = [];
-  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID]) {
+  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID]) {
     guild.channels.cache.set(id, { id, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }),
       send: async payload => { sent.push({ id, embed: payload.embeds?.[0]?.toJSON?.() }); return { id: 'log', attachments: new Collection() }; } });
   }
@@ -62,16 +62,16 @@ test('a move whose delete failed (someone else removed it first) is still logged
   assert.equal(await wasDeletedForMove('moved-3'), false);
   await logDeletedMessage(message, { deletedBy: { id: 'mod', label: '<@mod>', source: 'audit', bot: false } });
   assert.equal(w.sent.length, 1);
-  assert.equal(w.sent[0].id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.equal(w.sent[0].id, EMBED_LOG_CHANNEL_ID);
 });
 
-test('every other deletion of a Cloudy message is still logged in the Staff log', async () => {
+test('every other deletion of a Cloudy embed is still logged, in the Embed log', async () => {
   const w = world();
   const message = w.botMessage('removed-1');
   await message.delete();
   await logDeletedMessage(message, { deletedBy: { id: 'bot', label: '<@bot>', source: 'cloudy', bot: true } });
   assert.equal(w.sent.length, 1);
-  assert.equal(w.sent[0].id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.equal(w.sent[0].id, EMBED_LOG_CHANNEL_ID);
   assert.match(JSON.stringify(w.sent[0].embed), /Server rules/);
 });
 

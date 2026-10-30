@@ -5,7 +5,7 @@ import { logger } from '../utils/logger.js';
 import { getReactionRoleMessage, deleteReactionRoleMessage } from '../services/reactionRoleService.js';
 import { formatLogLine } from '../utils/logging/logEmbeds.js';
 import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js';
-import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID } from '../services/messageLogDestination.js';
+import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID } from '../services/messageLogDestination.js';
 import { prepareDeletedMessageMedia } from '../services/deletedMessageMediaService.js';
 import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
 import { forgetMessageSnapshot, getMessageSnapshot } from '../services/messageSnapshotService.js';
@@ -162,7 +162,7 @@ export async function logDeletedMessage(message, options = {}) {
   if (!message.guild) return;
   const guildId = message.guild.id;
   const channelId = message.channelId || message.channel?.id || null;
-  if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID].includes(channelId)) return;
+  if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID, EMBED_LOG_CHANNEL_ID].includes(channelId)) return;
   const detectedAt = options.detectedAt ?? Date.now();
   // Reappear and sticky guides delete the old copy to move it to the bottom:
   // that is not a removal, so it is not logged. Cloudy's own replies to an
@@ -272,6 +272,10 @@ export async function logDeletedMessage(message, options = {}) {
       deletedById: deletedBy.id,
       deletedByBot: deletedBy.bot === true,
       deletionSource: deletedBy.source,
+      // A deleted Cloudy embed post (Builder post, panel, guide) belongs in
+      // the Embed log, whoever deleted it.
+      embedPost: Boolean(resolvedAuthorId && resolvedAuthorId === message.client?.user?.id
+        && ((message.embeds || []).some(embed => !embed.type || embed.type === 'rich') || (uncached && snapshot?.embedText))),
       videoLinks,
       embedCopies,
       channelId,

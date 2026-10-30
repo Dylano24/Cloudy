@@ -13,7 +13,7 @@ import {
   getMessageSnapshot,
 } from '../src/services/messageSnapshotService.js';
 import { resetDeletionAttributionState } from '../src/services/deletionAttributionService.js';
-import { CLOUDY_GUILD_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
+import { CLOUDY_GUILD_ID, EMBED_LOG_CHANNEL_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
 
 function setup() {
   // Edit logs follow the guild's logging switch (deletion logs always run).
@@ -27,7 +27,7 @@ function setup() {
   client.guilds.cache.set(guild.id, guild);
   guild.members.cache.set('member', { permissions: new PermissionsBitField() });
   const sent = [];
-  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
+  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
     permissionsFor: () => ({ has: () => true }), send: async payload => { sent.push({ id, embed: payload.embeds[0].toJSON(), files: payload.files }); return { id: 'log' }; } });
   return { client, guild, sent };
 }
@@ -97,6 +97,7 @@ test('Cloudy replies to an action are never message-logged, also after a restart
   // An embed Cloudy posted to the channel (Embed Builder, panel) is still logged.
   await logDeletedMessage({ ...base, id: '1300000000000000203', embeds: [{ title: 'Server rules', description: 'Be kind.' }] });
   assert.equal(sent.length, 1);
+  assert.equal(sent[0].id, EMBED_LOG_CHANNEL_ID);
   assert.match(sent[0].embed.description, /Server rules/);
   // A member's message is still logged.
   await logDeletedMessage({ ...base, id: '1300000000000000204', author: { id: 'member', bot: false }, content: 'hello', embeds: [] });

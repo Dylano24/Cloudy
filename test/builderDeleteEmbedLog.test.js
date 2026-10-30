@@ -6,7 +6,7 @@ import { db } from '../src/utils/database.js';
 import { logDeletedMessage } from '../src/events/messageDelete.js';
 import { rememberMessageDeleter, resetDeletionAttributionState, AUTOMOD_LOG_CHANNEL_ID } from '../src/services/deletionAttributionService.js';
 import { clearMessageSnapshotMemory } from '../src/services/messageSnapshotService.js';
-import { CLOUDY_GUILD_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
+import { CLOUDY_GUILD_ID, EMBED_LOG_CHANNEL_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
 
 function setup() {
   const values = new Map([[`guild:${CLOUDY_GUILD_ID}:config`, { logging: { enabled: true } }]]);
@@ -19,14 +19,14 @@ function setup() {
   client.guilds.cache.set(guild.id, guild);
   guild.members.cache.set('staffer', { id: 'staffer', user: { id: 'staffer' }, permissions: new PermissionsBitField(PermissionsBitField.Flags.ManageMessages) });
   const sent = [];
-  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
+  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID, EMBED_LOG_CHANNEL_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
     permissionsFor: () => ({ has: () => true }), send: async payload => { sent.push({ id, embed: payload.embeds[0].toJSON(), copies: payload.embeds.slice(1), files: payload.files || [] }); return { id: 'log' }; } });
   return { client, guild, sent };
 }
 
 test.beforeEach(() => { clearMessageSnapshotMemory(); resetDeletionAttributionState(); });
 
-test('an embed deleted with the Embed Builder is logged in the AutoMod log, by the staff member', async () => {
+test('an embed deleted with the Embed Builder is logged in the Embed log, by the staff member', async () => {
   const { client, guild, sent } = setup();
   const embed = { id: '1300000000000000501', guild, guildId: guild.id, channelId: 'rules', client, createdTimestamp: 1_700_000_000_000,
     author: { id: 'bot', bot: true }, content: '', embeds: [{ title: 'Server rules', description: 'Be kind.' }],
@@ -34,18 +34,20 @@ test('an embed deleted with the Embed Builder is logged in the AutoMod log, by t
   rememberMessageDeleter(embed, { id: 'staffer' }, 'embed-builder');
   await logDeletedMessage(embed);
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].id, AUTOMOD_LOG_CHANNEL_ID);
+  assert.equal(sent[0].id, EMBED_LOG_CHANNEL_ID);
   assert.match(sent[0].embed.description, /\*\*Deleted by:\*\* <@staffer>/);
   assert.match(sent[0].embed.description, /\*\*Type:\*\* Staff/);
   // The deleted embed itself is shown under the log details.
   assert.equal(sent[0].copies[0].title, 'Server rules');
   assert.equal(sent[0].copies[0].description, 'Be kind.');
 
-  // Control: the same embed deleted by a staff member in Discord stays in the Staff log.
+  // The same embed deleted by a staff member in Discord is embed-related too:
+  // it goes to the Embed log as well, never the AutoMod log.
   const manual = { ...embed, id: '1300000000000000502' };
   rememberMessageDeleter(manual, { id: 'staffer' });
   await logDeletedMessage(manual);
-  assert.equal(sent[1].id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.equal(sent[1].id, EMBED_LOG_CHANNEL_ID);
+  assert.ok(!sent.some(entry => entry.id === AUTOMOD_LOG_CHANNEL_ID));
 });
 
 test('every message the Builder Delete removes is tagged as an Embed Builder deletion', () => {
@@ -77,7 +79,7 @@ test('the Builder Delete log shows the deleted embed itself: colour bar, banner,
   await logDeletedMessage(message);
 
   const log = sent.at(-1);
-  assert.equal(log.id, AUTOMOD_LOG_CHANNEL_ID);
+  assert.equal(log.id, EMBED_LOG_CHANNEL_ID);
   assert.equal(log.copies.length, 1);
   const copy = log.copies[0];
   assert.equal(copy.color, 0x8E44AD, 'the side colour is kept exactly');

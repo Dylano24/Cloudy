@@ -127,18 +127,20 @@ export function buildDedicatedGuidePayload(key, existing = null) {
   };
 }
 
-function guideManager(key, isGuide) {
+function guideManager(key, isGuide, everyNMessages) {
   return createStickyGuideManager({
     loadState: channel => getFromDb(guideStorageKey(channel), null),
     saveState: (channel, state) => setInDb(guideStorageKey(channel), state),
     isGuide,
     onError: error => logger.warn(`${key} guide refresh failed: ${error.message}`),
-    everyNMessages: 5,
+    everyNMessages,
     buildPayload: (_channel, existing) => buildDedicatedGuidePayload(key, existing),
   });
 }
-const shopGuideManager = guideManager('shop', isShopGuide);
-const gamblingGuideManager = guideManager('gambling', isGamblingGuide);
+// The guide moves to the bottom after this many new messages (Gambling: 2,
+// owner's choice).
+const shopGuideManager = guideManager('shop', isShopGuide, 5);
+const gamblingGuideManager = guideManager('gambling', isGamblingGuide, 2);
 
 export function scheduleDedicatedChannelGuide(message) {
   if (!message?.guild || !message.channel) return false;
