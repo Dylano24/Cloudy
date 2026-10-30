@@ -242,7 +242,8 @@ export function createGiveawayManagePanel(giveaway, { participantsIcon = '👤' 
     const id = giveaway.messageId;
     const button = (action, label, style) => {
         const built = new ButtonBuilder().setCustomId(`giveaway_admin:${action}:${id}`).setLabel(label).setStyle(style);
-        return action === 'participants' ? built.setEmoji(participantsIcon) : built;
+        if (action === 'participants') return built.setEmoji(participantsIcon);
+        return action === 'reroll' ? built.setEmoji('🎲') : built;
     };
     const rows = ended
         ? [
