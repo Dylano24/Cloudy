@@ -32,7 +32,11 @@ export function removeAfterTenSeconds(interaction, message = null) {
     const timer = setTimeout(() => {
         void Promise.resolve()
             .then(() => (message ? interaction.deleteReply(message) : interaction.deleteReply()))
-            .catch(() => {});
+            // Already dismissed is fine; anything else is logged so a notice
+            // that stays visible can be traced.
+            .catch(error => {
+                if (error?.code !== 10008) logger.warn(`Giveaway notice could not be removed: ${error?.message || error}`);
+            });
     }, NOTICE_LIFETIME_MS);
     timer.unref?.();
 }
@@ -164,7 +168,9 @@ export const giveawayAdminHandler = {
                 await deferPrivate(interaction);
                 const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
                 if (!giveaway) return notice(interaction, warningEmbed('Warning', 'This giveaway no longer exists.'));
-                return interaction.editReply(createParticipantsList(giveaway));
+                // The participants list disappears after 10 seconds as well.
+                await interaction.editReply(createParticipantsList(giveaway));
+                return removeAfterTenSeconds(interaction);
             }
 
             await interaction.deferUpdate();
