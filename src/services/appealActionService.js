@@ -16,37 +16,49 @@ const HANDLED_OUTCOME = {
   Denied: "The member's appeal has been denied.",
 };
 
-// Handled by: the staff member's tag with the outcome as text below it.
+// Handled by: the staff member's tag, with the outcome as text below it.
 export function appealHandledBy(action, memberId) {
-  const outcome = HANDLED_OUTCOME[action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned'];
-  return { name: 'Handled by', value: `<@${memberId}>\n${outcome}`, inline: false };
+  return `<@${memberId}>\n${HANDLED_OUTCOME[action === 'deny' ? 'Denied' : action === 'unmute' ? 'Unmuted' : 'Unbanned']}`;
 }
 
-// The older "Staff decision: Unmuted by @x" becomes the same Handled by field.
-function handledByField(field) {
-  const match = field.name === 'Staff decision'
-    && String(field.value || '').trim().match(/^(Unmuted|Unbanned|Denied) by (<@!?[^>\s]+>)$/);
-  return match ? { name: 'Handled by', value: `${match[2]}\n${HANDLED_OUTCOME[match[1]]}`, inline: false } : field;
+// Reads Handled by from any earlier layout: "Staff decision: Unmuted by @x",
+// a separate Handled by field, or the line inside Appeal handled at.
+function handledByFrom(field) {
+  const value = String(field.value || '').trim();
+  if (field.name === 'Staff decision') {
+    const match = value.match(/^(Unmuted|Unbanned|Denied) by (<@!?[^>\s]+>)$/);
+    return match ? `${match[2]}\n${HANDLED_OUTCOME[match[1]]}` : null;
+  }
+  if (field.name === 'Handled by') return value || null;
+  return value.match(/\*\*Handled by\*\* ([\s\S]+)$/)?.[1] || null;
 }
 
-// A handled appeal shows Appeal handled at (date and time, as reports do) right
-// before Handled by. The older bold "This appeal has been handled" line,
-// sometimes with Staff decision merged into it, is unfolded into fields.
-export function handledAppealFields(fields, handledAt) {
+// A handled appeal shows Appeal handled at (date and time, as reports do).
+// A field title cannot show a tag, so "**Handled by** @x" is a line in its
+// text: the name sits next to Handled by, the outcome below it. Older
+// layouts (bold "This appeal has been handled" line, Staff decision, a
+// separate Handled by field) are converted into this one field.
+export function handledAppealFields(fields, handledAt, handledBy = null) {
   const result = [];
+  let position = -1;
+  const mark = () => { if (position === -1) position = result.length; };
   for (const field of fields || []) {
-    if (/^This appeal has been handled$/i.test(String(field.name || '').replace(/\*+/g, '').trim())) continue;
-    if (['Handled at', 'Appeal handled at'].includes(field.name)) continue;
+    const name = String(field.name || '').replace(/\*+/g, '').trim();
+    if (/^This appeal has been handled$/i.test(name)) { mark(); continue; }
+    if (['Handled at', 'Appeal handled at'].includes(name)) { mark(); handledBy ||= handledByFrom(field); continue; }
+    if (['Handled by', 'Staff decision'].includes(name)) {
+      const found = handledByFrom(field);
+      if (found) { mark(); handledBy ||= found; continue; }
+    }
     const value = String(field.value || '');
     const notice = value.match(HANDLED_NOTICE);
-    if (!notice) { result.push(handledByField(field)); continue; }
+    if (!notice) { result.push(field); continue; }
     result.push({ ...field, value: value.slice(0, notice.index) || '\u200B' });
-    if (notice[1] !== undefined) result.push(handledByField({ name: 'Staff decision', value: notice[1], inline: false }));
+    mark();
+    if (notice[1] !== undefined) handledBy ||= handledByFrom({ name: 'Staff decision', value: notice[1] });
   }
-  const handled = { name: 'Appeal handled at', value: `<t:${Math.floor(handledAt / 1000)}:F>`, inline: false };
-  const decision = result.findIndex(field => ['Handled by', 'Staff decision'].includes(field.name));
-  if (decision === -1) result.push(handled);
-  else result.splice(decision, 0, handled);
+  const value = `<t:${Math.floor(handledAt / 1000)}:F>${handledBy ? `\n**Handled by** ${handledBy}` : ''}`;
+  result.splice(position === -1 ? result.length : position, 0, { name: 'Appeal handled at', value, inline: false });
   return result;
 }
 
@@ -153,11 +165,10 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
       const data = embed.toJSON();
       if (index === 0) {
         data.color = 0x00C49D;
-        data.fields = handledAppealFields([
-          ...(data.fields || []),
-          appealHandledBy(action, member.id),
+        data.fields = [
+          ...handledAppealFields(data.fields, Date.parse(decision.reviewedAt) || Date.now(), appealHandledBy(action, member.id)),
           { name: 'Reason', value: decision.reason },
-        ], Date.parse(decision.reviewedAt) || Date.now());
+        ];
       }
       return data;
     });
