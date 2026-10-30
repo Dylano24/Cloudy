@@ -118,7 +118,7 @@ export function renderGiveawayBuilder(session) {
                 new ButtonBuilder().setCustomId(id(session, 'everyone'))
                     .setLabel(draft.ping.type === 'everyone' ? 'Untag @everyone' : 'Tag @everyone')
                     .setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId(id(session, 'post')).setLabel('Post giveaway')
+                new ButtonBuilder().setCustomId(id(session, 'post')).setEmoji('📤').setLabel('Post giveaway')
                     .setStyle(ButtonStyle.Success).setDisabled(!draft.prize || !draft.channelId),
             ),
             new ActionRowBuilder().addComponents(

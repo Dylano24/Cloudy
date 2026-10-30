@@ -269,6 +269,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   ]);
   assert.equal(controls[1].components[0].placeholder, 'Tag a role');
   const postButton = controls[3].components[1];
+  assert.equal(postButton.emoji.name, '📤');
   assert.equal(postButton.disabled, true);
 
   const click = (customId, extra = {}) => Object.assign(w.interaction('staff', { staff: true }), { guild: command.guild, customId, ...extra });
