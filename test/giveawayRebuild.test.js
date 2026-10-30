@@ -97,7 +97,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
 
 test('buttons: Enter with emoji and entry count, Leave, and a separate staff Manage row', () => {
   const [entry, manage] = createGiveawayButtons(activeGiveaway({ participants: ['a', 'b', 'c'] })).map(json);
-  assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Giveaway']);
+  assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Leave giveaway']);
   assert.equal(entry.components[0].emoji.id, '1543303914152001536');
   assert.equal(entry.components[1].emoji.id, '1565742837453029516');
   assert.equal(entry.components[1].emoji.animated, true);
