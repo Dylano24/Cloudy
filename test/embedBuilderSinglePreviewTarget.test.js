@@ -67,6 +67,6 @@ test('a missing original Builder preview never creates a replacement follow-up',
 
 test('single-preview fix leaves the Builder/shared editor timers unchanged', () => {
   const serviceSource = fs.readFileSync('src/services/embedColorPickerSessionService.js', 'utf8');
-  assert.equal(BUILDER_SESSION_IDLE_MS, 5 * 60_000);
+  assert.equal(BUILDER_SESSION_IDLE_MS, 30 * 60_000);
   assert.match(serviceSource, /export const EMBED_EDITOR_IDLE_MS = 14 \* 60_000;/);
 });

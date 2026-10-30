@@ -72,7 +72,7 @@ function scheduleSessionIdleExpiry(token, session, editorInstanceId) {
         session.activeEditorInstanceId = null;
         session.holdActive = false;
         session.editorReleasedAt = Date.now();
-        // 14m without contact ends only the editor hold. The Builder then gets a fresh normal 5m.
+        // 14m without contact ends only the editor hold. The Builder then gets a fresh normal 30m.
         releaseBuilderSessionHold(token);
     }, EMBED_EDITOR_IDLE_MS);
     session.idleTimer.unref?.();
@@ -207,8 +207,8 @@ async function touchEditorSession(token, session) {
     return { ok: true };
 }
 
-// True while the browser editor page is open, or within `withinMs` after it
-// was closed (the Builder's normal five minutes after leaving the editor).
+// True while the browser editor page is open, or within `withinMs` (five
+// minutes) after it was closed.
 export function wasEmbedEditorRecentlyUsed(token, withinMs = 5 * 60_000) {
     const session = sessions.get(token);
     if (!session) return false;
@@ -284,7 +284,7 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
     if (value === PAUSE_PREFIX) {
         // A cached V3 page may still send PAUSE while merely backgrounded.
         // PAUSE is not proof the editor was closed, so only explicit CLOSE
-        // releases the Builder hold and starts the normal fresh 5m window.
+        // releases the Builder hold and starts the normal fresh 30m window.
         return { ok: true, color: JSON.stringify({ type: 'editor_lifecycle_ignored' }) };
     }
 
@@ -302,7 +302,7 @@ export async function applyEmbedColorPickerSession(token, value, { editorInstanc
         session.activeEditorInstanceId = null;
         session.holdActive = false;
         session.editorReleasedAt = Date.now();
-        // Closing starts a fresh normal 5m Builder inactivity window.
+        // Closing starts a fresh normal 30m Builder inactivity window.
         releaseBuilderSessionHold(token);
         return { ok: true, color: JSON.stringify({ type: 'editor_closed' }) };
     }

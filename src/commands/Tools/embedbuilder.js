@@ -70,7 +70,12 @@ import {
     relinkDetachedEmbedRegistryMessage,
     } from '../../services/embedRegistryService.js';
 import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../../utils/builderOwnedSends.js';
-import { linkBuilderSessionPreview, touchBuilderSessionMessage } from '../../utils/builderSessionCleanup.js';
+import {
+    BUILDER_SESSION_IDLE_MS,
+    linkBuilderSessionPreview,
+    rememberExpiredBuilderMessage,
+    touchBuilderSessionMessage,
+} from '../../utils/builderSessionCleanup.js';
 import { syncExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { findExistingEmbedReappearRule } from '../../services/embedReappearService.js';
 import { hideSystemCatalogFromBuilder, hideBuilderSearchTitlesFromBuilder } from '../../services/systemEmbedCatalogService.js';
@@ -97,7 +102,7 @@ const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
 const CHANNEL_PAGE_SIZE = 100;
 const CHANNEL_SELECT_SIZE = 25;
 const OWNER_SERVER_LIMIT = 125;
-const BUILDER_IDLE_TIMEOUT = 5 * 60_000;
+const BUILDER_IDLE_TIMEOUT = BUILDER_SESSION_IDLE_MS;
 const BUILDER_EDITOR_IDLE_TIMEOUT = 14 * 60_000;
 const ACTIVE_BUILDER_SESSIONS = new Map();
 
@@ -1610,8 +1615,10 @@ async function refreshBuilderPreviewOnly(interaction, state) {
 // and editor stay; only these old messages go (when Discord still allows it).
 async function retireResumedBuilderMessages(interaction, previewMessage, dashboardMessage) {
     unregisterBuilderPreviewMessage(previewMessage);
-    await Promise.allSettled([previewMessage, dashboardMessage].map(message =>
+    const [, dashboard] = await Promise.allSettled([previewMessage, dashboardMessage].map(message =>
         interaction.webhook?.deleteMessage?.(message.id) ?? message.delete?.()));
+    // Discord no longer lets Cloudy remove the old copy: a click on it does.
+    if (dashboard.status === 'rejected') rememberExpiredBuilderMessage(dashboardMessage, previewMessage);
 }
 
 // discord.js hands a submitted form to every open wait of this user, so a
@@ -2363,7 +2370,7 @@ export default {
                         throw error;
                     }
                     touchBuilderSessionMessage(state.builderDashboardMessage);
-                    // The preview above the controls has its own 5-minute timer:
+                    // The preview above the controls has its own inactivity timer:
                     // hold it too, so nothing of the Builder closes while the editor is open.
                     if (state.builderMessage) touchBuilderSessionMessage(state.builderMessage);
                 },
@@ -2401,7 +2408,7 @@ export default {
 
             // Both original preview and controls are ephemeral interaction
             // responses. Never call channel.send while merely opening or
-            // browsing an embed. A 5-minute session still uses the existing
+            // browsing an embed. A 30-minute session still uses the existing
             // collector, color editor, cleanup, and fixed webhook message IDs.
             let previewMessage = null;
             let dashboardMessage = null;
