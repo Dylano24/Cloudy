@@ -124,10 +124,15 @@ test('after a restart the leftover public Builder controls and the preview above
   assert.equal(result.removed, 2);
 });
 
-test('in a server the editor buttons send their link privately, never inside the public Builder', () => {
-  const source = fs.readFileSync('src/commands/Tools/embedbuilder.js', 'utf8');
-  assert.match(source, /state\.contentEditorUrl && state\.builderBotManaged[\s\S]{0,120}setCustomId\('simple_embed_open_content'\)/);
-  assert.match(source, /state\.colorPickerUrl && state\.builderBotManaged[\s\S]{0,120}setCustomId\('simple_embed_open_color'\)/);
-  const open = source.slice(source.indexOf('async function openPrivateBuilderEditor'));
-  assert.match(open.slice(0, 900), /flags: MessageFlags\.Ephemeral/);
+test('in a server the editor buttons open the editor directly, without a private link message (owner\'s choice)', async () => {
+  const { buildControls } = await import('../src/commands/Tools/embedbuilder.js');
+  const state = {
+    builderBotManaged: true,
+    contentEditorUrl: 'https://cloudy.example.com/embed-color?session=abc&mode=content',
+    colorPickerUrl: 'https://cloudy.example.com/embed-color?session=abc&color=%23FFFFFF',
+    embedFields: [], componentRows: [],
+  };
+  const buttons = buildControls(state).flatMap(row => row.toJSON().components);
+  assert.equal(buttons.find(button => button.label === 'Edit title and message').url, state.contentEditorUrl);
+  assert.equal(buttons.find(button => button.label === 'Set side color').url, state.colorPickerUrl);
 });

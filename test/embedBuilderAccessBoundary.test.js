@@ -107,17 +107,12 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
   return { guild, member, channel, client, preview, interaction, publicPayloads, privatePayloads, childPayloads, childMessages, component, storage };
 }
 function buttons(payload) { return (payload.components || []).flatMap(row => (row.toJSON?.() || row).components || []); }
-// The Builder is a normal message in the channel: its editor buttons send the
-// editor link (it carries the editor session) to the owner privately.
-async function openEditorLink(f, dashboard, launch = 'simple_embed_open_content') {
-  const before = f.childPayloads.length;
-  await dashboard.collector.listeners('collect')[0](f.component(launch));
-  const payload = f.childPayloads[before];
-  assert.ok(Number(payload?.flags || 0) & MessageFlags.Ephemeral, 'the editor link is sent privately');
-  return new URL(buttons(payload).find(button => button.url).url);
+// The editor buttons open the editor directly (owner's choice).
+function editorLink(dashboard, label = 'Edit title and message') {
+  return new URL(buttons(dashboard).find(button => button.label === label).url);
 }
 async function editorToken(f, dashboard) {
-  return (await openEditorLink(f, dashboard)).searchParams.get('session');
+  return editorLink(dashboard).searchParams.get('session');
 }
 async function open(t, options) {
   const f = fixture(t, options);
@@ -129,7 +124,7 @@ async function open(t, options) {
   return { ...f, dashboard };
 }
 
-test('in a server the Builder is a normal message with its layout; its editor links are never shown in it', async t => {
+test('in a server the Builder is a normal message with its layout and direct content and color links', async t => {
   const f = await open(t);
   assert.equal(f.publicPayloads.length, 0, 'never a separate channel post');
   assert.equal(f.privatePayloads.length, 2);
@@ -138,11 +133,10 @@ test('in a server the Builder is a normal message with its layout; its editor li
   assert.equal(f.dashboard.components.length, 5);
   const launchButtons = buttons(f.dashboard).filter(button => ['Edit title and message', 'Set side color'].includes(button.label));
   assert.equal(launchButtons.length, 2);
-  assert.ok(launchButtons.every(button => !button.url), 'the editor session never appears in the public Builder');
-  assert.deepEqual(launchButtons.map(button => button.custom_id).sort(), ['simple_embed_open_color', 'simple_embed_open_content']);
+  assert.ok(launchButtons.every(button => button.url), 'the editor buttons open the editor directly (owner\'s choice)');
 });
 
-test('content and color editors open from a private link and update the preview; nobody else can open them', async t => {
+test('direct content and color editors update the preview without private launch replies', async t => {
   const f = fixture(t);
   await builder.execute(f.interaction);
   const rootCollector = f.interaction.lastDashboard.collector;
@@ -150,8 +144,8 @@ test('content and color editors open from a private link and update the preview;
   assert.equal(f.publicPayloads.length, 0);
   assert.equal(rootCollector.options.filter(f.component('simple_embed_open_content', { id: 'another-viewer' })), false);
   assert.equal(f.childPayloads.length, 0);
-  const contentUrl = await openEditorLink(f, f.interaction.lastDashboard, 'simple_embed_open_content');
-  const colorUrl = await openEditorLink(f, f.interaction.lastDashboard, 'simple_embed_open_color');
+  const contentUrl = editorLink(f.interaction.lastDashboard);
+  const colorUrl = editorLink(f.interaction.lastDashboard, 'Set side color');
   assert.equal(contentUrl.searchParams.get('mode'), 'content');
   assert.equal(contentUrl.searchParams.get('session'), colorUrl.searchParams.get('session'));
   const token = contentUrl.searchParams.get('session');
