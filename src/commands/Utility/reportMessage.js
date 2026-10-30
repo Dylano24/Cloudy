@@ -34,15 +34,16 @@ export function reportEvidence(message) {
     );
   }
 
-  parts.push('**Channel**', `${message.channel}`);
-
+  // Content first, then Channel (owner's choice).
+  const channel = ['**Channel**', `${message.channel}`];
   const content = String(message.content || '').trim();
   if (content) {
-    const available = Math.max(0, 1024 - parts.join('\n').length - '\n**Content**\n'.length);
+    const available = Math.max(0, 1024 - parts.join('\n').length - '\n**Content**\n'.length - `\n${channel.join('\n')}`.length);
     if (available > 0) parts.push('**Content**', content.slice(0, available));
   } else {
     parts.push('**Content**', 'No text content');
   }
+  parts.push(...channel);
 
   return parts.join('\n').slice(0, 1024);
 }
