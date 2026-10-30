@@ -276,3 +276,69 @@ test('a Discord login token identifies the dashboard user through Discord itself
   await handle({ method: 'GET', originalUrl: path, headers: {}, body: Buffer.from('') }, none);
   assert.equal(none.statusCode, 401);
 });
+
+test('plan: free trial starts with the first save, then saving needs Premium', async () => {
+  let clock = NOW;
+  const { handle, state, store } = makeHandler({ now: () => clock, nonces: createNonceStore(() => clock) });
+  const headersAt = (method, path, body) => sign({ method, path: `${DASHBOARD_PREFIX}${path}`, body, ts: Math.floor(clock / 1000) });
+  const at = async ({ method = 'GET', path, payload }) => call(handle, { method, path, payload, headers: headersAt(method, path, payload === undefined ? '' : JSON.stringify(payload)) });
+
+  const fresh = await at({ path: `/guilds/${GUILD}/overview` });
+  assert.equal(fresh.body.plan.status, 'new');
+  assert.equal(fresh.body.plan.canSave, true);
+  assert.equal(fresh.body.plan.priceEur, 13);
+
+  const read = await at({ path: `/guilds/${GUILD}/modules/counting` });
+  const saved = await at({ method: 'PATCH', path: `/guilds/${GUILD}/modules/counting`, payload: { revision: read.body.revision, changes: { enabled: true } } });
+  assert.equal(saved.statusCode, 200);
+  assert.equal(saved.body.plan.status, 'trial');
+  assert.equal(saved.body.plan.until, new Date(NOW + 7 * 86_400_000).toISOString());
+  assert.equal(store.get(`guild:${GUILD}:dashboard:plan`).trialStartedBy, ADMIN);
+
+  clock = NOW + 8 * 86_400_000;
+  const ended = await at({ path: `/guilds/${GUILD}/overview` });
+  assert.equal(ended.body.plan.status, 'expired');
+  assert.equal(ended.body.plan.canSave, false);
+  assert.equal((await at({ path: `/guilds/${GUILD}/modules/counting` })).statusCode, 200, 'settings stay visible');
+  const again = await at({ path: `/guilds/${GUILD}/modules/counting` });
+  const refused = await at({ method: 'PATCH', path: `/guilds/${GUILD}/modules/counting`, payload: { revision: again.body.revision, changes: { enabled: false } } });
+  assert.equal(refused.statusCode, 402);
+  assert.equal(refused.body.code, 'plan_required');
+  assert.equal((await at({ method: 'POST', path: `/guilds/${GUILD}/modules/counting/actions/ping`, payload: {} })).statusCode, 402);
+  assert.equal(state.writes.length, 1, 'nothing changed after the trial');
+});
+
+test('plan: only Cloudy\'s owner can turn Premium on, and owners always save', async () => {
+  const { handle, store } = makeHandler({ env: { CLOUDY_DASHBOARD_API_SECRET: SECRET, OWNER_IDS: ` ${MEMBER} ` } });
+  const grantPath = '/plans/grant';
+  const denied = await call(handle, { method: 'POST', path: grantPath, payload: { guildId: GUILD, months: 1 } });
+  assert.equal(denied.statusCode, 403, 'a server admin cannot grant Premium');
+
+  const owner = (method, path, payload) => {
+    const body = payload === undefined ? '' : JSON.stringify(payload);
+    return call(handle, { method, path, payload, headers: sign({ method, path: `${DASHBOARD_PREFIX}${path}`, body, actor: MEMBER }) });
+  };
+  assert.equal((await owner('POST', grantPath, { guildId: 'nope', months: 1 })).statusCode, 422);
+  assert.equal((await owner('POST', grantPath, { guildId: GUILD, months: 99 })).statusCode, 422);
+  assert.equal((await owner('POST', grantPath, { guildId: '999999999999999999', months: 1 })).statusCode, 404);
+  const granted = await owner('POST', grantPath, { guildId: GUILD, months: 2 });
+  assert.equal(granted.statusCode, 200);
+  assert.equal(granted.body.plan.status, 'premium');
+  assert.equal(granted.body.plan.until, new Date(NOW + 60 * 86_400_000).toISOString());
+  const extended = await owner('POST', grantPath, { guildId: GUILD, months: 1 });
+  assert.equal(extended.body.plan.until, new Date(NOW + 90 * 86_400_000).toISOString(), 'months are added to what is left');
+  assert.equal((await call(handle, { path: `/guilds/${GUILD}/overview` })).body.plan.status, 'premium');
+  const off = await owner('POST', grantPath, { guildId: GUILD, months: 0 });
+  assert.equal(off.body.plan.status, 'expired');
+  assert.equal(store.get(`guild:${GUILD}:dashboard:audit`)[0].keys[0], 'premium:off');
+});
+
+test('plan: the Discord application owner counts as Cloudy\'s owner', async () => {
+  const { client } = fakeClient();
+  client.application = { owner: { members: new Map([[ADMIN, {}]]) } };
+  client.db.set(`guild:${GUILD}:dashboard:plan`, { trialEndsAt: new Date(NOW - 1).toISOString() });
+  const handle = createDashboardHandler({ client, env: { CLOUDY_DASHBOARD_API_SECRET: SECRET }, nonces: createNonceStore(() => NOW), now: () => NOW });
+  const overview = await call(handle, { path: `/guilds/${GUILD}/overview` });
+  assert.equal(overview.body.plan.status, 'owner');
+  assert.equal(overview.body.plan.canSave, true);
+});
