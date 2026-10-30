@@ -11,7 +11,8 @@ import {
     TextInputStyle,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
-import { errorEmbed, successEmbed, warningEmbed } from '../utils/embeds.js';
+import { successEmbed, warningEmbed } from '../utils/embeds.js';
+import { removeAfterTenSeconds } from '../handlers/giveawayButtons.js';
 import { logger } from '../utils/logger.js';
 import { botConfig } from '../config/bot.js';
 import { logEvent, EVENT_TYPES } from './loggingService.js';
@@ -189,10 +190,17 @@ export async function openGiveawayBuilder(interaction) {
     return session;
 }
 
-const notice = (interaction, embed) => {
+// Short notices disappear after exactly 10 seconds.
+async function notice(interaction, embed) {
     const payload = { embeds: [embed], flags: MessageFlags.Ephemeral };
-    return interaction.replied || interaction.deferred ? interaction.followUp(payload) : interaction.reply(payload);
-};
+    if (interaction.replied || interaction.deferred) {
+        const message = await interaction.followUp(payload);
+        if (message?.id) removeAfterTenSeconds(interaction, message);
+        return message;
+    }
+    await interaction.reply(payload);
+    return removeAfterTenSeconds(interaction);
+}
 
 async function postFromBuilder(interaction, client, session) {
     const { draft } = session;
@@ -213,6 +221,7 @@ async function postFromBuilder(interaction, client, session) {
         embeds: [successEmbed('Success', `The giveaway for **${giveaway.prize}** is live in <#${channel.id}> and ends <t:${endsAt}:R>.`)],
         components: [],
     });
+    removeAfterTenSeconds(interaction);
 
     try {
         await logEvent({
@@ -262,6 +271,7 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
         if (action === 'cancel') {
             closeSession(session, false);
             await interaction.update({ embeds: [successEmbed('Success', 'The giveaway builder was closed. Nothing was posted.')], components: [] });
+            removeAfterTenSeconds(interaction);
             return true;
         }
         if (action === 'post') {
@@ -296,7 +306,7 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
     } catch (error) {
         const message = error?.userMessage || 'Something went wrong. Please try again.';
         if (!error?.userMessage) logger.error(`Giveaway builder ${action} failed:`, error);
-        await notice(interaction, errorEmbed('Error', message)).catch(() => {});
+        await notice(interaction, warningEmbed('Warning', message)).catch(() => {});
         return true;
     }
 }
