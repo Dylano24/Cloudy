@@ -11,7 +11,7 @@ const PATCH_MARKER = Symbol.for('cloudy.interaction-message-lifecycle');
 const COLLECTOR_PATCH_MARKER = Symbol.for('cloudy.dashboard-collector-lifecycle');
 const dashboardTimers = new Map();
 const transientTimers = new Map();
-const DASHBOARD_CUSTOM_ID = /^(?:ticket_dashboard_|jtc_|jointocreate_|simple_embed_|cmdaccess_|config_|verification_|verify_|autoverify_|greet_|welcome_|goodbye_|level_|logging_|log_|economy_|application_|app_admin_|reactroles?_|reaction_role_)/i;
+const DASHBOARD_CUSTOM_ID = /^(?:ticket_dashboard_|giveaway_admin:|jtc_|jointocreate_|simple_embed_|cmdaccess_|config_|verification_|verify_|autoverify_|greet_|welcome_|goodbye_|level_|logging_|log_|economy_|application_|app_admin_|reactroles?_|reaction_role_)/i;
 const DASHBOARD_TITLE = /(?:dashboard|configuration|configure|setup wizard|command access|message builder|modify embed)/i;
 
 const embedData = embed => embed?.toJSON?.() || embed || {};

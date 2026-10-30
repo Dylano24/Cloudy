@@ -1,0 +1,259 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Collection, PermissionFlagsBits } from 'discord.js';
+import { clearAllRateLimits } from '../src/utils/rateLimiter.js';
+import {
+  createGiveawayButtons,
+  createGiveawayEmbed,
+  createWinnerAnnouncement,
+  giveawayPing,
+  DEFAULT_GIVEAWAY_CLAIM,
+} from '../src/services/giveawayService.js';
+import { checkGiveaways, finishGiveaway, loadGiveaway } from '../src/services/giveawayActions.js';
+import buttons from '../src/interactions/buttons/giveaway/giveaway.js';
+import timerModal from '../src/interactions/modals/giveawayTimer.js';
+import create from '../src/commands/Giveaway/gcreate.js';
+
+const GUILD = 'giveaway-guild';
+const MESSAGE = '1565600000000000001';
+const json = value => value?.toJSON?.() || value;
+const button = name => buttons.find(entry => entry.name === name);
+
+function world(stored = {}) {
+  const values = new Map([[`guild:${GUILD}:giveaways`, structuredClone(stored)]]);
+  const client = {
+    db: {
+      get: async (key, fallback) => structuredClone(values.get(key) ?? fallback),
+      set: async (key, value) => { values.set(key, structuredClone(value)); return true; },
+      list: async prefix => [...values.keys()].filter(key => key.startsWith(prefix)),
+    },
+    guilds: { cache: new Collection() },
+    channels: { fetch: async () => null },
+  };
+  const sent = [];
+  const deleted = [];
+  const giveawayMessage = { id: MESSAGE, edits: [], edit: async payload => { giveawayMessage.edits.push(payload); return giveawayMessage; },
+    delete: async () => { deleted.push(MESSAGE); } };
+  const channel = { id: 'giveaways', isTextBased: () => true,
+    messages: { fetch: async id => (id === MESSAGE && !deleted.includes(MESSAGE) ? giveawayMessage : null) },
+    send: async payload => { const message = { id: `sent-${sent.length}`, ...payload, delete: async () => { deleted.push(message.id); } }; sent.push(message); return message; } };
+  const guild = { id: GUILD, ownerId: 'owner', channels: { cache: new Collection([[channel.id, channel]]) } };
+  client.guilds.cache.set(GUILD, guild);
+  const member = (id, permissions = 0n) => ({ id, permissions: { has: flag => (BigInt(permissions) & BigInt(flag)) === BigInt(flag) }, roles: { cache: new Collection() } });
+  function interaction(user = 'member', { staff = false, args = {} } = {}) {
+    const result = { guildId: GUILD, guild, user: { id: user }, member: member(user, staff ? PermissionFlagsBits.ManageGuild : 0n),
+      message: giveawayMessage, inGuild: () => true, replies: [], replied: false, deferred: false, ...args,
+      update: async payload => { result.updated = payload; result.replied = true; },
+      reply: async payload => { result.replies.push(payload); result.replied = true; },
+      followUp: async payload => { result.replies.push(payload); },
+      deferUpdate: async () => { result.deferred = true; },
+      editReply: async payload => { result.edited = payload; },
+      showModal: async modal => { result.modal = modal.toJSON(); } };
+    return result;
+  }
+  return { client, values, sent, deleted, giveawayMessage, channel, guild, interaction };
+}
+
+const activeGiveaway = (extra = {}) => ({ messageId: MESSAGE, channelId: 'giveaways', guildId: GUILD, prize: '1 month vip',
+  winnerCount: 1, participants: [], endsAt: Date.now() + 3_600_000, ended: false, isEnded: false, ...extra });
+
+test('giveaway embed follows the owner layout: emojis, prize, requirements, winners, end time', () => {
+  const giveaway = activeGiveaway({ endsAt: 1_800_000_000_000 });
+  const embed = createGiveawayEmbed(giveaway, 'active');
+  assert.equal(embed.description, [
+    '<a:W89gift:1557507008284987442> **Giveaway time !**',
+    'Cloudy Inc. is giving you the chance to win something special!',
+    '',
+    '<:W89zgiveway:1557507484812312727> **1 month vip**',
+    '',
+    '**Requirements**',
+    'None',
+    '',
+    '**Winners**',
+    '1 winner',
+    '',
+    '<a:W89timer:1557506643372146778> **Giveaway ends**',
+    '<t:1800000000:F> (<t:1800000000:R>)',
+    '',
+    'Good luck to everyone!',
+  ].join('\n'));
+  assert.equal(embed.color, 0xFFFFFF);
+  // A personal description and requirements replace the defaults.
+  const custom = createGiveawayEmbed(activeGiveaway({ description: 'Win big!', requirements: 'Level 5' }), 'active');
+  assert.match(custom.description, /\*\*Giveaway time !\*\*\nWin big!\n/);
+  assert.match(custom.description, /\*\*Requirements\*\*\nLevel 5\n/);
+  // Ended: winners tagged, green, ended time.
+  const ended = createGiveawayEmbed(activeGiveaway({ endedAt: new Date(1_800_000_000_000).toISOString() }), 'ended', ['a', 'b']);
+  assert.match(ended.description, /\*\*Winners\*\*\n<@a>, <@b>\n/);
+  assert.match(ended.description, /\*\*Giveaway ended\*\*\n<t:1800000000:F>/);
+  assert.equal(ended.color, 0x00C49D);
+});
+
+test('buttons: Enter with emoji and entry count, Leave, and a separate staff Manage row', () => {
+  const [entry, manage] = createGiveawayButtons(activeGiveaway({ participants: ['a', 'b', 'c'] })).map(json);
+  assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Leave giveaway']);
+  assert.equal(entry.components[0].emoji.id, '1543303914152001536');
+  assert.deepEqual(manage.components.map(component => component.label), ['Manage']);
+  const [endedEntry] = createGiveawayButtons(activeGiveaway({ participants: ['a'], ended: true })).map(json);
+  assert.deepEqual(endedEntry.components.map(component => [component.label, component.disabled]), [['Enter giveaway (1)', true]]);
+});
+
+test('ping tags @everyone, one role, or nobody', () => {
+  assert.deepEqual(giveawayPing({ id: GUILD }, GUILD), { content: '@everyone', allowedMentions: { parse: ['everyone'] } });
+  assert.deepEqual(giveawayPing({ id: 'giveaway-role' }, GUILD), { content: '<@&giveaway-role>', allowedMentions: { parse: [], roles: ['giveaway-role'] } });
+  assert.deepEqual(giveawayPing(null, GUILD), { content: undefined, allowedMentions: { parse: [] } });
+});
+
+test('Enter and Leave update the entry count; repeats and ended giveaways get a private warning', async () => {
+  clearAllRateLimits();
+  const w = world({ [MESSAGE]: activeGiveaway() });
+  const enter = w.interaction('member');
+  await button('giveaway_enter').execute(enter, w.client);
+  assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, ['member']);
+  assert.equal(json(enter.updated.components[0]).components[0].label, 'Enter giveaway (1)');
+  assert.equal(json(enter.replies[0].embeds[0]).title, 'Success');
+
+  clearAllRateLimits();
+  const again = w.interaction('member');
+  await button('giveaway_enter').execute(again, w.client);
+  assert.equal(again.updated, undefined);
+  assert.match(JSON.stringify(json(again.replies[0].embeds[0])), /already entered/);
+
+  clearAllRateLimits();
+  const leave = w.interaction('member');
+  await button('giveaway_leave').execute(leave, w.client);
+  assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, []);
+  assert.equal(json(leave.updated.components[0]).components[0].label, 'Enter giveaway (0)');
+
+  clearAllRateLimits();
+  const notIn = w.interaction('member');
+  await button('giveaway_leave').execute(notIn, w.client);
+  assert.match(JSON.stringify(json(notIn.replies[0].embeds[0])), /have not entered/);
+
+  // Time is up: nobody can enter any more.
+  clearAllRateLimits();
+  const late = world({ [MESSAGE]: activeGiveaway({ endsAt: Date.now() - 1000 }) });
+  const lateEntry = late.interaction('member');
+  await button('giveaway_enter').execute(lateEntry, late.client);
+  assert.match(JSON.stringify(json(lateEntry.replies[0].embeds[0])), /already ended/);
+  assert.deepEqual((await loadGiveaway(late.client, GUILD, MESSAGE)).participants, []);
+
+  // Buttons on giveaways posted before the new layout still enter.
+  clearAllRateLimits();
+  const legacy = w.interaction('older');
+  await button('giveaway_join').execute(legacy, w.client);
+  assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, ['older']);
+});
+
+test('Manage is staff only and opens the private controls', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({ participants: ['a'] }) });
+  const member = w.interaction('member');
+  await button('giveaway_manage').execute(member, w.client);
+  assert.match(JSON.stringify(json(member.replies[0].embeds[0])), /Only staff/);
+
+  const staff = w.interaction('staff', { staff: true });
+  await button('giveaway_manage').execute(staff, w.client);
+  const panel = staff.replies[0];
+  assert.equal(panel.flags, 64);
+  assert.deepEqual(panel.components.flatMap(row => json(row).components.map(component => component.label)),
+    ['End giveaway', 'Edit timer', 'View participants', 'Delete']);
+
+  const list = w.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(list, w.client, ['participants', MESSAGE]);
+  assert.match(list.replies[0].embeds[0].description, /1\. <@a>/);
+});
+
+test('End draws winners, marks the giveaway, and tags the winners with how to claim the prize', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({ participants: ['winner'], claim: 'DM the owner within 24 hours.' }) });
+  const staff = w.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(staff, w.client, ['end', MESSAGE]);
+  const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.equal(stored.ended, true);
+  assert.deepEqual(stored.winnerIds, ['winner']);
+  const edited = w.giveawayMessage.edits.at(-1);
+  assert.match(edited.embeds[0].description, /\*\*Winners\*\*\n<@winner>/);
+  assert.equal(edited.embeds[0].color, 0x00C49D);
+  const announcement = w.sent.at(-1);
+  assert.equal(announcement.content, '<@winner>');
+  assert.deepEqual(announcement.allowedMentions, { parse: [], users: ['winner'] });
+  assert.equal(announcement.reply.messageReference, MESSAGE);
+  assert.match(announcement.embeds[0].description, /<@winner> has won \*\*1 month vip\*\*!/);
+  assert.match(announcement.embeds[0].description, /\*\*How to claim your prize\*\*\nDM the owner within 24 hours\./);
+  assert.equal(stored.winnerPingMessageId, announcement.id);
+  assert.equal(json(staff.edited.embeds[0]).title, 'Success');
+  // The default claim text is used when none was given.
+  assert.match(createWinnerAnnouncement(activeGiveaway(), ['x']).embeds[0].description, new RegExp(DEFAULT_GIVEAWAY_CLAIM));
+});
+
+test('Reroll draws someone new and announces them; nobody new left is an error', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({ participants: ['first', 'second'], ended: true, isEnded: true, winnerIds: ['first'] }) });
+  const staff = w.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(staff, w.client, ['reroll', MESSAGE]);
+  const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.deepEqual(stored.winnerIds, ['second']);
+  assert.match(w.sent.at(-1).embeds[0].description, /New winner !/);
+  assert.equal(w.sent.at(-1).content, '<@second>');
+
+  const again = w.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(again, w.client, ['reroll', MESSAGE]);
+  assert.match(JSON.stringify(json(again.replies.at(-1).embeds[0])), /already won/);
+});
+
+test('Edit timer sets a new end time from now and updates the giveaway', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway() });
+  const open = w.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(open, w.client, ['timer', MESSAGE]);
+  assert.equal(open.modal.custom_id, `giveaway_timer:${MESSAGE}`);
+  const before = Date.now();
+  const submit = w.interaction('staff', { staff: true, args: { fields: { getTextInputValue: () => '2h' } } });
+  await timerModal.execute(submit, w.client, [MESSAGE]);
+  const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.ok(stored.endsAt >= before + 7_200_000 && stored.endsAt <= Date.now() + 7_200_000);
+  assert.match(w.giveawayMessage.edits.at(-1).embeds[0].description, new RegExp(`<t:${Math.floor(stored.endsAt / 1000)}:F>`));
+});
+
+test('Delete asks to confirm, then removes the record and the giveaway message', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway() });
+  const ask = w.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(ask, w.client, ['delete', MESSAGE]);
+  assert.equal(ask.updated.embeds[0].title, 'Delete giveaway?');
+  const confirm = w.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(confirm, w.client, ['confirmdelete', MESSAGE]);
+  assert.equal(await loadGiveaway(w.client, GUILD, MESSAGE), null);
+  assert.ok(w.deleted.includes(MESSAGE));
+});
+
+test('the automatic check ends due giveaways once; a removed giveaway message is closed without tags', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({ participants: ['winner'], endsAt: Date.now() - 1000 }) });
+  await checkGiveaways(w.client);
+  assert.equal((await loadGiveaway(w.client, GUILD, MESSAGE)).ended, true);
+  assert.equal(w.sent.length, 1);
+  await checkGiveaways(w.client);
+  assert.equal(w.sent.length, 1);
+
+  const gone = world({ [MESSAGE]: activeGiveaway({ participants: ['winner'] }) });
+  gone.deleted.push(MESSAGE);
+  const result = await finishGiveaway(gone.client, gone.guild, MESSAGE);
+  assert.equal(result.announced, false);
+  assert.equal(gone.sent.length, 0);
+  assert.equal((await loadGiveaway(gone.client, GUILD, MESSAGE)).ended, true);
+});
+
+test('/gcreate tags the chosen role and saves the personal texts', async () => {
+  const w = world({});
+  const options = { prize: '1 month vip', duration: '1h', description: 'Win big!\\nGood luck', requirements: 'Level 5', claim: 'DM the owner.' };
+  const interaction = { ...w.interaction('staff', { staff: true }), client: w.client, deferred: true, channel: w.channel,
+    options: { getString: name => options[name] ?? null, getInteger: () => 2, getChannel: () => null, getRole: () => ({ id: 'giveaway-role' }) } };
+  interaction.editReply = async payload => { interaction.edited = payload; };
+  await create.execute(interaction);
+  const posted = w.sent[0];
+  assert.equal(posted.content, '<@&giveaway-role>');
+  assert.deepEqual(posted.allowedMentions, { parse: [], roles: ['giveaway-role'] });
+  const stored = await loadGiveaway(w.client, GUILD, posted.id);
+  assert.equal(stored.description, 'Win big!\nGood luck');
+  assert.equal(stored.requirements, 'Level 5');
+  assert.equal(stored.claim, 'DM the owner.');
+  assert.equal(stored.pingRoleId, 'giveaway-role');
+  assert.match(posted.embeds[0].description, /\*\*Giveaway time !\*\*\nWin big!\nGood luck\n/);
+  assert.match(posted.embeds[0].description, /\*\*Winners\*\*\n2 winners/);
+});
