@@ -392,6 +392,14 @@ test('every giveaway notice disappears after exactly 10 seconds; the giveaway it
   await settle();
   assert.deepEqual(end.deleted, ['@original']);
 
+  // The participants list disappears after 10 seconds too.
+  const list = active.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(list, active.client, ['participants', MESSAGE]);
+  assert.match(list.edited.embeds[0].title, /^Participants/);
+  t.mock.timers.tick(10_000);
+  await settle();
+  assert.deepEqual(list.deleted, ['@original']);
+
   // Giveaway Builder notices follow the same rule.
   const expired = Object.assign(active.interaction('staff', { staff: true }), { customId: 'gbuilder:post:unknown-session' });
   await handleGiveawayBuilderInteraction(expired, active.client);
