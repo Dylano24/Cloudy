@@ -164,7 +164,7 @@ test('Manage is staff only and opens the private controls', async () => {
   const panel = staff.edited;
   assert.equal(staff.deferred, true);
   assert.deepEqual(panel.components.flatMap(row => json(row).components.map(component => component.label)),
-    ['End giveaway', 'Edit timer', 'View participants', 'Delete']);
+    ['End giveaway', 'Edit timer', 'Reroll', 'View participants', 'Delete']);
 
   const list = w.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(list, w.client, ['participants', MESSAGE]);
