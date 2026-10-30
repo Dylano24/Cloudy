@@ -24,9 +24,9 @@ function fixture(action = 'Ban', scope = 'discord') {
 }
 
 // Handled appeals: the answers stay as they were, then Appeal handled at (date and
-// time, as reports), Staff decision and Reason as separate fields.
+// time, as reports), Handled by (tag + outcome) and Reason as separate fields.
 function assertHandledLayout(embed) {
-  assert.deepEqual(embed.fields.map(field => field.name), ['Additional information', 'Appeal handled at', 'Staff decision', 'Reason']);
+  assert.deepEqual(embed.fields.map(field => field.name), ['Additional information', 'Appeal handled at', 'Handled by', 'Reason']);
   assert.equal(embed.fields[0].value, 'Original details');
   assert.match(embed.fields[1].value, /^<t:\d+:F>$/);
   assert.doesNotMatch(JSON.stringify(embed), /This appeal has been handled/);
@@ -81,6 +81,7 @@ test('staff must enter reason; Discord unban/unmute actually run once and persis
     assert.deepEqual(f.message.updated.components, []);
     assert.equal(f.message.updated.embeds[0].color, 0x00C49D);
     assertHandledLayout(f.message.updated.embeds[0]);
+    assert.equal(f.message.updated.embeds[0].fields[2].value, `<@staff>\nThe member has been ${command === 'unban' ? 'unbanned' : 'unmuted'}.`);
     await handleAppealDecision(f.interaction, f.client, [command, f.record.id]);
     assert.equal(calls.length, count + 1);
   }
@@ -95,7 +96,7 @@ test('completed Deny removes buttons and uses the same handled status for Discor
     assert.equal(f.message.updated.embeds[0].color, 0x00C49D);
     assert.deepEqual(f.message.updated.components, []);
     assertHandledLayout(f.message.updated.embeds[0]);
-    assert.match(f.message.updated.embeds[0].fields[2].value, /Denied by/);
+    assert.equal(f.message.updated.embeds[0].fields[2].value, "<@staff>\nThe member's appeal has been denied.");
   }
 });
 
@@ -108,12 +109,12 @@ test('handling an appeal keeps its Owner tag active without pinging anyone else'
   assert.equal(f.message.updated.content, undefined);
 });
 
-test('a handled appeal without answers still gets Appeal handled at before Staff decision', async t => {
+test('a handled appeal without answers still gets Appeal handled at before Handled by', async t => {
   t.mock.method(InteractionHelper, 'safeEditReply', async () => {});
   const f = fixture('Ban', 'discord');
   f.message.embeds[0].toJSON = () => ({ title: 'Discord appeal', fields: [] });
   await handleAppealDecision(f.interaction, f.client, ['deny', f.record.id]);
-  assert.deepEqual(f.message.updated.embeds[0].fields.map(field => field.name), ['Appeal handled at', 'Staff decision', 'Reason']);
+  assert.deepEqual(f.message.updated.embeds[0].fields.map(field => field.name), ['Appeal handled at', 'Handled by', 'Reason']);
 });
 
 test('deny stores a mandatory reason for Discord/Rust, and wrong Discord targets cannot be acted on', async () => {
