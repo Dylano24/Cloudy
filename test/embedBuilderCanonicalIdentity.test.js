@@ -240,13 +240,8 @@ async function openBuilder(t, world, { search = null } = {}) {
   await builder.execute(interaction);
   assert.ok(dashboard?.collector, 'Builder dashboard opened');
   t.after(() => dashboard.collector.stop('test-ended'));
-  // The Builder is a normal message in the channel: its editor button sends
-  // the editor link (it carries the session) to the owner privately.
   const contentButton = rows(dashboard).find(button => button.label === 'Edit title and message');
-  assert.equal(contentButton.url, undefined, 'the public Builder never shows the editor link');
-  const opened = await click('simple_embed_open_content');
-  const editorLink = rows(opened.children[0]).find(button => button.url)?.url;
-  const token = new URL(editorLink).searchParams.get('session');
+  const token = new URL(contentButton.url).searchParams.get('session');
 
   function component(customId, extra = {}) {
     const hook = world.webhook();

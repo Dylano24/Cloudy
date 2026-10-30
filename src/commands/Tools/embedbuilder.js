@@ -1200,12 +1200,9 @@ export function buildControls(state) {
     const titleButton = new ButtonBuilder()
         .setLabel('Edit title and message')
         .setEmoji('✍🏼');
-    // A Builder that everyone in the channel can see never shows the editor
-    // link itself (it carries the editor session): the button sends it to
-    // the owner privately.
-    if (state.contentEditorUrl && state.builderBotManaged) {
-        titleButton.setCustomId('simple_embed_open_content').setStyle(ButtonStyle.Secondary);
-    } else if (state.contentEditorUrl) {
+    // Owner's choice: the editor buttons open the editor directly, also in a
+    // Builder everyone in the channel can see.
+    if (state.contentEditorUrl) {
         titleButton.setURL(state.contentEditorUrl).setStyle(ButtonStyle.Link);
     } else {
         titleButton
@@ -1252,9 +1249,6 @@ export function buildControls(state) {
             const button = new ButtonBuilder()
                 .setLabel('Set side color')
                 .setEmoji('🎨');
-            if (state.colorPickerUrl && state.builderBotManaged) {
-                return button.setCustomId('simple_embed_open_color').setStyle(ButtonStyle.Secondary);
-            }
             if (state.colorPickerUrl) {
                 return button.setURL(state.colorPickerUrl).setStyle(ButtonStyle.Link);
             }
@@ -2282,9 +2276,9 @@ export default {
             // is a normal message in the channel, not a private one. Discord
             // never hides it and Cloudy can edit and remove it at any time, so
             // it stays exactly until 30 minutes without activity. Everyone in
-            // the channel can see it; only its owner can use it, and the editor
-            // links (they carry the editor session) are sent to the owner
-            // privately. Explicit Post/Save remain the only posts of the embed.
+            // the channel can see it; only its owner can use its controls, and
+            // its editor buttons open the editor directly (owner's choice).
+            // Explicit Post/Save remain the only posts of the embed.
             const builderBotManaged = Boolean(interaction.guildId);
 
             // Discord removes private messages from the screen after a while
