@@ -57,7 +57,7 @@ export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomat
         // Render the separator ourselves: Discord mobile uses a vertical bar
         // for the native footer/timestamp separator.
         const timestamp = original.timestamp;
-        if (!timestamp && original.footer?.text?.startsWith('© Cloudy Inc. •')) return source;
+        if (!timestamp && /^© Cloudy Inc\. • (?:Today at \d{2}:\d{2}|\d{2}\/\d{2}\/\d{4} \d{2}:\d{2})$/.test(original.footer?.text || '')) return source;
         const date = timestamp ? new Date(timestamp) : null;
         const validDate = date && Number.isFinite(date.getTime());
         const time = validDate ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' }).format(date) : '';
