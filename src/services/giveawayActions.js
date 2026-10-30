@@ -11,6 +11,8 @@ import {
     createGiveawayButtons,
     createGiveawayEmbed,
     createWinnerAnnouncement,
+    customEmoji,
+    MANAGE_EMOJI_NAME,
     giveawayEndTime,
     giveawayParticipants,
     giveawayPing,
@@ -70,15 +72,15 @@ async function fetchGiveawayMessage(channel, messageId) {
     return attempt(() => channel?.messages?.fetch?.(messageId));
 }
 
-function giveawayMessagePayload(giveaway, status) {
+function giveawayMessagePayload(giveaway, status, client = null) {
     return {
         embeds: [createGiveawayEmbed(giveaway, status, giveaway.winnerIds || [])],
-        components: createGiveawayButtons(giveaway, { ended: status !== 'active' }),
+        components: createGiveawayButtons(giveaway, { ended: status !== 'active', manageIcon: customEmoji(client, MANAGE_EMOJI_NAME) }),
     };
 }
 
-export function activeGiveawayPayload(giveaway) {
-    return giveawayMessagePayload(giveaway, isGiveawayFinished(giveaway) ? 'ended' : 'active');
+export function activeGiveawayPayload(giveaway, client = null) {
+    return giveawayMessagePayload(giveaway, isGiveawayFinished(giveaway) ? 'ended' : 'active', client);
 }
 
 function hasTimedOut(giveaway) {
@@ -163,7 +165,7 @@ export async function postGiveaway(client, guild, channel, draft) {
     const message = await channel.send({
         ...(tag.content ? { content: tag.content } : {}),
         embeds: [createGiveawayEmbed(giveaway, 'active')],
-        components: createGiveawayButtons(giveaway, { ended: false }),
+        components: createGiveawayButtons(giveaway, { ended: false, manageIcon: customEmoji(client, MANAGE_EMOJI_NAME) }),
         allowedMentions: tag.allowedMentions,
     });
     giveaway.messageId = message.id;
@@ -205,7 +207,7 @@ export async function finishGiveaway(client, guild, messageId, { endedBy = 'auto
         // tagged for a giveaway that is no longer visible.
         if (!message) return { giveaway: ended, winners, announced: false };
 
-        await message.edit(giveawayMessagePayload(ended, 'ended'));
+        await message.edit(giveawayMessagePayload(ended, 'ended', client));
         const announcement = await channel.send({
             ...createWinnerAnnouncement(ended, winners),
             reply: { messageReference: messageId, failIfNotExists: false },
@@ -254,7 +256,7 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
         if (!message) {
             throw giveawayError('Giveaway message missing', 'The giveaway message no longer exists, so no new winner was announced.');
         }
-        await message.edit(giveawayMessagePayload(rerolled, 'reroll'));
+        await message.edit(giveawayMessagePayload(rerolled, 'reroll', client));
         const announcement = await channel.send({
             ...createWinnerAnnouncement(rerolled, winners, { reroll: true }),
             reply: { messageReference: messageId, failIfNotExists: false },
@@ -282,7 +284,7 @@ export async function setGiveawayTimer(client, guild, messageId, durationMs) {
         await persist(client, guildId, updated);
         const channel = await fetchGiveawayChannel(client, guild, updated.channelId);
         const message = await fetchGiveawayMessage(channel, messageId);
-        if (message) await message.edit(giveawayMessagePayload(updated, 'active'));
+        if (message) await message.edit(giveawayMessagePayload(updated, 'active', client));
         return updated;
     });
 }

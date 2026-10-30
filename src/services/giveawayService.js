@@ -198,7 +198,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
 
 // Row 1: Enter (with the number of entries) and Leave. Row 2: Manage, which
 // only staff can use. An ended giveaway keeps the final count, disabled.
-export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giveaway) } = {}) {
+export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giveaway), manageIcon = null } = {}) {
     const entry = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('giveaway_enter')
@@ -213,19 +213,27 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
             .setLabel('Leave giveaway')
             .setStyle(ButtonStyle.Danger));
     }
-    const manage = new ActionRowBuilder().addComponents(new ButtonBuilder()
+    const manageButton = new ButtonBuilder()
         .setCustomId('giveaway_manage')
         .setLabel('Manage')
-        .setStyle(ButtonStyle.Secondary));
+        .setStyle(ButtonStyle.Secondary);
+    // The owner's settings emoji (W94setting2) when Cloudy can see it.
+    if (manageIcon) manageButton.setEmoji(manageIcon);
+    const manage = new ActionRowBuilder().addComponents(manageButton);
     return [entry, manage];
 }
 
 // Staff-only controls, shown privately.
 // The owner's white person emoji, found by name in Cloudy's servers; 👤 when missing.
 export const PARTICIPANTS_EMOJI_NAME = 'W881241476043907403887';
+export const MANAGE_EMOJI_NAME = 'W94setting2';
+// A custom emoji from Cloudy's servers, found by name (no ID needed).
+export function customEmoji(client, name, fallback = null) {
+    const emoji = client?.emojis?.cache?.find?.(entry => entry?.name === name);
+    return emoji?.id ? { id: emoji.id, name: emoji.name, animated: Boolean(emoji.animated) } : fallback;
+}
 export function participantsEmoji(client) {
-    const emoji = client?.emojis?.cache?.find?.(entry => entry?.name === PARTICIPANTS_EMOJI_NAME);
-    return emoji?.id ? { id: emoji.id, name: emoji.name, animated: Boolean(emoji.animated) } : '👤';
+    return customEmoji(client, PARTICIPANTS_EMOJI_NAME, '👤');
 }
 
 export function createGiveawayManagePanel(giveaway, { participantsIcon = '👤' } = {}) {
