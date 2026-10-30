@@ -148,13 +148,26 @@ export async function ensureAppealActions(client) {
   let restored = 0;
   for (const message of messages.values()) {
     const embed = message.embeds[0];
-    const match = embed?.title?.match(/^(Discord|Rust server) appeal — (Mute|Ban|Other)$/);
+    const match = embed?.title?.match(/^(Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(Mute|Ban|Other)$/i);
     const id = embed?.description?.match(/\b(CLD-[A-Z0-9-]+)\b/)?.[1]
       || embed?.footer?.text?.match(/Cloudy Inc\. • (CLD-[A-Z0-9-]+)$/)?.[1];
     if (message.author?.id !== client.user.id || !match || !id) continue;
     const presentationEmbeds = message.embeds.map(existing => {
       const data = existing.toJSON();
       delete data.footer;
+      const fields = [];
+      for (const field of data.fields || []) {
+        if (/^This appeal has been handled$/i.test(String(field.name || '').replace(/\*+/g, '').trim()) && fields.length) {
+          const previous = fields[fields.length - 1];
+          const notice = '\n\n**This appeal has been handled**';
+          if (String(previous.value || '').length + notice.length <= 1024) {
+            fields[fields.length - 1] = { ...previous, value: previous.value + notice };
+            continue;
+          }
+        }
+        fields.push(field);
+      }
+      data.fields = fields;
       return data;
     });
     const presentationChanged = JSON.stringify(presentationEmbeds) !== JSON.stringify(message.embeds.map(existing => existing.toJSON()));
