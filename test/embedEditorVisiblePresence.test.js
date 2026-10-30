@@ -90,7 +90,7 @@ test('heartbeat keeps the same Builder preview warm and restarts the fourteen-mi
   assert.match(session, /EMBED_EDITOR_CLOSE_RETURNS_5M_V6/);
   assert.match(session, /session\.onEditorUpdate\('__heartbeat__', ''\)/);
   assert.match(session, /heartbeat proves the page is still open/i);
-  assert.match(session, /Closing starts a fresh normal 5m Builder inactivity window/i);
+  assert.match(session, /Closing starts a fresh normal 30m Builder inactivity window/i);
 });
 
 test('editor lifetime is committed and cannot be overwritten by a startup patch', () => {

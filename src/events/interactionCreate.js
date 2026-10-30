@@ -19,6 +19,7 @@ import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abusePr
 import { isCommandEnabledInConfig } from '../services/commandAccessService.js';
 import { resolveSlashAccessKey } from '../utils/messageAdapter.js';
 import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
+import { removeExpiredBuilderMessage } from '../utils/builderSessionCleanup.js';
 import { isGamblingGameCommand } from '../config/gamblingCommands.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
 import { enforceDefaultCommandPermissions } from '../utils/permissionGuard.js';
@@ -73,6 +74,8 @@ export default {
     // Cloudy feed interactions are handled by their own Owner-only event listener.
     if (interaction.customId?.startsWith('cloudyfeed:')) return;
     if (interaction.__ticketDashboardFastPathHandled) return;
+    // A click on an Embed Builder that already expired removes it.
+    if (await removeExpiredBuilderMessage(interaction)) return;
     const interactionTraceContext = createInteractionTraceContext(interaction);
     interaction.traceContext = interactionTraceContext;
     interaction.traceId = interactionTraceContext.traceId;

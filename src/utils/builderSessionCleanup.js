@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { InteractionWebhook, Message } from 'discord.js';
+import { rememberInteractionMessage } from '../services/deletionAttributionService.js';
 
-export const BUILDER_SESSION_IDLE_MS = 5 * 60_000;
+// The Embed Builder closes after 30 minutes without activity (owner's choice).
+export const BUILDER_SESSION_IDLE_MS = 30 * 60_000;
 const PREVIOUS_BUILDER_IDLE_MS = 5 * 60_000;
 const LEGACY_BUILDER_IDLE_MS = 30 * 60_000;
 const PENDING_MANAGER_PARENT_TTL_MS = 15_000;
@@ -19,6 +21,13 @@ const builderPreviewMessageIds = new Set();
 // Builder control panel id -> the preview above it. Activity on the panel
 // keeps the preview alive too: it has no buttons of its own.
 const sessionPreviews = new Map();
+// Discord lets Cloudy remove a private Builder only while the link of its last
+// click works (15 minutes). A Builder that ended later stays on screen until
+// Discord drops it: message id -> its preview id, so a click on it removes it.
+const expiredBuilderMessages = new Map();
+const EXPIRED_BUILDER_LIMIT = 500;
+// These ids have their own listener (Search in Modify embed).
+const SELF_HANDLED_BUILDER_IDS = /^simple_embed_(?:title_search$|google_search_page_)/;
 
 function embedTitle(embed) {
   return String(embed?.title ?? embed?.data?.title ?? '').trim().toLowerCase();
@@ -157,7 +166,7 @@ export function releaseBuilderSessionHold(holdId) {
     if (holds?.size) continue;
     sessionHoldIds.delete(key);
 
-    // Closing/leaving the editor starts a fresh five-minute inactivity window.
+    // Closing/leaving the editor starts a fresh Builder inactivity window.
     touchBuilderSessionMessage(message);
   }
   return true;
@@ -237,6 +246,7 @@ export async function deleteBuilderSessionMessage(message) {
   // EMBED_EDITOR_EXACT_OPEN_LEASE_V2: editor/color-picker hold blocks every Builder deletion path.
   if (isBuilderSessionHeld(key)) return false;
   clearBuilderSessionTimer(key);
+  const previewMessage = sessionPreviews.get(key);
   const collector = sessionCollectors.get(key);
   sessionCollectors.delete(key);
   parentSessions.delete(key);
@@ -256,9 +266,47 @@ export async function deleteBuilderSessionMessage(message) {
     if (deleted) return true;
   }
 
-  return message.delete?.()
+  const deleted = await (message.delete?.()
     .then(() => true)
-    .catch(() => false) ?? false;
+    .catch(() => false) ?? false);
+  if (!deleted) rememberExpiredBuilderMessage(message, previewMessage);
+  return deleted;
+}
+
+/** A Builder message Cloudy could not remove any more (Discord's 15-minute link). */
+export function rememberExpiredBuilderMessage(message, previewMessage = null) {
+  const id = String(message?.id || message || '').trim();
+  if (!/^\d+$/.test(id)) return false;
+  expiredBuilderMessages.delete(id);
+  expiredBuilderMessages.set(id, String(previewMessage?.id || previewMessage || '').trim() || null);
+  while (expiredBuilderMessages.size > EXPIRED_BUILDER_LIMIT) {
+    expiredBuilderMessages.delete(expiredBuilderMessages.keys().next().value);
+  }
+  return true;
+}
+
+// A click on an expired Builder answers the click and removes that Builder
+// with the click's own (new) link, instead of "This interaction failed".
+export async function removeExpiredBuilderMessage(interaction) {
+  if (!interaction?.isMessageComponent?.()) return false;
+  const id = String(interaction.message?.id || '');
+  if (!expiredBuilderMessages.has(id) || SELF_HANDLED_BUILDER_IDS.test(String(interaction.customId || ''))) {
+    return false;
+  }
+  const previewId = expiredBuilderMessages.get(id);
+  expiredBuilderMessages.delete(id);
+  if (previewId) expiredBuilderMessages.delete(previewId);
+  if (interaction.deferred || interaction.replied) return true;
+
+  const acknowledged = await interaction.deferUpdate().then(() => true).catch(() => false);
+  if (!acknowledged) return true;
+  // Cloudy's own private message: its deletion is never logged.
+  rememberInteractionMessage(id);
+  await Promise.allSettled([
+    interaction.deleteReply(),
+    previewId ? interaction.webhook?.deleteMessage?.(previewId) : null,
+  ]);
+  return true;
 }
 
 export function touchBuilderSessionMessage(message, deleteMessage = null, visited = new Set()) {
@@ -352,9 +400,12 @@ export function installBuilderSessionCleanup() {
 
     collector.on('end', (_collected, reason) => {
       sessionCollectors.delete(String(this.id));
-      sessionPreviews.delete(String(this.id));
       if (shouldDeleteBuilderSessionOnCollectorEnd(reason) && !isBuilderSessionHeld(this.id)) {
+        // Clears the preview link itself (and remembers it if Discord no
+        // longer lets Cloudy remove this Builder).
         void deleteBuilderSessionMessage(this);
+      } else {
+        sessionPreviews.delete(String(this.id));
       }
     });
 
