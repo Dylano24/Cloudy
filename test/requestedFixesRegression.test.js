@@ -32,12 +32,12 @@ test('Cloudy report is a member-visible message context command with message evi
   assert.match(evidence, /This is the reported message/);
   assert.match(evidence, /Attachment 1: https:\/\/cdn\.discordapp\.com\/a\.png/);
   assert.match(evidence, /Attachment 2: https:\/\/cdn\.discordapp\.com\/b\.png/);
-  // Channel and Content are bold headings with their value below (owner's choice).
-  assert.match(evidence, /\n\*\*Channel\*\*\n<#2>\n\*\*Content\*\*\nThis is the reported message\.$/);
+  // Content and Channel are bold headings with their value below, Content first (owner's choice).
+  assert.match(evidence, /\n\*\*Content\*\*\nThis is the reported message\.\n\*\*Channel\*\*\n<#2>$/);
   assert.doesNotMatch(evidence, /Channel:|Content:/);
-  assert.match(reportEvidence({ url: 'u', channel: '<#2>', content: ' ' }), /\*\*Content\*\*\nNo text content$/);
+  assert.match(reportEvidence({ url: 'u', channel: '<#2>', content: ' ' }), /\*\*Content\*\*\nNo text content\n\*\*Channel\*\*\n<#2>$/);
   const long = reportEvidence({ url: 'u', channel: '<#2>', content: 'x'.repeat(2000) });
-  assert.ok(long.length <= 1024 && long.includes('**Content**\nxxx'));
+  assert.ok(long.length <= 1024 && long.includes('**Content**\nxxx') && long.endsWith('**Channel**\n<#2>'));
 });
 
 test('Cloudy Assistant owner trigger is accepted in an ordinary channel', () => {
