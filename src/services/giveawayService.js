@@ -211,7 +211,7 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
         entry.addComponents(new ButtonBuilder()
             .setCustomId('giveaway_leave')
             .setLabel('Leave giveaway')
-            .setStyle(ButtonStyle.Secondary));
+            .setStyle(ButtonStyle.Danger));
     }
     const manage = new ActionRowBuilder().addComponents(new ButtonBuilder()
         .setCustomId('giveaway_manage')
