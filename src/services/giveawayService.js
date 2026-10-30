@@ -225,8 +225,10 @@ export function createGiveawayManagePanel(giveaway) {
     const ended = isGiveawayFinished(giveaway);
     const count = giveawayParticipants(giveaway).length;
     const id = giveaway.messageId;
-    const button = (action, label, style) => new ButtonBuilder()
-        .setCustomId(`giveaway_admin:${action}:${id}`).setLabel(label).setStyle(style);
+    const button = (action, label, style) => {
+        const built = new ButtonBuilder().setCustomId(`giveaway_admin:${action}:${id}`).setLabel(label).setStyle(style);
+        return action === 'participants' ? built.setEmoji('👤') : built;
+    };
     const rows = ended
         ? [
             new ActionRowBuilder().addComponents(
