@@ -1,6 +1,6 @@
 import { MessageFlags, SnowflakeUtil } from 'discord.js';
 import { redisDelete, redisGetJson, redisSetJson } from '../utils/redisCache.js';
-import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID } from './messageLogDestination.js';
+import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID } from './messageLogDestination.js';
 import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback } from './deletionAttributionService.js';
 
 // A deleted message that Discord no longer has in Cloudy's memory (after a
@@ -13,7 +13,7 @@ const MEMORY_LIMIT = 2_000;
 const MAX_CONTENT = 4_000;
 const MAX_EMBED_TEXT = 2_000;
 const MAX_ATTACHMENTS = 10;
-const LOG_CHANNEL_IDS = new Set([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID]);
+const LOG_CHANNEL_IDS = new Set([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID, EMBED_LOG_CHANNEL_ID]);
 
 const memory = new Map();
 

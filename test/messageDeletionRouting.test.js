@@ -5,7 +5,7 @@ import { db } from '../src/utils/database.js';
 import { logDeletedMessage } from '../src/events/messageDelete.js';
 import { rememberMessageDeleter, AUTOMOD_LOG_CHANNEL_ID } from '../src/services/deletionAttributionService.js';
 import bulkDelete from '../src/events/messageDeleteBulk.js';
-import { CLOUDY_GUILD_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
+import { CLOUDY_GUILD_ID, EMBED_LOG_CHANNEL_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID } from '../src/services/messageLogDestination.js';
 
 test('deleted human, moderator and bot messages route by author, including bulk and uncached messages', async t => {
   t.mock.method(globalThis, 'fetch', async url => new Response(Buffer.from(url.includes('video') ? 'video bytes' : 'photo bytes'), { headers: { 'content-type': url.includes('video') ? 'video/mp4' : 'image/png' } }));
@@ -21,7 +21,7 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   guild.members.cache.set('bot', { user: { bot: true }, permissions: new PermissionsBitField(PermissionFlagsBits.Administrator) });
   guild.members.cache.set('staff', { roles: { cache: new Collection([['staff-role', {}]]) } });
   const sent = [];
-  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
+  for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID, EMBED_LOG_CHANNEL_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
     permissionsFor: () => ({ has: () => true }), send: async payload => { sent.push({ id, embed: payload.embeds?.[0]?.toJSON?.() || null, files: payload.files, allowedMentions: payload.allowedMentions });
       return { id: 'log', attachments: new Collection((payload.files || []).map((file, index) => [String(index), { name: file.name, url: `https://cdn.discordapp.com/attachments/${id}/${index}/${file.name}` }])) }; } });
   const message = (id, extra = {}) => ({ id: `message-${id}`, guild, guildId: guild.id, client,
@@ -31,7 +31,8 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(message('mod'));
   await logDeletedMessage(message('member'));
   await logDeletedMessage(message('bot', { content: '', embeds: [{ title: 'Bot embed', description: 'Original bot content' }] }));
-  assert.deepEqual(sent.map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID]);
+  // A deleted Cloudy embed goes to the Embed log.
+  assert.deepEqual(sent.map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID]);
   // No audit log here, so who deleted these cannot be verified: Type follows
   // the deleter, never the author.
   for (const index of [0, 1, 2, 3]) {

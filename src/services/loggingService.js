@@ -18,6 +18,7 @@ import { enforceFixedLogPresentation } from './moderationLogPresentation.js';
 import {
   CLOUDY_GUILD_ID,
   DEDICATED_MESSAGE_LOG_CHANNEL_IDS,
+  EMBED_LOG_CHANNEL_ID,
   messageLogAuthorType,
   messageLogDestination,
 } from './messageLogDestination.js';
@@ -324,8 +325,10 @@ export async function logEvent({
     }
 
     const config = await getGuildConfig(client, guildId);
-    // Embed Builder Deletes are logged in the AutoMod log (owner's choice).
-    const automod = ['automod', 'embed-builder'].includes(data.deletionSource) || /^automod\b/i.test(data.title || '') || (data.lines || []).some(line => /reason.*(?:automod|automatic protection):/i.test(line));
+    // Embed Builder Deletes and other deleted Cloudy embed posts are logged
+    // in the Embed log (owner's choice).
+    const embedLog = eventType === EVENT_TYPES.MESSAGE_DELETE && (data.deletionSource === 'embed-builder' || data.embedPost === true);
+    const automod = !embedLog && (data.deletionSource === 'automod' || /^automod\b/i.test(data.title || '') || (data.lines || []).some(line => /reason.*(?:automod|automatic protection):/i.test(line)));
     const deleter = data.deletedById ? guild.members.cache?.get(data.deletedById) || await guild.members.fetch(data.deletedById).catch(() => ({ id: data.deletedById })) : null;
     const requiredMessageDeletion = guildId === CLOUDY_GUILD_ID && eventType === EVENT_TYPES.MESSAGE_DELETE;
     const ignore = getIgnoreList(config);
@@ -368,7 +371,8 @@ export async function logEvent({
       lines.splice(deletedByIndex + 1, 0, formatLogLine('Type', type));
       data = { ...data, lines };
     }
-    const logChannelId = automod ? AUTOMOD_LOG_CHANNEL_ID : audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);
+    const logChannelId = embedLog ? EMBED_LOG_CHANNEL_ID
+      : automod ? AUTOMOD_LOG_CHANNEL_ID : audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);
     if (!logChannelId) {
       return null;
     }
@@ -376,7 +380,7 @@ export async function logEvent({
     let channel = guild.channels.cache.get(logChannelId) ||
       await guild.channels.fetch(logChannelId).catch(() => null);
 
-    if (!channel && !automod) {
+    if (!channel && !automod && !embedLog) {
       const restoredChannelKey = audienceChannelId
         ? (audienceChannelId === '1555895354187325552' ? 'ownerModMessageLogs' : 'memberMessageLogs')
         : eventType === EVENT_TYPES.MODERATION_KICK
