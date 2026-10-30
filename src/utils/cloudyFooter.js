@@ -54,9 +54,20 @@ export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomat
       // Appeal embeds intentionally omit footer branding; keep this exception
       // limited to the dedicated appeal embed titles.
       if (/^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i.test(title)) {
-        if (original.footer?.text === '© Cloudy Inc.') return source;
+        // Render the separator ourselves: Discord mobile uses a vertical bar
+        // for the native footer/timestamp separator.
+        const timestamp = original.timestamp;
+        if (!timestamp && original.footer?.text?.startsWith('© Cloudy Inc. •')) return source;
+        const date = timestamp ? new Date(timestamp) : null;
+        const validDate = date && Number.isFinite(date.getTime());
+        const time = validDate ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' }).format(date) : '';
+        const day = validDate ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', day: '2-digit', month: '2-digit', year: 'numeric' }).format(date) : '';
+        const today = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date());
+        const text = time ? '© Cloudy Inc. • ' + (day === today ? 'Today at ' + time : day + ' ' + time) : '© Cloudy Inc.';
         changed = true;
-        return { ...original, footer: { text: '© Cloudy Inc.' } };
+        const embed = { ...original, footer: { text } };
+        delete embed.timestamp;
+        return embed;
       }
       // Protect the ZORP Guide and explicitly saved Embed Builder content.
       if (/\bZORP Guide\s*$/i.test(title)
