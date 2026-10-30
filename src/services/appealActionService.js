@@ -11,21 +11,21 @@ export { appealReviewKey, buildAppealActions } from './appealPresentationService
 
 const HANDLED_NOTICE = /\s*\*\*This appeal has been handled\*\*(?:\s*\*\*Staff decision\*\*\n([\s\S]*?))?\s*$/;
 
-// A handled appeal shows Handled at (date and time, as reports do) right
+// A handled appeal shows Appeal handled at (date and time, as reports do) right
 // before Staff decision. The older bold "This appeal has been handled" line,
 // sometimes with Staff decision merged into it, is unfolded into fields.
 export function handledAppealFields(fields, handledAt) {
   const result = [];
   for (const field of fields || []) {
     if (/^This appeal has been handled$/i.test(String(field.name || '').replace(/\*+/g, '').trim())) continue;
-    if (field.name === 'Handled at') continue;
+    if (['Handled at', 'Appeal handled at'].includes(field.name)) continue;
     const value = String(field.value || '');
     const notice = value.match(HANDLED_NOTICE);
     if (!notice) { result.push(field); continue; }
     result.push({ ...field, value: value.slice(0, notice.index) || '\u200B' });
     if (notice[1] !== undefined) result.push({ name: 'Staff decision', value: notice[1], inline: false });
   }
-  const handled = { name: 'Handled at', value: `<t:${Math.floor(handledAt / 1000)}:F>`, inline: false };
+  const handled = { name: 'Appeal handled at', value: `<t:${Math.floor(handledAt / 1000)}:F>`, inline: false };
   const decision = result.findIndex(field => field.name === 'Staff decision');
   if (decision === -1) result.push(handled);
   else result.splice(decision, 0, handled);
@@ -172,7 +172,7 @@ export async function ensureAppealActions(client) {
       await client.db.set(key, record);
     }
     // Existing appeals get the normal Cloudy footer and, once handled, the
-    // Handled at line from their saved review time (never a guessed time).
+    // Appeal handled at line from their saved review time (never a guessed time).
     const handledAt = ['approved', 'denied'].includes(record.status) ? Date.parse(record.reviewedAt) : NaN;
     const presentationEmbeds = message.embeds.map((existing, index) => {
       const data = existing.toJSON();

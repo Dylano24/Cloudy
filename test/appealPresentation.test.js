@@ -13,7 +13,7 @@ const HANDLED_AT = `<t:${Math.floor(REVIEWED / 1000)}:F>`;
 const answer = (value = 'Sjsj') => ({ name: 'Additional information', value, inline: false });
 const decision = { name: 'Staff decision', value: 'Unmuted by <@staff>', inline: false };
 const reason = { name: 'Reason', value: 'rwyhtegr', inline: false };
-const handledAt = { name: 'Handled at', value: HANDLED_AT, inline: false };
+const handledAt = { name: 'Appeal handled at', value: HANDLED_AT, inline: false };
 
 test('appeal embeds always leave with the normal Cloudy footer and no time', async t => {
   const prototype = REST.prototype;
@@ -36,14 +36,15 @@ test('appeal embeds always leave with the normal Cloudy footer and no time', asy
   }
 });
 
-test('handled layout: Handled at sits where the handled notice was, before Staff decision', () => {
+test('handled layout: Appeal handled at sits where the handled notice was, before Staff decision', () => {
   const expected = [answer(), handledAt, decision, reason];
   // Older layouts: notice merged with Staff decision, notice alone, separate notice field.
   assert.deepEqual(handledAppealFields([answer('Sjsj\n\n**This appeal has been handled**\n\n**Staff decision**\nUnmuted by <@staff>'), reason], REVIEWED), expected);
   assert.deepEqual(handledAppealFields([answer('Sjsj\n\n**This appeal has been handled**'), decision, reason], REVIEWED), expected);
   assert.deepEqual(handledAppealFields([answer(), { name: 'This appeal has been handled', value: '​', inline: false }, decision, reason], REVIEWED), expected);
-  // Already converted stays the same.
+  // Already converted stays the same; the earlier Handled at label is renamed.
   assert.deepEqual(handledAppealFields(expected, REVIEWED), expected);
+  assert.deepEqual(handledAppealFields([answer(), { ...handledAt, name: 'Handled at' }, decision, reason], REVIEWED), expected);
 });
 
 function startupFixture(embedData, record) {
