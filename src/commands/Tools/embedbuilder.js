@@ -1358,6 +1358,27 @@ async function flushPreviewUpdateQueue(state) {
 
 const BUILDER_PREVIEW_UNAVAILABLE_CODES = new Set([10008, 10062, 50027]);
 
+// A normal Builder message can be edited two ways. Discord's interaction link
+// (15 minutes after /embedbuilder) has its own limit, so edits through it never
+// wait. A normal channel edit shares the channel's limit of about 5 edits per
+// 5 seconds; going over it makes Discord pause every edit for ~4.5 seconds.
+const BUILDER_LINK_MS = 14 * 60_000;
+const CHANNEL_EDIT_SPACING_MS = 1_050;
+
+function builderLinkUsable(state) {
+    return Number.isFinite(state?.builderLinkSince) && Date.now() - state.builderLinkSince < BUILDER_LINK_MS;
+}
+
+// After the link has expired, space the Builder's own channel edits so the
+// channel limit is never hit. Returns how long this round must wait first.
+function reserveBuilderChannelEditSlot(state, edits = 1) {
+    if (!state?.builderBotManaged || builderLinkUsable(state)) return 0;
+    const now = Date.now();
+    const wait = Math.max(0, (state.nextChannelEditAt || 0) - now);
+    state.nextChannelEditAt = now + wait + CHANNEL_EDIT_SPACING_MS * edits;
+    return wait;
+}
+
 function markBuilderPreviewUnavailable(state) {
     // Discord no longer lets Cloudy edit this private preview (its 15-minute
     // interaction limit, or it was dismissed). The browser editor stays open
@@ -1378,8 +1399,13 @@ export async function editBuilderPreviewMessage(state, interaction, payload) {
     // not the short-lived interaction webhook. Touching the message here also
     // lets the existing AsyncLocalStorage editor hold own the same Builder.
     if (state.builderBotManaged && state.builderMessage?.edit) {
+        touchBuilderSessionMessage(state.builderMessage);
+        if (builderLinkUsable(state) && state.builderMessageId && state.builderWebhook?.editMessage) {
+            const viaLink = await state.builderWebhook.editMessage(state.builderMessageId, payload)
+                .then(() => true, () => false);
+            if (viaLink) return true;
+        }
         try {
-            touchBuilderSessionMessage(state.builderMessage);
             await state.builderMessage.edit(payload);
             return true;
         } catch (error) {
@@ -1430,8 +1456,30 @@ async function deliverBuilderPreviewUpdate(state, interaction, payload) {
     return editBuilderPreviewMessage(state, interaction, payload);
 }
 
+async function editBuilderDashboardViaLink(state, payload) {
+    if (!state.builderDashboardWebhook?.editMessage) return false;
+    try {
+        const edited = await state.builderDashboardWebhook.editMessage(
+            String(state.builderDashboardMessageId),
+            payload,
+        );
+        if (edited) state.builderDashboardMessage = edited;
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 async function editBuilderDashboardMessage(state, payload) {
     if (!state.builderDashboardMessageId) return true;
+
+    // A normal Builder uses the interaction link while it works: no wait for
+    // the channel's shared edit limit.
+    const linkFirst = state.builderBotManaged && builderLinkUsable(state);
+    if (linkFirst) {
+        if (state.builderDashboardMessage) touchBuilderSessionMessage(state.builderDashboardMessage);
+        if (await editBuilderDashboardViaLink(state, payload)) return true;
+    }
 
     if (state.builderDashboardMessage?.edit) {
         try {
@@ -1442,16 +1490,7 @@ async function editBuilderDashboardMessage(state, payload) {
         } catch {}
     }
 
-    if (state.builderDashboardWebhook?.editMessage) {
-        try {
-            const edited = await state.builderDashboardWebhook.editMessage(
-                String(state.builderDashboardMessageId),
-                payload,
-            );
-            if (edited) state.builderDashboardMessage = edited;
-            return true;
-        } catch {}
-    }
+    if (!linkFirst && await editBuilderDashboardViaLink(state, payload)) return true;
 
     return false;
 }
@@ -1563,6 +1602,16 @@ export function queueBuilderRefresh(interaction, state, includeDashboard = true,
             while (state.previewEditPending) {
                 const next = state.previewEditPending;
                 state.previewEditPending = null;
+                const dashboardEdit = Boolean(next.dashboardPayload && state.builderDashboardMessageId);
+                const slotWait = reserveBuilderChannelEditSlot(state, dashboardEdit ? 2 : 1);
+                if (slotWait > 0) await new Promise(resolve => { setTimeout(resolve, slotWait); });
+                // Edits that arrived while waiting are sent in this same round.
+                if (slotWait > 0 && state.previewEditPending) {
+                    next.previewPayload = state.previewEditPending.previewPayload;
+                    next.dashboardPayload = state.previewEditPending.dashboardPayload || next.dashboardPayload;
+                    next.preferOriginalReply = next.preferOriginalReply || state.previewEditPending.preferOriginalReply;
+                    state.previewEditPending = null;
+                }
 
                 // Logo clicks originate on the dashboard, but the preview is the
                 // original slash-command reply. Update that exact reply first;
@@ -2464,6 +2513,8 @@ export default {
             registerBuilderPreviewMessage(previewMessage);
             state.builderMessageId = previewMessage.id;
             state.builderWebhook = interaction.webhook;
+            // Discord's interaction link works 15 minutes after this command.
+            state.builderLinkSince = Number(interaction.createdTimestamp) || Date.now();
             state.builderPreviewUnavailable = false;
 
             state.builderDashboardMessage = dashboardMessage;
