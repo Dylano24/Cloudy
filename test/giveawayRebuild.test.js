@@ -92,7 +92,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   const ended = createGiveawayEmbed(activeGiveaway({ endedAt: new Date(1_800_000_000_000).toISOString() }), 'ended', ['a', 'b']);
   assert.match(ended.description, /\*\*Winners\*\*\n<@a>, <@b>\n/);
   assert.match(ended.description, /\*\*Giveaway ended\*\*\n<t:1800000000:F>/);
-  assert.equal(ended.color, 0x00C49D);
+  assert.equal(ended.color, 0xFFFFFF);
 });
 
 test('buttons: Enter with emoji and entry count, Leave, and a separate staff Manage row', () => {
@@ -180,7 +180,8 @@ test('End draws winners, marks the giveaway, and tags the winners with how to cl
   assert.deepEqual(stored.winnerIds, ['winner']);
   const edited = w.giveawayMessage.edits.at(-1);
   assert.match(edited.embeds[0].description, /\*\*Winners\*\*\n<@winner>/);
-  assert.equal(edited.embeds[0].color, 0x00C49D);
+  assert.equal(edited.embeds[0].color, 0xFFFFFF);
+  assert.equal(w.sent.at(-1).embeds[0].color, 0xFFFFFF);
   const announcement = w.sent.at(-1);
   assert.equal(announcement.content, '<@winner>');
   assert.deepEqual(announcement.allowedMentions, { parse: [], users: ['winner'] });

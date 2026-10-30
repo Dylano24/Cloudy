@@ -141,7 +141,6 @@ export const GIVEAWAY_EMOJIS = Object.freeze({
 });
 export const DEFAULT_GIVEAWAY_DESCRIPTION = 'Cloudy Inc. is giving you the chance to win something special!';
 export const DEFAULT_GIVEAWAY_CLAIM = 'Open a ticket within 24 hours to claim your prize.';
-const GIVEAWAY_GREEN = 0x00C49D;
 const GIVEAWAY_WHITE = 0xFFFFFF;
 
 const unix = ms => Math.floor(Number(ms) / 1000);
@@ -191,7 +190,8 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
     ];
     return {
         description: lines.join('\n').slice(0, 4096),
-        color: ended ? GIVEAWAY_GREEN : GIVEAWAY_WHITE,
+        // Always a white side line, also once ended (owner's choice).
+        color: GIVEAWAY_WHITE,
         thumbnail: { url: CLOUDY_C_LOGO_URL },
     };
 }
@@ -231,7 +231,7 @@ export function createGiveawayManagePanel(giveaway) {
         ? [
             new ActionRowBuilder().addComponents(
                 button('reroll', 'Reroll', ButtonStyle.Secondary),
-                button('participants', 'View participants', ButtonStyle.Secondary)),
+                button('participants', 'View participants', ButtonStyle.Primary)),
             new ActionRowBuilder().addComponents(button('delete', 'Delete', ButtonStyle.Danger)),
         ]
         : [
@@ -240,7 +240,7 @@ export function createGiveawayManagePanel(giveaway) {
                 button('timer', 'Edit timer', ButtonStyle.Secondary),
                 button('reroll', 'Reroll', ButtonStyle.Secondary)),
             new ActionRowBuilder().addComponents(
-                button('participants', 'View participants', ButtonStyle.Secondary),
+                button('participants', 'View participants', ButtonStyle.Primary),
                 button('delete', 'Delete', ButtonStyle.Danger)),
         ];
     const endsAt = giveawayEndTime(giveaway);
@@ -322,7 +322,7 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
                 '**How to claim your prize**',
                 giveaway.claim || DEFAULT_GIVEAWAY_CLAIM,
             ].join('\n'),
-            color: GIVEAWAY_GREEN,
+            color: GIVEAWAY_WHITE,
             thumbnail: { url: CLOUDY_C_LOGO_URL },
         }],
         allowedMentions: { parse: [], users: winners },
