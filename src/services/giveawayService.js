@@ -221,13 +221,20 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
 }
 
 // Staff-only controls, shown privately.
-export function createGiveawayManagePanel(giveaway) {
+// The owner's white person emoji, found by name in Cloudy's servers; 👤 when missing.
+export const PARTICIPANTS_EMOJI_NAME = 'W881241476043907403887';
+export function participantsEmoji(client) {
+    const emoji = client?.emojis?.cache?.find?.(entry => entry?.name === PARTICIPANTS_EMOJI_NAME);
+    return emoji?.id ? { id: emoji.id, name: emoji.name, animated: Boolean(emoji.animated) } : '👤';
+}
+
+export function createGiveawayManagePanel(giveaway, { participantsIcon = '👤' } = {}) {
     const ended = isGiveawayFinished(giveaway);
     const count = giveawayParticipants(giveaway).length;
     const id = giveaway.messageId;
     const button = (action, label, style) => {
         const built = new ButtonBuilder().setCustomId(`giveaway_admin:${action}:${id}`).setLabel(label).setStyle(style);
-        return action === 'participants' ? built.setEmoji('👤') : built;
+        return action === 'participants' ? built.setEmoji(participantsIcon) : built;
     };
     const rows = ended
         ? [

@@ -9,6 +9,7 @@ import {
     createParticipantsList,
     isUserRateLimited,
     parseDuration,
+    participantsEmoji,
     recordUserInteraction,
 } from '../services/giveawayService.js';
 import {
@@ -135,7 +136,7 @@ export async function openManagePanel(interaction, client, messageId = interacti
         await deferPrivate(interaction);
         const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
         if (!giveaway) return notice(interaction, giveawayWarning('This giveaway could not be found.'));
-        return interaction.editReply(createGiveawayManagePanel(giveaway));
+        return interaction.editReply(createGiveawayManagePanel(giveaway, { participantsIcon: participantsEmoji(client) }));
     } catch (error) {
         return onError(interaction, error, 'giveaway_manage');
     }
@@ -182,7 +183,7 @@ export const giveawayAdminHandler = {
             await interaction.deferUpdate();
             const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
             if (!giveaway) return panelDone(interaction, 'This giveaway no longer exists.');
-            if (action === 'panel') return interaction.editReply(createGiveawayManagePanel(giveaway));
+            if (action === 'panel') return interaction.editReply(createGiveawayManagePanel(giveaway, { participantsIcon: participantsEmoji(client) }));
             if (action === 'delete') return interaction.editReply(createDeleteConfirmation(giveaway));
             if (action === 'end') {
                 const { winners } = await finishGiveaway(client, interaction.guild, messageId, { endedBy: interaction.user.id });
