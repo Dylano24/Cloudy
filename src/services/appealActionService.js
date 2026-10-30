@@ -154,7 +154,7 @@ export async function ensureAppealActions(client) {
     if (message.author?.id !== client.user.id || !match || !id) continue;
     const presentationEmbeds = message.embeds.map(existing => {
       const data = existing.toJSON();
-      data.footer = { text: '© Cloudy Inc. •' };
+      data.footer = { text: '© Cloudy Inc.' };
       const fields = [];
       for (const field of data.fields || []) {
         if (/^This appeal has been handled$/i.test(String(field.name || '').replace(/\*+/g, '').trim()) && fields.length) {
