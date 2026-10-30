@@ -6,6 +6,10 @@ export function hasCloudyOwnerMember(member) {
   return roles.some(role => String(role?.name || '').trim().toLowerCase() === OWNER_ROLE_NAME);
 }
 
+export function findCloudyOwnerRole(guild) {
+  return guild?.roles?.cache?.find?.(role => String(role?.name || '').trim().toLowerCase() === OWNER_ROLE_NAME) || null;
+}
+
 export function hasCloudyOwnerRole(messageOrInteraction) {
   return hasCloudyOwnerMember(messageOrInteraction?.member || null);
 }

@@ -3,6 +3,7 @@ import { logger } from '../utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 import { appealReviewKey, buildAppealActions } from '../services/appealPresentationService.js';
+import { findCloudyOwnerRole } from '../services/ownerRoleAccess.js';
 
 const APPEALS_CHANNEL_ID = '1539372283418910810';
 const CLOUDY_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
@@ -77,9 +78,12 @@ export function registerAppealsApi(app, client) {
       const scopeLabel = scope === 'discord' ? 'Discord' : 'Rust server';
 
       const review = { id, guildId: channel.guild.id, channelId: channel.id, scope, action, discordIdentity, gamertag, status: 'pending' };
+      // Tag the Owner role on a new appeal, as reports tag Staff.
+      const ownerRole = findCloudyOwnerRole(channel.guild);
       const sent = await channel.send({
+        ...(ownerRole ? { content: `<@&${ownerRole.id}>` } : {}),
         components: buildAppealActions(review),
-        allowedMentions: { parse: [] },
+        allowedMentions: { parse: [], roles: ownerRole ? [ownerRole.id] : [] },
         ...([punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo].some(value => value.length > 500)
           ? { files: [{ attachment: Buffer.from(JSON.stringify({ id, scope, action, discordIdentity, gamertag, email, punishmentReason, punishmentJustified, acceptanceReason, futureChanges, evidence, additionalInfo }, null, 2)), name: `${id}.txt` }] }
           : {}),

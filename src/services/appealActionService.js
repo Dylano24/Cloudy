@@ -144,7 +144,8 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
       return data;
     });
     // A completed appeal is final: remove its action row instead of disabling it.
-    await message.edit({ embeds, components: [], allowedMentions: { parse: [] } });
+    // Keep the Owner tag active (edits never ping again).
+    await message.edit({ embeds, components: [], allowedMentions: { parse: [], roles: [...(message.mentions?.roles?.keys?.() || [])] } });
     await InteractionHelper.safeEditReply(interaction, { content: 'Success. The appeal has been reviewed.' });
   } catch (error) {
     logger.warn(`Appeal review failed: ${error.message}`);

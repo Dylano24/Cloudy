@@ -14,8 +14,9 @@ const validAppeal = {
   futureChanges: 'Respect the rules',
 };
 
-function fixture(persistResult = false) {
+function fixture(persistResult = false, roles = []) {
   let sendCount = 0;
+  let sentPayload = null;
   let deleteCount = 0;
   let writeCount = 0;
   const channel = {
@@ -23,10 +24,11 @@ function fixture(persistResult = false) {
     name: 'ban-timeout-appeals',
     type: 0,
     rawPosition: 1,
-    guild: { id: 'guild-appeals' },
+    guild: { id: 'guild-appeals', roles: { cache: new Collection(roles.map(role => [role.id, role])) } },
     isTextBased: () => true,
-    async send() {
+    async send(payload) {
       sendCount++;
+      sentPayload = payload;
       return { id: 'appeal-message-id', async delete() { deleteCount++; } };
     },
   };
@@ -53,7 +55,7 @@ function fixture(persistResult = false) {
     body: structuredClone(validAppeal),
   };
   return {
-    send: () => sendCount, removed: () => deleteCount, written: () => writeCount,
+    send: () => sendCount, removed: () => deleteCount, written: () => writeCount, payload: () => sentPayload,
     async submit() { await routes.get('/api/appeals')(req, response); return response; },
   };
 }
@@ -77,4 +79,17 @@ test('a successful appeal retains the review post and reports its case ID', asyn
   assert.equal(f.written(), 1);
   assert.equal(f.send(), 1);
   assert.equal(f.removed(), 0);
+});
+
+test('a new appeal tags only the Owner role, as reports tag Staff', async () => {
+  const f = fixture(true, [{ id: 'staff-role', name: 'Staff' }, { id: 'owner-role', name: 'Owner' }]);
+  assert.equal((await f.submit()).code, 200);
+  assert.equal(f.payload().content, '<@&owner-role>');
+  assert.deepEqual(f.payload().allowedMentions, { parse: [], roles: ['owner-role'] });
+
+  // Without an Owner role nothing is tagged.
+  const plain = fixture(true);
+  assert.equal((await plain.submit()).code, 200);
+  assert.equal(plain.payload().content, undefined);
+  assert.deepEqual(plain.payload().allowedMentions, { parse: [], roles: [] });
 });
