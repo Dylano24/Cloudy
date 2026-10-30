@@ -237,7 +237,8 @@ export function createGiveawayManagePanel(giveaway) {
         : [
             new ActionRowBuilder().addComponents(
                 button('end', 'End giveaway', ButtonStyle.Danger),
-                button('timer', 'Edit timer', ButtonStyle.Primary)),
+                button('timer', 'Edit timer', ButtonStyle.Primary),
+                button('reroll', 'Reroll', ButtonStyle.Primary)),
             new ActionRowBuilder().addComponents(
                 button('participants', 'View participants', ButtonStyle.Secondary),
                 button('delete', 'Delete', ButtonStyle.Danger)),
