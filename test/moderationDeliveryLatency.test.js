@@ -55,7 +55,7 @@ test('sent moderation messages and giveaways acknowledge before optional audit l
   for (const [path, trigger, acknowledge] of [
     ['../src/commands/Moderation/say.js', 'const sentMessage = await channel.send(', 'await InteractionHelper.safeEditReply('],
     ['../src/commands/Moderation/dm.js', 'await dmChannel.send(', 'await InteractionHelper.safeEditReply('],
-    ['../src/commands/Giveaway/gcreate.js', 'const saved = await saveGiveaway(', 'await InteractionHelper.safeReply('],
+    ['../src/services/giveawayBuilderService.js', 'const giveaway = await postGiveaway(', 'await interaction.editReply('],
   ]) {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8');
     const delivery = source.indexOf(trigger);

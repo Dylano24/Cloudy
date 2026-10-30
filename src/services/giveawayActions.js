@@ -13,8 +13,12 @@ import {
     createWinnerAnnouncement,
     giveawayEndTime,
     giveawayParticipants,
+    giveawayPing,
+    giveawayText,
     isGiveawayFinished,
     selectWinners,
+    validatePrize,
+    validateWinnerCount,
 } from './giveawayService.js';
 
 const lockKey = messageId => `giveaway:${messageId}`;
@@ -125,6 +129,50 @@ async function logGiveaway(client, guildId, eventType, description, giveaway, ex
     } catch (error) {
         logger.debug('Error logging giveaway event:', error);
     }
+}
+
+// Posts a new giveaway (with its tag) and saves it. A giveaway that cannot be
+// saved is removed again, so no button ever points at a missing record.
+export async function postGiveaway(client, guild, channel, draft) {
+    const prize = validatePrize(draft.prize);
+    const winnerCount = Number(draft.winnerCount);
+    validateWinnerCount(winnerCount);
+    const ping = draft.ping?.type === 'everyone' ? { id: guild.id }
+        : draft.ping?.type === 'role' && draft.ping.roleId ? { id: draft.ping.roleId } : null;
+    const tag = giveawayPing(ping, guild.id);
+    const endsAt = Date.now() + Number(draft.durationMs);
+    const giveaway = {
+        messageId: 'placeholder',
+        channelId: channel.id,
+        guildId: guild.id,
+        prize,
+        description: giveawayText(draft.description, 1000),
+        requirements: giveawayText(draft.requirements, 500),
+        claim: giveawayText(draft.claim, 500),
+        pingRoleId: draft.ping?.type === 'role' ? draft.ping.roleId : null,
+        pingEveryone: draft.ping?.type === 'everyone',
+        hostId: draft.hostId,
+        endTime: endsAt,
+        endsAt,
+        winnerCount,
+        participants: [],
+        isEnded: false,
+        ended: false,
+        createdAt: new Date().toISOString(),
+    };
+    const message = await channel.send({
+        ...(tag.content ? { content: tag.content } : {}),
+        embeds: [createGiveawayEmbed(giveaway, 'active')],
+        components: createGiveawayButtons(giveaway, { ended: false }),
+        allowedMentions: tag.allowedMentions,
+    });
+    giveaway.messageId = message.id;
+    if (!await saveGiveaway(client, guild.id, giveaway)) {
+        logger.warn(`Failed to save giveaway to database: ${message.id}`);
+        await message.delete().catch(() => {});
+        throw giveawayError('Giveaway persistence failed', 'The giveaway could not be saved. Please try again.', ErrorTypes.DATABASE);
+    }
+    return giveaway;
 }
 
 // Draws the winners, marks the giveaway ended, and announces the winners.

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection } from 'discord.js';
-import create from '../src/commands/Giveaway/gcreate.js';
+import { postGiveaway } from '../src/services/giveawayActions.js';
 import reroll from '../src/commands/Giveaway/greroll.js';
 import remove from '../src/commands/Giveaway/gdelete.js';
 import end from '../src/commands/Giveaway/gend.js';
@@ -30,9 +30,9 @@ test('giveaway creation rolls back its posted panel and reports failure when its
   const channel = { id: 'target', name: 'giveaways', isTextBased: () => true,
     send: async () => ({ id: '123456789012345678', delete: async () => { deleted++; } }) };
   const f = fixture({ channel });
-  f.interaction.options.getString = name => name === 'duration' ? '1h' : 'Prize';
   let failure;
-  await create.execute(f.interaction).catch(error => { failure = error; });
+  await postGiveaway(f.client, f.interaction.guild, channel, { prize: 'Prize', durationMs: 3_600_000, winnerCount: 1, hostId: 'manager' })
+    .catch(error => { failure = error; });
   assert.equal(f.replies.length, 0);
   assert.equal(f.logLookups(), 0);
   assert.equal(deleted, 1);

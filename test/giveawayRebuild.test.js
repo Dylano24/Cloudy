@@ -13,6 +13,7 @@ import { checkGiveaways, finishGiveaway, loadGiveaway } from '../src/services/gi
 import buttons from '../src/interactions/buttons/giveaway/giveaway.js';
 import timerModal from '../src/interactions/modals/giveawayTimer.js';
 import create from '../src/commands/Giveaway/gcreate.js';
+import { handleGiveawayBuilderInteraction } from '../src/services/giveawayBuilderService.js';
 
 const GUILD = 'giveaway-guild';
 const MESSAGE = '1565600000000000001';
@@ -239,21 +240,71 @@ test('the automatic check ends due giveaways once; a removed giveaway message is
   assert.equal((await loadGiveaway(gone.client, GUILD, MESSAGE)).ended, true);
 });
 
-test('/gcreate tags the chosen role and saves the personal texts', async () => {
+test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, then Post', async () => {
   const w = world({});
-  const options = { prize: '1 month vip', duration: '1h', description: 'Win big!\\nGood luck', requirements: 'Level 5', claim: 'DM the owner.' };
-  const interaction = { ...w.interaction('staff', { staff: true }), client: w.client, deferred: true, channel: w.channel,
-    options: { getString: name => options[name] ?? null, getInteger: () => 2, getChannel: () => null, getRole: () => ({ id: 'giveaway-role' }) } };
-  interaction.editReply = async payload => { interaction.edited = payload; };
-  await create.execute(interaction);
+  const staff = w.interaction('staff', { staff: true });
+  const command = Object.assign(staff, { channelId: 'giveaways', guild: { ...w.guild, channels: { ...w.guild.channels, fetch: async id => w.guild.channels.cache.get(id) } } });
+  await create.execute(command);
+  const builder = command.replies[0];
+  assert.equal(builder.flags, 64);
+  assert.match(builder.embeds[0].description, /Your prize/);
+  assert.equal(json(builder.embeds[1]).title, 'Giveaway builder');
+  const controls = builder.components.map(json);
+  const sessionId = controls[2].components[0].custom_id.split(':')[2];
+  const postButton = controls[3].components[0];
+  assert.equal(postButton.label, 'Post giveaway');
+  assert.equal(postButton.disabled, true);
+
+  const click = (customId, extra = {}) => Object.assign(w.interaction('staff', { staff: true }), { guild: command.guild, customId, ...extra });
+  // Edit text form: prize, description, requirements, claim.
+  const openText = click(`gbuilder:text:${sessionId}`);
+  await handleGiveawayBuilderInteraction(openText, w.client);
+  assert.deepEqual(openText.modal.components.map(row => row.components[0].custom_id), ['prize', 'description', 'requirements', 'claim']);
+  const texts = { prize: '1 month vip', description: 'Win big!\nGood luck', requirements: 'Level 5', claim: 'DM the owner.' };
+  const textForm = click(`gbuilder:textform:${sessionId}`, { fields: { getTextInputValue: name => texts[name] } });
+  await handleGiveawayBuilderInteraction(textForm, w.client);
+  assert.match(textForm.updated.embeds[0].description, /\*\*1 month vip\*\*/);
+  assert.equal(json(textForm.updated.components[3]).components[0].disabled, false);
+  // Duration & winners form, with validation.
+  const badTiming = click(`gbuilder:timingform:${sessionId}`, { fields: { getTextInputValue: name => (name === 'duration' ? 'soon' : '2') } });
+  await handleGiveawayBuilderInteraction(badTiming, w.client);
+  assert.match(JSON.stringify(json(badTiming.replies[0].embeds[0])), /Invalid duration/);
+  const timing = click(`gbuilder:timingform:${sessionId}`, { fields: { getTextInputValue: name => (name === 'duration' ? '2h' : '2') } });
+  await handleGiveawayBuilderInteraction(timing, w.client);
+  assert.match(timing.updated.embeds[0].description, /\*\*Winners\*\*\n2 winners/);
+  // Tag a role with the role picker, then post.
+  const role = click(`gbuilder:role:${sessionId}`, { values: ['giveaway-role'], isRoleSelectMenu: () => true });
+  await handleGiveawayBuilderInteraction(role, w.client);
+  assert.equal(json(role.updated.embeds[1]).fields.find(field => field.name === 'Tag').value, '<@&giveaway-role>');
+  const post = click(`gbuilder:post:${sessionId}`);
+  await handleGiveawayBuilderInteraction(post, w.client);
   const posted = w.sent[0];
   assert.equal(posted.content, '<@&giveaway-role>');
   assert.deepEqual(posted.allowedMentions, { parse: [], roles: ['giveaway-role'] });
+  assert.match(posted.embeds[0].description, /\*\*Giveaway time !\*\*\nWin big!\nGood luck\n/);
   const stored = await loadGiveaway(w.client, GUILD, posted.id);
-  assert.equal(stored.description, 'Win big!\nGood luck');
   assert.equal(stored.requirements, 'Level 5');
   assert.equal(stored.claim, 'DM the owner.');
-  assert.equal(stored.pingRoleId, 'giveaway-role');
-  assert.match(posted.embeds[0].description, /\*\*Giveaway time !\*\*\nWin big!\nGood luck\n/);
-  assert.match(posted.embeds[0].description, /\*\*Winners\*\*\n2 winners/);
+  assert.equal(stored.winnerCount, 2);
+  assert.ok(stored.endsAt > Date.now() + 7_100_000);
+  assert.equal(json(post.edited.embeds[0]).title, 'Success');
+  // The builder is closed once posted.
+  const late = click(`gbuilder:post:${sessionId}`);
+  await handleGiveawayBuilderInteraction(late, w.client);
+  assert.match(JSON.stringify(json(late.replies[0].embeds[0])), /expired/);
+  assert.equal(w.sent.length, 1);
+});
+
+test('only staff can open the Giveaway Builder; @everyone can be tagged', async () => {
+  const w = world({});
+  const member = Object.assign(w.interaction('member'), { channelId: 'giveaways' });
+  await create.execute(member);
+  assert.match(JSON.stringify(json(member.replies[0].embeds[0])), /Only staff/);
+  const staff = Object.assign(w.interaction('staff', { staff: true }), { channelId: 'giveaways' });
+  await create.execute(staff);
+  const sessionId = json(staff.replies[0].components[2]).components[0].custom_id.split(':')[2];
+  const everyone = Object.assign(w.interaction('staff', { staff: true }), { customId: `gbuilder:everyone:${sessionId}` });
+  await handleGiveawayBuilderInteraction(everyone, w.client);
+  assert.equal(json(everyone.updated.embeds[1]).fields.find(field => field.name === 'Tag').value, '@everyone');
+  assert.equal(json(everyone.updated.components[2]).components[2].label, 'Untag @everyone');
 });
