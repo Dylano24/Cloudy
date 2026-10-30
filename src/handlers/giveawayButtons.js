@@ -107,7 +107,7 @@ async function changeEntry(interaction, client, enter) {
         if (result.status === 'already') return warn(interaction, 'You have already entered this giveaway.');
         if (result.status === 'not-entered') return warn(interaction, 'You have not entered this giveaway.');
         // Refresh the giveaway itself (entry count on the button), then confirm privately.
-        await interaction.editReply(activeGiveawayPayload(result.giveaway));
+        await interaction.editReply(activeGiveawayPayload(result.giveaway, client));
         await notice(interaction, successEmbed('Success', enter
             ? 'You entered the giveaway. Good luck!'
             : 'You left the giveaway.'));

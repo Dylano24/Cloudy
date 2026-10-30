@@ -100,6 +100,9 @@ test('buttons: Enter with emoji and entry count, Leave, and a separate staff Man
   assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Leave giveaway']);
   assert.equal(entry.components[0].emoji.id, '1543303914152001536');
   assert.deepEqual(manage.components.map(component => component.label), ['Manage']);
+  const settings = { id: '777', name: 'W94setting2' };
+  const [, withIcon] = createGiveawayButtons(activeGiveaway(), { manageIcon: settings }).map(json);
+  assert.equal(withIcon.components[0].emoji.id, '777');
   const [endedEntry] = createGiveawayButtons(activeGiveaway({ participants: ['a'], ended: true })).map(json);
   assert.deepEqual(endedEntry.components.map(component => [component.label, component.disabled]), [['Enter giveaway (1)', true]]);
 });
