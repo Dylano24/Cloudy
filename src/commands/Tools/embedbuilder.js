@@ -73,6 +73,7 @@ import { rememberBuilderOwnedMessage, withBuilderOwnedNonce } from '../../utils/
 import {
     BUILDER_SESSION_IDLE_MS,
     linkBuilderSessionPreview,
+    registerBuilderInteraction,
     rememberExpiredBuilderMessage,
     touchBuilderSessionMessage,
 } from '../../utils/builderSessionCleanup.js';
@@ -1199,7 +1200,12 @@ export function buildControls(state) {
     const titleButton = new ButtonBuilder()
         .setLabel('Edit title and message')
         .setEmoji('✍🏼');
-    if (state.contentEditorUrl) {
+    // A Builder that everyone in the channel can see never shows the editor
+    // link itself (it carries the editor session): the button sends it to
+    // the owner privately.
+    if (state.contentEditorUrl && state.builderBotManaged) {
+        titleButton.setCustomId('simple_embed_open_content').setStyle(ButtonStyle.Secondary);
+    } else if (state.contentEditorUrl) {
         titleButton.setURL(state.contentEditorUrl).setStyle(ButtonStyle.Link);
     } else {
         titleButton
@@ -1246,6 +1252,9 @@ export function buildControls(state) {
             const button = new ButtonBuilder()
                 .setLabel('Set side color')
                 .setEmoji('🎨');
+            if (state.colorPickerUrl && state.builderBotManaged) {
+                return button.setCustomId('simple_embed_open_color').setStyle(ButtonStyle.Secondary);
+            }
             if (state.colorPickerUrl) {
                 return button.setURL(state.colorPickerUrl).setStyle(ButtonStyle.Link);
             }
@@ -1615,8 +1624,12 @@ async function refreshBuilderPreviewOnly(interaction, state) {
 // and editor stay; only these old messages go (when Discord still allows it).
 async function retireResumedBuilderMessages(interaction, previewMessage, dashboardMessage) {
     unregisterBuilderPreviewMessage(previewMessage);
-    const [, dashboard] = await Promise.allSettled([previewMessage, dashboardMessage].map(message =>
-        interaction.webhook?.deleteMessage?.(message.id) ?? message.delete?.()));
+    // A normal message is removed directly at any time; a private one only
+    // through its interaction link.
+    const [, dashboard] = await Promise.allSettled([previewMessage, dashboardMessage].map(async message => {
+        if (await message?.delete?.().then(() => true, () => false)) return;
+        await interaction.webhook?.deleteMessage?.(message.id);
+    }));
     // Discord no longer lets Cloudy remove the old copy: a click on it does.
     if (dashboard.status === 'rejected') rememberExpiredBuilderMessage(dashboardMessage, previewMessage);
 }
@@ -2015,7 +2028,11 @@ async function openPrivateBuilderEditor(buttonInteraction, state, mode) {
     });
     const message = response?.resource?.message
         || (response?.id ? response : await buttonInteraction.fetchReply());
-    if (message?.id) state.builderChildMessages.set(message.id, message);
+    if (message?.id) {
+        state.builderChildMessages.set(message.id, message);
+        // Removed with the Builder through this click's own link.
+        if (buttonInteraction.webhook) builderChildWebhooks.set(message, buttonInteraction.webhook);
+    }
 }
 
 // Keep the ephemeral picker as the component interaction's message after
@@ -2261,11 +2278,14 @@ export default {
             // Do not spend a Discord round-trip on a defer before rendering a
             // panel that can be built locally. The first panel is sent directly.
 
-            // A read-only Builder preview is private UI, never a physical
-            // Discord post. Previous guild bot-managed previews were public,
-            // so opening a report in another channel leaked its full embed.
-            // Explicit Post/Save routes remain the only physical mutations.
-            const builderBotManaged = false;
+            // Owner's choice: in a server the Builder (preview and controls)
+            // is a normal message in the channel, not a private one. Discord
+            // never hides it and Cloudy can edit and remove it at any time, so
+            // it stays exactly until 30 minutes without activity. Everyone in
+            // the channel can see it; only its owner can use it, and the editor
+            // links (they carry the editor session) are sent to the owner
+            // privately. Explicit Post/Save remain the only posts of the embed.
+            const builderBotManaged = Boolean(interaction.guildId);
 
             // Discord removes private messages from the screen after a while
             // (or when the app reloads), e.g. during a long editor session.
@@ -2311,6 +2331,8 @@ export default {
                 colorSessionToken: null,
                 builderChildMessages: new Map(),
             };
+
+            state.builderBotManaged = builderBotManaged;
 
             // Search selection uses the exact same state loader as Modify so the
             // first live preview, editor fields and Save target all point to the selected embed.
@@ -2406,12 +2428,15 @@ export default {
             state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
             state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
 
-            // Both original preview and controls are ephemeral interaction
-            // responses. Never call channel.send while merely opening or
-            // browsing an embed. A 30-minute session still uses the existing
-            // collector, color editor, cleanup, and fixed webhook message IDs.
+            // Preview and controls are this command's own replies (normal
+            // messages in a server, private elsewhere). Never call channel.send
+            // while merely opening or browsing an embed. A 30-minute session
+            // still uses the existing collector, color editor and cleanup.
             let previewMessage = null;
             let dashboardMessage = null;
+            const builderReplyFlags = builderBotManaged ? {} : { flags: MessageFlags.Ephemeral };
+            // Recognised as Builder UI from its first gateway event on.
+            registerBuilderInteraction(interaction.id);
             registerBuilderPreviewReplyToken(interaction.token);
             const initialShown = await InteractionHelper.safeReply(interaction, {
                 embeds: [buildPreviewEmbed(state)],
@@ -2419,13 +2444,13 @@ export default {
                 // A resumed draft can hold a converted GIF that is not posted yet.
                 ...(state.mediaBuffer && state.mediaName
                     ? { files: [{ attachment: state.mediaBuffer, name: state.mediaName }] } : {}),
-                flags: MessageFlags.Ephemeral,
+                ...builderReplyFlags,
             });
             if (initialShown) {
                 const dashboardPromise = interaction.followUp({
                     embeds: [buildControlEmbed(state)],
                     components: buildControls(state),
-                    flags: MessageFlags.Ephemeral,
+                    ...builderReplyFlags,
                     fetchReply: true,
                 }).catch(() => null);
                 [previewMessage, dashboardMessage] = await Promise.all([
@@ -2451,7 +2476,9 @@ export default {
             state.builderDashboardMessageId = dashboardMessage.id;
             // The preview lives exactly as long as the controls below it.
             linkBuilderSessionPreview(dashboardMessage, previewMessage);
-            state.builderDashboardWebhook = builderBotManaged ? null : interaction.webhook;
+            // Normal messages are edited directly; the interaction link is
+            // only a fallback while it works (15 minutes).
+            state.builderDashboardWebhook = interaction.webhook;
             const collector = dashboardMessage.createMessageComponentCollector({
                 filter: buttonInteraction =>
                     buttonInteraction.isButton() &&
