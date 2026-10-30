@@ -7,7 +7,6 @@ function requireEarlyAckSource() {
   return fs.readFileSync('src/events/interactionCreate.js', 'utf8');
 }
 import { EventEmitter } from 'node:events';
-import { MessageFlags } from 'discord.js';
 import embedBuilderCommand from '../src/commands/Tools/embedbuilder.js';
 import { db } from '../src/utils/database.js';
 import { getEmbedRegistry } from '../src/services/embedRegistryService.js';
@@ -85,7 +84,7 @@ test('selected Builder Search is acknowledged before expensive configuration or 
   const source = requireEarlyAckSource();
   const begin = source.indexOf('ResponseCoordinator.attach(interaction)');
   const earlyAck = source.indexOf("interaction.commandName === 'embedbuilder'", begin);
-  const defer = source.indexOf('await interaction.deferReply({ flags: MessageFlags.Ephemeral })', earlyAck);
+  const defer = source.indexOf('await interaction.deferReply(interaction.guildId ? {} : { flags: MessageFlags.Ephemeral })', earlyAck);
   const validations = source.indexOf('validateChatInputPayloadOrThrow(interaction', begin);
   const guildConfig = source.indexOf('const guildConfigPromise = interaction.guild', begin);
   const handler = source.indexOf('await command.execute(interaction', begin);
@@ -140,7 +139,7 @@ test('Search name carries into unsaved automated previews, not manually posted B
   }
 });
 
-test('an acknowledged guild Builder keeps its private preview, dashboard and owner-only controls', async t => {
+test('an acknowledged guild Builder keeps its preview, dashboard and owner-only controls as normal messages', async t => {
   t.mock.method(db, 'get', async () => []);
   const collector = new EventEmitter();
   collector.stop = () => { collector.ended = true; collector.emit('end'); };
@@ -167,7 +166,7 @@ test('an acknowledged guild Builder keeps its private preview, dashboard and own
   assert.ok(previewPayload?.embeds?.length);
   assert.equal(previewPayload.flags, undefined);
   assert.equal(dashboardPayload.embeds[0].toJSON().title, 'Message builder');
-  assert.equal(dashboardPayload.flags, MessageFlags.Ephemeral);
+  assert.equal(dashboardPayload.flags, undefined, 'in a server the controls are a normal message (owner\'s choice)');
   assert.ok(dashboardPayload.components.length);
   assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'owner' }, customId: 'simple_embed_post' }), true);
   assert.equal(collectorOptions.filter({ isButton: () => true, user: { id: 'other' }, customId: 'simple_embed_post' }), false);
