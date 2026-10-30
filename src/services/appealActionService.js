@@ -6,6 +6,7 @@ import { logger, startupLog } from '../utils/logger.js';
 import { appealReviewKey, appealActions, buildAppealActions } from './appealPresentationService.js';
 import { resolveDiscordAppealIdentity } from './appealIdentityService.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
+import { appealFooterShowsTime, formatAppealFooter } from '../utils/cloudyFooter.js';
 export { appealReviewKey, buildAppealActions } from './appealPresentationService.js';
 
 function balanceAppealNotice(data) {
@@ -157,7 +158,7 @@ export async function ensureAppealActions(client) {
   const channel = await resolveCloudyChannel(client, 'banTimeoutAppeals', { textOnly: true });
   if (!channel) return;
   const messages = await channel.messages.fetch({ limit: 100 });
-  let restored = 0;
+  let restored = 0, footersRestored = 0;
   for (const message of messages.values()) {
     const embed = message.embeds[0];
     const match = embed?.title?.match(/^(Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(Mute|Ban|Other)$/i);
@@ -166,7 +167,12 @@ export async function ensureAppealActions(client) {
     if (message.author?.id !== client.user.id || !match || !id) continue;
     const presentationEmbeds = message.embeds.map(existing => {
       const data = existing.toJSON();
-      if (data.timestamp || !data.footer?.text?.startsWith('© Cloudy Inc. •')) data.footer = { text: '© Cloudy Inc.' };
+      // Restore a footer that lost (or never showed) the original post time
+      // from the message's own creation time; a correct footer stays as is.
+      if (data.timestamp || !appealFooterShowsTime(data.footer?.text, message.createdTimestamp)) {
+        data.footer = { text: formatAppealFooter(message.createdTimestamp) };
+        delete data.timestamp;
+      }
       const fields = [];
       for (const field of data.fields || []) {
         if (/^This appeal has been handled$/i.test(String(field.name || '').replace(/\*+/g, '').trim()) && fields.length) {
@@ -183,6 +189,10 @@ export async function ensureAppealActions(client) {
       return data;
     });
     const presentationChanged = JSON.stringify(presentationEmbeds) !== JSON.stringify(message.embeds.map(existing => existing.toJSON()));
+    if (presentationEmbeds[0]?.footer?.text !== message.embeds[0]?.toJSON().footer?.text) {
+      footersRestored++;
+      logger.info(`[Appeals] Footer restored for ${message.id}: ${presentationEmbeds[0].footer.text}`);
+    }
     const key = appealReviewKey(channel.guild.id, id);
     let record = await client.db.get(key);
     if (!record) {
@@ -204,6 +214,6 @@ export async function ensureAppealActions(client) {
       if (!hasAppealActions) restored++;
     }
   }
-  startupLog(`Appeal action buttons ready; ${restored} existing appeals linked.`);
+  startupLog(`Appeal action buttons ready; ${restored} existing appeals linked; ${footersRestored} footers restored.`);
 }
 
