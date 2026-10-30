@@ -75,7 +75,7 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
       async deleteMessage() {},
       async editMessage(messageId, payload) {
         if (String(messageId) === String(preview.id)) return preview.edit(payload);
-        if (String(messageId) === String(this.lastDashboard?.id)) return this.lastDashboard.edit(payload);
+        if (String(messageId) === String(interaction.lastDashboard?.id)) return interaction.lastDashboard.edit(payload);
         return null;
       },
     },
