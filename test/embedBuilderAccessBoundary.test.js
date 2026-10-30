@@ -107,29 +107,42 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
   return { guild, member, channel, client, preview, interaction, publicPayloads, privatePayloads, childPayloads, childMessages, component, storage };
 }
 function buttons(payload) { return (payload.components || []).flatMap(row => (row.toJSON?.() || row).components || []); }
+// The Builder is a normal message in the channel: its editor buttons send the
+// editor link (it carries the editor session) to the owner privately.
+async function openEditorLink(f, dashboard, launch = 'simple_embed_open_content') {
+  const before = f.childPayloads.length;
+  await dashboard.collector.listeners('collect')[0](f.component(launch));
+  const payload = f.childPayloads[before];
+  assert.ok(Number(payload?.flags || 0) & MessageFlags.Ephemeral, 'the editor link is sent privately');
+  return new URL(buttons(payload).find(button => button.url).url);
+}
+async function editorToken(f, dashboard) {
+  return (await openEditorLink(f, dashboard)).searchParams.get('session');
+}
 async function open(t, options) {
   const f = fixture(t, options);
   await builder.execute(f.interaction);
-  // Both preview and dashboard stay private to the Builder owner.
+  // Preview and dashboard are the command's own replies.
   const dashboard = f.privatePayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title and message'));
   assert.ok(dashboard);
   t.after(() => f.interaction.lastDashboard?.collector.stop('test-ended'));
   return { ...f, dashboard };
 }
 
-test('private Builder keeps its layout with direct content and color links', async t => {
+test('in a server the Builder is a normal message with its layout; its editor links are never shown in it', async t => {
   const f = await open(t);
-  assert.equal(f.publicPayloads.length, 0);
+  assert.equal(f.publicPayloads.length, 0, 'never a separate channel post');
   assert.equal(f.privatePayloads.length, 2);
-  assert.ok(f.privatePayloads.every(payload => Number(payload.flags || 0) & MessageFlags.Ephemeral));
+  assert.ok(f.privatePayloads.every(payload => !(Number(payload.flags || 0) & MessageFlags.Ephemeral)),
+    'preview and controls are normal messages (owner\'s choice)');
   assert.equal(f.dashboard.components.length, 5);
   const launchButtons = buttons(f.dashboard).filter(button => ['Edit title and message', 'Set side color'].includes(button.label));
   assert.equal(launchButtons.length, 2);
-  assert.ok(launchButtons.find(button => button.label === 'Edit title and message').url);
-  assert.ok(launchButtons.find(button => button.label === 'Set side color').url);
+  assert.ok(launchButtons.every(button => !button.url), 'the editor session never appears in the public Builder');
+  assert.deepEqual(launchButtons.map(button => button.custom_id).sort(), ['simple_embed_open_color', 'simple_embed_open_content']);
 });
 
-test('direct content and color editors still update the preview without private launch replies', async t => {
+test('content and color editors open from a private link and update the preview; nobody else can open them', async t => {
   const f = fixture(t);
   await builder.execute(f.interaction);
   const rootCollector = f.interaction.lastDashboard.collector;
@@ -137,8 +150,8 @@ test('direct content and color editors still update the preview without private 
   assert.equal(f.publicPayloads.length, 0);
   assert.equal(rootCollector.options.filter(f.component('simple_embed_open_content', { id: 'another-viewer' })), false);
   assert.equal(f.childPayloads.length, 0);
-  const contentUrl = new URL(buttons(f.interaction.lastDashboard).find(button => button.label === 'Edit title and message').url);
-  const colorUrl = new URL(buttons(f.interaction.lastDashboard).find(button => button.label === 'Set side color').url);
+  const contentUrl = await openEditorLink(f, f.interaction.lastDashboard, 'simple_embed_open_content');
+  const colorUrl = await openEditorLink(f, f.interaction.lastDashboard, 'simple_embed_open_color');
   assert.equal(contentUrl.searchParams.get('mode'), 'content');
   assert.equal(contentUrl.searchParams.get('session'), colorUrl.searchParams.get('session'));
   const token = contentUrl.searchParams.get('session');
@@ -163,8 +176,7 @@ test('autocomplete does not reveal a bot-readable channel denied to the invoking
 test('editing a new embed enables Save and saving twice creates one private durable Builder record', async t => {
   const f = await open(t);
   const dashboard = f.interaction.lastDashboard;
-  const content = buttons(dashboard).find(button => button.label === 'Edit title and message');
-  const token = new URL(content.url).searchParams.get('session');
+  const token = await editorToken(f, dashboard);
   const options = { editorInstanceId: 'draft-owner-editor' };
   await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_OPEN__:draft-owner-editor', options);
   await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'title', value: 'My saved draft' }), options);
@@ -189,7 +201,7 @@ test('editing a new embed enables Save and saving twice creates one private dura
 test('Post publishes a saved new draft once and replaces its private draft identity', async t => {
   const f = await open(t);
   const dashboard = f.interaction.lastDashboard;
-  const token = new URL(buttons(dashboard).find(button => button.label === 'Edit title and message').url).searchParams.get('session');
+  const token = await editorToken(f, dashboard);
   await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'message', value: 'Saved then posted' }));
   await flushPendingEmbedEditorUpdates(token);
   await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
@@ -213,7 +225,7 @@ test('Post publishes a saved new draft once and replaces its private draft ident
 test('Delete removes only the saved private draft without requesting a Discord message', async t => {
   const f = await open(t);
   const dashboard = f.interaction.lastDashboard;
-  const token = new URL(buttons(dashboard).find(button => button.label === 'Edit title and message').url).searchParams.get('session');
+  const token = await editorToken(f, dashboard);
   await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'title', value: 'Private draft to delete' }));
   await flushPendingEmbedEditorUpdates(token);
   await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));
@@ -229,7 +241,7 @@ test('Delete removes only the saved private draft without requesting a Discord m
 test('a failed Post relink preserves the saved private draft and rolls back its public message', async t => {
   const f = await open(t);
   const dashboard = f.interaction.lastDashboard;
-  const token = new URL(buttons(dashboard).find(button => button.label === 'Edit title and message').url).searchParams.get('session');
+  const token = await editorToken(f, dashboard);
   await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_EDIT__:' + JSON.stringify({ field: 'message', value: 'Keep my saved draft' }));
   await flushPendingEmbedEditorUpdates(token);
   await dashboard.collector.listeners('collect')[0](f.component('simple_embed_post'));

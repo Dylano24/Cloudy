@@ -41,6 +41,16 @@ export function isOrphanedEmbedBuilderMessage(message, botUserId, olderThan = Nu
   return componentIds(message.components || []).some(id => id.startsWith('simple_embed_'));
 }
 
+// The Builder preview is the original reply of the same /embedbuilder; its
+// controls are the follow-up that names it.
+async function removeOrphanedBuilderPreview(channel, batch, controls, botUserId) {
+  const previewId = String(controls?.interactionMetadata?.originalResponseMessageId || '');
+  if (!previewId || previewId === String(controls.id)) return false;
+  const preview = batch.get(previewId) || await channel.messages.fetch(previewId).catch(() => null);
+  if (!preview || String(preview.author?.id || '') !== String(botUserId || '')) return false;
+  return preview.delete().then(() => true).catch(() => false);
+}
+
 function readableTextChannels(guild) {
   const me = guild.members.me;
   return [...guild.channels.cache.values()]
@@ -76,6 +86,7 @@ export async function removeOrphanedEmbedBuilders(guild, botUserId, olderThan = 
           .then(() => true)
           .catch(() => false);
         if (deleted) removed += 1;
+        if (await removeOrphanedBuilderPreview(channel, batch, message, botUserId)) removed += 1;
       }
 
       const oldest = batch.last();

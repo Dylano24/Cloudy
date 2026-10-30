@@ -11,7 +11,7 @@ import {
 } from '../config/bot.js';
 import botConfig from '../config/bot.js';
 import { handleApplicationModal } from '../commands/Community/apply.js';
-import { handleInteractionError, createError, ErrorTypes, ErrorCodes } from '../utils/errorHandler.js';
+import { handleInteractionError, createError, ErrorTypes, ErrorCodes, replyUserError } from '../utils/errorHandler.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { createInteractionTraceContext, runWithTraceContext } from '../utils/logger.js';
 import { validateChatInputPayloadOrThrow } from '../utils/commandInputValidation.js';
@@ -19,7 +19,11 @@ import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abusePr
 import { isCommandEnabledInConfig } from '../services/commandAccessService.js';
 import { resolveSlashAccessKey } from '../utils/messageAdapter.js';
 import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
-import { removeExpiredBuilderMessage } from '../utils/builderSessionCleanup.js';
+import {
+  isForeignBuilderClick,
+  registerBuilderInteraction,
+  removeExpiredBuilderMessage,
+} from '../utils/builderSessionCleanup.js';
 import { isGamblingGameCommand } from '../config/gamblingCommands.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
 import { enforceDefaultCommandPermissions } from '../utils/permissionGuard.js';
@@ -76,6 +80,14 @@ export default {
     if (interaction.__ticketDashboardFastPathHandled) return;
     // A click on an Embed Builder that already expired removes it.
     if (await removeExpiredBuilderMessage(interaction)) return;
+    // Only the person who opened an Embed Builder can use it.
+    if (isForeignBuilderClick(interaction)) {
+      await replyUserError(interaction, {
+        type: ErrorTypes.PERMISSION,
+        message: 'Only the person who opened this Embed Builder can use it.',
+      }).catch(() => {});
+      return;
+    }
     const interactionTraceContext = createInteractionTraceContext(interaction);
     interaction.traceContext = interactionTraceContext;
     interaction.traceId = interactionTraceContext.traceId;
@@ -90,14 +102,16 @@ export default {
         // catalog. A delayed timer cannot acknowledge an interaction while
         // that CPU work is blocking the event loop. Acknowledge immediately,
         // before configuration, abuse-policy reads or Search hydration.
-        // Always make the deferred Builder preview private. Discord cannot
-        // turn a public defer into an ephemeral reply after acknowledgement.
+        // In a server the Builder is a normal message (owner's choice), so
+        // the defer is too; elsewhere it stays private. Discord cannot change
+        // a reply's privacy after acknowledgement.
         if (interaction.isChatInputCommand()
             && interaction.commandName === 'embedbuilder'
             && String(interaction.options?.getString?.('search') || '').trim()
             && !interaction.deferred && !interaction.replied) {
           try {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            registerBuilderInteraction(interaction.id);
+            await interaction.deferReply(interaction.guildId ? {} : { flags: MessageFlags.Ephemeral });
           } catch (error) {
             logger.error('[EMBED_BUILDER] Search acknowledgement failed:', error);
             return;
