@@ -42,7 +42,7 @@ export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
   }
 
   if (/^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i.test(String(source.title || '').trim())) {
-    if (source.footer?.text === '© Cloudy Inc.') return { embed, changed: false };
+    if (source.footer?.text === '© Cloudy Inc.' || (!source.timestamp && source.footer?.text?.startsWith('© Cloudy Inc. •'))) return { embed, changed: false };
     return { embed: new EmbedBuilder({ ...source, footer: { text: '© Cloudy Inc.' } }), changed: true };
   }
 
