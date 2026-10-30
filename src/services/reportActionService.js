@@ -10,6 +10,7 @@ import { loadReport, publishReportOutcome, reportKey, withReportLock, validateRe
 import { rememberMessageDeleter } from './deletionAttributionService.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { withCloudyFooter } from '../utils/cloudyFooter.js';
+import { CLOUDY_GREEN_COLOR } from '../utils/embedColorPolicy.js';
 
 const CLOUDY_APPEAL_URL = 'https://cloudy-store-vert.vercel.app/appeal';
 
@@ -114,16 +115,22 @@ export function reportBanNotification(reason) {
   });
 }
 
-function reportHandledEmbed(actions, record, actorId, handledAt) {
-  return createEmbed({
-    title: 'Report handled',
-    description: reportActionText(actions),
-    color: 'success',
-    fields: [
-      { name: `Report #${record.number}`, value: '\u200B', inline: true },
-      { name: 'Handled by', value: `<@${actorId}>`, inline: true },
-      { name: 'Handled at', value: `<t:${Math.floor(handledAt / 1000)}:F>`, inline: false },
-    ],
+// A handled report is marked in place (as appeals are): green side line,
+// Handled by + Handled at where Submitted was, and no buttons.
+export function handledReportEmbeds(report, actorId, handledAt) {
+  return (report.embeds || []).map((embed, index) => {
+    const data = embed?.toJSON?.() || { ...embed };
+    if (index !== 0) return data;
+    const fields = (data.fields || []).filter(field => !['Handled by', 'Handled at'].includes(field.name));
+    const submitted = fields.findIndex(field => field.name === 'Submitted');
+    const inline = submitted === -1 ? false : Boolean(fields[submitted].inline);
+    const handled = [
+      { name: 'Handled by', value: `<@${actorId}>`, inline },
+      { name: 'Handled at', value: `<t:${Math.floor(handledAt / 1000)}:F>`, inline },
+    ];
+    if (submitted === -1) fields.push(...handled);
+    else fields.splice(submitted, 1, ...handled);
+    return { ...data, color: CLOUDY_GREEN_COLOR, fields };
   });
 }
 
@@ -189,15 +196,7 @@ export async function handleReportModeration(interaction, client, [action, userI
     return deny(interaction, 'You cannot moderate yourself, Cloudy, or the server owner.');
   }
 
-  const completed = await completeReportAction(interaction, client, report, action, userId, reason);
-  const handledAt = completed.handledAt || Date.now();
-  const handledActions = completed.handledActions || actions;
-
-  await interaction.channel.send({
-    embeds: [reportHandledEmbed(handledActions, completed, interaction.user.id, handledAt)],
-    allowedMentions: { parse: [] },
-  });
-
+  await completeReportAction(interaction, client, report, action, userId, reason);
   await interaction.deleteReply().catch(() => {});
 }
 
@@ -357,8 +356,6 @@ async function completeReportAction(interaction, client, report, action, userId,
       }
     }
 
-    if (report.components?.length) await report.edit({ components: [] });
-
     const actorId = interaction.user.id;
     const outcomeActions = recoveringPartialDeleteWithNoSanction
       ? ['delete', 'no_sanction']
@@ -367,6 +364,8 @@ async function completeReportAction(interaction, client, report, action, userId,
       Date.now(),
       ...outcomeActions.map(name => Number(record.actions?.[name]?.completedAt) || 0),
     );
+
+    await report.edit({ embeds: handledReportEmbeds(report, actorId, handledAt), components: [] });
 
     const notified = await publishReportOutcome(
       client,
