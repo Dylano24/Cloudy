@@ -24,6 +24,7 @@ import { applyEmbedColorPickerSession } from './services/embedColorPickerSession
 import { embedColorPickerPage } from './web/embedColorPickerPage.js';
 import { registerAppealsApi } from './web/appealsApi.js';
 import { registerWebsiteAssistantApi } from './web/websiteAssistantApi.js';
+import { registerDashboardApi } from './web/dashboardApi.js';
 import { registerEmbedMediaRoutes } from './services/embedMediaStorageService.js';
 import { registerDeletedMediaRoutes } from './services/deletedMediaService.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
@@ -201,6 +202,8 @@ class CloudyBot extends Client {
       next();
     });
 
+    // Signed Cloudy Store dashboard API; needs the raw body, so it comes first.
+    registerDashboardApi(app, this, express);
     app.use('/api/appeals', express.json({ limit: '32kb' }));
     app.use(express.json({ limit: '8kb' }));
 

@@ -28,7 +28,7 @@ import {
 } from '../../../utils/panelStatus.js';
 import { startDashboardSession } from '../../../utils/dashboardSession.js';
 
-async function updateLivePanel(guild, cfg) {
+export async function updateLivePanel(guild, cfg) {
     if (!cfg.channelId || !cfg.messageId) return;
     try {
         const channel = guild.channels.cache.get(cfg.channelId);
@@ -145,7 +145,7 @@ function buildButtonRow(cfg, guildId, disabled = false, panelStatus = null) {
     return new ActionRowBuilder().addComponents(buttons);
 }
 
-async function repostVerificationPanel(guild, cfg) {
+export async function repostVerificationPanel(guild, cfg) {
     const channel = await guild.channels.fetch(cfg.channelId).catch(() => null);
     if (!channel) {
         throw new CloudyError(
