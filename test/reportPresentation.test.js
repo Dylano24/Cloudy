@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { buildReportActions, reportActionText } from '../src/services/reportActionService.js';
+import { buildReportActions, handledReportEmbeds, reportActionText } from '../src/services/reportActionService.js';
 import { reportCaseControls } from '../src/services/reportCaseService.js';
 
 test('every newly filed report gets its number before the original report is sent', () => {
@@ -30,11 +30,23 @@ test('report action controls expose no-sanction and both requested combined acti
   );
 });
 
-test('report handling uses one clear handled summary with actor and timestamp', () => {
+test('a handled report is marked in place: green, Handled by + Handled at instead of Submitted', () => {
+  const report = { embeds: [{ toJSON: () => ({ title: 'New report #76', color: 0xFFFFFF, footer: { text: 'footer' }, fields: [
+    { name: 'Reported member', value: '<@target>' }, { name: 'Reported by', value: '<@reporter>' }, { name: 'Reason', value: 'Spam' },
+    { name: 'Evidence', value: 'Message' }, { name: 'Submitted', value: '<t:1:F>' }] }) }] };
+  const [data] = handledReportEmbeds(report, 'staff', 1_800_000_000_000);
+  assert.equal(data.title, 'New report #76');
+  assert.equal(data.color, 0x00C49D);
+  assert.deepEqual(data.footer, { text: 'footer' });
+  assert.deepEqual(data.fields.map(field => `${field.name}: ${field.value}`), [
+    'Reported member: <@target>', 'Reported by: <@reporter>', 'Reason: Spam', 'Evidence: Message',
+    'Handled by: <@staff>', 'Handled at: <t:1800000000:F>',
+  ]);
+  // Marking it again never duplicates the handled lines.
+  const again = handledReportEmbeds({ embeds: [data] }, 'staff', 1_800_000_000_000)[0];
+  assert.deepEqual(again.fields, data.fields);
   const source = fs.readFileSync('src/services/reportActionService.js', 'utf8');
-  assert.match(source, /title: 'Report handled'/);
-  assert.match(source, /name: 'Handled by'/);
-  assert.match(source, /name: 'Handled at'/);
+  assert.doesNotMatch(source, /title: 'Report handled'/);
   assert.doesNotMatch(source, /title: 'Success'/);
 });
 
@@ -101,7 +113,4 @@ test('report lifecycle embeds use compact Report + hash-number presentation', ()
   assert.doesNotMatch(lifecycle, /name: 'Case'/);
   assert.doesNotMatch(lifecycle, /value: `report-\$\{record\.number\}`/);
 
-  // Report handled keeps its existing presentation; New report carries the number in its title.
-  const actions = fs.readFileSync('src/services/reportActionService.js', 'utf8');
-  assert.match(actions, /name: `Report #\$\{record\.number\}`, value: '\\u200B'/);
 });

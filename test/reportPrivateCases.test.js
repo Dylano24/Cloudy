@@ -13,6 +13,19 @@ import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 
 const settle = async () => { await new Promise(resolve => { setImmediate(resolve); }); };
 const json = embed => embed.toJSON?.() || embed;
+// A handled report is marked in place (as appeals are): no separate message,
+// green side line, Handled by + Handled at where Submitted was, no buttons.
+function assertHandledInPlace(f, actorId) {
+  assert.equal(f.payloads.filter(message => message.channelId === 'reports').length, 0);
+  assert.deepEqual(f.report.components, []);
+  const data = json(f.report.embeds[0]);
+  assert.equal(data.title, 'New report');
+  assert.equal(data.color, CLOUDY_GREEN_COLOR);
+  assert.deepEqual(data.fields.map(field => field.name), ['Reported member', 'Reported by', 'Reason', 'Handled by', 'Handled at']);
+  assert.equal(data.fields[3].value, `<@${actorId}>`);
+  assert.match(data.fields[4].value, /^<t:\d+:F>$/);
+  return data;
+}
 
 let fixtureNumber = 0;
 function fixture() {
@@ -322,7 +335,7 @@ test('Read confirms its durable close before waiting for staff log delivery', as
 test('Delete asks for a required reason before acting; two adjacent private cases keep the New report intact', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const f = fixture(); await f.register();
-  const snapshot = structuredClone({ embeds: f.report.embeds });
+  f.report.embeds[0].fields.push({ name: 'Submitted', value: '<t:1799999000:F>' });
   const click = f.interaction();
   await handleReportAction(click, f.client, ['delete', 'target']);
   assert.deepEqual(f.removed, []);
@@ -355,21 +368,11 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.equal(json(reporterNotice.embeds[0]).title, 'Report notification');
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Read']);
-  const publicSuccess = f.payloads.filter(message => message.channelId === 'reports');
-  assert.equal(publicSuccess.length, 1);
-  const successData = json(publicSuccess[0].embeds[0]);
-  assert.equal(successData.title, 'Report handled');
-  assert.equal(successData.description, 'The reported message has been deleted.');
-  assert.equal(successData.color, CLOUDY_GREEN_COLOR);
-  assert.ok(successData.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
-  assert.ok(successData.fields.some(field => field.name === 'Handled by' && field.value === '<@staff>'));
-  assert.ok(successData.fields.some(field => field.name === 'Handled at'));
-  assert.deepEqual(publicSuccess[0].allowedMentions, { parse: [] });
-  assert.equal(publicSuccess[0].flags, undefined);
-  t.mock.timers.tick(10_000); await settle();
-  assert.ok(f.reports.messages.cache.has(publicSuccess[0].id));
-  assert.deepEqual(f.report.embeds, snapshot.embeds);
-  assert.deepEqual(f.report.components, []);
+  // Submitted becomes Handled at, in the same place, with the handling time.
+  const handled = assertHandledInPlace(f, 'staff');
+  assert.equal(handled.fields[4].value, '<t:1800000000:F>');
+  assert.equal(handled.fields[0].value, '<@target>');
+  assert.equal(handled.fields[2].value, 'TEST!');
   for (const entry of Object.values(record.cases)) {
     assert.ok(entry.createdLogId);
     const created = f.logs.messages.cache.get(entry.createdLogId);
@@ -627,15 +630,7 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.equal(json(reporterNotice.embeds[0]).title, 'Report notification');
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported member has been timed out.');
   assert.deepEqual(f.report.components, []);
-  const success = f.payloads.find(message => message.channelId === 'reports');
-  const data = json(success.embeds[0]);
-  assert.equal(data.title, 'Report handled');
-  assert.equal(data.description, 'The reported member has been timed out.');
-  assert.equal(data.color, CLOUDY_GREEN_COLOR);
-  assert.ok(data.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
-  assert.ok(data.fields.some(field => field.name === 'Handled by' && field.value === '<@staff>'));
-  t.mock.timers.tick(10_000); await settle();
-  assert.ok(f.reports.messages.cache.has(success.id));
+  assertHandledInPlace(f, 'staff');
 });
 
 test('Ban keeps the existing ban-only DM path, creates only the reporter case and consumes the report controls', async t => {
@@ -653,15 +648,7 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   assert.match(banEmbed.description, /https:\/\/cloudy-store-vert\.vercel\.app\/appeal/);
   assert.ok(banEmbed.thumbnail?.url || banEmbed.footer?.text, 'Ban DM retains its existing logo or footer');
   assert.deepEqual(f.report.components, []);
-  const success = f.payloads.find(message => message.channelId === 'reports');
-  const successData = json(success.embeds[0]);
-  assert.equal(successData.title, 'Report handled');
-  assert.equal(successData.description, 'The reported member has been banned.');
-  assert.equal(successData.color, CLOUDY_GREEN_COLOR);
-  assert.ok(successData.fields.some(field => field.name === 'Report #1' && field.value === '\u200B'));
-  assert.ok(successData.fields.some(field => field.name === 'Handled by' && field.value === '<@role-owner>'));
-  t.mock.timers.tick(10_000); await settle();
-  assert.ok(f.reports.messages.cache.has(success.id));
+  assertHandledInPlace(f, 'role-owner');
   assert.ok(record.cases.reporter);
   assert.equal(record.cases.target, undefined);
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
@@ -714,9 +701,7 @@ test('No sanction closes the report without moderation and notifies both members
     }
     assert.doesNotMatch(JSON.stringify(json(notice.embeds[0])), /Handled by|Private action reason/);
   }
-  const handled = f.payloads.find(message => message.channelId === 'reports');
-  assert.equal(json(handled.embeds[0]).title, 'Report handled');
-  assert.match(json(handled.embeds[0]).description, /no sanction was applied/i);
+  assertHandledInPlace(f, 'staff');
 });
 
 test('failed Delete + timeout performs no partial delete and still allows No sanction', async t => {
@@ -759,10 +744,7 @@ test('No sanction can recover an old partial Delete + timeout report', async t =
   assert.equal(record.actions.no_sanction.notified, true);
   assert.deepEqual(record.handledActions, ['delete', 'no_sanction']);
 
-  const handled = f.payloads.find(message => message.channelId === 'reports');
-  const data = json(handled.embeds[0]);
-  assert.match(data.description, /reported message has been deleted/i);
-  assert.match(data.description, /no sanction was applied/i);
+  assertHandledInPlace(f, 'staff');
 });
 
 test('Delete + timeout performs both actions once and explains both outcomes', async t => {
@@ -775,10 +757,7 @@ test('Delete + timeout performs both actions once and explains both outcomes', a
   assert.deepEqual(f.removed, ['original-message']);
   assert.equal(record.actions.delete.notified, true);
   assert.equal(record.actions.timeout.notified, true);
-  const handled = f.payloads.find(message => message.channelId === 'reports');
-  const data = json(handled.embeds[0]);
-  assert.match(data.description, /reported message has been deleted/i);
-  assert.match(data.description, /reported member has been timed out/i);
+  assertHandledInPlace(f, 'staff');
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   const target = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
   assert.equal(json(target.embeds[0]).title, 'Report notification');
@@ -801,10 +780,7 @@ test('Delete + ban performs both actions and keeps only the reporter case after 
   assert.equal(record.actions.ban.notified, true);
   assert.ok(record.cases.reporter);
   assert.equal(record.cases.target, undefined);
-  const handled = f.payloads.find(message => message.channelId === 'reports');
-  const data = json(handled.embeds[0]);
-  assert.match(data.description, /reported message has been deleted/i);
-  assert.match(data.description, /reported member has been banned/i);
+  assertHandledInPlace(f, 'role-owner');
 });
 
 test('saved shared notification templates cannot leak private reasons or overwrite report notification presentation', async () => {
