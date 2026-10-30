@@ -230,15 +230,15 @@ export function createGiveawayManagePanel(giveaway) {
     const rows = ended
         ? [
             new ActionRowBuilder().addComponents(
-                button('reroll', 'Reroll', ButtonStyle.Primary),
+                button('reroll', 'Reroll', ButtonStyle.Secondary),
                 button('participants', 'View participants', ButtonStyle.Secondary)),
             new ActionRowBuilder().addComponents(button('delete', 'Delete', ButtonStyle.Danger)),
         ]
         : [
             new ActionRowBuilder().addComponents(
                 button('end', 'End giveaway', ButtonStyle.Danger),
-                button('timer', 'Edit timer', ButtonStyle.Primary),
-                button('reroll', 'Reroll', ButtonStyle.Primary)),
+                button('timer', 'Edit timer', ButtonStyle.Secondary),
+                button('reroll', 'Reroll', ButtonStyle.Secondary)),
             new ActionRowBuilder().addComponents(
                 button('participants', 'View participants', ButtonStyle.Secondary),
                 button('delete', 'Delete', ButtonStyle.Danger)),
