@@ -212,8 +212,7 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
         entry.addComponents(new ButtonBuilder()
             .setCustomId('giveaway_leave')
             .setEmoji(GIVEAWAY_EMOJIS.leave)
-            // The leave emoji says "leave"; the label is just Giveaway (owner's choice).
-            .setLabel('Giveaway')
+            .setLabel('Leave giveaway')
             .setStyle(ButtonStyle.Danger));
     }
     const manageButton = new ButtonBuilder()
