@@ -99,7 +99,8 @@ test('buttons: Enter with emoji and entry count, Leave, and a separate staff Man
   const [entry, manage] = createGiveawayButtons(activeGiveaway({ participants: ['a', 'b', 'c'] })).map(json);
   assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Giveaway']);
   assert.equal(entry.components[0].emoji.id, '1543303914152001536');
-  assert.equal(entry.components[1].emoji.id, '1565741390179082252');
+  assert.equal(entry.components[1].emoji.id, '1565742837453029516');
+  assert.equal(entry.components[1].emoji.animated, true);
   assert.deepEqual(manage.components.map(component => component.label), ['Manage']);
   const settings = { id: '777', name: 'W94setting2' };
   const [, withIcon] = createGiveawayButtons(activeGiveaway(), { manageIcon: settings }).map(json);
