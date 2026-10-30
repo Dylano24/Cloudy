@@ -8,6 +8,18 @@ import { resolveDiscordAppealIdentity } from './appealIdentityService.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 export { appealReviewKey, buildAppealActions } from './appealPresentationService.js';
 
+function balanceAppealNotice(data) {
+  const fields = [...(data.fields || [])];
+  for (let i = 0; i < fields.length - 1; i++) {
+    if (!String(fields[i].value || '').includes('**This appeal has been handled**') || fields[i + 1].name !== 'Staff decision') continue;
+    const value = fields[i].value.replace(/\s*\*\*This appeal has been handled\*\*\s*$/, '\n\n**This appeal has been handled**')
+      + '\n\n**Staff decision**\n' + fields[i + 1].value;
+    if (value.length > 1024) continue;
+    fields.splice(i, 2, { ...fields[i], value });
+  }
+  return { ...data, fields };
+}
+
 const active = new Set();
 export function appealStaffAllowed(guild, member, action, config = {}) {
   const staffId = config.ticketStaffRoleId || guild.roles?.cache?.find(role => role.name.trim().toLowerCase() === 'staff')?.id;
@@ -130,7 +142,7 @@ export async function handleAppealDecision(interaction, client, [action, id]) {
           { name: 'Reason', value: decision.reason },
         ];
       }
-      return data;
+      return balanceAppealNotice(data);
     });
     // A completed appeal is final: remove its action row instead of disabling it.
     await message.edit({ embeds, components: [], allowedMentions: { parse: [] } });
