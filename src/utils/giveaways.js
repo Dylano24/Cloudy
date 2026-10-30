@@ -1,15 +1,9 @@
 // giveaways.js
 
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { logger } from './logger.js';
 import { CloudyError, ErrorTypes } from './errorHandler.js';
 import { unwrapReplitData } from './database.js';
 import { Mutex } from './mutex.js';
-import { 
-    createGiveawayEmbed as createGiveawayEmbedService,
-    createGiveawayButtons as createGiveawayButtonsService,
-    selectWinners as selectWinnersService
-} from '../services/giveawayService.js';
 
 export function giveawayKey(guildId) {
     return `guild:${guildId}:giveaways`;
@@ -124,75 +118,5 @@ export async function deleteGiveaway(client, guildId, messageId) {
             throw error;
         }
         return false;
-    }
-}
-
-export function createGiveawayEmbed(giveaway, status, winners = []) {
-    try {
-        return createGiveawayEmbedService(giveaway, status, winners);
-    } catch (error) {
-        logger.error('Error creating giveaway embed:', error);
-        throw error;
-    }
-}
-
-export function isGiveawayEnded(giveaway) {
-    if (!giveaway) return true;
-    const endTime = giveaway.endsAt || giveaway.endTime;
-    return Date.now() > endTime;
-}
-
-export function pickWinners(entrants, count) {
-    try {
-        return selectWinnersService(entrants, count);
-    } catch (error) {
-        logger.error('Error picking winners:', error);
-        
-        if (!entrants || entrants.length === 0) return [];
-        const requested = Math.min(count, entrants.length);
-        const shuffled = [...entrants];
-        for (let i = shuffled.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-        }
-        return shuffled.slice(0, requested);
-    }
-}
-
-export function giveawayEmbed(giveaway, status, winners = []) {
-    return createGiveawayEmbed(giveaway, status, winners);
-}
-
-export function giveawayButtons(ended = false) {
-    try {
-        return createGiveawayButtonsService(ended);
-    } catch (error) {
-        logger.error('Error creating giveaway buttons:', error);
-        
-        const row = new ActionRowBuilder();
-        if (ended) {
-            row.addComponents(
-                new ButtonBuilder()
-                    .setCustomId('giveaway_reroll')
-                    .setLabel('🎲 Reroll')
-                    .setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder()
-                    .setCustomId('giveaway_view')
-                    .setLabel('👁️ View')
-                    .setStyle(ButtonStyle.Primary)
-            );
-        } else {
-            row.addComponents(
-                new ButtonBuilder()
-                    .setCustomId('giveaway_join')
-                    .setLabel('🎉 Join')
-                    .setStyle(ButtonStyle.Primary),
-                new ButtonBuilder()
-                    .setCustomId('giveaway_end')
-                    .setLabel('🛑 End')
-                    .setStyle(ButtonStyle.Danger)
-            );
-        }
-        return row;
     }
 }

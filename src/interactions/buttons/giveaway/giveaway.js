@@ -1,8 +1,9 @@
 import {
-  giveawayJoinHandler,
-  giveawayEndHandler,
-  giveawayRerollHandler,
-  giveawayViewHandler,
+  giveawayEnterHandler,
+  giveawayLeaveHandler,
+  giveawayManageHandler,
+  giveawayAdminHandler,
+  legacyGiveawayHandlers,
 } from '../../../handlers/giveawayButtons.js';
 
 function fromCustomId(handler) {
@@ -13,8 +14,9 @@ function fromCustomId(handler) {
 }
 
 export default [
-  fromCustomId(giveawayJoinHandler),
-  fromCustomId(giveawayEndHandler),
-  fromCustomId(giveawayRerollHandler),
-  fromCustomId(giveawayViewHandler),
-];
+  giveawayEnterHandler,
+  giveawayLeaveHandler,
+  giveawayManageHandler,
+  giveawayAdminHandler,
+  ...legacyGiveawayHandlers,
+].map(fromCustomId);
