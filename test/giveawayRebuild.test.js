@@ -255,8 +255,14 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.equal(json(builder.embeds[1]).title, 'Giveaway builder');
   const controls = builder.components.map(json);
   const sessionId = controls[2].components[0].custom_id.split(':')[2];
-  const postButton = controls[3].components[0];
-  assert.equal(postButton.label, 'Post giveaway');
+  // Owner's layout: grey buttons, green Post next to Tag @everyone, Cancel alone at the bottom.
+  assert.deepEqual(controls.slice(2).map(row => row.components.map(component => [component.label, component.style])), [
+    [['Edit text', 2], ['Duration & winners', 2]],
+    [['Tag @everyone', 2], ['Post giveaway', 3]],
+    [['Cancel', 2]],
+  ]);
+  assert.equal(controls[1].components[0].placeholder, 'Tag a role');
+  const postButton = controls[3].components[1];
   assert.equal(postButton.disabled, true);
 
   const click = (customId, extra = {}) => Object.assign(w.interaction('staff', { staff: true }), { guild: command.guild, customId, ...extra });
@@ -264,11 +270,13 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const openText = click(`gbuilder:text:${sessionId}`);
   await handleGiveawayBuilderInteraction(openText, w.client);
   assert.deepEqual(openText.modal.components.map(row => row.components[0].custom_id), ['prize', 'description', 'requirements', 'claim']);
+  // Only the prize shows an example; the other fields start empty.
+  assert.deepEqual(openText.modal.components.map(row => row.components[0].placeholder), ['1 month vip', undefined, undefined, undefined]);
   const texts = { prize: '1 month vip', description: 'Win big!\nGood luck', requirements: 'Level 5', claim: 'DM the owner.' };
   const textForm = click(`gbuilder:textform:${sessionId}`, { fields: { getTextInputValue: name => texts[name] } });
   await handleGiveawayBuilderInteraction(textForm, w.client);
   assert.match(textForm.updated.embeds[0].description, /\*\*1 month vip\*\*/);
-  assert.equal(json(textForm.updated.components[3]).components[0].disabled, false);
+  assert.equal(json(textForm.updated.components[3]).components[1].disabled, false);
   // Duration & winners form, with validation.
   const badTiming = click(`gbuilder:timingform:${sessionId}`, { fields: { getTextInputValue: name => (name === 'duration' ? 'soon' : '2') } });
   await handleGiveawayBuilderInteraction(badTiming, w.client);
@@ -310,7 +318,7 @@ test('only staff can open the Giveaway Builder; @everyone can be tagged', async 
   const everyone = Object.assign(w.interaction('staff', { staff: true }), { customId: `gbuilder:everyone:${sessionId}` });
   await handleGiveawayBuilderInteraction(everyone, w.client);
   assert.equal(json(everyone.updated.embeds[1]).fields.find(field => field.name === 'Tag').value, '@everyone');
-  assert.equal(json(everyone.updated.components[2]).components[2].label, 'Untag @everyone');
+  assert.equal(json(everyone.updated.components[3]).components[0].label, 'Untag @everyone');
 });
 
 test('every giveaway button answers Discord before reading the database (no 3-second timeouts)', async () => {

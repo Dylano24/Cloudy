@@ -18,7 +18,6 @@ import { logEvent, EVENT_TYPES } from './loggingService.js';
 import {
     createGiveawayEmbed,
     DEFAULT_GIVEAWAY_CLAIM,
-    DEFAULT_GIVEAWAY_DESCRIPTION,
     giveawayText,
     parseDuration,
     validateWinnerCount,
@@ -98,7 +97,7 @@ export function renderGiveawayBuilder(session) {
     if (draft.channelId) channel.setDefaultChannels(draft.channelId);
     const role = new RoleSelectMenuBuilder()
         .setCustomId(id(session, 'role'))
-        .setPlaceholder('Tag a role, e.g. @giveaway (optional)')
+        .setPlaceholder('Tag a role')
         .setMinValues(0)
         .setMaxValues(1);
     if (draft.ping.type === 'role' && draft.ping.roleId) role.setDefaultRoles(draft.ping.roleId);
@@ -108,16 +107,20 @@ export function renderGiveawayBuilder(session) {
         components: [
             new ActionRowBuilder().addComponents(channel),
             new ActionRowBuilder().addComponents(role),
+            // Owner's layout: all grey except the green Post giveaway, which
+            // sits next to Tag @everyone; Cancel alone at the bottom left.
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(id(session, 'text')).setLabel('Edit text').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId(id(session, 'timing')).setLabel('Duration & winners').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId(id(session, 'text')).setLabel('Edit text').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(id(session, 'timing')).setLabel('Duration & winners').setStyle(ButtonStyle.Secondary),
+            ),
+            new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'everyone'))
                     .setLabel(draft.ping.type === 'everyone' ? 'Untag @everyone' : 'Tag @everyone')
                     .setStyle(ButtonStyle.Secondary),
-            ),
-            new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'post')).setLabel('Post giveaway')
                     .setStyle(ButtonStyle.Success).setDisabled(!draft.prize || !draft.channelId),
+            ),
+            new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'cancel')).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
             ),
         ],
@@ -139,10 +142,12 @@ export function giveawayTextModal(session) {
         .setCustomId(id(session, 'textform'))
         .setTitle('Giveaway text')
         .addComponents(
-            textInput('prize', 'Prize', TextInputStyle.Short, { value: draft.prize, placeholder: 'e.g. 1 month VIP', required: true, maxLength: 256 }),
-            textInput('description', 'Description', TextInputStyle.Paragraph, { value: draft.description, placeholder: DEFAULT_GIVEAWAY_DESCRIPTION, maxLength: 1000 }),
-            textInput('requirements', 'Requirements', TextInputStyle.Paragraph, { value: draft.requirements, placeholder: 'None', maxLength: 500 }),
-            textInput('claim', 'How winners claim the prize', TextInputStyle.Paragraph, { value: draft.claim, placeholder: DEFAULT_GIVEAWAY_CLAIM, maxLength: 500 }),
+            // Only the prize shows an example; the other fields start empty
+            // (empty still uses the default text in the giveaway).
+            textInput('prize', 'Prize', TextInputStyle.Short, { value: draft.prize, placeholder: '1 month vip', required: true, maxLength: 256 }),
+            textInput('description', 'Description', TextInputStyle.Paragraph, { value: draft.description, maxLength: 1000 }),
+            textInput('requirements', 'Requirements', TextInputStyle.Paragraph, { value: draft.requirements, maxLength: 500 }),
+            textInput('claim', 'How winners claim the prize', TextInputStyle.Paragraph, { value: draft.claim, maxLength: 500 }),
         );
 }
 
