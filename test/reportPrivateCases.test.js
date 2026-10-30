@@ -15,15 +15,16 @@ const settle = async () => { await new Promise(resolve => { setImmediate(resolve
 const json = embed => embed.toJSON?.() || embed;
 // A handled report is marked in place (as appeals are): no separate message,
 // green side line, Handled by + Handled at where Submitted was, no buttons.
-function assertHandledInPlace(f, actorId) {
+function assertHandledInPlace(f, actorId, outcome) {
   assert.equal(f.payloads.filter(message => message.channelId === 'reports').length, 0);
   assert.deepEqual(f.report.components, []);
   const data = json(f.report.embeds[0]);
   assert.equal(data.title, 'New report');
   assert.equal(data.color, CLOUDY_GREEN_COLOR);
-  assert.deepEqual(data.fields.map(field => field.name), ['Reported member', 'Reported by', 'Reason', 'Handled by', 'Handled at']);
-  assert.equal(data.fields[3].value, `<@${actorId}>`);
-  assert.match(data.fields[4].value, /^<t:\d+:F>$/);
+  assert.deepEqual(data.fields.map(field => field.name), ['Reported member', 'Reported by', 'Reason', 'Report handled', 'Handled by', 'Handled at']);
+  assert.equal(data.fields[3].value, outcome);
+  assert.equal(data.fields[4].value, `<@${actorId}>`);
+  assert.match(data.fields[5].value, /^<t:\d+:F>$/);
   return data;
 }
 
@@ -369,8 +370,8 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Read']);
   // Submitted becomes Handled at, in the same place, with the handling time.
-  const handled = assertHandledInPlace(f, 'staff');
-  assert.equal(handled.fields[4].value, '<t:1800000000:F>');
+  const handled = assertHandledInPlace(f, 'staff', 'The reported message has been deleted.');
+  assert.equal(handled.fields[5].value, '<t:1800000000:F>');
   assert.equal(handled.fields[0].value, '<@target>');
   assert.equal(handled.fields[2].value, 'TEST!');
   for (const entry of Object.values(record.cases)) {
@@ -630,7 +631,7 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.equal(json(reporterNotice.embeds[0]).title, 'Report notification');
   assert.equal(json(reporterNotice.embeds[0]).description, 'The reported member has been timed out.');
   assert.deepEqual(f.report.components, []);
-  assertHandledInPlace(f, 'staff');
+  assertHandledInPlace(f, 'staff', 'The reported member has been timed out.');
 });
 
 test('Ban keeps the existing ban-only DM path, creates only the reporter case and consumes the report controls', async t => {
@@ -648,7 +649,7 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   assert.match(banEmbed.description, /https:\/\/cloudy-store-vert\.vercel\.app\/appeal/);
   assert.ok(banEmbed.thumbnail?.url || banEmbed.footer?.text, 'Ban DM retains its existing logo or footer');
   assert.deepEqual(f.report.components, []);
-  assertHandledInPlace(f, 'role-owner');
+  assertHandledInPlace(f, 'role-owner', 'The reported member has been banned.');
   assert.ok(record.cases.reporter);
   assert.equal(record.cases.target, undefined);
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
@@ -701,7 +702,7 @@ test('No sanction closes the report without moderation and notifies both members
     }
     assert.doesNotMatch(JSON.stringify(json(notice.embeds[0])), /Handled by|Private action reason/);
   }
-  assertHandledInPlace(f, 'staff');
+  assertHandledInPlace(f, 'staff', 'The report was reviewed and no sanction was applied.');
 });
 
 test('failed Delete + timeout performs no partial delete and still allows No sanction', async t => {
@@ -744,7 +745,7 @@ test('No sanction can recover an old partial Delete + timeout report', async t =
   assert.equal(record.actions.no_sanction.notified, true);
   assert.deepEqual(record.handledActions, ['delete', 'no_sanction']);
 
-  assertHandledInPlace(f, 'staff');
+  assertHandledInPlace(f, 'staff', 'The reported message has been deleted.\nThe report was reviewed and no sanction was applied.');
 });
 
 test('Delete + timeout performs both actions once and explains both outcomes', async t => {
@@ -757,7 +758,7 @@ test('Delete + timeout performs both actions once and explains both outcomes', a
   assert.deepEqual(f.removed, ['original-message']);
   assert.equal(record.actions.delete.notified, true);
   assert.equal(record.actions.timeout.notified, true);
-  assertHandledInPlace(f, 'staff');
+  assertHandledInPlace(f, 'staff', 'The reported message has been deleted.\nThe reported member has been timed out.');
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   const target = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
   assert.equal(json(target.embeds[0]).title, 'Report notification');
@@ -780,7 +781,7 @@ test('Delete + ban performs both actions and keeps only the reporter case after 
   assert.equal(record.actions.ban.notified, true);
   assert.ok(record.cases.reporter);
   assert.equal(record.cases.target, undefined);
-  assertHandledInPlace(f, 'role-owner');
+  assertHandledInPlace(f, 'role-owner', 'The reported message has been deleted.\nThe reported member has been banned.');
 });
 
 test('saved shared notification templates cannot leak private reasons or overwrite report notification presentation', async () => {
