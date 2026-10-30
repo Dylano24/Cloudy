@@ -605,6 +605,27 @@ const CHANNEL_TYPES = {
 };
 const NEEDED_PERMISSIONS = ['ViewChannel', 'SendMessages', 'EmbedLinks', 'AttachFiles', 'ReadMessageHistory', 'ManageMessages', 'ManageRoles', 'ManageChannels', 'KickMembers', 'BanMembers', 'ModerateMembers', 'ViewAuditLog', 'Connect', 'Speak'];
 
+// ---------------------------------------------------------------- plan
+// Every server gets a free trial that starts with its first saved change.
+// After it, saving needs Premium. Cloudy's owner always has full access.
+
+export const PLAN = { priceEur: 13, trialDays: 7, maxMonths: 24 };
+const DAY_MS = 86_400_000;
+const planKey = guildId => `guild:${guildId}:dashboard:plan`;
+
+export function planState(record, { isOwner = false, nowMs }) {
+  const base = { priceEur: PLAN.priceEur, trialDays: PLAN.trialDays };
+  if (isOwner) return { ...base, status: 'owner', canSave: true, until: null };
+  const premiumUntil = Date.parse(record?.premiumUntil || '') || 0;
+  if (premiumUntil > nowMs) return { ...base, status: 'premium', canSave: true, until: new Date(premiumUntil).toISOString() };
+  const trialEndsAt = Date.parse(record?.trialEndsAt || '') || 0;
+  if (trialEndsAt > nowMs) return { ...base, status: 'trial', canSave: true, until: new Date(trialEndsAt).toISOString() };
+  if (trialEndsAt || premiumUntil) return { ...base, status: 'expired', canSave: false, until: new Date(Math.max(trialEndsAt, premiumUntil)).toISOString() };
+  return { ...base, status: 'new', canSave: true, until: null };
+}
+
+const PLAN_REQUIRED = 'Saving needs Cloudy Bot Premium (€13.00 per month). You can still view and try every setting.';
+
 async function canManage(guild, actorId) {
   const member = guild.members.cache.get(actorId) || await guild.members.fetch(actorId).catch(() => null);
   if (!member) return null;
@@ -635,6 +656,35 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
     writeLog.set(actorId, recent);
     if (writeLog.size > 5_000) writeLog.delete(writeLog.keys().next().value);
     return true;
+  }
+  // Cloudy's owners: OWNER_IDS plus the owner (or team) of the Discord application.
+  let ownerCache = null;
+  async function ownerIds() {
+    if (ownerCache && now() - ownerCache.at < 600_000) return ownerCache.ids;
+    const ids = new Set(String(env.OWNER_IDS || '').split(',').map(id => id.trim()).filter(id => SNOWFLAKE.test(id)));
+    try {
+      const application = client.application?.owner ? client.application : await client.application?.fetch?.();
+      const owner = application?.owner;
+      if (owner?.members?.keys) for (const id of owner.members.keys()) ids.add(String(id));
+      else if (owner?.id) ids.add(String(owner.id));
+    } catch (error) {
+      logger.warn('[DASHBOARD] Could not read the application owner:', error?.message);
+    }
+    ownerCache = { at: now(), ids };
+    return ids;
+  }
+  async function planFor(guildId, actorId) {
+    const record = await client.db.get(planKey(guildId), null);
+    return planState(record, { isOwner: (await ownerIds()).has(actorId), nowMs: now() });
+  }
+  function startTrial(guildId, actorId) {
+    return withLock(`${guildId}:plan`, async () => {
+      const record = await client.db.get(planKey(guildId), null);
+      if (record?.trialEndsAt) return;
+      const startedAt = now();
+      await client.db.set(planKey(guildId), { ...(record || {}), trialStartedAt: new Date(startedAt).toISOString(), trialEndsAt: new Date(startedAt + PLAN.trialDays * DAY_MS).toISOString(), trialStartedBy: actorId });
+      await audit(guildId, { actor: actorId, module: 'plan', keys: ['trial:start'] });
+    });
   }
   async function audit(guildId, entry) {
     try {
@@ -678,6 +728,25 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
         const ids = Array.isArray(payload.guildIds) ? payload.guildIds.filter(id => typeof id === 'string' && SNOWFLAKE.test(id)).slice(0, 200) : [];
         return send(200, { present: ids.filter(id => client.guilds.cache.has(id)) });
       }
+      if (req.method === 'POST' && route.join('/') === 'plans/grant') {
+        // Owner only: turn Premium on (months > 0, added to what is left) or off (0).
+        if (!(await ownerIds()).has(actorId)) return send(403, { error: 'Only Cloudy\'s owner can change Premium.', code: 'forbidden' });
+        const guildId = typeof payload.guildId === 'string' ? payload.guildId.trim() : '';
+        const months = payload.months;
+        if (!SNOWFLAKE.test(guildId)) return send(422, { error: 'Enter a valid server ID.', code: 'invalid', path: 'guildId' });
+        if (!Number.isInteger(months) || months < 0 || months > PLAN.maxMonths) return send(422, { error: `Choose 0 to ${PLAN.maxMonths} months.`, code: 'invalid', path: 'months' });
+        const target = client.guilds.cache.get(guildId);
+        if (!target) return send(404, { error: 'Cloudy is not in this server.', code: 'not_in_guild' });
+        return await withLock(`${guildId}:plan`, async () => {
+          const record = (await client.db.get(planKey(guildId), null)) || {};
+          const left = Math.max(now(), Date.parse(record.premiumUntil || '') || 0);
+          const next = { ...record, premiumUntil: months ? new Date(left + months * 30 * DAY_MS).toISOString() : new Date(now()).toISOString(), premiumUpdatedBy: actorId, premiumUpdatedAt: new Date(now()).toISOString() };
+          await client.db.set(planKey(guildId), next);
+          await audit(guildId, { actor: actorId, module: 'plan', keys: [months ? `premium:+${months}` : 'premium:off'] });
+          logger.info(`[DASHBOARD] ${actorId} set Premium for ${guildId}: ${months ? `+${months} months` : 'off'}`);
+          return send(200, { guild: { id: target.id, name: target.name }, plan: planState(next, { nowMs: now() }) });
+        });
+      }
       if (route[0] !== 'guilds' || !SNOWFLAKE.test(route[1] || '')) return send(404, { error: 'Not found.', code: 'not_found' });
 
       const guild = client.guilds.cache.get(route[1]);
@@ -698,6 +767,7 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
             id: role.id, name: role.name, color: role.color || 0, position: role.position, managed: Boolean(role.managed), assignable: !role.managed && role.position < highest,
           })),
           modules: {},
+          plan: await planFor(guild.id, actorId),
           missingPermissions: me ? NEEDED_PERMISSIONS.filter(name => !me.permissions.has(PermissionFlagsBits[name])) : [],
         });
       }
@@ -726,6 +796,8 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
           if (!rule) return send(422, { error: 'Unknown setting.', code: 'invalid', path: field });
           if (!checkValue(rule, value)) return send(422, { error: 'Invalid value.', code: 'invalid', path: field });
         }
+        const plan = await planFor(guild.id, actorId);
+        if (!plan.canSave) return send(402, { error: PLAN_REQUIRED, code: 'plan_required', plan });
         return await withLock(`${guild.id}:${route[3]}`, async () => {
           const current = await mod.read(ctx);
           if (payload.revision !== revisionOf(current)) return send(409, { error: 'These settings changed in the meantime. Reload the page.', code: 'revision_conflict' });
@@ -733,9 +805,10 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
           await mod.write(ctx, changes, current);
           const values = await mod.read(ctx);
           const revision = revisionOf(values);
+          if (plan.status === 'new') await startTrial(guild.id, actorId);
           await audit(guild.id, { actor: actorId, module: route[3], keys: Object.keys(changes), revisionBefore, revisionAfter: revision });
           logger.info(`[DASHBOARD] ${actorId} updated ${route[3]} in ${guild.id}: ${Object.keys(changes).join(', ')}`);
-          return send(200, { revision, values });
+          return send(200, { revision, values, plan: plan.status === 'new' ? await planFor(guild.id, actorId) : plan });
         });
       }
 
@@ -743,8 +816,11 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
         const action = mod.actions?.[route[5]];
         if (!action) return send(404, { error: 'Unknown action.', code: 'unknown_action' });
         if (!allowWrite(actorId)) return send(429, { error: 'Too many changes. Wait a minute.', code: 'rate_limited' });
+        const plan = await planFor(guild.id, actorId);
+        if (!plan.canSave) return send(402, { error: PLAN_REQUIRED, code: 'plan_required', plan });
         return await withLock(`${guild.id}:${route[3]}`, async () => {
           const message = await action(ctx);
+          if (plan.status === 'new') await startTrial(guild.id, actorId);
           await audit(guild.id, { actor: actorId, module: route[3], keys: [`action:${route[5]}`] });
           return send(200, { ok: true, message });
         });
