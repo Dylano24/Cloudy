@@ -152,6 +152,12 @@ export async function ensureAppealActions(client) {
     const id = embed?.description?.match(/\b(CLD-[A-Z0-9-]+)\b/)?.[1]
       || embed?.footer?.text?.match(/Cloudy Inc\. • (CLD-[A-Z0-9-]+)$/)?.[1];
     if (message.author?.id !== client.user.id || !match || !id) continue;
+    const presentationEmbeds = message.embeds.map(existing => {
+      const data = existing.toJSON();
+      delete data.footer;
+      return data;
+    });
+    const presentationChanged = JSON.stringify(presentationEmbeds) !== JSON.stringify(message.embeds.map(existing => existing.toJSON()));
     const key = appealReviewKey(channel.guild.id, id);
     let record = await client.db.get(key);
     if (!record) {
@@ -162,13 +168,15 @@ export async function ensureAppealActions(client) {
     const hasAppealActions = message.components.some(row => row.components.some(button => button.customId?.startsWith('appeal_action:')));
     // Restart recovery must never resurrect a completed appeal's disabled controls.
     if (record.status !== 'pending') {
-      if (hasAppealActions) {
-        await message.edit({ components: [] }); restored++;
+      if (hasAppealActions || presentationChanged) {
+        await message.edit({ ...(presentationChanged ? { embeds: presentationEmbeds } : {}), ...(hasAppealActions ? { components: [] } : {}) });
+        if (hasAppealActions) restored++;
       }
       continue;
     }
-    if (!hasAppealActions) {
-      await message.edit({ components: buildAppealActions(record) }); restored++;
+    if (!hasAppealActions || presentationChanged) {
+      await message.edit({ ...(presentationChanged ? { embeds: presentationEmbeds } : {}), ...(!hasAppealActions ? { components: buildAppealActions(record) } : {}) });
+      if (!hasAppealActions) restored++;
     }
   }
   startupLog(`Appeal action buttons ready; ${restored} existing appeals linked.`);
