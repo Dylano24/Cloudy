@@ -48,6 +48,7 @@ function world(stored = {}) {
       reply: async payload => { result.replies.push(payload); result.replied = true; },
       followUp: async payload => { result.replies.push(payload); },
       deferUpdate: async () => { result.deferred = true; },
+      deferReply: async () => { result.deferred = true; },
       editReply: async payload => { result.edited = payload; },
       showModal: async modal => { result.modal = modal.toJSON(); } };
     return result;
@@ -111,20 +112,22 @@ test('Enter and Leave update the entry count; repeats and ended giveaways get a 
   const enter = w.interaction('member');
   await button('giveaway_enter').execute(enter, w.client);
   assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, ['member']);
-  assert.equal(json(enter.updated.components[0]).components[0].label, 'Enter giveaway (1)');
+  // Acknowledged at once, then the giveaway (entry count) is refreshed.
+  assert.equal(enter.deferred, true);
+  assert.equal(json(enter.edited.components[0]).components[0].label, 'Enter giveaway (1)');
   assert.equal(json(enter.replies[0].embeds[0]).title, 'Success');
 
   clearAllRateLimits();
   const again = w.interaction('member');
   await button('giveaway_enter').execute(again, w.client);
-  assert.equal(again.updated, undefined);
+  assert.equal(again.edited, undefined);
   assert.match(JSON.stringify(json(again.replies[0].embeds[0])), /already entered/);
 
   clearAllRateLimits();
   const leave = w.interaction('member');
   await button('giveaway_leave').execute(leave, w.client);
   assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, []);
-  assert.equal(json(leave.updated.components[0]).components[0].label, 'Enter giveaway (0)');
+  assert.equal(json(leave.edited.components[0]).components[0].label, 'Enter giveaway (0)');
 
   clearAllRateLimits();
   const notIn = w.interaction('member');
@@ -154,14 +157,14 @@ test('Manage is staff only and opens the private controls', async () => {
 
   const staff = w.interaction('staff', { staff: true });
   await button('giveaway_manage').execute(staff, w.client);
-  const panel = staff.replies[0];
-  assert.equal(panel.flags, 64);
+  const panel = staff.edited;
+  assert.equal(staff.deferred, true);
   assert.deepEqual(panel.components.flatMap(row => json(row).components.map(component => component.label)),
     ['End giveaway', 'Edit timer', 'View participants', 'Delete']);
 
   const list = w.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(list, w.client, ['participants', MESSAGE]);
-  assert.match(list.replies[0].embeds[0].description, /1\. <@a>/);
+  assert.match(list.edited.embeds[0].description, /1\. <@a>/);
 });
 
 test('End draws winners, marks the giveaway, and tags the winners with how to claim the prize', async () => {
@@ -208,6 +211,7 @@ test('Edit timer sets a new end time from now and updates the giveaway', async (
   const before = Date.now();
   const submit = w.interaction('staff', { staff: true, args: { fields: { getTextInputValue: () => '2h' } } });
   await timerModal.execute(submit, w.client, [MESSAGE]);
+  assert.equal(json(submit.edited.embeds[0]).title, 'Success');
   const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
   assert.ok(stored.endsAt >= before + 7_200_000 && stored.endsAt <= Date.now() + 7_200_000);
   assert.match(w.giveawayMessage.edits.at(-1).embeds[0].description, new RegExp(`<t:${Math.floor(stored.endsAt / 1000)}:F>`));
@@ -217,7 +221,7 @@ test('Delete asks to confirm, then removes the record and the giveaway message',
   const w = world({ [MESSAGE]: activeGiveaway() });
   const ask = w.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(ask, w.client, ['delete', MESSAGE]);
-  assert.equal(ask.updated.embeds[0].title, 'Delete giveaway?');
+  assert.equal(ask.edited.embeds[0].title, 'Delete giveaway?');
   const confirm = w.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(confirm, w.client, ['confirmdelete', MESSAGE]);
   assert.equal(await loadGiveaway(w.client, GUILD, MESSAGE), null);
@@ -307,4 +311,26 @@ test('only staff can open the Giveaway Builder; @everyone can be tagged', async 
   await handleGiveawayBuilderInteraction(everyone, w.client);
   assert.equal(json(everyone.updated.embeds[1]).fields.find(field => field.name === 'Tag').value, '@everyone');
   assert.equal(json(everyone.updated.components[2]).components[2].label, 'Untag @everyone');
+});
+
+test('every giveaway button answers Discord before reading the database (no 3-second timeouts)', async () => {
+  for (const [name, args, ack] of [
+    ['giveaway_enter', [], 'deferUpdate'],
+    ['giveaway_leave', [], 'deferUpdate'],
+    ['giveaway_manage', [], 'deferReply'],
+    ['giveaway_admin', ['panel', MESSAGE], 'deferUpdate'],
+    ['giveaway_admin', ['participants', MESSAGE], 'deferReply'],
+    ['giveaway_admin', ['end', MESSAGE], 'deferUpdate'],
+  ]) {
+    clearAllRateLimits();
+    const w = world({ [MESSAGE]: activeGiveaway({ participants: ['member'] }) });
+    const order = [];
+    const read = w.client.db.get;
+    w.client.db.get = async (...params) => { order.push('database'); return read(...params); };
+    const click = w.interaction('member', { staff: true });
+    const original = click[ack];
+    click[ack] = async (...params) => { order.push('acknowledged'); return original(...params); };
+    await button(name).execute(click, w.client, args);
+    assert.equal(order[0], 'acknowledged', `${name} ${args[0] || ''}`);
+  }
 });
