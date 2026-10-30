@@ -116,15 +116,17 @@ export function reportBanNotification(reason) {
 }
 
 // A handled report is marked in place (as appeals are): green side line,
-// Handled by + Handled at where Submitted was, and no buttons.
-export function handledReportEmbeds(report, actorId, handledAt) {
+// what was done + Handled by + Handled at where Submitted was, no buttons.
+export function handledReportEmbeds(report, actorId, handledAt, actions = []) {
   return (report.embeds || []).map((embed, index) => {
     const data = embed?.toJSON?.() || { ...embed };
     if (index !== 0) return data;
-    const fields = (data.fields || []).filter(field => !['Handled by', 'Handled at'].includes(field.name));
+    const fields = (data.fields || []).filter(field => !['Report handled', 'Handled by', 'Handled at'].includes(field.name));
     const submitted = fields.findIndex(field => field.name === 'Submitted');
     const inline = submitted === -1 ? false : Boolean(fields[submitted].inline);
+    const outcome = reportActionText(actions);
     const handled = [
+      ...(outcome ? [{ name: 'Report handled', value: outcome, inline }] : []),
       { name: 'Handled by', value: `<@${actorId}>`, inline },
       { name: 'Handled at', value: `<t:${Math.floor(handledAt / 1000)}:F>`, inline },
     ];
@@ -365,7 +367,7 @@ async function completeReportAction(interaction, client, report, action, userId,
       ...outcomeActions.map(name => Number(record.actions?.[name]?.completedAt) || 0),
     );
 
-    await report.edit({ embeds: handledReportEmbeds(report, actorId, handledAt), components: [] });
+    await report.edit({ embeds: handledReportEmbeds(report, actorId, handledAt, outcomeActions), components: [] });
 
     const notified = await publishReportOutcome(
       client,

@@ -34,16 +34,17 @@ test('a handled report is marked in place: green, Handled by + Handled at instea
   const report = { embeds: [{ toJSON: () => ({ title: 'New report #76', color: 0xFFFFFF, footer: { text: 'footer' }, fields: [
     { name: 'Reported member', value: '<@target>' }, { name: 'Reported by', value: '<@reporter>' }, { name: 'Reason', value: 'Spam' },
     { name: 'Evidence', value: 'Message' }, { name: 'Submitted', value: '<t:1:F>' }] }) }] };
-  const [data] = handledReportEmbeds(report, 'staff', 1_800_000_000_000);
+  const [data] = handledReportEmbeds(report, 'staff', 1_800_000_000_000, ['delete', 'ban']);
   assert.equal(data.title, 'New report #76');
   assert.equal(data.color, 0x00C49D);
   assert.deepEqual(data.footer, { text: 'footer' });
   assert.deepEqual(data.fields.map(field => `${field.name}: ${field.value}`), [
     'Reported member: <@target>', 'Reported by: <@reporter>', 'Reason: Spam', 'Evidence: Message',
+    'Report handled: The reported message has been deleted.\nThe reported member has been banned.',
     'Handled by: <@staff>', 'Handled at: <t:1800000000:F>',
   ]);
   // Marking it again never duplicates the handled lines.
-  const again = handledReportEmbeds({ embeds: [data] }, 'staff', 1_800_000_000_000)[0];
+  const again = handledReportEmbeds({ embeds: [data] }, 'staff', 1_800_000_000_000, ['delete', 'ban'])[0];
   assert.deepEqual(again.fields, data.fields);
   const source = fs.readFileSync('src/services/reportActionService.js', 'utf8');
   assert.doesNotMatch(source, /title: 'Report handled'/);
