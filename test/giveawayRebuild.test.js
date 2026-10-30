@@ -378,6 +378,8 @@ test('every giveaway notice disappears after exactly 10 seconds; the giveaway it
   const reroll = ended.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(reroll, ended.client, ['reroll', MESSAGE]);
   assert.equal(json(reroll.replies.at(-1).embeds[0]).title, 'Warning');
+  // Warnings have a red side line, never yellow.
+  assert.equal(json(reroll.replies.at(-1).embeds[0]).color, 0x7A1712);
   assert.match(json(reroll.replies.at(-1).embeds[0]).description, /no entries to reroll/);
   t.mock.timers.tick(10_000);
   await settle();
@@ -404,6 +406,7 @@ test('every giveaway notice disappears after exactly 10 seconds; the giveaway it
   const expired = Object.assign(active.interaction('staff', { staff: true }), { customId: 'gbuilder:post:unknown-session' });
   await handleGiveawayBuilderInteraction(expired, active.client);
   assert.match(JSON.stringify(json(expired.replies[0].embeds[0])), /expired/);
+  assert.equal(json(expired.replies[0].embeds[0]).color, 0x7A1712);
   t.mock.timers.tick(10_000);
   await settle();
   assert.deepEqual(expired.deleted, ['@original']);

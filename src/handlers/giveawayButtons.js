@@ -1,5 +1,6 @@
 import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { successEmbed, warningEmbed } from '../utils/embeds.js';
+import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { logger } from '../utils/logger.js';
 import { handleInteractionError } from '../utils/errorHandler.js';
 import {
@@ -23,6 +24,11 @@ import {
 } from '../services/giveawayActions.js';
 
 const EPHEMERAL = MessageFlags.Ephemeral;
+
+// Giveaway warnings have a red side line (owner's choice), never yellow.
+export function giveawayWarning(text) {
+    return setPreservedEmbedColor(warningEmbed('Warning', text), CLOUDY_RED_COLOR);
+}
 
 // Every short notice (Success/Warning) disappears after exactly 10 seconds.
 export const NOTICE_LIFETIME_MS = 10_000;
@@ -73,12 +79,12 @@ async function deferPrivate(interaction) {
     interaction.__giveawayPendingReply = true;
     await deferred;
 }
-const warn = (interaction, text) => notice(interaction, warningEmbed('Warning', text));
+const warn = (interaction, text) => notice(interaction, giveawayWarning(text));
 const done = (text) => ({ embeds: [successEmbed('Success', text)], components: [] });
 
 async function onError(interaction, error, customId) {
     if (error?.userMessage && error?.context?.expected) {
-        return notice(interaction, warningEmbed('Warning', error.userMessage)).catch(() => {});
+        return notice(interaction, giveawayWarning(error.userMessage)).catch(() => {});
     }
     logger.error(`Error in giveaway button ${customId}:`, error);
     return handleInteractionError(interaction, error, { type: 'button', customId, handler: 'giveaway' });
@@ -128,7 +134,7 @@ export async function openManagePanel(interaction, client, messageId = interacti
         }
         await deferPrivate(interaction);
         const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-        if (!giveaway) return notice(interaction, warningEmbed('Warning', 'This giveaway could not be found.'));
+        if (!giveaway) return notice(interaction, giveawayWarning('This giveaway could not be found.'));
         return interaction.editReply(createGiveawayManagePanel(giveaway));
     } catch (error) {
         return onError(interaction, error, 'giveaway_manage');
@@ -167,7 +173,7 @@ export const giveawayAdminHandler = {
             if (action === 'participants') {
                 await deferPrivate(interaction);
                 const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-                if (!giveaway) return notice(interaction, warningEmbed('Warning', 'This giveaway no longer exists.'));
+                if (!giveaway) return notice(interaction, giveawayWarning('This giveaway no longer exists.'));
                 // The participants list disappears after 10 seconds as well.
                 await interaction.editReply(createParticipantsList(giveaway));
                 return removeAfterTenSeconds(interaction);
