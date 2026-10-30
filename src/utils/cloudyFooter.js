@@ -53,7 +53,7 @@ export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomat
       const title = String(original.title || '').trim();
       // Appeal embeds intentionally omit footer branding; keep this exception
       // limited to the dedicated appeal embed titles.
-      if (/^(?:Discord|Rust server) appeal — (?:Mute|Ban|Other)$/i.test(title)) return source;
+      if (/^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i.test(title)) return source;
       // Protect the ZORP Guide and explicitly saved Embed Builder content.
       if (/\bZORP Guide\s*$/i.test(title)
           || original.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)) return source;
