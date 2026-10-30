@@ -1,5 +1,5 @@
 import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
-import { errorEmbed, successEmbed, warningEmbed } from '../utils/embeds.js';
+import { successEmbed, warningEmbed } from '../utils/embeds.js';
 import { logger } from '../utils/logger.js';
 import { handleInteractionError } from '../utils/errorHandler.js';
 import {
@@ -24,16 +24,42 @@ import {
 
 const EPHEMERAL = MessageFlags.Ephemeral;
 
-// Short private notices: their Success/Warning/Error titles give them the
-// standard 10-second lifetime.
-function notice(interaction, embed) {
+// Every short notice (Success/Warning) disappears after exactly 10 seconds.
+export const NOTICE_LIFETIME_MS = 10_000;
+
+// Removes the private reply (or the given follow-up) after 10 seconds.
+export function removeAfterTenSeconds(interaction, message = null) {
+    const timer = setTimeout(() => {
+        void Promise.resolve()
+            .then(() => (message ? interaction.deleteReply(message) : interaction.deleteReply()))
+            .catch(() => {});
+    }, NOTICE_LIFETIME_MS);
+    timer.unref?.();
+}
+
+async function notice(interaction, embed) {
     // A private "thinking…" reply is replaced by the notice, never left open.
     if (interaction.__giveawayPendingReply) {
         interaction.__giveawayPendingReply = false;
-        return interaction.editReply({ embeds: [embed] });
+        await interaction.editReply({ embeds: [embed], components: [] });
+        return removeAfterTenSeconds(interaction);
     }
     const payload = { embeds: [embed], flags: EPHEMERAL };
-    return interaction.replied || interaction.deferred ? interaction.followUp(payload) : interaction.reply(payload);
+    if (interaction.replied || interaction.deferred) {
+        // After an update of the giveaway itself, only this follow-up is
+        // removed: never the giveaway message.
+        const message = await interaction.followUp(payload);
+        if (message?.id) removeAfterTenSeconds(interaction, message);
+        return message;
+    }
+    await interaction.reply(payload);
+    return removeAfterTenSeconds(interaction);
+}
+
+// The private Manage panel turns into a short Success notice.
+async function panelDone(interaction, text) {
+    await interaction.editReply(done(text));
+    removeAfterTenSeconds(interaction);
 }
 
 // Every button is acknowledged before any database work, so a slow moment
@@ -48,7 +74,7 @@ const done = (text) => ({ embeds: [successEmbed('Success', text)], components: [
 
 async function onError(interaction, error, customId) {
     if (error?.userMessage && error?.context?.expected) {
-        return notice(interaction, errorEmbed('Error', error.userMessage)).catch(() => {});
+        return notice(interaction, warningEmbed('Warning', error.userMessage)).catch(() => {});
     }
     logger.error(`Error in giveaway button ${customId}:`, error);
     return handleInteractionError(interaction, error, { type: 'button', customId, handler: 'giveaway' });
@@ -98,7 +124,7 @@ export async function openManagePanel(interaction, client, messageId = interacti
         }
         await deferPrivate(interaction);
         const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-        if (!giveaway) return interaction.editReply({ embeds: [warningEmbed('Warning', 'This giveaway could not be found.')] });
+        if (!giveaway) return notice(interaction, warningEmbed('Warning', 'This giveaway could not be found.'));
         return interaction.editReply(createGiveawayManagePanel(giveaway));
     } catch (error) {
         return onError(interaction, error, 'giveaway_manage');
@@ -137,29 +163,30 @@ export const giveawayAdminHandler = {
             if (action === 'participants') {
                 await deferPrivate(interaction);
                 const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-                return interaction.editReply(giveaway ? createParticipantsList(giveaway) : done('This giveaway no longer exists.'));
+                if (!giveaway) return notice(interaction, warningEmbed('Warning', 'This giveaway no longer exists.'));
+                return interaction.editReply(createParticipantsList(giveaway));
             }
 
             await interaction.deferUpdate();
             const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-            if (!giveaway) return interaction.editReply(done('This giveaway no longer exists.'));
+            if (!giveaway) return panelDone(interaction, 'This giveaway no longer exists.');
             if (action === 'panel') return interaction.editReply(createGiveawayManagePanel(giveaway));
             if (action === 'delete') return interaction.editReply(createDeleteConfirmation(giveaway));
             if (action === 'end') {
                 const { winners } = await finishGiveaway(client, interaction.guild, messageId, { endedBy: interaction.user.id });
-                return interaction.editReply(done(winners.length
+                return panelDone(interaction, (winners.length
                     ? `The giveaway has ended. Winner${winners.length === 1 ? '' : 's'}: ${winners.map(id => `<@${id}>`).join(', ')}`
                     : 'The giveaway has ended. Nobody entered, so there is no winner.'));
             }
             if (action === 'reroll') {
                 const { winners } = await rerollGiveaway(client, interaction.guild, messageId, { rerolledBy: interaction.user.id });
-                return interaction.editReply(done(`New winner${winners.length === 1 ? '' : 's'}: ${winners.map(id => `<@${id}>`).join(', ')}`));
+                return panelDone(interaction, `New winner${winners.length === 1 ? '' : 's'}: ${winners.map(id => `<@${id}>`).join(', ')}`);
             }
             if (action === 'confirmdelete') {
                 await removeGiveaway(client, interaction.guild, messageId, { deletedBy: interaction.user });
-                return interaction.editReply(done('The giveaway was deleted.'));
+                return panelDone(interaction, 'The giveaway was deleted.');
             }
-            return interaction.editReply(done('This option is no longer available.'));
+            return panelDone(interaction, 'This option is no longer available.');
         } catch (error) {
             return onError(interaction, error, `giveaway_admin:${action}`);
         }

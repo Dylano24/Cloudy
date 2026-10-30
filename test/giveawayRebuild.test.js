@@ -19,6 +19,7 @@ import { handleGiveawayBuilderInteraction } from '../src/services/giveawayBuilde
 const GUILD = 'giveaway-guild';
 const MESSAGE = '1565600000000000001';
 const json = value => value?.toJSON?.() || value;
+const settle = () => new Promise(resolve => { setImmediate(resolve); });
 const button = name => buttons.find(entry => entry.name === name);
 
 function world(stored = {}) {
@@ -47,7 +48,9 @@ function world(stored = {}) {
       message: giveawayMessage, inGuild: () => true, replies: [], replied: false, deferred: false, ...args,
       update: async payload => { result.updated = payload; result.replied = true; },
       reply: async payload => { result.replies.push(payload); result.replied = true; },
-      followUp: async payload => { result.replies.push(payload); },
+      followUp: async payload => { result.replies.push(payload); return { id: `follow-up-${result.replies.length}` }; },
+      deleted: [],
+      deleteReply: async target => { result.deleted.push(target?.id ?? '@original'); },
       deferUpdate: async () => { result.deferred = true; },
       deferReply: async () => { result.deferred = true; },
       editReply: async payload => { result.edited = payload; },
@@ -346,4 +349,53 @@ test('every giveaway button answers Discord before reading the database (no 3-se
     await button(name).execute(click, w.client, args);
     assert.equal(order[0], 'acknowledged', `${name} ${args[0] || ''}`);
   }
+});
+
+test('every giveaway notice disappears after exactly 10 seconds; the giveaway itself never does', async t => {
+  clearAllRateLimits();
+  const w = world({ [MESSAGE]: activeGiveaway() });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // Enter: the Success follow-up is removed, not the giveaway message.
+  const enter = w.interaction('member');
+  await button('giveaway_enter').execute(enter, w.client);
+  t.mock.timers.tick(9_999);
+  await settle();
+  assert.deepEqual(enter.deleted, []);
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepEqual(enter.deleted, ['follow-up-1']);
+
+  // A warning answered directly is removed too.
+  const outsider = w.interaction('member');
+  await button('giveaway_manage').execute(outsider, w.client);
+  t.mock.timers.tick(10_000);
+  await settle();
+  assert.deepEqual(outsider.deleted, ['@original']);
+
+  // A failed Reroll shows a Warning (never another template title) and disappears.
+  const ended = world({ [MESSAGE]: activeGiveaway({ ended: true, isEnded: true, participants: [] }) });
+  const reroll = ended.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(reroll, ended.client, ['reroll', MESSAGE]);
+  assert.equal(json(reroll.replies.at(-1).embeds[0]).title, 'Warning');
+  assert.match(json(reroll.replies.at(-1).embeds[0]).description, /no entries to reroll/);
+  t.mock.timers.tick(10_000);
+  await settle();
+  assert.ok(reroll.deleted.length === 1 && reroll.deleted[0] !== '@original');
+
+  // The private Manage panel becomes a Success notice after End, then disappears.
+  const active = world({ [MESSAGE]: activeGiveaway({ participants: ['winner'] }) });
+  const end = active.interaction('staff', { staff: true });
+  await button('giveaway_admin').execute(end, active.client, ['end', MESSAGE]);
+  assert.equal(json(end.edited.embeds[0]).title, 'Success');
+  t.mock.timers.tick(10_000);
+  await settle();
+  assert.deepEqual(end.deleted, ['@original']);
+
+  // Giveaway Builder notices follow the same rule.
+  const expired = Object.assign(active.interaction('staff', { staff: true }), { customId: 'gbuilder:post:unknown-session' });
+  await handleGiveawayBuilderInteraction(expired, active.client);
+  assert.match(JSON.stringify(json(expired.replies[0].embeds[0])), /expired/);
+  t.mock.timers.tick(10_000);
+  await settle();
+  assert.deepEqual(expired.deleted, ['@original']);
 });
