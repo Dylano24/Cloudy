@@ -114,9 +114,9 @@ test('the open editor also holds the Builder preview: idle in the editor never c
     await settle();
     assert.deepEqual(deleted, [], 'nothing closes while the editor is open');
 
-    // Leaving the editor starts the normal 5 minutes for the whole Builder.
+    // Leaving the editor starts the normal 30 minutes for the whole Builder.
     assert.equal((await applyEmbedColorPickerSession(token, '__CLOUDY_EMBED_CLOSE__', page('idle'))).ok, true);
-    t.mock.timers.tick(5 * MINUTE - 1);
+    t.mock.timers.tick(30 * MINUTE - 1);
     await settle();
     assert.deepEqual(deleted, []);
     t.mock.timers.tick(1);
@@ -148,8 +148,11 @@ test('activity on the Builder controls keeps the preview above them alive', asyn
   await settle();
   assert.deepEqual(deleted, [], 'nothing closes while the Builder is in use');
 
-  // Five minutes without any activity close both together.
-  t.mock.timers.tick(5 * MINUTE);
+  // 29 minutes without activity keep both; after 30 they close together.
+  t.mock.timers.tick(29 * MINUTE);
+  await settle();
+  assert.deepEqual(deleted, []);
+  t.mock.timers.tick(MINUTE);
   await settle();
   assert.deepEqual(deleted.sort(), ['panel', 'preview']);
 
@@ -198,7 +201,7 @@ test('switching apps on the phone is not a close: 13 minutes without contact kee
   }
 });
 
-test('no close event: after the 14-minute editor fallback the normal 5 minutes follow, then controls and preview close together', async t => {
+test('no close event: after the 14-minute editor fallback the normal 30 minutes follow, then controls and preview close together', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const b = await linkedBuilder('fallback');
   try {
@@ -206,7 +209,7 @@ test('no close event: after the 14-minute editor fallback the normal 5 minutes f
     t.mock.timers.tick(EMBED_EDITOR_IDLE_MS);
     await settle();
     assert.deepEqual(b.deleted, [], 'the Builder stays after the editor fallback');
-    t.mock.timers.tick(5 * MINUTE - 1);
+    t.mock.timers.tick(30 * MINUTE - 1);
     await settle();
     assert.deepEqual(b.deleted, []);
     t.mock.timers.tick(1);
@@ -217,7 +220,7 @@ test('no close event: after the 14-minute editor fallback the normal 5 minutes f
   }
 });
 
-test('after closing the editor every Builder click restarts the 5 minutes for controls and preview', async t => {
+test('after closing the editor every Builder click restarts the 30 minutes for controls and preview', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const b = await linkedBuilder('clicks');
   try {
@@ -230,14 +233,14 @@ test('after closing the editor every Builder click restarts the 5 minutes for co
     await settle();
     assert.deepEqual(b.deleted, [], 'nothing closes while the editor is open');
     assert.equal((await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_CLOSE__', page('page'))).ok, true);
-    // Still usable in Discord: a click every 4 minutes keeps everything.
+    // Still usable in Discord: a click every 25 minutes keeps everything.
     for (let i = 0; i < 4; i += 1) {
-      t.mock.timers.tick(4 * MINUTE);
+      t.mock.timers.tick(25 * MINUTE);
       b.touch();
     }
     await settle();
     assert.deepEqual(b.deleted, [], 'clicks keep the Builder open');
-    t.mock.timers.tick(5 * MINUTE);
+    t.mock.timers.tick(30 * MINUTE);
     await settle();
     assert.deepEqual(b.deleted.sort(), ['panel', 'preview']);
   } finally {

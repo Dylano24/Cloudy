@@ -14,8 +14,8 @@ import {
   touchBuilderSessionMessage,
 } from '../src/utils/builderSessionCleanup.js';
 
-test('builder inactivity timeout is exactly five minutes', () => {
-  assert.equal(BUILDER_SESSION_IDLE_MS, 5 * 60_000);
+test('builder inactivity timeout is exactly 30 minutes (owner\'s choice)', () => {
+  assert.equal(BUILDER_SESSION_IDLE_MS, 30 * 60_000);
 });
 
 test('session cleanup only targets Message Builder and Modify Embed messages', () => {
@@ -128,7 +128,7 @@ test('live Message Builder activity resets its five-minute inactivity window', a
   await deleteBuilderSessionMessage(parent);
 });
 
-test('open web editor disables Builder idle completely and close starts a fresh five minutes', async () => {
+test('open web editor disables Builder idle completely and close starts a fresh 30 minutes', async () => {
   const resetValues = [];
   const message = {
     id: 'held-builder-session',
@@ -152,7 +152,7 @@ test('open web editor disables Builder idle completely and close starts a fresh 
     touchBuilderSessionMessage(message);
   });
 
-  // While held there is no native resetTimer-based five-minute path at all.
+  // While held there is no native resetTimer-based inactivity path at all.
   assert.deepEqual(resetValues, []);
   touchBuilderSessionMessage(message);
   assert.deepEqual(resetValues, []);

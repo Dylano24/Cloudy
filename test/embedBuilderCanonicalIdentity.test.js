@@ -1104,7 +1104,7 @@ test('/embedbuilder brings back the same open Builder without the editor, while 
   assert.ok(world.deletedPrivate.includes(oldDashboard.id), 'the old controls are removed');
 });
 
-test('the real Builder: the editor holds controls and preview together; after closing it, clicks restart the 5 minutes; then both close and the posted embed stays', async t => {
+test('the real Builder: the editor holds controls and preview together; after closing it, clicks restart the 30 minutes; then both close and the posted embed stays', async t => {
   const { registerBuilderSessionCollector, touchBuilderSessionMessage } = await import('../src/utils/builderSessionCleanup.js');
   const world = createWorld(t);
   const b = await openBuilder(t, world);
@@ -1138,18 +1138,21 @@ test('the real Builder: the editor holds controls and preview together; after cl
   await settle();
   assert.deepEqual(gone(), []);
 
-  // Closing the editor leaves the Builder usable; each click restarts the 5 minutes.
+  // Closing the editor leaves the Builder usable; each click restarts the 30 minutes.
   assert.equal((await applyEmbedColorPickerSession(b.token, '__CLOUDY_EMBED_CLOSE__', { editorInstanceId: 'phone' })).ok, true);
   for (let i = 0; i < 3; i += 1) {
-    t.mock.timers.tick(4 * MINUTE);
+    t.mock.timers.tick(25 * MINUTE);
     panel.collector.emit('collect', b.component('simple_embed_unknown_noop'));
   }
   await settle();
   assert.deepEqual(gone(), [], 'clicks keep the Builder open');
   assert.equal(panel.collector.ended, false);
 
-  // Five minutes without any activity: controls and preview close together.
-  t.mock.timers.tick(5 * MINUTE);
+  // 30 minutes without any activity: controls and preview close together.
+  t.mock.timers.tick(29 * MINUTE);
+  await settle();
+  assert.deepEqual(gone(), [], 'still open after 29 minutes');
+  t.mock.timers.tick(MINUTE);
   await settle();
   assert.deepEqual(gone().sort(), [panel.id, preview.id].sort());
   assert.equal(physical(world).length, 1, 'the posted embed is never part of the cleanup');
