@@ -11,10 +11,10 @@ const APPEAL_CHANNEL = '1554538665068200039';
 const REVIEWED = Date.parse('2026-10-30T05:46:10Z');
 const HANDLED_AT = `<t:${Math.floor(REVIEWED / 1000)}:F>`;
 const answer = (value = 'Sjsj') => ({ name: 'Additional information', value, inline: false });
-const decision = { name: 'Handled by', value: '<@staff>\nThe member has been unmuted.', inline: false };
 const oldDecision = { name: 'Staff decision', value: 'Unmuted by <@staff>', inline: false };
 const reason = { name: 'Reason', value: 'rwyhtegr', inline: false };
-const handledAt = { name: 'Appeal handled at', value: HANDLED_AT, inline: false };
+const timeOnly = { name: 'Appeal handled at', value: HANDLED_AT, inline: false };
+const handledField = (outcome = 'The member has been unmuted.') => ({ name: 'Appeal handled at', value: `${HANDLED_AT}\n**Handled by** <@staff>\n${outcome}`, inline: false });
 
 test('appeal embeds always leave with the normal Cloudy footer and no time', async t => {
   const prototype = REST.prototype;
@@ -37,21 +37,24 @@ test('appeal embeds always leave with the normal Cloudy footer and no time', asy
   }
 });
 
-test('handled layout: Appeal handled at sits where the handled notice was, before Handled by', () => {
-  const expected = [answer(), handledAt, decision, reason];
+test('handled layout: Appeal handled at with Handled by @x next to each other and the outcome below', () => {
+  const expected = [answer(), handledField(), reason];
   // Older layouts: notice merged with Staff decision, notice alone, separate notice field.
   assert.deepEqual(handledAppealFields([answer('Sjsj\n\n**This appeal has been handled**\n\n**Staff decision**\nUnmuted by <@staff>'), reason], REVIEWED), expected);
   assert.deepEqual(handledAppealFields([answer('Sjsj\n\n**This appeal has been handled**'), oldDecision, reason], REVIEWED), expected);
   assert.deepEqual(handledAppealFields([answer(), { name: 'This appeal has been handled', value: '​', inline: false }, oldDecision, reason], REVIEWED), expected);
-  // Already converted stays the same; the earlier Handled at label is renamed.
+  // Already converted stays the same; earlier labels and fields are converted.
   assert.deepEqual(handledAppealFields(expected, REVIEWED), expected);
-  assert.deepEqual(handledAppealFields([answer(), { ...handledAt, name: 'Handled at' }, oldDecision, reason], REVIEWED), expected);
-  // Staff decision becomes Handled by with the outcome below the tag.
-  assert.deepEqual(handledAppealFields([answer(), handledAt, oldDecision, reason], REVIEWED), expected);
-  assert.deepEqual(handledAppealFields([answer(), handledAt, { ...oldDecision, value: 'Unbanned by <@staff>' }, reason], REVIEWED)[2],
-    { name: 'Handled by', value: '<@staff>\nThe member has been unbanned.', inline: false });
-  assert.deepEqual(handledAppealFields([answer(), handledAt, { ...oldDecision, value: 'Denied by <@staff>' }, reason], REVIEWED)[2],
-    { name: 'Handled by', value: "<@staff>\nThe member's appeal has been denied.", inline: false });
+  assert.deepEqual(handledAppealFields([answer(), { ...timeOnly, name: 'Handled at' }, oldDecision, reason], REVIEWED), expected);
+  assert.deepEqual(handledAppealFields([answer(), timeOnly, oldDecision, reason], REVIEWED), expected);
+  // The separate Handled by field (tag above the outcome) moves next to Handled by.
+  assert.deepEqual(handledAppealFields([answer(), timeOnly, { name: 'Handled by', value: '<@staff>\nThe member has been unmuted.', inline: false }, reason], REVIEWED), expected);
+  assert.deepEqual(handledAppealFields([answer(), timeOnly, { ...oldDecision, value: 'Unbanned by <@staff>' }, reason], REVIEWED),
+    [answer(), handledField('The member has been unbanned.'), reason]);
+  assert.deepEqual(handledAppealFields([answer(), timeOnly, { ...oldDecision, value: 'Denied by <@staff>' }, reason], REVIEWED),
+    [answer(), handledField("The member's appeal has been denied."), reason]);
+  // A new decision passes its own Handled by.
+  assert.deepEqual(handledAppealFields([answer()], REVIEWED, '<@staff>\nThe member has been unmuted.'), [answer(), handledField()]);
 });
 
 function startupFixture(embedData, record) {
@@ -78,7 +81,7 @@ test('restart moves existing appeals to the new layout once, with the saved revi
   await ensureAppealActions(client);
   assert.equal(edits.length, 1);
   assert.deepEqual(edits[0].embeds[0].footer, { text: CLOUDY_STANDARD_FOOTER });
-  assert.deepEqual(edits[0].embeds[0].fields, [answer(), handledAt, decision, reason]);
+  assert.deepEqual(edits[0].embeds[0].fields, [answer(), handledField(), reason]);
   assert.equal(edits[0].components, undefined);
   // The next restart finds nothing left to change.
   await ensureAppealActions(client);
