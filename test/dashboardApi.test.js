@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac, createHash, randomBytes } from 'node:crypto';
 import { PermissionFlagsBits } from 'discord.js';
 import {
-  DASHBOARD_PREFIX, canonicalString, checkValue, createDashboardHandler, createNonceStore, revisionOf, verifySignedRequest,
+  DASHBOARD_PREFIX, canonicalString, checkValue, createDashboardHandler, createDiscordIdentity, createNonceStore, revisionOf, verifySignedRequest,
 } from '../src/web/dashboardApi.js';
 
 const SECRET = 's'.repeat(48);
@@ -245,4 +245,34 @@ test('a refused write leaves no unhandled rejection and the next write still run
   } finally {
     process.off('unhandledRejection', onRejection);
   }
+});
+
+test('a Discord login token identifies the dashboard user through Discord itself', async () => {
+  let lookups = 0;
+  const identify = createDiscordIdentity({
+    fetchImpl: async (_url, init) => {
+      lookups += 1;
+      const ok = init.headers.Authorization === 'Bearer valid-discord-token-1234567890';
+      return { ok, json: async () => (ok ? { id: ADMIN } : {}) };
+    },
+    now: () => NOW,
+  });
+  assert.equal(await identify('valid-discord-token-1234567890'), ADMIN);
+  assert.equal(await identify('valid-discord-token-1234567890'), ADMIN);
+  assert.equal(lookups, 1, 'cached per token');
+  assert.equal(await identify('wrong-discord-token-1234567890'), null);
+  assert.equal(await identify('x'), null, 'malformed tokens never reach Discord');
+
+  const { client } = fakeClient();
+  const handle = createDashboardHandler({ client, env: {}, nonces: createNonceStore(() => NOW), now: () => NOW, identify });
+  const res = { statusCode: 0, body: null, status(code) { this.statusCode = code; return this; }, json(value) { this.body = value; return this; } };
+  const path = `${DASHBOARD_PREFIX}/guilds/${GUILD}/overview`;
+  await handle({ method: 'GET', originalUrl: path, headers: { authorization: 'Bearer valid-discord-token-1234567890' }, body: Buffer.from('') }, res);
+  assert.equal(res.statusCode, 200);
+  const denied = { ...res, statusCode: 0 };
+  await handle({ method: 'GET', originalUrl: path, headers: { authorization: 'Bearer wrong-discord-token-1234567890' }, body: Buffer.from('') }, denied);
+  assert.equal(denied.statusCode, 401);
+  const none = { ...res, statusCode: 0 };
+  await handle({ method: 'GET', originalUrl: path, headers: {}, body: Buffer.from('') }, none);
+  assert.equal(none.statusCode, 401);
 });

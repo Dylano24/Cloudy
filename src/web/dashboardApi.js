@@ -69,6 +69,34 @@ export function verifySignedRequest({ method, path, headers, body, secret, nonce
   return { ok: true, actorId };
 }
 
+// A dashboard user's own Discord login also proves who they are: Cloudy asks
+// Discord whose token it is. Results are cached briefly per token hash; the
+// token itself is never stored or logged.
+const DISCORD_TOKEN = /^[A-Za-z0-9._~+/=-]{20,200}$/;
+export function createDiscordIdentity({ fetchImpl = fetch, now = () => Date.now(), ttlMs = 300_000, limit = 5_000 } = {}) {
+  const cache = new Map();
+  return async function identify(token) {
+    if (!DISCORD_TOKEN.test(token)) return null;
+    const key = createHash('sha256').update(token).digest('base64url');
+    const cached = cache.get(key);
+    if (cached && cached.expires > now()) return cached.userId;
+    let response;
+    try {
+      response = await fetchImpl('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5_000) });
+    } catch {
+      return null;
+    }
+    if (!response.ok) return null;
+    const user = await response.json().catch(() => null);
+    const userId = typeof user?.id === 'string' && SNOWFLAKE.test(user.id) ? user.id : null;
+    if (userId) {
+      cache.set(key, { userId, expires: now() + ttlMs });
+      while (cache.size > limit) cache.delete(cache.keys().next().value);
+    }
+    return userId;
+  };
+}
+
 // ---------------------------------------------------------------- values
 
 const idOf = value => (value && typeof value === 'object' ? value.id : value) || null;
@@ -586,7 +614,7 @@ async function canManage(guild, actorId) {
   return allowed ? member : null;
 }
 
-export function createDashboardHandler({ client, env = process.env, nonces = createNonceStore(), modules = MODULES, insights = INSIGHTS, now = () => Date.now() }) {
+export function createDashboardHandler({ client, env = process.env, nonces = createNonceStore(), modules = MODULES, insights = INSIGHTS, now = () => Date.now(), identify = createDiscordIdentity() }) {
   const writeLog = new Map();
   const locks = new Map();
 
@@ -624,7 +652,18 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
     try {
       const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : typeof req.body === 'string' ? req.body : '';
       const path = String(req.originalUrl || req.url || '').split('?')[0];
-      const verified = verifySignedRequest({ method: req.method, path, headers: req.headers || {}, body: raw, secret: env.CLOUDY_DASHBOARD_API_SECRET, nonces, nowMs: now() });
+      const headers = req.headers || {};
+      const bearer = String(headers.authorization || '').startsWith('Bearer ') ? String(headers.authorization).slice(7).trim() : '';
+      let verified;
+      if (headers['x-cloudy-dashboard-signature']) {
+        verified = verifySignedRequest({ method: req.method, path, headers, body: raw, secret: env.CLOUDY_DASHBOARD_API_SECRET, nonces, nowMs: now() });
+      } else if (bearer) {
+        // Signed in with Discord on Cloudy Store: Discord itself says who this is.
+        const userId = await identify(bearer);
+        verified = userId ? { ok: true, actorId: userId } : { ok: false, status: 401, code: 'unauthorized' };
+      } else {
+        verified = { ok: false, status: 401, code: 'unauthorized' };
+      }
       if (!verified.ok) return send(verified.status, { error: verified.code === 'not_configured' ? 'The dashboard connection is not configured.' : 'Unauthorized.', code: verified.code });
       if (!client.isReady?.()) return send(503, { error: 'Cloudy is starting. Try again in a moment.', code: 'starting' });
       const actorId = verified.actorId;
