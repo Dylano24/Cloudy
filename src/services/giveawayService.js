@@ -138,6 +138,7 @@ export const GIVEAWAY_EMOJIS = Object.freeze({
     prize: '<:W89zgiveway:1557507484812312727>',
     timer: '<a:W89timer:1557506643372146778>',
     enter: Object.freeze({ id: '1543303914152001536', name: 'W90250885giveaway' }),
+    leave: Object.freeze({ id: '1565739416331485284', name: 'aestheticx' }),
 });
 export const DEFAULT_GIVEAWAY_DESCRIPTION = 'Cloudy Inc. is giving you the chance to win something special!';
 export const DEFAULT_GIVEAWAY_CLAIM = 'Open a ticket within 24 hours to claim your prize.';
@@ -210,6 +211,7 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
     if (!ended) {
         entry.addComponents(new ButtonBuilder()
             .setCustomId('giveaway_leave')
+            .setEmoji(GIVEAWAY_EMOJIS.leave)
             .setLabel('Leave giveaway')
             .setStyle(ButtonStyle.Danger));
     }
