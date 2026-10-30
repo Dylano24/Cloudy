@@ -99,6 +99,15 @@ test('completed Deny removes buttons and uses the same handled status for Discor
   }
 });
 
+test('handling an appeal keeps its Owner tag active without pinging anyone else', async t => {
+  t.mock.method(InteractionHelper, 'safeEditReply', async () => {});
+  const f = fixture('Ban', 'discord');
+  f.message.mentions = { roles: new Collection([['owner-role', {}]]) };
+  await handleAppealDecision(f.interaction, f.client, ['deny', f.record.id]);
+  assert.deepEqual(f.message.updated.allowedMentions, { parse: [], roles: ['owner-role'] });
+  assert.equal(f.message.updated.content, undefined);
+});
+
 test('a handled appeal without answers still gets Handled at before Staff decision', async t => {
   t.mock.method(InteractionHelper, 'safeEditReply', async () => {});
   const f = fixture('Ban', 'discord');
