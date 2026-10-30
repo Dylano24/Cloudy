@@ -1,5 +1,5 @@
 // CLOUDY_INTERACTION_LATENCY_V1
-import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
+import { isBuilderUiMessage } from '../utils/builderSessionCleanup.js';
 import { isTransientStatusEmbed } from '../utils/transientResponse.js';
 import { ChannelType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { db, deleteFromDb, getFromDb, setInDb, getJoinToCreateConfig } from '../utils/database.js';
@@ -446,7 +446,7 @@ export function isRegistrableCloudyEmbedMessage(message) {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
 
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
-    if (isBuilderSessionMessage(message)) return false;
+    if (isBuilderUiMessage(message)) return false;
     if ((message.interaction || message.interactionMetadata) && (!message.author?.id || message.author.id !== message.client?.user?.id)) return false;
 
     return isSystemCatalogMessage(message) || message.embeds.some(isFixedCloudyEmbed);
@@ -455,7 +455,7 @@ export function isRegistrableCloudyEmbedMessage(message) {
 export function isSearchableCloudyBotEmbedMessage(message, botUserId = message?.client?.user?.id) {
     if (!message?.guildId || !message?.channelId || !message?.id || !message?.embeds?.length) return false;
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return false;
-    if (isBuilderSessionMessage(message)) return false;
+    if (isBuilderUiMessage(message)) return false;
     if (!botUserId || String(message.author?.id || '') !== String(botUserId)) return false;
     return true;
 }

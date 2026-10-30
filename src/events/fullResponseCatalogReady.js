@@ -19,7 +19,7 @@ import {
   getCachedSavedEmbedTemplateData,
 } from '../services/embedTemplateService.js';
 import { isEmbedManagerSaveInProgress } from '../services/embedManagerService.js';
-import { isRegisteredBuilderPreviewMessageId } from '../utils/builderSessionCleanup.js';
+import { isBuilderUiMessage, isRegisteredBuilderPreviewMessageId } from '../utils/builderSessionCleanup.js';
 import { MESSAGE_BUILDER_FOOTER_MARKER } from '../services/cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
 import { rememberBuilderRuntimePreview } from '../services/builderRuntimePreviewService.js';
@@ -170,7 +170,7 @@ function isBuilderAuthoredInteraction(source) {
 
 function isBuilderAuthoredMessage(message) {
   if (!message) return false;
-  if (isRegisteredBuilderPreviewMessageId(message.id)) return true;
+  if (isRegisteredBuilderPreviewMessageId(message.id) || isBuilderUiMessage(message)) return true;
   if (isBuilderAuthoredInteraction(messageContext(message))) return true;
   return (message.embeds || []).some(embed => {
     const data = embed?.toJSON ? embed.toJSON() : embed;

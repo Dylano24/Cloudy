@@ -28,6 +28,11 @@ const expiredBuilderMessages = new Map();
 const EXPIRED_BUILDER_LIMIT = 500;
 // These ids have their own listener (Search in Modify embed).
 const SELF_HANDLED_BUILDER_IDS = /^simple_embed_(?:title_search$|google_search_page_)/;
+// /embedbuilder interactions whose replies are the Builder itself (preview and
+// controls). A reply is recognised from its first gateway event on, before
+// Cloudy knows its message id.
+const builderInteractionIds = new Set();
+const BUILDER_INTERACTION_LIMIT = 1000;
 
 function embedTitle(embed) {
   return String(embed?.title ?? embed?.data?.title ?? '').trim().toLowerCase();
@@ -70,6 +75,39 @@ export function isBuilderSessionMessage(message) {
     && Array.isArray(message?.embeds)
     && message.embeds.some(embed => BUILDER_TITLES.has(embedTitle(embed)))
   );
+}
+
+export function registerBuilderInteraction(interactionId) {
+  const id = String(interactionId || '').trim();
+  if (!id) return false;
+  builderInteractionIds.delete(id);
+  builderInteractionIds.add(id);
+  while (builderInteractionIds.size > BUILDER_INTERACTION_LIMIT) {
+    builderInteractionIds.delete(builderInteractionIds.values().next().value);
+  }
+  return true;
+}
+
+function builderInteractionOf(message) {
+  const metadata = message?.interactionMetadata || message?.interaction || null;
+  return metadata?.id && builderInteractionIds.has(String(metadata.id)) ? metadata : null;
+}
+
+/** Builder UI (preview, controls, Modify embed): never a template, log or Search item. */
+export function isBuilderUiMessage(message) {
+  return isBuilderSessionMessage(message) || Boolean(builderInteractionOf(message));
+}
+
+// The Builder is a normal message in the channel (owner's choice). Only the
+// person who opened it can use its controls; anyone else gets a short notice.
+export function isForeignBuilderClick(interaction) {
+  if (!interaction?.isMessageComponent?.()) return false;
+  const customId = String(interaction.customId || '');
+  if (!customId.startsWith('simple_embed_') || SELF_HANDLED_BUILDER_IDS.test(customId)) return false;
+  const message = interaction.message;
+  if (!isBuilderUiMessage(message)) return false;
+  const ownerId = String((message.interactionMetadata || message.interaction)?.user?.id || '');
+  return Boolean(ownerId && interaction.user?.id && ownerId !== String(interaction.user.id));
 }
 
 export function shouldDeleteBuilderSessionOnCollectorEnd(reason) {

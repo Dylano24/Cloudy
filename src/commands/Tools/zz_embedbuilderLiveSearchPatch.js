@@ -1805,7 +1805,9 @@ export async function withBuilderSelectionAcknowledgement(interaction, prepare, 
     let acknowledgement = null;
     const timer = setTimeout(() => {
         if (!interaction.deferred && !interaction.replied && interaction.deferReply) {
-            acknowledgement = interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => null);
+            // In a server the Builder is a normal message (owner's choice).
+            acknowledgement = interaction.deferReply(interaction.guildId ? {} : { flags: MessageFlags.Ephemeral })
+                .catch(() => null);
         }
     }, delayMs);
     try {

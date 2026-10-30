@@ -1,6 +1,6 @@
 import { getResponseLifetime } from './responseLifetime.js';
 import { isAdditionalStatusTitle, isAdditionalStatusContent } from './statusReplyPolicy.js';
-import { isBuilderSessionMessage } from './builderSessionCleanup.js';
+import { isBuilderSessionMessage, isBuilderUiMessage } from './builderSessionCleanup.js';
 import { isBuilderOwnedMessage } from './builderOwnedSends.js';
 import { rememberTransientBotMessage } from '../services/deletionAttributionService.js';
 
@@ -76,7 +76,7 @@ export function scheduleTransientMessageDeletion(message) {
   // Message Builder / Modify Embed own their lifetime through builderSessionCleanup.
   // Never let a status-like preview route the whole Builder into the 10s cleanup.
   // An Embed Builder post titled e.g. "Information" is content, not a status.
-  if (!message || isBuilderSessionMessage(message) || isBuilderOwnedMessage(message)
+  if (!message || isBuilderUiMessage(message) || isBuilderOwnedMessage(message)
     || isPersistentBotMessage(message) || !isTransientStatusPayload(null, message)) return false;
   if (!message.deletable || typeof message.delete !== 'function') return false;
   const messageId = message.id ? String(message.id) : null;
