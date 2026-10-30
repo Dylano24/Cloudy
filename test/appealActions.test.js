@@ -23,10 +23,10 @@ function fixture(action = 'Ban', scope = 'discord') {
   return { record, values, member, message, guild, client, interaction };
 }
 
-// Handled appeals: the answers stay as they were, then Handled at (date and
+// Handled appeals: the answers stay as they were, then Appeal handled at (date and
 // time, as reports), Staff decision and Reason as separate fields.
 function assertHandledLayout(embed) {
-  assert.deepEqual(embed.fields.map(field => field.name), ['Additional information', 'Handled at', 'Staff decision', 'Reason']);
+  assert.deepEqual(embed.fields.map(field => field.name), ['Additional information', 'Appeal handled at', 'Staff decision', 'Reason']);
   assert.equal(embed.fields[0].value, 'Original details');
   assert.match(embed.fields[1].value, /^<t:\d+:F>$/);
   assert.doesNotMatch(JSON.stringify(embed), /This appeal has been handled/);
@@ -108,12 +108,12 @@ test('handling an appeal keeps its Owner tag active without pinging anyone else'
   assert.equal(f.message.updated.content, undefined);
 });
 
-test('a handled appeal without answers still gets Handled at before Staff decision', async t => {
+test('a handled appeal without answers still gets Appeal handled at before Staff decision', async t => {
   t.mock.method(InteractionHelper, 'safeEditReply', async () => {});
   const f = fixture('Ban', 'discord');
   f.message.embeds[0].toJSON = () => ({ title: 'Discord appeal', fields: [] });
   await handleAppealDecision(f.interaction, f.client, ['deny', f.record.id]);
-  assert.deepEqual(f.message.updated.embeds[0].fields.map(field => field.name), ['Handled at', 'Staff decision', 'Reason']);
+  assert.deepEqual(f.message.updated.embeds[0].fields.map(field => field.name), ['Appeal handled at', 'Staff decision', 'Reason']);
 });
 
 test('deny stores a mandatory reason for Discord/Rust, and wrong Discord targets cannot be acted on', async () => {
