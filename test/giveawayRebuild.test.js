@@ -189,7 +189,8 @@ test('End draws winners, marks the giveaway, and tags the winners with how to cl
   assert.match(announcement.embeds[0].description, /\*\*How to claim your prize\*\*\nDM the owner within 24 hours\./);
   assert.equal(stored.winnerPingMessageId, announcement.id);
   assert.equal(json(staff.edited.embeds[0]).title, 'Success');
-  // The default claim text is used when none was given.
+  // The default claim text is used when none was given: 24 hours.
+  assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Open a ticket within 24 hours to claim your prize.');
   assert.match(createWinnerAnnouncement(activeGiveaway(), ['x']).embeds[0].description, new RegExp(DEFAULT_GIVEAWAY_CLAIM));
 });
 
