@@ -164,7 +164,7 @@ function createWorld(t, { gatewayFirst = true } = {}) {
 
   function privateMessage(kind, payload = {}, webhook = null) {
     const message = {
-      id: nextId(), kind, guildId, channelId: general.id,
+      id: nextId(), kind, guildId, channelId: general.id, sentPayload: payload,
       embeds: (payload.embeds || []).map(embed => new Embed(embed?.toJSON?.() || embed)),
       components: payload.components || [],
       edits: [],
@@ -185,7 +185,10 @@ function createWorld(t, { gatewayFirst = true } = {}) {
           collector.ended = true;
           collector.emit('end', new Collection(), reason);
         };
-        this.collector = collector;
+        // The first collector is the Builder's own; a public Builder adds a
+        // second one that only answers other members' clicks.
+        if (!this.collector) this.collector = collector;
+        (this.collectors ||= []).push(collector);
         return collector;
       },
     };
@@ -1155,4 +1158,31 @@ test('the real Builder: the editor holds controls and preview together; after cl
   assert.equal(physical(world).length, 1, 'the posted embed is never part of the cleanup');
   assert.equal(physical(world)[0].id, posted.id);
   assert.equal(registry(world).length, 1, 'its saved data stays');
+});
+
+test('in a server the Builder is a normal message (preview and controls); another member who clicks gets a private notice', async t => {
+  const world = createWorld(t);
+  const b = await openBuilder(t, world);
+  assert.equal(b.preview.sentPayload.flags, undefined, 'the preview is a normal message: Discord never drops it');
+  assert.equal(b.dashboard.sentPayload.flags, undefined, 'the controls are a normal message too');
+
+  const replies = [];
+  const other = { id: '1500000000000000077', username: 'member' };
+  const click = {
+    ...b.component('simple_embed_post'),
+    user: other, member: { id: other.id, user: other },
+    async reply(payload) { replies.push(payload); this.replied = true; return { resource: { message: { id: nextId() } } }; },
+    async fetchReply() { return { id: nextId() }; },
+  };
+  const others = b.dashboard.collectors[1];
+  assert.ok(others, 'a second collector answers other members');
+  assert.equal(others.options.filter({ isButton: () => true, user: other, customId: 'simple_embed_post' }), true);
+  assert.equal(b.dashboard.collector.options.filter({ isButton: () => true, user: other, customId: 'simple_embed_post' }), false,
+    'the Builder itself never acts on another member\'s click');
+  others.emit('collect', click);
+  await settle();
+  assert.equal(replies.length, 1);
+  assert.match(JSON.stringify(replies[0].embeds?.[0]?.toJSON?.() || replies[0].embeds?.[0]), /Only <@1500000000000000002> can use this Message builder/);
+  assert.ok(Number(replies[0].flags) & 64, 'the notice is private');
+  assert.equal(physical(world).length, 0, 'nothing was posted');
 });

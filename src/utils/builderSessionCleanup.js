@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { InteractionWebhook, Message } from 'discord.js';
+import { InteractionWebhook, Message, MessageFlags } from 'discord.js';
 
 export const BUILDER_SESSION_IDLE_MS = 5 * 60_000;
 const PREVIOUS_BUILDER_IDLE_MS = 5 * 60_000;
@@ -33,6 +33,36 @@ function hasBuilderTitle(message, title) {
   );
 }
 
+// The Builder is a normal (public) channel message, so the Discord app never
+// drops it from the screen (owner's choice). Its preview and controls are the
+// /embedbuilder interaction's own public replies: they are recognised by that
+// interaction from their very first gateway event, before their IDs are known.
+const builderInteractionIds = new Set();
+
+export function registerBuilderSessionInteraction(interactionId) {
+  const id = String(interactionId || '').trim();
+  if (!id) return false;
+  builderInteractionIds.add(id);
+  return true;
+}
+
+export function unregisterBuilderSessionInteraction(interactionId) {
+  return builderInteractionIds.delete(String(interactionId || '').trim());
+}
+
+function isEphemeralMessage(message) {
+  if (message?.flags?.has?.(MessageFlags.Ephemeral)) return true;
+  return Boolean(Number(message?.flags?.bitfield ?? message?.flags ?? 0) & MessageFlags.Ephemeral);
+}
+
+// Only the public preview and controls count: a private error or status reply
+// of the same interaction keeps its normal 10-second lifetime.
+function isPublicBuilderSessionReply(message) {
+  if (!builderInteractionIds.size || isEphemeralMessage(message)) return false;
+  const id = String(message?.interactionMetadata?.id || message?.interaction?.id || '');
+  return Boolean(id && builderInteractionIds.has(id));
+}
+
 export function registerBuilderPreviewMessage(message) {
   const id = String(message?.id || message || '').trim();
   if (!id) return false;
@@ -55,6 +85,7 @@ export function isRegisteredBuilderPreviewMessageId(messageId) {
 export function isBuilderSessionMessage(message) {
   const id = String(message?.id || '').trim();
   if (id && builderPreviewMessageIds.has(id)) return true;
+  if (isPublicBuilderSessionReply(message)) return true;
 
   return Boolean(
     id

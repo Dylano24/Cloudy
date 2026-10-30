@@ -1805,7 +1805,10 @@ export async function withBuilderSelectionAcknowledgement(interaction, prepare, 
     let acknowledgement = null;
     const timer = setTimeout(() => {
         if (!interaction.deferred && !interaction.replied && interaction.deferReply) {
-            acknowledgement = interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => null);
+            // In a server the Builder is a normal message (owner's choice), so
+            // the acknowledgement that becomes its preview is public too.
+            const visibility = interaction.guildId || interaction.guild ? {} : { flags: MessageFlags.Ephemeral };
+            acknowledgement = interaction.deferReply(visibility).catch(() => null);
         }
     }, delayMs);
     try {

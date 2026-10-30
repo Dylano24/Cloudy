@@ -41,7 +41,10 @@ function fixture(t, { hidden = false, readOnly = false } = {}) {
         collector.ended = false;
         collector.resetTimer = () => {};
         collector.stop = reason => { if (!collector.ended) { collector.ended = true; collector.emit('end', [], reason); } };
-        this.collector = collector;
+        // The first collector is the Builder's own; a public Builder adds a
+        // second one that only answers other members' clicks.
+        if (!this.collector) this.collector = collector;
+        (this.collectors ||= []).push(collector);
         return collector;
       },
     };
@@ -110,18 +113,19 @@ function buttons(payload) { return (payload.components || []).flatMap(row => (ro
 async function open(t, options) {
   const f = fixture(t, options);
   await builder.execute(f.interaction);
-  // Both preview and dashboard stay private to the Builder owner.
+  // Preview and dashboard are the interaction's own (public) replies.
   const dashboard = f.privatePayloads.find(payload => buttons(payload).some(button => button.label === 'Edit title and message'));
   assert.ok(dashboard);
   t.after(() => f.interaction.lastDashboard?.collector.stop('test-ended'));
   return { ...f, dashboard };
 }
 
-test('private Builder keeps its layout with direct content and color links', async t => {
+test('the public Builder keeps its layout with direct content and color links', async t => {
   const f = await open(t);
-  assert.equal(f.publicPayloads.length, 0);
+  assert.equal(f.publicPayloads.length, 0, 'opening never posts with channel.send');
   assert.equal(f.privatePayloads.length, 2);
-  assert.ok(f.privatePayloads.every(payload => Number(payload.flags || 0) & MessageFlags.Ephemeral));
+  assert.ok(f.privatePayloads.every(payload => !(Number(payload.flags || 0) & MessageFlags.Ephemeral)),
+    'in a server the preview and controls are normal messages (owner\'s choice)');
   assert.equal(f.dashboard.components.length, 5);
   const launchButtons = buttons(f.dashboard).filter(button => ['Edit title and message', 'Set side color'].includes(button.label));
   assert.equal(launchButtons.length, 2);

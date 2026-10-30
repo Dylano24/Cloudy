@@ -80,14 +80,17 @@ async function openManager(t, guildId, beforeBackgroundPaint = async () => {}, v
       id: `dashboard-${guildId}`, embeds: [{ title: 'Message builder' }],
       edit: async () => dashboard, delete: async () => {},
       createMessageComponentCollector: options => {
-        dashboardCollector = new EventEmitter();
-        dashboardCollector.options = options;
-        dashboardCollector.stop = reason => {
-          if (dashboardCollector.ended) return;
-          dashboardCollector.ended = true;
-          dashboardCollector.emit('end', [], reason);
+        const created = new EventEmitter();
+        created.options = options;
+        created.stop = reason => {
+          if (created.ended) return;
+          created.ended = true;
+          created.emit('end', [], reason);
         };
-        return dashboardCollector;
+        // The first collector is the Builder's own; a public Builder adds a
+        // second one that only answers other members' clicks.
+        dashboardCollector ||= created;
+        return created;
       },
     };
     const channel = channels.get('0');

@@ -13,6 +13,7 @@ import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { COMMUNITY_REVIEWS_CHANNEL_ID } from '../services/staffReviewsService.js';
 import { DEDICATED_MESSAGE_LOG_CHANNEL_IDS } from '../services/messageLogDestination.js';
 import { resolveUpdatedMessage } from '../utils/updatedMessage.js';
+import { isBuilderSessionMessage } from '../utils/builderSessionCleanup.js';
 
 function isWelcomeEmbed(embed) {
   const title = String(embed?.title || '').replace(/\s+/g, ' ').trim();
@@ -32,6 +33,9 @@ export default {
     if (message.author?.id !== message.client.user.id) return;
     if (message.flags?.has?.(MessageFlags.Ephemeral)) return;
     if (isEmbedManagerSaveInProgress(message.id)) return;
+    // The public Message builder's live preview is edited on every change;
+    // it is the owner's draft, never a template to save or restyle.
+    if (isBuilderSessionMessage(message)) return;
 
     const oldEmbeds = oldMessage?.embeds || [];
     // A message log can show a deleted welcome embed; it is not the template.

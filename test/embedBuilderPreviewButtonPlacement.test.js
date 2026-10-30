@@ -24,8 +24,10 @@ test('custom Builder buttons render with the top preview, not under Message buil
   assert.match(refresh, /components: buildControls\(state\)/);
 
   const execute = source.slice(source.indexOf('async execute(interaction)'));
-  assert.match(execute, /InteractionHelper\.safeReply\(interaction, \{[\s\S]*?embeds: \[buildPreviewEmbed\(state\)\][\s\S]*?components: getBuilderPreviewComponents\(state\)/);
-  assert.match(execute, /const dashboardPromise = interaction\.followUp\(\{[\s\S]*?embeds: \[buildControlEmbed\(state\)\][\s\S]*?components: buildControls\(state\)/);
+  assert.match(execute, /const previewPayload = \{[\s\S]*?embeds: \[buildPreviewEmbed\(state\)\][\s\S]*?components: getBuilderPreviewComponents\(state\)/);
+  assert.match(execute, /const dashboardPayload = \{[\s\S]*?embeds: \[buildControlEmbed\(state\)\][\s\S]*?components: buildControls\(state\)/);
+  assert.match(execute, /InteractionHelper\.safeReply\(interaction, previewPayload\)/);
+  assert.match(execute, /const dashboardPromise = interaction\.followUp\(dashboardPayload\)/);
   assert.match(execute, /flags: MessageFlags\.Ephemeral/);
   assert.doesNotMatch(execute, /interaction\.channel\.send\(/);
   assert.match(execute, /await Promise\.all\(\[[\s\S]*?interaction\.fetchReply\(\)[\s\S]*?dashboardPromise/);

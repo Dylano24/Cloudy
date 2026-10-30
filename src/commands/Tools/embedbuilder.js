@@ -20,7 +20,9 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { withEmbedBuilderMessageMutation } from '../../services/embedBuilderMutationLock.js';
 import { postReplacingManualBuilderMessage } from '../../services/embedBuilderRepostIdentityService.js';
 import { registerBuilderPreviewMessage,
-    unregisterBuilderPreviewMessage } from '../../utils/builderSessionCleanup.js';
+    registerBuilderSessionInteraction,
+    unregisterBuilderPreviewMessage,
+    unregisterBuilderSessionInteraction } from '../../utils/builderSessionCleanup.js';
 import { successEmbed } from '../../utils/embeds.js';
 import { commercialBuilderTitle } from '../../utils/builderCommercialTitle.js';
 import { registerBuilderPreviewReplyToken, withManualBuilderPostLogoChoice } from '../../utils/cloudyFooter.js';
@@ -1375,10 +1377,10 @@ export async function editBuilderPreviewMessage(state, interaction, payload) {
             await state.builderMessage.edit(payload);
             return true;
         } catch (error) {
-            if (BUILDER_PREVIEW_UNAVAILABLE_CODES.has(error?.code)) {
-                return markBuilderPreviewUnavailable(state);
-            }
-            throw error;
+            if (error?.code === 10008) return markBuilderPreviewUnavailable(state);
+            // E.g. no channel access for Cloudy: the interaction route below
+            // still works (for its first 15 minutes).
+            if (!state.builderMessageId || !state.builderWebhook?.editMessage) throw error;
         }
     }
 
@@ -1608,10 +1610,14 @@ async function refreshBuilderPreviewOnly(interaction, state) {
 
 // The same Builder continues in new messages (/embedbuilder again): its draft
 // and editor stay; only these old messages go (when Discord still allows it).
-async function retireResumedBuilderMessages(interaction, previewMessage, dashboardMessage) {
+async function retireResumedBuilderMessages(interaction, previewMessage, dashboardMessage, publicBuilder = false) {
     unregisterBuilderPreviewMessage(previewMessage);
-    await Promise.allSettled([previewMessage, dashboardMessage].map(message =>
-        interaction.webhook?.deleteMessage?.(message.id) ?? message.delete?.()));
+    await Promise.allSettled([previewMessage, dashboardMessage].map(async message => {
+        // A public Builder message stays deletable after the interaction's 15 minutes.
+        if (publicBuilder && await message.delete?.().then(() => true).catch(() => false)) return;
+        await (interaction.webhook?.deleteMessage?.(message.id) ?? message.delete?.());
+    }));
+    if (publicBuilder) unregisterBuilderSessionInteraction(interaction.id);
 }
 
 // discord.js hands a submitted form to every open wait of this user, so a
@@ -2254,11 +2260,13 @@ export default {
             // Do not spend a Discord round-trip on a defer before rendering a
             // panel that can be built locally. The first panel is sent directly.
 
-            // A read-only Builder preview is private UI, never a physical
-            // Discord post. Previous guild bot-managed previews were public,
-            // so opening a report in another channel leaked its full embed.
-            // Explicit Post/Save routes remain the only physical mutations.
-            const builderBotManaged = false;
+            // The Builder (preview + controls) is a normal channel message
+            // (owner's choice): Discord's app removes private messages from
+            // the screen when it reloads (e.g. back from the browser editor),
+            // a normal message always stays. Everyone in the channel can see
+            // it; only its owner can use it. It is still temporary UI, never
+            // a Search item: Post/Save remain the only physical posts.
+            const builderBotManaged = Boolean(interaction.guildId || interaction.guild);
 
             // Discord removes private messages from the screen after a while
             // (or when the app reloads), e.g. during a long editor session.
@@ -2338,6 +2346,7 @@ export default {
             }));
 
             prepareEmbedManager(interaction.guild, state);
+            state.builderBotManaged = builderBotManaged;
             if (resumedState) {
                 // Old preview edits must not race the new messages.
                 state.previewEditPending = null;
@@ -2399,28 +2408,33 @@ export default {
             state.colorPickerUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&color=${encodeURIComponent(colorToHex(state.sideColor))}`;
             state.contentEditorUrl = `${COLOR_PICKER_URL}/embed-color?session=${colorSessionToken}&mode=content`;
 
-            // Both original preview and controls are ephemeral interaction
-            // responses. Never call channel.send while merely opening or
-            // browsing an embed. A 5-minute session still uses the existing
-            // collector, color editor, cleanup, and fixed webhook message IDs.
+            // Preview and controls are the interaction's own replies. Never
+            // call channel.send while merely opening or browsing an embed.
+            // In a server they are public (see builderBotManaged); the
+            // 5-minute session still uses the existing collector, editor and
+            // cleanup.
             let previewMessage = null;
             let dashboardMessage = null;
-            registerBuilderPreviewReplyToken(interaction.token);
-            const initialShown = await InteractionHelper.safeReply(interaction, {
+            const replyVisibility = builderBotManaged ? {} : { flags: MessageFlags.Ephemeral };
+            const previewPayload = {
                 embeds: [buildPreviewEmbed(state)],
                 components: getBuilderPreviewComponents(state),
                 // A resumed draft can hold a converted GIF that is not posted yet.
                 ...(state.mediaBuffer && state.mediaName
                     ? { files: [{ attachment: state.mediaBuffer, name: state.mediaName }] } : {}),
-                flags: MessageFlags.Ephemeral,
-            });
+                ...replyVisibility,
+            };
+            const dashboardPayload = {
+                embeds: [buildControlEmbed(state)],
+                components: buildControls(state),
+                ...replyVisibility,
+                fetchReply: true,
+            };
+            if (builderBotManaged) registerBuilderSessionInteraction(interaction.id);
+            registerBuilderPreviewReplyToken(interaction.token);
+            const initialShown = await InteractionHelper.safeReply(interaction, previewPayload);
             if (initialShown) {
-                const dashboardPromise = interaction.followUp({
-                    embeds: [buildControlEmbed(state)],
-                    components: buildControls(state),
-                    flags: MessageFlags.Ephemeral,
-                    fetchReply: true,
-                }).catch(() => null);
+                const dashboardPromise = interaction.followUp(dashboardPayload).catch(() => null);
                 [previewMessage, dashboardMessage] = await Promise.all([
                     interaction.fetchReply().catch(() => null),
                     dashboardPromise,
@@ -2430,6 +2444,7 @@ export default {
             if (!previewMessage || !dashboardMessage) {
                 await interaction.deleteReply().catch(() => {});
                 await dashboardMessage?.delete?.().catch(() => {});
+                unregisterBuilderSessionInteraction(interaction.id);
                 return;
             }
 
@@ -2452,6 +2467,23 @@ export default {
                     buttonInteraction.customId.startsWith('simple_embed_'),
                 idle: BUILDER_IDLE_TIMEOUT,
             });
+            // A public Builder: only its owner can use it. Anyone else gets a
+            // private notice instead of Discord's "This interaction failed".
+            const othersCollector = builderBotManaged
+                ? dashboardMessage.createMessageComponentCollector({
+                    filter: buttonInteraction =>
+                        buttonInteraction.isButton() &&
+                        buttonInteraction.user.id !== interaction.user.id &&
+                        buttonInteraction.customId.startsWith('simple_embed_'),
+                })
+                : null;
+            const stopOthersCollector = reason => {
+                if (othersCollector && othersCollector !== collector && !othersCollector.ended) othersCollector.stop?.(reason);
+            };
+            othersCollector?.on('collect', otherInteraction => replyUserError(otherInteraction, {
+                type: ErrorTypes.PERMISSION,
+                message: `Only <@${interaction.user.id}> can use this Message builder. Use /embedbuilder to open your own.`,
+            }).catch(() => {}));
 
             const sessionKey = builderSessionKey(interaction);
             const previousSession = ACTIVE_BUILDER_SESSIONS.get(sessionKey);
@@ -2744,7 +2776,10 @@ export default {
             });
 
             collector.on('end', async (_collected, reason) => {
-                if (reason === 'resumed') return retireResumedBuilderMessages(interaction, previewMessage, dashboardMessage);
+                if (reason === 'resumed') {
+                    stopOthersCollector('resumed');
+                    return retireResumedBuilderMessages(interaction, previewMessage, dashboardMessage, builderBotManaged);
+                }
                 const completedPost = reason === 'posted';
                 // Remove helper replies before the dashboard they refer to.
                 await deleteBuilderChildMessages(interaction, state).catch(() => {});
@@ -2789,6 +2824,8 @@ export default {
                         await interaction.deleteReply().catch(() => {});
                     }
                 }
+                stopOthersCollector('builder-ended');
+                if (builderBotManaged) unregisterBuilderSessionInteraction(interaction.id);
                 deleteEmbedColorPickerSession(colorSessionToken);
             });
         } catch (error) {
