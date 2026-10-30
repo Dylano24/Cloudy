@@ -166,6 +166,11 @@ test('Manage is staff only and opens the private controls', async () => {
   assert.deepEqual(panel.components.flatMap(row => json(row).components.map(component => component.label)),
     ['End giveaway', 'Edit timer', 'Reroll', 'View participants', 'Delete']);
   assert.equal(panel.components.flatMap(row => json(row).components).find(component => component.label === 'View participants').emoji.name, '👤');
+  // The owner's white person emoji is used once Cloudy can see it.
+  w.client.emojis = { cache: new Collection([['999', { id: '999', name: 'W881241476043907403887', animated: false }]]) };
+  const withEmoji = w.interaction('staff', { staff: true });
+  await button('giveaway_manage').execute(withEmoji, w.client);
+  assert.equal(withEmoji.edited.components.flatMap(row => json(row).components).find(component => component.label === 'View participants').emoji.id, '999');
 
   const list = w.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(list, w.client, ['participants', MESSAGE]);
