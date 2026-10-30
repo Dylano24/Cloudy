@@ -117,7 +117,7 @@ export function giveawayTimerModal(messageId) {
         .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder()
             .setCustomId('duration')
             .setLabel('Ends in (from now)')
-            .setPlaceholder('e.g. 30m, 2h, 1d')
+            .setPlaceholder('Example: 1m, 1h, 1d')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
             .setMaxLength(10)));

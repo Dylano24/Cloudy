@@ -276,8 +276,8 @@ export const botConfig = {
     maximumWinners: 10,
 
     // Allowed giveaway duration range in milliseconds.
-    // 300000 = 5 minutes.
-    minimumDuration: 300000,
+    // 60000 = 1 minute (the shortest example in the Giveaway Builder, 1m).
+    minimumDuration: 60000,
     // 2592000000 = 30 days.
     maximumDuration: 2592000000,
 

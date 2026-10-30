@@ -157,7 +157,7 @@ export function giveawayTimingModal(session) {
         .setCustomId(id(session, 'timingform'))
         .setTitle('Duration & winners')
         .addComponents(
-            textInput('duration', 'Duration', TextInputStyle.Short, { value: draft.durationText, placeholder: 'e.g. 30m, 2h, 1d', required: true, maxLength: 10 }),
+            textInput('duration', 'Duration', TextInputStyle.Short, { value: draft.durationText, placeholder: 'Example: 1m, 1h, 1d', required: true, maxLength: 10 }),
             textInput('winners', `Number of winners (1-${MAX_WINNERS})`, TextInputStyle.Short, { value: draft.winnerCount, required: true, maxLength: 3 }),
         );
 }

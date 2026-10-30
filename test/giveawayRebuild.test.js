@@ -8,6 +8,7 @@ import {
   createWinnerAnnouncement,
   giveawayPing,
   DEFAULT_GIVEAWAY_CLAIM,
+  parseDuration,
 } from '../src/services/giveawayService.js';
 import { checkGiveaways, finishGiveaway, loadGiveaway } from '../src/services/giveawayActions.js';
 import buttons from '../src/interactions/buttons/giveaway/giveaway.js';
@@ -277,7 +278,11 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   await handleGiveawayBuilderInteraction(textForm, w.client);
   assert.match(textForm.updated.embeds[0].description, /\*\*1 month vip\*\*/);
   assert.equal(json(textForm.updated.components[3]).components[1].disabled, false);
-  // Duration & winners form, with validation.
+  // Duration & winners form: "Example" placeholder, 1m is the shortest, with validation.
+  const openTiming = click(`gbuilder:timing:${sessionId}`);
+  await handleGiveawayBuilderInteraction(openTiming, w.client);
+  assert.equal(openTiming.modal.components[0].components[0].placeholder, 'Example: 1m, 1h, 1d');
+  assert.equal(parseDuration('1m'), 60_000);
   const badTiming = click(`gbuilder:timingform:${sessionId}`, { fields: { getTextInputValue: name => (name === 'duration' ? 'soon' : '2') } });
   await handleGiveawayBuilderInteraction(badTiming, w.client);
   assert.match(JSON.stringify(json(badTiming.replies[0].embeds[0])), /Invalid duration/);
