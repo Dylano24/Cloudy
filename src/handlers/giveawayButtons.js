@@ -7,6 +7,7 @@ import {
     createDeleteConfirmation,
     createGiveawayManagePanel,
     createParticipantsList,
+    DEFAULT_GIVEAWAY_DESCRIPTION,
     isUserRateLimited,
     parseDuration,
     participantsEmoji,
@@ -173,7 +174,7 @@ export function giveawayTextEditModal(messageId, giveaway) {
         .setTitle('Edit giveaway text')
         .addComponents(
             field('introTitle', 'Introduction title', TextInputStyle.Short, giveaway.introTitle || 'Giveaway time !', 150, true),
-            field('description', 'Description', TextInputStyle.Paragraph, giveaway.description, 1000),
+            field('description', 'Description', TextInputStyle.Paragraph, giveaway.description || DEFAULT_GIVEAWAY_DESCRIPTION, 1000),
             field('prize', 'Prize', TextInputStyle.Short, giveaway.prize, 256, true),
             field('requirements', 'Requirements', TextInputStyle.Paragraph, giveaway.requirements, 500),
             field('closingText', 'Closing message', TextInputStyle.Paragraph, giveaway.closingText || 'Good luck to everyone!', 300, true),
