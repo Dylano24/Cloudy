@@ -192,6 +192,9 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
             ? (winners.length ? mentionList(winners) : 'No valid entries')
             : `${winnerCount} ${winnerCount === 1 ? 'winner' : 'winners'}`,
         '',
+        '**Participants**',
+        String(giveawayParticipants(giveaway).length),
+        '',
         `${GIVEAWAY_EMOJIS.timer} **${ended ? 'Giveaway ended' : 'Giveaway ends'}**`,
         ended ? `<t:${unix(endedAt)}:F>` : `<t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
         '',
@@ -212,7 +215,7 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
         new ButtonBuilder()
             .setCustomId('giveaway_enter')
             .setEmoji(GIVEAWAY_EMOJIS.enter)
-            .setLabel(`Enter giveaway (${giveawayParticipants(giveaway).length})`)
+            .setLabel('Enter giveaway')
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(ended),
     );
@@ -220,7 +223,7 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
         entry.addComponents(new ButtonBuilder()
             .setCustomId('giveaway_leave')
             .setEmoji(GIVEAWAY_EMOJIS.leave)
-            .setLabel('Leave')
+            .setLabel('Leave giveaway')
             .setStyle(ButtonStyle.Secondary));
     }
     const manage = new ActionRowBuilder().addComponents(new ButtonBuilder()
@@ -333,6 +336,7 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
             embeds: [{
                 description: [
                     `${GIVEAWAY_EMOJIS.gift} **Giveaway ended**`,
+                    '',
                     `Nobody entered the giveaway for **${giveaway.prize || 'this prize'}**, so there is no winner.`,
                 ].join('\n'),
                 color: GIVEAWAY_WHITE,
