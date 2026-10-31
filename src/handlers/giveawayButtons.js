@@ -14,7 +14,7 @@ import {
 } from '../services/giveawayService.js';
 import {
     activeGiveawayPayload,
-    canManageGiveaways,
+    canManageGiveawaysAsOwner,
     enterGiveaway,
     finishGiveaway,
     leaveGiveaway,
@@ -131,8 +131,8 @@ export const giveawayLeaveHandler = {
 export async function openManagePanel(interaction, client, messageId = interaction.message?.id) {
     try {
         if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
-        if (!canManageGiveaways(interaction.member, interaction.guild)) {
-            return warn(interaction, 'Only staff can manage giveaways.');
+        if (!canManageGiveawaysAsOwner(interaction.member, interaction.guild)) {
+            return warn(interaction, 'Only the Owner role can manage giveaways.');
         }
         await deferPrivate(interaction);
         const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
@@ -172,11 +172,22 @@ export function giveawayTextEditModal(messageId, giveaway) {
     return new ModalBuilder().setCustomId(`giveaway_text:${messageId}`)
         .setTitle('Edit giveaway text')
         .addComponents(
-            field('prize', 'Prize', TextInputStyle.Short, giveaway.prize, 256, true),
+            field('introTitle', 'Introduction title', TextInputStyle.Short, giveaway.introTitle || 'Giveaway time !', 150, true),
             field('description', 'Description', TextInputStyle.Paragraph, giveaway.description, 1000),
+            field('prize', 'Prize', TextInputStyle.Short, giveaway.prize, 256, true),
             field('requirements', 'Requirements', TextInputStyle.Paragraph, giveaway.requirements, 500),
-            field('claim', 'How winners claim the prize', TextInputStyle.Paragraph, giveaway.claim, 500),
+            field('closingText', 'Closing message', TextInputStyle.Paragraph, giveaway.closingText || 'Good luck to everyone!', 300, true),
         );
+}
+
+export function giveawayClaimEditModal(messageId, giveaway) {
+    return new ModalBuilder()
+        .setCustomId(`giveaway_claim:${messageId}`)
+        .setTitle('Edit winner claim instructions')
+        .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder()
+            .setCustomId('claim').setLabel('How winners claim the prize')
+            .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500)
+            .setValue(String(giveaway.claim || 'Please open a support ticket within 24 hours to claim your prize.'))));
 }
 
 // giveaway_admin:<action>:<giveaway message ID>, from the private Manage panel.
@@ -185,16 +196,18 @@ export const giveawayAdminHandler = {
     async execute(interaction, client, [action, messageId] = []) {
         try {
             if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
-            if (!canManageGiveaways(interaction.member, interaction.guild)) {
-                return warn(interaction, 'Only staff can manage giveaways.');
+            if (!canManageGiveawaysAsOwner(interaction.member, interaction.guild)) {
+                return warn(interaction, 'Only the Owner role can manage giveaways.');
             }
             // A form must be the first answer, before any defer.
             if (action === 'timer') return interaction.showModal(giveawayTimerModal(messageId));
-            if (action === 'text') {
+            if (action === 'text' || action === 'claim') {
                 const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
                 if (!giveaway) return warn(interaction, 'This giveaway no longer exists.');
                 if (giveaway.ended || giveaway.isEnded) return warn(interaction, 'This giveaway has already ended.');
-                return interaction.showModal(giveawayTextEditModal(messageId, giveaway));
+                return interaction.showModal(action === 'text'
+                    ? giveawayTextEditModal(messageId, giveaway)
+                    : giveawayClaimEditModal(messageId, giveaway));
             }
             if (action === 'participants') {
                 await deferPrivate(interaction);
@@ -236,8 +249,8 @@ export const giveawayTimerModalHandler = {
     customId: 'giveaway_timer',
     async execute(interaction, client, [messageId] = []) {
         try {
-            if (!canManageGiveaways(interaction.member, interaction.guild)) {
-                return warn(interaction, 'Only staff can manage giveaways.');
+            if (!canManageGiveawaysAsOwner(interaction.member, interaction.guild)) {
+                return warn(interaction, 'Only the Owner role can manage giveaways.');
             }
             const durationMs = parseDuration(interaction.fields.getTextInputValue('duration'));
             await deferPrivate(interaction);
@@ -255,20 +268,40 @@ export const giveawayTextModalHandler = {
     async execute(interaction, client, [messageId] = []) {
         try {
             if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
-            if (!canManageGiveaways(interaction.member, interaction.guild)) {
-                return warn(interaction, 'Only staff can manage giveaways.');
+            if (!canManageGiveawaysAsOwner(interaction.member, interaction.guild)) {
+                return warn(interaction, 'Only the Owner role can manage giveaways.');
             }
             const value = name => interaction.fields.getTextInputValue(name);
             await deferPrivate(interaction);
             await setGiveawayText(client, interaction.guild, messageId, {
-                prize: value('prize'),
+                introTitle: value('introTitle'),
                 description: value('description'),
+                prize: value('prize'),
                 requirements: value('requirements'),
-                claim: value('claim'),
+                closingText: value('closingText'),
             });
             return notice(interaction, successEmbed('Success', 'The giveaway text was updated.'));
         } catch (error) {
             return onError(interaction, error, 'giveaway_text');
+        }
+    },
+};
+
+export const giveawayClaimModalHandler = {
+    customId: 'giveaway_claim',
+    async execute(interaction, client, [messageId] = []) {
+        try {
+            if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
+            if (!canManageGiveawaysAsOwner(interaction.member, interaction.guild)) {
+                return warn(interaction, 'Only the Owner role can manage giveaways.');
+            }
+            await deferPrivate(interaction);
+            await setGiveawayText(client, interaction.guild, messageId, {
+                claim: interaction.fields.getTextInputValue('claim'),
+            });
+            return notice(interaction, successEmbed('Success', 'Winner claim instructions were updated.'));
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_claim');
         }
     },
 };

@@ -141,6 +141,8 @@ export const GIVEAWAY_EMOJIS = Object.freeze({
     leave: Object.freeze({ id: '1565742837453029516', name: 'arrow_pointing_right', animated: true }),
 });
 export const DEFAULT_GIVEAWAY_DESCRIPTION = 'Cloudy Inc. is giving you the chance to win something special!';
+export const DEFAULT_GIVEAWAY_INTRO = 'Giveaway time !';
+export const DEFAULT_GIVEAWAY_CLOSING = 'Good luck to everyone!';
 export const DEFAULT_GIVEAWAY_CLAIM = 'Please open a support ticket within 24 hours to claim your prize.';
 export const DEFAULT_GIVEAWAY_FAILURE = 'Failure to claim your prize within this timeframe will result in a reroll, and a new winner will be selected.';
 const GIVEAWAY_WHITE = 0xFFFFFF;
@@ -172,10 +174,14 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
     const endsAt = giveawayEndTime(giveaway);
     const endedAt = Date.parse(giveaway.endedAt) || endsAt || Date.now();
     const lines = [
-        `${GIVEAWAY_EMOJIS.gift} **${ended ? 'Giveaway ended!' : 'Giveaway time !'}**`,
+        `${GIVEAWAY_EMOJIS.gift} **${ended ? 'Giveaway ended!' : (giveaway.introTitle || DEFAULT_GIVEAWAY_INTRO)}**`,
+        '',
         giveaway.description || DEFAULT_GIVEAWAY_DESCRIPTION,
         '',
         `${GIVEAWAY_EMOJIS.prize} **${giveaway.prize || 'Mystery prize'}**`,
+        '',
+        '**Hosted by**',
+        giveaway.hostId ? `<@${giveaway.hostId}>` : 'Not specified',
         '',
         '**Requirements**',
         giveaway.requirements || 'None',
@@ -188,7 +194,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
         `${GIVEAWAY_EMOJIS.timer} **${ended ? 'Giveaway ended' : 'Giveaway ends'}**`,
         ended ? `<t:${unix(endedAt)}:F>` : `<t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
         '',
-        ended ? 'The winner(s) have been announced and tagged below!' : 'Good luck to everyone!',
+        ended ? 'The winner(s) have been announced and tagged below!' : (giveaway.closingText || DEFAULT_GIVEAWAY_CLOSING),
     ];
     return {
         description: lines.join('\n').slice(0, 4096),
@@ -198,15 +204,15 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
     };
 }
 
-// Row 1: Enter (with the number of entries) and Leave. Row 2: Manage, which
-// only staff can use. An ended giveaway keeps the final count, disabled.
-export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giveaway), manageIcon = null } = {}) {
+// Only participant buttons are public. Discord components cannot be made
+// visible to only one role; owners manage with /giveaway manage (private panel).
+export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giveaway) } = {}) {
     const entry = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('giveaway_enter')
             .setEmoji(GIVEAWAY_EMOJIS.enter)
             .setLabel(`Enter giveaway (${giveawayParticipants(giveaway).length})`)
-            .setStyle(ButtonStyle.Primary)
+            .setStyle(ButtonStyle.Secondary)
             .setDisabled(ended),
     );
     if (!ended) {
@@ -214,16 +220,9 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
             .setCustomId('giveaway_leave')
             .setEmoji(GIVEAWAY_EMOJIS.leave)
             .setLabel('Leave giveaway')
-            .setStyle(ButtonStyle.Danger));
+            .setStyle(ButtonStyle.Secondary));
     }
-    const manageButton = new ButtonBuilder()
-        .setCustomId('giveaway_manage')
-        .setLabel('Manage')
-        .setStyle(ButtonStyle.Secondary);
-    // The owner's settings emoji (W94setting2) when Cloudy can see it.
-    if (manageIcon) manageButton.setEmoji(manageIcon);
-    const manage = new ActionRowBuilder().addComponents(manageButton);
-    return [entry, manage];
+    return [entry];
 }
 
 // Staff-only controls, shown privately.
@@ -264,6 +263,8 @@ export function createGiveawayManagePanel(giveaway, { participantsIcon = '👤' 
                 button('end', 'End', ButtonStyle.Danger),
                 button('participants', 'View participants', ButtonStyle.Primary),
                 button('delete', 'Delete', ButtonStyle.Danger)),
+            new ActionRowBuilder().addComponents(
+                button('claim', 'Edit claim', ButtonStyle.Secondary)),
         ];
     const endsAt = giveawayEndTime(giveaway);
     return {

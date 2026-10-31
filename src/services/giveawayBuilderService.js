@@ -7,6 +7,7 @@ import {
     MessageFlags,
     ModalBuilder,
     RoleSelectMenuBuilder,
+    StringSelectMenuBuilder,
     TextInputBuilder,
     TextInputStyle,
 } from 'discord.js';
@@ -19,6 +20,8 @@ import { logEvent, EVENT_TYPES } from './loggingService.js';
 import {
     createGiveawayEmbed,
     DEFAULT_GIVEAWAY_CLAIM,
+    DEFAULT_GIVEAWAY_INTRO,
+    DEFAULT_GIVEAWAY_CLOSING,
     giveawayText,
     parseDuration,
     validateWinnerCount,
@@ -47,6 +50,8 @@ function keepAlive(session) {
 export function newGiveawayDraft(channelId) {
     return {
         prize: '',
+        introTitle: DEFAULT_GIVEAWAY_INTRO,
+        closingText: DEFAULT_GIVEAWAY_CLOSING,
         description: null,
         requirements: null,
         claim: null,
@@ -71,6 +76,7 @@ export function renderGiveawayBuilder(session) {
     const preview = createGiveawayEmbed({
         ...draft,
         prize: draft.prize || 'Your prize',
+        hostId: session.userId,
         endsAt: Date.now() + draft.durationMs,
         participants: [],
     }, 'active');
@@ -96,10 +102,20 @@ export function renderGiveawayBuilder(session) {
         .setMinValues(1)
         .setMaxValues(1);
     if (draft.channelId) channel.setDefaultChannels(draft.channelId);
+    // @everyone is not a Discord role-selectable role. A dedicated choice
+    // places it first while preserving the ability to choose any real role.
+    const pingType = new StringSelectMenuBuilder()
+        .setCustomId(id(session, 'pingtype'))
+        .setPlaceholder('Who should be tagged?')
+        .addOptions(
+            { label: '@everyone', value: 'everyone', default: draft.ping.type === 'everyone' },
+            { label: 'Tag a role', value: 'role', default: draft.ping.type === 'role' },
+            { label: 'No tag', value: 'none', default: draft.ping.type === 'none' },
+        );
     const role = new RoleSelectMenuBuilder()
         .setCustomId(id(session, 'role'))
-        .setPlaceholder('Tag a role')
-        .setMinValues(0)
+        .setPlaceholder('Choose the role to tag')
+        .setMinValues(1)
         .setMaxValues(1);
     if (draft.ping.type === 'role' && draft.ping.roleId) role.setDefaultRoles(draft.ping.roleId);
 
@@ -107,21 +123,16 @@ export function renderGiveawayBuilder(session) {
         embeds: [preview, settings],
         components: [
             new ActionRowBuilder().addComponents(channel),
-            new ActionRowBuilder().addComponents(role),
-            // Owner's layout: all grey except the green Post giveaway, which
-            // sits next to Tag @everyone; Cancel alone at the bottom left.
+            new ActionRowBuilder().addComponents(pingType),
+            ...(draft.ping.type === 'role' ? [new ActionRowBuilder().addComponents(role)] : []),
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'text')).setLabel('Edit text').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(id(session, 'claim')).setLabel('Edit claim').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId(id(session, 'timing')).setLabel('Duration & winners').setStyle(ButtonStyle.Secondary),
             ),
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(id(session, 'everyone'))
-                    .setLabel(draft.ping.type === 'everyone' ? 'Untag @everyone' : 'Tag @everyone')
-                    .setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId(id(session, 'post')).setEmoji('📤').setLabel('Post giveaway')
                     .setStyle(ButtonStyle.Success).setDisabled(!draft.prize || !draft.channelId),
-            ),
-            new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'cancel')).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
             ),
         ],
@@ -143,13 +154,20 @@ export function giveawayTextModal(session) {
         .setCustomId(id(session, 'textform'))
         .setTitle('Giveaway text')
         .addComponents(
-            // Only the prize shows an example; the other fields start empty
-            // (empty still uses the default text in the giveaway).
+            textInput('introTitle', 'Introduction title', TextInputStyle.Short, { value: draft.introTitle, required: true, maxLength: 150 }),
+            textInput('description', 'Description', TextInputStyle.Paragraph, { value: draft.description, placeholder: 'Cloudy Inc. is giving you the chance to win something special!', maxLength: 1000 }),
             textInput('prize', 'Prize', TextInputStyle.Short, { value: draft.prize, placeholder: '1 month vip', required: true, maxLength: 256 }),
-            textInput('description', 'Description', TextInputStyle.Paragraph, { value: draft.description, maxLength: 1000 }),
             textInput('requirements', 'Requirements', TextInputStyle.Paragraph, { value: draft.requirements, maxLength: 500 }),
-            textInput('claim', 'How winners claim the prize', TextInputStyle.Paragraph, { value: draft.claim, maxLength: 500 }),
+            textInput('closingText', 'Closing message', TextInputStyle.Paragraph, { value: draft.closingText, required: true, maxLength: 300 }),
         );
+}
+
+export function giveawayClaimModal(session) {
+    return new ModalBuilder()
+        .setCustomId(id(session, 'claimform'))
+        .setTitle('Winner claim instructions')
+        .addComponents(textInput('claim', 'How winners claim their prize', TextInputStyle.Paragraph,
+            { value: session.draft.claim || DEFAULT_GIVEAWAY_CLAIM, maxLength: 500 }));
 }
 
 export function giveawayTimingModal(session) {
@@ -264,8 +282,9 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
         keepAlive(session);
         const { draft } = session;
 
-        if (action === 'text' || action === 'timing') {
-            await interaction.showModal(action === 'text' ? giveawayTextModal(session) : giveawayTimingModal(session));
+        if (action === 'text' || action === 'timing' || action === 'claim') {
+            await interaction.showModal(action === 'text' ? giveawayTextModal(session)
+                : action === 'claim' ? giveawayClaimModal(session) : giveawayTimingModal(session));
             return true;
         }
         if (action === 'cancel') {
@@ -280,17 +299,23 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
         }
         if (action === 'channel' && interaction.isChannelSelectMenu?.()) {
             draft.channelId = interaction.values[0] || draft.channelId;
+        } else if (action === 'pingtype' && interaction.isStringSelectMenu?.()) {
+            const type = interaction.values[0];
+            if (['everyone', 'role', 'none'].includes(type)) {
+                draft.ping = { type, roleId: type === 'role' ? draft.ping.roleId : null };
+            }
         } else if (action === 'role' && interaction.isRoleSelectMenu?.()) {
             const roleId = interaction.values[0];
-            draft.ping = roleId ? { type: 'role', roleId } : { type: 'none', roleId: null };
-        } else if (action === 'everyone') {
-            draft.ping = draft.ping.type === 'everyone' ? { type: 'none', roleId: null } : { type: 'everyone', roleId: null };
+            draft.ping = roleId ? { type: 'role', roleId } : { type: 'role', roleId: null };
         } else if (action === 'textform') {
             const value = name => giveawayText(interaction.fields.getTextInputValue(name), name === 'prize' ? 256 : name === 'description' ? 1000 : 500);
-            draft.prize = value('prize') || draft.prize;
+            draft.introTitle = value('introTitle') || DEFAULT_GIVEAWAY_INTRO;
             draft.description = value('description');
+            draft.prize = value('prize') || draft.prize;
             draft.requirements = value('requirements');
-            draft.claim = value('claim');
+            draft.closingText = value('closingText') || DEFAULT_GIVEAWAY_CLOSING;
+        } else if (action === 'claimform') {
+            draft.claim = giveawayText(interaction.fields.getTextInputValue('claim'), 500);
         } else if (action === 'timingform') {
             const durationText = interaction.fields.getTextInputValue('duration').trim();
             const durationMs = parseDuration(durationText);
