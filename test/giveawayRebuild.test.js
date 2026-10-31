@@ -383,10 +383,14 @@ test('only staff can open the Giveaway Builder; @everyone can be tagged', async 
   const staff = Object.assign(w.interaction('staff', { staff: true }), { channelId: 'giveaways' });
   await create.execute(staff);
   const sessionId = json(staff.replies[0].components[2]).components[0].custom_id.split(':')[2];
-  const everyone = Object.assign(w.interaction('staff', { staff: true }), { customId: `gbuilder:everyone:${sessionId}` });
+  const everyone = Object.assign(w.interaction('staff', { staff: true }), {
+    customId: `gbuilder:pingtype:${sessionId}`,
+    values: ['everyone'],
+    isStringSelectMenu: () => true,
+  });
   await handleGiveawayBuilderInteraction(everyone, w.client);
   assert.equal(json(everyone.updated.embeds[1]).fields.find(field => field.name === 'Tag').value, '@everyone');
-  assert.equal(json(everyone.updated.components[3]).components[0].label, 'Untag @everyone');
+  assert.equal(json(everyone.updated.components[1]).components[0].options[0].default, true);
 });
 
 test('every giveaway button answers Discord before reading the database (no 3-second timeouts)', async () => {
