@@ -89,7 +89,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
     '<a:W89timer:1557506643372146778> **Giveaway ends**',
     '<t:1800000000:F> (<t:1800000000:R>)',
     '',
-    'Good luck to everyone!',
+    '**Good luck to everyone!**',
   ].join('\n'));
   assert.equal(embed.color, 0xFFFFFF);
   // A personal description and requirements replace the defaults.
@@ -329,6 +329,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const openText = click(`gbuilder:text:${sessionId}`);
   await handleGiveawayBuilderInteraction(openText, w.client);
   assert.deepEqual(openText.modal.components.map(row => row.components[0].custom_id), ['introTitle', 'description', 'prize', 'requirements', 'closingText']);
+  assert.equal(openText.modal.components[1].components[0].value, 'Cloudy Inc. is giving you the chance to win something special!');
   const texts = {
     introTitle: 'Giveaway time !',
     prize: '1 month vip',
