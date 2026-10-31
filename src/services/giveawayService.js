@@ -141,6 +141,7 @@ export const GIVEAWAY_EMOJIS = Object.freeze({
     leave: Object.freeze({ id: '1565742837453029516', name: 'arrow_pointing_right', animated: true }),
 });
 export const DEFAULT_GIVEAWAY_DESCRIPTION = 'Cloudy Inc. is giving you the chance to win something special!';
+export const DEFAULT_ENDED_GIVEAWAY_DESCRIPTION = 'Thank you to everyone who participated!';
 export const DEFAULT_GIVEAWAY_INTRO = 'Giveaway time !';
 export const DEFAULT_GIVEAWAY_CLOSING = 'Good luck to everyone!';
 export const DEFAULT_GIVEAWAY_CLAIM = 'Please open a support ticket within 24 hours to claim your prize.';
@@ -176,7 +177,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
     const lines = [
         `${GIVEAWAY_EMOJIS.gift} **${ended ? 'Giveaway ended!' : (giveaway.introTitle || DEFAULT_GIVEAWAY_INTRO)}**`,
         '',
-        giveaway.description || DEFAULT_GIVEAWAY_DESCRIPTION,
+        ended ? DEFAULT_ENDED_GIVEAWAY_DESCRIPTION : (giveaway.description || DEFAULT_GIVEAWAY_DESCRIPTION),
         '',
         `${GIVEAWAY_EMOJIS.prize} **${giveaway.prize || 'Mystery prize'}**`,
         '',
