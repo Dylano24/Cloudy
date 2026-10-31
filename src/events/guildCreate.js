@@ -1,8 +1,25 @@
+import { spawn } from 'node:child_process';
 import { Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig, setGuildConfig } from '../services/config/guildConfig.js';
 import { registerCommands } from '../handlers/loaders/commandLoader.js';
 import { repairGuild } from './cloudySelfReadPermissionsReady.js';
+
+// A new server gets Cloudy's slash commands right away, through the same
+// startup sync script (one server only, in a separate process).
+function syncCommandsForNewGuild(guildId) {
+  try {
+    const child = spawn(process.execPath, ['scripts/register-cloudy-guild-commands.js'], {
+      cwd: process.cwd(),
+      env: { ...process.env, COMMAND_SYNC_ONLY_GUILD: String(guildId) },
+      stdio: 'inherit',
+    });
+    child.on('error', error => logger.warn(`[COMMAND_SYNC] Could not sync guild ${guildId}: ${error.message}`));
+    child.unref();
+  } catch (error) {
+    logger.warn(`[COMMAND_SYNC] Could not sync guild ${guildId}: ${error?.message || error}`);
+  }
+}
 
 export default {
   name: Events.GuildCreate,
@@ -29,6 +46,8 @@ export default {
             logger.warn(`[CHANNEL_RECOVERY] Rejoin permission repair failed: ${error?.message || error}`);
           });
         }
+      } else {
+        syncCommandsForNewGuild(guild.id);
       }
     } catch (error) {
       logger.error(`Error initializing guild ${guild?.id} on join:`, error);
