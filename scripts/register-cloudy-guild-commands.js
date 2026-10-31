@@ -93,7 +93,7 @@ async function loadPayloads() {
       if (!payload?.name || seen.has(payload.name)) continue;
       seen.add(payload.name);
 
-      if (!isPlayerCommand(payload.name) && !payload.default_member_permissions) {
+      if (!isPlayerCommand(payload.name) && payload.name !== 'giveaway' && !payload.default_member_permissions) {
         payload.default_member_permissions = '8';
       }
 

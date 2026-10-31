@@ -13,6 +13,7 @@ import {
 import { checkGiveaways, finishGiveaway, loadGiveaway } from '../src/services/giveawayActions.js';
 import buttons from '../src/interactions/buttons/giveaway/giveaway.js';
 import timerModal from '../src/interactions/modals/giveawayTimer.js';
+import textModal from '../src/interactions/modals/giveawayText.js';
 import create from '../src/commands/Giveaway/gcreate.js';
 import { handleGiveawayBuilderInteraction } from '../src/services/giveawayBuilderService.js';
 
@@ -44,7 +45,10 @@ function world(stored = {}) {
   client.guilds.cache.set(GUILD, guild);
   const member = (id, permissions = 0n) => ({ id, permissions: { has: flag => (BigInt(permissions) & BigInt(flag)) === BigInt(flag) }, roles: { cache: new Collection() } });
   function interaction(user = 'member', { staff = false, args = {} } = {}) {
-    const result = { guildId: GUILD, guild, user: { id: user }, member: member(user, staff ? PermissionFlagsBits.ManageGuild : 0n),
+    const result = { guildId: GUILD, guild, user: { id: user }, member: {
+      ...member(user, staff ? PermissionFlagsBits.ManageGuild : 0n),
+      roles: { cache: staff ? new Collection([['owner', { name: 'Owner' }]]) : new Collection() },
+    },
       message: giveawayMessage, inGuild: () => true, replies: [], replied: false, deferred: false, ...args,
       update: async payload => { result.updated = payload; result.replied = true; },
       reply: async payload => { result.replies.push(payload); result.replied = true; },
@@ -68,9 +72,13 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   const embed = createGiveawayEmbed(giveaway, 'active');
   assert.equal(embed.description, [
     '<a:W89gift:1557507008284987442> **Giveaway time !**',
+    '',
     'Cloudy Inc. is giving you the chance to win something special!',
     '',
     '<:W89zgiveway:1557507484812312727> **1 month vip**',
+    '',
+    '**Hosted by**',
+    'Not specified',
     '',
     '**Requirements**',
     'None',
@@ -86,7 +94,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   assert.equal(embed.color, 0xFFFFFF);
   // A personal description and requirements replace the defaults.
   const custom = createGiveawayEmbed(activeGiveaway({ description: 'Win big!', requirements: 'Level 5' }), 'active');
-  assert.match(custom.description, /\*\*Giveaway time !\*\*\nWin big!\n/);
+  assert.match(custom.description, /\*\*Giveaway time !\*\*\n\nWin big!\n/);
   assert.match(custom.description, /\*\*Requirements\*\*\nLevel 5\n/);
   // Ended: winners tagged, green, ended time.
   const ended = createGiveawayEmbed(activeGiveaway({ endedAt: new Date(1_800_000_000_000).toISOString() }), 'ended', ['a', 'b']);
@@ -95,16 +103,16 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   assert.equal(ended.color, 0xFFFFFF);
 });
 
-test('buttons: Enter with emoji and entry count, Leave, and a separate staff Manage row', () => {
-  const [entry, manage] = createGiveawayButtons(activeGiveaway({ participants: ['a', 'b', 'c'] })).map(json);
+test('public buttons are neutral Enter and Leave only', () => {
+  const rows = createGiveawayButtons(activeGiveaway({ participants: ['a', 'b', 'c'] })).map(json);
+  const [entry] = rows;
+  assert.equal(rows.length, 1);
   assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Leave giveaway']);
   assert.equal(entry.components[0].emoji.id, '1543303914152001536');
   assert.equal(entry.components[1].emoji.id, '1565742837453029516');
   assert.equal(entry.components[1].emoji.animated, true);
-  assert.deepEqual(manage.components.map(component => component.label), ['Manage']);
-  const settings = { id: '777', name: 'W94setting2' };
-  const [, withIcon] = createGiveawayButtons(activeGiveaway(), { manageIcon: settings }).map(json);
-  assert.equal(withIcon.components[0].emoji.id, '777');
+  assert.equal(entry.components[0].style, 2);
+  assert.equal(entry.components[1].style, 2);
   const [endedEntry] = createGiveawayButtons(activeGiveaway({ participants: ['a'], ended: true })).map(json);
   assert.deepEqual(endedEntry.components.map(component => [component.label, component.disabled]), [['Enter giveaway (1)', true]]);
 });
@@ -162,14 +170,14 @@ test('Manage is staff only and opens the private controls', async () => {
   const w = world({ [MESSAGE]: activeGiveaway({ participants: ['a'] }) });
   const member = w.interaction('member');
   await button('giveaway_manage').execute(member, w.client);
-  assert.match(JSON.stringify(json(member.replies[0].embeds[0])), /Only staff/);
+  assert.match(JSON.stringify(json(member.replies[0].embeds[0])), /Owner role/);
 
   const staff = w.interaction('staff', { staff: true });
   await button('giveaway_manage').execute(staff, w.client);
   const panel = staff.edited;
   assert.equal(staff.deferred, true);
   assert.deepEqual(panel.components.flatMap(row => json(row).components.map(component => component.label)),
-    ['Reroll', 'Edit text', 'Edit timer', 'End', 'View participants', 'Delete']);
+    ['Reroll', 'Edit text', 'Edit timer', 'End', 'View participants', 'Delete', 'Edit claim']);
   assert.equal(panel.components.flatMap(row => json(row).components).find(component => component.label === 'View participants').emoji.name, '👤');
   assert.equal(panel.components.flatMap(row => json(row).components).find(component => component.label === 'Reroll').emoji.name, '🎲');
   // The owner's white person emoji is used once Cloudy can see it.
@@ -181,6 +189,37 @@ test('Manage is staff only and opens the private controls', async () => {
   const list = w.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(list, w.client, ['participants', MESSAGE]);
   assert.match(list.edited.embeds[0].description, /1\. <@a>/);
+});
+
+test('Owner can re-edit text on the existing message; staff without Owner role cannot manage', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({ hostId: 'host' }) });
+  const owner = w.interaction('owner');
+  await button('giveaway_manage').execute(owner, w.client);
+  assert.equal(owner.edited.components.length, 3);
+
+  const nonowner = w.interaction('staff', { staff: false });
+  nonowner.member.permissions.has = () => true;
+  await button('giveaway_manage').execute(nonowner, w.client);
+  assert.match(JSON.stringify(nonowner.replies[0]), /Owner role/);
+
+  const modal = w.interaction('owner');
+  await button('giveaway_admin').execute(modal, w.client, ['text', MESSAGE]);
+  assert.deepEqual(modal.modal.components.map(row => row.components[0].custom_id),
+    ['introTitle', 'description', 'prize', 'requirements', 'closingText']);
+
+  const values = {
+    introTitle: 'Special giveaway!', description: 'New introduction', prize: 'New prize',
+    requirements: 'Member', closingText: 'Best of luck!',
+  };
+  const edit = w.interaction('owner', { args: { fields: { getTextInputValue: name => values[name] } } });
+  await textModal.execute(edit, w.client, [MESSAGE]);
+  const saved = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.equal(saved.messageId, MESSAGE);
+  assert.equal(saved.prize, 'New prize');
+  assert.equal(saved.closingText, 'Best of luck!');
+  assert.equal(w.sent.length, 0);
+  assert.equal(w.giveawayMessage.edits.length, 1);
+  assert.match(w.giveawayMessage.edits[0].embeds[0].description, /Best of luck!/);
 });
 
 test('End draws winners, marks the giveaway, and tags the winners with how to claim the prize', async () => {
@@ -274,14 +313,12 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.equal(json(builder.embeds[1]).title, 'Giveaway builder');
   const controls = builder.components.map(json);
   const sessionId = controls[2].components[0].custom_id.split(':')[2];
-  // Owner's layout: grey buttons, green Post next to Tag @everyone, Cancel alone at the bottom.
   assert.deepEqual(controls.slice(2).map(row => row.components.map(component => [component.label, component.style])), [
-    [['Edit text', 2], ['Duration & winners', 2]],
-    [['Tag @everyone', 2], ['Post giveaway', 3]],
-    [['Cancel', 2]],
+    [['Edit text', 2], ['Edit claim', 2], ['Duration & winners', 2]],
+    [['Post giveaway', 3], ['Cancel', 2]],
   ]);
-  assert.equal(controls[1].components[0].placeholder, 'Tag a role');
-  const postButton = controls[3].components[1];
+  assert.equal(controls[1].components[0].options[0].label, '@everyone');
+  const postButton = controls[3].components[0];
   assert.equal(postButton.emoji.name, '📤');
   assert.equal(postButton.disabled, true);
 
@@ -289,14 +326,20 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   // Edit text form: prize, description, requirements, claim.
   const openText = click(`gbuilder:text:${sessionId}`);
   await handleGiveawayBuilderInteraction(openText, w.client);
-  assert.deepEqual(openText.modal.components.map(row => row.components[0].custom_id), ['prize', 'description', 'requirements', 'claim']);
-  // Only the prize shows an example; the other fields start empty.
-  assert.deepEqual(openText.modal.components.map(row => row.components[0].placeholder), ['1 month vip', undefined, undefined, undefined]);
-  const texts = { prize: '1 month vip', description: 'Win big!\nGood luck', requirements: 'Level 5', claim: 'DM the owner.' };
+  assert.deepEqual(openText.modal.components.map(row => row.components[0].custom_id), ['introTitle', 'description', 'prize', 'requirements', 'closingText']);
+  const texts = {
+    introTitle: 'Giveaway time !',
+    prize: '1 month vip',
+    description: 'Win big!\nGood luck',
+    requirements: 'Level 5',
+    closingText: 'Good luck to everyone!',
+  };
   const textForm = click(`gbuilder:textform:${sessionId}`, { fields: { getTextInputValue: name => texts[name] } });
   await handleGiveawayBuilderInteraction(textForm, w.client);
   assert.match(textForm.updated.embeds[0].description, /\*\*1 month vip\*\*/);
-  assert.equal(json(textForm.updated.components[3]).components[1].disabled, false);
+  assert.equal(json(textForm.updated.components[3]).components[0].disabled, false);
+  const claimForm = click(`gbuilder:claimform:${sessionId}`, { fields: { getTextInputValue: () => 'DM the owner.' } });
+  await handleGiveawayBuilderInteraction(claimForm, w.client);
   // Duration & winners form: "Example" placeholder, 1m is the shortest, with validation.
   const openTiming = click(`gbuilder:timing:${sessionId}`);
   await handleGiveawayBuilderInteraction(openTiming, w.client);
@@ -317,7 +360,8 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const posted = w.sent[0];
   assert.equal(posted.content, '<@&giveaway-role>');
   assert.deepEqual(posted.allowedMentions, { parse: [], roles: ['giveaway-role'] });
-  assert.match(posted.embeds[0].description, /\*\*Giveaway time !\*\*\nWin big!\nGood luck\n/);
+  assert.match(posted.embeds[0].description, /\*\*Giveaway time !\*\*\n\nWin big!\nGood luck\n/);
+  assert.match(posted.embeds[0].description, /\*\*Hosted by\*\*\n<@staff>/);
   const stored = await loadGiveaway(w.client, GUILD, posted.id);
   assert.equal(stored.requirements, 'Level 5');
   assert.equal(stored.claim, 'DM the owner.');
@@ -339,10 +383,14 @@ test('only staff can open the Giveaway Builder; @everyone can be tagged', async 
   const staff = Object.assign(w.interaction('staff', { staff: true }), { channelId: 'giveaways' });
   await create.execute(staff);
   const sessionId = json(staff.replies[0].components[2]).components[0].custom_id.split(':')[2];
-  const everyone = Object.assign(w.interaction('staff', { staff: true }), { customId: `gbuilder:everyone:${sessionId}` });
+  const everyone = Object.assign(w.interaction('staff', { staff: true }), {
+    customId: `gbuilder:pingtype:${sessionId}`,
+    values: ['everyone'],
+    isStringSelectMenu: () => true,
+  });
   await handleGiveawayBuilderInteraction(everyone, w.client);
   assert.equal(json(everyone.updated.embeds[1]).fields.find(field => field.name === 'Tag').value, '@everyone');
-  assert.equal(json(everyone.updated.components[3]).components[0].label, 'Untag @everyone');
+  assert.equal(json(everyone.updated.components[1]).components[0].options[0].default, true);
 });
 
 test('every giveaway button answers Discord before reading the database (no 3-second timeouts)', async () => {
