@@ -342,7 +342,8 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
         content: winners.map(id => `<@${id}>`).join(' '),
         embeds: [{
             description: [
-                `🎁 **${reroll ? 'New winner!' : 'Congratulations!'}**`,
+                `${GIVEAWAY_EMOJIS.gift} **${reroll ? 'New winner!' : 'Congratulations!'}**`,
+                '',
                 `${tags} ${winners.length === 1 ? 'has' : 'have'} won **${giveaway.prize || 'the giveaway'}**!`,
                 '',
                 giveaway.claim || DEFAULT_GIVEAWAY_CLAIM,

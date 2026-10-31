@@ -1,9 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Embed, MessageFlags } from 'discord.js';
-import { buildDedicatedGuidePayload } from '../src/services/dedicatedChannelService.js';
+import { Collection, Embed, MessageFlags } from 'discord.js';
+import { buildDedicatedGuidePayload, scheduleDedicatedChannelGuide } from '../src/services/dedicatedChannelService.js';
 import { applySavedEmbedTemplates } from '../src/services/embedTemplateService.js';
 import panels from '../src/interactions/buttons/dedicatedCommands.js';
+
+test('shop schedules a reappear after every two messages and ignores its own guide', t => {
+  const timers = [];
+  t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
+    timers.push({ callback, delay });
+    return { unref() {} };
+  });
+  const client = { user: { id: 'cloudy' } };
+  const channel = { id: 'shop-two-messages', name: 'shop', client, isTextBased: () => true, isSendable: () => true };
+  const guild = { id: 'shop-two-guild', client, channels: { cache: new Collection([[channel.id, channel]]) } };
+  const message = { guild, channel, author: { id: 'member' }, embeds: [] };
+  const ownGuide = { ...message, author: client.user, embeds: [{ title: 'Shop & Economy' }] };
+  assert.equal(scheduleDedicatedChannelGuide(ownGuide), false);
+  scheduleDedicatedChannelGuide(message);
+  assert.equal(timers.length, 0, 'the first message does not move the shop');
+  scheduleDedicatedChannelGuide(message);
+  assert.equal(timers.length, 1, 'the second message schedules the shop move');
+  assert.equal(timers[0].delay, 1500, 'the existing refresh delay stays unchanged');
+});
 
 for (const key of ['gambling', 'shop']) {
   test(`${key} panel is compact with a Commands button`, () => {

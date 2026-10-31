@@ -343,9 +343,9 @@ for (const commandName of ['beg', 'crime', 'daily', 'rob', 'work']) {
   });
 }
 
-test('the Gambling guide moves to the bottom every 2 messages; the Shop guide keeps 5', async () => {
+test('the Gambling and Shop guides move to the bottom every 2 messages', async () => {
   const { readFile } = await import('node:fs/promises');
   const source = await readFile('src/services/dedicatedChannelService.js', 'utf8');
   assert.match(source, /guideManager\('gambling', isGamblingGuide, 2\)/);
-  assert.match(source, /guideManager\('shop', isShopGuide, 5\)/);
+  assert.match(source, /guideManager\('shop', isShopGuide, 2\)/);
 });

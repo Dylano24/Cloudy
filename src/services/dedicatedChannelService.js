@@ -137,9 +137,8 @@ function guideManager(key, isGuide, everyNMessages) {
     buildPayload: (_channel, existing) => buildDedicatedGuidePayload(key, existing),
   });
 }
-// The guide moves to the bottom after this many new messages (Gambling: 2,
-// owner's choice).
-const shopGuideManager = guideManager('shop', isShopGuide, 5);
+// Both guides move to the bottom after two new messages (owner's choice).
+const shopGuideManager = guideManager('shop', isShopGuide, 2);
 const gamblingGuideManager = guideManager('gambling', isGamblingGuide, 2);
 
 export function scheduleDedicatedChannelGuide(message) {

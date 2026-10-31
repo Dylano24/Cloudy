@@ -111,7 +111,7 @@ async function changeEntry(interaction, client, enter) {
         // Refresh the giveaway itself (entry count on the button), then confirm privately.
         await interaction.editReply(activeGiveawayPayload(result.giveaway, client));
         await notice(interaction, successEmbed('Success', enter
-            ? 'You entered the giveaway. Good luck!'
+            ? 'You entered the giveaway.\n\nGood luck!'
             : 'You left the giveaway.'));
     } catch (error) {
         await onError(interaction, error, customId);

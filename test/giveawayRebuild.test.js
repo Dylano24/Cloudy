@@ -135,6 +135,7 @@ test('Enter and Leave update the entry count; repeats and ended giveaways get a 
   assert.equal(enter.deferred, true);
   assert.equal(json(enter.edited.components[0]).components[0].label, 'Enter giveaway (1)');
   assert.equal(json(enter.replies[0].embeds[0]).title, 'Success');
+  assert.equal(json(enter.replies[0].embeds[0]).description, 'You entered the giveaway.\n\nGood luck!');
 
   clearAllRateLimits();
   const again = w.interaction('member');
@@ -147,6 +148,7 @@ test('Enter and Leave update the entry count; repeats and ended giveaways get a 
   await button('giveaway_leave').execute(leave, w.client);
   assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, []);
   assert.equal(json(leave.edited.components[0]).components[0].label, 'Enter giveaway (0)');
+  assert.deepEqual(json(leave.edited.components[0]).components.map(component => component.custom_id), ['giveaway_enter', 'giveaway_leave']);
 
   clearAllRateLimits();
   const notIn = w.interaction('member');
