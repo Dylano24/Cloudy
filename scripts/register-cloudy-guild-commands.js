@@ -88,6 +88,7 @@ async function loadPayloads() {
 
       const payload = JSON.parse(JSON.stringify(command.data.toJSON()));
       if (isRetiredGamblingCommand(payload?.name)
+        || ['gcreate', 'gend', 'gdelete', 'greroll'].includes(payload?.name)
         || (payload?.name === 'gamble' && path.basename(file) === 'gamble.js')) continue;
       if (!payload?.name || seen.has(payload.name)) continue;
       seen.add(payload.name);

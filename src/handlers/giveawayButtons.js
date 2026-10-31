@@ -22,6 +22,7 @@ import {
     removeGiveaway,
     rerollGiveaway,
     setGiveawayTimer,
+    setGiveawayText,
 } from '../services/giveawayActions.js';
 
 const EPHEMERAL = MessageFlags.Ephemeral;
@@ -160,6 +161,24 @@ export function giveawayTimerModal(messageId) {
             .setMaxLength(10)));
 }
 
+// Same text fields as the creation builder, prefilled from the saved giveaway.
+export function giveawayTextEditModal(messageId, giveaway) {
+    const field = (name, label, style, value, maxLength, required = false) => {
+        const input = new TextInputBuilder().setCustomId(name).setLabel(label)
+            .setStyle(style).setRequired(required).setMaxLength(maxLength);
+        if (value) input.setValue(String(value).slice(0, maxLength));
+        return new ActionRowBuilder().addComponents(input);
+    };
+    return new ModalBuilder().setCustomId(`giveaway_text:${messageId}`)
+        .setTitle('Edit giveaway text')
+        .addComponents(
+            field('prize', 'Prize', TextInputStyle.Short, giveaway.prize, 256, true),
+            field('description', 'Description', TextInputStyle.Paragraph, giveaway.description, 1000),
+            field('requirements', 'Requirements', TextInputStyle.Paragraph, giveaway.requirements, 500),
+            field('claim', 'How winners claim the prize', TextInputStyle.Paragraph, giveaway.claim, 500),
+        );
+}
+
 // giveaway_admin:<action>:<giveaway message ID>, from the private Manage panel.
 export const giveawayAdminHandler = {
     customId: 'giveaway_admin',
@@ -169,8 +188,14 @@ export const giveawayAdminHandler = {
             if (!canManageGiveaways(interaction.member, interaction.guild)) {
                 return warn(interaction, 'Only staff can manage giveaways.');
             }
-            // A form must be the first answer, so Edit timer opens it at once.
+            // A form must be the first answer, before any defer.
             if (action === 'timer') return interaction.showModal(giveawayTimerModal(messageId));
+            if (action === 'text') {
+                const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
+                if (!giveaway) return warn(interaction, 'This giveaway no longer exists.');
+                if (giveaway.ended || giveaway.isEnded) return warn(interaction, 'This giveaway has already ended.');
+                return interaction.showModal(giveawayTextEditModal(messageId, giveaway));
+            }
             if (action === 'participants') {
                 await deferPrivate(interaction);
                 const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
@@ -221,6 +246,29 @@ export const giveawayTimerModalHandler = {
             return notice(interaction, successEmbed('Success', `The giveaway now ends <t:${endsAt}:F> (<t:${endsAt}:R>).`));
         } catch (error) {
             return onError(interaction, error, 'giveaway_timer');
+        }
+    },
+};
+
+export const giveawayTextModalHandler = {
+    customId: 'giveaway_text',
+    async execute(interaction, client, [messageId] = []) {
+        try {
+            if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
+            if (!canManageGiveaways(interaction.member, interaction.guild)) {
+                return warn(interaction, 'Only staff can manage giveaways.');
+            }
+            const value = name => interaction.fields.getTextInputValue(name);
+            await deferPrivate(interaction);
+            await setGiveawayText(client, interaction.guild, messageId, {
+                prize: value('prize'),
+                description: value('description'),
+                requirements: value('requirements'),
+                claim: value('claim'),
+            });
+            return notice(interaction, successEmbed('Success', 'The giveaway text was updated.'));
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_text');
         }
     },
 };
