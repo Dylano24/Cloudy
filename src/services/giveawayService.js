@@ -220,7 +220,7 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
         entry.addComponents(new ButtonBuilder()
             .setCustomId('giveaway_leave')
             .setEmoji(GIVEAWAY_EMOJIS.leave)
-            .setLabel('Leave giveaway')
+            .setLabel('Leave')
             .setStyle(ButtonStyle.Secondary));
     }
     const manage = new ActionRowBuilder().addComponents(new ButtonBuilder()
@@ -317,7 +317,7 @@ export function createParticipantsList(giveaway) {
     }
     return {
         embeds: [{
-            title: `Participants (${participants.length})`,
+            title: `Participants — ${giveaway.prize || 'Giveaway'}`.slice(0, 256),
             description: lines.length ? lines.join('\n') : 'Nobody has entered this giveaway yet.',
             color: GIVEAWAY_WHITE,
         }],

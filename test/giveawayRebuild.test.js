@@ -110,7 +110,7 @@ test('public participant buttons stay together with Manage on its own row', () =
   const [entry] = rows;
   assert.equal(rows.length, 2);
   assert.deepEqual(rows[1].components.map(component => [component.custom_id, component.label, component.style]), [['giveaway_manage', 'Manage', 2]]);
-  assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Leave giveaway']);
+  assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Leave']);
   assert.equal(entry.components[0].emoji.id, '1543303914152001536');
   assert.equal(entry.components[1].emoji.id, '1565742837453029516');
   assert.equal(entry.components[1].emoji.animated, true);
@@ -468,7 +468,7 @@ test('every giveaway notice disappears after exactly 10 seconds; the giveaway it
   // The participants list disappears after 10 seconds too.
   const list = active.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(list, active.client, ['participants', MESSAGE]);
-  assert.match(list.edited.embeds[0].title, /^Participants/);
+  assert.equal(list.edited.embeds[0].title, 'Participants — 1 month vip');
   t.mock.timers.tick(10_000);
   await settle();
   assert.deepEqual(list.deleted, ['@original']);
