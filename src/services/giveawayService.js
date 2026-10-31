@@ -142,7 +142,7 @@ export const GIVEAWAY_EMOJIS = Object.freeze({
 });
 export const DEFAULT_GIVEAWAY_DESCRIPTION = 'Cloudy Inc. is giving you the chance to win something special!';
 export const DEFAULT_ENDED_GIVEAWAY_DESCRIPTION = 'Thank you to everyone who participated!';
-export const DEFAULT_GIVEAWAY_INTRO = 'Giveaway time !';
+export const DEFAULT_GIVEAWAY_INTRO = 'Giveaway time!';
 export const DEFAULT_GIVEAWAY_CLOSING = 'Good luck to everyone!';
 export const DEFAULT_GIVEAWAY_CLAIM = 'Please open a support ticket within 24 hours to claim your prize.';
 export const DEFAULT_GIVEAWAY_FAILURE = 'Failure to claim your prize within this timeframe will result in a reroll, and a new winner will be selected.';
@@ -171,11 +171,13 @@ export function giveawayText(value, maxLength) {
 
 export function createGiveawayEmbed(giveaway, status = 'active', winners = giveaway?.winnerIds || []) {
     const ended = status !== 'active';
+    const introTitle = !giveaway.introTitle || giveaway.introTitle === 'Giveaway time !'
+        ? DEFAULT_GIVEAWAY_INTRO : giveaway.introTitle;
     const winnerCount = Number(giveaway.winnerCount) || 1;
     const endsAt = giveawayEndTime(giveaway);
     const endedAt = Date.parse(giveaway.endedAt) || endsAt || Date.now();
     const lines = [
-        `${GIVEAWAY_EMOJIS.gift} **${ended ? 'Giveaway ended!' : (giveaway.introTitle || DEFAULT_GIVEAWAY_INTRO)}**`,
+        `${GIVEAWAY_EMOJIS.gift} **${ended ? 'Giveaway ended!' : introTitle}**`,
         '',
         ended ? DEFAULT_ENDED_GIVEAWAY_DESCRIPTION : (giveaway.description || DEFAULT_GIVEAWAY_DESCRIPTION),
         '',

@@ -71,7 +71,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   const giveaway = activeGiveaway({ endsAt: 1_800_000_000_000 });
   const embed = createGiveawayEmbed(giveaway, 'active');
   assert.equal(embed.description, [
-    '<a:W89gift:1557507008284987442> **Giveaway time !**',
+    '<a:W89gift:1557507008284987442> **Giveaway time!**',
     '',
     'Cloudy Inc. is giving you the chance to win something special!',
     '',
@@ -97,7 +97,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   assert.equal(embed.color, 0xFFFFFF);
   // A personal description and requirements replace the defaults.
   const custom = createGiveawayEmbed(activeGiveaway({ description: 'Win big!', requirements: 'Level 5' }), 'active');
-  assert.match(custom.description, /\*\*Giveaway time !\*\*\n\nWin big!\n/);
+  assert.match(custom.description, /\*\*Giveaway time!\*\*\n\nWin big!\n/);
   assert.match(custom.description, /\*\*Requirements\*\*\nLevel 5\n/);
   // Ended: winners tagged, green, ended time.
   const ended = createGiveawayEmbed(activeGiveaway({ endedAt: new Date(1_800_000_000_000).toISOString() }), 'ended', ['a', 'b']);
@@ -373,7 +373,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const posted = w.sent[0];
   assert.equal(posted.content, '<@&giveaway-role>');
   assert.deepEqual(posted.allowedMentions, { parse: [], roles: ['giveaway-role'] });
-  assert.match(posted.embeds[0].description, /\*\*Giveaway time !\*\*\n\nWin big!\nGood luck\n/);
+  assert.match(posted.embeds[0].description, /\*\*Giveaway time!\*\*\n\nWin big!\nGood luck\n/);
   assert.match(posted.embeds[0].description, /\*\*Hosted by\*\*\n<@staff>/);
   const stored = await loadGiveaway(w.client, GUILD, posted.id);
   assert.equal(stored.requirements, 'Level 5');
