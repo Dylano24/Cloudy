@@ -156,8 +156,8 @@ export function giveawayTextModal(session) {
         .setTitle('Giveaway text')
         .addComponents(
             textInput('introTitle', 'Introduction title', TextInputStyle.Short, { value: draft.introTitle, required: true, maxLength: 150 }),
-            textInput('description', 'Description', TextInputStyle.Paragraph, { value: draft.description || DEFAULT_GIVEAWAY_DESCRIPTION, maxLength: 1000 }),
             textInput('prize', 'Prize', TextInputStyle.Short, { value: draft.prize, placeholder: '1 month vip', required: true, maxLength: 256 }),
+            textInput('description', 'Description', TextInputStyle.Paragraph, { value: draft.description || DEFAULT_GIVEAWAY_DESCRIPTION, maxLength: 1000 }),
             textInput('requirements', 'Requirements', TextInputStyle.Paragraph, { value: draft.requirements, maxLength: 500 }),
             textInput('closingText', 'Closing message', TextInputStyle.Paragraph, { value: draft.closingText, required: true, maxLength: 300 }),
         );
