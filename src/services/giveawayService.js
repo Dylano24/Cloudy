@@ -190,7 +190,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
         '**Winners**',
         ended
             ? (winners.length ? mentionList(winners) : 'No valid entries')
-            : `${winnerCount} ${winnerCount === 1 ? 'winner' : 'winners'}`,
+            : String(winnerCount),
         '',
         '**Participants**',
         String(giveawayParticipants(giveaway).length),
