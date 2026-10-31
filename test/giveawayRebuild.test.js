@@ -84,7 +84,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
     'None',
     '',
     '**Winners**',
-    '1 winner',
+    '1',
     '',
     '**Participants**',
     '0',
@@ -140,7 +140,7 @@ test('Enter and Leave update the entry count; repeats and ended giveaways get a 
   // Acknowledged at once, then the giveaway (entry count) is refreshed.
   assert.equal(enter.deferred, true);
   assert.equal(json(enter.edited.components[0]).components[0].label, 'Enter giveaway');
-  assert.match(enter.edited.embeds[0].description, /\*\*Winners\*\*\n1 winner\n\n\*\*Participants\*\*\n1\n\n/);
+  assert.match(enter.edited.embeds[0].description, /\*\*Winners\*\*\n1\n\n\*\*Participants\*\*\n1\n\n/);
   assert.equal(json(enter.replies[0].embeds[0]).title, 'Success');
   assert.equal(json(enter.replies[0].embeds[0]).description, 'You entered the giveaway.\n\nGood luck!');
 
@@ -363,7 +363,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.match(JSON.stringify(json(badTiming.replies[0].embeds[0])), /Invalid duration/);
   const timing = click(`gbuilder:timingform:${sessionId}`, { fields: { getTextInputValue: name => (name === 'duration' ? '2h' : '2') } });
   await handleGiveawayBuilderInteraction(timing, w.client);
-  assert.match(timing.updated.embeds[0].description, /\*\*Winners\*\*\n2 winners/);
+  assert.match(timing.updated.embeds[0].description, /\*\*Winners\*\*\n2\n/);
   // Tag a role with the role picker, then post.
   const role = click(`gbuilder:role:${sessionId}`, { values: ['giveaway-role'], isRoleSelectMenu: () => true });
   await handleGiveawayBuilderInteraction(role, w.client);
