@@ -11,8 +11,6 @@ import {
     createGiveawayButtons,
     createGiveawayEmbed,
     createWinnerAnnouncement,
-    customEmoji,
-    MANAGE_EMOJI_NAME,
     giveawayEndTime,
     giveawayParticipants,
     giveawayPing,
@@ -30,6 +28,12 @@ export function canManageGiveaways(member, guild) {
     return Boolean(member && (member.id === guild?.ownerId || hasCloudyOwnerMember(member)
         || member.permissions?.has?.(PermissionFlagsBits.Administrator)
         || member.permissions?.has?.(PermissionFlagsBits.ManageGuild)));
+}
+
+// Only the guild owner and members holding Cloudy's named Owner role may
+// open or use the private giveaway management panel.
+export function canManageGiveawaysAsOwner(member, guild) {
+    return Boolean(member && (member.id === guild?.ownerId || hasCloudyOwnerMember(member)));
 }
 
 function giveawayError(message, userMessage, type = ErrorTypes.VALIDATION, context = {}) {
@@ -72,15 +76,15 @@ async function fetchGiveawayMessage(channel, messageId) {
     return attempt(() => channel?.messages?.fetch?.(messageId));
 }
 
-function giveawayMessagePayload(giveaway, status, client = null) {
+function giveawayMessagePayload(giveaway, status) {
     return {
         embeds: [createGiveawayEmbed(giveaway, status, giveaway.winnerIds || [])],
-        components: createGiveawayButtons(giveaway, { ended: status !== 'active', manageIcon: customEmoji(client, MANAGE_EMOJI_NAME) }),
+        components: createGiveawayButtons(giveaway, { ended: status !== 'active' }),
     };
 }
 
-export function activeGiveawayPayload(giveaway, client = null) {
-    return giveawayMessagePayload(giveaway, isGiveawayFinished(giveaway) ? 'ended' : 'active', client);
+export function activeGiveawayPayload(giveaway) {
+    return giveawayMessagePayload(giveaway, isGiveawayFinished(giveaway) ? 'ended' : 'active');
 }
 
 function hasTimedOut(giveaway) {
@@ -148,6 +152,8 @@ export async function postGiveaway(client, guild, channel, draft) {
         channelId: channel.id,
         guildId: guild.id,
         prize,
+        introTitle: giveawayText(draft.introTitle, 150),
+        closingText: giveawayText(draft.closingText, 300),
         description: giveawayText(draft.description, 1000),
         requirements: giveawayText(draft.requirements, 500),
         claim: giveawayText(draft.claim, 500),
@@ -165,7 +171,7 @@ export async function postGiveaway(client, guild, channel, draft) {
     const message = await channel.send({
         ...(tag.content ? { content: tag.content } : {}),
         embeds: [createGiveawayEmbed(giveaway, 'active')],
-        components: createGiveawayButtons(giveaway, { ended: false, manageIcon: customEmoji(client, MANAGE_EMOJI_NAME) }),
+        components: createGiveawayButtons(giveaway, { ended: false }),
         allowedMentions: tag.allowedMentions,
     });
     giveaway.messageId = message.id;
@@ -281,12 +287,14 @@ export async function setGiveawayText(client, guild, messageId, fields) {
         }
         const updated = {
             ...giveaway,
-            prize: validatePrize(fields.prize),
-            description: giveawayText(fields.description, 1000),
-            requirements: giveawayText(fields.requirements, 500),
-            claim: giveawayText(fields.claim, 500),
+            ...(fields.prize !== undefined ? { prize: validatePrize(fields.prize) } : {}),
+            ...(fields.introTitle !== undefined ? { introTitle: giveawayText(fields.introTitle, 150) } : {}),
+            ...(fields.closingText !== undefined ? { closingText: giveawayText(fields.closingText, 300) } : {}),
+            ...(fields.description !== undefined ? { description: giveawayText(fields.description, 1000) } : {}),
+            ...(fields.requirements !== undefined ? { requirements: giveawayText(fields.requirements, 500) } : {}),
+            ...(fields.claim !== undefined ? { claim: giveawayText(fields.claim, 500) } : {}),
         };
-        if (['prize', 'description', 'requirements', 'claim'].every(key => updated[key] === giveaway[key])) {
+        if (['prize', 'introTitle', 'closingText', 'description', 'requirements', 'claim'].every(key => updated[key] === giveaway[key])) {
             return updated;
         }
         const channel = await fetchGiveawayChannel(client, guild, giveaway.channelId);
