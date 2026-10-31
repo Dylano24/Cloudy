@@ -52,7 +52,8 @@ test('custom title, hosted by, description and closing follow owner ordering', (
   assert.ok(text.indexOf('**Hosted by**') < text.indexOf('**Requirements**'));
   assert.ok(text.indexOf('**Requirements**') < text.indexOf('**Winners**'));
   assert.ok(text.indexOf('**Winners**') < text.indexOf('**Giveaway ends**'));
-  assert.match(text, /Good luck, friends!/);
+  assert.match(text, /\*\*Good luck, friends!\*\*/);
+  assert.match(createGiveawayEmbed(giveaway).description, /\*\*Good luck to everyone!\*\*/);
 });
 
 test('final giveaway and announcement have the required copy', () => {
