@@ -173,7 +173,7 @@ export function giveawayTextEditModal(messageId, giveaway) {
     return new ModalBuilder().setCustomId(`giveaway_text:${messageId}`)
         .setTitle('Edit giveaway text')
         .addComponents(
-            field('introTitle', 'Introduction title', TextInputStyle.Short, giveaway.introTitle || 'Giveaway time !', 150, true),
+            field('introTitle', 'Introduction title', TextInputStyle.Short, giveaway.introTitle?.replace(/^Giveaway time !$/, 'Giveaway time!') || 'Giveaway time!', 150, true),
             field('prize', 'Prize', TextInputStyle.Short, giveaway.prize, 256, true),
             field('description', 'Description', TextInputStyle.Paragraph, giveaway.description || DEFAULT_GIVEAWAY_DESCRIPTION, 1000),
             field('requirements', 'Requirements', TextInputStyle.Paragraph, giveaway.requirements, 500),
