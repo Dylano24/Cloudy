@@ -209,7 +209,7 @@ test('Owner can re-edit text on the existing message; staff without Owner role c
   const modal = w.interaction('owner');
   await button('giveaway_admin').execute(modal, w.client, ['text', MESSAGE]);
   assert.deepEqual(modal.modal.components.map(row => row.components[0].custom_id),
-    ['introTitle', 'description', 'prize', 'requirements', 'closingText']);
+    ['introTitle', 'prize', 'description', 'requirements', 'closingText']);
 
   const values = {
     introTitle: 'Special giveaway!', description: 'New introduction', prize: 'New prize',
@@ -330,8 +330,8 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   // Edit text form: prize, description, requirements, claim.
   const openText = click(`gbuilder:text:${sessionId}`);
   await handleGiveawayBuilderInteraction(openText, w.client);
-  assert.deepEqual(openText.modal.components.map(row => row.components[0].custom_id), ['introTitle', 'description', 'prize', 'requirements', 'closingText']);
-  assert.equal(openText.modal.components[1].components[0].value, 'Cloudy Inc. is giving you the chance to win something special!');
+  assert.deepEqual(openText.modal.components.map(row => row.components[0].custom_id), ['introTitle', 'prize', 'description', 'requirements', 'closingText']);
+  assert.equal(openText.modal.components[2].components[0].value, 'Cloudy Inc. is giving you the chance to win something special!');
   const texts = {
     introTitle: 'Giveaway time !',
     prize: '1 month vip',
