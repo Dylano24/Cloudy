@@ -13,9 +13,14 @@ export default {
     let failed = 0;
     for (const guild of client.guilds.cache.values()) {
       const giveaways = await getGuildGiveaways(client, guild.id, { strict: true });
+      logger.info(`[GIVEAWAY_MANAGE_RECOVERY] scanning guild=${guild.id} giveaways=${giveaways.length}`);
+      giveaways.sort((a, b) => String(b.messageId || '').localeCompare(String(a.messageId || '')));
       for (const giveaway of giveaways) {
         try {
-          const channel = await guild.channels.fetch(giveaway.channelId);
+          if (!giveaway.channelId || !giveaway.messageId) continue;
+          const channel = guild.channels.cache.get(giveaway.channelId);
+          if (!channel?.messages?.fetch) continue;
+          logger.info(`[GIVEAWAY_MANAGE_RECOVERY] checking ${giveaway.channelId}/${giveaway.messageId}`);
           const message = await channel.messages.fetch(giveaway.messageId);
           if (message.author?.id !== client.user.id || !message.editable) continue;
           if (message.components.some(row => row.components.some(button => button.customId === 'giveaway_manage'))) continue;
