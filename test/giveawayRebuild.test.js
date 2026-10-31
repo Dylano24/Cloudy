@@ -86,6 +86,9 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
     '**Winners**',
     '1 winner',
     '',
+    '**Participants**',
+    '0',
+    '',
     '<a:W89timer:1557506643372146778> **Giveaway ends**',
     '<t:1800000000:F> (<t:1800000000:R>)',
     '',
@@ -110,14 +113,14 @@ test('public participant buttons stay together with Manage on its own row', () =
   const [entry] = rows;
   assert.equal(rows.length, 2);
   assert.deepEqual(rows[1].components.map(component => [component.custom_id, component.label, component.style]), [['giveaway_manage', 'Manage', 2]]);
-  assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway (3)', 'Leave']);
+  assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway', 'Leave giveaway']);
   assert.equal(entry.components[0].emoji.id, '1543303914152001536');
   assert.equal(entry.components[1].emoji.id, '1565742837453029516');
   assert.equal(entry.components[1].emoji.animated, true);
   assert.equal(entry.components[0].style, 2);
   assert.equal(entry.components[1].style, 2);
   const [endedEntry, endedManage] = createGiveawayButtons(activeGiveaway({ participants: ['a'], ended: true })).map(json);
-  assert.deepEqual(endedEntry.components.map(component => [component.label, component.disabled]), [['Enter giveaway (1)', true]]);
+  assert.deepEqual(endedEntry.components.map(component => [component.label, component.disabled]), [['Enter giveaway', true]]);
   assert.equal(endedManage.components[0].custom_id, 'giveaway_manage');
   assert.notEqual(endedManage.components[0].disabled, true);
 });
@@ -136,7 +139,8 @@ test('Enter and Leave update the entry count; repeats and ended giveaways get a 
   assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, ['member']);
   // Acknowledged at once, then the giveaway (entry count) is refreshed.
   assert.equal(enter.deferred, true);
-  assert.equal(json(enter.edited.components[0]).components[0].label, 'Enter giveaway (1)');
+  assert.equal(json(enter.edited.components[0]).components[0].label, 'Enter giveaway');
+  assert.match(enter.edited.embeds[0].description, /\*\*Winners\*\*\n1 winner\n\n\*\*Participants\*\*\n1\n\n/);
   assert.equal(json(enter.replies[0].embeds[0]).title, 'Success');
   assert.equal(json(enter.replies[0].embeds[0]).description, 'You entered the giveaway.\n\nGood luck!');
 
@@ -150,7 +154,8 @@ test('Enter and Leave update the entry count; repeats and ended giveaways get a 
   const leave = w.interaction('member');
   await button('giveaway_leave').execute(leave, w.client);
   assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, []);
-  assert.equal(json(leave.edited.components[0]).components[0].label, 'Enter giveaway (0)');
+  assert.equal(json(leave.edited.components[0]).components[0].label, 'Enter giveaway');
+  assert.match(leave.edited.embeds[0].description, /\*\*Participants\*\*\n0\n\n/);
   assert.deepEqual(json(leave.edited.components[0]).components.map(component => component.custom_id), ['giveaway_enter', 'giveaway_leave']);
 
   clearAllRateLimits();
