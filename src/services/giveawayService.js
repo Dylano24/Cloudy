@@ -325,7 +325,7 @@ export function createParticipantsList(giveaway) {
             title: `Participants — ${giveaway.prize || 'Giveaway'}`.slice(0, 256),
             description: lines.length ? lines.join('\n') : 'Nobody has entered this giveaway yet.',
             color: GIVEAWAY_WHITE,
-            footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.', icon_url: CLOUDY_C_LOGO_URL },
+            thumbnail: { url: CLOUDY_C_LOGO_URL },
         }],
         allowedMentions: { parse: [] },
     };
