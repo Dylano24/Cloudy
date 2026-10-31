@@ -271,6 +271,39 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
     return result;
 }
 
+// Update text on the same physical message; do not change timers or participants.
+export async function setGiveawayText(client, guild, messageId, fields) {
+    const guildId = guild?.id;
+    return Mutex.runExclusive(lockKey(messageId), async () => {
+        const giveaway = await requireGiveaway(client, guildId, messageId);
+        if (isGiveawayFinished(giveaway)) {
+            throw giveawayError('Giveaway already ended', 'This giveaway has already ended.');
+        }
+        const updated = {
+            ...giveaway,
+            prize: validatePrize(fields.prize),
+            description: giveawayText(fields.description, 1000),
+            requirements: giveawayText(fields.requirements, 500),
+            claim: giveawayText(fields.claim, 500),
+        };
+        if (['prize', 'description', 'requirements', 'claim'].every(key => updated[key] === giveaway[key])) {
+            return updated;
+        }
+        const channel = await fetchGiveawayChannel(client, guild, giveaway.channelId);
+        const message = await fetchGiveawayMessage(channel, messageId);
+        if (!message) throw giveawayError('Giveaway message missing', 'The giveaway message no longer exists.');
+        await persist(client, guildId, updated);
+        try {
+            await message.edit(giveawayMessagePayload(updated, 'active', client));
+        } catch (error) {
+            await persist(client, guildId, giveaway).catch(restoreError =>
+                logger.error('Could not restore giveaway after edit failure:', restoreError));
+            throw error;
+        }
+        return updated;
+    });
+}
+
 // Edit timer: the giveaway now ends this long from now.
 export async function setGiveawayTimer(client, guild, messageId, durationMs) {
     const guildId = guild?.id;

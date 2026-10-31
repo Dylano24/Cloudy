@@ -26,7 +26,7 @@ import {
 import { canManageGiveaways, postGiveaway } from './giveawayActions.js';
 
 // The Giveaway Builder: like the Embed Builder, a private live preview with
-// controls. /gcreate opens it; nothing is posted until "Post giveaway".
+// controls. /giveaway create opens it; nothing is posted until "Post giveaway".
 export const GIVEAWAY_BUILDER_PREFIX = 'gbuilder:';
 const IDLE_MS = 30 * 60_000;
 const MAX_WINNERS = botConfig.giveaways?.maximumWinners ?? 10;
@@ -170,7 +170,7 @@ export async function openGiveawayBuilder(interaction) {
     if (!canManageGiveaways(interaction.member, interaction.guild)) {
         return notice(interaction, giveawayWarning('Only staff can start a giveaway.'));
     }
-    // One open builder per person: a new /gcreate replaces the old one.
+    // One open builder per person: a new /giveaway create replaces the old one.
     for (const session of sessions.values()) {
         if (session.userId === interaction.user.id && session.guildId === interaction.guildId) closeSession(session);
     }
@@ -254,7 +254,7 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
     const session = sessions.get(sessionId);
     try {
         if (!session || session.userId !== interaction.user.id) {
-            await notice(interaction, giveawayWarning('This giveaway builder has expired. Run /gcreate again.'));
+            await notice(interaction, giveawayWarning('This giveaway builder has expired. Run /giveaway create again.'));
             return true;
         }
         if (!canManageGiveaways(interaction.member, interaction.guild)) {

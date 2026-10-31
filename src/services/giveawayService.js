@@ -141,7 +141,8 @@ export const GIVEAWAY_EMOJIS = Object.freeze({
     leave: Object.freeze({ id: '1565742837453029516', name: 'arrow_pointing_right', animated: true }),
 });
 export const DEFAULT_GIVEAWAY_DESCRIPTION = 'Cloudy Inc. is giving you the chance to win something special!';
-export const DEFAULT_GIVEAWAY_CLAIM = 'Open a ticket within 24 hours to claim your prize.';
+export const DEFAULT_GIVEAWAY_CLAIM = 'Please open a support ticket within 24 hours to claim your prize.';
+export const DEFAULT_GIVEAWAY_FAILURE = 'Failure to claim your prize within this timeframe will result in a reroll, and a new winner will be selected.';
 const GIVEAWAY_WHITE = 0xFFFFFF;
 
 const unix = ms => Math.floor(Number(ms) / 1000);
@@ -171,7 +172,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
     const endsAt = giveawayEndTime(giveaway);
     const endedAt = Date.parse(giveaway.endedAt) || endsAt || Date.now();
     const lines = [
-        `${GIVEAWAY_EMOJIS.gift} **${ended ? 'Giveaway ended !' : 'Giveaway time !'}**`,
+        `${GIVEAWAY_EMOJIS.gift} **${ended ? 'Giveaway ended!' : 'Giveaway time !'}**`,
         giveaway.description || DEFAULT_GIVEAWAY_DESCRIPTION,
         '',
         `${GIVEAWAY_EMOJIS.prize} **${giveaway.prize || 'Mystery prize'}**`,
@@ -187,7 +188,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
         `${GIVEAWAY_EMOJIS.timer} **${ended ? 'Giveaway ended' : 'Giveaway ends'}**`,
         ended ? `<t:${unix(endedAt)}:F>` : `<t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
         '',
-        ended ? 'Thank you to everyone who entered!' : 'Good luck to everyone!',
+        ended ? 'The winner(s) have been announced and tagged below!' : 'Good luck to everyone!',
     ];
     return {
         description: lines.join('\n').slice(0, 4096),
@@ -251,15 +252,16 @@ export function createGiveawayManagePanel(giveaway, { participantsIcon = '👤' 
         ? [
             new ActionRowBuilder().addComponents(
                 button('reroll', 'Reroll', ButtonStyle.Secondary),
-                button('participants', 'View participants', ButtonStyle.Primary)),
-            new ActionRowBuilder().addComponents(button('delete', 'Delete', ButtonStyle.Danger)),
+                button('participants', 'View participants', ButtonStyle.Primary),
+                button('delete', 'Delete', ButtonStyle.Danger)),
         ]
         : [
             new ActionRowBuilder().addComponents(
-                button('end', 'End giveaway', ButtonStyle.Danger),
-                button('timer', 'Edit timer', ButtonStyle.Secondary),
-                button('reroll', 'Reroll', ButtonStyle.Secondary)),
+                button('reroll', 'Reroll', ButtonStyle.Secondary),
+                button('text', 'Edit text', ButtonStyle.Secondary),
+                button('timer', 'Edit timer', ButtonStyle.Secondary)),
             new ActionRowBuilder().addComponents(
+                button('end', 'End', ButtonStyle.Danger),
                 button('participants', 'View participants', ButtonStyle.Primary),
                 button('delete', 'Delete', ButtonStyle.Danger)),
         ];
@@ -273,6 +275,7 @@ export function createGiveawayManagePanel(giveaway, { participantsIcon = '👤' 
                 ended ? 'This giveaway has ended.' : `Ends <t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
             ].join('\n'),
             color: GIVEAWAY_WHITE,
+            thumbnail: { url: CLOUDY_C_LOGO_URL },
         }],
         components: rows,
     };
@@ -284,6 +287,7 @@ export function createDeleteConfirmation(giveaway) {
             title: 'Delete giveaway?',
             description: `The giveaway for **${giveaway.prize || 'this prize'}** and its message will be removed. This cannot be undone.`,
             color: GIVEAWAY_WHITE,
+            thumbnail: { url: CLOUDY_C_LOGO_URL },
         }],
         components: [new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`giveaway_admin:confirmdelete:${giveaway.messageId}`).setLabel('Delete giveaway').setStyle(ButtonStyle.Danger),
@@ -336,11 +340,12 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
         content: winners.map(id => `<@${id}>`).join(' '),
         embeds: [{
             description: [
-                `${GIVEAWAY_EMOJIS.gift} **${reroll ? 'New winner !' : 'Congratulations !'}**`,
+                `🎁 **${reroll ? 'New winner!' : 'Congratulations!'}**`,
                 `${tags} ${winners.length === 1 ? 'has' : 'have'} won **${giveaway.prize || 'the giveaway'}**!`,
                 '',
-                '**How to claim your prize**',
                 giveaway.claim || DEFAULT_GIVEAWAY_CLAIM,
+                '',
+                DEFAULT_GIVEAWAY_FAILURE,
             ].join('\n'),
             color: GIVEAWAY_WHITE,
             thumbnail: { url: CLOUDY_C_LOGO_URL },

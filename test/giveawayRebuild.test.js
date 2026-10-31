@@ -169,7 +169,7 @@ test('Manage is staff only and opens the private controls', async () => {
   const panel = staff.edited;
   assert.equal(staff.deferred, true);
   assert.deepEqual(panel.components.flatMap(row => json(row).components.map(component => component.label)),
-    ['End giveaway', 'Edit timer', 'Reroll', 'View participants', 'Delete']);
+    ['Reroll', 'Edit text', 'Edit timer', 'End', 'View participants', 'Delete']);
   assert.equal(panel.components.flatMap(row => json(row).components).find(component => component.label === 'View participants').emoji.name, '👤');
   assert.equal(panel.components.flatMap(row => json(row).components).find(component => component.label === 'Reroll').emoji.name, '🎲');
   // The owner's white person emoji is used once Cloudy can see it.
@@ -199,11 +199,12 @@ test('End draws winners, marks the giveaway, and tags the winners with how to cl
   assert.deepEqual(announcement.allowedMentions, { parse: [], users: ['winner'] });
   assert.equal(announcement.reply.messageReference, MESSAGE);
   assert.match(announcement.embeds[0].description, /<@winner> has won \*\*1 month vip\*\*!/);
-  assert.match(announcement.embeds[0].description, /\*\*How to claim your prize\*\*\nDM the owner within 24 hours\./);
+  assert.match(announcement.embeds[0].description, /DM the owner within 24 hours\./);
+  assert.match(announcement.embeds[0].description, /Failure to claim your prize/);
   assert.equal(stored.winnerPingMessageId, announcement.id);
   assert.equal(json(staff.edited.embeds[0]).title, 'Success');
   // The default claim text is used when none was given: 24 hours.
-  assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Open a ticket within 24 hours to claim your prize.');
+  assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Please open a support ticket within 24 hours to claim your prize.');
   assert.match(createWinnerAnnouncement(activeGiveaway(), ['x']).embeds[0].description, new RegExp(DEFAULT_GIVEAWAY_CLAIM));
 });
 
@@ -213,7 +214,7 @@ test('Reroll draws someone new and announces them; nobody new left is an error',
   await button('giveaway_admin').execute(staff, w.client, ['reroll', MESSAGE]);
   const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
   assert.deepEqual(stored.winnerIds, ['second']);
-  assert.match(w.sent.at(-1).embeds[0].description, /New winner !/);
+  assert.match(w.sent.at(-1).embeds[0].description, /New winner!/);
   assert.equal(w.sent.at(-1).content, '<@second>');
 
   const again = w.interaction('staff', { staff: true });

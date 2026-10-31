@@ -44,6 +44,7 @@ const COMMAND_ERROR_SUBTYPES = {
   warnings: 'warnings_view_failed',
   ticket: 'ticket_failed',
   serverstats: 'serverstats_failed',
+  giveaway: 'giveaway_failed',
   gcreate: 'giveaway_failed',
   gend: 'giveaway_failed',
   gdelete: 'giveaway_failed',
