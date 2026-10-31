@@ -205,8 +205,8 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
     };
 }
 
-// Only participant buttons are public. Discord components cannot be made
-// visible to only one role; owners manage with /giveaway manage (private panel).
+// Participant buttons stay on the first row. Manage opens an Owner-only
+// private panel; the public button itself is visible to everyone in Discord.
 export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giveaway) } = {}) {
     const entry = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -223,7 +223,11 @@ export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giv
             .setLabel('Leave giveaway')
             .setStyle(ButtonStyle.Secondary));
     }
-    return [entry];
+    const manage = new ActionRowBuilder().addComponents(new ButtonBuilder()
+        .setCustomId('giveaway_manage')
+        .setLabel('Manage')
+        .setStyle(ButtonStyle.Secondary));
+    return [entry, manage];
 }
 
 // Staff-only controls, shown privately.
