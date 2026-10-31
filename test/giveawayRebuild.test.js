@@ -170,7 +170,7 @@ test('Manage is staff only and opens the private controls', async () => {
   const w = world({ [MESSAGE]: activeGiveaway({ participants: ['a'] }) });
   const member = w.interaction('member');
   await button('giveaway_manage').execute(member, w.client);
-  assert.match(JSON.stringify(json(member.replies[0].embeds[0])), /Only staff/);
+  assert.match(JSON.stringify(json(member.replies[0].embeds[0])), /Owner role/);
 
   const staff = w.interaction('staff', { staff: true });
   await button('giveaway_manage').execute(staff, w.client);
