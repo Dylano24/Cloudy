@@ -200,6 +200,47 @@ async function main() {
     throw new Error(`Invalid command count ${payloads.length}; expected 1-100.`);
   }
 
+  // A new server only: started by Cloudy itself when it joins that server.
+  const onlyGuild = String(process.env.COMMAND_SYNC_ONLY_GUILD || '').trim();
+  if (/^\d{17,20}$/.test(onlyGuild)) {
+    await syncGuildCommands(applicationId, onlyGuild, payloads);
+    return;
+  }
+
+  await syncGuildCommands(applicationId, guildId, payloads);
+
+  // Every other server Cloudy is in gets the same commands. Best effort: a
+  // problem in one server never blocks startup or the main server.
+  try {
+    for (const otherGuildId of await listOtherGuildIds(guildId)) {
+      try {
+        await syncGuildCommands(applicationId, otherGuildId, payloads);
+      } catch (error) {
+        console.warn(`[COMMAND_SYNC] Guild ${otherGuildId} not synced: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    console.warn(`[COMMAND_SYNC] Other servers not synced: ${error.message}`);
+  }
+}
+
+async function listOtherGuildIds(primaryGuildId) {
+  const ids = [];
+  let after = '0';
+  for (let page = 0; page < 5; page += 1) {
+    const result = await discordFetchWithRateLimitRetry(`/users/@me/guilds?limit=200&after=${after}`, { method: 'GET' }, 'Guild list');
+    if (!result?.response?.ok || !Array.isArray(result.body)) {
+      console.warn(`[COMMAND_SYNC] Guild list unavailable (${result?.response?.status ?? 'unknown'}); only the main server was synced.`);
+      break;
+    }
+    for (const guild of result.body) if (guild?.id && guild.id !== primaryGuildId) ids.push(String(guild.id));
+    if (result.body.length < 200) break;
+    after = String(result.body[result.body.length - 1].id);
+  }
+  return ids;
+}
+
+async function syncGuildCommands(applicationId, guildId, payloads) {
   const route = `/applications/${applicationId}/guilds/${guildId}/commands`;
 
   try {
@@ -209,7 +250,7 @@ async function main() {
       return;
     }
     if (existing?.response?.ok && commandSetsMatch(existing.body, payloads)) {
-      console.log(`[COMMAND_SYNC] SKIPPED: Discord already has the current ${payloads.length} Cloudy guild commands.`);
+      console.log(`[COMMAND_SYNC] SKIPPED: guild ${guildId} already has the current ${payloads.length} Cloudy commands.`);
       return;
     }
   } catch (error) {
@@ -233,7 +274,7 @@ async function main() {
     }
 
     if (result.response.ok && Array.isArray(result.body)) {
-      console.log(`[COMMAND_SYNC] COMPLETE: Discord now has ${result.body.length} Cloudy guild commands.`);
+      console.log(`[COMMAND_SYNC] COMPLETE: guild ${guildId} now has ${result.body.length} Cloudy commands.`);
       return;
     }
 
