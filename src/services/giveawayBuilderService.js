@@ -128,12 +128,12 @@ export function renderGiveawayBuilder(session) {
             ...(draft.ping.type === 'role' ? [new ActionRowBuilder().addComponents(role)] : []),
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'text')).setLabel('Edit text').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId(id(session, 'claim')).setLabel('Edit claim').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId(id(session, 'timing')).setLabel('Duration & winners').setStyle(ButtonStyle.Secondary),
             ),
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'post')).setEmoji('📤').setLabel('Post giveaway')
                     .setStyle(ButtonStyle.Success).setDisabled(!draft.prize || !draft.channelId),
+                new ButtonBuilder().setCustomId(id(session, 'claim')).setLabel('Edit claim').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId(id(session, 'cancel')).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
             ),
         ],
