@@ -37,6 +37,6 @@ export default {
         }
       }
     }
-    logger.info(`[GIVEAWAY_MANAGE_RECOVERY] complete restored=${restored} failed=${failed}`);
+    logger.warn(`[GIVEAWAY_MANAGE_RECOVERY] complete restored=${restored} failed=${failed}`);
   },
 };
