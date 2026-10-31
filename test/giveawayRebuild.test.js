@@ -214,7 +214,7 @@ test('Reroll draws someone new and announces them; nobody new left is an error',
   await button('giveaway_admin').execute(staff, w.client, ['reroll', MESSAGE]);
   const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
   assert.deepEqual(stored.winnerIds, ['second']);
-  assert.match(w.sent.at(-1).embeds[0].description, /New winner !/);
+  assert.match(w.sent.at(-1).embeds[0].description, /New winner!/);
   assert.equal(w.sent.at(-1).content, '<@second>');
 
   const again = w.interaction('staff', { staff: true });
