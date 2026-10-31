@@ -123,8 +123,8 @@ export function renderGiveawayBuilder(session) {
     return {
         embeds: [preview, settings],
         components: [
-            new ActionRowBuilder().addComponents(channel),
             new ActionRowBuilder().addComponents(pingType),
+            new ActionRowBuilder().addComponents(channel),
             ...(draft.ping.type === 'role' ? [new ActionRowBuilder().addComponents(role)] : []),
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'text')).setLabel('Edit text').setStyle(ButtonStyle.Secondary),
