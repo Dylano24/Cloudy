@@ -109,20 +109,25 @@ test('only the winner opens exactly one private claim channel', async () => {
   const claimEmbed = w.sent[0].embeds[0];
   assert.equal(claimEmbed.title, undefined);
   assert.equal(claimEmbed.color, 0xFFFFFF);
-  assert.match(claimEmbed.description, /Congratulations on winning!/);
-  assert.match(claimEmbed.description, /Claim your code here/);
-  assert.match(claimEmbed.description, /\\|\\|DEMO-[A-Z0-9-]+\\|\\|/);
-  assert.match(claimEmbed.description, /Prize details/);
-  assert.match(claimEmbed.description, /Important/);
-  assert.match(claimEmbed.description, /Your review/);
-  assert.doesNotMatch(claimEmbed.description, /Your prize|How to claim/);
+  assert.match(claimEmbed.description, /Cloudy Inc\\. congratulates you on winning this prize!/);
+  const parts = ['Prize conditions', 'How to get your prize', 'Share your feedback', 'Please note'];
+  let position = 0;
+  for (const part of parts) {
+    const index = claimEmbed.description.indexOf('**' + part + '**');
+    assert.ok(index > position, part + ' must be in order');
+    position = index;
+  }
+  assert.match(claimEmbed.description, /Details and conditions of their prize/);
+  assert.match(claimEmbed.description, /Reveal my code/);
+  assert.match(claimEmbed.description, /staff reviews/);
+  assert.match(claimEmbed.description, /automatically deleted after 24 hours/);
+  assert.doesNotMatch(claimEmbed.description, /DEMO-|Your review|Congratulations on winning!/);
   assert.equal(claimEmbed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(claimEmbed.thumbnail.url);
   const claimButtons = w.sent[0].components[0].toJSON().components;
-  assert.deepEqual(claimButtons.map(button => button.label), ['Prize taken', 'Rate us']);
-  assert.equal(claimButtons[0].style, 2);
-  assert.equal(claimButtons[1].style, 5);
-  assert.equal(claimButtons[1].url, 'https://discord.com/channels/' + GUILD + '/1554538609330225225');
+  assert.deepEqual(claimButtons.map(button => button.label), ['Reveal my code', 'Close', 'Rate us']);
+  assert.deepEqual(claimButtons.map(button => button.style), [2, 2, 5]);
+  assert.equal(claimButtons[2].url, 'https://discord.com/channels/' + GUILD + '/1554538609330225225');
   assert.ok(Date.parse(w.records.get(KEY)[CLAIM_ID].expiresAt) >= Date.now());
   const repeat = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(repeat, w.client);
@@ -161,14 +166,14 @@ test('existing claim panel is edited in place on restart and Staff Set code disa
   assert.equal(w.sent.length, 1);
   assert.equal(panel.content, originalContent);
   assert.equal(panel.embeds[0].title, undefined);
-  assert.match(panel.embeds[0].description, /Claim your code here/);
+  assert.match(panel.embeds[0].description, /How to get your prize/);
   assert.equal(panel.embeds[0].color, 0xFFFFFF);
-  assert.deepEqual(panel.components[0].toJSON().components.map(button => button.label), ['Prize taken', 'Rate us']);
+  assert.deepEqual(panel.components[0].toJSON().components.map(button => button.label), ['Reveal my code', 'Close', 'Rate us']);
   assert.equal(w.records.get(KEY)[CLAIM_ID].panelMessageId, panel.id);
   assert.ok(w.records.get(KEY)[CLAIM_ID].expiresAt);
 });
 
-test('Prize taken closes only the winner claim and never reopens it', async () => {
+test('Close removes only the winner claim and never reopens it', async () => {
   const w = world();
   await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
   const channel = w.created[0].channel;
@@ -184,6 +189,23 @@ test('Prize taken closes only the winner claim and never reopens it', async () =
   const retry = w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel });
   await handleGiveawayClaimInteraction(retry, w.client);
   assert.match(retry.response.content, /no longer active/);
+});
+
+test('Reveal my code shows a spoiler-protected demo privately and never extends expiry', async () => {
+  const w = world();
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+  const expiry = w.records.get(KEY)[CLAIM_ID].expiresAt;
+  const outsider = w.interaction('gclaim:reveal:' + CLAIM_ID, OWNER, { channel });
+  await handleGiveawayClaimInteraction(outsider, w.client);
+  assert.match(outsider.response.content, /Only the winner/);
+  const winner = w.interaction('gclaim:reveal:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(winner, w.client);
+  assert.match(winner.response.content, /Demo code \(not redeemable\)/);
+  assert.match(winner.response.content, /\\|\\|DEMO-[A-Z0-9-]+\\|\\|/);
+  assert.equal(winner.deferred, true);
+  assert.equal(w.records.get(KEY)[CLAIM_ID].expiresAt, expiry);
+  assert.equal(w.sent.length, 1);
 });
 
 test('Unclaimed demo channel expires after 24h even without a spoiler tap', async () => {
