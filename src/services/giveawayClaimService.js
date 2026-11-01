@@ -72,13 +72,14 @@ async function saveClaim(client, guildId, record) {
 function claimPanel(giveaway, userId) {
   const details = giveaway.claimDetails || 'You have won **' + giveaway.prize + '**. Review the prize terms before using your code.';
   const instructions = giveaway.claimCodeInstructions || 'Press **Take code** below when you are ready to view your prize code.';
+  const expiry = giveaway.claimExpiryInstructions
+    || 'After you reveal your code, this private channel and its messages will be deleted automatically after 24 hours.';
   return {
     content: '<@' + userId + '>',
     embeds: [{
-      title: 'Congratulations!',
+      title: giveaway.claimPanelTitle || 'Congratulations!',
       description: '<@' + userId + '>, you won **' + giveaway.prize + '**!\n\n'
-        + details + '\n\n' + instructions + '\n\n'
-        + 'After you reveal your code, this private channel and its messages will be deleted automatically after 24 hours.',
+        + details + '\n\n' + instructions + '\n\n' + expiry,
       color: WHITE,
     }],
     components: [
