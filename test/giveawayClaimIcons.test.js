@@ -34,7 +34,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.deepEqual(await getGiveawayClaimIcons(client), icons);
   assert.equal(fetches, 1);
 
-  const panel = claimPanel({ messageId: '123', prize: '6 months VIP' }, '456', icons);
+  const panel = claimPanel({ messageId: '123', prize: 'PlayStation Store gift card' }, '456', icons);
   const embed = panel.embeds[0];
   assert.equal(embed.title, undefined);
   assert.equal(embed.color, 0xFFFFFF);
