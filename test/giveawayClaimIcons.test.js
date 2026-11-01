@@ -43,9 +43,15 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /Claim your code here/);
   assert.match(embed.description, /DEMO-/);
   assert.match(embed.description, /Important/);
-  assert.doesNotMatch(embed.description, /Prize details|How to claim|Your prize/);
+  assert.match(embed.description, /Prize details/);
+  assert.match(embed.description, /Your review/);
+  assert.match(embed.description, /PlayStation Store gift card/);
+  assert.doesNotMatch(embed.description, /How to claim|Your prize/);
   assert.match(embed.description, /24 hours/);
   assert.match(embed.description, new RegExp(icons.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(embed.description, new RegExp(icons.clock.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.deepEqual(panel.components, []);
+  const controls = panel.components[0].toJSON().components;
+  assert.deepEqual(controls.map(item => item.label), ['Prize taken', 'Rate us']);
+  assert.equal(controls[0].style, 2);
+  assert.equal(controls[1].style, 5);
 });
