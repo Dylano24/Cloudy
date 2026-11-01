@@ -194,8 +194,10 @@ export function giveawayClaimEditModal(messageId, giveaway) {
         .addComponents(
             field('claim', 'Public claim instructions',
                 giveaway.claim || 'Click Claim to open your private prize channel.', 500),
+            field('claimPanelTitle', 'Private claim title', giveaway.claimPanelTitle || 'Congratulations!', 150),
             field('claimDetails', 'Private prize description and terms', giveaway.claimDetails, 1000),
             field('claimCodeInstructions', 'Private code instructions', giveaway.claimCodeInstructions, 500),
+            field('claimExpiryInstructions', 'Private 24-hour explanation', giveaway.claimExpiryInstructions, 500),
         );
 }
 
@@ -307,8 +309,10 @@ export const giveawayClaimModalHandler = {
             await deferPrivate(interaction);
             await setGiveawayText(client, interaction.guild, messageId, {
                 claim: interaction.fields.getTextInputValue('claim'),
+                claimPanelTitle: interaction.fields.getTextInputValue('claimPanelTitle'),
                 claimDetails: interaction.fields.getTextInputValue('claimDetails'),
                 claimCodeInstructions: interaction.fields.getTextInputValue('claimCodeInstructions'),
+                claimExpiryInstructions: interaction.fields.getTextInputValue('claimExpiryInstructions'),
             });
             return notice(interaction, successEmbed('Success', 'Winner claim instructions were updated.'));
         } catch (error) {
