@@ -357,9 +357,7 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
                 '',
                 `${tags} ${winners.length === 1 ? 'has' : 'have'} won **${giveaway.prize || 'the giveaway'}**!`,
                 '',
-                giveaway.claim || (giveaway.messageId
-                    ? 'Click **Claim** below to open your private prize channel.'
-                    : DEFAULT_GIVEAWAY_CLAIM),
+                giveaway.claim || DEFAULT_GIVEAWAY_CLAIM,
                 '',
                 DEFAULT_GIVEAWAY_FAILURE,
             ].join('\n'),
