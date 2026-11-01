@@ -23,7 +23,7 @@ export const DEFAULT_CLAIM_REVIEW =
   + CLAIM_HEART_ICON;
 export const DEFAULT_CLAIM_PLEASE_NOTE =
   'This private channel will be automatically deleted after 24 hours. Make sure to copy or take a screenshot of your activation code before the channel is deleted.\n\n'
-  + 'You can also close this channel yourself using the **“Close”** button below.';
+  + 'You can also close this channel yourself using the **Close** button below.';
 
 // Kept for existing test giveaways and staff-owned private code configuration.
 // Demo-prefixed values are never valid redemption credentials.
