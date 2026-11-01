@@ -50,7 +50,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /Please note/);
   assert.match(embed.description, /You can also close this channel yourself using the \*\*Close\*\* button below\./);
   assert.match(embed.description, /24 hours/);
-  assert.match(embed.description, /<:W89gift:1543303758912688230>/);
+  assert.match(embed.description, /<:gift_icon_white:1566400796348649492>/);
   assert.match(embed.description, /PlayStation Store gift card/);
   assert.match(embed.description, /satisfied with your experience/);
   assert.match(embed.description, /\[staff reviews\]\(https:\/\/discord\.com\/channels\/test-guild\/1554538609330225225\)/);
