@@ -11,6 +11,7 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
+import { buildPrivateClaimEmbed } from './giveawayClaimPreview.js';
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -72,40 +73,12 @@ async function saveClaim(client, guildId, record) {
 }
 
 export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
-  const codesAvailable = Boolean(secretKey());
-  const details = giveaway.claimDetails
-    || (/\b6\s*(?:months?|mo)\b/i.test(giveaway.prize || '')
-      ? 'This prize is valid for 6 months after activation. Additional terms may apply depending on the reward.'
-      : 'Additional terms may apply depending on the reward. Cloudy staff will confirm any prize-specific details.');
-  const instructions = giveaway.claimCodeInstructions
-    || 'Once your code is available, click **Take code** to reveal your private activation code. Keep it secure.';
-  const expiry = giveaway.claimExpiryInstructions
-    || 'After your code is revealed, this private channel will be automatically deleted after **24 hours**. Make sure to copy or screenshot your code before then.';
-  const customTitle = giveaway.claimPanelTitle?.trim();
-  const extraTitle = customTitle && !/^(?:🎁\s*)?Congratulations!$/i.test(customTitle)
-    ? '**' + customTitle + '**\n\n'
-    : '';
-
+  // The visible code is a demo-only placeholder. No real activation code is
+  // exposed and no 24-hour timer starts merely by displaying it.
   return {
     content: '<@' + userId + '>',
-    embeds: [{
-      description: extraTitle
-        + '<@' + userId + '>, congratulations on winning **' + giveaway.prize + '**!\n\n'
-        + icons.gift + ' **Your prize**\n\n'
-        + 'Your prize is ready to be claimed. Please review the details below before proceeding.\n\n'
-        + icons.info + ' **Prize details**\n\n' + details + '\n\n'
-        + icons.key + ' **How to claim**\n\n' + instructions + '\n\n'
-        + icons.clock + ' **Important**\n\n' + expiry,
-      color: WHITE,
-      thumbnail: { url: CLOUDY_C_LOGO_URL },
-      footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
-    }],
-    components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('gclaim:take:' + giveaway.messageId + ':' + userId)
-          .setLabel('Take code').setStyle(ButtonStyle.Secondary).setDisabled(!codesAvailable),
-      ),
-    ],
+    embeds: [buildPrivateClaimEmbed(giveaway, userId, icons)],
+    components: [],
     allowedMentions: { parse: [], users: [userId] },
   };
 }
@@ -309,8 +282,9 @@ export async function refreshExistingClaimPanels(client) {
         if (!channel?.messages?.fetch) continue;
         const expectedId = 'gclaim:take:' + record.messageId + ':' + record.userId;
         const isPanel = message => Boolean(message?.author?.id === client.user?.id
-          && message.components?.some(row => row.components?.some(button =>
-            (button.customId || button.custom_id || button.data?.custom_id) === expectedId)));
+          && (message.id === record.panelMessageId || message.components?.some(row =>
+            row.components?.some(button =>
+              (button.customId || button.custom_id || button.data?.custom_id) === expectedId))));
         let message = record.panelMessageId
           ? await channel.messages.fetch(record.panelMessageId).catch(() => null)
           : null;
