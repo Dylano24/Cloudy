@@ -401,6 +401,28 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.equal(json(reopen.replies[0].components[3]).components[1].disabled, false);
 });
 
+test('reopening builder previews the existing host giveaway text before templates existed', async () => {
+  const oldGiveaway = activeGiveaway({
+    hostId: 'staff',
+    prize: 'Custom saved prize',
+    claim: 'Open the private winner ticket.',
+    createdAt: '2026-10-31T23:00:00.000Z',
+  });
+  const w = world({ [MESSAGE]: oldGiveaway });
+  const command = Object.assign(w.interaction('staff', { staff: true }), {
+    channelId: 'giveaways',
+    guild: { ...w.guild, channels: { ...w.guild.channels, fetch: async id => w.guild.channels.cache.get(id) } },
+  });
+  await create.execute(command);
+  const [giveaway, winner] = command.replies[0].embeds;
+  assert.match(giveaway.description, /\*\*Custom saved prize\*\*/);
+  assert.match(winner.description, /<@staff> has won \*\*Custom saved prize\*\*!/);
+  assert.match(winner.description, /Open the private winner ticket\./);
+  assert.equal(command.replies[0].components.length, 4);
+  assert.equal(command.replies[0].components[0].components[0].options[2].default, true);
+  assert.equal(w.sent.length, 0);
+});
+
 test('only staff can open the Giveaway Builder; @everyone can be tagged', async () => {
   const w = world({});
   const member = Object.assign(w.interaction('member'), { channelId: 'giveaways' });
