@@ -15,7 +15,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
         create: async ({ name, attachment }) => {
           assert.equal(Buffer.isBuffer(attachment), true);
           assert.deepEqual([...attachment.subarray(0, 8)], [137,80,78,71,13,10,26,10]);
-          assert.match(name, /^cloudy_claim_(gift|info|key|clock)_white$/);
+          assert.match(name, /^cloudy_claim_(gift|info|key|clock)_white_sm2$/);
           const emoji = { name, id: String(155500000000000000n + BigInt(created.length)) };
           items.set(emoji.id, emoji);
           created.push(emoji);
@@ -29,7 +29,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.equal(fetches, 1);
   assert.deepEqual(Object.keys(icons), ['gift', 'info', 'key', 'clock']);
   for (const icon of Object.values(icons)) {
-    assert.match(icon, /^<:cloudy_claim_(?:gift|info|key|clock)_white:\d+>$/);
+    assert.match(icon, /^<:cloudy_claim_(?:gift|info|key|clock)_white_sm2:\d+>$/);
   }
   assert.deepEqual(await getGiveawayClaimIcons(client), icons);
   assert.equal(fetches, 1);
