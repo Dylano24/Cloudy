@@ -13,23 +13,11 @@ import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const WHITE = 0xFFFFFF;
-const CLAIM_EMOJI = { id: '1543303758912688230', name: 'W89gift' };
 const CODE_KEY_ENV = 'GIVEAWAY_CLAIM_ENCRYPTION_KEY';
 const registryKey = guildId => 'guild:' + guildId + ':giveaway-claim:records';
 const claimId = (messageId, userId) => messageId + ':' + userId;
 const claimLink = (guildId, channelId) => 'https://discord.com/channels/' + guildId + '/' + channelId;
 const notice = (interaction, text) => interaction.editReply({ content: text, allowedMentions: { parse: [] } });
-
-export function claimAnnouncementComponents(giveaway, { preview = false } = {}) {
-  if (!giveaway?.messageId && !preview) return [];
-  const button = new ButtonBuilder()
-    .setCustomId(preview ? 'gclaim:preview' : 'gclaim:open:' + giveaway.messageId)
-    .setLabel('Claim')
-    .setEmoji(CLAIM_EMOJI)
-    .setStyle(ButtonStyle.Success)
-    .setDisabled(preview);
-  return [new ActionRowBuilder().addComponents(button)];
-}
 
 function secretKey() {
   const text = process.env[CODE_KEY_ENV] || '';
