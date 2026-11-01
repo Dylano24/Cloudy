@@ -109,26 +109,15 @@ test('only the winner opens exactly one private claim channel', async () => {
   const claimEmbed = w.sent[0].embeds[0];
   assert.equal(claimEmbed.title, undefined);
   assert.equal(claimEmbed.color, 0xFFFFFF);
-  assert.match(claimEmbed.description, /<@156000000000000003>, congratulations on winning/);
-  const parts = ['Your prize', 'Prize details', 'How to claim', 'Important'];
-  let previous = 0;
-  for (const part of parts) {
-    const at = claimEmbed.description.indexOf('**' + part + '**');
-    assert.ok(at > previous, part + ' must occur in order');
-    previous = at;
-  }
-  assert.match(claimEmbed.description, /Your prize is ready to be claimed/);
-  assert.match(claimEmbed.description, /valid for six months/);
-  assert.match(claimEmbed.description, /Press Take code/);
-  assert.match(claimEmbed.description, /close 24 hours after you reveal/);
-  assert.doesNotMatch(claimEmbed.description, /🎁 Your prize|🔑 How to claim|⏱️ Important/);
+  assert.match(claimEmbed.description, /Congratulations on winning!/);
+  assert.match(claimEmbed.description, /Claim your code here/);
+  assert.match(claimEmbed.description, /DEMO-/);
+  assert.match(claimEmbed.description, /Important/);
+  assert.doesNotMatch(claimEmbed.description, /Your prize|Prize details|How to claim/);
   assert.equal(claimEmbed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(claimEmbed.thumbnail.url);
-  const panelButtons = w.sent[0].components[0].toJSON().components;
-  assert.equal(panelButtons.length, 1);
-  assert.equal(panelButtons[0].label, 'Take code');
-  assert.equal(panelButtons[0].style, 2);
-  assert.equal(panelButtons[0].disabled, true);
+  assert.deepEqual(w.sent[0].components, []);
+  assert.equal(w.records.get(KEY)[CLAIM_ID].expiresAt, null);
   const repeat = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(repeat, w.client);
   assert.equal(w.created.length, 1);
@@ -166,10 +155,9 @@ test('existing claim panel is edited in place on restart and Staff Set code disa
   assert.equal(w.sent.length, 1);
   assert.equal(panel.content, originalContent);
   assert.equal(panel.embeds[0].title, undefined);
-  assert.match(panel.embeds[0].description, /\*\*Prize details\*\*/);
-  assert.match(panel.embeds[0].description, /\*\*How to claim\*\*/);
+  assert.match(panel.embeds[0].description, /Claim your code here/);
   assert.equal(panel.embeds[0].color, 0xFFFFFF);
-  assert.deepEqual(panel.components[0].toJSON().components.map(button => button.label), ['Take code']);
+  assert.deepEqual(panel.components, []);
   assert.equal(w.records.get(KEY)[CLAIM_ID].panelMessageId, panel.id);
 });
 
