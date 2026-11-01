@@ -13,12 +13,15 @@ const SOURCES = {
   // visible stroke matches the key and clock in Discord's line-height.
   star: 'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAC8ElEQVR42u2Yz2udRRSGn5O0VCw09pe0i1YMggsXEhdSKIIo2k02UpBgBQloUbpV0FVBxX+hf0E37t20IkipUAiC1I00JVbBEKG0ukitzb2Pi7wXh0sS0tzcNot7YDh3zpw5c773OzPvfBdGMpKRjAS1og+0/Z2S3Fj0rPqjOtvaHztyaQfVRVdlMf3ajiQHDTBeVQIfAEeA5eizsddOQO+welPtBsFu+od7Po8LwQpK7wKTwN/AhehJ4MwjQbFXS2njze9SJ9SFoPZt/C+nv5Dxdedv2w7dYPxj/5dTsZ1qXvcng8RnM/CrTwL7054Gnkt7HjgJHAQuAdNAJ2XzDfAmcBu4CvwCzKf9CdwB7lTV8qAInlOvpOg7ri1ddTr+e6KnGxT7pZN4V9RzW0ZQnQB+Ap6JqQPcBf6JXgQWgO+ArwGrytRWAW8DrwHPAkeBp4AnoscT8xbwYlX9tVUEZ9UHQeNeau5ID6mHiLNHPZr59xLvQY91BqWw9xNMdV59OfbdvV253vyM707/JfVG4qyoZweixJaq1HfU+wm+pJ7c5C4fjz6h/pH5/6rvNQ9Rg26U3iIzCa56V319o5tLc8N5Vb3dJHemjbtdh/Wu6NPNYjfVQ2sh2SB/KH5m3ultT24NJL9Mkd9Sj7evqtWxH49fV/1iK8k9TIF2E3x/jpGlqvotyYxVlVXVDf+Oxf47sBT/A5nfHUqCSaADTMX0a5KoqlpR96ovqHuraiVJVc5KgKmq6uQBhnObCe1Npnu9qrqrZmeAy8B14FL6Zvzn+E9m/lCv9VPqcor+LfUV9ft1KO2q+kb8zLypoXwO9B01Pf6d6+PnOfUr9Yc+3p1reHlmKLu4YYPzWfR+k8QN9aPmyJlQP2xYw/h31PNtvGGcgxebRefVT9V9/Q+S3/vUz+LXk4ttvGHU4LR6Tf1cPdaWQONT7StUj8X/WnMtG94naUtt6q6NqK5F6pF8zDf8OrZZFFrfHfWPw0hGMpKRrMp/vnMUY5pCkLYAAAAASUVORK5CYII=',
   check: 'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAABmJLR0QA/wD/AP+gvaeTAAAAyElEQVRYhe3XsQ6CMBRG4S7EhXdjdTDwPPouOLn7Vkya41Aaq7kk1Qi3Mf9JWOmXpr2EEJRSSrkFNMARuAKdt+elGTfybAJab1cIwcTVA1zA3YGDty3hzgZu8LYJJ9x/4YCOON1PQPMlzholP8G1xKGZGj9BropbABYjV8dlC/Xzi4uRm+GyBffA7W3BC7BbwG1/W0uQbrgSpDsuQw7YZ3K7M1eAtHayDlyGtHayDlzKQNaDSxHn5DQ/vbfHjPjF8f+HUEop5dsDvxrrbncy0K8AAAAASUVORK5CYII=',
+  // A small white warning triangle matched to the other 40px claim emojis.
+  warning: 'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACvklEQVR42u2XvWsUQRjGn3fuuCOVmIiYwoDKYW3SJCCms0kUg0o6sbOw1E7wg5AyjZBgp9j7B1jZqWiCbZpciIVCRNAm593uzM8is7rGXHK55PIB98AyMLsz87y/eXfnXamrrrrq6o8AA+xIGD1shgqxvQo8yfcdGoOAA94CCXAybrc7TPRu8VfPDwXFjBJQAhaBAKRAHTh/4BRz9B4AeO9T730aKb4+UIqRnANOAd8BHwmSM3n5wEzm6L2IZtI0TVlbWyNndhEoxkBsv+kZMAT8Avzq6rdw/cYkwyOX+PBxnpiLAHd3Q7HdBDYzQ9KMpLIklpaqtrDwSSsrn/Xu3XtJciEEJE0BvZJCOxRdO1trZj7m16j33ksqFAoF9fT0qFwuq1QqSZKlaRokHZd0LwbkOmowEgAoSnqaP9YAhRAECMgwO0lB0n2gEgNznSTozCxIuiPpvCRv5lzzPHAmCUklSdNZd0cMRlIBOC5pKi7cyviCJC/pJjAaKRY6QdDFPJqKeRXyNMxMzjmZmcz+g5SRnAHKO6l4XKuflRh5JW5v2Dg2Tb1qtZrq9boajcZm6wRJQ5Imzcy3unarBLNopyUVIw2TJOdMgCqVsxocvKCBgdMaGRlWdm/DHEHSQ+BYfNlsL0+M0ezEoIm899RqNbZQEtvHcc7iXlUrZWA+Hl9+K4PbKBv/Azi362onR+92M3reB0IIVKvLjI1PMDZ+jaXqMiEEvA+bmczmeLmrQiJH7wTwNUb+H6IkWV9vdu4ZvX399Pb1Mzv37J97TUymMW2sLZNZfgCPNuTPpgSXqsuMX5lg/MrEdgTzFN+0RTHLC+BMrPUacVK/2eXXk88nSeKTJPmnb4urEdvrOzaZ+wl6Ref1BTjW7J/atnlBLsZnOlFsWu64nDezn0BWxh0dWSufmX1QOHLkuuqqqxb1GyaBSv6E7OqUAAAAAElFTkSuQmCC',
 };
 
 export const DEFAULT_CLAIM_ICONS = Object.freeze({
   gift: '⊞', info: 'ⓘ', key: '⚿', clock: '◷',
   // Do not substitute Discord's system star for Cloudy's outline artwork.
   star: '', check: '',
+  warning: '<:W97warningwhite:1543290138707230730>',
 });
 
 let cachedIcons = null;
@@ -44,7 +47,7 @@ export async function getGiveawayClaimIcons(client) {
       const app = client.application?.emojis ? client.application : await client.fetchApplication();
       const collection = await app.emojis.fetch();
       for (const [kind, png] of Object.entries(SOURCES)) {
-        const name = 'cloudy_claim_' + kind + (kind === 'star' ? '_white_sm3' : '_white_sm2');
+        const name = 'cloudy_claim_' + kind + (kind === 'star' ? '_white_sm3' : kind === 'warning' ? '_white_sm1' : '_white_sm2');
         try {
           let emoji = collection.find(entry => entry.name === name);
           if (!emoji) {
