@@ -12,6 +12,7 @@ import {
     TextInputStyle,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
+import { unwrapReplitData } from '../utils/database.js';
 import { successEmbed } from '../utils/embeds.js';
 import { giveawayWarning, removeAfterTenSeconds } from '../handlers/giveawayButtons.js';
 import { logger } from '../utils/logger.js';
@@ -36,6 +37,47 @@ export const GIVEAWAY_BUILDER_PREFIX = 'gbuilder:';
 const IDLE_MS = 30 * 60_000;
 const MAX_WINNERS = botConfig.giveaways?.maximumWinners ?? 10;
 const sessions = new Map();
+// Persist only authored text for each user's preview. Channel, role tagging,
+// duration and winner count remain fresh per giveaway.
+const TEMPLATE_FIELDS = Object.freeze({
+    introTitle: 150,
+    description: 1000,
+    prize: 256,
+    requirements: 500,
+    closingText: 300,
+    claim: 500,
+});
+const templateKey = (guildId, userId) => `guild:${guildId}:giveaway-builder:template:${userId}`;
+
+async function loadGiveawayTemplate(client, guildId, userId, channelId) {
+    const draft = newGiveawayDraft(channelId);
+    if (!client?.db?.get) return draft;
+    try {
+        const saved = unwrapReplitData(await client.db.get(templateKey(guildId, userId), null));
+        if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return draft;
+        for (const [field, maxLength] of Object.entries(TEMPLATE_FIELDS)) {
+            if (typeof saved[field] !== 'string') continue;
+            const text = giveawayText(saved[field], maxLength);
+            draft[field] = text || draft[field];
+        }
+    } catch (error) {
+        logger.warn('Could not load saved giveaway builder text:', error);
+    }
+    return draft;
+}
+
+async function saveGiveawayTemplate(client, session) {
+    if (!client?.db?.set) return;
+    const template = Object.fromEntries(Object.entries(TEMPLATE_FIELDS)
+        .map(([field, maxLength]) => [field, giveawayText(session.draft[field], maxLength)]));
+    try {
+        if (await client.db.set(templateKey(session.guildId, session.userId), template) === false) {
+            logger.warn('Could not save giveaway builder text: database returned false');
+        }
+    } catch (error) {
+        logger.warn('Could not save giveaway builder text:', error);
+    }
+}
 
 function closeSession(session, removeMessage = true) {
     clearTimeout(session.timer);
@@ -191,7 +233,7 @@ export async function openGiveawayBuilder(interaction) {
     const channelType = interaction.channel?.type;
     const usableChannel = channelType === undefined || [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channelType);
     const session = { id: randomUUID().slice(0, 12), guildId: interaction.guildId, userId: interaction.user.id,
-        root: interaction, timer: null, draft: newGiveawayDraft(usableChannel ? interaction.channelId : null) };
+        root: interaction, timer: null, draft: await loadGiveawayTemplate(interaction.client, interaction.guildId, interaction.user.id, usableChannel ? interaction.channelId : null) };
     sessions.set(session.id, session);
     try {
         await interaction.reply({ ...renderGiveawayBuilder(session), flags: MessageFlags.Ephemeral });
@@ -276,6 +318,7 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
         }
         keepAlive(session);
         const { draft } = session;
+        let saveText = false;
 
         if (action === 'text' || action === 'timing' || action === 'claim') {
             await interaction.showModal(action === 'text' ? giveawayTextModal(session)
@@ -309,8 +352,10 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             draft.prize = value('prize') || draft.prize;
             draft.requirements = value('requirements');
             draft.closingText = value('closingText') || DEFAULT_GIVEAWAY_CLOSING;
+            saveText = true;
         } else if (action === 'claimform') {
             draft.claim = giveawayText(interaction.fields.getTextInputValue('claim'), 500);
+            saveText = true;
         } else if (action === 'timingform') {
             const durationText = interaction.fields.getTextInputValue('duration').trim();
             const durationMs = parseDuration(durationText);
@@ -322,6 +367,7 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             return true;
         }
         await interaction.update(renderGiveawayBuilder(session));
+        if (saveText) await saveGiveawayTemplate(client, session);
         return true;
     } catch (error) {
         const message = error?.userMessage || 'Something went wrong. Please try again.';
