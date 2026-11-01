@@ -50,7 +50,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /Please note/);
   assert.match(embed.description, /You can also close this channel yourself using the \*\*Close\*\* button below\./);
   assert.match(embed.description, /24 hours/);
-  assert.match(embed.description, /cloudy_claim_gift_white_sm2/);
+  assert.match(embed.description, /<:W89gift:1543303758912688230>/);
   assert.match(embed.description, /PlayStation Store gift card/);
   assert.match(embed.description, /satisfied with your experience/);
   assert.match(embed.description, /\[staff reviews\]\(https:\/\/discord\.com\/channels\/test-guild\/1554538609330225225\)/);
@@ -61,10 +61,10 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /W84starwhite/);
   assert.match(embed.description, /cloudy_claim_warning_white_sm1/);
   assert.match(embed.description, /W79heart4/);
-  // The heart must touch "Cloudy Inc.", while Please note receives only
-  // a very small extra gap after the custom warning emoji.
+  // Match the same one-space icon-to-heading gap as the other sections.
   assert.ok(embed.description.includes('Cloudy Inc.<a:W79heart4:1543304318470324324>'));
-  assert.ok(embed.description.includes(icons.warning + '  **Please note**'));
+  assert.ok(embed.description.includes(icons.warning + ' **Please note**'));
+  assert.ok(!embed.description.includes(icons.warning + '  **Please note**'));
   assert.doesNotMatch(embed.description, /Cloudy Inc\.\u202f<a:W79heart4/);
   const olderClaim = claimPanel({
     messageId: '123', guildId: 'test-guild', prize: 'VIP',
