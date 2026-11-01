@@ -17,8 +17,10 @@ function world() {
       messageId: GIVEAWAY, guildId: GUILD, hostId: OWNER,
       channelId: 'public', ended: true, isEnded: true, winnerIds: [WINNER],
       prize: 'Six-month subscription',
+      claimPanelTitle: 'Your giveaway prize',
       claimDetails: 'The subscription is valid for six months after activation.',
       claimCodeInstructions: 'Press Take code to see your private activation code.',
+      claimExpiryInstructions: 'This claim channel will close 24 hours after you reveal the code.',
     },
   }]]);
   const sent = [], created = [];
@@ -102,8 +104,10 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.ok(everyone.deny.includes(PermissionFlagsBits.ViewChannel));
   assert.ok(winner.allow.includes(PermissionFlagsBits.ViewChannel));
   assert.ok(winner.allow.includes(PermissionFlagsBits.SendMessages));
+  assert.equal(w.sent[0].embeds[0].title, 'Your giveaway prize');
   assert.match(w.sent[0].embeds[0].description, /valid for six months/);
   assert.match(w.sent[0].embeds[0].description, /Press Take code/);
+  assert.match(w.sent[0].embeds[0].description, /close 24 hours after you reveal/);
   const repeat = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(repeat, w.client);
   assert.equal(w.created.length, 1);
