@@ -9,6 +9,7 @@ import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
+import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -81,6 +82,7 @@ function claimPanel(giveaway, userId) {
       description: '<@' + userId + '>, you won **' + giveaway.prize + '**!\n\n'
         + details + '\n\n' + instructions + '\n\n' + expiry,
       color: WHITE,
+      thumbnail: { url: CLOUDY_C_LOGO_URL },
     }],
     components: [
       new ActionRowBuilder().addComponents(
