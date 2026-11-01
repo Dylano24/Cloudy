@@ -411,7 +411,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.match(claimForm.updated.embeds[1].description, /PlayStation Store gift card details\./);
   assert.match(claimForm.updated.embeds[1].description, /You won! Congratulations!/);
   assert.match(claimForm.updated.embeds[1].description, /Thank you for your feedback/);
-  assert.equal(claimForm.updated.embeds[1].thumbnail.url, builder.embeds[1].thumbnail.url);
+  assert.equal(claimForm.updated.embeds[1].thumbnail, undefined);
   // Duration & winners form: "Example" placeholder, 1m is the shortest, with validation.
   const openTiming = click(`gbuilder:timing:${sessionId}`);
   await handleGiveawayBuilderInteraction(openTiming, w.client);
