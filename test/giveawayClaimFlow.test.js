@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Collection, PermissionFlagsBits } from 'discord.js';
+import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { createWinnerAnnouncement } from '../src/services/giveawayService.js';
 import {
-  CLAIM_LIFETIME_MS, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
+  CLAIM_LIFETIME_MS, GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
   refreshExistingClaimPanels,
 } from '../src/services/giveawayClaimService.js';
 
@@ -26,6 +26,10 @@ function world() {
   }]]);
   const sent = [], created = [];
   const cache = new Collection();
+  cache.set(GIVEAWAY_CLAIM_CATEGORY_ID, {
+    id: GIVEAWAY_CLAIM_CATEGORY_ID, type: ChannelType.GuildCategory,
+    name: 'giveaway-claims',
+  });
   const guild = {
     id: GUILD, ownerId: OWNER,
     channels: {
@@ -76,7 +80,7 @@ function world() {
     };
     return item;
   }
-  return { client, records, sent, created, interaction };
+  return { client, records, sent, created, interaction, cache };
 }
 
 test('winner announcement has a Claim button; no-winner and builder preview have none', () => {
@@ -101,6 +105,8 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.match(open.response.content, /private claim channel/);
   assert.equal(w.created.length, 1);
   const { options, channel } = w.created[0];
+  assert.equal(options.type, ChannelType.GuildText);
+  assert.equal(options.parent, GIVEAWAY_CLAIM_CATEGORY_ID);
   const everyone = options.permissionOverwrites.find(value => value.id === GUILD);
   const winner = options.permissionOverwrites.find(value => value.id === WINNER);
   assert.ok(everyone.deny.includes(PermissionFlagsBits.ViewChannel));
@@ -140,6 +146,23 @@ test('only the winner opens exactly one private claim channel', async () => {
   await handleGiveawayClaimInteraction(repeat, w.client);
   assert.equal(w.created.length, 1);
   assert.match(repeat.response.content, new RegExp(channel.id));
+});
+
+test('Claim refuses missing or non-category channel without creating an unprotected fallback', async () => {
+  const w = world();
+  w.cache.delete(GIVEAWAY_CLAIM_CATEGORY_ID);
+  const missing = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(missing, w.client);
+  assert.match(missing.response.content, /claim category is unavailable/);
+  assert.equal(w.created.length, 0);
+
+  w.cache.set(GIVEAWAY_CLAIM_CATEGORY_ID, {
+    id: GIVEAWAY_CLAIM_CATEGORY_ID, type: ChannelType.GuildText, name: 'public-text-channel',
+  });
+  const wrongType = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(wrongType, w.client);
+  assert.match(wrongType.response.content, /claim category is unavailable/);
+  assert.equal(w.created.length, 0);
 });
 
 test('existing claim panel is edited in place on restart and Staff Set code disappears', async () => {
