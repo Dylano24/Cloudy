@@ -23,7 +23,7 @@ export const DEFAULT_CLAIM_REVIEW =
   + CLAIM_HEART_ICON;
 export const DEFAULT_CLAIM_PLEASE_NOTE =
   'This private channel will be automatically deleted after 24 hours. Make sure to copy or take a screenshot of your activation code before the channel is deleted.\n\n'
-  + 'You can also close this channel yourself using the **“Close” button** below.';
+  + 'You can also close this channel yourself using the **Close** button below.';
 
 // Kept for existing test giveaways and staff-owned private code configuration.
 // Demo-prefixed values are never valid redemption credentials.
@@ -74,7 +74,7 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
       + text('claimHowToGet', DEFAULT_CLAIM_HOW_TO_GET)
       + '\n\n' + CLAIM_REVIEW_ICON + ' **Share your feedback**\n'
       + linkifyStaffReviews(tightenHeartGap(text('claimReview', DEFAULT_CLAIM_REVIEW)), giveaway?.guildId)
-      + '\n\n\n' + CLAIM_WARNING_ICON + ' \u2009\u200A\u200A**Please note**\n'
+      + '\n\n\n' + CLAIM_WARNING_ICON + '  **Please note**\n'
       + text('claimPleaseNote', DEFAULT_CLAIM_PLEASE_NOTE),
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },

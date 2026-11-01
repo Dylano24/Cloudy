@@ -47,7 +47,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /Reveal my code/);
   assert.match(embed.description, /Share your feedback/);
   assert.match(embed.description, /Please note/);
-  assert.match(embed.description, /You can also close this channel yourself using the \*\*“Close” button\*\* below\./);
+  assert.match(embed.description, /You can also close this channel yourself using the \*\*Close\*\* button below\./);
   assert.match(embed.description, /24 hours/);
   assert.match(embed.description, /W89gift:1543303758912688230/);
   assert.match(embed.description, /PlayStation Store gift card/);
@@ -63,7 +63,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   // The heart must touch "Cloudy Inc.", while Please note receives only
   // a very small extra gap after the custom warning emoji.
   assert.ok(embed.description.includes('Cloudy Inc.<a:W79heart4:1543304318470324324>'));
-  assert.ok(embed.description.includes('<:W97warningwhite:1543290138707230730> \u2009\u200A\u200A**Please note**'));
+  assert.ok(embed.description.includes('<:W97warningwhite:1543290138707230730>  **Please note**'));
   assert.doesNotMatch(embed.description, /Cloudy Inc\.\u202f<a:W79heart4/);
   const olderClaim = claimPanel({
     messageId: '123', guildId: 'test-guild', prize: 'VIP',
