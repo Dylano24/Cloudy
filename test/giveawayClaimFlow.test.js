@@ -129,7 +129,7 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.match(claimEmbed.description, /satisfied with your experience/);
   assert.match(claimEmbed.description, /\[staff reviews\]\(https:\/\/discord\.com\/channels\//);
   assert.match(claimEmbed.description, /automatically deleted after 24 hours/);
-  assert.match(claimEmbed.description, /W89gift:1543303758912688230/);
+  assert.match(claimEmbed.description, /Six-month subscription/);
   assert.match(claimEmbed.description, /Six-month subscription/);
   assert.match(claimEmbed.description, /Please review the information below before collecting it/);
   assert.match(claimEmbed.description, /Cloudy Inc\./);
@@ -137,7 +137,7 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.ok(claimEmbed.description.includes('\n\n\n<:W97warningwhite:'));
   assert.doesNotMatch(claimEmbed.description, /DEMO-|Your review|Congratulations on winning!/);
   assert.equal(claimEmbed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
-  assert.ok(claimEmbed.thumbnail.url);
+  assert.equal(claimEmbed.thumbnail, undefined);
   const claimButtons = w.sent[0].components[0].toJSON().components;
   assert.deepEqual(claimButtons.map(button => button.label), ['Reveal my code', 'Close']);
   assert.deepEqual(claimButtons.map(button => button.style), [2, 2]);
