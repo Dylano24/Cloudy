@@ -52,8 +52,8 @@ function linkifyStaffReviews(body, guildId) {
   if (!guildId) return body;
   const url = 'https://discord.com/channels/' + guildId + '/' + STAFF_REVIEWS_CHANNEL_ID;
   // Convert default or bold wording without nesting existing Markdown links.
-  return body.replace(/(?<!\\[)\\*\\*staff reviews\\*\\*(?!\\])/gi, '[staff reviews](' + url + ')')
-    .replace(/(?<!\\[)\\bstaff reviews\\b(?!\\])/gi, '[staff reviews](' + url + ')');
+  return body.replace(/(?<!\[)\*\*staff reviews\*\*(?!\])/gi, '[staff reviews](' + url + ')')
+    .replace(/(?<!\[)\bstaff reviews\b(?!\])/gi, '[staff reviews](' + url + ')');
 }
 
 export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_ICONS) {
