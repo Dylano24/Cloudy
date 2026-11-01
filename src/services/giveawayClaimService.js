@@ -70,30 +70,33 @@ async function saveClaim(client, guildId, record) {
   });
 }
 
-function claimPanel(giveaway, userId) {
+export function claimPanel(giveaway, userId) {
   const codesAvailable = Boolean(secretKey());
-  const details = giveaway.claimDetails || 'You have won **' + giveaway.prize + '**. Review the prize terms before using your code.';
+  const details = giveaway.claimDetails
+    || 'Please review any prize-specific terms provided by Cloudy staff before redeeming your reward.';
   const instructions = giveaway.claimCodeInstructions || (codesAvailable
-    ? 'Press **Take code** below when you are ready to view your prize code.'
-    : 'Staff will provide further instructions in this private claim channel.');
-  const expiry = codesAvailable
-    ? (giveaway.claimExpiryInstructions || 'After you reveal your code, this private channel and its messages will be deleted automatically after 24 hours.')
-    : 'Prize-code delivery is not yet enabled. Contact staff to arrange your prize.';
+    ? 'Once your code is ready, select **Take code** below to reveal your private activation code. Keep it secure.'
+    : 'Cloudy staff will help you claim your reward in this private channel.');
+  const expiry = giveaway.claimExpiryInstructions
+    || 'If you reveal a prize code using **Take code**, this private channel and its messages will be deleted **24 hours** after the reveal. Please copy or screenshot your code before then.';
+
   return {
     content: '<@' + userId + '>',
     embeds: [{
-      title: giveaway.claimPanelTitle || 'Congratulations!',
-      description: '<@' + userId + '>, you won **' + giveaway.prize + '**!\n\n'
-        + details + '\n\n' + instructions + '\n\n' + expiry,
+      title: giveaway.claimPanelTitle || '🎁 Congratulations!',
+      description: '<@' + userId + '>, congratulations on winning **' + giveaway.prize + '**!',
+      fields: [
+        { name: '🎁 Your prize', value: details, inline: false },
+        { name: '🔑 How to claim', value: instructions, inline: false },
+        { name: '⏱️ Important', value: expiry, inline: false },
+      ],
       color: WHITE,
       thumbnail: { url: CLOUDY_C_LOGO_URL },
     }],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('gclaim:take:' + giveaway.messageId + ':' + userId)
-          .setLabel('Take code').setStyle(ButtonStyle.Success).setDisabled(!codesAvailable),
-        new ButtonBuilder().setCustomId('gclaim:setup:' + giveaway.messageId + ':' + userId)
-          .setLabel('Staff: Set code').setStyle(ButtonStyle.Secondary).setDisabled(!codesAvailable),
+          .setLabel('Take code').setStyle(ButtonStyle.Secondary).setDisabled(!codesAvailable),
       ),
     ],
     allowedMentions: { parse: [], users: [userId] },
@@ -146,7 +149,8 @@ async function openClaim(interaction, client, messageId) {
     };
     try {
       await saveClaim(client, guild.id, record);
-      await channel.send(claimPanel(giveaway, userId));
+      const panelMessage = await channel.send(claimPanel(giveaway, userId));
+      await saveClaim(client, guild.id, { ...record, panelMessageId: panelMessage.id });
     } catch (error) {
       await channel.delete('Failed to initialize giveaway claim').catch(() => {});
       throw error;
@@ -277,11 +281,60 @@ export async function cleanupExpiredGiveawayClaims(client) {
   }
 }
 
+// Refresh already-open claim panels once after a restart/deployment. Never
+// repost or delete a winner's message; only edit the bot's original panel.
+// Older claims predate panelMessageId persistence, so locate the original
+// by its unique Take code custom ID when necessary.
+export async function refreshExistingClaimPanels(client) {
+  if (!client?.db?.get || !client?.db?.set) return;
+  for (const guild of client.guilds.cache.values()) {
+    let records;
+    try { records = await registry(client, guild.id); }
+    catch (error) {
+      logger.warn('Could not load claim panels for guild ' + guild.id, error);
+      continue;
+    }
+    for (const record of Object.values(records)) {
+      if (!record?.messageId || !record?.userId || !record?.channelId || record.closedAt) continue;
+      try {
+        const channel = await guild.channels.fetch(record.channelId).catch(() => null);
+        if (!channel?.messages?.fetch) continue;
+        const expectedId = 'gclaim:take:' + record.messageId + ':' + record.userId;
+        const isPanel = message => Boolean(message?.author?.id === client.user?.id
+          && message.components?.some(row => row.components?.some(button =>
+            (button.customId || button.custom_id || button.data?.custom_id) === expectedId)));
+        let message = record.panelMessageId
+          ? await channel.messages.fetch(record.panelMessageId).catch(() => null)
+          : null;
+        if (!isPanel(message)) {
+          const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+          message = recent?.find?.(isPanel) || null;
+        }
+        if (!isPanel(message)) continue;
+        const giveaway = await loadGiveaway(client, guild.id, record.messageId);
+        if (!giveaway) continue;
+        const panel = claimPanel(giveaway, record.userId);
+        await message.edit({
+          embeds: panel.embeds,
+          components: panel.components,
+          allowedMentions: { parse: [] },
+        });
+        if (record.panelMessageId !== message.id) {
+          await saveClaim(client, guild.id, { ...record, panelMessageId: message.id });
+        }
+      } catch (error) {
+        logger.warn('Could not update giveaway claim panel ' + record.channelId, error);
+      }
+    }
+  }
+}
+
 let cleanupStarted = false;
 export function startGiveawayClaimCleanup(client) {
   if (cleanupStarted) return;
   cleanupStarted = true;
   void cleanupExpiredGiveawayClaims(client).catch(error => logger.warn('Initial giveaway claim cleanup failed', error));
+  void refreshExistingClaimPanels(client).catch(error => logger.warn('Initial giveaway claim panel refresh failed', error));
   const timer = setInterval(() => {
     void cleanupExpiredGiveawayClaims(client).catch(error => logger.warn('Giveaway claim cleanup failed', error));
   }, 60_000);
