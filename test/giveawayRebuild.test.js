@@ -16,6 +16,7 @@ import timerModal from '../src/interactions/modals/giveawayTimer.js';
 import textModal from '../src/interactions/modals/giveawayText.js';
 import create from '../src/commands/Giveaway/gcreate.js';
 import { handleGiveawayBuilderInteraction } from '../src/services/giveawayBuilderService.js';
+import { giveawayClaimModalHandler } from '../src/handlers/giveawayButtons.js';
 
 const GUILD = 'giveaway-guild';
 const MESSAGE = '1565600000000000001';
@@ -234,6 +235,35 @@ test('Owner can re-edit text on the existing message; staff without Owner role c
   assert.match(w.giveawayMessage.edits[0].embeds[0].description, /Best of luck!/);
 });
 
+test('Edit claim hides Public claim instructions and preserves existing public text', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({
+    hostId: 'owner',
+    claim: 'Original public claim instructions must remain intact.',
+  }) });
+  const modal = w.interaction('owner');
+  await button('giveaway_admin').execute(modal, w.client, ['claim', MESSAGE]);
+  assert.deepEqual(modal.modal.components.map(row => row.components[0].custom_id),
+    ['claimPanelTitle', 'claimDemoCode', 'claimDetails', 'claimExpiryInstructions']);
+
+  const fields = {
+    claimPanelTitle: 'Congratulations on winning!',
+    claimDemoCode: 'DEMO-1234-5678',
+    claimDetails: 'PlayStation Store gift card.',
+    claimExpiryInstructions: 'The channel closes after 24 hours.',
+  };
+  const submit = w.interaction('owner', { args: {
+    fields: { getTextInputValue: name => {
+      assert.ok(Object.hasOwn(fields, name), 'Unexpected or removed field: ' + name);
+      return fields[name];
+    } },
+  } });
+  await giveawayClaimModalHandler.execute(submit, w.client, [MESSAGE]);
+  const saved = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.equal(saved.claim, 'Original public claim instructions must remain intact.');
+  assert.equal(saved.claimDemoCode, 'DEMO-1234-5678');
+  assert.equal(saved.claimDetails, 'PlayStation Store gift card.');
+});
+
 test('End draws winners, marks the giveaway, and tags the winners with how to claim the prize', async () => {
   const w = world({ [MESSAGE]: activeGiveaway({ participants: ['winner'], claim: 'DM the owner within 24 hours.' }) });
   const staff = w.interaction('staff', { staff: true });
@@ -356,9 +386,25 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.match(textForm.updated.embeds[1].description, /1 month vip/);
   assert.doesNotMatch(textForm.updated.embeds[1].description, /<@staff>/);
   assert.equal(json(textForm.updated.components[3]).components[1].disabled, false);
-  const claimForm = click(`gbuilder:claimform:${sessionId}`, { fields: { getTextInputValue: () => 'DM the owner.' } });
+  const openClaim = click(`gbuilder:claim:${sessionId}`);
+  await handleGiveawayBuilderInteraction(openClaim, w.client);
+  assert.deepEqual(openClaim.modal.components.map(row => row.components[0].custom_id),
+    ['claimPanelTitle', 'claimDemoCode', 'claimDetails', 'claimExpiryInstructions']);
+  const claimInputs = {
+    claimPanelTitle: 'Congratulations on winning!',
+    claimDemoCode: 'DEMO-A123-B456',
+    claimDetails: 'PlayStation Store gift card details.',
+    claimExpiryInstructions: 'This channel closes after 24 hours.',
+  };
+  const claimForm = click(`gbuilder:claimform:${sessionId}`, { fields: {
+    getTextInputValue: name => {
+      assert.ok(Object.hasOwn(claimInputs, name), 'No public claim field should be read: ' + name);
+      return claimInputs[name];
+    },
+  } });
   await handleGiveawayBuilderInteraction(claimForm, w.client);
-  assert.match(claimForm.updated.embeds[1].description, /DM the owner\./);
+  assert.match(claimForm.updated.embeds[1].description, /PlayStation Store gift card details\./);
+  assert.match(claimForm.updated.embeds[1].description, /DEMO-A123-B456/);
   assert.equal(claimForm.updated.embeds[1].thumbnail.url, builder.embeds[1].thumbnail.url);
   // Duration & winners form: "Example" placeholder, 1m is the shortest, with validation.
   const openTiming = click(`gbuilder:timing:${sessionId}`);
@@ -385,7 +431,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.match(posted.embeds[0].description, /\*\*Hosted by\*\*\n<@staff>/);
   const stored = await loadGiveaway(w.client, GUILD, posted.id);
   assert.equal(stored.requirements, 'Level 5');
-  assert.equal(stored.claim, 'DM the owner.');
+  assert.equal(stored.claim, null);
   assert.equal(stored.winnerCount, 2);
   assert.ok(stored.endsAt > Date.now() + 7_100_000);
   assert.equal(json(post.edited.embeds[0]).title, 'Success');
@@ -400,8 +446,8 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   await create.execute(reopen);
   assert.match(reopen.replies[0].embeds[0].description, /\*\*1 month vip\*\*/);
   assert.match(reopen.replies[0].embeds[1].description, /Claim your code here/);
-  assert.match(reopen.replies[0].embeds[1].description, /DEMO-DMTHEOWNER/);
-  assert.match(reopen.replies[0].embeds[1].description, /DM the owner\./);
+  assert.match(reopen.replies[0].embeds[1].description, /DEMO-A123-B456/);
+  assert.match(reopen.replies[0].embeds[1].description, /PlayStation Store gift card details\./);
   assert.equal(json(reopen.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(json(reopen.replies[0].components[3]).components[1].disabled, false);
 });
