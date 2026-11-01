@@ -36,7 +36,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(icons.star, /cloudy_claim_star_white_sm3/);
   assert.match(icons.clock, /cloudy_claim_clock_white_sm2/);
 
-  const panel = claimPanel({ messageId: '123', prize: 'PlayStation Store gift card' }, '456', icons);
+  const panel = claimPanel({ messageId: '123', guildId: 'test-guild', prize: 'PlayStation Store gift card' }, '456', icons);
   const embed = panel.embeds[0];
   assert.equal(embed.title, undefined);
   assert.equal(embed.color, 0xFFFFFF);
@@ -48,6 +48,12 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /Share your feedback/);
   assert.match(embed.description, /Please note/);
   assert.match(embed.description, /24 hours/);
+  assert.match(embed.description, /W89gift:1543303758912688230/);
+  assert.match(embed.description, /PlayStation Store gift card/);
+  assert.match(embed.description, /satisfied with your experience/);
+  assert.match(embed.description, /\[staff reviews\]\(https:\/\/discord\.com\/channels\/test-guild\/1554538609330225225\)/);
+  assert.ok(embed.description.includes('\n\n\n<:W97warningwhite:'));
+  assert.doesNotMatch(embed.description, /Rate us/);
   assert.doesNotMatch(embed.description, /DEMO-|Your review|Prize details/);
   assert.match(embed.description, /W90250885giveaway/);
   assert.match(embed.description, /W84starwhite/);
@@ -56,10 +62,8 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.ok(embed.description.includes(icons.key + ' **How to get your prize**'));
   assert.ok(embed.description.includes(icons.info + ' **Prize conditions**'));
   const controls = panel.components[0].toJSON().components;
-  assert.deepEqual(controls.map(item => item.label), ['Reveal my code', 'Close', 'Rate us']);
-  assert.deepEqual(controls.map(item => item.style), [2, 2, 5]);
+  assert.deepEqual(controls.map(item => item.label), ['Reveal my code', 'Close']);
+  assert.deepEqual(controls.map(item => item.style), [2, 2]);
   assert.equal(controls[0].emoji.id, icons.key.split(':')[2].slice(0, -1));
   assert.equal(controls[1].emoji.id, icons.check.split(':')[2].slice(0, -1));
-  assert.equal(controls[2].emoji.id, icons.star.split(':')[2].slice(0, -1));
-  assert.match(controls[2].url, /1554538609330225225/);
 });

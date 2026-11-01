@@ -84,19 +84,15 @@ export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
   const closeButton = new ButtonBuilder()
     .setCustomId('gclaim:done:' + giveaway.messageId + ':' + userId)
     .setLabel('Close').setStyle(ButtonStyle.Secondary);
-  const reviewButton = new ButtonBuilder().setLabel('Rate us').setStyle(ButtonStyle.Link)
-    .setURL('https://discord.com/channels/' + giveaway.guildId + '/1554538609330225225');
   const key = buttonEmoji(icons.key);
   const check = buttonEmoji(icons.check);
-  const star = buttonEmoji(icons.star);
   if (key) revealButton.setEmoji(key);
   if (check) closeButton.setEmoji(check);
-  if (star) reviewButton.setEmoji(star);
 
   return {
     content: '<@' + userId + '>',
     embeds: [buildPrivateClaimEmbed(giveaway, userId, icons)],
-    components: [new ActionRowBuilder().addComponents(revealButton, closeButton, reviewButton)],
+    components: [new ActionRowBuilder().addComponents(revealButton, closeButton)],
     allowedMentions: { parse: [], users: [userId] },
   };
 }
