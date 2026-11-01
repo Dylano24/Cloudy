@@ -73,19 +73,25 @@ async function saveClaim(client, guildId, record) {
 }
 
 export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
-  // Demo codes are visible only as Discord spoilers; the real-code take flow
-  // stays unavailable in this panel. A spoiler tap is not observable by bots.
+  // Discord buttons require a custom emoji ID, while the embed uses emoji
+  // markup. Both draw from the same white Cloudy artwork.
+  const buttonEmoji = markup => {
+    const match = /^<:([A-Za-z0-9_]+):(\\d+)>$/.exec(markup || '');
+    return match ? { name: match[1], id: match[2] } : null;
+  };
+  const taken = new ButtonBuilder().setCustomId('gclaim:done:' + giveaway.messageId + ':' + userId)
+    .setLabel('Prize taken').setStyle(ButtonStyle.Secondary);
+  const review = new ButtonBuilder().setLabel('Rate us').setStyle(ButtonStyle.Link)
+    .setURL('https://discord.com/channels/' + giveaway.guildId + '/1554538609330225225');
+  const check = buttonEmoji(icons.check);
+  const star = buttonEmoji(icons.star);
+  if (check) taken.setEmoji(check);
+  if (star) review.setEmoji(star);
+
   return {
     content: '<@' + userId + '>',
     embeds: [buildPrivateClaimEmbed(giveaway, userId, icons)],
-    components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('gclaim:done:' + giveaway.messageId + ':' + userId)
-          .setLabel('Prize taken').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setLabel('Rate us').setStyle(ButtonStyle.Link)
-          .setURL('https://discord.com/channels/' + giveaway.guildId + '/1554538609330225225'),
-      ),
-    ],
+    components: [new ActionRowBuilder().addComponents(taken, review)],
     allowedMentions: { parse: [], users: [userId] },
   };
 }
