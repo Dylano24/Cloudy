@@ -10,6 +10,7 @@ import { unwrapReplitData } from '../utils/database.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
+import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -70,28 +71,34 @@ async function saveClaim(client, guildId, record) {
   });
 }
 
-export function claimPanel(giveaway, userId) {
+export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
   const codesAvailable = Boolean(secretKey());
   const details = giveaway.claimDetails
-    || 'Please review any prize-specific terms provided by Cloudy staff before redeeming your reward.';
-  const instructions = giveaway.claimCodeInstructions || (codesAvailable
-    ? 'Once your code is ready, select **Take code** below to reveal your private activation code. Keep it secure.'
-    : 'Cloudy staff will help you claim your reward in this private channel.');
+    || (/\\b6\\s*(?:months?|mo)\\b/i.test(giveaway.prize || '')
+      ? 'This prize is valid for 6 months after activation. Additional terms may apply depending on the reward.'
+      : 'Additional terms may apply depending on the reward. Cloudy staff will confirm any prize-specific details.');
+  const instructions = giveaway.claimCodeInstructions
+    || 'Once your code is available, click **Take code** to reveal your private activation code. Keep it secure.';
   const expiry = giveaway.claimExpiryInstructions
-    || 'If you reveal a prize code using **Take code**, this private channel and its messages will be deleted **24 hours** after the reveal. Please copy or screenshot your code before then.';
+    || 'After your code is revealed, this private channel will be automatically deleted after **24 hours**. Make sure to copy or screenshot your code before then.';
+  const customTitle = giveaway.claimPanelTitle?.trim();
+  const extraTitle = customTitle && !/^(?:🎁\\s*)?Congratulations!$/i.test(customTitle)
+    ? '**' + customTitle + '**\\n\\n'
+    : '';
 
   return {
     content: '<@' + userId + '>',
     embeds: [{
-      title: giveaway.claimPanelTitle || '🎁 Congratulations!',
-      description: '<@' + userId + '>, congratulations on winning **' + giveaway.prize + '**!',
-      fields: [
-        { name: '🎁 Your prize', value: details, inline: false },
-        { name: '🔑 How to claim', value: instructions, inline: false },
-        { name: '⏱️ Important', value: expiry, inline: false },
-      ],
+      description: extraTitle
+        + '<@' + userId + '>, congratulations on winning **' + giveaway.prize + '**!\\n\\n'
+        + icons.gift + ' **Your prize**\\n\\n'
+        + 'Your prize is ready to be claimed. Please review the details below before proceeding.\\n\\n'
+        + icons.info + ' **Prize details**\\n\\n' + details + '\\n\\n'
+        + icons.key + ' **How to claim**\\n\\n' + instructions + '\\n\\n'
+        + icons.clock + ' **Important**\\n\\n' + expiry,
       color: WHITE,
       thumbnail: { url: CLOUDY_C_LOGO_URL },
+      footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
     }],
     components: [
       new ActionRowBuilder().addComponents(
@@ -149,7 +156,8 @@ async function openClaim(interaction, client, messageId) {
     };
     try {
       await saveClaim(client, guild.id, record);
-      const panelMessage = await channel.send(claimPanel(giveaway, userId));
+      const panelMessage = await channel.send(claimPanel(giveaway, userId,
+        await getGiveawayClaimIcons(client)));
       await saveClaim(client, guild.id, { ...record, panelMessageId: panelMessage.id });
     } catch (error) {
       await channel.delete('Failed to initialize giveaway claim').catch(() => {});
@@ -313,7 +321,7 @@ export async function refreshExistingClaimPanels(client) {
         if (!isPanel(message)) continue;
         const giveaway = await loadGiveaway(client, guild.id, record.messageId);
         if (!giveaway) continue;
-        const panel = claimPanel(giveaway, record.userId);
+        const panel = claimPanel(giveaway, record.userId, await getGiveawayClaimIcons(client));
         await message.edit({
           embeds: panel.embeds,
           components: panel.components,
