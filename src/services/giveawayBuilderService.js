@@ -18,8 +18,6 @@ import {
     DEFAULT_CLAIM_REVIEW, DEFAULT_CLAIM_PLEASE_NOTE,
 } from './giveawayClaimPreview.js';
 import { currentGiveawayClaimIcons } from './giveawayClaimIcons.js';
-import { unwrapReplitData } from '../utils/database.js';
-import { getGuildGiveaways } from '../utils/giveaways.js';
 import { successEmbed } from '../utils/embeds.js';
 import { giveawayWarning, removeAfterTenSeconds } from '../handlers/giveawayButtons.js';
 import { logger } from '../utils/logger.js';
@@ -42,66 +40,9 @@ export const GIVEAWAY_BUILDER_PREFIX = 'gbuilder:';
 const IDLE_MS = 30 * 60_000;
 const MAX_WINNERS = botConfig.giveaways?.maximumWinners ?? 10;
 const sessions = new Map();
-// Persist only authored text for each user's preview. Channel, role tagging,
-// duration and winner count remain fresh per giveaway.
-const TEMPLATE_FIELDS = Object.freeze({
-    introTitle: 150,
-    description: 1000,
-    prize: 256,
-    requirements: 500,
-    closingText: 300,
-    claim: 500,
-    claimDetails: 1000,
-    claimCodeInstructions: 500,
-    claimPanelTitle: 150,
-    claimExpiryInstructions: 500,
-    claimDemoCode: 32,
-    claimIntroduction: 250,
-    claimConditions: 1000,
-    claimHowToGet: 500,
-    claimReview: 1000,
-    claimPleaseNote: 1000,
-});
-const templateKey = (guildId, userId) => `guild:${guildId}:giveaway-builder:template:${userId}`;
-
-async function loadGiveawayTemplate(client, guildId, userId, channelId) {
-    const draft = newGiveawayDraft(channelId);
-    if (!client?.db?.get) return draft;
-    try {
-        let saved = unwrapReplitData(await client.db.get(templateKey(guildId, userId), null));
-        if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
-            // Giveaways created before builder-template persistence already have
-            // the host's exact prize and claim text saved with the giveaway.
-            // Reuse only that host's most recent authored text for the preview.
-            saved = (await getGuildGiveaways(client, guildId))
-                .filter(giveaway => giveaway?.hostId === userId && giveaway?.prize)
-                .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))[0];
-            if (!saved) return draft;
-        }
-        for (const [field, maxLength] of Object.entries(TEMPLATE_FIELDS)) {
-            if (typeof saved[field] !== 'string') continue;
-            const text = giveawayText(saved[field], maxLength);
-            draft[field] = text || draft[field];
-        }
-    } catch (error) {
-        logger.warn('Could not load saved giveaway builder text:', error);
-    }
-    return draft;
-}
-
-async function saveGiveawayTemplate(client, session) {
-    if (!client?.db?.set) return;
-    const template = Object.fromEntries(Object.entries(TEMPLATE_FIELDS)
-        .map(([field, maxLength]) => [field, giveawayText(session.draft[field], maxLength)]));
-    try {
-        if (await client.db.set(templateKey(session.guildId, session.userId), template) === false) {
-            logger.warn('Could not save giveaway builder text: database returned false');
-        }
-    } catch (error) {
-        logger.warn('Could not save giveaway builder text:', error);
-    }
-}
-
+// A new giveaway must always open with the original default text.
+// Changes in an active builder belong only to that giveaway, and stored
+// legacy templates are deliberately ignored (not deleted).
 function closeSession(session, removeMessage = true) {
     clearTimeout(session.timer);
     sessions.delete(session.id);
@@ -160,7 +101,7 @@ export function renderGiveawayBuilder(session) {
     // Use the same private claim embed as the winner's channel. The builder
     // preview does not tag anyone or activate demo codes.
     const winnerPreview = buildPrivateClaimEmbed(
-        { ...draft, messageId: 'preview' }, session.userId, currentGiveawayClaimIcons(),
+        { ...draft, guildId: session.guildId, messageId: 'preview' }, session.userId, currentGiveawayClaimIcons(),
     );
 
     const channel = new ChannelSelectMenuBuilder()
@@ -275,7 +216,7 @@ export async function openGiveawayBuilder(interaction) {
     const channelType = interaction.channel?.type;
     const usableChannel = channelType === undefined || [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channelType);
     const session = { id: randomUUID().slice(0, 12), guildId: interaction.guildId, userId: interaction.user.id,
-        root: interaction, timer: null, draft: await loadGiveawayTemplate(interaction.client, interaction.guildId, interaction.user.id, usableChannel ? interaction.channelId : null) };
+        root: interaction, timer: null, draft: newGiveawayDraft(usableChannel ? interaction.channelId : null) };
     sessions.set(session.id, session);
     try {
         await interaction.reply({ ...renderGiveawayBuilder(session), flags: MessageFlags.Ephemeral });
@@ -360,7 +301,6 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
         }
         keepAlive(session);
         const { draft } = session;
-        let saveText = false;
 
         if (action === 'text' || action === 'timing' || action === 'claim') {
             await interaction.showModal(action === 'text' ? giveawayTextModal(session)
@@ -394,14 +334,12 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             draft.prize = value('prize') || draft.prize;
             draft.requirements = value('requirements');
             draft.closingText = value('closingText') || DEFAULT_GIVEAWAY_CLOSING;
-            saveText = true;
         } else if (action === 'claimform') {
             draft.claimIntroduction = giveawayText(interaction.fields.getTextInputValue('claimIntroduction'), 250);
             draft.claimConditions = giveawayText(interaction.fields.getTextInputValue('claimConditions'), 1000);
             draft.claimHowToGet = giveawayText(interaction.fields.getTextInputValue('claimHowToGet'), 500);
             draft.claimReview = giveawayText(interaction.fields.getTextInputValue('claimReview'), 1000);
             draft.claimPleaseNote = giveawayText(interaction.fields.getTextInputValue('claimPleaseNote'), 1000);
-            saveText = true;
         } else if (action === 'timingform') {
             const durationText = interaction.fields.getTextInputValue('duration').trim();
             const durationMs = parseDuration(durationText);
@@ -413,7 +351,6 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             return true;
         }
         await interaction.update(renderGiveawayBuilder(session));
-        if (saveText) await saveGiveawayTemplate(client, session);
         return true;
     } catch (error) {
         const message = error?.userMessage || 'Something went wrong. Please try again.';
