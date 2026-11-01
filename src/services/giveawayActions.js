@@ -163,6 +163,11 @@ export async function postGiveaway(client, guild, channel, draft) {
         claimPanelTitle: giveawayText(draft.claimPanelTitle, 150),
         claimExpiryInstructions: giveawayText(draft.claimExpiryInstructions, 500),
         claimDemoCode: giveawayText(draft.claimDemoCode, 32),
+        claimIntroduction: giveawayText(draft.claimIntroduction, 250),
+        claimConditions: giveawayText(draft.claimConditions, 1000),
+        claimHowToGet: giveawayText(draft.claimHowToGet, 500),
+        claimReview: giveawayText(draft.claimReview, 1000),
+        claimPleaseNote: giveawayText(draft.claimPleaseNote, 1000),
         pingRoleId: draft.ping?.type === 'role' ? draft.ping.roleId : null,
         pingEveryone: draft.ping?.type === 'everyone',
         hostId: draft.hostId,
@@ -304,8 +309,13 @@ export async function setGiveawayText(client, guild, messageId, fields) {
             ...(fields.claimPanelTitle !== undefined ? { claimPanelTitle: giveawayText(fields.claimPanelTitle, 150) } : {}),
             ...(fields.claimExpiryInstructions !== undefined ? { claimExpiryInstructions: giveawayText(fields.claimExpiryInstructions, 500) } : {}),
             ...(fields.claimDemoCode !== undefined ? { claimDemoCode: normalizeDemoClaimCode(fields.claimDemoCode) } : {}),
+            ...(fields.claimIntroduction !== undefined ? { claimIntroduction: giveawayText(fields.claimIntroduction, 250) } : {}),
+            ...(fields.claimConditions !== undefined ? { claimConditions: giveawayText(fields.claimConditions, 1000) } : {}),
+            ...(fields.claimHowToGet !== undefined ? { claimHowToGet: giveawayText(fields.claimHowToGet, 500) } : {}),
+            ...(fields.claimReview !== undefined ? { claimReview: giveawayText(fields.claimReview, 1000) } : {}),
+            ...(fields.claimPleaseNote !== undefined ? { claimPleaseNote: giveawayText(fields.claimPleaseNote, 1000) } : {}),
         };
-        if (['prize', 'introTitle', 'closingText', 'description', 'requirements', 'claim', 'claimDetails', 'claimCodeInstructions', 'claimPanelTitle', 'claimExpiryInstructions', 'claimDemoCode'].every(key => updated[key] === giveaway[key])) {
+        if (['prize', 'introTitle', 'closingText', 'description', 'requirements', 'claim', 'claimDetails', 'claimCodeInstructions', 'claimPanelTitle', 'claimExpiryInstructions', 'claimDemoCode', 'claimIntroduction', 'claimConditions', 'claimHowToGet', 'claimReview', 'claimPleaseNote'].every(key => updated[key] === giveaway[key])) {
             return updated;
         }
         const channel = await fetchGiveawayChannel(client, guild, giveaway.channelId);
