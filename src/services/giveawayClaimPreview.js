@@ -19,7 +19,7 @@ export const DEFAULT_CLAIM_HOW_TO_GET =
   'Click the **Reveal my code** button below to display your activation code.';
 export const DEFAULT_CLAIM_REVIEW =
   "If you enjoyed your prize and are satisfied with your experience and the work of our team, we’d appreciate it if you could take a moment to leave us a rating in our staff reviews section.\n\n"
-  + "Your feedback means a lot to us. It encourages our team, helps us improve and supports what we do at Cloudy Inc.\u202f"
+  + "Your feedback means a lot to us. It encourages our team, helps us improve and supports what we do at Cloudy Inc."
   + CLAIM_HEART_ICON;
 export const DEFAULT_CLAIM_PLEASE_NOTE =
   'This private channel will be automatically deleted after 24 hours. Make sure to copy or take a screenshot of your activation code before the channel is deleted.\n\n'
@@ -68,7 +68,7 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
       + text('claimHowToGet', DEFAULT_CLAIM_HOW_TO_GET)
       + '\n\n' + CLAIM_REVIEW_ICON + ' **Share your feedback**\n'
       + linkifyStaffReviews(text('claimReview', DEFAULT_CLAIM_REVIEW), giveaway?.guildId)
-      + '\n\n\n' + CLAIM_WARNING_ICON + ' **Please note**\n'
+      + '\n\n\n' + CLAIM_WARNING_ICON + ' \u2009**Please note**\n'
       + text('claimPleaseNote', DEFAULT_CLAIM_PLEASE_NOTE),
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
