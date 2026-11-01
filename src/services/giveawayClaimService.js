@@ -337,10 +337,12 @@ export async function refreshExistingClaimPanels(client) {
         if (!giveaway) continue;
         // Existing channels created before the demo spoiler change must also
         // expire 24 hours after opening; never extend an existing deadline.
+        let updatedRecord = record;
         if (!record.expiresAt) {
           const started = Date.parse(record.createdAt);
           const deadline = new Date((Number.isFinite(started) ? started : Date.now()) + CLAIM_LIFETIME_MS).toISOString();
-          await saveClaim(client, guild.id, { ...record, expiresAt: deadline });
+          updatedRecord = { ...record, expiresAt: deadline };
+          await saveClaim(client, guild.id, updatedRecord);
         }
         const panel = claimPanel({ ...giveaway, guildId: guild.id }, record.userId, await getGiveawayClaimIcons(client));
         await message.edit({
@@ -349,7 +351,7 @@ export async function refreshExistingClaimPanels(client) {
           allowedMentions: { parse: [] },
         });
         if (record.panelMessageId !== message.id) {
-          await saveClaim(client, guild.id, { ...record, panelMessageId: message.id });
+          await saveClaim(client, guild.id, { ...updatedRecord, panelMessageId: message.id });
         }
       } catch (error) {
         logger.warn('Could not update giveaway claim panel ' + record.channelId, error);
