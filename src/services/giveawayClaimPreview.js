@@ -56,6 +56,12 @@ function linkifyStaffReviews(body, guildId) {
     .replace(/(?<!\[)\bstaff reviews\b(?!\])/gi, '[staff reviews](' + url + ')');
 }
 
+// Existing custom Edit claim content may still contain a tiny saved space
+// from an older default. Eliminate it immediately before the animated heart.
+function tightenHeartGap(body) {
+  return body.replace(/(Cloudy Inc\.)[ \t\u00A0\u2009\u200A\u202F\u200B]+(?=<a:W79heart4:1543304318470324324>)/g, '$1');
+}
+
 export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_ICONS) {
   const text = (name, fallback) => giveaway?.[name]?.trim() || fallback;
   return {
@@ -67,8 +73,8 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
       + '\n\n' + icons.key + ' **How to get your prize**\n'
       + text('claimHowToGet', DEFAULT_CLAIM_HOW_TO_GET)
       + '\n\n' + CLAIM_REVIEW_ICON + ' **Share your feedback**\n'
-      + linkifyStaffReviews(text('claimReview', DEFAULT_CLAIM_REVIEW), giveaway?.guildId)
-      + '\n\n\n' + CLAIM_WARNING_ICON + ' \u2009**Please note**\n'
+      + linkifyStaffReviews(tightenHeartGap(text('claimReview', DEFAULT_CLAIM_REVIEW)), giveaway?.guildId)
+      + '\n\n\n' + CLAIM_WARNING_ICON + ' \u2009\u200A**Please note**\n'
       + text('claimPleaseNote', DEFAULT_CLAIM_PLEASE_NOTE),
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
