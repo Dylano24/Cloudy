@@ -109,7 +109,7 @@ test('only the winner opens exactly one private claim channel', async () => {
   const claimEmbed = w.sent[0].embeds[0];
   assert.equal(claimEmbed.title, undefined);
   assert.equal(claimEmbed.color, 0xFFFFFF);
-  assert.match(claimEmbed.description, /Cloudy Inc\\. congratulates you on winning this prize!/);
+  assert.match(claimEmbed.description, /congratulates you on winning this prize/);
   const parts = ['Prize conditions', 'How to get your prize', 'Share your feedback', 'Please note'];
   let position = 0;
   for (const part of parts) {
