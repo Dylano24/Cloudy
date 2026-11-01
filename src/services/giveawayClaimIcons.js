@@ -11,7 +11,7 @@ const SOURCES = {
 };
 
 export const DEFAULT_CLAIM_ICONS = Object.freeze({
-  gift: '🎁︎', info: 'ⓘ', key: '⚿', clock: '◷',
+  gift: '⊞', info: 'ⓘ', key: '⚿', clock: '◷',
 });
 
 let cachedIcons = null;
