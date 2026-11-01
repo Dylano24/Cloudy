@@ -15,7 +15,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
         create: async ({ name, attachment }) => {
           assert.equal(Buffer.isBuffer(attachment), true);
           assert.deepEqual([...attachment.subarray(0, 8)], [137,80,78,71,13,10,26,10]);
-          assert.match(name, /^cloudy_claim_(gift|info|key|clock|star|check)_white_sm2$/);
+          assert.match(name, /^cloudy_claim_(gift|info|key|clock|check)_white_sm2$|^cloudy_claim_star_white_sm3$/);
           const emoji = { name, id: String(155500000000000000n + BigInt(created.length)) };
           items.set(emoji.id, emoji);
           created.push(emoji);
@@ -29,10 +29,12 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.equal(fetches, 1);
   assert.deepEqual(Object.keys(icons), ['gift', 'info', 'key', 'clock', 'star', 'check']);
   for (const icon of Object.values(icons)) {
-    assert.match(icon, /^<:cloudy_claim_(?:gift|info|key|clock|star|check)_white_sm2:\d+>$/);
+    assert.match(icon, /^<:cloudy_claim_(?:gift|info|key|clock|check)_white_sm2:\d+>$|^<:cloudy_claim_star_white_sm3:\d+>$/);
   }
   assert.deepEqual(await getGiveawayClaimIcons(client), icons);
   assert.equal(fetches, 1);
+  assert.match(icons.star, /cloudy_claim_star_white_sm3/);
+  assert.match(icons.clock, /cloudy_claim_clock_white_sm2/);
 
   const panel = claimPanel({ messageId: '123', prize: 'PlayStation Store gift card' }, '456', icons);
   const embed = panel.embeds[0];
