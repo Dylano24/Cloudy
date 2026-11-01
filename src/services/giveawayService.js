@@ -364,6 +364,16 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
             color: GIVEAWAY_WHITE,
             thumbnail: { url: CLOUDY_C_LOGO_URL },
         }],
+        // Presentation only. This button becomes interactive only when the
+        // separate private claim workflow is approved and implemented.
+        components: [new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('giveaway_claim_preview_only')
+                .setEmoji({ id: '1543303758912688230', name: 'W89gift' })
+                .setLabel('Claim')
+                .setStyle(ButtonStyle.Success)
+                .setDisabled(true),
+        )],
         allowedMentions: { parse: [], users: winners },
     };
 }
