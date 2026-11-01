@@ -12,7 +12,11 @@ import {
     TextInputStyle,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
-import { buildPrivateClaimEmbed, createDemoClaimCode, DEFAULT_CLAIM_HEADING, DEFAULT_CLAIM_IMPORTANT, normalizeDemoClaimCode } from './giveawayClaimPreview.js';
+import {
+    buildPrivateClaimEmbed, createDemoClaimCode, DEFAULT_CLAIM_INTRODUCTION,
+    DEFAULT_CLAIM_CONDITIONS, DEFAULT_CLAIM_HOW_TO_GET,
+    DEFAULT_CLAIM_REVIEW, DEFAULT_CLAIM_PLEASE_NOTE,
+} from './giveawayClaimPreview.js';
 import { currentGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { getGuildGiveaways } from '../utils/giveaways.js';
@@ -52,6 +56,11 @@ const TEMPLATE_FIELDS = Object.freeze({
     claimPanelTitle: 150,
     claimExpiryInstructions: 500,
     claimDemoCode: 32,
+    claimIntroduction: 250,
+    claimConditions: 1000,
+    claimHowToGet: 500,
+    claimReview: 1000,
+    claimPleaseNote: 1000,
 });
 const templateKey = (guildId, userId) => `guild:${guildId}:giveaway-builder:template:${userId}`;
 
@@ -118,6 +127,11 @@ export function newGiveawayDraft(channelId) {
         claimPanelTitle: null,
         claimExpiryInstructions: null,
         claimDemoCode: createDemoClaimCode(),
+        claimIntroduction: null,
+        claimConditions: null,
+        claimHowToGet: null,
+        claimReview: null,
+        claimPleaseNote: null,
         durationText: '1d',
         durationMs: 86_400_000,
         winnerCount: 1,
@@ -217,18 +231,21 @@ export function giveawayTextModal(session) {
 }
 
 export function giveawayClaimModal(session) {
+    const { draft } = session;
     return new ModalBuilder()
         .setCustomId(id(session, 'claimform'))
         .setTitle('Winner claim instructions')
         .addComponents(
-            textInput('claimPanelTitle', 'Private claim heading', TextInputStyle.Short,
-                { value: session.draft.claimPanelTitle || DEFAULT_CLAIM_HEADING, maxLength: 150 }),
-            textInput('claimDemoCode', 'Demo code (not redeemable)', TextInputStyle.Short,
-                { value: session.draft.claimDemoCode, maxLength: 32 }),
-            textInput('claimDetails', 'Prize details', TextInputStyle.Paragraph,
-                { value: session.draft.claimDetails, placeholder: 'PlayStation Store gift card details', maxLength: 1000 }),
-            textInput('claimExpiryInstructions', 'Important', TextInputStyle.Paragraph,
-                { value: session.draft.claimExpiryInstructions || DEFAULT_CLAIM_IMPORTANT, maxLength: 500 }),
+            textInput('claimIntroduction', 'Introduction', TextInputStyle.Paragraph,
+                { value: draft.claimIntroduction || DEFAULT_CLAIM_INTRODUCTION, maxLength: 250 }),
+            textInput('claimConditions', 'Prize conditions', TextInputStyle.Paragraph,
+                { value: draft.claimConditions || DEFAULT_CLAIM_CONDITIONS, maxLength: 1000 }),
+            textInput('claimHowToGet', 'How to get your prize', TextInputStyle.Paragraph,
+                { value: draft.claimHowToGet || DEFAULT_CLAIM_HOW_TO_GET, maxLength: 500 }),
+            textInput('claimReview', 'Share your feedback', TextInputStyle.Paragraph,
+                { value: draft.claimReview || DEFAULT_CLAIM_REVIEW, maxLength: 1000 }),
+            textInput('claimPleaseNote', 'Please note', TextInputStyle.Paragraph,
+                { value: draft.claimPleaseNote || DEFAULT_CLAIM_PLEASE_NOTE, maxLength: 1000 }),
         );
 }
 
@@ -379,11 +396,11 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             draft.closingText = value('closingText') || DEFAULT_GIVEAWAY_CLOSING;
             saveText = true;
         } else if (action === 'claimform') {
-            draft.claimPanelTitle = giveawayText(interaction.fields.getTextInputValue('claimPanelTitle'), 150);
-            draft.claimDemoCode = normalizeDemoClaimCode(interaction.fields.getTextInputValue('claimDemoCode'))
-                || draft.claimDemoCode;
-            draft.claimDetails = giveawayText(interaction.fields.getTextInputValue('claimDetails'), 1000);
-            draft.claimExpiryInstructions = giveawayText(interaction.fields.getTextInputValue('claimExpiryInstructions'), 500);
+            draft.claimIntroduction = giveawayText(interaction.fields.getTextInputValue('claimIntroduction'), 250);
+            draft.claimConditions = giveawayText(interaction.fields.getTextInputValue('claimConditions'), 1000);
+            draft.claimHowToGet = giveawayText(interaction.fields.getTextInputValue('claimHowToGet'), 500);
+            draft.claimReview = giveawayText(interaction.fields.getTextInputValue('claimReview'), 1000);
+            draft.claimPleaseNote = giveawayText(interaction.fields.getTextInputValue('claimPleaseNote'), 1000);
             saveText = true;
         } else if (action === 'timingform') {
             const durationText = interaction.fields.getTextInputValue('duration').trim();
