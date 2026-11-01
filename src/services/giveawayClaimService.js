@@ -226,7 +226,7 @@ async function storeCode(interaction, client, messageId, userId) {
 
 export async function handleGiveawayClaimInteraction(interaction, client) {
   if (!interaction.customId?.startsWith(GIVEAWAY_CLAIM_PREFIX)) return false;
-  const [prefix, action, messageId, userId] = interaction.customId.split(':');
+  const [, action, messageId, userId] = interaction.customId.split(':');
   try {
     if (!interaction.inGuild()) {
       return interaction.reply({ content: 'Prize claiming is available only in the server.', flags: MessageFlags.Ephemeral });
