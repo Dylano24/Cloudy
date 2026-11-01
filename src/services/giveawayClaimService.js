@@ -11,7 +11,7 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
-import { buildPrivateClaimEmbed } from './giveawayClaimPreview.js';
+import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPreview.js';
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -73,25 +73,30 @@ async function saveClaim(client, guildId, record) {
 }
 
 export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
-  // Discord buttons require a custom emoji ID, while the embed uses emoji
-  // markup. Both draw from the same white Cloudy artwork.
+  // Button emoji IDs are the same white Cloudy artwork as the embed.
   const buttonEmoji = markup => {
     const match = /^<:([A-Za-z0-9_]+):([0-9]+)>$/.exec(markup || '');
     return match ? { name: match[1], id: match[2] } : null;
   };
-  const taken = new ButtonBuilder().setCustomId('gclaim:done:' + giveaway.messageId + ':' + userId)
-    .setLabel('Prize taken').setStyle(ButtonStyle.Secondary);
-  const review = new ButtonBuilder().setLabel('Rate us').setStyle(ButtonStyle.Link)
+  const revealButton = new ButtonBuilder()
+    .setCustomId('gclaim:reveal:' + giveaway.messageId + ':' + userId)
+    .setLabel('Reveal my code').setStyle(ButtonStyle.Secondary);
+  const closeButton = new ButtonBuilder()
+    .setCustomId('gclaim:done:' + giveaway.messageId + ':' + userId)
+    .setLabel('Close').setStyle(ButtonStyle.Secondary);
+  const reviewButton = new ButtonBuilder().setLabel('Rate us').setStyle(ButtonStyle.Link)
     .setURL('https://discord.com/channels/' + giveaway.guildId + '/1554538609330225225');
+  const key = buttonEmoji(icons.key);
   const check = buttonEmoji(icons.check);
   const star = buttonEmoji(icons.star);
-  if (check) taken.setEmoji(check);
-  if (star) review.setEmoji(star);
+  if (key) revealButton.setEmoji(key);
+  if (check) closeButton.setEmoji(check);
+  if (star) reviewButton.setEmoji(star);
 
   return {
     content: '<@' + userId + '>',
     embeds: [buildPrivateClaimEmbed(giveaway, userId, icons)],
-    components: [new ActionRowBuilder().addComponents(taken, review)],
+    components: [new ActionRowBuilder().addComponents(revealButton, closeButton, reviewButton)],
     allowedMentions: { parse: [], users: [userId] },
   };
 }
@@ -172,12 +177,50 @@ async function finishClaim(interaction, client, messageId, userId) {
     const closed = { ...record, closedAt: new Date().toISOString(), encryptedCode: null };
     await saveClaim(client, interaction.guildId, closed);
     try {
-      await interaction.channel.delete('Winner selected Prize taken');
+      await interaction.channel.delete('Winner selected Close on giveaway claim');
     } catch (error) {
       await saveClaim(client, interaction.guildId, record);
       throw error;
     }
     return notice(interaction, 'Your prize claim has been closed. Thank you!').catch(() => {});
+  });
+}
+
+// Discord does not expose spoiler taps. Reveal is an explicit button, so it
+// can return only to the winner and never restarts the 24h channel deadline.
+async function revealClaimCode(interaction, client, messageId, userId) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (interaction.user.id !== userId) {
+    return notice(interaction, 'Only the winner can reveal this code.');
+  }
+  return Mutex.runExclusive('gclaim-take:' + interaction.guildId + ':' + messageId + ':' + userId, async () => {
+    const record = await findClaim(client, interaction.guildId, messageId, userId);
+    if (!record || record.channelId !== interaction.channelId || record.closedAt
+      || (record.expiresAt && Date.parse(record.expiresAt) <= Date.now())) {
+      return notice(interaction, 'This claim channel is no longer active.');
+    }
+
+    // A configured real code stays encrypted in storage, and is shown only in
+    // this winner's ephemeral response. Never silently replace an unavailable
+    // encrypted prize code with a demo.
+    if (record.encryptedCode) {
+      const code = reveal(record.encryptedCode);
+      if (!code) return notice(interaction,
+        'Your prize code could not be decrypted. Please contact giveaway staff.');
+      if (!record.revealedAt) {
+        await saveClaim(client, interaction.guildId, { ...record, revealedAt: new Date().toISOString() });
+      }
+      return notice(interaction,
+        'Your activation code:\n||' + code.replaceAll('|', '\\|') + '||\n'
+        + 'Copy or screenshot this code before this channel closes.');
+    }
+
+    const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
+    if (!giveaway) return notice(interaction, 'The giveaway could not be found.');
+    const demo = displayDemoClaimCode(giveaway, userId);
+    return notice(interaction,
+      'Demo code (not redeemable):\n||' + demo + '||\n'
+      + 'This is a test code, not a real PlayStation activation code.');
   });
 }
 
@@ -265,6 +308,7 @@ export async function handleGiveawayClaimInteraction(interaction, client) {
       return interaction.reply({ content: 'Prize claiming is available only in the server.', flags: MessageFlags.Ephemeral });
     }
     if (action === 'open' && messageId) return await openClaim(interaction, client, messageId);
+    if (action === 'reveal' && messageId && userId) return await revealClaimCode(interaction, client, messageId, userId);
     if (action === 'done' && messageId && userId) return await finishClaim(interaction, client, messageId, userId);
     if (action === 'take' && messageId && userId) return await takeCode(interaction, client, messageId, userId);
     if (action === 'setup' && messageId && userId) return await showCodeModal(interaction, client, messageId, userId);
@@ -325,6 +369,7 @@ export async function refreshExistingClaimPanels(client) {
         const expectedIds = [
           'gclaim:take:' + record.messageId + ':' + record.userId,
           'gclaim:done:' + record.messageId + ':' + record.userId,
+          'gclaim:reveal:' + record.messageId + ':' + record.userId,
         ];
         const isPanel = message => Boolean(message?.author?.id === client.user?.id
           && (message.id === record.panelMessageId || message.components?.some(row =>
