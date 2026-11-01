@@ -1,5 +1,8 @@
 import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
-import { DEFAULT_CLAIM_HEADING, DEFAULT_CLAIM_IMPORTANT, displayDemoClaimCode } from '../services/giveawayClaimPreview.js';
+import {
+    DEFAULT_CLAIM_INTRODUCTION, DEFAULT_CLAIM_CONDITIONS, DEFAULT_CLAIM_HOW_TO_GET,
+    DEFAULT_CLAIM_REVIEW, DEFAULT_CLAIM_PLEASE_NOTE,
+} from '../services/giveawayClaimPreview.js';
 import { successEmbed, warningEmbed } from '../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { logger } from '../utils/logger.js';
@@ -193,10 +196,11 @@ export function giveawayClaimEditModal(messageId, giveaway) {
         .setCustomId(`giveaway_claim:${messageId}`)
         .setTitle('Edit winner claim instructions')
         .addComponents(
-            field('claimPanelTitle', 'Private claim heading', giveaway.claimPanelTitle || DEFAULT_CLAIM_HEADING, 150),
-            field('claimDemoCode', 'Demo code (not redeemable)', displayDemoClaimCode(giveaway, giveaway.hostId), 32),
-            field('claimDetails', 'Prize details', giveaway.claimDetails, 1000),
-            field('claimExpiryInstructions', 'Important', giveaway.claimExpiryInstructions || DEFAULT_CLAIM_IMPORTANT, 500),
+            field('claimIntroduction', 'Introduction', giveaway.claimIntroduction || DEFAULT_CLAIM_INTRODUCTION, 250),
+            field('claimConditions', 'Prize conditions', giveaway.claimConditions || DEFAULT_CLAIM_CONDITIONS, 1000),
+            field('claimHowToGet', 'How to get your prize', giveaway.claimHowToGet || DEFAULT_CLAIM_HOW_TO_GET, 500),
+            field('claimReview', 'Share your feedback', giveaway.claimReview || DEFAULT_CLAIM_REVIEW, 1000),
+            field('claimPleaseNote', 'Please note', giveaway.claimPleaseNote || DEFAULT_CLAIM_PLEASE_NOTE, 1000),
         );
 }
 
@@ -307,10 +311,11 @@ export const giveawayClaimModalHandler = {
             }
             await deferPrivate(interaction);
             await setGiveawayText(client, interaction.guild, messageId, {
-                claimPanelTitle: interaction.fields.getTextInputValue('claimPanelTitle'),
-                claimDemoCode: interaction.fields.getTextInputValue('claimDemoCode'),
-                claimDetails: interaction.fields.getTextInputValue('claimDetails'),
-                claimExpiryInstructions: interaction.fields.getTextInputValue('claimExpiryInstructions'),
+                claimIntroduction: interaction.fields.getTextInputValue('claimIntroduction'),
+                claimConditions: interaction.fields.getTextInputValue('claimConditions'),
+                claimHowToGet: interaction.fields.getTextInputValue('claimHowToGet'),
+                claimReview: interaction.fields.getTextInputValue('claimReview'),
+                claimPleaseNote: interaction.fields.getTextInputValue('claimPleaseNote'),
             });
             return notice(interaction, successEmbed('Success', 'Winner claim instructions were updated.'));
         } catch (error) {

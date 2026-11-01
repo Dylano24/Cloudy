@@ -1,19 +1,29 @@
-// Shared minimal claim embed for private winner channels and the builder preview.
-// DEMO-prefixed codes are not redeemable and must never be treated as real credentials.
+// Private giveaway claim message and Giveaway Builder preview use the same copy.
+// Real activation codes are never included in this embed.
 import { createHash, randomBytes } from 'node:crypto';
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS } from './giveawayClaimIcons.js';
 
-export const DEFAULT_CLAIM_HEADING = 'Congratulations on winning!';
-export const DEFAULT_CLAIM_IMPORTANT =
-  "Once you've secured your prize, click **Prize taken** to close this channel.\n\n"
-  + "This private channel will be automatically deleted after **24 hours**, even if you don't close it manually.";
-export const DEFAULT_CLAIM_REVIEW =
-  "We'd appreciate your feedback! Click **Rate us** below to share your experience.";
-export const PLAYSTATION_PRIZE_DESCRIPTION =
-  "You've won a **PlayStation Store gift card!** Redeem your code through the PlayStation Store "
-  + "to add the balance to your PlayStation wallet.";
+export const CLAIM_INTRO_ICON = '<:W90250885giveaway:1543303914152001536>';
+export const CLAIM_REVIEW_ICON = '<:W84starwhite:1543289625035022346>';
+export const CLAIM_WARNING_ICON = '<:W97warningwhite:1543290138707230730>';
+export const CLAIM_HEART_ICON = '<a:W79heart4:1543304318470324324>';
 
+export const DEFAULT_CLAIM_INTRODUCTION =
+  'Cloudy Inc. congratulates you on winning this prize!';
+export const DEFAULT_CLAIM_CONDITIONS = 'Details and conditions of their prize.';
+export const DEFAULT_CLAIM_HOW_TO_GET =
+  'Click the **Reveal my code** button below to display your activation code.';
+export const DEFAULT_CLAIM_REVIEW =
+  "If you enjoyed your prize and are happy with the experience and the work of our team, we’d appreciate it if you could leave us a review in our **staff reviews** section below.\n\n"
+  + "Your feedback means a lot to us. It encourages our team, helps us improve and supports what we do at Cloudy Inc. "
+  + CLAIM_HEART_ICON;
+export const DEFAULT_CLAIM_PLEASE_NOTE =
+  'This private channel will be automatically deleted after 24 hours. Make sure to copy or take a screenshot of your activation code before the channel is deleted.\n\n'
+  + 'You can also close this channel yourself using the “Close” button below.';
+
+// Kept for existing test giveaways and staff-owned private code configuration.
+// Demo-prefixed values are never valid redemption credentials.
 export function createDemoClaimCode() {
   const hex = randomBytes(4).toString('hex').toUpperCase();
   return 'DEMO-' + hex.slice(0, 4) + '-' + hex.slice(4);
@@ -35,31 +45,18 @@ export function displayDemoClaimCode(giveaway, userId) {
   return 'DEMO-' + digest.slice(0, 4) + '-' + digest.slice(4, 8);
 }
 
-function descriptionForPrize(giveaway) {
-  if (giveaway?.claimDetails?.trim()) return giveaway.claimDetails.trim();
-  const prize = String(giveaway?.prize || '').trim();
-  if (!prize || prize === 'Your prize' || /playstation|psn|ps store/i.test(prize)) {
-    return PLAYSTATION_PRIZE_DESCRIPTION;
-  }
-  return "You've won **" + prize.replace(/\*/g, '') + "**! Follow the redemption instructions supplied by Cloudy staff.";
-}
-
-export function buildPrivateClaimEmbed(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
-  const title = giveaway?.claimPanelTitle?.trim();
-  const heading = title && !['Congratulations!', 'Your giveaway prize'].includes(title)
-    ? title
-    : DEFAULT_CLAIM_HEADING;
-  const important = giveaway?.claimExpiryInstructions?.trim() || DEFAULT_CLAIM_IMPORTANT;
+export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_ICONS) {
+  const text = (name, fallback) => giveaway?.[name]?.trim() || fallback;
   return {
-    description: '**' + heading + '**\n\n'
-      + icons.key + ' **Claim your code here**\n'
-      + '||' + displayDemoClaimCode(giveaway, userId) + '||'
-      + '\n\n' + icons.info + ' **Prize details**\n'
-      + descriptionForPrize(giveaway)
-      + '\n\n' + icons.clock + ' **Important**\n'
-      + important
-      + '\n\n' + (icons.star ? icons.star + ' ' : '') + '**Your review**\n'
-      + DEFAULT_CLAIM_REVIEW,
+    description: CLAIM_INTRO_ICON + ' ' + text('claimIntroduction', DEFAULT_CLAIM_INTRODUCTION)
+      + '\n\n' + icons.info + ' **Prize conditions**\n'
+      + text('claimConditions', DEFAULT_CLAIM_CONDITIONS)
+      + '\n\n' + icons.key + ' **How to get your prize**\n'
+      + text('claimHowToGet', DEFAULT_CLAIM_HOW_TO_GET)
+      + '\n\n' + CLAIM_REVIEW_ICON + ' **Share your feedback**\n'
+      + text('claimReview', DEFAULT_CLAIM_REVIEW)
+      + '\n\n' + CLAIM_WARNING_ICON + ' **Please note**\n'
+      + text('claimPleaseNote', DEFAULT_CLAIM_PLEASE_NOTE),
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
     footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },

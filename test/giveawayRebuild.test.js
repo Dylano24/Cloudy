@@ -243,13 +243,14 @@ test('Edit claim hides Public claim instructions and preserves existing public t
   const modal = w.interaction('owner');
   await button('giveaway_admin').execute(modal, w.client, ['claim', MESSAGE]);
   assert.deepEqual(modal.modal.components.map(row => row.components[0].custom_id),
-    ['claimPanelTitle', 'claimDemoCode', 'claimDetails', 'claimExpiryInstructions']);
+    ['claimIntroduction', 'claimConditions', 'claimHowToGet', 'claimReview', 'claimPleaseNote']);
 
   const fields = {
-    claimPanelTitle: 'Congratulations on winning!',
-    claimDemoCode: 'DEMO-1234-5678',
-    claimDetails: 'PlayStation Store gift card.',
-    claimExpiryInstructions: 'The channel closes after 24 hours.',
+    claimIntroduction: 'Welcome to your claim.',
+    claimConditions: 'Prize conditions for PlayStation gift card.',
+    claimHowToGet: 'Reveal your activation code.',
+    claimReview: 'Please leave a review.',
+    claimPleaseNote: 'The channel closes after 24 hours.',
   };
   const submit = w.interaction('owner', { args: {
     fields: { getTextInputValue: name => {
@@ -260,8 +261,11 @@ test('Edit claim hides Public claim instructions and preserves existing public t
   await giveawayClaimModalHandler.execute(submit, w.client, [MESSAGE]);
   const saved = await loadGiveaway(w.client, GUILD, MESSAGE);
   assert.equal(saved.claim, 'Original public claim instructions must remain intact.');
-  assert.equal(saved.claimDemoCode, 'DEMO-1234-5678');
-  assert.equal(saved.claimDetails, 'PlayStation Store gift card.');
+  assert.equal(saved.claimIntroduction, 'Welcome to your claim.');
+  assert.equal(saved.claimConditions, 'Prize conditions for PlayStation gift card.');
+  assert.equal(saved.claimHowToGet, 'Reveal your activation code.');
+  assert.equal(saved.claimReview, 'Please leave a review.');
+  assert.equal(saved.claimPleaseNote, 'The channel closes after 24 hours.');
 });
 
 test('End draws winners, marks the giveaway, and tags the winners with how to claim the prize', async () => {
@@ -352,9 +356,9 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const builder = command.replies[0];
   assert.equal(builder.flags, 64);
   assert.match(builder.embeds[0].description, /Your prize/);
-  assert.match(builder.embeds[1].description, /\*\*Congratulations on winning!\*\*/);
-  assert.match(builder.embeds[1].description, /Claim your code here/);
-  assert.match(builder.embeds[1].description, /DEMO-/);
+  assert.match(builder.embeds[1].description, /Cloudy Inc.*congratulates/);
+  assert.match(builder.embeds[1].description, /Prize conditions/);
+  assert.match(builder.embeds[1].description, /Share your feedback/);
   const controls = builder.components.map(json);
   const sessionId = controls[2].components[0].custom_id.split(':')[2];
   assert.deepEqual(controls.slice(2).map(row => row.components.map(component => [component.label, component.style])), [
@@ -382,19 +386,20 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const textForm = click(`gbuilder:textform:${sessionId}`, { fields: { getTextInputValue: name => texts[name] } });
   await handleGiveawayBuilderInteraction(textForm, w.client);
   assert.match(textForm.updated.embeds[0].description, /\*\*1 month vip\*\*/);
-  assert.match(textForm.updated.embeds[1].description, /Claim your code here/);
-  assert.match(textForm.updated.embeds[1].description, /1 month vip/);
+  assert.match(textForm.updated.embeds[1].description, /How to get your prize/);
+  assert.match(textForm.updated.embeds[1].description, /Reveal my code/);
   assert.doesNotMatch(textForm.updated.embeds[1].description, /<@staff>/);
   assert.equal(json(textForm.updated.components[3]).components[1].disabled, false);
   const openClaim = click(`gbuilder:claim:${sessionId}`);
   await handleGiveawayBuilderInteraction(openClaim, w.client);
   assert.deepEqual(openClaim.modal.components.map(row => row.components[0].custom_id),
-    ['claimPanelTitle', 'claimDemoCode', 'claimDetails', 'claimExpiryInstructions']);
+    ['claimIntroduction', 'claimConditions', 'claimHowToGet', 'claimReview', 'claimPleaseNote']);
   const claimInputs = {
-    claimPanelTitle: 'Congratulations on winning!',
-    claimDemoCode: 'DEMO-A123-B456',
-    claimDetails: 'PlayStation Store gift card details.',
-    claimExpiryInstructions: 'This channel closes after 24 hours.',
+    claimIntroduction: 'You won! Congratulations!',
+    claimConditions: 'PlayStation Store gift card details.',
+    claimHowToGet: 'Click Reveal my code to display the code.',
+    claimReview: 'Thank you for your feedback.',
+    claimPleaseNote: 'This channel closes after 24 hours.',
   };
   const claimForm = click(`gbuilder:claimform:${sessionId}`, { fields: {
     getTextInputValue: name => {
@@ -404,7 +409,8 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   } });
   await handleGiveawayBuilderInteraction(claimForm, w.client);
   assert.match(claimForm.updated.embeds[1].description, /PlayStation Store gift card details\./);
-  assert.match(claimForm.updated.embeds[1].description, /DEMO-A123-B456/);
+  assert.match(claimForm.updated.embeds[1].description, /You won! Congratulations!/);
+  assert.match(claimForm.updated.embeds[1].description, /Thank you for your feedback/);
   assert.equal(claimForm.updated.embeds[1].thumbnail.url, builder.embeds[1].thumbnail.url);
   // Duration & winners form: "Example" placeholder, 1m is the shortest, with validation.
   const openTiming = click(`gbuilder:timing:${sessionId}`);
@@ -445,8 +451,8 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const reopen = Object.assign(w.interaction('staff', { staff: true }), { channelId: 'giveaways', guild: command.guild });
   await create.execute(reopen);
   assert.match(reopen.replies[0].embeds[0].description, /\*\*1 month vip\*\*/);
-  assert.match(reopen.replies[0].embeds[1].description, /Claim your code here/);
-  assert.match(reopen.replies[0].embeds[1].description, /DEMO-A123-B456/);
+  assert.match(reopen.replies[0].embeds[1].description, /How to get your prize/);
+  assert.match(reopen.replies[0].embeds[1].description, /You won! Congratulations!/);
   assert.match(reopen.replies[0].embeds[1].description, /PlayStation Store gift card details\./);
   assert.equal(json(reopen.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(json(reopen.replies[0].components[3]).components[1].disabled, false);
@@ -467,9 +473,9 @@ test('reopening builder previews the existing host giveaway text before template
   await create.execute(command);
   const [giveaway, winner] = command.replies[0].embeds;
   assert.match(giveaway.description, /\*\*Custom saved prize\*\*/);
-  assert.match(winner.description, /Congratulations on winning!/);
-  assert.match(winner.description, /Claim your code here/);
-  assert.match(winner.description, /DEMO-/);
+  assert.match(winner.description, /Cloudy Inc.*congratulates/);
+  assert.match(winner.description, /Prize conditions/);
+  assert.match(winner.description, /How to get your prize/);
   assert.equal(command.replies[0].components.length, 4);
   assert.equal(json(command.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(w.sent.length, 0);
