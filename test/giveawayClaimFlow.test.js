@@ -122,7 +122,7 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.deepEqual(claimButtons.map(button => button.label), ['Prize taken', 'Rate us']);
   assert.equal(claimButtons[0].style, 2);
   assert.equal(claimButtons[1].style, 5);
-  assert.match(claimButtons[1].url, /1533965979682476082/);
+  assert.equal(claimButtons[1].url, 'https://discord.com/channels/' + GUILD + '/1554538609330225225');
   assert.ok(Date.parse(w.records.get(KEY)[CLAIM_ID].expiresAt) >= Date.now());
   const repeat = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(repeat, w.client);
