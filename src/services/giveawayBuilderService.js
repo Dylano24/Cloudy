@@ -13,6 +13,7 @@ import {
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
 import { unwrapReplitData } from '../utils/database.js';
+import { getGuildGiveaways } from '../utils/giveaways.js';
 import { successEmbed } from '../utils/embeds.js';
 import { giveawayWarning, removeAfterTenSeconds } from '../handlers/giveawayButtons.js';
 import { logger } from '../utils/logger.js';
@@ -53,8 +54,16 @@ async function loadGiveawayTemplate(client, guildId, userId, channelId) {
     const draft = newGiveawayDraft(channelId);
     if (!client?.db?.get) return draft;
     try {
-        const saved = unwrapReplitData(await client.db.get(templateKey(guildId, userId), null));
-        if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return draft;
+        let saved = unwrapReplitData(await client.db.get(templateKey(guildId, userId), null));
+        if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
+            // Giveaways created before builder-template persistence already have
+            // the host's exact prize and claim text saved with the giveaway.
+            // Reuse only that host's most recent authored text for the preview.
+            saved = (await getGuildGiveaways(client, guildId))
+                .filter(giveaway => giveaway?.hostId === userId && giveaway?.prize)
+                .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))[0];
+            if (!saved) return draft;
+        }
         for (const [field, maxLength] of Object.entries(TEMPLATE_FIELDS)) {
             if (typeof saved[field] !== 'string') continue;
             const text = giveawayText(saved[field], maxLength);
