@@ -15,6 +15,7 @@ import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPre
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
+export const GIVEAWAY_CLAIM_CATEGORY_ID = '1566382220904763443';
 const WHITE = 0xFFFFFF;
 const CODE_KEY_ENV = 'GIVEAWAY_CLAIM_ENCRYPTION_KEY';
 const registryKey = guildId => 'guild:' + guildId + ':giveaway-claim:records';
@@ -113,17 +114,21 @@ async function openClaim(interaction, client, messageId) {
       if (current) return notice(interaction, 'Your private claim channel: ' + claimLink(guild.id, current.id));
     }
 
+    // The giveaway winner gets a new private text channel in this category,
+    // not in the public ticket category and never inside a public text channel.
+    const category = await guild.channels.fetch(GIVEAWAY_CLAIM_CATEGORY_ID).catch(() => null);
+    if (!category || category.type !== ChannelType.GuildCategory) {
+      logger.warn('Giveaway claim category is missing or not a category', {
+        guildId: guild.id, categoryId: GIVEAWAY_CLAIM_CATEGORY_ID,
+      });
+      return notice(interaction, 'The giveaway claim category is unavailable. Please contact staff.');
+    }
     const config = await getGuildConfig(client, guild.id).catch(() => ({}));
-    const configuredCategory = config.ticketCategoryId || config.ticketsCategoryId || null;
-    const category = configuredCategory
-      ? await guild.channels.fetch(configuredCategory).catch(() => null)
-      : guild.channels.cache.find(channel => channel.type === ChannelType.GuildCategory
-        && channel.name.toLowerCase().includes('tickets'));
     const staffRoleId = config.ticketStaffRoleId;
     const channel = await guild.channels.create({
       name: 'giveaway-claim-' + userId.slice(-6),
       type: ChannelType.GuildText,
-      parent: category?.type === ChannelType.GuildCategory ? category.id : undefined,
+      parent: category.id,
       topic: 'Cloudy giveaway claim ' + messageId + ' ' + userId,
       permissionOverwrites: [
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
