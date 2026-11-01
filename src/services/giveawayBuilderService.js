@@ -228,6 +228,8 @@ export function giveawayClaimModal(session) {
                 { value: session.draft.claimPanelTitle || DEFAULT_CLAIM_HEADING, maxLength: 150 }),
             textInput('claimDemoCode', 'Demo code (not redeemable)', TextInputStyle.Short,
                 { value: session.draft.claimDemoCode, maxLength: 32 }),
+            textInput('claimDetails', 'Prize details', TextInputStyle.Paragraph,
+                { value: session.draft.claimDetails, placeholder: 'PlayStation Store gift card details', maxLength: 1000 }),
             textInput('claimExpiryInstructions', 'Important', TextInputStyle.Paragraph,
                 { value: session.draft.claimExpiryInstructions || DEFAULT_CLAIM_IMPORTANT, maxLength: 500 }),
         );
@@ -384,6 +386,7 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             draft.claimPanelTitle = giveawayText(interaction.fields.getTextInputValue('claimPanelTitle'), 150);
             draft.claimDemoCode = normalizeDemoClaimCode(interaction.fields.getTextInputValue('claimDemoCode'))
                 || draft.claimDemoCode;
+            draft.claimDetails = giveawayText(interaction.fields.getTextInputValue('claimDetails'), 1000);
             draft.claimExpiryInstructions = giveawayText(interaction.fields.getTextInputValue('claimExpiryInstructions'), 500);
             saveText = true;
         } else if (action === 'timingform') {
