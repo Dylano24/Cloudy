@@ -74,7 +74,7 @@ async function saveClaim(client, guildId, record) {
 export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
   const codesAvailable = Boolean(secretKey());
   const details = giveaway.claimDetails
-    || (/\\b6\\s*(?:months?|mo)\\b/i.test(giveaway.prize || '')
+    || (/\b6\s*(?:months?|mo)\b/i.test(giveaway.prize || '')
       ? 'This prize is valid for 6 months after activation. Additional terms may apply depending on the reward.'
       : 'Additional terms may apply depending on the reward. Cloudy staff will confirm any prize-specific details.');
   const instructions = giveaway.claimCodeInstructions
@@ -82,20 +82,20 @@ export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
   const expiry = giveaway.claimExpiryInstructions
     || 'After your code is revealed, this private channel will be automatically deleted after **24 hours**. Make sure to copy or screenshot your code before then.';
   const customTitle = giveaway.claimPanelTitle?.trim();
-  const extraTitle = customTitle && !/^(?:🎁\\s*)?Congratulations!$/i.test(customTitle)
-    ? '**' + customTitle + '**\\n\\n'
+  const extraTitle = customTitle && !/^(?:🎁\s*)?Congratulations!$/i.test(customTitle)
+    ? '**' + customTitle + '**\n\n'
     : '';
 
   return {
     content: '<@' + userId + '>',
     embeds: [{
       description: extraTitle
-        + '<@' + userId + '>, congratulations on winning **' + giveaway.prize + '**!\\n\\n'
-        + icons.gift + ' **Your prize**\\n\\n'
-        + 'Your prize is ready to be claimed. Please review the details below before proceeding.\\n\\n'
-        + icons.info + ' **Prize details**\\n\\n' + details + '\\n\\n'
-        + icons.key + ' **How to claim**\\n\\n' + instructions + '\\n\\n'
-        + icons.clock + ' **Important**\\n\\n' + expiry,
+        + '<@' + userId + '>, congratulations on winning **' + giveaway.prize + '**!\n\n'
+        + icons.gift + ' **Your prize**\n\n'
+        + 'Your prize is ready to be claimed. Please review the details below before proceeding.\n\n'
+        + icons.info + ' **Prize details**\n\n' + details + '\n\n'
+        + icons.key + ' **How to claim**\n\n' + instructions + '\n\n'
+        + icons.clock + ' **Important**\n\n' + expiry,
       color: WHITE,
       thumbnail: { url: CLOUDY_C_LOGO_URL },
       footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
