@@ -70,30 +70,33 @@ async function saveClaim(client, guildId, record) {
   });
 }
 
-function claimPanel(giveaway, userId) {
+export function claimPanel(giveaway, userId) {
   const codesAvailable = Boolean(secretKey());
-  const details = giveaway.claimDetails || 'You have won **' + giveaway.prize + '**. Review the prize terms before using your code.';
+  const details = giveaway.claimDetails
+    || 'Please review any prize-specific terms provided by Cloudy staff before redeeming your reward.';
   const instructions = giveaway.claimCodeInstructions || (codesAvailable
-    ? 'Press **Take code** below when you are ready to view your prize code.'
-    : 'Staff will provide further instructions in this private claim channel.');
-  const expiry = codesAvailable
-    ? (giveaway.claimExpiryInstructions || 'After you reveal your code, this private channel and its messages will be deleted automatically after 24 hours.')
-    : 'Prize-code delivery is not yet enabled. Contact staff to arrange your prize.';
+    ? 'Once your code is ready, select **Take code** below to reveal your private activation code. Keep it secure.'
+    : 'Cloudy staff will help you claim your reward in this private channel.');
+  const expiry = giveaway.claimExpiryInstructions
+    || 'If you reveal a prize code using **Take code**, this private channel and its messages will be deleted **24 hours** after the reveal. Please copy or screenshot your code before then.';
+
   return {
     content: '<@' + userId + '>',
     embeds: [{
-      title: giveaway.claimPanelTitle || 'Congratulations!',
-      description: '<@' + userId + '>, you won **' + giveaway.prize + '**!\n\n'
-        + details + '\n\n' + instructions + '\n\n' + expiry,
+      title: giveaway.claimPanelTitle || '🎁 Congratulations!',
+      description: '<@' + userId + '>, congratulations on winning **' + giveaway.prize + '**!',
+      fields: [
+        { name: '🎁 Your prize', value: details, inline: false },
+        { name: '🔑 How to claim', value: instructions, inline: false },
+        { name: '⏱️ Important', value: expiry, inline: false },
+      ],
       color: WHITE,
       thumbnail: { url: CLOUDY_C_LOGO_URL },
     }],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('gclaim:take:' + giveaway.messageId + ':' + userId)
-          .setLabel('Take code').setStyle(ButtonStyle.Success).setDisabled(!codesAvailable),
-        new ButtonBuilder().setCustomId('gclaim:setup:' + giveaway.messageId + ':' + userId)
-          .setLabel('Staff: Set code').setStyle(ButtonStyle.Secondary).setDisabled(!codesAvailable),
+          .setLabel('Take code').setStyle(ButtonStyle.Secondary).setDisabled(!codesAvailable),
       ),
     ],
     allowedMentions: { parse: [], users: [userId] },
