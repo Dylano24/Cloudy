@@ -182,13 +182,21 @@ export function giveawayTextEditModal(messageId, giveaway) {
 }
 
 export function giveawayClaimEditModal(messageId, giveaway) {
+    const field = (id, label, value, maxLength) => {
+        const input = new TextInputBuilder().setCustomId(id).setLabel(label)
+            .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(maxLength);
+        if (value) input.setValue(String(value).slice(0, maxLength));
+        return new ActionRowBuilder().addComponents(input);
+    };
     return new ModalBuilder()
         .setCustomId(`giveaway_claim:${messageId}`)
         .setTitle('Edit winner claim instructions')
-        .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder()
-            .setCustomId('claim').setLabel('How winners claim the prize')
-            .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500)
-            .setValue(String(giveaway.claim || 'Please open a support ticket within 24 hours to claim your prize.'))));
+        .addComponents(
+            field('claim', 'Public claim instructions',
+                giveaway.claim || 'Click Claim to open your private prize channel.', 500),
+            field('claimDetails', 'Private prize description and terms', giveaway.claimDetails, 1000),
+            field('claimCodeInstructions', 'Private code instructions', giveaway.claimCodeInstructions, 500),
+        );
 }
 
 // giveaway_admin:<action>:<giveaway message ID>, from the private Manage panel.
@@ -299,6 +307,8 @@ export const giveawayClaimModalHandler = {
             await deferPrivate(interaction);
             await setGiveawayText(client, interaction.guild, messageId, {
                 claim: interaction.fields.getTextInputValue('claim'),
+                claimDetails: interaction.fields.getTextInputValue('claimDetails'),
+                claimCodeInstructions: interaction.fields.getTextInputValue('claimCodeInstructions'),
             });
             return notice(interaction, successEmbed('Success', 'Winner claim instructions were updated.'));
         } catch (error) {
