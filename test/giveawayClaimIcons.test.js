@@ -39,16 +39,13 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.equal(embed.title, undefined);
   assert.equal(embed.color, 0xFFFFFF);
   assert.equal(embed.thumbnail.url.includes('cloudy-c-logo'), true);
-  assert.match(embed.description, /This prize is valid for 6 months after activation/);
-  assert.match(embed.description, /Your prize is ready to be claimed/);
-  assert.match(embed.description, /Once your code is available, click \*\*Take code\*\*/);
-  const positions = [
-    icons.gift + ' **Your prize**',
-    icons.info + ' **Prize details**',
-    icons.key + ' **How to claim**',
-    icons.clock + ' **Important**',
-  ].map(label => embed.description.indexOf(label));
-  assert.ok(positions.every((pos, i) => pos >= 0 && (!i || pos > positions[i - 1])));
-  assert.doesNotMatch(embed.description, /🎁|🔑|⏱️/);
-  assert.deepEqual(panel.components[0].toJSON().components.map(button => button.label), ['Take code']);
+  assert.match(embed.description, /Congratulations on winning!/);
+  assert.match(embed.description, /Claim your code here/);
+  assert.match(embed.description, /DEMO-/);
+  assert.match(embed.description, /Important/);
+  assert.doesNotMatch(embed.description, /Prize details|How to claim|Your prize/);
+  assert.match(embed.description, /24 hours/);
+  assert.match(embed.description, new RegExp(icons.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(embed.description, new RegExp(icons.clock.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.deepEqual(panel.components, []);
 });
