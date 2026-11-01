@@ -221,7 +221,7 @@ test('Close removes only the winner claim and never reopens it', async () => {
   assert.match(retry.response.content, /no longer active/);
 });
 
-test('Reveal my code shows a spoiler-protected demo privately and never extends expiry', async () => {
+test('Reveal my code shows only the winner code privately and preserves expiry', async () => {
   const w = world();
   await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
   const channel = w.created[0].channel;
@@ -231,8 +231,7 @@ test('Reveal my code shows a spoiler-protected demo privately and never extends 
   assert.match(outsider.response.content, /Only the winner/);
   const winner = w.interaction('gclaim:reveal:' + CLAIM_ID, WINNER, { channel });
   await handleGiveawayClaimInteraction(winner, w.client);
-  assert.match(winner.response.content, /Demo code \(not redeemable\)/);
-  assert.match(winner.response.content, /\\|\\|DEMO-[A-Z0-9-]+\\|\\|/);
+  assert.match(winner.response.content, /^DEMO-[A-Z0-9-]+$/);
   assert.equal(winner.deferred, true);
   assert.equal(w.records.get(KEY)[CLAIM_ID].expiresAt, expiry);
   assert.equal(w.sent.length, 1);
