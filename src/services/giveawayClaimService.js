@@ -342,6 +342,7 @@ export function startGiveawayClaimCleanup(client) {
   if (cleanupStarted) return;
   cleanupStarted = true;
   void cleanupExpiredGiveawayClaims(client).catch(error => logger.warn('Initial giveaway claim cleanup failed', error));
+  void getGiveawayClaimIcons(client).catch(error => logger.warn('Could not prewarm white claim icons', error));
   void refreshExistingClaimPanels(client).catch(error => logger.warn('Initial giveaway claim panel refresh failed', error));
   const timer = setInterval(() => {
     void cleanupExpiredGiveawayClaims(client).catch(error => logger.warn('Giveaway claim cleanup failed', error));
