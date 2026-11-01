@@ -450,15 +450,19 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   // restoring the previous role tag or the last giveaway's timer and winners.
   const reopen = Object.assign(w.interaction('staff', { staff: true }), { channelId: 'giveaways', guild: command.guild });
   await create.execute(reopen);
-  assert.match(reopen.replies[0].embeds[0].description, /\*\*1 month vip\*\*/);
+  // A new giveaway must restore the original defaults; previous authored
+  // giveaway/claim changes belong only to the already-posted giveaway.
+  assert.match(reopen.replies[0].embeds[0].description, /\*\*Your prize\*\*/);
+  assert.doesNotMatch(reopen.replies[0].embeds[0].description, /1 month vip/);
+  assert.match(reopen.replies[0].embeds[1].description, /Cloudy Inc\. congratulates you on winning this prize!/);
+  assert.match(reopen.replies[0].embeds[1].description, /Details and conditions of their prize\./);
   assert.match(reopen.replies[0].embeds[1].description, /How to get your prize/);
-  assert.match(reopen.replies[0].embeds[1].description, /You won! Congratulations!/);
-  assert.match(reopen.replies[0].embeds[1].description, /PlayStation Store gift card details\./);
+  assert.doesNotMatch(reopen.replies[0].embeds[1].description, /You won! Congratulations!|PlayStation Store gift card details\./);
   assert.equal(json(reopen.replies[0].components[0]).components[0].options[2].default, true);
-  assert.equal(json(reopen.replies[0].components[3]).components[1].disabled, false);
+  assert.equal(json(reopen.replies[0].components[3]).components[1].disabled, true);
 });
 
-test('reopening builder previews the existing host giveaway text before templates existed', async () => {
+test('opening a new builder ignores past giveaways and legacy saved templates', async () => {
   const oldGiveaway = activeGiveaway({
     hostId: 'staff',
     prize: 'Custom saved prize',
@@ -466,16 +470,27 @@ test('reopening builder previews the existing host giveaway text before template
     createdAt: '2026-10-31T23:00:00.000Z',
   });
   const w = world({ [MESSAGE]: oldGiveaway });
+  // Simulate legacy template persistence with custom text, which must no
+  // longer override fresh defaults.
+  w.values.set('guild:' + GUILD + ':giveaway-builder:template:staff', {
+    introTitle: 'Custom old introduction',
+    prize: 'Old saved giveaway prize',
+    claimReview: 'Old custom claim review text',
+  });
   const command = Object.assign(w.interaction('staff', { staff: true }), {
     channelId: 'giveaways',
     guild: { ...w.guild, channels: { ...w.guild.channels, fetch: async id => w.guild.channels.cache.get(id) } },
   });
   await create.execute(command);
   const [giveaway, winner] = command.replies[0].embeds;
-  assert.match(giveaway.description, /\*\*Custom saved prize\*\*/);
+  assert.match(giveaway.description, /\*\*Your prize\*\*/);
+  assert.doesNotMatch(giveaway.description, /Custom saved prize/);
   assert.match(winner.description, /Cloudy Inc.*congratulates/);
   assert.match(winner.description, /Prize conditions/);
   assert.match(winner.description, /How to get your prize/);
+  assert.match(winner.description, /satisfied with your experience/);
+  assert.doesNotMatch(winner.description, /Old custom claim review text/);
+  assert.doesNotMatch(giveaway.description, /Custom old introduction|Old saved giveaway prize/);
   assert.equal(command.replies[0].components.length, 4);
   assert.equal(json(command.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(w.sent.length, 0);
