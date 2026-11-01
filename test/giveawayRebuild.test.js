@@ -217,7 +217,7 @@ test('Owner can re-edit text on the existing message; staff without Owner role c
   const modal = w.interaction('owner');
   await button('giveaway_admin').execute(modal, w.client, ['text', MESSAGE]);
   assert.deepEqual(modal.modal.components.map(row => row.components[0].custom_id),
-    ['introTitle', 'prize', 'description', 'requirements', 'closingText']);
+    ['introTitle', 'description', 'prize', 'requirements', 'closingText']);
 
   const values = {
     introTitle: 'Special giveaway!', description: 'New introduction', prize: 'New prize',
@@ -419,7 +419,7 @@ test('reopening builder previews the existing host giveaway text before template
   assert.match(winner.description, /<@staff> has won \*\*Custom saved prize\*\*!/);
   assert.match(winner.description, /Open the private winner ticket\./);
   assert.equal(command.replies[0].components.length, 4);
-  assert.equal(command.replies[0].components[0].components[0].options[2].default, true);
+  assert.equal(json(command.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(w.sent.length, 0);
 });
 
