@@ -1,7 +1,6 @@
 // Private giveaway claim message and Giveaway Builder preview use the same copy.
 // Real activation codes are never included in this embed.
 import { createHash, randomBytes } from 'node:crypto';
-import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS } from './giveawayClaimIcons.js';
 
 export const CLAIM_INTRO_ICON = '<:W90250885giveaway:1543303914152001536>';
@@ -66,7 +65,7 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
   const text = (name, fallback) => giveaway?.[name]?.trim() || fallback;
   return {
     description: CLAIM_INTRO_ICON + ' ' + text('claimIntroduction', DEFAULT_CLAIM_INTRODUCTION)
-      + '\n\n' + CLAIM_PRIZE_ICON + ' **' + String(giveaway?.prize || 'Your prize').replaceAll('*', '') + '**'
+      + '\n\n' + icons.gift + ' **' + String(giveaway?.prize || 'Your prize').replaceAll('*', '') + '**'
       + '\n\n' + DEFAULT_CLAIM_PRIZE_NOTICE
       + '\n\n' + icons.info + ' **Prize conditions**\n'
       + text('claimConditions', DEFAULT_CLAIM_CONDITIONS)
@@ -74,10 +73,9 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
       + text('claimHowToGet', DEFAULT_CLAIM_HOW_TO_GET)
       + '\n\n' + CLAIM_REVIEW_ICON + ' **Share your feedback**\n'
       + linkifyStaffReviews(tightenHeartGap(text('claimReview', DEFAULT_CLAIM_REVIEW)), giveaway?.guildId)
-      + '\n\n\n' + CLAIM_WARNING_ICON + '  **Please note**\n'
+      + '\n\n\n' + icons.warning + '  **Please note**\n'
       + text('claimPleaseNote', DEFAULT_CLAIM_PLEASE_NOTE),
     color: 0xFFFFFF,
-    thumbnail: { url: CLOUDY_C_LOGO_URL },
     footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
   };
 }
