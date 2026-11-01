@@ -353,7 +353,8 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   await handleGiveawayBuilderInteraction(textForm, w.client);
   assert.match(textForm.updated.embeds[0].description, /\*\*1 month vip\*\*/);
   assert.match(textForm.updated.embeds[1].description, /Claim your code here/);
-  assert.doesNotMatch(textForm.updated.embeds[1].description, /1 month vip|<@staff>/);
+  assert.match(textForm.updated.embeds[1].description, /1 month vip/);
+  assert.doesNotMatch(textForm.updated.embeds[1].description, /<@staff>/);
   assert.equal(json(textForm.updated.components[3]).components[1].disabled, false);
   const claimForm = click(`gbuilder:claimform:${sessionId}`, { fields: { getTextInputValue: () => 'DM the owner.' } });
   await handleGiveawayBuilderInteraction(claimForm, w.client);
