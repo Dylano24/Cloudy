@@ -76,7 +76,7 @@ export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
   // Discord buttons require a custom emoji ID, while the embed uses emoji
   // markup. Both draw from the same white Cloudy artwork.
   const buttonEmoji = markup => {
-    const match = /^<:([A-Za-z0-9_]+):(\\d+)>$/.exec(markup || '');
+    const match = /^<:([A-Za-z0-9_]+):([0-9]+)>$/.exec(markup || '');
     return match ? { name: match[1], id: match[2] } : null;
   };
   const taken = new ButtonBuilder().setCustomId('gclaim:done:' + giveaway.messageId + ':' + userId)
