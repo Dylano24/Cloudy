@@ -106,14 +106,23 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.ok(everyone.deny.includes(PermissionFlagsBits.ViewChannel));
   assert.ok(winner.allow.includes(PermissionFlagsBits.ViewChannel));
   assert.ok(winner.allow.includes(PermissionFlagsBits.SendMessages));
-  assert.equal(w.sent[0].embeds[0].title, 'Your giveaway prize');
   const claimEmbed = w.sent[0].embeds[0];
+  assert.equal(claimEmbed.title, undefined);
+  assert.equal(claimEmbed.color, 0xFFFFFF);
   assert.match(claimEmbed.description, /<@156000000000000003>, congratulations on winning/);
-  assert.deepEqual(claimEmbed.fields.map(field => field.name),
-    ['🎁 Your prize', '🔑 How to claim', '⏱️ Important']);
-  assert.match(claimEmbed.fields[0].value, /valid for six months/);
-  assert.match(claimEmbed.fields[1].value, /Press Take code/);
-  assert.match(claimEmbed.fields[2].value, /close 24 hours after you reveal/);
+  const parts = ['Your prize', 'Prize details', 'How to claim', 'Important'];
+  let previous = 0;
+  for (const part of parts) {
+    const at = claimEmbed.description.indexOf('**' + part + '**');
+    assert.ok(at > previous, part + ' must occur in order');
+    previous = at;
+  }
+  assert.match(claimEmbed.description, /Your prize is ready to be claimed/);
+  assert.match(claimEmbed.description, /valid for six months/);
+  assert.match(claimEmbed.description, /Press Take code/);
+  assert.match(claimEmbed.description, /close 24 hours after you reveal/);
+  assert.doesNotMatch(claimEmbed.description, /🎁 Your prize|🔑 How to claim|⏱️ Important/);
+  assert.equal(claimEmbed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(claimEmbed.thumbnail.url);
   const panelButtons = w.sent[0].components[0].toJSON().components;
   assert.equal(panelButtons.length, 1);
@@ -156,8 +165,10 @@ test('existing claim panel is edited in place on restart and Staff Set code disa
   assert.equal(edited, 1);
   assert.equal(w.sent.length, 1);
   assert.equal(panel.content, originalContent);
-  assert.deepEqual(panel.embeds[0].fields.map(field => field.name),
-    ['🎁 Your prize', '🔑 How to claim', '⏱️ Important']);
+  assert.equal(panel.embeds[0].title, undefined);
+  assert.match(panel.embeds[0].description, /\*\*Prize details\*\*/);
+  assert.match(panel.embeds[0].description, /\*\*How to claim\*\*/);
+  assert.equal(panel.embeds[0].color, 0xFFFFFF);
   assert.deepEqual(panel.components[0].toJSON().components.map(button => button.label), ['Take code']);
   assert.equal(w.records.get(KEY)[CLAIM_ID].panelMessageId, panel.id);
 });
