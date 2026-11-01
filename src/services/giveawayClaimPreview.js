@@ -65,7 +65,7 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
   const text = (name, fallback) => giveaway?.[name]?.trim() || fallback;
   return {
     description: CLAIM_INTRO_ICON + ' ' + text('claimIntroduction', DEFAULT_CLAIM_INTRODUCTION)
-      + '\n\n' + CLAIM_PRIZE_ICON + ' **' + String(giveaway?.prize || 'Your prize').replaceAll('*', '') + '**'
+      + '\n\n' + (icons.gift || CLAIM_PRIZE_ICON) + ' **' + String(giveaway?.prize || 'Your prize').replaceAll('*', '') + '**'
       + '\n\n' + DEFAULT_CLAIM_PRIZE_NOTICE
       + '\n\n' + icons.info + ' **Prize conditions**\n'
       + text('claimConditions', DEFAULT_CLAIM_CONDITIONS)
