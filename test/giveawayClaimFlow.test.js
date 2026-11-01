@@ -107,7 +107,8 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.equal(w.sent[0].embeds[0].title, 'Your giveaway prize');
   assert.match(w.sent[0].embeds[0].description, /valid for six months/);
   assert.match(w.sent[0].embeds[0].description, /Press Take code/);
-  assert.match(w.sent[0].embeds[0].description, /close 24 hours after you reveal/);
+  assert.match(w.sent[0].embeds[0].description, /Prize-code delivery is not yet enabled/);
+  assert.equal(w.sent[0].components[0].toJSON().components[0].disabled, true);
   const repeat = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(repeat, w.client);
   assert.equal(w.created.length, 1);
