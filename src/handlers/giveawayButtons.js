@@ -197,6 +197,7 @@ export function giveawayClaimEditModal(messageId, giveaway) {
                 giveaway.claim || 'Click Claim to open your private prize channel.', 500),
             field('claimPanelTitle', 'Private claim heading', giveaway.claimPanelTitle || DEFAULT_CLAIM_HEADING, 150),
             field('claimDemoCode', 'Demo code (not redeemable)', displayDemoClaimCode(giveaway, giveaway.hostId), 32),
+            field('claimDetails', 'Prize details', giveaway.claimDetails, 1000),
             field('claimExpiryInstructions', 'Important', giveaway.claimExpiryInstructions || DEFAULT_CLAIM_IMPORTANT, 500),
         );
 }
@@ -311,6 +312,7 @@ export const giveawayClaimModalHandler = {
                 claim: interaction.fields.getTextInputValue('claim'),
                 claimPanelTitle: interaction.fields.getTextInputValue('claimPanelTitle'),
                 claimDemoCode: interaction.fields.getTextInputValue('claimDemoCode'),
+                claimDetails: interaction.fields.getTextInputValue('claimDetails'),
                 claimExpiryInstructions: interaction.fields.getTextInputValue('claimExpiryInstructions'),
             });
             return notice(interaction, successEmbed('Success', 'Winner claim instructions were updated.'));
