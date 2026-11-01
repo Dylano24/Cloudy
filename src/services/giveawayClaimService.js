@@ -73,7 +73,9 @@ async function saveClaim(client, guildId, record) {
 function claimPanel(giveaway, userId) {
   const codesAvailable = Boolean(secretKey());
   const details = giveaway.claimDetails || 'You have won **' + giveaway.prize + '**. Review the prize terms before using your code.';
-  const instructions = giveaway.claimCodeInstructions || 'Press **Take code** below when you are ready to view your prize code.';
+  const instructions = giveaway.claimCodeInstructions || (codesAvailable
+    ? 'Press **Take code** below when you are ready to view your prize code.'
+    : 'Staff will provide further instructions in this private claim channel.');
   const expiry = codesAvailable
     ? (giveaway.claimExpiryInstructions || 'After you reveal your code, this private channel and its messages will be deleted automatically after 24 hours.')
     : 'Prize-code delivery is not yet enabled. Contact staff to arrange your prize.';
