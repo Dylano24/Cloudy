@@ -12,7 +12,6 @@ import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { buildPrivateClaimEmbed } from './giveawayClaimPreview.js';
-import { STAFF_REVIEWS_CHANNEL_ID } from './staffReviewsService.js';
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -84,7 +83,7 @@ export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
         new ButtonBuilder().setCustomId('gclaim:done:' + giveaway.messageId + ':' + userId)
           .setLabel('Prize taken').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setLabel('Rate us').setStyle(ButtonStyle.Link)
-          .setURL('https://discord.com/channels/' + giveaway.guildId + '/' + STAFF_REVIEWS_CHANNEL_ID),
+          .setURL('https://discord.com/channels/' + giveaway.guildId + '/1554538609330225225'),
       ),
     ],
     allowedMentions: { parse: [], users: [userId] },
