@@ -322,7 +322,9 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const builder = command.replies[0];
   assert.equal(builder.flags, 64);
   assert.match(builder.embeds[0].description, /Your prize/);
-  assert.match(builder.embeds[1].description, /<@staff> has won \*\*Your prize\*\*!/);
+  assert.match(builder.embeds[1].description, /\*\*Congratulations on winning!\*\*/);
+  assert.match(builder.embeds[1].description, /Claim your code here/);
+  assert.match(builder.embeds[1].description, /DEMO-/);
   const controls = builder.components.map(json);
   const sessionId = controls[2].components[0].custom_id.split(':')[2];
   assert.deepEqual(controls.slice(2).map(row => row.components.map(component => [component.label, component.style])), [
@@ -350,7 +352,8 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const textForm = click(`gbuilder:textform:${sessionId}`, { fields: { getTextInputValue: name => texts[name] } });
   await handleGiveawayBuilderInteraction(textForm, w.client);
   assert.match(textForm.updated.embeds[0].description, /\*\*1 month vip\*\*/);
-  assert.match(textForm.updated.embeds[1].description, /<@staff> has won \*\*1 month vip\*\*!/);
+  assert.match(textForm.updated.embeds[1].description, /Claim your code here/);
+  assert.doesNotMatch(textForm.updated.embeds[1].description, /1 month vip|<@staff>/);
   assert.equal(json(textForm.updated.components[3]).components[1].disabled, false);
   const claimForm = click(`gbuilder:claimform:${sessionId}`, { fields: { getTextInputValue: () => 'DM the owner.' } });
   await handleGiveawayBuilderInteraction(claimForm, w.client);
@@ -395,7 +398,8 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const reopen = Object.assign(w.interaction('staff', { staff: true }), { channelId: 'giveaways', guild: command.guild });
   await create.execute(reopen);
   assert.match(reopen.replies[0].embeds[0].description, /\*\*1 month vip\*\*/);
-  assert.match(reopen.replies[0].embeds[1].description, /<@staff> has won \*\*1 month vip\*\*!/);
+  assert.match(reopen.replies[0].embeds[1].description, /Claim your code here/);
+  assert.match(reopen.replies[0].embeds[1].description, /DEMO-DMTHEOWNER/);
   assert.match(reopen.replies[0].embeds[1].description, /DM the owner\./);
   assert.equal(json(reopen.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(json(reopen.replies[0].components[3]).components[1].disabled, false);
@@ -416,8 +420,9 @@ test('reopening builder previews the existing host giveaway text before template
   await create.execute(command);
   const [giveaway, winner] = command.replies[0].embeds;
   assert.match(giveaway.description, /\*\*Custom saved prize\*\*/);
-  assert.match(winner.description, /<@staff> has won \*\*Custom saved prize\*\*!/);
-  assert.match(winner.description, /Open the private winner ticket\./);
+  assert.match(winner.description, /Congratulations on winning!/);
+  assert.match(winner.description, /Claim your code here/);
+  assert.match(winner.description, /DEMO-/);
   assert.equal(command.replies[0].components.length, 4);
   assert.equal(json(command.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(w.sent.length, 0);
