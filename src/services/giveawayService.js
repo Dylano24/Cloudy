@@ -370,7 +370,7 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
                     .setCustomId(`gclaim:open:${giveaway.messageId}`)
                     .setLabel('Claim')
                     .setEmoji({ id: '1543303758912688230', name: 'W89gift' })
-                    .setStyle(ButtonStyle.Success),
+                    .setStyle(ButtonStyle.Secondary),
             )],
         } : {}),
         allowedMentions: { parse: [], users: winners },
