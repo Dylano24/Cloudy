@@ -49,6 +49,8 @@ const TEMPLATE_FIELDS = Object.freeze({
     claim: 500,
     claimDetails: 1000,
     claimCodeInstructions: 500,
+    claimPanelTitle: 150,
+    claimExpiryInstructions: 500,
 });
 const templateKey = (guildId, userId) => `guild:${guildId}:giveaway-builder:template:${userId}`;
 
@@ -112,6 +114,8 @@ export function newGiveawayDraft(channelId) {
         claim: null,
         claimDetails: null,
         claimCodeInstructions: null,
+        claimPanelTitle: null,
+        claimExpiryInstructions: null,
         durationText: '1d',
         durationMs: 86_400_000,
         winnerCount: 1,
@@ -219,10 +223,14 @@ export function giveawayClaimModal(session) {
         .addComponents(
             textInput('claim', 'Public claim instructions', TextInputStyle.Paragraph,
                 { value: session.draft.claim || DEFAULT_GIVEAWAY_CLAIM, maxLength: 500 }),
+            textInput('claimPanelTitle', 'Private claim title', TextInputStyle.Short,
+                { value: session.draft.claimPanelTitle || 'Congratulations!', maxLength: 150 }),
             textInput('claimDetails', 'Private prize description and terms', TextInputStyle.Paragraph,
                 { value: session.draft.claimDetails, placeholder: 'Example: Available for 6 months after activation.', maxLength: 1000 }),
             textInput('claimCodeInstructions', 'Private code instructions', TextInputStyle.Paragraph,
                 { value: session.draft.claimCodeInstructions, placeholder: 'Press Take code to reveal your prize code.', maxLength: 500 }),
+            textInput('claimExpiryInstructions', 'Private 24-hour explanation', TextInputStyle.Paragraph,
+                { value: session.draft.claimExpiryInstructions, placeholder: 'The private claim channel closes 24 hours after you view the code.', maxLength: 500 }),
         );
 }
 
@@ -376,6 +384,8 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             draft.claim = giveawayText(interaction.fields.getTextInputValue('claim'), 500);
             draft.claimDetails = giveawayText(interaction.fields.getTextInputValue('claimDetails'), 1000);
             draft.claimCodeInstructions = giveawayText(interaction.fields.getTextInputValue('claimCodeInstructions'), 500);
+            draft.claimPanelTitle = giveawayText(interaction.fields.getTextInputValue('claimPanelTitle'), 150);
+            draft.claimExpiryInstructions = giveawayText(interaction.fields.getTextInputValue('claimExpiryInstructions'), 500);
             saveText = true;
         } else if (action === 'timingform') {
             const durationText = interaction.fields.getTextInputValue('duration').trim();
