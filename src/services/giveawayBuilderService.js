@@ -12,6 +12,8 @@ import {
     TextInputStyle,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
+import { buildPrivateClaimEmbed, createDemoClaimCode, DEFAULT_CLAIM_HEADING, DEFAULT_CLAIM_IMPORTANT, normalizeDemoClaimCode } from './giveawayClaimPreview.js';
+import { currentGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { getGuildGiveaways } from '../utils/giveaways.js';
 import { successEmbed } from '../utils/embeds.js';
@@ -21,7 +23,6 @@ import { botConfig } from '../config/bot.js';
 import { logEvent, EVENT_TYPES } from './loggingService.js';
 import {
     createGiveawayEmbed,
-    createWinnerAnnouncement,
     DEFAULT_GIVEAWAY_CLAIM,
     DEFAULT_GIVEAWAY_DESCRIPTION,
     DEFAULT_GIVEAWAY_INTRO,
@@ -51,6 +52,7 @@ const TEMPLATE_FIELDS = Object.freeze({
     claimCodeInstructions: 500,
     claimPanelTitle: 150,
     claimExpiryInstructions: 500,
+    claimDemoCode: 32,
 });
 const templateKey = (guildId, userId) => `guild:${guildId}:giveaway-builder:template:${userId}`;
 
@@ -116,6 +118,7 @@ export function newGiveawayDraft(channelId) {
         claimCodeInstructions: null,
         claimPanelTitle: null,
         claimExpiryInstructions: null,
+        claimDemoCode: createDemoClaimCode(),
         durationText: '1d',
         durationMs: 86_400_000,
         winnerCount: 1,
@@ -141,13 +144,11 @@ export function renderGiveawayBuilder(session) {
         endsAt: Date.now() + draft.durationMs,
         participants: [],
     }, 'active');
-    // Preview the exact announcement a winner receives, without posting or
-    // pinging anyone. Edit claim updates draft.claim, so this preview and the
-    // eventual winner announcement use the same text and layout.
-    const winnerPreview = createWinnerAnnouncement(
-        { ...draft, prize: draft.prize || 'Your prize' },
-        [session.userId],
-    ).embeds[0];
+    // Use the same private claim embed as the winner's channel. The builder
+    // preview does not tag anyone or activate demo codes.
+    const winnerPreview = buildPrivateClaimEmbed(
+        { ...draft, messageId: 'preview' }, session.userId, currentGiveawayClaimIcons(),
+    );
 
     const channel = new ChannelSelectMenuBuilder()
         .setCustomId(id(session, 'channel'))
@@ -223,14 +224,12 @@ export function giveawayClaimModal(session) {
         .addComponents(
             textInput('claim', 'Public claim instructions', TextInputStyle.Paragraph,
                 { value: session.draft.claim || DEFAULT_GIVEAWAY_CLAIM, maxLength: 500 }),
-            textInput('claimPanelTitle', 'Private claim title', TextInputStyle.Short,
-                { value: session.draft.claimPanelTitle || 'Congratulations!', maxLength: 150 }),
-            textInput('claimDetails', 'Private prize description and terms', TextInputStyle.Paragraph,
-                { value: session.draft.claimDetails, placeholder: 'Example: Available for 6 months after activation.', maxLength: 1000 }),
-            textInput('claimCodeInstructions', 'Private code instructions', TextInputStyle.Paragraph,
-                { value: session.draft.claimCodeInstructions, placeholder: 'Press Take code to reveal your prize code.', maxLength: 500 }),
-            textInput('claimExpiryInstructions', 'Private 24-hour explanation', TextInputStyle.Paragraph,
-                { value: session.draft.claimExpiryInstructions, placeholder: 'The private claim channel closes 24 hours after you view the code.', maxLength: 500 }),
+            textInput('claimPanelTitle', 'Private claim heading', TextInputStyle.Short,
+                { value: session.draft.claimPanelTitle || DEFAULT_CLAIM_HEADING, maxLength: 150 }),
+            textInput('claimDemoCode', 'Demo code (not redeemable)', TextInputStyle.Short,
+                { value: session.draft.claimDemoCode, maxLength: 32 }),
+            textInput('claimExpiryInstructions', 'Important', TextInputStyle.Paragraph,
+                { value: session.draft.claimExpiryInstructions || DEFAULT_CLAIM_IMPORTANT, maxLength: 500 }),
         );
 }
 
@@ -382,9 +381,9 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             saveText = true;
         } else if (action === 'claimform') {
             draft.claim = giveawayText(interaction.fields.getTextInputValue('claim'), 500);
-            draft.claimDetails = giveawayText(interaction.fields.getTextInputValue('claimDetails'), 1000);
-            draft.claimCodeInstructions = giveawayText(interaction.fields.getTextInputValue('claimCodeInstructions'), 500);
             draft.claimPanelTitle = giveawayText(interaction.fields.getTextInputValue('claimPanelTitle'), 150);
+            draft.claimDemoCode = normalizeDemoClaimCode(interaction.fields.getTextInputValue('claimDemoCode'))
+                || draft.claimDemoCode;
             draft.claimExpiryInstructions = giveawayText(interaction.fields.getTextInputValue('claimExpiryInstructions'), 500);
             saveText = true;
         } else if (action === 'timingform') {
