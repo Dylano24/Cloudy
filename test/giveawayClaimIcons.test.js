@@ -15,7 +15,12 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
         create: async ({ name, attachment }) => {
           assert.equal(Buffer.isBuffer(attachment), true);
           assert.deepEqual([...attachment.subarray(0, 8)], [137,80,78,71,13,10,26,10]);
-          assert.match(name, /^cloudy_claim_(gift|info|key|clock|check)_white_sm2$|^cloudy_claim_star_white_sm3$|^cloudy_claim_warning_white_sm1$/);
+          if (name === 'cloudy_claim_gift_white_sm4') {
+            assert.equal(attachment.readUInt32BE(16), 40);
+            assert.equal(attachment.readUInt32BE(20), 40);
+            assert.ok(attachment.length < 10_000);
+          }
+          assert.match(name, /^cloudy_claim_(info|key|clock|check)_white_sm2$|^cloudy_claim_gift_white_sm4$|^cloudy_claim_star_white_sm3$|^cloudy_claim_warning_white_sm1$/);
           const emoji = { name, id: String(155500000000000000n + BigInt(created.length)) };
           items.set(emoji.id, emoji);
           created.push(emoji);
@@ -29,13 +34,14 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.equal(fetches, 1);
   assert.deepEqual(Object.keys(icons), ['gift', 'info', 'key', 'clock', 'star', 'check', 'warning']);
   for (const icon of Object.values(icons)) {
-    assert.match(icon, /^<:cloudy_claim_(?:gift|info|key|clock|check)_white_sm2:\d+>$|^<:cloudy_claim_star_white_sm3:\d+>$|^<:cloudy_claim_warning_white_sm1:\d+>$/);
+    assert.match(icon, /^<:cloudy_claim_(?:info|key|clock|check)_white_sm2:\d+>$|^<:cloudy_claim_gift_white_sm4:\d+>$|^<:cloudy_claim_star_white_sm3:\d+>$|^<:cloudy_claim_warning_white_sm1:\d+>$/);
   }
   assert.deepEqual(await getGiveawayClaimIcons(client), icons);
   assert.equal(fetches, 1);
   assert.match(icons.star, /cloudy_claim_star_white_sm3/);
   assert.match(icons.clock, /cloudy_claim_clock_white_sm2/);
   assert.match(icons.warning, /cloudy_claim_warning_white_sm1/);
+  assert.match(icons.gift, /cloudy_claim_gift_white_sm4/);
 
   const panel = claimPanel({ messageId: '123', guildId: 'test-guild', prize: 'PlayStation Store gift card' }, '456', icons);
   const embed = panel.embeds[0];
@@ -50,7 +56,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /Please note/);
   assert.match(embed.description, /You can also close this channel yourself using the \*\*Close\*\* button below\./);
   assert.match(embed.description, /24 hours/);
-  assert.match(embed.description, /<:gift_icon_white:1566400796348649492>/);
+  assert.ok(embed.description.includes(icons.gift + ' **PlayStation Store gift card**'));
   assert.match(embed.description, /PlayStation Store gift card/);
   assert.match(embed.description, /satisfied with your experience/);
   assert.match(embed.description, /\[staff reviews\]\(https:\/\/discord\.com\/channels\/test-guild\/1554538609330225225\)/);
