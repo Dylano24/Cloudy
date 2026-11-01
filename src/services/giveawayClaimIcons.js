@@ -17,6 +17,11 @@ export const DEFAULT_CLAIM_ICONS = Object.freeze({
 let cachedIcons = null;
 let pendingIcons = null;
 
+// Synchronous reader for the existing Giveaway builder preview.
+export function currentGiveawayClaimIcons() {
+  return cachedIcons || DEFAULT_CLAIM_ICONS;
+}
+
 // The application-emoji upload path follows the same pattern as
 // termsIconService, and runs once per process (not per winner).
 export async function getGiveawayClaimIcons(client) {

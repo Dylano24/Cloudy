@@ -11,6 +11,8 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
+import { buildPrivateClaimEmbed } from './giveawayClaimPreview.js';
+import { STAFF_REVIEWS_CHANNEL_ID } from './staffReviewsService.js';
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -72,38 +74,17 @@ async function saveClaim(client, guildId, record) {
 }
 
 export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
-  const codesAvailable = Boolean(secretKey());
-  const details = giveaway.claimDetails
-    || (/\b6\s*(?:months?|mo)\b/i.test(giveaway.prize || '')
-      ? 'This prize is valid for 6 months after activation. Additional terms may apply depending on the reward.'
-      : 'Additional terms may apply depending on the reward. Cloudy staff will confirm any prize-specific details.');
-  const instructions = giveaway.claimCodeInstructions
-    || 'Once your code is available, click **Take code** to reveal your private activation code. Keep it secure.';
-  const expiry = giveaway.claimExpiryInstructions
-    || 'After your code is revealed, this private channel will be automatically deleted after **24 hours**. Make sure to copy or screenshot your code before then.';
-  const customTitle = giveaway.claimPanelTitle?.trim();
-  const extraTitle = customTitle && !/^(?:🎁\s*)?Congratulations!$/i.test(customTitle)
-    ? '**' + customTitle + '**\n\n'
-    : '';
-
+  // Demo codes are visible only as Discord spoilers; the real-code take flow
+  // stays unavailable in this panel. A spoiler tap is not observable by bots.
   return {
     content: '<@' + userId + '>',
-    embeds: [{
-      description: extraTitle
-        + '<@' + userId + '>, congratulations on winning **' + giveaway.prize + '**!\n\n'
-        + icons.gift + ' **Your prize**\n\n'
-        + 'Your prize is ready to be claimed. Please review the details below before proceeding.\n\n'
-        + icons.info + ' **Prize details**\n\n' + details + '\n\n'
-        + icons.key + ' **How to claim**\n\n' + instructions + '\n\n'
-        + icons.clock + ' **Important**\n\n' + expiry,
-      color: WHITE,
-      thumbnail: { url: CLOUDY_C_LOGO_URL },
-      footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
-    }],
+    embeds: [buildPrivateClaimEmbed(giveaway, userId, icons)],
     components: [
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('gclaim:take:' + giveaway.messageId + ':' + userId)
-          .setLabel('Take code').setStyle(ButtonStyle.Secondary).setDisabled(!codesAvailable),
+        new ButtonBuilder().setCustomId('gclaim:done:' + giveaway.messageId + ':' + userId)
+          .setLabel('Prize taken').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setLabel('Rate us').setStyle(ButtonStyle.Link)
+          .setURL('https://discord.com/channels/' + giveaway.guildId + '/' + STAFF_REVIEWS_CHANNEL_ID),
       ),
     ],
     allowedMentions: { parse: [], users: [userId] },
@@ -152,7 +133,8 @@ async function openClaim(interaction, client, messageId) {
     });
     const record = {
       messageId, userId, channelId: channel.id, createdAt: new Date().toISOString(),
-      revealedAt: null, expiresAt: null, encryptedCode: null, closedAt: null,
+      revealedAt: null, expiresAt: new Date(Date.now() + CLAIM_LIFETIME_MS).toISOString(),
+      encryptedCode: null, closedAt: null,
     };
     try {
       await saveClaim(client, guild.id, record);
@@ -164,6 +146,33 @@ async function openClaim(interaction, client, messageId) {
       throw error;
     }
     return notice(interaction, 'Your private claim channel is ready: ' + claimLink(guild.id, channel.id));
+  });
+}
+
+async function finishClaim(interaction, client, messageId, userId) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (interaction.user.id !== userId) {
+    return notice(interaction, 'Only the winner can close their prize claim.');
+  }
+  return Mutex.runExclusive('gclaim-take:' + interaction.guildId + ':' + messageId + ':' + userId, async () => {
+    const record = await findClaim(client, interaction.guildId, messageId, userId);
+    if (!record || record.channelId !== interaction.channelId || record.closedAt) {
+      return notice(interaction, 'This claim channel is no longer active.');
+    }
+    if (!interaction.channel?.delete) {
+      return notice(interaction, 'The claim channel could not be closed. Please contact staff.');
+    }
+    // Save state before deletion to prevent double processing if the interaction
+    // is repeated. If Discord rejects the deletion, undo that state for retry.
+    const closed = { ...record, closedAt: new Date().toISOString(), encryptedCode: null };
+    await saveClaim(client, interaction.guildId, closed);
+    try {
+      await interaction.channel.delete('Winner selected Prize taken');
+    } catch (error) {
+      await saveClaim(client, interaction.guildId, record);
+      throw error;
+    }
+    return notice(interaction, 'Your prize claim has been closed. Thank you!').catch(() => {});
   });
 }
 
@@ -251,6 +260,7 @@ export async function handleGiveawayClaimInteraction(interaction, client) {
       return interaction.reply({ content: 'Prize claiming is available only in the server.', flags: MessageFlags.Ephemeral });
     }
     if (action === 'open' && messageId) return await openClaim(interaction, client, messageId);
+    if (action === 'done' && messageId && userId) return await finishClaim(interaction, client, messageId, userId);
     if (action === 'take' && messageId && userId) return await takeCode(interaction, client, messageId, userId);
     if (action === 'setup' && messageId && userId) return await showCodeModal(interaction, client, messageId, userId);
     if (action === 'save' && messageId && userId && interaction.isModalSubmit()) {
@@ -307,10 +317,14 @@ export async function refreshExistingClaimPanels(client) {
       try {
         const channel = await guild.channels.fetch(record.channelId).catch(() => null);
         if (!channel?.messages?.fetch) continue;
-        const expectedId = 'gclaim:take:' + record.messageId + ':' + record.userId;
+        const expectedIds = [
+          'gclaim:take:' + record.messageId + ':' + record.userId,
+          'gclaim:done:' + record.messageId + ':' + record.userId,
+        ];
         const isPanel = message => Boolean(message?.author?.id === client.user?.id
-          && message.components?.some(row => row.components?.some(button =>
-            (button.customId || button.custom_id || button.data?.custom_id) === expectedId)));
+          && (message.id === record.panelMessageId || message.components?.some(row =>
+            row.components?.some(button =>
+              expectedIds.includes(button.customId || button.custom_id || button.data?.custom_id)))));
         let message = record.panelMessageId
           ? await channel.messages.fetch(record.panelMessageId).catch(() => null)
           : null;
@@ -321,14 +335,23 @@ export async function refreshExistingClaimPanels(client) {
         if (!isPanel(message)) continue;
         const giveaway = await loadGiveaway(client, guild.id, record.messageId);
         if (!giveaway) continue;
-        const panel = claimPanel(giveaway, record.userId, await getGiveawayClaimIcons(client));
+        // Existing channels created before the demo spoiler change must also
+        // expire 24 hours after opening; never extend an existing deadline.
+        let updatedRecord = record;
+        if (!record.expiresAt) {
+          const started = Date.parse(record.createdAt);
+          const deadline = new Date((Number.isFinite(started) ? started : Date.now()) + CLAIM_LIFETIME_MS).toISOString();
+          updatedRecord = { ...record, expiresAt: deadline };
+          await saveClaim(client, guild.id, updatedRecord);
+        }
+        const panel = claimPanel({ ...giveaway, guildId: guild.id }, record.userId, await getGiveawayClaimIcons(client));
         await message.edit({
           embeds: panel.embeds,
           components: panel.components,
           allowedMentions: { parse: [] },
         });
         if (record.panelMessageId !== message.id) {
-          await saveClaim(client, guild.id, { ...record, panelMessageId: message.id });
+          await saveClaim(client, guild.id, { ...updatedRecord, panelMessageId: message.id });
         }
       } catch (error) {
         logger.warn('Could not update giveaway claim panel ' + record.channelId, error);

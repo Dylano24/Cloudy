@@ -109,26 +109,21 @@ test('only the winner opens exactly one private claim channel', async () => {
   const claimEmbed = w.sent[0].embeds[0];
   assert.equal(claimEmbed.title, undefined);
   assert.equal(claimEmbed.color, 0xFFFFFF);
-  assert.match(claimEmbed.description, /<@156000000000000003>, congratulations on winning/);
-  const parts = ['Your prize', 'Prize details', 'How to claim', 'Important'];
-  let previous = 0;
-  for (const part of parts) {
-    const at = claimEmbed.description.indexOf('**' + part + '**');
-    assert.ok(at > previous, part + ' must occur in order');
-    previous = at;
-  }
-  assert.match(claimEmbed.description, /Your prize is ready to be claimed/);
-  assert.match(claimEmbed.description, /valid for six months/);
-  assert.match(claimEmbed.description, /Press Take code/);
-  assert.match(claimEmbed.description, /close 24 hours after you reveal/);
-  assert.doesNotMatch(claimEmbed.description, /🎁 Your prize|🔑 How to claim|⏱️ Important/);
+  assert.match(claimEmbed.description, /Congratulations on winning!/);
+  assert.match(claimEmbed.description, /Claim your code here/);
+  assert.match(claimEmbed.description, /\\|\\|DEMO-[A-Z0-9-]+\\|\\|/);
+  assert.match(claimEmbed.description, /Prize details/);
+  assert.match(claimEmbed.description, /Important/);
+  assert.match(claimEmbed.description, /Your review/);
+  assert.doesNotMatch(claimEmbed.description, /Your prize|How to claim/);
   assert.equal(claimEmbed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(claimEmbed.thumbnail.url);
-  const panelButtons = w.sent[0].components[0].toJSON().components;
-  assert.equal(panelButtons.length, 1);
-  assert.equal(panelButtons[0].label, 'Take code');
-  assert.equal(panelButtons[0].style, 2);
-  assert.equal(panelButtons[0].disabled, true);
+  const claimButtons = w.sent[0].components[0].toJSON().components;
+  assert.deepEqual(claimButtons.map(button => button.label), ['Prize taken', 'Rate us']);
+  assert.equal(claimButtons[0].style, 2);
+  assert.equal(claimButtons[1].style, 5);
+  assert.match(claimButtons[1].url, /1533965979682476082/);
+  assert.ok(Date.parse(w.records.get(KEY)[CLAIM_ID].expiresAt) >= Date.now());
   const repeat = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(repeat, w.client);
   assert.equal(w.created.length, 1);
@@ -166,11 +161,41 @@ test('existing claim panel is edited in place on restart and Staff Set code disa
   assert.equal(w.sent.length, 1);
   assert.equal(panel.content, originalContent);
   assert.equal(panel.embeds[0].title, undefined);
-  assert.match(panel.embeds[0].description, /\*\*Prize details\*\*/);
-  assert.match(panel.embeds[0].description, /\*\*How to claim\*\*/);
+  assert.match(panel.embeds[0].description, /Claim your code here/);
   assert.equal(panel.embeds[0].color, 0xFFFFFF);
-  assert.deepEqual(panel.components[0].toJSON().components.map(button => button.label), ['Take code']);
+  assert.deepEqual(panel.components[0].toJSON().components.map(button => button.label), ['Prize taken', 'Rate us']);
   assert.equal(w.records.get(KEY)[CLAIM_ID].panelMessageId, panel.id);
+  assert.ok(w.records.get(KEY)[CLAIM_ID].expiresAt);
+});
+
+test('Prize taken closes only the winner claim and never reopens it', async () => {
+  const w = world();
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+  const denied = w.interaction('gclaim:done:' + CLAIM_ID, OWNER, { channel });
+  await handleGiveawayClaimInteraction(denied, w.client);
+  assert.match(denied.response.content, /Only the winner/);
+  assert.equal(channel.deleted, false);
+  const taken = w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(taken, w.client);
+  assert.equal(channel.deleted, true);
+  assert.ok(w.records.get(KEY)[CLAIM_ID].closedAt);
+  assert.equal(w.records.get(KEY)[CLAIM_ID].encryptedCode, null);
+  const retry = w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(retry, w.client);
+  assert.match(retry.response.content, /no longer active/);
+});
+
+test('Unclaimed demo channel expires after 24h even without a spoiler tap', async () => {
+  const w = world();
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const record = w.records.get(KEY)[CLAIM_ID];
+  assert.ok(record.expiresAt);
+  record.expiresAt = new Date(Date.now() - 3000).toISOString();
+  await w.client.db.set(KEY, w.records.get(KEY));
+  await cleanupExpiredGiveawayClaims(w.client);
+  assert.equal(w.created[0].channel.deleted, true);
+  assert.ok(w.records.get(KEY)[CLAIM_ID].closedAt);
 });
 
 test('code stays encrypted; only winner reveals; cleanup starts 24h after reveal', async t => {
@@ -186,7 +211,7 @@ test('code stays encrypted; only winner reveals; cleanup starts 24h after reveal
   const noCode = w.interaction('gclaim:take:' + CLAIM_ID, WINNER, { channel });
   await handleGiveawayClaimInteraction(noCode, w.client);
   assert.match(noCode.response.content, /not ready/);
-  assert.equal(w.records.get(KEY)[CLAIM_ID].expiresAt, null);
+  assert.ok(Date.parse(w.records.get(KEY)[CLAIM_ID].expiresAt) > Date.now());
 
   const setup = w.interaction('gclaim:setup:' + CLAIM_ID, OWNER, { channel });
   await handleGiveawayClaimInteraction(setup, w.client);
@@ -198,7 +223,7 @@ test('code stays encrypted; only winner reveals; cleanup starts 24h after reveal
   assert.match(save.response.content, /stored securely/);
   assert.ok(w.records.get(KEY)[CLAIM_ID].encryptedCode);
   assert.doesNotMatch(JSON.stringify(w.records.get(KEY)), /SUPER-SECRET-REDEEM-CODE/);
-  assert.equal(w.records.get(KEY)[CLAIM_ID].expiresAt, null);
+  assert.ok(Date.parse(w.records.get(KEY)[CLAIM_ID].expiresAt) > Date.now());
 
   const unauthorized = w.interaction('gclaim:take:' + CLAIM_ID, OWNER, { channel });
   await handleGiveawayClaimInteraction(unauthorized, w.client);
