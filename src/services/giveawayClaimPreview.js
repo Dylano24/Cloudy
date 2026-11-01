@@ -58,7 +58,7 @@ export function buildPrivateClaimEmbed(giveaway, userId, icons = DEFAULT_CLAIM_I
       + descriptionForPrize(giveaway)
       + '\n\n' + icons.clock + ' **Important**\n'
       + important
-      + '\n\n' + '<:W84starwhite:1543289625035022346> **Your review**\n'
+      + '\n\n' + (icons.star ? icons.star + ' ' : '') + '**Your review**\n'
       + DEFAULT_CLAIM_REVIEW,
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
