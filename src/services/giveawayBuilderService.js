@@ -19,6 +19,7 @@ import { botConfig } from '../config/bot.js';
 import { logEvent, EVENT_TYPES } from './loggingService.js';
 import {
     createGiveawayEmbed,
+    createWinnerAnnouncement,
     DEFAULT_GIVEAWAY_CLAIM,
     DEFAULT_GIVEAWAY_DESCRIPTION,
     DEFAULT_GIVEAWAY_INTRO,
@@ -81,20 +82,13 @@ export function renderGiveawayBuilder(session) {
         endsAt: Date.now() + draft.durationMs,
         participants: [],
     }, 'active');
-    const settings = {
-        title: 'Giveaway builder',
-        description: draft.prize
-            ? 'The giveaway above is a preview. Change it with the controls below, then press **Post giveaway**.'
-            : 'Start with **Edit text** to set the prize. The giveaway above is a preview.',
-        fields: [
-            { name: 'Channel', value: draft.channelId ? `<#${draft.channelId}>` : 'Not chosen', inline: true },
-            { name: 'Tag', value: pingLabel(draft.ping), inline: true },
-            { name: 'Duration', value: draft.durationText, inline: true },
-            { name: 'Winners', value: String(draft.winnerCount), inline: true },
-            { name: 'How winners claim the prize', value: draft.claim || DEFAULT_GIVEAWAY_CLAIM, inline: false },
-        ],
-        color: 0xFFFFFF,
-    };
+    // Preview the exact announcement a winner receives, without posting or
+    // pinging anyone. Edit claim updates draft.claim, so this preview and the
+    // eventual winner announcement use the same text and layout.
+    const winnerPreview = createWinnerAnnouncement(
+        { ...draft, prize: draft.prize || 'Your prize' },
+        [session.userId],
+    ).embeds[0];
 
     const channel = new ChannelSelectMenuBuilder()
         .setCustomId(id(session, 'channel'))
@@ -121,7 +115,7 @@ export function renderGiveawayBuilder(session) {
     if (draft.ping.type === 'role' && draft.ping.roleId) role.setDefaultRoles(draft.ping.roleId);
 
     return {
-        embeds: [preview, settings],
+        embeds: [preview, winnerPreview],
         components: [
             new ActionRowBuilder().addComponents(pingType),
             new ActionRowBuilder().addComponents(channel),
