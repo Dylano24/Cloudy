@@ -71,10 +71,12 @@ async function saveClaim(client, guildId, record) {
 }
 
 function claimPanel(giveaway, userId) {
+  const codesAvailable = Boolean(secretKey());
   const details = giveaway.claimDetails || 'You have won **' + giveaway.prize + '**. Review the prize terms before using your code.';
   const instructions = giveaway.claimCodeInstructions || 'Press **Take code** below when you are ready to view your prize code.';
-  const expiry = giveaway.claimExpiryInstructions
-    || 'After you reveal your code, this private channel and its messages will be deleted automatically after 24 hours.';
+  const expiry = codesAvailable
+    ? (giveaway.claimExpiryInstructions || 'After you reveal your code, this private channel and its messages will be deleted automatically after 24 hours.')
+    : 'Prize-code delivery is not yet enabled. Contact staff to arrange your prize.';
   return {
     content: '<@' + userId + '>',
     embeds: [{
@@ -87,9 +89,9 @@ function claimPanel(giveaway, userId) {
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('gclaim:take:' + giveaway.messageId + ':' + userId)
-          .setLabel('Take code').setStyle(ButtonStyle.Success),
+          .setLabel('Take code').setStyle(ButtonStyle.Success).setDisabled(!codesAvailable),
         new ButtonBuilder().setCustomId('gclaim:setup:' + giveaway.messageId + ':' + userId)
-          .setLabel('Staff: Set code').setStyle(ButtonStyle.Secondary),
+          .setLabel('Staff: Set code').setStyle(ButtonStyle.Secondary).setDisabled(!codesAvailable),
       ),
     ],
     allowedMentions: { parse: [], users: [userId] },
