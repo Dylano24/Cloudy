@@ -211,17 +211,13 @@ async function revealClaimCode(interaction, client, messageId, userId) {
       if (!record.revealedAt) {
         await saveClaim(client, interaction.guildId, { ...record, revealedAt: new Date().toISOString() });
       }
-      return notice(interaction,
-        'Your activation code:\n||' + code.replaceAll('|', '\\|') + '||\n'
-        + 'Copy or screenshot this code before this channel closes.');
+      return notice(interaction, code);
     }
 
     const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
     if (!giveaway) return notice(interaction, 'The giveaway could not be found.');
     const demo = displayDemoClaimCode(giveaway, userId);
-    return notice(interaction,
-      'Demo code (not redeemable):\n||' + demo + '||\n'
-      + 'This is a test code, not a real PlayStation activation code.');
+    return notice(interaction, demo);
   });
 }
 
