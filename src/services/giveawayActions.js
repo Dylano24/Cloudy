@@ -159,6 +159,8 @@ export async function postGiveaway(client, guild, channel, draft) {
         claim: giveawayText(draft.claim, 500),
         claimDetails: giveawayText(draft.claimDetails, 1000),
         claimCodeInstructions: giveawayText(draft.claimCodeInstructions, 500),
+        claimPanelTitle: giveawayText(draft.claimPanelTitle, 150),
+        claimExpiryInstructions: giveawayText(draft.claimExpiryInstructions, 500),
         pingRoleId: draft.ping?.type === 'role' ? draft.ping.roleId : null,
         pingEveryone: draft.ping?.type === 'everyone',
         hostId: draft.hostId,
@@ -297,8 +299,10 @@ export async function setGiveawayText(client, guild, messageId, fields) {
             ...(fields.claim !== undefined ? { claim: giveawayText(fields.claim, 500) } : {}),
             ...(fields.claimDetails !== undefined ? { claimDetails: giveawayText(fields.claimDetails, 1000) } : {}),
             ...(fields.claimCodeInstructions !== undefined ? { claimCodeInstructions: giveawayText(fields.claimCodeInstructions, 500) } : {}),
+            ...(fields.claimPanelTitle !== undefined ? { claimPanelTitle: giveawayText(fields.claimPanelTitle, 150) } : {}),
+            ...(fields.claimExpiryInstructions !== undefined ? { claimExpiryInstructions: giveawayText(fields.claimExpiryInstructions, 500) } : {}),
         };
-        if (['prize', 'introTitle', 'closingText', 'description', 'requirements', 'claim', 'claimDetails', 'claimCodeInstructions'].every(key => updated[key] === giveaway[key])) {
+        if (['prize', 'introTitle', 'closingText', 'description', 'requirements', 'claim', 'claimDetails', 'claimCodeInstructions', 'claimPanelTitle', 'claimExpiryInstructions'].every(key => updated[key] === giveaway[key])) {
             return updated;
         }
         const channel = await fetchGiveawayChannel(client, guild, giveaway.channelId);
