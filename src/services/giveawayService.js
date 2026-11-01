@@ -357,13 +357,24 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
                 '',
                 `${tags} ${winners.length === 1 ? 'has' : 'have'} won **${giveaway.prize || 'the giveaway'}**!`,
                 '',
-                giveaway.claim || DEFAULT_GIVEAWAY_CLAIM,
+                giveaway.claim || (giveaway.messageId
+                    ? 'Click **Claim** below to open your private prize channel.'
+                    : DEFAULT_GIVEAWAY_CLAIM),
                 '',
                 DEFAULT_GIVEAWAY_FAILURE,
             ].join('\n'),
             color: GIVEAWAY_WHITE,
             thumbnail: { url: CLOUDY_C_LOGO_URL },
         }],
+        ...(giveaway.messageId && !giveaway.preview ? {
+            components: [new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`gclaim:open:${giveaway.messageId}`)
+                    .setLabel('Claim')
+                    .setEmoji({ id: '1543303758912688230', name: 'W89gift' })
+                    .setStyle(ButtonStyle.Success),
+            )],
+        } : {}),
         allowedMentions: { parse: [], users: winners },
     };
 }
