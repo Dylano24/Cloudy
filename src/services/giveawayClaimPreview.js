@@ -7,7 +7,7 @@ export const CLAIM_INTRO_ICON = '<:W90250885giveaway:1543303914152001536>';
 export const CLAIM_REVIEW_ICON = '<:W84starwhite:1543289625035022346>';
 export const CLAIM_WARNING_ICON = '<:W97warningwhite:1543290138707230730>';
 export const CLAIM_HEART_ICON = '<a:W79heart4:1543304318470324324>';
-export const CLAIM_PRIZE_ICON = '<:W89gift:1543303758912688230>';
+export const CLAIM_PRIZE_ICON = '<:gift_icon_white:1566400796348649492>';
 export const STAFF_REVIEWS_CHANNEL_ID = '1554538609330225225';
 export const DEFAULT_CLAIM_PRIZE_NOTICE = 'Please review the information below before collecting it.';
 
