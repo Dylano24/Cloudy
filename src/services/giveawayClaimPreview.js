@@ -65,7 +65,7 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
   const text = (name, fallback) => giveaway?.[name]?.trim() || fallback;
   return {
     description: CLAIM_INTRO_ICON + ' ' + text('claimIntroduction', DEFAULT_CLAIM_INTRODUCTION)
-      + '\n\n' + icons.gift + ' **' + String(giveaway?.prize || 'Your prize').replaceAll('*', '') + '**'
+      + '\n\n' + CLAIM_PRIZE_ICON + ' **' + String(giveaway?.prize || 'Your prize').replaceAll('*', '') + '**'
       + '\n\n' + DEFAULT_CLAIM_PRIZE_NOTICE
       + '\n\n' + icons.info + ' **Prize conditions**\n'
       + text('claimConditions', DEFAULT_CLAIM_CONDITIONS)
@@ -73,7 +73,7 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
       + text('claimHowToGet', DEFAULT_CLAIM_HOW_TO_GET)
       + '\n\n' + CLAIM_REVIEW_ICON + ' **Share your feedback**\n'
       + linkifyStaffReviews(tightenHeartGap(text('claimReview', DEFAULT_CLAIM_REVIEW)), giveaway?.guildId)
-      + '\n\n\n' + icons.warning + '  **Please note**\n'
+      + '\n\n\n' + icons.warning + ' **Please note**\n'
       + text('claimPleaseNote', DEFAULT_CLAIM_PLEASE_NOTE),
     color: 0xFFFFFF,
     footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
