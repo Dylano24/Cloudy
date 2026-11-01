@@ -47,6 +47,8 @@ const TEMPLATE_FIELDS = Object.freeze({
     requirements: 500,
     closingText: 300,
     claim: 500,
+    claimDetails: 1000,
+    claimCodeInstructions: 500,
 });
 const templateKey = (guildId, userId) => `guild:${guildId}:giveaway-builder:template:${userId}`;
 
@@ -108,6 +110,8 @@ export function newGiveawayDraft(channelId) {
         description: null,
         requirements: null,
         claim: null,
+        claimDetails: null,
+        claimCodeInstructions: null,
         durationText: '1d',
         durationMs: 86_400_000,
         winnerCount: 1,
@@ -212,8 +216,14 @@ export function giveawayClaimModal(session) {
     return new ModalBuilder()
         .setCustomId(id(session, 'claimform'))
         .setTitle('Winner claim instructions')
-        .addComponents(textInput('claim', 'How winners claim their prize', TextInputStyle.Paragraph,
-            { value: session.draft.claim || DEFAULT_GIVEAWAY_CLAIM, maxLength: 500 }));
+        .addComponents(
+            textInput('claim', 'Public claim instructions', TextInputStyle.Paragraph,
+                { value: session.draft.claim || DEFAULT_GIVEAWAY_CLAIM, maxLength: 500 }),
+            textInput('claimDetails', 'Private prize description and terms', TextInputStyle.Paragraph,
+                { value: session.draft.claimDetails, placeholder: 'Example: Available for 6 months after activation.', maxLength: 1000 }),
+            textInput('claimCodeInstructions', 'Private code instructions', TextInputStyle.Paragraph,
+                { value: session.draft.claimCodeInstructions, placeholder: 'Press Take code to reveal your prize code.', maxLength: 500 }),
+        );
 }
 
 export function giveawayTimingModal(session) {
@@ -364,6 +374,8 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             saveText = true;
         } else if (action === 'claimform') {
             draft.claim = giveawayText(interaction.fields.getTextInputValue('claim'), 500);
+            draft.claimDetails = giveawayText(interaction.fields.getTextInputValue('claimDetails'), 1000);
+            draft.claimCodeInstructions = giveawayText(interaction.fields.getTextInputValue('claimCodeInstructions'), 500);
             saveText = true;
         } else if (action === 'timingform') {
             const durationText = interaction.fields.getTextInputValue('duration').trim();
