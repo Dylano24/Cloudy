@@ -23,7 +23,6 @@ import { botConfig } from '../config/bot.js';
 import { logEvent, EVENT_TYPES } from './loggingService.js';
 import {
     createGiveawayEmbed,
-    DEFAULT_GIVEAWAY_CLAIM,
     DEFAULT_GIVEAWAY_DESCRIPTION,
     DEFAULT_GIVEAWAY_INTRO,
     DEFAULT_GIVEAWAY_CLOSING,
@@ -222,8 +221,6 @@ export function giveawayClaimModal(session) {
         .setCustomId(id(session, 'claimform'))
         .setTitle('Winner claim instructions')
         .addComponents(
-            textInput('claim', 'Public claim instructions', TextInputStyle.Paragraph,
-                { value: session.draft.claim || DEFAULT_GIVEAWAY_CLAIM, maxLength: 500 }),
             textInput('claimPanelTitle', 'Private claim heading', TextInputStyle.Short,
                 { value: session.draft.claimPanelTitle || DEFAULT_CLAIM_HEADING, maxLength: 150 }),
             textInput('claimDemoCode', 'Demo code (not redeemable)', TextInputStyle.Short,
@@ -382,7 +379,6 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             draft.closingText = value('closingText') || DEFAULT_GIVEAWAY_CLOSING;
             saveText = true;
         } else if (action === 'claimform') {
-            draft.claim = giveawayText(interaction.fields.getTextInputValue('claim'), 500);
             draft.claimPanelTitle = giveawayText(interaction.fields.getTextInputValue('claimPanelTitle'), 150);
             draft.claimDemoCode = normalizeDemoClaimCode(interaction.fields.getTextInputValue('claimDemoCode'))
                 || draft.claimDemoCode;

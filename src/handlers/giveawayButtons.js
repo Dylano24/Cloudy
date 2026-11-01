@@ -193,8 +193,6 @@ export function giveawayClaimEditModal(messageId, giveaway) {
         .setCustomId(`giveaway_claim:${messageId}`)
         .setTitle('Edit winner claim instructions')
         .addComponents(
-            field('claim', 'Public claim instructions',
-                giveaway.claim || 'Click Claim to open your private prize channel.', 500),
             field('claimPanelTitle', 'Private claim heading', giveaway.claimPanelTitle || DEFAULT_CLAIM_HEADING, 150),
             field('claimDemoCode', 'Demo code (not redeemable)', displayDemoClaimCode(giveaway, giveaway.hostId), 32),
             field('claimDetails', 'Prize details', giveaway.claimDetails, 1000),
@@ -309,7 +307,6 @@ export const giveawayClaimModalHandler = {
             }
             await deferPrivate(interaction);
             await setGiveawayText(client, interaction.guild, messageId, {
-                claim: interaction.fields.getTextInputValue('claim'),
                 claimPanelTitle: interaction.fields.getTextInputValue('claimPanelTitle'),
                 claimDemoCode: interaction.fields.getTextInputValue('claimDemoCode'),
                 claimDetails: interaction.fields.getTextInputValue('claimDetails'),
