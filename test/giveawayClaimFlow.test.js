@@ -126,6 +126,42 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.match(repeat.response.content, new RegExp(channel.id));
 });
 
+test('existing claim panel is edited in place on restart and Staff Set code disappears', async () => {
+  const w = world();
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+  const panel = w.sent[0];
+  const originalContent = panel.content;
+  panel.author = { id: 'cloudy-bot' };
+  panel.components = [{ components: [
+    { customId: 'gclaim:take:' + CLAIM_ID },
+    { customId: 'gclaim:setup:' + CLAIM_ID },
+  ] }];
+  let edited = 0;
+  panel.edit = async payload => {
+    edited += 1;
+    Object.assign(panel, payload);
+    return panel;
+  };
+  channel.messages = {
+    fetch: async arg => typeof arg === 'string'
+      ? (arg === panel.id ? panel : null)
+      : new Collection([[panel.id, panel]]),
+  };
+  const oldRecords = w.records.get(KEY);
+  delete oldRecords[CLAIM_ID].panelMessageId;
+  await w.client.db.set(KEY, oldRecords);
+  await refreshExistingClaimPanels(w.client);
+
+  assert.equal(edited, 1);
+  assert.equal(w.sent.length, 1);
+  assert.equal(panel.content, originalContent);
+  assert.deepEqual(panel.embeds[0].fields.map(field => field.name),
+    ['🎁 Your prize', '🔑 How to claim', '⏱️ Important']);
+  assert.deepEqual(panel.components[0].toJSON().components.map(button => button.label), ['Take code']);
+  assert.equal(w.records.get(KEY)[CLAIM_ID].panelMessageId, panel.id);
+});
+
 test('code stays encrypted; only winner reveals; cleanup starts 24h after reveal', async t => {
   const prior = process.env.GIVEAWAY_CLAIM_ENCRYPTION_KEY;
   process.env.GIVEAWAY_CLAIM_ENCRYPTION_KEY = '7'.repeat(64);
