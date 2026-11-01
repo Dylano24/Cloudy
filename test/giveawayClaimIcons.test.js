@@ -47,7 +47,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /Reveal my code/);
   assert.match(embed.description, /Share your feedback/);
   assert.match(embed.description, /Please note/);
-  assert.match(embed.description, /You can also \*\*close\*\* this channel yourself using the “Close” button below\./);
+  assert.match(embed.description, /You can also close this channel yourself using the \*\*“Close” button\*\* below\./);
   assert.match(embed.description, /24 hours/);
   assert.match(embed.description, /W89gift:1543303758912688230/);
   assert.match(embed.description, /PlayStation Store gift card/);
