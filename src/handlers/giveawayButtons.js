@@ -1,4 +1,5 @@
 import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { DEFAULT_CLAIM_HEADING, DEFAULT_CLAIM_IMPORTANT, displayDemoClaimCode } from '../services/giveawayClaimPreview.js';
 import { successEmbed, warningEmbed } from '../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { logger } from '../utils/logger.js';
@@ -194,10 +195,9 @@ export function giveawayClaimEditModal(messageId, giveaway) {
         .addComponents(
             field('claim', 'Public claim instructions',
                 giveaway.claim || 'Click Claim to open your private prize channel.', 500),
-            field('claimPanelTitle', 'Private claim title', giveaway.claimPanelTitle || 'Congratulations!', 150),
-            field('claimDetails', 'Private prize description and terms', giveaway.claimDetails, 1000),
-            field('claimCodeInstructions', 'Private code instructions', giveaway.claimCodeInstructions, 500),
-            field('claimExpiryInstructions', 'Private 24-hour explanation', giveaway.claimExpiryInstructions, 500),
+            field('claimPanelTitle', 'Private claim heading', giveaway.claimPanelTitle || DEFAULT_CLAIM_HEADING, 150),
+            field('claimDemoCode', 'Demo code (not redeemable)', displayDemoClaimCode(giveaway, giveaway.hostId), 32),
+            field('claimExpiryInstructions', 'Important', giveaway.claimExpiryInstructions || DEFAULT_CLAIM_IMPORTANT, 500),
         );
 }
 
@@ -310,8 +310,7 @@ export const giveawayClaimModalHandler = {
             await setGiveawayText(client, interaction.guild, messageId, {
                 claim: interaction.fields.getTextInputValue('claim'),
                 claimPanelTitle: interaction.fields.getTextInputValue('claimPanelTitle'),
-                claimDetails: interaction.fields.getTextInputValue('claimDetails'),
-                claimCodeInstructions: interaction.fields.getTextInputValue('claimCodeInstructions'),
+                claimDemoCode: interaction.fields.getTextInputValue('claimDemoCode'),
                 claimExpiryInstructions: interaction.fields.getTextInputValue('claimExpiryInstructions'),
             });
             return notice(interaction, successEmbed('Success', 'Winner claim instructions were updated.'));
