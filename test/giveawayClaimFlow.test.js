@@ -603,7 +603,7 @@ test('existing giveaway claim logs remove ID suffixes and recolor Close without 
     }).embeds[0];
     return {
       ...embed,
-      color: 0xFFFFFF,
+      color: event === 'closed' ? 0xFFFFFF : embed.color,
       fields: embed.fields.map(field => {
         if (field.name === 'Member') return { ...field, value: field.value + ' (\x60' + WINNER + '\x60)' };
         if (field.name === 'Private channel') return { ...field, value: field.value + ' (\x60' + originalChannel + '\x60)' };
