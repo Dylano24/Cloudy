@@ -137,12 +137,17 @@ export function buildStandardLogEmbed({
   author = null,
   timestamp = true,
   footer,
+  preserveRuntimeEmoji = false,
 }) {
   const embed = new EmbedBuilder();
   if (color != null) embed.setColor(color);
 
   if (title) embed.setTitle(title.slice(0, 256));
-  if (description) embed.setDescription(description);
+  // Cloudy's general EmbedBuilder patch intentionally strips pictographic
+  // Unicode from most bot embeds. For Message Delete/Edit logs only, retain
+  // the original message body, including emoji-only messages and ZWJ emoji.
+  // Applying the patch first would both lose content and throw on emoji-only.
+  if (description && !preserveRuntimeEmoji) embed.setDescription(description);
   if (thumbnail) embed.setThumbnail(thumbnail);
   if (image) embed.setImage(image);
   if (author?.name) {
@@ -153,14 +158,13 @@ export function buildStandardLogEmbed({
   }
 
   const combinedFields = [...inlineFields, ...fields];
-  if (combinedFields.length > 0) {
-    embed.addFields(
-      combinedFields.map((field) => ({
-        name: field.name.slice(0, 256),
-        value: String(field.value).slice(0, 1024),
-        inline: field.inline === true,
-      }))
-    );
+  const safeFields = combinedFields.map(field => ({
+    name: field.name.slice(0, 256),
+    value: String(field.value).slice(0, 1024),
+    inline: field.inline === true,
+  }));
+  if (safeFields.length > 0 && !preserveRuntimeEmoji) {
+    embed.addFields(safeFields);
   }
 
   if (timestamp) embed.setTimestamp();
@@ -172,6 +176,16 @@ export function buildStandardLogEmbed({
     });
   }
 
+  if (preserveRuntimeEmoji) {
+    // The constructor accepts already-validated embed data without invoking
+    // globally patched setDescription/addFields, preserving both Unicode and
+    // <:custom:id> / <a:animated:id> markup exactly as sent by the member.
+    return new EmbedBuilder({
+      ...embed.toJSON(),
+      ...(description ? { description: String(description).slice(0, 4096) } : {}),
+      ...(safeFields.length ? { fields: safeFields } : {}),
+    });
+  }
   return embed;
 }
 
