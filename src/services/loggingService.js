@@ -575,6 +575,7 @@ function createLogEmbed(guild, eventType, data) {
     author: data.author || null,
     timestamp: true,
     footer: data.footer || { text: guild.name, iconURL: guild.iconURL({ dynamic: true }) || undefined },
+    preserveRuntimeEmoji: eventType === EVENT_TYPES.MESSAGE_DELETE || eventType === EVENT_TYPES.MESSAGE_EDIT,
   });
 }
 
