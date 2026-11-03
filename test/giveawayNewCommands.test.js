@@ -61,7 +61,8 @@ test('final giveaway and announcement have the required copy', () => {
   assert.match(final.description, /Giveaway ended!/);
   assert.ok(final.description.includes('**Giveaway ended!**\n\nThank you to everyone who participated!'));
   assert.ok(!final.description.includes('Cloudy Inc. is giving you the chance to win something special!'));
-  assert.match(final.description, /The winner\(s\) have been announced and tagged below!/);
+  assert.match(final.description, /This giveaway has ended!/);
+  assert.doesNotMatch(final.description, /winner\(s\) have been announced/);
   const announcement = createWinnerAnnouncement(giveaway, ['555']);
   assert.match(announcement.embeds[0].description, /Congratulations!/);
   assert.ok(announcement.embeds[0].description.startsWith('<a:W89gift:1557507008284987442> **Congratulations!**\n\n<@555> has won **Yes**!'));

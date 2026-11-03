@@ -14,7 +14,7 @@ import {
 } from '../src/services/giveawayService.js';
 import {
   checkGiveaways, checkUnclaimedGiveawayWinners, finishGiveaway,
-  GIVEAWAY_WINNER_CLAIM_WINDOW_MS, loadGiveaway, refreshExistingGiveawayClaimInstructions,
+  GIVEAWAY_WINNER_CLAIM_WINDOW_MS, loadGiveaway, refreshExistingGiveawayClaimInstructions, refreshEndedGiveawayClosingCopy,
 } from '../src/services/giveawayActions.js';
 import buttons from '../src/interactions/buttons/giveaway/giveaway.js';
 import timerModal from '../src/interactions/modals/giveawayTimer.js';
@@ -111,9 +111,44 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   const ended = createGiveawayEmbed(activeGiveaway({ endedAt: new Date(1_800_000_000_000).toISOString() }), 'ended', ['a', 'b']);
   assert.match(ended.description, /\*\*Winners\*\*\n<@a>, <@b>\n/);
   assert.ok(ended.description.includes('Thank you to everyone who participated!'));
-  assert.ok(ended.description.includes('The winner(s) have been announced and tagged below!'));
+  assert.ok(ended.description.includes('This giveaway has ended!'));
+  assert.doesNotMatch(ended.description, /winner\(s\) have been announced/i);
   assert.match(ended.description, /\*\*Giveaway ended\*\*\n<t:1800000000:F>/);
   assert.equal(ended.color, 0xFFFFFF);
+});
+
+test('ended giveaways with no winners use the ended message, not an announcement claim', () => {
+  const embed = createGiveawayEmbed(activeGiveaway({ ended: true, isEnded: true }), 'ended', []);
+  assert.match(embed.description, /No valid entries/);
+  assert.match(embed.description, /This giveaway has ended!/);
+  assert.doesNotMatch(embed.description, /winner\\(s\\) have been announced/);
+});
+
+test('existing ended giveaway messages are corrected in place without changing buttons or footer', async () => {
+  const giveaway = activeGiveaway({
+    ended: true, isEnded: true, endedAt: new Date().toISOString(), winnerIds: [],
+  });
+  const w = world({ [MESSAGE]: giveaway });
+  w.client.user = { id: 'cloudy-bot' };
+  w.giveawayMessage.author = { id: 'cloudy-bot' };
+  const original = {
+    description: 'Thank you to everyone who participated!\\n\\nThe winner(s) have been announced and tagged below!',
+    color: 0xFFFFFF,
+    footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+    thumbnail: { url: 'https://example.test/cloudy.png' },
+  };
+  w.giveawayMessage.embeds = [{ toJSON: () => structuredClone(original) }];
+  await refreshEndedGiveawayClosingCopy(w.client);
+  assert.equal(w.giveawayMessage.edits.length, 1);
+  const edit = w.giveawayMessage.edits[0];
+  assert.equal(edit.components, undefined);
+  assert.equal(edit.embeds[0].description,
+    'Thank you to everyone who participated!\\n\\nThis giveaway has ended!');
+  assert.equal(edit.embeds[0].color, original.color);
+  assert.deepEqual(edit.embeds[0].footer, original.footer);
+  assert.deepEqual(edit.embeds[0].thumbnail, original.thumbnail);
+  await refreshEndedGiveawayClosingCopy(w.client);
+  assert.equal(w.giveawayMessage.edits.length, 1, 'restart reconciliation is idempotent');
 });
 
 test('public giveaway posts contain only participant buttons; no Manage button', () => {
