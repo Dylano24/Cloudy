@@ -200,7 +200,6 @@ async function openClaim(interaction, client, messageId) {
     const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
     if (!giveaway || !giveaway.ended || !giveaway.winnerIds?.includes(userId)) {
       await claimResultNotice(interaction);
-      logClaimAction(client, guild, { event: 'denied', messageId, userId, giveaway });
       return;
     }
     const prior = await findClaim(client, guild.id, messageId, userId);
@@ -209,16 +208,12 @@ async function openClaim(interaction, client, messageId) {
       const current = await guild.channels.fetch(prior.channelId).catch(() => null);
       if (current) {
         await claimResultNotice(interaction, current.id, client, messageId);
-        logClaimAction(client, guild, {
-          event: 'accessed', messageId, userId, claimChannelId: current.id, giveaway,
-        });
         return;
       }
     }
     const deadline = Date.parse(giveaway.claimDeadlineAt || '');
     if (Number.isFinite(deadline) && deadline <= Date.now()) {
       await claimResultNotice(interaction);
-      logClaimAction(client, guild, { event: 'denied', messageId, userId, giveaway });
       return;
     }
 
