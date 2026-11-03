@@ -418,8 +418,14 @@ export async function logEvent({
     }
 
     const embed = createLogEmbed(guild, eventType, data);
+    // Never let a saved Message Log design replace the actual deleted/edited
+    // message text. Preserve the complete live body and Before/After fields:
+    // Unicode, external/custom and animated Discord emoji markup must remain
+    // exactly as authored. Templates may still style title, color and footer.
     const decorated = await decorateEmbedWithSavedTemplate(guildId, channel.id, embed, {
       strictTitle: true,
+      preserveRuntimeBody: eventType === EVENT_TYPES.MESSAGE_DELETE
+        || eventType === EVENT_TYPES.MESSAGE_EDIT,
     });
 
     let presentedEmbed = enforceFixedLogPresentation(decorated.embed, { eventType });
