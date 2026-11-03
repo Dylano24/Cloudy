@@ -9,7 +9,7 @@ import { CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { getGuildConfig } from './config/guildConfig.js';
-import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
+import { canManageGiveawaysAsOwner, checkUnclaimedGiveawayWinners, loadGiveaway } from './giveawayActions.js';
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPreview.js';
@@ -132,18 +132,24 @@ export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
 
 async function openClaim(interaction, client, messageId) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-  if (!giveaway || !giveaway.ended || !giveaway.winnerIds?.includes(interaction.user.id)) {
-    return claimResultNotice(interaction);
-  }
   const guild = interaction.guild;
   const userId = interaction.user.id;
-  return Mutex.runExclusive('gclaim-open:' + guild.id + ':' + messageId + ':' + userId, async () => {
+  // Same lock as the 24-hour reroll: claiming and replacing a winner are
+  // serialized, including clicks that arrive exactly at the deadline.
+  return Mutex.runExclusive('giveaway:' + messageId, async () => {
+    const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
+    if (!giveaway || !giveaway.ended || !giveaway.winnerIds?.includes(userId)) {
+      return claimResultNotice(interaction);
+    }
     const prior = await findClaim(client, guild.id, messageId, userId);
     if (prior?.closedAt) return notice(interaction, 'This prize claim has already closed.');
     if (prior?.channelId) {
       const current = await guild.channels.fetch(prior.channelId).catch(() => null);
       if (current) return claimResultNotice(interaction, current.id);
+    }
+    const deadline = Date.parse(giveaway.claimDeadlineAt || '');
+    if (Number.isFinite(deadline) && deadline <= Date.now()) {
+      return claimResultNotice(interaction);
     }
 
     // The giveaway winner gets a new private text channel in this category,
@@ -395,6 +401,16 @@ export async function refreshExistingClaimPanels(client) {
       try {
         const channel = await guild.channels.fetch(record.channelId).catch(() => null);
         if (!channel?.messages?.fetch) continue;
+        // Keep already-open claim channels under the dedicated giveaway-claim
+        // category as well. lockPermissions:false preserves their private
+        // winner/staff permission overwrites when moving.
+        if (channel.parentId !== undefined && channel.parentId !== GIVEAWAY_CLAIM_CATEGORY_ID
+          && typeof channel.setParent === 'function') {
+          const category = await guild.channels.fetch(GIVEAWAY_CLAIM_CATEGORY_ID).catch(() => null);
+          if (category?.type === ChannelType.GuildCategory) {
+            await channel.setParent(category.id, { lockPermissions: false });
+          }
+        }
         const expectedIds = [
           'gclaim:take:' + record.messageId + ':' + record.userId,
           'gclaim:done:' + record.messageId + ':' + record.userId,
@@ -444,10 +460,12 @@ export function startGiveawayClaimCleanup(client) {
   if (cleanupStarted) return;
   cleanupStarted = true;
   void cleanupExpiredGiveawayClaims(client).catch(error => logger.warn('Initial giveaway claim cleanup failed', error));
+  void checkUnclaimedGiveawayWinners(client).catch(error => logger.warn('Initial automatic giveaway claim reroll failed', error));
   void getGiveawayClaimIcons(client).catch(error => logger.warn('Could not prewarm white claim icons', error));
   void refreshExistingClaimPanels(client).catch(error => logger.warn('Initial giveaway claim panel refresh failed', error));
   const timer = setInterval(() => {
     void cleanupExpiredGiveawayClaims(client).catch(error => logger.warn('Giveaway claim cleanup failed', error));
+    void checkUnclaimedGiveawayWinners(client).catch(error => logger.warn('Automatic giveaway claim reroll failed', error));
   }, 60_000);
   timer.unref?.();
 }

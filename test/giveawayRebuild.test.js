@@ -10,7 +10,10 @@ import {
   DEFAULT_GIVEAWAY_CLAIM,
   parseDuration,
 } from '../src/services/giveawayService.js';
-import { checkGiveaways, finishGiveaway, loadGiveaway } from '../src/services/giveawayActions.js';
+import {
+  checkGiveaways, checkUnclaimedGiveawayWinners, finishGiveaway,
+  GIVEAWAY_WINNER_CLAIM_WINDOW_MS, loadGiveaway,
+} from '../src/services/giveawayActions.js';
 import buttons from '../src/interactions/buttons/giveaway/giveaway.js';
 import timerModal from '../src/interactions/modals/giveawayTimer.js';
 import textModal from '../src/interactions/modals/giveawayText.js';
@@ -287,6 +290,7 @@ test('End draws winners, marks the giveaway, and tags the winners with how to cl
   assert.match(announcement.embeds[0].description, /DM the owner within 24 hours\./);
   assert.match(announcement.embeds[0].description, /Failure to claim your prize/);
   assert.equal(stored.winnerPingMessageId, announcement.id);
+  assert.ok(Date.parse(stored.claimDeadlineAt) >= Date.now() + GIVEAWAY_WINNER_CLAIM_WINDOW_MS - 1_000);
   assert.equal(json(staff.edited.embeds[0]).title, 'Success');
   // The default claim text is used when none was given: 24 hours.
   assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Please open a support ticket within 24 hours to claim your prize.');
@@ -299,12 +303,127 @@ test('Reroll draws someone new and announces them; nobody new left is an error',
   await button('giveaway_admin').execute(staff, w.client, ['reroll', MESSAGE]);
   const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
   assert.deepEqual(stored.winnerIds, ['second']);
+  assert.ok(Date.parse(stored.claimDeadlineAt) >= Date.now() + GIVEAWAY_WINNER_CLAIM_WINDOW_MS - 1_000);
   assert.match(w.sent.at(-1).embeds[0].description, /New winner!/);
   assert.equal(w.sent.at(-1).content, '<@second>');
 
   const again = w.interaction('staff', { staff: true });
   await button('giveaway_admin').execute(again, w.client, ['reroll', MESSAGE]);
   assert.match(JSON.stringify(json(again.replies.at(-1).embeds[0])), /already won/);
+});
+
+
+const expiredClaimWindow = () => new Date(Date.now() - 5_000).toISOString();
+const claimedRecord = (userId, closed = false) => ({
+  messageId: MESSAGE, userId, channelId: 'private-' + userId,
+  createdAt: new Date(Date.now() - 100_000).toISOString(),
+  closedAt: closed ? new Date().toISOString() : null,
+});
+
+test('automatic claim reroll replaces exactly one missing winner and preserves two claimed prizes', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({
+    ended: true, isEnded: true, winnerCount: 3, winnerIds: ['first', 'second', 'third'],
+    participants: ['first', 'second', 'third', 'new1', 'new2'],
+    claimDeadlineAt: expiredClaimWindow(),
+  }) });
+  w.values.set(`guild:${GUILD}:giveaway-claim:records`, {
+    [`${MESSAGE}:first`]: claimedRecord('first'),
+    [`${MESSAGE}:third`]: claimedRecord('third', true),
+  });
+  await checkUnclaimedGiveawayWinners(w.client);
+  const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.equal(stored.winnerIds.length, 3);
+  assert.deepEqual(stored.winnerIds.slice(0, 2), ['first', 'third']);
+  assert.ok(['new1', 'new2'].includes(stored.winnerIds[2]));
+  assert.deepEqual(stored.previousWinnerIds, ['first', 'second', 'third']);
+  assert.equal(w.sent.length, 1);
+  assert.equal(w.sent[0].content, `<@${stored.winnerIds[2]}>`);
+  assert.deepEqual(w.sent[0].allowedMentions.users, [stored.winnerIds[2]]);
+  assert.match(w.sent[0].embeds[0].description, /New winner!/);
+  assert.ok(Date.parse(stored.claimDeadlineAt) >= Date.now() + GIVEAWAY_WINNER_CLAIM_WINDOW_MS - 1_000);
+  await checkUnclaimedGiveawayWinners(w.client);
+  assert.equal(w.sent.length, 1, 'the same expired round must not be rerolled twice');
+});
+
+test('automatic claim reroll replaces all missing winners, then can retry the next 24h round', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({
+    ended: true, isEnded: true, winnerCount: 2, winnerIds: ['first', 'second'],
+    participants: ['first', 'second', 'third', 'fourth', 'fifth'],
+    claimDeadlineAt: expiredClaimWindow(),
+  }) });
+  await checkUnclaimedGiveawayWinners(w.client);
+  const firstRound = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.equal(firstRound.winnerIds.length, 2);
+  assert.ok(firstRound.winnerIds.every(id => !['first', 'second'].includes(id)));
+  assert.equal(new Set(firstRound.winnerIds).size, 2);
+  assert.equal(w.sent.length, 1);
+  assert.equal(w.sent[0].allowedMentions.users.length, 2);
+  // The following round has its own deadline; previous winners never return.
+  w.values.set(`guild:${GUILD}:giveaways`, {
+    [MESSAGE]: { ...firstRound, claimDeadlineAt: expiredClaimWindow() },
+  });
+  await checkUnclaimedGiveawayWinners(w.client);
+  const secondRound = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.equal(secondRound.winnerIds.length, 1);
+  assert.ok(!['first', 'second', ...firstRound.winnerIds].includes(secondRound.winnerIds[0]));
+  assert.equal(w.sent.length, 2);
+  assert.equal(secondRound.previousWinnerIds.length, 4);
+});
+
+test('automatic claim reroll finishes quietly if everyone claimed or no replacements exist', async () => {
+  const all = world({ [MESSAGE]: activeGiveaway({
+    ended: true, isEnded: true, winnerCount: 2, winnerIds: ['a', 'b'],
+    participants: ['a', 'b', 'c'], claimDeadlineAt: expiredClaimWindow(),
+  }) });
+  all.values.set(`guild:${GUILD}:giveaway-claim:records`, {
+    [`${MESSAGE}:a`]: claimedRecord('a'),
+    [`${MESSAGE}:b`]: claimedRecord('b'),
+  });
+  await checkUnclaimedGiveawayWinners(all.client);
+  const complete = await loadGiveaway(all.client, GUILD, MESSAGE);
+  assert.deepEqual(complete.winnerIds, ['a', 'b']);
+  assert.equal(complete.claimDeadlineAt, null);
+  assert.equal(all.sent.length, 0);
+  assert.equal(all.giveawayMessage.edits.length, 0);
+
+  const exhausted = world({ [MESSAGE]: activeGiveaway({
+    ended: true, isEnded: true, winnerCount: 2, winnerIds: ['a', 'b'],
+    participants: ['a', 'b'], claimDeadlineAt: expiredClaimWindow(),
+  }) });
+  exhausted.values.set(`guild:${GUILD}:giveaway-claim:records`, {
+    [`${MESSAGE}:a`]: claimedRecord('a'),
+  });
+  await checkUnclaimedGiveawayWinners(exhausted.client);
+  const stored = await loadGiveaway(exhausted.client, GUILD, MESSAGE);
+  assert.deepEqual(stored.winnerIds, ['a']);
+  assert.equal(stored.claimDeadlineAt, null);
+  assert.equal(exhausted.sent.length, 0);
+  assert.equal(exhausted.giveawayMessage.edits.length, 1);
+  await checkUnclaimedGiveawayWinners(exhausted.client);
+  assert.equal(exhausted.giveawayMessage.edits.length, 1);
+});
+
+test('legacy ended giveaways are not rerolled and claim storage failures cannot remove winners', async () => {
+  const old = world({ [MESSAGE]: activeGiveaway({
+    ended: true, isEnded: true, winnerIds: ['winner'],
+    participants: ['winner', 'next'],
+  }) });
+  await checkUnclaimedGiveawayWinners(old.client);
+  assert.deepEqual((await loadGiveaway(old.client, GUILD, MESSAGE)).winnerIds, ['winner']);
+  assert.equal(old.sent.length, 0);
+
+  const unsafe = world({ [MESSAGE]: activeGiveaway({
+    ended: true, isEnded: true, winnerIds: ['winner'],
+    participants: ['winner', 'next'], claimDeadlineAt: expiredClaimWindow(),
+  }) });
+  const oldGet = unsafe.client.db.get;
+  unsafe.client.db.get = async (key, ...args) => {
+    if (key.endsWith(':giveaway-claim:records')) throw new Error('claim DB offline');
+    return oldGet(key, ...args);
+  };
+  await checkUnclaimedGiveawayWinners(unsafe.client);
+  assert.deepEqual((await loadGiveaway(unsafe.client, GUILD, MESSAGE)).winnerIds, ['winner']);
+  assert.equal(unsafe.sent.length, 0);
 });
 
 test('Edit timer sets a new end time from now and updates the giveaway', async () => {
