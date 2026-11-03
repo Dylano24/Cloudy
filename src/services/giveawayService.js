@@ -203,7 +203,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
         ...(!ended ? [`**${giveaway.closingText || DEFAULT_GIVEAWAY_CLOSING}**`, ''] : []),
         `${GIVEAWAY_EMOJIS.timer} **${ended ? 'Giveaway ended' : 'Giveaway ends'}**`,
         ended ? `<t:${unix(endedAt)}:F>` : `<t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
-        ...(ended ? ['', 'The winner(s) have been announced and tagged below!'] : []),
+        ...(ended ? ['', 'This giveaway has ended!'] : []),
     ];
     return {
         description: lines.join('\n').slice(0, 4096),
