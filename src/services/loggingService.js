@@ -429,6 +429,13 @@ export async function logEvent({
     });
 
     let presentedEmbed = enforceFixedLogPresentation(decorated.embed, { eventType });
+    // Match Embed Log's verbatim-copy behavior for Message Delete/Edit.
+    // Restore the actual member's message content *after* stored design and
+    // presentation stages, which may otherwise alter Unicode/Discord emoji.
+    // Preserve every other style property (title, colour, logo, footer, image).
+    if (eventType === EVENT_TYPES.MESSAGE_DELETE || eventType === EVENT_TYPES.MESSAGE_EDIT) {
+      presentedEmbed = restoreMessageLogOriginalText(presentedEmbed, embed);
+    }
     // Dedicated message logs are complete when sent: the generic branding
     // listener skips these channels, so apply its Cloudy footer here instead
     // of editing the log afterwards (no "(edited)", one request less).
@@ -493,6 +500,19 @@ export async function logEvent({
     logger.error('Error in logEvent:', error);
     return null;
   }
+}
+
+export function restoreMessageLogOriginalText(styledEmbed, runtimeEmbed) {
+  const original = runtimeEmbed?.toJSON?.() || runtimeEmbed || {};
+  const styled = styledEmbed?.toJSON?.() || styledEmbed || {};
+  // The raw EmbedBuilder data constructor bypasses Cloudy's general
+  // emoji-stripping setters. In Message Logs, both ordinary Unicode and
+  // static/animated <:custom:id> tokens are source data, not decoration.
+  return new EmbedBuilder({
+    ...styled,
+    ...(original.description != null ? { description: original.description } : {}),
+    ...(original.fields ? { fields: original.fields } : {}),
+  });
 }
 
 function withoutUploadedImages(embed) {
