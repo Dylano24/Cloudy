@@ -106,7 +106,7 @@ export function renderGiveawayBuilder(session) {
 
     const channel = new ChannelSelectMenuBuilder()
         .setCustomId(id(session, 'channel'))
-        .setPlaceholder('Giveaway channel')
+        .setPlaceholder('Choose a channel')
         .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setMinValues(1)
         .setMaxValues(1);
@@ -115,11 +115,11 @@ export function renderGiveawayBuilder(session) {
     // places it first while preserving the ability to choose any real role.
     const pingType = new StringSelectMenuBuilder()
         .setCustomId(id(session, 'pingtype'))
-        .setPlaceholder('Who should be tagged?')
+        .setPlaceholder('Choose a tag')
         .addOptions(
             { label: '@everyone', value: 'everyone', default: draft.ping.type === 'everyone' },
-            { label: 'Tag a role', value: 'role', default: draft.ping.type === 'role' },
-            { label: 'No tag', value: 'none', default: draft.ping.type === 'none' },
+            { label: 'Role', value: 'role', default: draft.ping.type === 'role' },
+            { label: 'No tag', value: 'none' },
         );
     const role = new RoleSelectMenuBuilder()
         .setCustomId(id(session, 'role'))
@@ -132,8 +132,8 @@ export function renderGiveawayBuilder(session) {
         embeds: [preview, winnerPreview],
         components: [
             new ActionRowBuilder().addComponents(pingType),
-            new ActionRowBuilder().addComponents(channel),
             ...(draft.ping.type === 'role' ? [new ActionRowBuilder().addComponents(role)] : []),
+            new ActionRowBuilder().addComponents(channel),
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'text')).setLabel('Edit text').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId(id(session, 'timing')).setLabel('Duration & winners').setStyle(ButtonStyle.Secondary),
@@ -212,11 +212,9 @@ export async function openGiveawayBuilder(interaction) {
     for (const session of sessions.values()) {
         if (session.userId === interaction.user.id && session.guildId === interaction.guildId) closeSession(session);
     }
-    // Start in the current channel when it can hold a giveaway (not a thread).
-    const channelType = interaction.channel?.type;
-    const usableChannel = channelType === undefined || [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channelType);
+    // Require an explicit channel choice for each new giveaway.
     const session = { id: randomUUID().slice(0, 12), guildId: interaction.guildId, userId: interaction.user.id,
-        root: interaction, timer: null, draft: newGiveawayDraft(usableChannel ? interaction.channelId : null) };
+        root: interaction, timer: null, draft: newGiveawayDraft() };
     sessions.set(session.id, session);
     try {
         await interaction.reply({ ...renderGiveawayBuilder(session), flags: MessageFlags.Ephemeral });
