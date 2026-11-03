@@ -1,8 +1,10 @@
 // Dedicated audit trail for giveaway prize claims. Never include the actual
 // activation code, encrypted code, demo code or interaction response contents.
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
+import { logger } from '../utils/logger.js';
 
 export const GIVEAWAY_CLAIM_LOG_CHANNEL_ID = '1566390264291917874';
+export const GIVEAWAY_CLAIM_LOG_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 const EVENTS = Object.freeze({
   opened: { title: 'Giveaway claim opened', color: 0x00C49D, action: 'Claim' },
@@ -51,8 +53,7 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
       color: definition.color,
       thumbnail: { url: CLOUDY_C_LOGO_URL },
       fields,
-      timestamp: new Date().toISOString(),
-      footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+      footer: { text: GIVEAWAY_CLAIM_LOG_FOOTER },
     }],
     allowedMentions: { parse: [] },
   };
@@ -63,4 +64,35 @@ export async function sendGiveawayClaimLog(client, guild, detail) {
     || await guild?.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
   if (!target?.send) throw new Error('Giveaway claim log channel unavailable');
   return target.send(buildGiveawayClaimLog({ ...detail, guildId: guild.id }));
+}
+
+// One-time, in-place correction of already posted claim logs. Only remove
+// their embed timestamp. Preserve the message, logo, fields and exact footer.
+export async function removeExistingClaimLogTimestamps(client) {
+  for (const guild of client.guilds?.cache?.values?.() || []) {
+    const marker = 'guild:' + guild.id + ':giveaway-claim:no-timestamp-v1';
+    try {
+      if (await client.db?.get?.(marker, false)) continue;
+      const channel = guild.channels?.cache?.get?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID)
+        || await guild.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
+      if (!channel?.messages?.fetch) continue;
+      const messages = await channel.messages.fetch({ limit: 100 });
+      for (const message of messages?.values?.() || []) {
+        if (message.author?.id !== client.user?.id || !message.edit) continue;
+        let changed = false;
+        const embeds = message.embeds.map(embed => {
+          const data = embed.toJSON?.() || { ...embed };
+          if (!data.timestamp || !Object.values(EVENTS).some(item => item.title === data.title)
+            || data.footer?.text !== GIVEAWAY_CLAIM_LOG_FOOTER) return data;
+          changed = true;
+          const { timestamp, ...withoutTimestamp } = data;
+          return withoutTimestamp;
+        });
+        if (changed) await message.edit({ embeds });
+      }
+      if (client.db?.set) await client.db.set(marker, true);
+    } catch (error) {
+      logger.warn('Could not remove old giveaway claim log timestamps in ' + guild.id, error);
+    }
+  }
 }
