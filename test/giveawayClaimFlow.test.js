@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { CLOUDY_C_LOGO_URL, createWinnerAnnouncement } from '../src/services/giveawayService.js';
-import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveawayClaimLog, removeExistingClaimLogTimestamps } from '../src/services/giveawayClaimLogService.js';
+import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveawayClaimLog, removeExistingClaimLogTimestamps, refreshExistingGiveawayClaimLogPresentation } from '../src/services/giveawayClaimLogService.js';
 import {
   CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
   GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
@@ -571,4 +571,83 @@ test('old giveaway log timestamps are removed in place without changing any othe
   assert.equal(original.embeds[0].footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
   await removeExistingClaimLogTimestamps(w.client);
   assert.equal(original.edited.length, 1);
+});
+
+test('claim logs hide raw IDs and manual close uses the ticket orange side line', () => {
+  const metadata = {
+    guildId: GUILD, messageId: GIVEAWAY, userId: WINNER,
+    claimChannelId: '156000000000000123',
+    giveaway: { prize: 'Prize', channelId: '156000000000000087' },
+  };
+  for (const event of ['opened', 'revealed', 'closed', 'expired']) {
+    const embed = buildGiveawayClaimLog({ event, ...metadata }).embeds[0];
+    const member = embed.fields.find(field => field.name === 'Member');
+    const channel = embed.fields.find(field => field.name === 'Private channel');
+    assert.equal(member.value, '<@' + WINNER + '>');
+    assert.equal(channel.value, '<#156000000000000123>');
+    assert.equal(embed.footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
+    assert.equal(embed.timestamp, undefined);
+    assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
+    if (event === 'closed') assert.equal(embed.color, 0xFF7A00);
+    if (event === 'revealed') assert.equal(embed.color, 0xFFFFFF);
+  }
+});
+
+test('existing giveaway claim logs remove ID suffixes and recolor Close without altering other content', async () => {
+  const w = world();
+  const originalChannel = '156000000000000123';
+  function oldLog(event) {
+    const embed = buildGiveawayClaimLog({
+      event, guildId: GUILD, messageId: GIVEAWAY, userId: WINNER,
+      claimChannelId: originalChannel, giveaway: { prize: 'Prize', channelId: '156000000000000087' },
+    }).embeds[0];
+    return {
+      ...embed,
+      color: 0xFFFFFF,
+      fields: embed.fields.map(field => {
+        if (field.name === 'Member') return { ...field, value: field.value + ' (\x60' + WINNER + '\x60)' };
+        if (field.name === 'Private channel') return { ...field, value: field.value + ' (\x60' + originalChannel + '\x60)' };
+        return field;
+      }),
+    };
+  }
+  function originalMessage(embed, authorId = w.client.user.id) {
+    return {
+      author: { id: authorId },
+      embeds: [{ toJSON: () => structuredClone(embed) }],
+      edits: [],
+      edit: async function(payload) { this.edits.push(payload); this.embeds = payload.embeds; },
+    };
+  }
+  const opened = originalMessage(oldLog('opened'));
+  const closed = originalMessage(oldLog('closed'));
+  const unrelated = originalMessage({ title: 'Unrelated embed', color: 0xFFFFFF,
+    footer: { text: GIVEAWAY_CLAIM_LOG_FOOTER } });
+  const anotherAuthor = originalMessage(oldLog('closed'), 'another-bot');
+  w.cache.set(GIVEAWAY_CLAIM_LOG_CHANNEL_ID, {
+    id: GIVEAWAY_CLAIM_LOG_CHANNEL_ID,
+    messages: { fetch: async () => new Collection([
+      ['1', opened], ['2', closed], ['3', unrelated], ['4', anotherAuthor],
+    ]) },
+  });
+
+  await refreshExistingGiveawayClaimLogPresentation(w.client);
+  for (const message of [opened, closed]) {
+    assert.equal(message.edits.length, 1);
+    const embed = message.embeds[0];
+    assert.equal(embed.fields.find(field => field.name === 'Member').value, '<@' + WINNER + '>');
+    assert.equal(embed.fields.find(field => field.name === 'Private channel').value,
+      '<#' + originalChannel + '>');
+    assert.equal(embed.footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
+    assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
+    assert.match(embed.fields.find(field => field.name === 'Giveaway').value, /discord\.com\/channels\//);
+    assert.equal(embed.timestamp, undefined);
+  }
+  assert.equal(opened.embeds[0].color, 0x00C49D);
+  assert.equal(closed.embeds[0].color, 0xFF7A00);
+  assert.equal(unrelated.edits.length, 0);
+  assert.equal(anotherAuthor.edits.length, 0);
+  await refreshExistingGiveawayClaimLogPresentation(w.client);
+  assert.equal(opened.edits.length, 1);
+  assert.equal(closed.edits.length, 1);
 });
