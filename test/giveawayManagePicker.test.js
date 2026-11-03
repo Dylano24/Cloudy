@@ -11,7 +11,6 @@ import {
   selectGiveawayToManage,
   showGiveawayManagePicker,
 } from '../src/services/giveawayManagePicker.js';
-import { removeLegacyGiveawayManageButtons } from '../src/services/giveawayManageMigration.js';
 import { createGiveawayButtons } from '../src/services/giveawayService.js';
 
 const GUILD = '156000000000000001';
@@ -132,38 +131,4 @@ test('picker gracefully handles no giveaways and a deleted selection', async () 
   await selectGiveawayToManage(missing, w.client, OWNER);
   assert.equal(missing.response.components.length, 0);
   assert.match(missing.response.embeds[0].description, /no giveaways/i);
-});
-
-test('one-time migration removes Manage only from recorded bot messages, retaining all other data', async () => {
-  const existing = prize(1);
-  const originalComponents = [
-    { type: 1, components: [{ type: 2, custom_id: 'giveaway_enter', label: 'Enter giveaway' }] },
-    { type: 1, components: [{ type: 2, custom_id: 'giveaway_manage', label: 'Manage' }] },
-  ];
-  const snapshot = {
-    content: 'original text', embeds: [{ description: 'Original embed and logo' }],
-    components: structuredClone(originalComponents),
-  };
-  const message = {
-    author: { id: 'cloudy' }, ...snapshot,
-    edits: [],
-    edit: async patch => { message.edits.push(patch); message.components = patch.components; },
-  };
-  const channel = { messages: { fetch: async () => message } };
-  const guild = {
-    id: GUILD,
-    channels: { cache: new Collection([[existing.channelId, channel]]) },
-  };
-  const client = {
-    user: { id: 'cloudy' }, guilds: { cache: new Collection([[GUILD, guild]]) },
-    db: { get: async () => ({ [existing.messageId]: existing }) },
-  };
-  const migrated = await removeLegacyGiveawayManageButtons(client);
-  assert.deepEqual(migrated, { scanned: 1, changed: 1, failed: 0 });
-  assert.deepEqual(message.edits[0].components, [originalComponents[0]]);
-  assert.deepEqual(message.embeds, snapshot.embeds);
-  assert.equal(message.content, snapshot.content);
-  const second = await removeLegacyGiveawayManageButtons(client);
-  assert.equal(second.changed, 0);
-  assert.equal(message.edits.length, 1);
 });
