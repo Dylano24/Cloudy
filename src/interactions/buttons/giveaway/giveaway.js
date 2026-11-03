@@ -1,3 +1,4 @@
+import { showGiveawayManagePicker } from '../../../services/giveawayManagePicker.js';
 import {
   giveawayEnterHandler,
   giveawayLeaveHandler,
@@ -18,5 +19,10 @@ export default [
   giveawayLeaveHandler,
   giveawayManageHandler,
   giveawayAdminHandler,
+  {
+    customId: 'gmanage_page',
+    execute: (interaction, client, [requesterId, page]) =>
+      showGiveawayManagePicker(interaction, client, Number(page), requesterId),
+  },
   ...legacyGiveawayHandlers,
 ].map(fromCustomId);
