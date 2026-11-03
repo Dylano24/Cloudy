@@ -25,9 +25,46 @@ const registryKey = guildId => 'guild:' + guildId + ':giveaway-claim:records';
 const claimId = (messageId, userId) => messageId + ':' + userId;
 const notice = (interaction, text) => interaction.editReply({ content: text, allowedMentions: { parse: [] } });
 
+// Keep the short-lived private success replies associated with their claim so
+// closing the private channel also removes the confirmation from the giveaway.
+const pendingSuccessNotices = new WeakMap();
+const noticeKey = (messageId, userId) => messageId + ':' + userId;
+function pendingNotices(client, messageId, userId, create = false) {
+  let byClaim = pendingSuccessNotices.get(client);
+  if (!byClaim && create) {
+    byClaim = new Map();
+    pendingSuccessNotices.set(client, byClaim);
+  }
+  const key = noticeKey(messageId, userId);
+  let notices = byClaim?.get(key);
+  if (!notices && create) {
+    notices = new Set();
+    byClaim.set(key, notices);
+  }
+  return { byClaim, key, notices };
+}
+async function deleteClaimResultReply(interaction) {
+  try {
+    await interaction.deleteReply();
+  } catch (error) {
+    if (error?.code !== 10008 && error?.code !== 10015) {
+      logger.warn('Giveaway Claim notice could not be removed: ' + (error?.message || error));
+    }
+  }
+}
+async function deletePendingSuccessNotices(client, messageId, userId) {
+  const { byClaim, key, notices } = pendingNotices(client, messageId, userId);
+  if (!notices?.size) return;
+  byClaim.delete(key);
+  await Promise.all([...notices].map(entry => {
+    clearTimeout(entry.timer);
+    return deleteClaimResultReply(entry.interaction);
+  }));
+}
+
 // Only the Claim-button result uses these custom lifetimes; other claim
 // actions and the existing 24-hour prize-channel expiry remain unchanged.
-async function claimResultNotice(interaction, channelId = null) {
+async function claimResultNotice(interaction, channelId = null, client = null, messageId = null) {
   const success = Boolean(channelId);
   await interaction.editReply({
     content: null,
@@ -43,18 +80,20 @@ async function claimResultNotice(interaction, channelId = null) {
     components: [],
     allowedMentions: { parse: [] },
   });
-  // Discord ephemeral replies can be deleted through the interaction token
-  // within 15 minutes; use 10 minutes rather than waiting 24 hours.
-  const timer = setTimeout(() => {
-    void Promise.resolve()
-      .then(() => interaction.deleteReply())
-      .catch(error => {
-        if (error?.code !== 10008) {
-          logger.warn('Giveaway Claim notice could not be removed: ' + (error?.message || error));
-        }
-      });
+  // Success replies are private and live for at most 10 minutes, unless the
+  // winner closes the claim channel first. Repeated Claim clicks are tracked.
+  const tracker = success && client && messageId
+    ? pendingNotices(client, messageId, interaction.user.id, true) : null;
+  const entry = { interaction, timer: null };
+  if (tracker) tracker.notices.add(entry);
+  entry.timer = setTimeout(() => {
+    if (tracker) {
+      tracker.notices.delete(entry);
+      if (!tracker.notices.size) tracker.byClaim.delete(tracker.key);
+    }
+    void deleteClaimResultReply(interaction);
   }, success ? CLAIM_SUCCESS_NOTICE_MS : CLAIM_DENIED_NOTICE_MS);
-  timer.unref?.();
+  entry.timer.unref?.();
 }
 
 function secretKey() {
@@ -147,7 +186,7 @@ async function openClaim(interaction, client, messageId) {
     if (prior?.closedAt) return notice(interaction, 'This prize claim has already closed.');
     if (prior?.channelId) {
       const current = await guild.channels.fetch(prior.channelId).catch(() => null);
-      if (current) return claimResultNotice(interaction, current.id);
+      if (current) return claimResultNotice(interaction, current.id, client, messageId);
     }
     const deadline = Date.parse(giveaway.claimDeadlineAt || '');
     if (Number.isFinite(deadline) && deadline <= Date.now()) {
@@ -196,7 +235,7 @@ async function openClaim(interaction, client, messageId) {
       await channel.delete('Failed to initialize giveaway claim').catch(() => {});
       throw error;
     }
-    return claimResultNotice(interaction, channel.id);
+    return claimResultNotice(interaction, channel.id, client, messageId);
   });
 }
 
@@ -223,6 +262,7 @@ async function finishClaim(interaction, client, messageId, userId) {
       await saveClaim(client, interaction.guildId, record);
       throw error;
     }
+    await deletePendingSuccessNotices(client, messageId, userId);
     return notice(interaction, 'Your prize claim has been closed. Thank you!').catch(() => {});
   });
 }

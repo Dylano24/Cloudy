@@ -268,6 +268,22 @@ test('existing claim panel is edited in place on restart and Staff Set code disa
   assert.ok(w.records.get(KEY)[CLAIM_ID].expiresAt);
 });
 
+test('Close also deletes every pending Claim successful notice immediately', async () => {
+  const w = world();
+  const first = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(first, w.client);
+  const repeated = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(repeated, w.client);
+  const channel = w.created[0].channel;
+  assert.equal(first.deletedReplies, undefined);
+  assert.equal(repeated.deletedReplies, undefined);
+  const done = w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(done, w.client);
+  assert.equal(channel.deleted, true);
+  assert.equal(first.deletedReplies, 1);
+  assert.equal(repeated.deletedReplies, 1);
+});
+
 test('Close removes only the winner claim and never reopens it', async () => {
   const w = world();
   await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
