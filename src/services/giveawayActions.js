@@ -14,6 +14,7 @@ import {
     createWinnerAnnouncement,
     DEFAULT_GIVEAWAY_CLAIM,
     LEGACY_GIVEAWAY_CLAIM,
+    PREVIOUS_GIVEAWAY_CLAIM,
     giveawayEndTime,
     giveawayParticipants,
     giveawayPing,
@@ -326,11 +327,13 @@ export async function refreshExistingGiveawayClaimInstructions(client) {
                     let changed = false;
                     const embeds = message.embeds.map(embed => {
                         const data = embed.toJSON?.() || embed;
-                        if (!data?.description?.includes(LEGACY_GIVEAWAY_CLAIM)) return data;
+                        const outdated = [LEGACY_GIVEAWAY_CLAIM, PREVIOUS_GIVEAWAY_CLAIM]
+                            .find(text => data?.description?.includes(text));
+                        if (!outdated) return data;
                         changed = true;
                         return {
                             ...data,
-                            description: data.description.replace(LEGACY_GIVEAWAY_CLAIM, DEFAULT_GIVEAWAY_CLAIM),
+                            description: data.description.replace(outdated, DEFAULT_GIVEAWAY_CLAIM),
                         };
                     });
                     if (changed) await message.edit({ embeds });
