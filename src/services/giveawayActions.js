@@ -364,7 +364,7 @@ export async function refreshEndedGiveawayClosingCopy(client) {
             const records = await getGuildGiveaways(client, guild.id, { strict: true });
             const ended = records
                 .filter(item => isGiveawayFinished(item)
-                    && /^\\d{17,20}$/.test(String(item.messageId || ''))
+                    && /^\d{17,20}$/.test(String(item.messageId || ''))
                     && Date.parse(item.endedAt || '') >= since)
                 .sort((a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt))
                 .slice(0, 25);
