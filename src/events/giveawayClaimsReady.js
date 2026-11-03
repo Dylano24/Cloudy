@@ -9,10 +9,9 @@ export default {
   once: true,
   execute(client) {
     startGiveawayClaimCleanup(client);
-    void refreshExistingGiveawayClaimLogPresentation(client).catch(error =>
-      logger.warn('Could not refresh old giveaway claim log mentions and closed colors', error));
-    void removeExistingClaimLogTimestamps(client).catch(error =>
-      logger.warn('Could not refresh giveaway claim log footers', error));
+    void removeExistingClaimLogTimestamps(client)
+      .then(() => refreshExistingGiveawayClaimLogPresentation(client))
+      .catch(error => logger.warn('Could not refresh giveaway claim log presentation', error));
     void refreshExistingGiveawayClaimInstructions(client).catch(error =>
       logger.warn('Could not update existing giveaway winner announcements', error));
   },
