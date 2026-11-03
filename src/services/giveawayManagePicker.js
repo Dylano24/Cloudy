@@ -15,7 +15,7 @@ const canUse = interaction => interaction.inGuild?.()
 
 export async function listManageableGiveaways(client, guildId) {
   const records = await getGuildGiveaways(client, guildId, { strict: true });
-  return records.filter(item => /^\\d{17,20}$/.test(String(item?.messageId || '')))
+  return records.filter(item => /^\d{17,20}$/.test(String(item?.messageId || '')))
     .sort((a, b) => {
       const status = Number(isGiveawayFinished(a)) - Number(isGiveawayFinished(b));
       return status || (Number(b.createdAt ? Date.parse(b.createdAt) : giveawayEndTime(b)) || 0)
@@ -91,7 +91,7 @@ export async function selectGiveawayToManage(interaction, client, requesterId) {
   await interaction.deferUpdate();
   try {
     const messageId = String(interaction.values?.[0] || '');
-    if (!/^\\d{17,20}$/.test(messageId)) {
+    if (!/^\d{17,20}$/.test(messageId)) {
       return interaction.editReply({ embeds: [giveawayWarning('Select a valid giveaway.')], components: [] });
     }
     const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
