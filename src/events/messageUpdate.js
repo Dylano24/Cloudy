@@ -5,6 +5,7 @@ import { formatLogLine } from '../utils/logging/logEmbeds.js';
 import { captureMessageSnapshot, getMessageSnapshot } from '../services/messageSnapshotService.js';
 import { enforceProtectedIdentityMessage } from '../services/protectedIdentityService.js';
 import { resolveUpdatedMessage } from '../utils/updatedMessage.js';
+import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
 
 const MAX_LOGGED_EDIT_CONTENT_LENGTH = 512;
 // Without a cached or stored "before", only a message Discord itself marks
@@ -12,9 +13,7 @@ const MAX_LOGGED_EDIT_CONTENT_LENGTH = 512;
 const UNCACHED_EDIT_WINDOW_MS = 60_000;
 
 function truncate(value) {
-  return value.length > MAX_LOGGED_EDIT_CONTENT_LENGTH
-    ? `${value.substring(0, MAX_LOGGED_EDIT_CONTENT_LENGTH - 3)}...`
-    : value;
+  return truncateMessageLogText(value, MAX_LOGGED_EDIT_CONTENT_LENGTH);
 }
 
 function createdAt(message) {
