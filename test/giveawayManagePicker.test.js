@@ -72,6 +72,8 @@ function world(giveaways = [prize(1)]) {
       deferUpdate: async () => { result.updated = true; },
       editReply: async payload => { result.response = payload; },
       reply: async payload => { result.response = payload; },
+      deletedReplies: [],
+      deleteReply: async () => { result.deletedReplies.push('@original'); },
     };
     return result;
   }
@@ -268,4 +270,64 @@ test('the registry cleanup respects the original channel and is idempotent', asy
     entries: [{ channelId: CHANNEL, messageId: current.messageId }],
   }), 0);
   assert.deepEqual(await getGuildGiveaways(w.client, GUILD), []);
+});
+
+test('short private giveaway Manage notices disappear after exactly 10 seconds', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+
+  // The empty-state message shown in the screenshot is transient.
+  const empty = world([prize(1, true)]);
+  const noActive = empty.interaction();
+  await showGiveawayManagePicker(noActive, empty.client);
+  assert.match(noActive.response.embeds[0].description, /no active giveaways/);
+  t.mock.timers.tick(9_999);
+  await settle();
+  assert.deepEqual(noActive.deletedReplies, []);
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepEqual(noActive.deletedReplies, ['@original']);
+
+  // Owner restriction, invalid selection and data loading errors are notices.
+  const unauthorized = empty.interaction('not-an-owner');
+  await command.execute(unauthorized);
+  const invalid = empty.interaction(OWNER, 'select', { values: ['invalid-id'] });
+  await selectGiveawayToManage(invalid, empty.client, OWNER);
+  const broken = world([]);
+  broken.client.db.get = async () => { throw new Error('Storage is temporarily unavailable'); };
+  const error = broken.interaction();
+  await showGiveawayManagePicker(error, broken.client);
+  for (const interaction of [unauthorized, invalid, error]) {
+    assert.deepEqual(interaction.deletedReplies, []);
+  }
+  t.mock.timers.tick(10_000);
+  await settle();
+  for (const interaction of [unauthorized, invalid, error]) {
+    assert.deepEqual(interaction.deletedReplies, ['@original']);
+  }
+
+  // A stale menu that becomes empty is also a short notice.
+  const staleWorld = world([prize(2)]);
+  staleWorld.posts.clear();
+  const stale = staleWorld.interaction(OWNER, 'select', { values: [prize(2).messageId] });
+  await selectGiveawayToManage(stale, staleWorld.client, OWNER);
+  assert.equal(stale.response.components.length, 0);
+  t.mock.timers.tick(10_000);
+  await settle();
+  assert.deepEqual(stale.deletedReplies, ['@original']);
+});
+
+test('active giveaway picker and interactive Manage controls never use the 10-second notice timer', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const w = world([prize(1)]);
+  const picker = w.interaction();
+  await showGiveawayManagePicker(picker, w.client);
+  assert.ok(picker.response.components.length > 0);
+  const choice = w.interaction(OWNER, 'select', { values: [prize(1).messageId] });
+  await selectGiveawayToManage(choice, w.client, OWNER);
+  assert.ok(choice.response.components.length > 0);
+  t.mock.timers.tick(11_000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(picker.deletedReplies, []);
+  assert.deepEqual(choice.deletedReplies, []);
 });
