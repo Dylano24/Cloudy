@@ -9,6 +9,7 @@ import {
   giveawayPing,
   DEFAULT_GIVEAWAY_CLAIM,
   LEGACY_GIVEAWAY_CLAIM,
+  PREVIOUS_GIVEAWAY_CLAIM,
   parseDuration,
 } from '../src/services/giveawayService.js';
 import {
@@ -294,16 +295,18 @@ test('End draws winners, marks the giveaway, and tags the winners with how to cl
   assert.ok(Date.parse(stored.claimDeadlineAt) >= Date.now() + GIVEAWAY_WINNER_CLAIM_WINDOW_MS - 1_000);
   assert.equal(json(staff.edited.embeds[0]).title, 'Success');
   // The default claim text is used when none was given: 24 hours.
-  assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Click Claim below to be redirected to a private channel, where you can collect your prize!');
+  assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Click **Claim** below to be redirected to a private channel, where you can collect your prize!');
   assert.ok(createWinnerAnnouncement(activeGiveaway(), ['x']).embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
 });
 
 test('winner announcement uses the new Claim text and preserves custom instructions and remaining content', () => {
   const standard = createWinnerAnnouncement(activeGiveaway({ claim: null }), ['winner']);
   const legacy = createWinnerAnnouncement(activeGiveaway({ claim: LEGACY_GIVEAWAY_CLAIM }), ['winner']);
+  const previous = createWinnerAnnouncement(activeGiveaway({ claim: PREVIOUS_GIVEAWAY_CLAIM }), ['winner']);
   const custom = createWinnerAnnouncement(activeGiveaway({ claim: 'Contact the host for assistance.' }), ['winner']);
   assert.ok(standard.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
   assert.equal(legacy.embeds[0].description, standard.embeds[0].description);
+  assert.equal(previous.embeds[0].description, standard.embeds[0].description);
   assert.ok(custom.embeds[0].description.includes('Contact the host for assistance.'));
   assert.doesNotMatch(custom.embeds[0].description, /be redirected to a private channel/);
   assert.match(standard.embeds[0].description, /Failure to claim your prize within this timeframe/);
@@ -314,7 +317,7 @@ test('winner announcement uses the new Claim text and preserves custom instructi
 test('already-posted winner messages replace only the old instruction, in place, and only once', async () => {
   const w = world({ [MESSAGE]: activeGiveaway({
     ended: true, isEnded: true, winnerIds: ['winner'],
-    announcementIds: ['announcement1', 'announcement2'],
+    announcementIds: ['announcement1', 'announcement2', 'announcement3'],
   }) });
   const original = createWinnerAnnouncement(activeGiveaway({ claim: null }), ['winner']);
   const oldEmbed = {
@@ -339,13 +342,28 @@ test('already-posted winner messages replace only the old instruction, in place,
     edits: [],
     edit: async payload => { custom.edits.push(payload); return custom; },
   };
+  const previouslyPosted = {
+    embeds: [{
+      ...original.embeds[0],
+      description: original.embeds[0].description.replace(DEFAULT_GIVEAWAY_CLAIM, PREVIOUS_GIVEAWAY_CLAIM),
+    }],
+    edits: [],
+    edit: async payload => {
+      previouslyPosted.edits.push(payload);
+      previouslyPosted.embeds = payload.embeds;
+      return previouslyPosted;
+    },
+  };
   w.channel.messages.fetch = async id => id === 'announcement1'
-    ? existing : id === 'announcement2' ? custom : w.giveawayMessage;
+    ? existing : id === 'announcement2' ? custom
+      : id === 'announcement3' ? previouslyPosted : w.giveawayMessage;
   const beforeContent = existing.content;
   const beforeComponents = existing.components;
   const beforeThumbnail = existing.embeds[0].thumbnail;
   await refreshExistingGiveawayClaimInstructions(w.client);
   assert.equal(existing.edits.length, 1);
+  assert.equal(previouslyPosted.edits.length, 1);
+  assert.ok(previouslyPosted.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
   assert.equal(custom.edits.length, 0);
   assert.equal(existing.content, beforeContent);
   assert.equal(existing.components, beforeComponents);
@@ -354,6 +372,7 @@ test('already-posted winner messages replace only the old instruction, in place,
   assert.match(existing.embeds[0].description, /Failure to claim your prize within this timeframe/);
   await refreshExistingGiveawayClaimInstructions(w.client);
   assert.equal(existing.edits.length, 1);
+  assert.equal(previouslyPosted.edits.length, 1);
 });
 
 test('Reroll draws someone new and announces them; nobody new left is an error', async () => {
