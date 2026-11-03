@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { CLOUDY_C_LOGO_URL, createWinnerAnnouncement } from '../src/services/giveawayService.js';
-import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, buildGiveawayClaimLog } from '../src/services/giveawayClaimLogService.js';
+import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveawayClaimLog, removeExistingClaimLogTimestamps } from '../src/services/giveawayClaimLogService.js';
 import {
   CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
   GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
@@ -417,7 +417,7 @@ test('every Claim click is logged to the requested channel with winner, giveaway
     assert.deepEqual(entry.allowedMentions, { parse: [] });
     assert.deepEqual(entry.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
     assert.match(entry.embeds[0].footer.text, /Cloudy Inc/);
-    assert.ok(entry.embeds[0].timestamp);
+    assert.equal(entry.embeds[0].timestamp, undefined);
     assert.match(JSON.stringify(entry.embeds[0]), /Six-month subscription/);
     assert.match(JSON.stringify(entry.embeds[0]), new RegExp(GIVEAWAY));
   }
@@ -533,4 +533,42 @@ test('audit embed builder contains only safe metadata and never mentions users',
   assert.match(entry.embeds[0].fields.find(field => field.name === 'Giveaway').value,
     /discord\.com\/channels\//);
   assert.equal(entry.embeds[0].thumbnail.url, CLOUDY_C_LOGO_URL);
+});
+
+test('old giveaway log timestamps are removed in place without changing any other embed content', async () => {
+  const w = world();
+  const base = buildGiveawayClaimLog({
+    event: 'opened', guildId: GUILD, messageId: GIVEAWAY, userId: WINNER,
+    giveaway: { prize: 'Six-month subscription' },
+  }).embeds[0];
+  const dated = { ...base, timestamp: '2026-11-03T18:36:00.000Z' };
+  const original = {
+    author: { id: w.client.user.id },
+    embeds: [{ toJSON: () => structuredClone(dated) }],
+    edited: [],
+    edit: async function (data) { this.edited.push(data); this.embeds = data.embeds; },
+  };
+  const unrelated = {
+    author: { id: w.client.user.id },
+    embeds: [{ title: 'Other log', footer: { text: GIVEAWAY_CLAIM_LOG_FOOTER },
+      timestamp: '2026-11-03T18:36:00.000Z' }],
+    edit: async () => { throw new Error('Unrelated log was edited'); },
+  };
+  const otherAuthor = {
+    author: { id: 'someone-else' }, embeds: [dated],
+    edit: async () => { throw new Error('Other user message was edited'); },
+  };
+  w.cache.set(GIVEAWAY_CLAIM_LOG_CHANNEL_ID, {
+    id: GIVEAWAY_CLAIM_LOG_CHANNEL_ID,
+    messages: { fetch: async () => new Collection([
+      ['1', original], ['2', unrelated], ['3', otherAuthor],
+    ]) },
+  });
+  await removeExistingClaimLogTimestamps(w.client);
+  assert.equal(original.edited.length, 1);
+  assert.equal(original.embeds[0].timestamp, undefined);
+  assert.deepEqual(original.embeds[0], base);
+  assert.equal(original.embeds[0].footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
+  await removeExistingClaimLogTimestamps(w.client);
+  assert.equal(original.edited.length, 1);
 });
