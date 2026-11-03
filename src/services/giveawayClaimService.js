@@ -5,6 +5,7 @@ import {
 } from 'discord.js';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { logger } from '../utils/logger.js';
+import { CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { getGuildConfig } from './config/guildConfig.js';
@@ -15,13 +16,44 @@ import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPre
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
+export const CLAIM_SUCCESS_NOTICE_MS = 10 * 60_000;
+export const CLAIM_DENIED_NOTICE_MS = 20_000;
 export const GIVEAWAY_CLAIM_CATEGORY_ID = '1566382220904763443';
 const WHITE = 0xFFFFFF;
 const CODE_KEY_ENV = 'GIVEAWAY_CLAIM_ENCRYPTION_KEY';
 const registryKey = guildId => 'guild:' + guildId + ':giveaway-claim:records';
 const claimId = (messageId, userId) => messageId + ':' + userId;
-const claimLink = (guildId, channelId) => 'https://discord.com/channels/' + guildId + '/' + channelId;
 const notice = (interaction, text) => interaction.editReply({ content: text, allowedMentions: { parse: [] } });
+
+// Only the Claim-button result uses these custom lifetimes; other claim
+// actions and the existing 24-hour prize-channel expiry remain unchanged.
+async function claimResultNotice(interaction, channelId = null) {
+  const success = Boolean(channelId);
+  await interaction.editReply({
+    content: null,
+    embeds: [{
+      title: success ? 'Claim successful!' : 'Claim denied',
+      description: success
+        ? "You've been tagged in <#" + channelId + "> to collect your prize!"
+        : 'This button is reserved for giveaway winners only. You are not eligible to claim this prize.',
+      color: success ? 0x00C49D : CLOUDY_RED_COLOR,
+    }],
+    components: [],
+    allowedMentions: { parse: [] },
+  });
+  // Discord ephemeral replies can be deleted through the interaction token
+  // within 15 minutes; use 10 minutes rather than waiting 24 hours.
+  const timer = setTimeout(() => {
+    void Promise.resolve()
+      .then(() => interaction.deleteReply())
+      .catch(error => {
+        if (error?.code !== 10008) {
+          logger.warn('Giveaway Claim notice could not be removed: ' + (error?.message || error));
+        }
+      });
+  }, success ? CLAIM_SUCCESS_NOTICE_MS : CLAIM_DENIED_NOTICE_MS);
+  timer.unref?.();
+}
 
 function secretKey() {
   const text = process.env[CODE_KEY_ENV] || '';
@@ -102,7 +134,7 @@ async function openClaim(interaction, client, messageId) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
   if (!giveaway || !giveaway.ended || !giveaway.winnerIds?.includes(interaction.user.id)) {
-    return notice(interaction, 'Only a current winner can claim this prize.');
+    return claimResultNotice(interaction);
   }
   const guild = interaction.guild;
   const userId = interaction.user.id;
@@ -111,7 +143,7 @@ async function openClaim(interaction, client, messageId) {
     if (prior?.closedAt) return notice(interaction, 'This prize claim has already closed.');
     if (prior?.channelId) {
       const current = await guild.channels.fetch(prior.channelId).catch(() => null);
-      if (current) return notice(interaction, 'Your private claim channel: ' + claimLink(guild.id, current.id));
+      if (current) return claimResultNotice(interaction, current.id);
     }
 
     // The giveaway winner gets a new private text channel in this category,
@@ -156,7 +188,7 @@ async function openClaim(interaction, client, messageId) {
       await channel.delete('Failed to initialize giveaway claim').catch(() => {});
       throw error;
     }
-    return notice(interaction, 'Your private claim channel is ready: ' + claimLink(guild.id, channel.id));
+    return claimResultNotice(interaction, channel.id);
   });
 }
 
