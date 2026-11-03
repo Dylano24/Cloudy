@@ -7,7 +7,7 @@ import { getGuildGiveaways } from '../utils/giveaways.js';
 import { CLOUDY_C_LOGO_URL, giveawayEndTime, isGiveawayFinished } from './giveawayService.js';
 import { canManageGiveawaysAsOwner, loadGiveaway } from './giveawayActions.js';
 import { createGiveawayManagePanel, participantsEmoji } from './giveawayService.js';
-import { giveawayWarning } from '../handlers/giveawayButtons.js';
+import { giveawayWarning, removeAfterTenSeconds } from '../handlers/giveawayButtons.js';
 import { cleanupDeletedGiveaways } from './giveawayDeletedMessageSync.js';
 
 export const GIVEAWAY_MANAGE_PAGE_SIZE = 25;
@@ -115,10 +115,22 @@ export function buildGiveawayManagePicker(giveaways, guild, requesterId, request
   return { embeds: [embed], components };
 }
 
+// A short private state (empty list, warning, error) is not an interactive
+// panel: it follows Cloudy's normal 10-second notice lifetime. Never auto-
+// delete a picker or management panel while it contains usable controls.
+async function editManageReply(interaction, payload) {
+  const result = await interaction.editReply(payload);
+  if (!payload.components?.length) removeAfterTenSeconds(interaction);
+  return result;
+}
+
 async function reject(interaction) {
   const payload = { embeds: [giveawayWarning('Only the Owner role can manage giveaways.')], components: [] };
-  if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
-  return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+  const result = interaction.deferred || interaction.replied
+    ? await interaction.editReply(payload)
+    : await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+  removeAfterTenSeconds(interaction);
+  return result;
 }
 
 export async function showGiveawayManagePicker(interaction, client, page = 0, requesterId = interaction.user.id) {
@@ -128,9 +140,9 @@ export async function showGiveawayManagePicker(interaction, client, page = 0, re
   else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   try {
     const giveaways = await listManageableGiveaways(client, interaction.guildId);
-    return interaction.editReply(buildGiveawayManagePicker(giveaways, interaction.guild, requesterId, page));
+    return editManageReply(interaction, buildGiveawayManagePicker(giveaways, interaction.guild, requesterId, page));
   } catch {
-    return interaction.editReply({
+    return editManageReply(interaction, {
       embeds: [giveawayWarning('Giveaways could not be loaded. Please try again.')],
       components: [],
     });
@@ -143,7 +155,7 @@ export async function selectGiveawayToManage(interaction, client, requesterId) {
   try {
     const messageId = String(interaction.values?.[0] || '');
     if (!/^\d{17,20}$/.test(messageId)) {
-      return interaction.editReply({ embeds: [giveawayWarning('Select a valid giveaway.')], components: [] });
+      return editManageReply(interaction, { embeds: [giveawayWarning('Select a valid giveaway.')], components: [] });
     }
     const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
     if (!isActiveManageableGiveaway(giveaway)
@@ -154,11 +166,11 @@ export async function selectGiveawayToManage(interaction, client, requesterId) {
         });
       }
       const giveaways = await listManageableGiveaways(client, interaction.guildId);
-      return interaction.editReply(buildGiveawayManagePicker(giveaways, interaction.guild, requesterId));
+      return editManageReply(interaction, buildGiveawayManagePicker(giveaways, interaction.guild, requesterId));
     }
     return interaction.editReply(createGiveawayManagePanel(giveaway, { participantsIcon: participantsEmoji(client) }));
   } catch {
-    return interaction.editReply({
+    return editManageReply(interaction, {
       embeds: [giveawayWarning('The giveaway could not be opened. Please try again.')],
       components: [],
     });
