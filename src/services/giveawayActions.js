@@ -350,15 +350,22 @@ export async function refreshExistingGiveawayClaimInstructions(client) {
     }
 }
 
-// One-time correction for ended giveaway posts that are already visible in
-// Discord. Edit only the obsolete line, never repost or alter buttons/footer.
+// Place the original final announcement immediately above the existing
+// giveaway-ended date. Keep its exact wording and the date unchanged.
+export function reorderEndedGiveawayDescription(description) {
+    if (typeof description !== 'string') return description;
+    const previous = /\n\n([^\n]*\*\*Giveaway ended\*\*\n<t:\d+:F>)\n\n(?:This giveaway has ended!|The winner\(s\) have been announced and tagged below!)$/;
+    return description.replace(previous,
+        (_, endedTimeBlock) => '\n\nThe winner(s) have been announced and tagged below!\n\n' + endedTimeBlock);
+}
+
+// Correct already-posted ended giveaways in place; change only the order of
+// their last two blocks and restore the original sentence where necessary.
 export async function refreshEndedGiveawayClosingCopy(client) {
     if (!client?.db?.get || !client?.db?.set) return;
-    const outdated = 'The winner(s) have been announced and tagged below!';
-    const replacement = 'This giveaway has ended!';
     const since = Date.now() - 30 * 24 * 60 * 60_000;
     for (const guild of client.guilds?.cache?.values?.() || []) {
-        const marker = 'guild:' + guild.id + ':giveaway:ended-copy-v1';
+        const marker = 'guild:' + guild.id + ':giveaway:ended-copy-order-v2';
         try {
             if (await client.db.get(marker, false)) continue;
             const records = await getGuildGiveaways(client, guild.id, { strict: true });
@@ -379,9 +386,10 @@ export async function refreshEndedGiveawayClosingCopy(client) {
                     let changed = false;
                     const embeds = message.embeds.map(embed => {
                         const data = embed.toJSON?.() || { ...embed };
-                        if (!data.description?.includes(outdated)) return data;
+                        const reordered = reorderEndedGiveawayDescription(data.description);
+                        if (reordered === data.description) return data;
                         changed = true;
-                        return { ...data, description: data.description.replace(outdated, replacement) };
+                        return { ...data, description: reordered };
                     });
                     if (changed) await message.edit({ embeds });
                 } catch (error) {
