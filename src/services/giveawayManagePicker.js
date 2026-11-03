@@ -48,7 +48,7 @@ export function buildGiveawayManagePicker(giveaways, guild, requesterId, request
       const endsAt = giveawayEndTime(giveaway);
       return {
         label: String(giveaway.prize || 'Giveaway').slice(0, 100),
-        description: `${ended ? 'Ended' : 'Active'} · ${channelLabel} · ${endsAt ? new Date(endsAt).toLocaleDateString('en-GB') : 'No end date'}`.slice(0, 100),
+        description: `${ended ? 'Ended' : 'Active'} · ${channelLabel} · ${endsAt ? new Date(endsAt).toLocaleDateString('en-GB') : 'No end date'} · ID ${String(giveaway.messageId).slice(-6)}`.slice(0, 100),
         value: String(giveaway.messageId),
       };
     }));
