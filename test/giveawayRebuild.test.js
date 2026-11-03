@@ -316,9 +316,13 @@ test('already-posted winner messages replace only the old instruction, in place,
     ended: true, isEnded: true, winnerIds: ['winner'],
     announcementIds: ['announcement1', 'announcement2'],
   }) });
-  const original = createWinnerAnnouncement(activeGiveaway({ claim: LEGACY_GIVEAWAY_CLAIM }), ['winner']);
+  const original = createWinnerAnnouncement(activeGiveaway({ claim: null }), ['winner']);
+  const oldEmbed = {
+    ...original.embeds[0],
+    description: original.embeds[0].description.replace(DEFAULT_GIVEAWAY_CLAIM, LEGACY_GIVEAWAY_CLAIM),
+  };
   const existing = {
-    embeds: [original.embeds[0]],
+    embeds: [oldEmbed],
     content: original.content,
     components: original.components,
     edits: [],
