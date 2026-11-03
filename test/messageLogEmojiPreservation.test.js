@@ -166,9 +166,9 @@ test('Message Log truncation never cuts a custom emoji or a Unicode emoji sequen
   assert.ok(shortened.length <= 512);
   assert.equal(shortened, 'A'.repeat(475) + staticEmoji + '...');
   assert.doesNotMatch(shortened, /<a?:[^>]*$/);
-  const pureUnicode = 'B'.repeat(504) + '👩‍💻' + 'xxxxxxxx';
+  const pureUnicode = 'B'.repeat(506) + '👩‍💻' + 'xxxxxxxx';
   const clipped = truncateMessageLogText(pureUnicode, 512);
-  assert.equal(clipped, 'B'.repeat(504) + '...');
+  assert.equal(clipped, 'B'.repeat(506) + '...');
   assert.equal(truncateMessageLogText(CONTENT, 512), CONTENT);
   assert.equal(truncateMessageLogText('🏳️‍🌈', 4), '...');
 });
