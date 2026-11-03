@@ -338,7 +338,7 @@ export async function rerollUnclaimedGiveaway(client, guild, messageId) {
 
         const excluded = new Set([...(giveaway.previousWinnerIds || []), ...currentWinners]);
         const pool = giveawayParticipants(giveaway).filter(id => !excluded.has(id));
-        const newWinners = selectWinners(pool, Math.min(missing.length, pool.length));
+        const newWinners = pool.length ? selectWinners(pool, Math.min(missing.length, pool.length)) : [];
         const rerolled = {
             ...giveaway,
             winnerIds: [...claimed, ...newWinners],
