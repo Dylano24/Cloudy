@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { CLOUDY_C_LOGO_URL, createWinnerAnnouncement } from '../src/services/giveawayService.js';
+import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, buildGiveawayClaimLog } from '../src/services/giveawayClaimLogService.js';
 import {
   CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
   GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
@@ -25,8 +26,15 @@ function world() {
       claimExpiryInstructions: 'This claim channel will close 24 hours after you reveal the code.',
     },
   }]]);
-  const sent = [], created = [];
+  const sent = [], created = [], logs = [];
   const cache = new Collection();
+  cache.set(GIVEAWAY_CLAIM_LOG_CHANNEL_ID, {
+    id: GIVEAWAY_CLAIM_LOG_CHANNEL_ID,
+    send: async payload => {
+      logs.push(payload);
+      return { id: 'audit-' + logs.length };
+    },
+  });
   cache.set(GIVEAWAY_CLAIM_CATEGORY_ID, {
     id: GIVEAWAY_CLAIM_CATEGORY_ID, type: ChannelType.GuildCategory,
     name: 'giveaway-claims',
@@ -82,7 +90,7 @@ function world() {
     };
     return item;
   }
-  return { client, records, sent, created, interaction, cache };
+  return { client, records, sent, created, logs, interaction, cache };
 }
 
 test('winner announcement has a Claim button; no-winner and builder preview have none', () => {
@@ -385,4 +393,144 @@ test('code stays encrypted; only winner reveals; cleanup starts 24h after reveal
   await cleanupExpiredGiveawayClaims(w.client);
   assert.equal(channel.deleted, true);
   assert.ok(w.records.get(KEY)[CLAIM_ID].closedAt);
+});
+
+async function flushClaimLogs() {
+  // The audit send is deliberately asynchronous and never delays the button.
+  await new Promise(resolve => setImmediate(resolve));
+}
+
+test('every Claim click is logged to the requested channel with winner, giveaway and private channel', async () => {
+  const w = world();
+  const denied = w.interaction('gclaim:open:' + GIVEAWAY, OWNER);
+  await handleGiveawayClaimInteraction(denied, w.client);
+  const first = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(first, w.client);
+  const second = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(second, w.client);
+  await flushClaimLogs();
+
+  assert.deepEqual(w.logs.map(log => log.embeds[0].title), [
+    'Giveaway claim denied', 'Giveaway claim opened', 'Giveaway claim accessed',
+  ]);
+  for (const entry of w.logs) {
+    assert.deepEqual(entry.allowedMentions, { parse: [] });
+    assert.deepEqual(entry.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
+    assert.match(entry.embeds[0].footer.text, /Cloudy Inc/);
+    assert.ok(entry.embeds[0].timestamp);
+    assert.match(JSON.stringify(entry.embeds[0]), /Six-month subscription/);
+    assert.match(JSON.stringify(entry.embeds[0]), new RegExp(GIVEAWAY));
+  }
+  const opened = JSON.stringify(w.logs[1]);
+  assert.match(opened, new RegExp(WINNER));
+  assert.match(opened, new RegExp(w.created[0].channel.id));
+  assert.equal(w.created.length, 1, 'revisiting does not create an additional channel');
+  assert.equal(w.logs[0].embeds[0].color, 0x7A1712);
+});
+
+test('Reveal my code logs successful reveal but NEVER logs demo or encrypted prize codes', async t => {
+  const prior = process.env.GIVEAWAY_CLAIM_ENCRYPTION_KEY;
+  process.env.GIVEAWAY_CLAIM_ENCRYPTION_KEY = '9'.repeat(64);
+  t.after(() => {
+    if (prior === undefined) delete process.env.GIVEAWAY_CLAIM_ENCRYPTION_KEY;
+    else process.env.GIVEAWAY_CLAIM_ENCRYPTION_KEY = prior;
+  });
+  const w = world();
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+
+  // Unauthorized reveal is not a successful reveal.
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:reveal:' + CLAIM_ID, OWNER, { channel }), w.client);
+  const allowed = w.interaction('gclaim:reveal:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(allowed, w.client);
+  assert.match(allowed.response.content, /^DEMO-/);
+  await flushClaimLogs();
+  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway code revealed').length, 1);
+  assert.doesNotMatch(JSON.stringify(w.logs), /DEMO-[A-Z0-9-]+/);
+
+  const save = w.interaction('gclaim:save:' + CLAIM_ID, OWNER, {
+    channel, code: 'ULTRA-PRIVATE-WINNER-CODE', modal: true,
+  });
+  await handleGiveawayClaimInteraction(save, w.client);
+  const configured = w.interaction('gclaim:reveal:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(configured, w.client);
+  assert.equal(configured.response.content, 'ULTRA-PRIVATE-WINNER-CODE');
+  await flushClaimLogs();
+  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway code revealed').length, 2);
+  assert.doesNotMatch(JSON.stringify(w.logs), /ULTRA-PRIVATE-WINNER-CODE/);
+  assert.doesNotMatch(JSON.stringify(w.logs), /encryptedCode|ciphertext|body|DEMO-/i);
+});
+
+test('Close writes exactly one manual-close log after deleting the private claim channel', async () => {
+  const w = world();
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+  const denied = w.interaction('gclaim:done:' + CLAIM_ID, OWNER, { channel });
+  await handleGiveawayClaimInteraction(denied, w.client);
+  await flushClaimLogs();
+  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim closed').length, 0);
+
+  const close = w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(close, w.client);
+  await flushClaimLogs();
+  assert.equal(channel.deleted, true);
+  const end = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim closed');
+  assert.equal(end.length, 1);
+  assert.match(JSON.stringify(end[0]), new RegExp(channel.id));
+  assert.match(JSON.stringify(end[0]), /Close/);
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel }), w.client);
+  await flushClaimLogs();
+  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim closed').length, 1);
+});
+
+test('24-hour automatic channel expiry sends the separate expiration log only once', async () => {
+  const w = world();
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+  const record = w.records.get(KEY)[CLAIM_ID];
+  record.expiresAt = new Date(Date.now() - 1_000).toISOString();
+  await w.client.db.set(KEY, w.records.get(KEY));
+  await cleanupExpiredGiveawayClaims(w.client);
+  await flushClaimLogs();
+  assert.equal(channel.deleted, true);
+  const expired = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim expired');
+  assert.equal(expired.length, 1);
+  assert.equal(expired[0].embeds[0].fields.find(field => field.name === 'Action').value,
+    'Automatic close (24 hours)');
+  assert.match(JSON.stringify(expired[0]), new RegExp(channel.id));
+  await cleanupExpiredGiveawayClaims(w.client);
+  await flushClaimLogs();
+  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim expired').length, 1);
+});
+
+test('log channel send failure never prevents Claim, Reveal or Close', async () => {
+  const w = world();
+  w.cache.get(GIVEAWAY_CLAIM_LOG_CHANNEL_ID).send = async () => {
+    throw new Error('Audit log channel unavailable');
+  };
+  const start = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(start, w.client);
+  const channel = w.created[0].channel;
+  const reveal = w.interaction('gclaim:reveal:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(reveal, w.client);
+  const close = w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel });
+  await handleGiveawayClaimInteraction(close, w.client);
+  await flushClaimLogs();
+  assert.equal(start.response.embeds[0].title, 'Claim successful!');
+  assert.match(reveal.response.content, /^DEMO-/);
+  assert.equal(channel.deleted, true);
+});
+
+test('audit embed builder contains only safe metadata and never mentions users', () => {
+  const entry = buildGiveawayClaimLog({
+    event: 'revealed', guildId: GUILD, messageId: GIVEAWAY, userId: WINNER,
+    claimChannelId: '156000000000000123',
+    giveaway: { prize: 'Top prize', channelId: '156000000000000087' },
+  });
+  assert.deepEqual(entry.allowedMentions, { parse: [] });
+  assert.equal(entry.embeds[0].title, 'Giveaway code revealed');
+  assert.equal(entry.embeds[0].fields.find(field => field.name === 'Prize').value, 'Top prize');
+  assert.match(entry.embeds[0].fields.find(field => field.name === 'Giveaway').value,
+    /discord\.com\/channels\//);
+  assert.equal(entry.embeds[0].thumbnail.url, CLOUDY_C_LOGO_URL);
 });

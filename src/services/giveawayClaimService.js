@@ -13,6 +13,7 @@ import { canManageGiveawaysAsOwner, checkUnclaimedGiveawayWinners, loadGiveaway 
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPreview.js';
+import { sendGiveawayClaimLog } from './giveawayClaimLogService.js';
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -24,6 +25,12 @@ const CODE_KEY_ENV = 'GIVEAWAY_CLAIM_ENCRYPTION_KEY';
 const registryKey = guildId => 'guild:' + guildId + ':giveaway-claim:records';
 const claimId = (messageId, userId) => messageId + ':' + userId;
 const notice = (interaction, text) => interaction.editReply({ content: text, allowedMentions: { parse: [] } });
+
+// Logging must never make a winner's Claim/Reveal/Close interaction fail.
+function logClaimAction(client, guild, detail) {
+  void Promise.resolve().then(() => sendGiveawayClaimLog(client, guild, detail))
+    .catch(error => logger.warn('Could not send giveaway claim audit log: ' + (error?.message || error)));
+}
 
 // Keep the short-lived private success replies associated with their claim so
 // closing the private channel also removes the confirmation from the giveaway.
@@ -180,17 +187,27 @@ async function openClaim(interaction, client, messageId) {
   return Mutex.runExclusive('giveaway:' + messageId, async () => {
     const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
     if (!giveaway || !giveaway.ended || !giveaway.winnerIds?.includes(userId)) {
-      return claimResultNotice(interaction);
+      await claimResultNotice(interaction);
+      logClaimAction(client, guild, { event: 'denied', messageId, userId, giveaway });
+      return;
     }
     const prior = await findClaim(client, guild.id, messageId, userId);
     if (prior?.closedAt) return notice(interaction, 'This prize claim has already closed.');
     if (prior?.channelId) {
       const current = await guild.channels.fetch(prior.channelId).catch(() => null);
-      if (current) return claimResultNotice(interaction, current.id, client, messageId);
+      if (current) {
+        await claimResultNotice(interaction, current.id, client, messageId);
+        logClaimAction(client, guild, {
+          event: 'accessed', messageId, userId, claimChannelId: current.id, giveaway,
+        });
+        return;
+      }
     }
     const deadline = Date.parse(giveaway.claimDeadlineAt || '');
     if (Number.isFinite(deadline) && deadline <= Date.now()) {
-      return claimResultNotice(interaction);
+      await claimResultNotice(interaction);
+      logClaimAction(client, guild, { event: 'denied', messageId, userId, giveaway });
+      return;
     }
 
     // The giveaway winner gets a new private text channel in this category,
@@ -235,7 +252,10 @@ async function openClaim(interaction, client, messageId) {
       await channel.delete('Failed to initialize giveaway claim').catch(() => {});
       throw error;
     }
-    return claimResultNotice(interaction, channel.id, client, messageId);
+    await claimResultNotice(interaction, channel.id, client, messageId);
+    logClaimAction(client, guild, {
+      event: 'opened', messageId, userId, claimChannelId: channel.id, giveaway,
+    });
   });
 }
 
@@ -263,6 +283,10 @@ async function finishClaim(interaction, client, messageId, userId) {
       throw error;
     }
     await deletePendingSuccessNotices(client, messageId, userId);
+    logClaimAction(client, interaction.guild, {
+      event: 'closed', messageId, userId, claimChannelId: record.channelId,
+      giveaway: await loadGiveaway(client, interaction.guildId, messageId).catch(() => null),
+    });
     return notice(interaction, 'Your prize claim has been closed. Thank you!').catch(() => {});
   });
 }
@@ -291,13 +315,21 @@ async function revealClaimCode(interaction, client, messageId, userId) {
       if (!record.revealedAt) {
         await saveClaim(client, interaction.guildId, { ...record, revealedAt: new Date().toISOString() });
       }
-      return notice(interaction, code);
+      await notice(interaction, code);
+      logClaimAction(client, interaction.guild, {
+        event: 'revealed', messageId, userId, claimChannelId: record.channelId,
+        giveaway: await loadGiveaway(client, interaction.guildId, messageId).catch(() => null),
+      });
+      return;
     }
 
     const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
     if (!giveaway) return notice(interaction, 'The giveaway could not be found.');
     const demo = displayDemoClaimCode(giveaway, userId);
-    return notice(interaction, demo);
+    await notice(interaction, demo);
+    logClaimAction(client, interaction.guild, {
+      event: 'revealed', messageId, userId, claimChannelId: record.channelId, giveaway,
+    });
   });
 }
 
@@ -335,8 +367,12 @@ async function takeCode(interaction, client, messageId, userId) {
       await shown.delete().catch(() => {});
       throw error;
     }
-    return notice(interaction, 'Code revealed in your private channel. Automatic deletion: <t:'
+    await notice(interaction, 'Code revealed in your private channel. Automatic deletion: <t:'
       + Math.floor((now + CLAIM_LIFETIME_MS) / 1000) + ':F>.');
+    logClaimAction(client, interaction.guild, {
+      event: 'revealed', messageId, userId, claimChannelId: record.channelId,
+      giveaway: await loadGiveaway(client, interaction.guildId, messageId).catch(() => null),
+    });
   });
 }
 
@@ -420,6 +456,11 @@ export async function cleanupExpiredGiveawayClaims(client) {
           catch (error) { logger.warn('Could not delete expired giveaway claim channel ' + current.channelId, error); return; }
         }
         await saveClaim(client, guild.id, { ...current, closedAt: new Date().toISOString(), encryptedCode: null });
+        logClaimAction(client, guild, {
+          event: 'expired', messageId: current.messageId, userId: current.userId,
+          claimChannelId: current.channelId,
+          giveaway: await loadGiveaway(client, guild.id, current.messageId).catch(() => null),
+        });
       });
     }
   }
