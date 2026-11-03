@@ -10,8 +10,6 @@ export const GIVEAWAY_CLAIM_LOG_FOOTER = '© Cloudy Inc. • Quality. Innovation
 
 const EVENTS = Object.freeze({
   opened: { title: 'Giveaway claim opened', color: 0x00C49D, action: 'Claim' },
-  accessed: { title: 'Giveaway claim accessed', color: 0xFFFFFF, action: 'Claim' },
-  denied: { title: 'Giveaway claim denied', color: 0x7A1712, action: 'Claim' },
   revealed: { title: 'Giveaway code revealed', color: 0xFFFFFF, action: 'Reveal my code' },
   closed: { title: 'Giveaway claim closed', color: CLOUDY_TICKET_CLOSED_COLOR, action: 'Close' },
   expired: { title: 'Giveaway claim expired', color: 0x7A1712, action: 'Automatic close (24 hours)' },
@@ -44,9 +42,6 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
         : '<#' + claimChannelId + '>',
       inline: false,
     });
-  }
-  if (event === 'denied') {
-    fields.push({ name: 'Result', value: 'Not eligible or claim window expired', inline: false });
   }
   if (event === 'expired') {
     fields.push({ name: 'Reason', value: 'The private claim channel reached its 24-hour deadline', inline: false });
@@ -246,6 +241,51 @@ export async function refreshClosedClaimReferencesInEarlierLogs(client) {
       if (client.db?.set) await client.db.set(marker, true);
     } catch (error) {
       logger.warn('Could not update older closed giveaway claim log references in ' + guild.id, error);
+    }
+  }
+}
+
+// Remove only obsolete Claim accessed/denied notices previously sent by
+// Cloudy. Leave the three requested audit types, 24-hour expiry and every
+// other message in the log channel unchanged.
+const REDUNDANT_CLAIM_LOG_TITLES = new Set([
+  'Giveaway claim accessed',
+  'Giveaway claim denied',
+]);
+
+export async function removeRedundantGiveawayClaimLogs(client) {
+  if (!client?.db?.get || !client?.db?.set) return;
+  for (const guild of client.guilds?.cache?.values?.() || []) {
+    const marker = 'guild:' + guild.id + ':giveaway-claim:remove-extra-logs-v1';
+    try {
+      if (await client.db.get(marker, false)) continue;
+      const channel = guild.channels?.cache?.get?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID)
+        || await guild.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
+      if (!channel?.messages?.fetch) continue;
+      // One-time, limited catch-up for legacy messages, not a repeated scan.
+      let before;
+      let complete = false;
+      for (let page = 0; page < 10; page++) {
+        const options = before ? { limit: 100, before } : { limit: 100 };
+        const messages = [...(await channel.messages.fetch(options)).values()];
+        for (const message of messages) {
+          if (message.author?.id !== client.user?.id || !message.delete) continue;
+          const isObsolete = (message.embeds || []).some(embed => {
+            const data = embed.toJSON?.() || embed;
+            return REDUNDANT_CLAIM_LOG_TITLES.has(data.title)
+              && data.footer?.text === GIVEAWAY_CLAIM_LOG_FOOTER;
+          });
+          if (isObsolete) await message.delete();
+        }
+        if (messages.length < 100 || !messages[messages.length - 1]?.id) {
+          complete = true;
+          break;
+        }
+        before = messages[messages.length - 1].id;
+      }
+      if (complete) await client.db.set(marker, true);
+    } catch (error) {
+      logger.warn('Could not remove redundant giveaway claim audit logs in ' + guild.id, error);
     }
   }
 }
