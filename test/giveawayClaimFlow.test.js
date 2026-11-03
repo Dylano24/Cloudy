@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
-import { createWinnerAnnouncement } from '../src/services/giveawayService.js';
+import { CLOUDY_C_LOGO_URL, createWinnerAnnouncement } from '../src/services/giveawayService.js';
 import {
   CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
   GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
@@ -104,6 +104,7 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.equal(outsider.response.embeds[0].description,
     'This button is reserved for giveaway winners only. You are not eligible to claim this prize.');
   assert.equal(outsider.response.embeds[0].color, 0x7A1712);
+  assert.deepEqual(outsider.response.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
   assert.equal(w.created.length, 0);
   const open = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(open, w.client);
@@ -113,6 +114,7 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.equal(open.response.embeds[0].description,
     "You've been tagged in <#" + channel.id + "> to collect your prize!");
   assert.equal(open.response.embeds[0].color, 0x00C49D);
+  assert.deepEqual(open.response.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
   assert.equal(options.type, ChannelType.GuildText);
   assert.equal(options.parent, GIVEAWAY_CLAIM_CATEGORY_ID);
   const everyone = options.permissionOverwrites.find(value => value.id === GUILD);
@@ -154,6 +156,7 @@ test('only the winner opens exactly one private claim channel', async () => {
   await handleGiveawayClaimInteraction(repeat, w.client);
   assert.equal(w.created.length, 1);
   assert.equal(repeat.response.embeds[0].title, 'Claim successful!');
+  assert.deepEqual(repeat.response.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
   assert.match(repeat.response.embeds[0].description, new RegExp(channel.id));
 });
 
