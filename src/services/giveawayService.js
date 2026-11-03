@@ -200,10 +200,10 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
         '**Participants**',
         String(giveawayParticipants(giveaway).length),
         '',
+        ...(!ended ? [`**${giveaway.closingText || DEFAULT_GIVEAWAY_CLOSING}**`, ''] : []),
         `${GIVEAWAY_EMOJIS.timer} **${ended ? 'Giveaway ended' : 'Giveaway ends'}**`,
         ended ? `<t:${unix(endedAt)}:F>` : `<t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
-        '',
-        ended ? 'The winner(s) have been announced and tagged below!' : `**${giveaway.closingText || DEFAULT_GIVEAWAY_CLOSING}**`,
+        ...(ended ? ['', 'The winner(s) have been announced and tagged below!'] : []),
     ];
     return {
         description: lines.join('\n').slice(0, 4096),

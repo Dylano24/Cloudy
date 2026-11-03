@@ -95,16 +95,18 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
     '**Participants**',
     '0',
     '',
+    '**Good luck to everyone!**',
+    '',
     '<a:W89timer:1557506643372146778> **Giveaway ends**',
     '<t:1800000000:F> (<t:1800000000:R>)',
-    '',
-    '**Good luck to everyone!**',
   ].join('\n'));
   assert.equal(embed.color, 0xFFFFFF);
   // A personal description and requirements replace the defaults.
   const custom = createGiveawayEmbed(activeGiveaway({ description: 'Win big!', requirements: 'Level 5' }), 'active');
   assert.match(custom.description, /\*\*Giveaway time!\*\*\n\nWin big!\n/);
   assert.match(custom.description, /\*\*Requirements\*\*\nLevel 5\n/);
+  const customClosing = createGiveawayEmbed(activeGiveaway({ closingText: 'Best of luck!' }), 'active');
+  assert.match(customClosing.description, /\*\*Best of luck!\*\*\n\n<a:W89timer:1557506643372146778> \*\*Giveaway ends\*\*/);
   // Ended: winners tagged, green, ended time.
   const ended = createGiveawayEmbed(activeGiveaway({ endedAt: new Date(1_800_000_000_000).toISOString() }), 'ended', ['a', 'b']);
   assert.match(ended.description, /\*\*Winners\*\*\n<@a>, <@b>\n/);
