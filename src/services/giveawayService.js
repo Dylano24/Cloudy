@@ -147,7 +147,8 @@ export const DEFAULT_GIVEAWAY_CLOSING = 'Good luck to everyone!';
 export const LEGACY_GIVEAWAY_CLAIM = 'Please open a support ticket within 24 hours to claim your prize.';
 export const PREVIOUS_GIVEAWAY_CLAIM = 'Click Claim below to be redirected to a private channel, where you can collect your prize!';
 export const DEFAULT_GIVEAWAY_CLAIM = 'Click **Claim** below to be redirected to a private channel, where you can collect your prize!';
-export const DEFAULT_GIVEAWAY_FAILURE = 'Failure to claim your prize within this timeframe will result in a reroll, and a new winner will be selected.';
+export const LEGACY_GIVEAWAY_FAILURE = 'Failure to claim your prize within this timeframe will result in a reroll, and a new winner will be selected.';
+export const DEFAULT_GIVEAWAY_FAILURE = 'Failure to claim your prize within **24 hours** will result in a reroll, and a new winner will be selected.';
 const GIVEAWAY_WHITE = 0xFFFFFF;
 
 const unix = ms => Math.floor(Number(ms) / 1000);
