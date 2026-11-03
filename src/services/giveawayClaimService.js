@@ -37,6 +37,8 @@ async function claimResultNotice(interaction, channelId = null) {
         ? "You've been tagged in <#" + channelId + "> to collect your prize!"
         : 'This button is reserved for giveaway winners only. You are not eligible to claim this prize.',
       color: success ? 0x00C49D : CLOUDY_RED_COLOR,
+      // Keep the Cloudy logo INSIDE the embed for both Claim outcomes.
+      thumbnail: { url: CLOUDY_C_LOGO_URL },
     }],
     components: [],
     allowedMentions: { parse: [] },
