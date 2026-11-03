@@ -294,7 +294,7 @@ test('End draws winners, marks the giveaway, and tags the winners with how to cl
   assert.ok(Date.parse(stored.claimDeadlineAt) >= Date.now() + GIVEAWAY_WINNER_CLAIM_WINDOW_MS - 1_000);
   assert.equal(json(staff.edited.embeds[0]).title, 'Success');
   // The default claim text is used when none was given: 24 hours.
-  assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Click **Claim** below to be redirected to a private channel, where you can collect your prize.');
+  assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Click Claim below to be redirected to a private channel, where you can collect your prize!');
   assert.ok(createWinnerAnnouncement(activeGiveaway(), ['x']).embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
 });
 
