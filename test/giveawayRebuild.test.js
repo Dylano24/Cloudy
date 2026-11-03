@@ -114,21 +114,19 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   assert.equal(ended.color, 0xFFFFFF);
 });
 
-test('public participant buttons stay together with Manage on its own row', () => {
+test('public giveaway posts contain only participant buttons; no Manage button', () => {
   const rows = createGiveawayButtons(activeGiveaway({ participants: ['a', 'b', 'c'] })).map(json);
+  assert.equal(rows.length, 1);
   const [entry] = rows;
-  assert.equal(rows.length, 2);
-  assert.deepEqual(rows[1].components.map(component => [component.custom_id, component.label, component.style]), [['giveaway_manage', 'Manage', 2]]);
   assert.deepEqual(entry.components.map(component => component.label), ['Enter giveaway', 'Leave giveaway']);
   assert.equal(entry.components[0].emoji.id, '1543303914152001536');
   assert.equal(entry.components[1].emoji.id, '1565742837453029516');
   assert.equal(entry.components[1].emoji.animated, true);
   assert.equal(entry.components[0].style, 2);
   assert.equal(entry.components[1].style, 2);
-  const [endedEntry, endedManage] = createGiveawayButtons(activeGiveaway({ participants: ['a'], ended: true })).map(json);
-  assert.deepEqual(endedEntry.components.map(component => [component.label, component.disabled]), [['Enter giveaway', true]]);
-  assert.equal(endedManage.components[0].custom_id, 'giveaway_manage');
-  assert.notEqual(endedManage.components[0].disabled, true);
+  const endedRows = createGiveawayButtons(activeGiveaway({ participants: ['a'], ended: true })).map(json);
+  assert.equal(endedRows.length, 1);
+  assert.deepEqual(endedRows[0].components.map(component => [component.label, component.disabled]), [['Enter giveaway', true]]);
 });
 
 test('ping tags @everyone, one role, or nobody', () => {
@@ -184,7 +182,7 @@ test('Enter and Leave update the entry count; repeats and ended giveaways get a 
   assert.deepEqual((await loadGiveaway(w.client, GUILD, MESSAGE)).participants, ['older']);
 });
 
-test('Manage is staff only and opens the private controls', async () => {
+test('legacy Manage clicks remain Owner-only for old posts', async () => {
   const w = world({ [MESSAGE]: activeGiveaway({ participants: ['a'] }) });
   const member = w.interaction('member');
   await button('giveaway_manage').execute(member, w.client);
