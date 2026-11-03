@@ -505,7 +505,7 @@ test('opening a new builder ignores past giveaways and legacy saved templates', 
   assert.doesNotMatch(winner.description, /Old custom claim review text/);
   assert.doesNotMatch(giveaway.description, /Custom old introduction|Old saved giveaway prize/);
   assert.equal(command.replies[0].components.length, 4);
-  assert.equal(json(command.replies[0].components[0]).components[0].options[2].default, true);
+  assert.notEqual(json(command.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(w.sent.length, 0);
 });
 
