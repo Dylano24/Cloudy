@@ -436,6 +436,12 @@ export async function logEvent({
       && [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType) && !decorated.matched) {
       presentedEmbed = normalizeCloudyEmbed(presentedEmbed, { ensureFooter: true }).embed;
     }
+    // Match Embed Log's verbatim-copy approach: restore the member's source
+    // text AFTER saved-template, fixed-layout and Cloudy-footer styling.
+    // Custom/animated markup and Unicode remain byte-for-byte unchanged.
+    if (eventType === EVENT_TYPES.MESSAGE_DELETE || eventType === EVENT_TYPES.MESSAGE_EDIT) {
+      presentedEmbed = restoreMessageLogOriginalText(presentedEmbed, embed);
+    }
     // A deleted photo is shown inside the log embed, after any saved
     // template, so the deleted content always wins over a template image.
     if (eventType === EVENT_TYPES.MESSAGE_DELETE && data.image) presentedEmbed.setImage(data.image);
@@ -493,6 +499,19 @@ export async function logEvent({
     logger.error('Error in logEvent:', error);
     return null;
   }
+}
+
+export function restoreMessageLogOriginalText(styledEmbed, runtimeEmbed) {
+  const original = runtimeEmbed?.toJSON?.() || runtimeEmbed || {};
+  const styled = styledEmbed?.toJSON?.() || styledEmbed || {};
+  // The raw EmbedBuilder data constructor bypasses Cloudy's general
+  // emoji-stripping setters. In Message Logs, both ordinary Unicode and
+  // static/animated <:custom:id> tokens are source data, not decoration.
+  return new EmbedBuilder({
+    ...styled,
+    ...(original.description != null ? { description: original.description } : {}),
+    ...(original.fields ? { fields: original.fields } : {}),
+  });
 }
 
 function withoutUploadedImages(embed) {

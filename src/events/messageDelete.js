@@ -10,6 +10,7 @@ import { prepareDeletedMessageMedia } from '../services/deletedMessageMediaServi
 import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
 import { forgetMessageSnapshot, getMessageSnapshot } from '../services/messageSnapshotService.js';
 import { storeDeletedVideo } from '../services/deletedMediaService.js';
+import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
 
 // The log description holds up to 4096 characters; keep room for the
 // header lines. Longer text is attached in full as a .txt file.
@@ -210,9 +211,7 @@ export async function logDeletedMessage(message, options = {}) {
   if (stickerNames.length) fullBody = [fullBody, `Stickers: ${stickerNames.join(', ')}`].filter(Boolean).join('\n\n');
 
   let messageBody = fullBody
-    ? (fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH
-      ? `${fullBody.substring(0, MAX_LOGGED_MESSAGE_CONTENT_LENGTH - 3)}...`
-      : fullBody)
+    ? truncateMessageLogText(fullBody, MAX_LOGGED_MESSAGE_CONTENT_LENGTH)
     : null;
   if (!messageBody && uncached && !snapshot && !attachments.length) {
     messageBody = 'Content unavailable: this message was not cached before deletion.';
