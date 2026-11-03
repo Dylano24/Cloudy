@@ -309,7 +309,7 @@ test('winner announcement uses the new Claim text and preserves custom instructi
   assert.equal(previous.embeds[0].description, standard.embeds[0].description);
   assert.ok(custom.embeds[0].description.includes('Contact the host for assistance.'));
   assert.doesNotMatch(custom.embeds[0].description, /be redirected to a private channel/);
-  assert.match(standard.embeds[0].description, /Failure to claim your prize within this timeframe/);
+  assert.match(standard.embeds[0].description, /Failure to claim your prize within \*\*24 hours\*\*/);
   assert.ok(standard.embeds[0].thumbnail?.url);
   assert.equal(standard.components[0].toJSON().components[0].label, 'Claim');
 });
@@ -322,7 +322,9 @@ test('already-posted winner messages replace only the old instruction, in place,
   const original = createWinnerAnnouncement(activeGiveaway({ claim: null }), ['winner']);
   const oldEmbed = {
     ...original.embeds[0],
-    description: original.embeds[0].description.replace(DEFAULT_GIVEAWAY_CLAIM, LEGACY_GIVEAWAY_CLAIM),
+    description: original.embeds[0].description
+        .replace(DEFAULT_GIVEAWAY_CLAIM, LEGACY_GIVEAWAY_CLAIM)
+        .replace('Failure to claim your prize within **24 hours**', 'Failure to claim your prize within this timeframe'),
   };
   const existing = {
     embeds: [oldEmbed],
@@ -369,7 +371,9 @@ test('already-posted winner messages replace only the old instruction, in place,
   assert.equal(existing.components, beforeComponents);
   assert.deepEqual(existing.embeds[0].thumbnail, beforeThumbnail);
   assert.ok(existing.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
-  assert.match(existing.embeds[0].description, /Failure to claim your prize within this timeframe/);
+  assert.ok(existing.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
+  assert.ok(existing.embeds[0].description.includes('Failure to claim your prize within **24 hours**'));
+  assert.doesNotMatch(existing.embeds[0].description, /within this timeframe/);
   await refreshExistingGiveawayClaimInstructions(w.client);
   assert.equal(existing.edits.length, 1);
   assert.equal(previouslyPosted.edits.length, 1);
