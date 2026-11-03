@@ -65,7 +65,7 @@ test('final giveaway and announcement have the required copy', () => {
   const announcement = createWinnerAnnouncement(giveaway, ['555']);
   assert.match(announcement.embeds[0].description, /Congratulations!/);
   assert.ok(announcement.embeds[0].description.startsWith('<a:W89gift:1557507008284987442> **Congratulations!**\n\n<@555> has won **Yes**!'));
-  assert.match(announcement.embeds[0].description, /Please open a support ticket within 24 hours/);
+  assert.ok(announcement.embeds[0].description.includes('Click **Claim** below to be redirected to a private channel, where you can collect your prize.'));
   assert.match(announcement.embeds[0].description, /Failure to claim your prize within this timeframe/);
   const nobody = createWinnerAnnouncement(giveaway, []);
   assert.ok(nobody.embeds[0].description.includes('**Giveaway ended**\n\nNobody entered'));
