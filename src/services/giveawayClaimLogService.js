@@ -163,10 +163,10 @@ export async function refreshClosedGiveawayClaimLogChannels(client) {
             || data.footer?.text !== GIVEAWAY_CLAIM_LOG_FOOTER) return data;
           const fields = (data.fields || []).map(field => {
             if (field.name !== 'Private channel') return field;
-            const match = /^<#(\\d{17,20})>(?: \\(\\`\\d{17,20}\\`\\))?$/.exec(String(field.value || ''));
+            const match = /^<#([0-9]{17,20})>/.exec(String(field.value || ''));
             if (!match) return field;
             changed = true;
-            return { ...field, value: '\`' + match[1] + '\`' };
+            return { ...field, value: '`' + match[1] + '`' };
           });
           return changed ? { ...data, fields } : data;
         });
