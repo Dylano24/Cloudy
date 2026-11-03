@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionsBitField } from 'discord.js';
 import { db } from '../src/utils/database.js';
+import { buildStandardLogEmbed } from '../src/utils/logging/logEmbeds.js';
 import { saveEmbedTemplateDecoration } from '../src/services/embedTemplateService.js';
 import { logDeletedMessage } from '../src/events/messageDelete.js';
 import messageUpdate from '../src/events/messageUpdate.js';
@@ -113,4 +114,21 @@ test('Message Edit log keeps before/after emoji content while allowing saved sty
   assert.deepEqual(actual.fields.map(field => [field.name, field.value]),
     [['Before', oldText], ['After', CONTENT]]);
   assert.ok(!actual.fields.some(field => field.value.includes('Wrong')));
+});
+
+test('emoji-only Message Log descriptions and fields remain valid while global embed sanitation stays intact', () => {
+  const log = buildStandardLogEmbed({
+    color: 0xFFFFFF,
+    title: 'Message deleted',
+    description: '🌈🏳️‍🌈',
+    inlineFields: [{ name: 'Before', value: '👩‍💻', inline: true }],
+    fields: [{ name: 'After', value: '<a:dance:156000000000000112> 🎉', inline: true }],
+    preserveRuntimeEmoji: true,
+    timestamp: false,
+  });
+  assert.equal(log.toJSON().description, '🌈🏳️‍🌈');
+  assert.deepEqual(log.toJSON().fields.map(field => field.value), ['👩‍💻', '<a:dance:156000000000000112> 🎉']);
+  // Other embeds keep their existing global sanitizing behaviour unchanged.
+  const regular = buildStandardLogEmbed({ title: 'Test', description: 'Hello 🎉', timestamp: false });
+  assert.equal(regular.toJSON().description, 'Hello');
 });
