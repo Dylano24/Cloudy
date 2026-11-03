@@ -13,7 +13,7 @@ import { canManageGiveawaysAsOwner, checkUnclaimedGiveawayWinners, loadGiveaway 
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPreview.js';
-import { sendGiveawayClaimLog } from './giveawayClaimLogService.js';
+import { sendGiveawayClaimLog, updateClosedClaimChannelLogs } from './giveawayClaimLogService.js';
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -26,10 +26,22 @@ const registryKey = guildId => 'guild:' + guildId + ':giveaway-claim:records';
 const claimId = (messageId, userId) => messageId + ':' + userId;
 const notice = (interaction, text) => interaction.editReply({ content: text, allowedMentions: { parse: [] } });
 
-// Logging must never make a winner's Claim/Reveal/Close interaction fail.
+// Send audits in claim order: on Close/expiry, rewrite all earlier Claim and
+// Reveal logs only after their sends have completed. No audit failure may
+// prevent the Claim, Reveal, or Close interaction from succeeding.
 function logClaimAction(client, guild, detail) {
-  void Promise.resolve().then(() => sendGiveawayClaimLog(client, guild, detail))
-    .catch(error => logger.warn('Could not send giveaway claim audit log: ' + (error?.message || error)));
+  const auditLock = 'gclaim-audit:' + guild.id + ':' + detail.messageId + ':' + detail.userId;
+  void Mutex.runExclusive(auditLock, async () => {
+    try {
+      await sendGiveawayClaimLog(client, guild, detail);
+    } catch (error) {
+      logger.warn('Could not send giveaway claim audit log: ' + (error?.message || error));
+    }
+    if ((detail.event === 'closed' || detail.event === 'expired') && detail.claimChannelId) {
+      await updateClosedClaimChannelLogs(client, guild, new Set([detail.claimChannelId]));
+    }
+  }).catch(error =>
+    logger.warn('Could not update closed giveaway claim audit references: ' + (error?.message || error)));
 }
 
 // Keep the short-lived private success replies associated with their claim so
