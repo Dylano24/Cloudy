@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Collection, ChannelType, PermissionsBitField } from 'discord.js';
+import { Collection, ChannelType, PermissionsBitField, EmbedBuilder } from 'discord.js';
 import { db } from '../src/utils/database.js';
 import { buildStandardLogEmbed } from '../src/utils/logging/logEmbeds.js';
+import { restoreMessageLogOriginalText } from '../src/services/loggingService.js';
+import { truncateMessageLogText } from '../src/utils/logging/preserveMessageText.js';
 import { saveEmbedTemplateDecoration } from '../src/services/embedTemplateService.js';
 import { logDeletedMessage } from '../src/events/messageDelete.js';
 import messageUpdate from '../src/events/messageUpdate.js';
@@ -131,4 +133,42 @@ test('emoji-only Message Log descriptions and fields remain valid while global e
   // Other embeds keep their existing global sanitizing behaviour unchanged.
   const regular = buildStandardLogEmbed({ title: 'Test', description: 'Hello 🎉', timestamp: false });
   assert.equal(regular.toJSON().description, 'Hello');
+});
+
+test('Message Log keeps the same raw custom/animated and Unicode emojis as Embed Log even after styling', () => {
+  const source = new EmbedBuilder({
+    title: 'Message deleted',
+    description: '**Message**\\n' + CONTENT,
+    fields: [{ name: 'Before', value: '👩‍💻 <a:party:156000000000000112>', inline: true }],
+  });
+  const styled = new EmbedBuilder({
+    title: 'Message deleted',
+    description: '**Message**\\nHi',
+    fields: [{ name: 'Before', value: 'no emoji', inline: true }],
+    color: 0x123456,
+    thumbnail: { url: 'https://example.com/logo.png' },
+    footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+  });
+  const result = restoreMessageLogOriginalText(styled, source).toJSON();
+  assert.equal(result.title, 'Message deleted');
+  assert.equal(result.description, '**Message**\\n' + CONTENT);
+  assert.equal(result.fields[0].value, '👩‍💻 <a:party:156000000000000112>');
+  assert.equal(result.color, 0x123456);
+  assert.equal(result.thumbnail.url, 'https://example.com/logo.png');
+  assert.equal(result.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+});
+
+test('Message Log truncation never cuts a custom emoji or a Unicode emoji sequence in half', () => {
+  const staticEmoji = '<:cloudy:156000000000000111>';
+  const animatedEmoji = '<a:party:156000000000000112>';
+  const text = 'A'.repeat(475) + staticEmoji + animatedEmoji + ' 👩‍💻 🏳️‍🌈 extra text';
+  const shortened = truncateMessageLogText(text, 512);
+  assert.ok(shortened.length <= 512);
+  assert.equal(shortened, 'A'.repeat(475) + staticEmoji + '...');
+  assert.doesNotMatch(shortened, /<a?:[^>]*$/);
+  const pureUnicode = 'B'.repeat(504) + '👩‍💻' + 'xxxxxxxx';
+  const clipped = truncateMessageLogText(pureUnicode, 512);
+  assert.equal(clipped, 'B'.repeat(504) + '...');
+  assert.equal(truncateMessageLogText(CONTENT, 512), CONTENT);
+  assert.equal(truncateMessageLogText('🏳️‍🌈', 4), '...');
 });
