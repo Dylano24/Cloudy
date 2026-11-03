@@ -14,11 +14,15 @@ export const GIVEAWAY_MANAGE_PAGE_SIZE = 25;
 const canUse = interaction => interaction.inGuild?.()
   && canManageGiveawaysAsOwner(interaction.member, interaction.guild);
 
-// A giveaway belongs in Manage only while it is active and has not expired.
-// Ended records are kept in storage for winner claims/rerolls but never appear.
-export function isActiveManageableGiveaway(giveaway, now = Date.now()) {
+// Keep both active and ended giveaways manageable while their original
+// public message still exists. Ending does not delete that Discord message.
+export function isManageableGiveaway(giveaway) {
   return /^\d{17,20}$/.test(String(giveaway?.messageId || ''))
-    && Boolean(giveaway?.channelId)
+    && Boolean(giveaway?.channelId);
+}
+
+export function isActiveManageableGiveaway(giveaway, now = Date.now()) {
+  return isManageableGiveaway(giveaway)
     && !isGiveawayFinished(giveaway)
     && giveawayEndTime(giveaway) > now;
 }
@@ -55,9 +59,9 @@ async function originalGiveawayExists(client, guildId, giveaway) {
 
 export async function listManageableGiveaways(client, guildId) {
   const records = await getGuildGiveaways(client, guildId, { strict: true });
-  const current = records.filter(item => isActiveManageableGiveaway(item));
+  const current = records.filter(isManageableGiveaway);
   const verified = [];
-  // Bound concurrent Discord fetches; never scan the many old/ended giveaways.
+  // Bound concurrent Discord fetches; verify active AND ended posts before listing.
   let cursor = 0;
   async function worker() {
     while (cursor < current.length) {
@@ -70,8 +74,11 @@ export async function listManageableGiveaways(client, guildId) {
     }
   }
   await Promise.all(Array.from({ length: Math.min(3, current.length) }, () => worker()));
+  // Active first; within each status newest giveaways first. Do not hide
+  // ended giveaways, which can still be rerolled or deleted from Manage.
   return verified.sort((a, b) =>
-    (Number(Date.parse(b.createdAt) || giveawayEndTime(b)) || 0)
+    Number(isActiveManageableGiveaway(b)) - Number(isActiveManageableGiveaway(a))
+    || (Number(Date.parse(b.createdAt) || giveawayEndTime(b)) || 0)
       - (Number(Date.parse(a.createdAt) || giveawayEndTime(a)) || 0));
 }
 
@@ -82,8 +89,8 @@ export function buildGiveawayManagePicker(giveaways, guild, requesterId, request
   const embed = {
     title: 'Manage giveaway',
     description: giveaways.length
-      ? `Select an active giveaway to manage.\n\n${giveaways.length} active giveaway${giveaways.length === 1 ? '' : 's'} · Page ${page + 1}/${pageCount}`
-      : 'There are no active giveaways to manage in this server.',
+      ? `Select a giveaway to manage.\n\n${giveaways.length} giveaway${giveaways.length === 1 ? '' : 's'} · Page ${page + 1}/${pageCount}`
+      : 'There are no giveaways to manage in this server.',
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
   };
@@ -99,7 +106,7 @@ export function buildGiveawayManagePicker(giveaways, guild, requesterId, request
       const endsAt = giveawayEndTime(giveaway);
       return {
         label: String(giveaway.prize || 'Giveaway').slice(0, 100),
-        description: `Active · ${channelLabel} · ${endsAt ? new Date(endsAt).toLocaleDateString('en-GB') : 'No end date'} · ID ${String(giveaway.messageId).slice(-6)}`.slice(0, 100),
+        description: `${isActiveManageableGiveaway(giveaway) ? 'Active' : 'Ended'} · ${channelLabel} · ${endsAt ? new Date(endsAt).toLocaleDateString('en-GB') : 'No end date'} · ID ${String(giveaway.messageId).slice(-6)}`.slice(0, 100),
         value: String(giveaway.messageId),
       };
     }));
@@ -158,9 +165,9 @@ export async function selectGiveawayToManage(interaction, client, requesterId) {
       return editManageReply(interaction, { embeds: [giveawayWarning('Select a valid giveaway.')], components: [] });
     }
     const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
-    if (!isActiveManageableGiveaway(giveaway)
+    if (!isManageableGiveaway(giveaway)
       || !await originalGiveawayExists(client, interaction.guildId, giveaway)) {
-      if (giveaway && isActiveManageableGiveaway(giveaway)) {
+      if (isManageableGiveaway(giveaway)) {
         await cleanupDeletedGiveaways(client, interaction.guildId, {
           entries: [{ messageId: giveaway.messageId, channelId: giveaway.channelId }],
         });
