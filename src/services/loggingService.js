@@ -429,19 +429,18 @@ export async function logEvent({
     });
 
     let presentedEmbed = enforceFixedLogPresentation(decorated.embed, { eventType });
-    // Match Embed Log's verbatim-copy behavior for Message Delete/Edit.
-    // Restore the actual member's message content *after* stored design and
-    // presentation stages, which may otherwise alter Unicode/Discord emoji.
-    // Preserve every other style property (title, colour, logo, footer, image).
-    if (eventType === EVENT_TYPES.MESSAGE_DELETE || eventType === EVENT_TYPES.MESSAGE_EDIT) {
-      presentedEmbed = restoreMessageLogOriginalText(presentedEmbed, embed);
-    }
     // Dedicated message logs are complete when sent: the generic branding
     // listener skips these channels, so apply its Cloudy footer here instead
     // of editing the log afterwards (no "(edited)", one request less).
     if (DEDICATED_MESSAGE_LOG_CHANNEL_IDS.has(channel.id)
       && [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType) && !decorated.matched) {
       presentedEmbed = normalizeCloudyEmbed(presentedEmbed, { ensureFooter: true }).embed;
+    }
+    // Match Embed Log's verbatim-copy approach: restore the member's source
+    // text AFTER saved-template, fixed-layout and Cloudy-footer styling.
+    // Custom/animated markup and Unicode remain byte-for-byte unchanged.
+    if (eventType === EVENT_TYPES.MESSAGE_DELETE || eventType === EVENT_TYPES.MESSAGE_EDIT) {
+      presentedEmbed = restoreMessageLogOriginalText(presentedEmbed, embed);
     }
     // A deleted photo is shown inside the log embed, after any saved
     // template, so the deleted content always wins over a template image.
