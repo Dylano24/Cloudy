@@ -184,6 +184,28 @@ test('Claim replies are private and disappear after 20 seconds for non-winners o
   assert.equal(w.created[0].channel.deleted, false);
 });
 
+
+test('Claim prevents late unclaimed winners from taking a slot after the 24-hour deadline', async () => {
+  const w = world();
+  w.records.get('guild:' + GUILD + ':giveaways')[GIVEAWAY].claimDeadlineAt =
+    new Date(Date.now() - 1_000).toISOString();
+  const late = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(late, w.client);
+  assert.equal(late.response.embeds[0].title, 'Claim denied');
+  assert.equal(w.created.length, 0);
+
+  // Someone who already claimed may still revisit their existing channel.
+  const already = world();
+  const first = already.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(first, already.client);
+  already.records.get('guild:' + GUILD + ':giveaways')[GIVEAWAY].claimDeadlineAt =
+    new Date(Date.now() - 1_000).toISOString();
+  const returnClick = already.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(returnClick, already.client);
+  assert.equal(returnClick.response.embeds[0].title, 'Claim successful!');
+  assert.equal(already.created.length, 1);
+});
+
 test('Claim refuses missing or non-category channel without creating an unprotected fallback', async () => {
   const w = world();
   w.cache.delete(GIVEAWAY_CLAIM_CATEGORY_ID);
@@ -205,6 +227,9 @@ test('existing claim panel is edited in place on restart and Staff Set code disa
   const w = world();
   await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
   const channel = w.created[0].channel;
+  channel.parentId = 'old-category';
+  let moved;
+  channel.setParent = async (id, options) => { moved = { id, options }; channel.parentId = id; };
   const panel = w.sent[0];
   const originalContent = panel.content;
   panel.author = { id: 'cloudy-bot' };
@@ -229,6 +254,7 @@ test('existing claim panel is edited in place on restart and Staff Set code disa
   await refreshExistingClaimPanels(w.client);
 
   assert.equal(edited, 1);
+  assert.deepEqual(moved, { id: GIVEAWAY_CLAIM_CATEGORY_ID, options: { lockPermissions: false } });
   assert.equal(w.sent.length, 1);
   assert.equal(panel.content, originalContent);
   assert.equal(panel.embeds[0].title, undefined);
