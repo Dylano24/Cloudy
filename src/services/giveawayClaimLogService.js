@@ -38,7 +38,9 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
   if (claimChannelId) {
     fields.push({
       name: 'Private channel',
-      value: '<#' + claimChannelId + '>',
+      value: event === 'closed' || event === 'expired'
+        ? '`' + claimChannelId + '`'
+        : '<#' + claimChannelId + '>',
       inline: false,
     });
   }
@@ -137,6 +139,42 @@ export async function refreshExistingGiveawayClaimLogPresentation(client) {
       if (client.db?.set) await client.db.set(marker, true);
     } catch (error) {
       logger.warn('Could not refresh old giveaway claim log presentation in ' + guild.id, error);
+    }
+  }
+}
+
+ // A closed claim's Discord channel no longer resolves as a mention.
+ // Update old closing logs in place so the former channel ID remains usable.
+export async function refreshClosedGiveawayClaimLogChannels(client) {
+  for (const guild of client.guilds?.cache?.values?.() || []) {
+    const marker = 'guild:' + guild.id + ':giveaway-claim:closed-channel-id-v1';
+    try {
+      if (await client.db?.get?.(marker, false)) continue;
+      const channel = guild.channels?.cache?.get?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID)
+        || await guild.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
+      if (!channel?.messages?.fetch) continue;
+      const messages = await channel.messages.fetch({ limit: 100 });
+      for (const message of messages?.values?.() || []) {
+        if (message.author?.id !== client.user?.id || !message.edit) continue;
+        let changed = false;
+        const embeds = (message.embeds || []).map(embed => {
+          const data = embed.toJSON?.() || { ...embed };
+          if (![EVENTS.closed.title, EVENTS.expired.title].includes(data.title)
+            || data.footer?.text !== GIVEAWAY_CLAIM_LOG_FOOTER) return data;
+          const fields = (data.fields || []).map(field => {
+            if (field.name !== 'Private channel') return field;
+            const match = /^<#(\\d{17,20})>(?: \\(\\`\\d{17,20}\\`\\))?$/.exec(String(field.value || ''));
+            if (!match) return field;
+            changed = true;
+            return { ...field, value: '\`' + match[1] + '\`' };
+          });
+          return changed ? { ...data, fields } : data;
+        });
+        if (changed) await message.edit({ embeds });
+      }
+      if (client.db?.set) await client.db.set(marker, true);
+    } catch (error) {
+      logger.warn('Could not refresh closed giveaway claim channel IDs in ' + guild.id, error);
     }
   }
 }
