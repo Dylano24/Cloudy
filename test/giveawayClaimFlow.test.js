@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { CLOUDY_C_LOGO_URL, createWinnerAnnouncement } from '../src/services/giveawayService.js';
-import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveawayClaimLog, removeExistingClaimLogTimestamps, refreshExistingGiveawayClaimLogPresentation, refreshClosedGiveawayClaimLogChannels, updateClosedClaimChannelLogs, refreshClosedClaimReferencesInEarlierLogs, replaceClosedClaimChannelMentions } from '../src/services/giveawayClaimLogService.js';
+import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveawayClaimLog, removeExistingClaimLogTimestamps, refreshExistingGiveawayClaimLogPresentation, refreshClosedGiveawayClaimLogChannels, updateClosedClaimChannelLogs, refreshClosedClaimReferencesInEarlierLogs, replaceClosedClaimChannelMentions, removeRedundantGiveawayClaimLogs } from '../src/services/giveawayClaimLogService.js';
 import {
   CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
   GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
@@ -400,7 +400,7 @@ async function flushClaimLogs() {
   await new Promise(resolve => setImmediate(resolve));
 }
 
-test('every Claim click is logged to the requested channel with winner, giveaway and private channel', async () => {
+test('only first successful Claim is logged; denied and repeated Claim clicks keep their replies but create no extra logs', async () => {
   const w = world();
   const denied = w.interaction('gclaim:open:' + GIVEAWAY, OWNER);
   await handleGiveawayClaimInteraction(denied, w.client);
@@ -410,9 +410,9 @@ test('every Claim click is logged to the requested channel with winner, giveaway
   await handleGiveawayClaimInteraction(second, w.client);
   await flushClaimLogs();
 
-  assert.deepEqual(w.logs.map(log => log.embeds[0].title), [
-    'Giveaway claim denied', 'Giveaway claim opened', 'Giveaway claim accessed',
-  ]);
+  assert.deepEqual(w.logs.map(log => log.embeds[0].title), ['Giveaway claim opened']);
+  assert.equal(denied.response.embeds[0].title, 'Claim denied');
+  assert.equal(second.response.embeds[0].title, 'Claim successful!');
   for (const entry of w.logs) {
     assert.deepEqual(entry.allowedMentions, { parse: [] });
     assert.deepEqual(entry.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
@@ -421,11 +421,11 @@ test('every Claim click is logged to the requested channel with winner, giveaway
     assert.match(JSON.stringify(entry.embeds[0]), /Six-month subscription/);
     assert.match(JSON.stringify(entry.embeds[0]), new RegExp(GIVEAWAY));
   }
-  const opened = JSON.stringify(w.logs[1]);
+  const opened = JSON.stringify(w.logs[0]);
   assert.match(opened, new RegExp(WINNER));
   assert.match(opened, new RegExp(w.created[0].channel.id));
   assert.equal(w.created.length, 1, 'revisiting does not create an additional channel');
-  assert.equal(w.logs[0].embeds[0].color, 0x7A1712);
+  assert.equal(w.logs[0].embeds[0].color, 0x00C49D);
 });
 
 test('Reveal my code logs successful reveal but NEVER logs demo or encrypted prize codes', async t => {
@@ -822,4 +822,65 @@ test('older closed claims are reconciled once while unrelated and still-active c
   ] };
   const guarded = replaceClosedClaimChannelMentions(nonCloudy.embeds[0], new Set([otherId]));
   assert.equal(guarded.changed, false, 'mismatched channel ID stays unchanged');
+});
+
+test('legacy Claim accessed and denied audit entries are removed without affecting the three requested logs', async () => {
+  const w = world();
+  const deleted = [];
+  const titles = [
+    'Giveaway claim opened',
+    'Giveaway claim accessed',
+    'Giveaway code revealed',
+    'Giveaway claim denied',
+    'Giveaway claim closed',
+    'Giveaway claim expired',
+    'Unrelated status message',
+  ];
+  const messages = titles.map((title, i) => ({
+    id: String(156000000000000700n + BigInt(i)),
+    author: { id: w.client.user.id },
+    embeds: [{
+      title,
+      footer: { text: GIVEAWAY_CLAIM_LOG_FOOTER },
+    }],
+    delete: async function () { deleted.push(title); },
+  }));
+  // Do not touch other authors, even if their embeds have the same title.
+  messages.push({
+    ...messages[1],
+    id: '156000000000000900',
+    author: { id: 'different-bot' },
+    delete: async () => { throw new Error('Other bot message must not be deleted'); },
+  });
+  messages.push({
+    ...messages[1],
+    id: '156000000000000901',
+    embeds: [{ title: 'Giveaway claim accessed', footer: { text: 'Other footer' } }],
+    delete: async () => { throw new Error('Other embed must not be deleted'); },
+  });
+  w.cache.set(GIVEAWAY_CLAIM_LOG_CHANNEL_ID, {
+    id: GIVEAWAY_CLAIM_LOG_CHANNEL_ID,
+    messages: { fetch: async () => new Collection(messages.map(message => [message.id, message])) },
+  });
+  await removeRedundantGiveawayClaimLogs(w.client);
+  assert.deepEqual(deleted, ['Giveaway claim accessed', 'Giveaway claim denied']);
+  assert.equal(w.records.get('guild:' + GUILD + ':giveaway-claim:remove-extra-logs-v1'), true);
+  await removeRedundantGiveawayClaimLogs(w.client);
+  assert.deepEqual(deleted, ['Giveaway claim accessed', 'Giveaway claim denied'],
+    'the one-time cleanup does not delete more messages after restart');
+});
+
+test('the log service exposes only the three requested claim stages and automatic closure', () => {
+  const base = { guildId: GUILD, messageId: GIVEAWAY, userId: WINNER,
+    claimChannelId: '156000000000000900', giveaway: { prize: 'Prize' } };
+  assert.throws(() => buildGiveawayClaimLog({ ...base, event: 'accessed' }), /Unsupported/);
+  assert.throws(() => buildGiveawayClaimLog({ ...base, event: 'denied' }), /Unsupported/);
+  for (const [event, title] of [
+    ['opened', 'Giveaway claim opened'],
+    ['revealed', 'Giveaway code revealed'],
+    ['closed', 'Giveaway claim closed'],
+    ['expired', 'Giveaway claim expired'],
+  ]) {
+    assert.equal(buildGiveawayClaimLog({ ...base, event }).embeds[0].title, title);
+  }
 });
