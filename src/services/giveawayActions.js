@@ -350,6 +350,52 @@ export async function refreshExistingGiveawayClaimInstructions(client) {
     }
 }
 
+// One-time correction for ended giveaway posts that are already visible in
+// Discord. Edit only the obsolete line, never repost or alter buttons/footer.
+export async function refreshEndedGiveawayClosingCopy(client) {
+    if (!client?.db?.get || !client?.db?.set) return;
+    const outdated = 'The winner(s) have been announced and tagged below!';
+    const replacement = 'This giveaway has ended!';
+    const since = Date.now() - 30 * 24 * 60 * 60_000;
+    for (const guild of client.guilds?.cache?.values?.() || []) {
+        const marker = 'guild:' + guild.id + ':giveaway:ended-copy-v1';
+        try {
+            if (await client.db.get(marker, false)) continue;
+            const records = await getGuildGiveaways(client, guild.id, { strict: true });
+            const ended = records
+                .filter(item => isGiveawayFinished(item)
+                    && /^\\d{17,20}$/.test(String(item.messageId || ''))
+                    && Date.parse(item.endedAt || '') >= since)
+                .sort((a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt))
+                .slice(0, 25);
+            let failed = false;
+            for (const giveaway of ended) {
+                try {
+                    const channel = await fetchGiveawayChannel(client, guild, giveaway.channelId);
+                    if (!channel) continue;
+                    const message = await fetchGiveawayMessage(channel, giveaway.messageId);
+                    if (!message?.edit || !message.embeds?.length
+                        || (message.author?.id && message.author.id !== client.user?.id)) continue;
+                    let changed = false;
+                    const embeds = message.embeds.map(embed => {
+                        const data = embed.toJSON?.() || { ...embed };
+                        if (!data.description?.includes(outdated)) return data;
+                        changed = true;
+                        return { ...data, description: data.description.replace(outdated, replacement) };
+                    });
+                    if (changed) await message.edit({ embeds });
+                } catch (error) {
+                    failed = true;
+                    logger.warn('Could not refresh ended giveaway copy for ' + giveaway.messageId, error);
+                }
+            }
+            if (!failed) await client.db.set(marker, true);
+        } catch (error) {
+            logger.warn('Could not refresh ended giveaway copy in guild ' + guild.id, error);
+        }
+    }
+}
+
 // Replaces only winners who never opened their Claim channel within 24 hours.
 // Claim and reroll both lock the same giveaway, so nobody can claim a slot
 // concurrently with its replacement. An existing claim record (even if its
