@@ -3,6 +3,7 @@
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_TICKET_CLOSED_COLOR } from '../utils/ticket/ticketBranding.js';
+import { unwrapReplitData } from '../utils/database.js';
 
 export const GIVEAWAY_CLAIM_LOG_CHANNEL_ID = '1566390264291917874';
 export const GIVEAWAY_CLAIM_LOG_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -175,6 +176,76 @@ export async function refreshClosedGiveawayClaimLogChannels(client) {
       if (client.db?.set) await client.db.set(marker, true);
     } catch (error) {
       logger.warn('Could not refresh closed giveaway claim channel IDs in ' + guild.id, error);
+    }
+  }
+}
+
+// After a claim channel closes, its mention resolves to #unknown in Discord.
+// Preserve its original numeric ID in *every* related audit entry (including
+// earlier Claim and Reveal entries), without changing any unrelated field.
+const CLAIM_CHANNEL_ID_PATTERN = /^<#([0-9]{17,20})>(?: \(\x60[0-9]{17,20}\x60\))?$/;
+const claimLogTitles = new Set(Object.values(EVENTS).map(event => event.title));
+
+export function replaceClosedClaimChannelMentions(embed, closedChannelIds) {
+  const data = embed?.toJSON?.() || { ...(embed || {}) };
+  if (!claimLogTitles.has(data.title) || data.footer?.text !== GIVEAWAY_CLAIM_LOG_FOOTER) {
+    return { embed: data, changed: false };
+  }
+  let changed = false;
+  const fields = (data.fields || []).map(field => {
+    if (field.name !== 'Private channel') return field;
+    const matched = CLAIM_CHANNEL_ID_PATTERN.exec(String(field.value || ''));
+    if (!matched || !closedChannelIds.has(matched[1])) return field;
+    changed = true;
+    return { ...field, value: '\x60' + matched[1] + '\x60' };
+  });
+  return { embed: changed ? { ...data, fields } : data, changed };
+}
+
+export async function updateClosedClaimChannelLogs(client, guild, closedChannelIds) {
+  const knownIds = new Set([...closedChannelIds].filter(id => /^[0-9]{17,20}$/.test(String(id))).map(String));
+  if (!knownIds.size) return 0;
+  const channel = guild?.channels?.cache?.get?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID)
+    || await guild?.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
+  if (!channel?.messages?.fetch) return 0;
+  let edited = 0;
+  let before;
+  // At most ten Discord pages; only run on closing and during one-time
+  // migration, never on normal Claim or Reveal button interactions.
+  for (let page = 0; page < 10; page++) {
+    const options = before ? { limit: 100, before } : { limit: 100 };
+    const messages = [...(await channel.messages.fetch(options)).values()];
+    if (!messages.length) break;
+    for (const message of messages) {
+      if (message.author?.id !== client.user?.id || !message.edit) continue;
+      const results = (message.embeds || []).map(embed =>
+        replaceClosedClaimChannelMentions(embed, knownIds));
+      if (!results.some(result => result.changed)) continue;
+      await message.edit({ embeds: results.map(result => result.embed) });
+      edited++;
+    }
+    if (messages.length < 100 || !messages[messages.length - 1]?.id) break;
+    before = messages[messages.length - 1].id;
+  }
+  return edited;
+}
+
+// This migrates prior logs from claims closed before this feature was
+// deployed. It keys by persisted claim state, never by an assumed channel
+// name or a failed Discord mention lookup.
+export async function refreshClosedClaimReferencesInEarlierLogs(client) {
+  for (const guild of client.guilds?.cache?.values?.() || []) {
+    const marker = 'guild:' + guild.id + ':giveaway-claim:closed-all-audit-refs-v1';
+    try {
+      if (await client.db?.get?.(marker, false)) continue;
+      const raw = unwrapReplitData(await client.db?.get?.('guild:' + guild.id + ':giveaway-claim:records', {}));
+      const closedIds = new Set(Object.values(raw || {})
+        .filter(record => record?.closedAt && record?.channelId)
+        .map(record => String(record.channelId)));
+      await updateClosedClaimChannelLogs(client, guild, closedIds);
+      if (client.db?.set) await client.db.set(marker, true);
+    } catch (error) {
+      logger.warn('Could not update older closed giveaway claim log references in ' + guild.id, error);
     }
   }
 }

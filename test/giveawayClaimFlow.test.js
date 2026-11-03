@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { CLOUDY_C_LOGO_URL, createWinnerAnnouncement } from '../src/services/giveawayService.js';
-import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveawayClaimLog, removeExistingClaimLogTimestamps, refreshExistingGiveawayClaimLogPresentation, refreshClosedGiveawayClaimLogChannels } from '../src/services/giveawayClaimLogService.js';
+import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveawayClaimLog, removeExistingClaimLogTimestamps, refreshExistingGiveawayClaimLogPresentation, refreshClosedGiveawayClaimLogChannels, updateClosedClaimChannelLogs, refreshClosedClaimReferencesInEarlierLogs, replaceClosedClaimChannelMentions } from '../src/services/giveawayClaimLogService.js';
 import {
   CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
   GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
@@ -696,4 +696,130 @@ test('after closure, old closed/expired logs retain the raw private channel ID b
   await refreshClosedGiveawayClaimLogChannels(w.client);
   assert.equal(closed.edits.length, 1);
   assert.equal(expired.edits.length, 1);
+});
+
+function attachClaimLogArchive(w) {
+  const entries = [];
+  const destination = w.cache.get(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
+  destination.send = async payload => {
+    const entry = {
+      id: String(156000000000000400n + BigInt(entries.length)),
+      author: { id: w.client.user.id },
+      embeds: structuredClone(payload.embeds),
+      edits: [],
+      edit: async function(next) {
+        this.edits.push(next);
+        this.embeds = structuredClone(next.embeds);
+        return this;
+      },
+    };
+    entries.push(entry);
+    return entry;
+  };
+  destination.messages = {
+    fetch: async () => new Collection(entries.slice().reverse().map(entry => [entry.id, entry])),
+  };
+  return entries;
+}
+const loggedValue = entry => entry.embeds[0].fields.find(field => field.name === 'Private channel')?.value;
+async function drainAuditActions() {
+  for (let i = 0; i < 4; i++) await flushClaimLogs();
+}
+
+test('manual Close converts earlier Claim and Reveal logs to channel number, not only the Close log', async () => {
+  const w = world();
+  const archive = attachClaimLogArchive(w);
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+  await drainAuditActions();
+  assert.equal(archive.length, 1);
+  assert.equal(loggedValue(archive[0]), '<#' + channel.id + '>');
+
+  await handleGiveawayClaimInteraction(
+    w.interaction('gclaim:reveal:' + CLAIM_ID, WINNER, { channel }), w.client);
+  await drainAuditActions();
+  assert.equal(archive.length, 2);
+  assert.equal(loggedValue(archive[1]), '<#' + channel.id + '>');
+
+  await handleGiveawayClaimInteraction(
+    w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel }), w.client);
+  await drainAuditActions();
+  assert.equal(channel.deleted, true);
+  assert.deepEqual(archive.map(message => message.embeds[0].title), [
+    'Giveaway claim opened', 'Giveaway code revealed', 'Giveaway claim closed',
+  ]);
+  assert.deepEqual(archive.map(loggedValue), Array(3).fill('`' + channel.id + '`'));
+  assert.deepEqual(archive.map(entry => entry.edits.length), [1, 1, 0]);
+  assert.deepEqual(archive.map(entry => entry.embeds[0].color), [0x00C49D, 0xFFFFFF, 0xFF7A00]);
+  for (const entry of archive) {
+    assert.equal(entry.embeds[0].footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
+    assert.equal(entry.embeds[0].thumbnail.url, CLOUDY_C_LOGO_URL);
+    assert.equal(entry.embeds[0].timestamp, undefined);
+  }
+  assert.equal(await updateClosedClaimChannelLogs(w.client, w.created[0].channel.guild,
+    new Set([channel.id])), 0, 'running close cleanup twice never duplicates an edit');
+});
+
+test('automatic 24-hour expiry converts every previous channel mention to its ID', async () => {
+  const w = world();
+  const archive = attachClaimLogArchive(w);
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+  await drainAuditActions();
+  await handleGiveawayClaimInteraction(
+    w.interaction('gclaim:reveal:' + CLAIM_ID, WINNER, { channel }), w.client);
+  await drainAuditActions();
+  const records = w.records.get(KEY);
+  records[CLAIM_ID].expiresAt = new Date(Date.now() - 1000).toISOString();
+  await w.client.db.set(KEY, records);
+  await cleanupExpiredGiveawayClaims(w.client);
+  await drainAuditActions();
+  assert.equal(channel.deleted, true);
+  assert.deepEqual(archive.map(loggedValue), Array(3).fill('`' + channel.id + '`'));
+  assert.equal(archive[2].embeds[0].title, 'Giveaway claim expired');
+  assert.equal(archive[2].embeds[0].fields.find(field => field.name === 'Action').value,
+    'Automatic close (24 hours)');
+  assert.equal(archive[2].embeds[0].timestamp, undefined);
+  assert.deepEqual(archive.map(entry => entry.edits.length), [1, 1, 0]);
+});
+
+test('older closed claims are reconciled once while unrelated and still-active claim logs remain linked', async () => {
+  const w = world();
+  const archive = attachClaimLogArchive(w);
+  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const channel = w.created[0].channel;
+  await drainAuditActions();
+  const closed = structuredClone(w.records.get(KEY));
+  closed[CLAIM_ID].closedAt = new Date().toISOString();
+  await w.client.db.set(KEY, closed);
+  const prior = archive[0];
+  const otherId = '156000000000000999';
+  const other = {
+    id: '156000000000000998',
+    author: { id: w.client.user.id },
+    embeds: [buildGiveawayClaimLog({
+      event: 'opened', guildId: GUILD, messageId: GIVEAWAY, userId: WINNER,
+      claimChannelId: otherId, giveaway: { prize: 'Different prize' },
+    }).embeds[0]],
+    edits: [],
+    edit: async function(next) { this.edits.push(next); this.embeds = next.embeds; },
+  };
+  archive.push(other);
+  await refreshClosedClaimReferencesInEarlierLogs(w.client);
+  assert.equal(loggedValue(prior), '`' + channel.id + '`');
+  assert.equal(loggedValue(other), '<#' + otherId + '>');
+  assert.equal(prior.edits.length, 1);
+  assert.equal(other.edits.length, 0);
+  await refreshClosedClaimReferencesInEarlierLogs(w.client);
+  assert.equal(prior.edits.length, 1);
+  assert.equal(other.edits.length, 0);
+
+  const nonCloudy = { ...other, author: { id: 'unrelated-bot' }, embeds: [
+    buildGiveawayClaimLog({
+      event: 'opened', guildId: GUILD, messageId: GIVEAWAY, userId: WINNER,
+      claimChannelId: channel.id,
+    }).embeds[0],
+  ] };
+  const guarded = replaceClosedClaimChannelMentions(nonCloudy.embeds[0], new Set([otherId]));
+  assert.equal(guarded.changed, false, 'mismatched channel ID stays unchanged');
 });
