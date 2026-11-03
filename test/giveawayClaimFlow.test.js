@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { createWinnerAnnouncement } from '../src/services/giveawayService.js';
 import {
-  CLAIM_LIFETIME_MS, GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
+  CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
+  GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
   refreshExistingClaimPanels,
 } from '../src/services/giveawayClaimService.js';
 
@@ -75,6 +76,7 @@ function world() {
       isModalSubmit: () => opts.modal === true,
       deferReply: async () => { item.deferred = true; },
       editReply: async payload => { item.response = payload; },
+      deleteReply: async () => { item.deletedReplies = (item.deletedReplies || 0) + 1; },
       reply: async payload => { item.response = payload; },
       showModal: async modal => { item.modal = modal.toJSON(); },
     };
@@ -98,13 +100,19 @@ test('only the winner opens exactly one private claim channel', async () => {
   const w = world();
   const outsider = w.interaction('gclaim:open:' + GIVEAWAY, OWNER);
   await handleGiveawayClaimInteraction(outsider, w.client);
-  assert.match(outsider.response.content, /Only a current winner/);
+  assert.equal(outsider.response.embeds[0].title, 'Claim denied');
+  assert.equal(outsider.response.embeds[0].description,
+    'This button is reserved for giveaway winners only. You are not eligible to claim this prize.');
+  assert.equal(outsider.response.embeds[0].color, 0x7A1712);
   assert.equal(w.created.length, 0);
   const open = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(open, w.client);
-  assert.match(open.response.content, /private claim channel/);
   assert.equal(w.created.length, 1);
   const { options, channel } = w.created[0];
+  assert.equal(open.response.embeds[0].title, 'Claim successful!');
+  assert.equal(open.response.embeds[0].description,
+    "You've been tagged in <#" + channel.id + "> to collect your prize!");
+  assert.equal(open.response.embeds[0].color, 0x00C49D);
   assert.equal(options.type, ChannelType.GuildText);
   assert.equal(options.parent, GIVEAWAY_CLAIM_CATEGORY_ID);
   const everyone = options.permissionOverwrites.find(value => value.id === GUILD);
@@ -145,7 +153,35 @@ test('only the winner opens exactly one private claim channel', async () => {
   const repeat = w.interaction('gclaim:open:' + GIVEAWAY);
   await handleGiveawayClaimInteraction(repeat, w.client);
   assert.equal(w.created.length, 1);
-  assert.match(repeat.response.content, new RegExp(channel.id));
+  assert.equal(repeat.response.embeds[0].title, 'Claim successful!');
+  assert.match(repeat.response.embeds[0].description, new RegExp(channel.id));
+});
+
+test('Claim replies are private and disappear after 20 seconds for non-winners or 10 minutes for winners', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const w = world();
+  const denied = w.interaction('gclaim:open:' + GIVEAWAY, OWNER);
+  const accepted = w.interaction('gclaim:open:' + GIVEAWAY, WINNER);
+  await handleGiveawayClaimInteraction(denied, w.client);
+  await handleGiveawayClaimInteraction(accepted, w.client);
+  assert.equal(CLAIM_DENIED_NOTICE_MS, 20_000);
+  assert.equal(CLAIM_SUCCESS_NOTICE_MS, 600_000);
+  assert.equal(denied.deferred, true);
+  assert.equal(accepted.deferred, true);
+
+  t.mock.timers.tick(CLAIM_DENIED_NOTICE_MS - 1);
+  assert.equal(denied.deletedReplies, undefined);
+  t.mock.timers.tick(1);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(denied.deletedReplies, 1);
+  assert.equal(accepted.deletedReplies, undefined);
+
+  t.mock.timers.tick(CLAIM_SUCCESS_NOTICE_MS - CLAIM_DENIED_NOTICE_MS);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(accepted.deletedReplies, 1);
+  assert.equal(w.created[0].channel.deleted, false);
 });
 
 test('Claim refuses missing or non-category channel without creating an unprotected fallback', async () => {
