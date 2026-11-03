@@ -55,8 +55,26 @@ async function getDurationSeconds(inputPath) {
     return duration;
 }
 
+// Favour sharp frames, smooth animation and all 256 available GIF colours.
+// Preserve original uploaded GIF files untouched; these presets only apply
+// when the owner explicitly uploads a video for conversion to an embed GIF.
+export const VIDEO_GIF_QUALITY_PRESETS = Object.freeze([
+    { width: 960, fps: 20 },
+    { width: 800, fps: 18 },
+    { width: 720, fps: 16 },
+    { width: 640, fps: 15 },
+    { width: 540, fps: 12 },
+    { width: 480, fps: 10 },
+    { width: 400, fps: 8 },
+    { width: 320, fps: 6 },
+]);
+
+export function videoGifPaletteFilter(width, fps) {
+    return `fps=${fps},scale='min(${width},iw)':-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=diff[p];[s1][p]paletteuse=dither=sierra2_4a`;
+}
+
 async function renderGif(inputPath, outputPath, width, fps) {
-    const filter = `fps=${fps},scale='min(${width},iw)':-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5`;
+    const filter = videoGifPaletteFilter(width, fps);
     await runProcess('ffmpeg', [
         '-y',
         '-i', inputPath,
@@ -81,13 +99,7 @@ export async function convertVideoUrlToGif(videoUrl) {
             throw error;
         }
 
-        const attempts = [
-            { width: 640, fps: 12 },
-            { width: 540, fps: 10 },
-            { width: 480, fps: 8 },
-            { width: 400, fps: 7 },
-            { width: 320, fps: 6 },
-        ];
+        const attempts = VIDEO_GIF_QUALITY_PRESETS;
 
         let gifBuffer = null;
         for (const attempt of attempts) {
