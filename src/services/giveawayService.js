@@ -144,7 +144,8 @@ export const DEFAULT_GIVEAWAY_DESCRIPTION = 'Cloudy Inc. is giving you the chanc
 export const DEFAULT_ENDED_GIVEAWAY_DESCRIPTION = 'Thank you to everyone who participated!';
 export const DEFAULT_GIVEAWAY_INTRO = 'Giveaway time!';
 export const DEFAULT_GIVEAWAY_CLOSING = 'Good luck to everyone!';
-export const DEFAULT_GIVEAWAY_CLAIM = 'Please open a support ticket within 24 hours to claim your prize.';
+export const LEGACY_GIVEAWAY_CLAIM = 'Please open a support ticket within 24 hours to claim your prize.';
+export const DEFAULT_GIVEAWAY_CLAIM = 'Click **Claim** below to be redirected to a private channel, where you can collect your prize.';
 export const DEFAULT_GIVEAWAY_FAILURE = 'Failure to claim your prize within this timeframe will result in a reroll, and a new winner will be selected.';
 const GIVEAWAY_WHITE = 0xFFFFFF;
 
@@ -357,7 +358,8 @@ export function createWinnerAnnouncement(giveaway, winners, { reroll = false } =
                 '',
                 `${tags} ${winners.length === 1 ? 'has' : 'have'} won **${giveaway.prize || 'the giveaway'}**!`,
                 '',
-                giveaway.claim || DEFAULT_GIVEAWAY_CLAIM,
+                giveaway.claim && giveaway.claim !== LEGACY_GIVEAWAY_CLAIM
+                    ? giveaway.claim : DEFAULT_GIVEAWAY_CLAIM,
                 '',
                 DEFAULT_GIVEAWAY_FAILURE,
             ].join('\n'),
