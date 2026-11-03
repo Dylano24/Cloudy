@@ -12,6 +12,8 @@ import {
     createGiveawayButtons,
     createGiveawayEmbed,
     createWinnerAnnouncement,
+    DEFAULT_GIVEAWAY_CLAIM,
+    LEGACY_GIVEAWAY_CLAIM,
     giveawayEndTime,
     giveawayParticipants,
     giveawayPing,
@@ -294,6 +296,50 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
     await logGiveaway(client, guildId, EVENT_TYPES.GIVEAWAY_REROLL, 'Giveaway rerolled', result.giveaway,
         [{ name: 'New winners', value: result.winners.map(id => `<@${id}>`).join(', '), inline: false }], rerolledBy);
     return result;
+}
+
+// Update only the obsolete default instruction in already-posted winner
+// announcements. Keep message IDs, mentions, buttons, thumbnails, styling and
+// all other text unchanged. Custom claim instructions remain untouched.
+export async function refreshExistingGiveawayClaimInstructions(client) {
+    if (!client?.db) return;
+    for (const guild of client.guilds?.cache?.values?.() || []) {
+        let giveaways;
+        try {
+            giveaways = await getGuildGiveaways(client, guild.id, { strict: true });
+        } catch (error) {
+            logger.warn(`Could not load giveaway announcements for claim copy refresh in ${guild.id}:`, error);
+            continue;
+        }
+        for (const giveaway of giveaways) {
+            if (!isGiveawayFinished(giveaway)) continue;
+            const announcementIds = [...new Set([
+                ...(giveaway.announcementIds || []), giveaway.winnerPingMessageId,
+            ].filter(Boolean))];
+            if (!announcementIds.length) continue;
+            const channel = await fetchGiveawayChannel(client, guild, giveaway.channelId);
+            if (!channel) continue;
+            for (const id of announcementIds) {
+                try {
+                    const message = await fetchGiveawayMessage(channel, id);
+                    if (!message?.edit || !message.embeds?.length) continue;
+                    let changed = false;
+                    const embeds = message.embeds.map(embed => {
+                        const data = embed.toJSON?.() || embed;
+                        if (!data?.description?.includes(LEGACY_GIVEAWAY_CLAIM)) return data;
+                        changed = true;
+                        return {
+                            ...data,
+                            description: data.description.replace(LEGACY_GIVEAWAY_CLAIM, DEFAULT_GIVEAWAY_CLAIM),
+                        };
+                    });
+                    if (changed) await message.edit({ embeds });
+                } catch (error) {
+                    logger.warn(`Could not refresh claim instructions in announcement ${id}:`, error);
+                }
+            }
+        }
+    }
 }
 
 // Replaces only winners who never opened their Claim channel within 24 hours.
