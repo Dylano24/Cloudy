@@ -3,7 +3,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { CloudyError, ErrorTypes } from '../utils/errorHandler.js';
 import { Mutex } from '../utils/mutex.js';
-import { getEndedGiveaways } from '../utils/database.js';
+import { getEndedGiveaways, unwrapReplitData } from '../utils/database.js';
 import { getGuildGiveaways, saveGiveaway, deleteGiveaway } from '../utils/giveaways.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { rememberMessageDeleter } from './deletionAttributionService.js';
@@ -23,6 +23,10 @@ import {
 } from './giveawayService.js';
 
 const lockKey = messageId => `giveaway:${messageId}`;
+// The winner-claim window begins only when a new winner announcement is sent.
+export const GIVEAWAY_WINNER_CLAIM_WINDOW_MS = 24 * 60 * 60_000;
+const claimRecordsKey = guildId => `guild:${guildId}:giveaway-claim:records`;
+const newClaimDeadline = () => new Date(Date.now() + GIVEAWAY_WINNER_CLAIM_WINDOW_MS).toISOString();
 
 // Staff = server owner, Owner role, Administrator or Manage Server.
 export function canManageGiveaways(member, guild) {
@@ -231,6 +235,9 @@ export async function finishGiveaway(client, guild, messageId, { endedBy = 'auto
         });
         ended.announcementIds = [...(ended.announcementIds || []), announcement.id];
         ended.winnerPingMessageId = announcement.id;
+        // Old giveaways have no claim deadline and are never retroactively
+        // rerolled. Enable the 24h claim check only for announced winners.
+        if (winners.length) ended.claimDeadlineAt = newClaimDeadline();
         await persist(client, guildId, ended);
         return { giveaway: ended, winners, announced: true };
     });
@@ -280,12 +287,115 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
         });
         rerolled.announcementIds = [...(rerolled.announcementIds || []), announcement.id];
         rerolled.winnerPingMessageId = announcement.id;
+        if (winners.length) rerolled.claimDeadlineAt = newClaimDeadline();
         await persist(client, guildId, rerolled);
         return { giveaway: rerolled, winners };
     });
     await logGiveaway(client, guildId, EVENT_TYPES.GIVEAWAY_REROLL, 'Giveaway rerolled', result.giveaway,
         [{ name: 'New winners', value: result.winners.map(id => `<@${id}>`).join(', '), inline: false }], rerolledBy);
     return result;
+}
+
+// Replaces only winners who never opened their Claim channel within 24 hours.
+// Claim and reroll both lock the same giveaway, so nobody can claim a slot
+// concurrently with its replacement. An existing claim record (even if its
+// channel was closed) counts as having claimed.
+export async function rerollUnclaimedGiveaway(client, guild, messageId) {
+    const guildId = guild?.id;
+    const result = await Mutex.runExclusive(lockKey(messageId), async () => {
+        const giveaway = await loadGiveaway(client, guildId, messageId);
+        const deadline = Date.parse(giveaway?.claimDeadlineAt || '');
+        if (!giveaway || !isGiveawayFinished(giveaway)
+            || !Number.isFinite(deadline) || deadline > Date.now()) return null;
+
+        const currentWinners = [...new Set(giveaway.winnerIds || [])];
+        if (!currentWinners.length) {
+            await persist(client, guildId, { ...giveaway, claimDeadlineAt: null });
+            return null;
+        }
+
+        // Fail closed on storage errors: never mistake a DB outage for
+        // "nobody claimed" and reroll someone's already-claimed prize.
+        const claims = unwrapReplitData(await client.db.get(claimRecordsKey(guildId), {}, { strict: true })) || {};
+        if (typeof claims !== 'object' || Array.isArray(claims)) {
+            throw new Error('Giveaway claim records are unavailable');
+        }
+        const claimed = currentWinners.filter(userId =>
+            Boolean(claims[`${messageId}:${userId}`]?.channelId));
+        const missing = currentWinners.filter(userId => !claimed.includes(userId));
+        if (!missing.length) {
+            await persist(client, guildId, { ...giveaway, claimDeadlineAt: null });
+            return { claimed, missing, newWinners: [], complete: true };
+        }
+
+        const channel = await fetchGiveawayChannel(client, guild, giveaway.channelId);
+        const message = await fetchGiveawayMessage(channel, messageId);
+        if (!message) {
+            // Never announce a replacement for a giveaway removed in Discord.
+            await persist(client, guildId, { ...giveaway, claimDeadlineAt: null });
+            return null;
+        }
+
+        const excluded = new Set([...(giveaway.previousWinnerIds || []), ...currentWinners]);
+        const pool = giveawayParticipants(giveaway).filter(id => !excluded.has(id));
+        const newWinners = selectWinners(pool, Math.min(missing.length, pool.length));
+        const rerolled = {
+            ...giveaway,
+            winnerIds: [...claimed, ...newWinners],
+            previousWinnerIds: [...excluded],
+            rerolledAt: new Date().toISOString(),
+            rerolledBy: 'automatic',
+            // Renew the 24h window only for genuinely new, unclaimed winners.
+            // When the participant pool is exhausted, stop checking forever.
+            claimDeadlineAt: newWinners.length ? newClaimDeadline() : null,
+        };
+        // Persist before changing Discord: no failed DB write may announce a
+        // winner. The advanced deadline also prevents duplicate automatic
+        // draws on subsequent sweeps or after restarting.
+        await persist(client, guildId, rerolled);
+        await message.edit(giveawayMessagePayload(rerolled, 'reroll'));
+        if (newWinners.length) {
+            const announcement = await channel.send({
+                ...createWinnerAnnouncement(rerolled, newWinners, { reroll: true }),
+                reply: { messageReference: messageId, failIfNotExists: false },
+            });
+            rerolled.announcementIds = [...(rerolled.announcementIds || []), announcement.id];
+            rerolled.winnerPingMessageId = announcement.id;
+            await persist(client, guildId, rerolled);
+        }
+        return { giveaway: rerolled, claimed, missing, newWinners, complete: !newWinners.length };
+    });
+    if (result?.newWinners?.length) {
+        await logGiveaway(client, guildId, EVENT_TYPES.GIVEAWAY_REROLL,
+            'Unclaimed giveaway prizes automatically rerolled', result.giveaway, [
+                { name: 'Unclaimed slots', value: String(result.missing.length), inline: true },
+                { name: 'New winners', value: result.newWinners.map(id => `<@${id}>`).join(', '), inline: false },
+            ]);
+    }
+    return result;
+}
+
+// Runs with claim-channel cleanup every minute, including once on startup.
+// Only giveaways with an explicit claimDeadlineAt are considered, so deploying
+// this feature cannot unexpectedly reroll any historical giveaway.
+export async function checkUnclaimedGiveawayWinners(client) {
+    if (!client?.db) return;
+    for (const guild of client.guilds?.cache?.values?.() || []) {
+        try {
+            const giveaways = await getGuildGiveaways(client, guild.id, { strict: true });
+            for (const giveaway of giveaways) {
+                const deadline = Date.parse(giveaway?.claimDeadlineAt || '');
+                if (!Number.isFinite(deadline) || deadline > Date.now()) continue;
+                try {
+                    await rerollUnclaimedGiveaway(client, guild, giveaway.messageId);
+                } catch (error) {
+                    logger.error(`Automatic claim reroll failed for ${giveaway.messageId} in ${guild.id}:`, error);
+                }
+            }
+        } catch (error) {
+            logger.error(`Could not check unclaimed giveaways in guild ${guild.id}:`, error);
+        }
+    }
 }
 
 // Update text on the same physical message; do not change timers or participants.
