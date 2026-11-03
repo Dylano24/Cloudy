@@ -11,6 +11,7 @@ import {
   GIVEAWAY_MANAGE_PAGE_SIZE,
   buildGiveawayManagePicker,
   isActiveManageableGiveaway,
+  isManageableGiveaway,
   listManageableGiveaways,
   selectGiveawayToManage,
   showGiveawayManagePicker,
@@ -95,47 +96,77 @@ test('/giveaway manage is private and preserves the Owner-only permission gate',
   assert.equal(createGiveawayButtons(prize(1)).length, 1);
 });
 
-test('active and not expired is required, even when ended flag has not caught up', () => {
+test('both active and ended records are manageable while their original post exists', () => {
   const current = prize(1);
+  const finished = prize(2, true);
+  const pastTime = { ...prize(3), endsAt: Date.now() - 1000 };
   assert.equal(isActiveManageableGiveaway(current), true);
-  assert.equal(isActiveManageableGiveaway(prize(2, true)), false);
-  assert.equal(isActiveManageableGiveaway({ ...current, endsAt: Date.now() - 1000 }), false);
-  assert.equal(isActiveManageableGiveaway({ ...current, endsAt: 0 }), false);
-  assert.equal(isActiveManageableGiveaway({ ...current, messageId: 'invalid' }), false);
+  assert.equal(isActiveManageableGiveaway(finished), false);
+  assert.equal(isActiveManageableGiveaway(pastTime), false);
+  assert.equal(isManageableGiveaway(current), true);
+  assert.equal(isManageableGiveaway(finished), true);
+  assert.equal(isManageableGiveaway(pastTime), true);
+  assert.equal(isManageableGiveaway({ ...current, messageId: 'invalid' }), false);
+  assert.equal(isManageableGiveaway({ ...current, channelId: null }), false);
 });
 
-test('only active posted giveaways appear; no ended, expired or deleted entries', async () => {
+test('posted ended giveaways are visible alongside active ones, but deleted posts disappear', async () => {
   const active = prize(1);
   const ended = prize(2, true);
   const expired = { ...prize(3), endsAt: Date.now() - 1000 };
-  const removed = prize(4);
+  const removed = prize(4, true);
   const w = world([ended, active, expired, removed]);
   w.posts.delete(removed.messageId);
   const picker = w.interaction();
   await command.execute(picker);
   assert.equal(picker.deferred.flags, MessageFlags.Ephemeral);
   const menu = json(picker.response.components[0]).components[0];
-  assert.deepEqual(menu.options.map(option => option.value), [active.messageId]);
+  assert.deepEqual(menu.options.map(option => option.value),
+    [active.messageId, expired.messageId, ended.messageId]);
   assert.match(menu.options[0].description, /Active.*#giveaways/);
+  assert.match(menu.options[1].description, /Ended.*#giveaways/);
+  assert.match(menu.options[2].description, /Ended.*#giveaways/);
+  assert.match(picker.response.embeds[0].description, /3 giveaways/);
   assert.ok(picker.response.embeds[0].thumbnail.url);
-  assert.equal(w.records.has(removed.messageId), false, 'missing original is pruned');
-  assert.equal(w.records.has(ended.messageId), true, 'ended history is not destroyed');
-  assert.equal(w.records.has(expired.messageId), true, 'expired history is not destroyed');
+  assert.equal(w.records.has(removed.messageId), false, 'deleted ended giveaway is pruned');
+  assert.equal(w.records.has(ended.messageId), true, 'posted ended giveaway is retained');
+  assert.equal(w.records.has(expired.messageId), true, 'past-due original message is retained');
   const choose = w.interaction(OWNER, 'select', { values: [active.messageId] });
   await select.execute(choose, w.client, [OWNER]);
   assert.equal(choose.updated, true);
   assert.equal(choose.response.embeds[0].title, 'Manage giveaway');
   const labels = choose.response.components.flatMap(row => json(row).components.map(c => c.label));
   assert.deepEqual(labels, ['Reroll', 'Edit text', 'Edit timer', 'End', 'View participants', 'Delete', 'Edit claim']);
+  const endedChoice = w.interaction(OWNER, 'select', { values: [ended.messageId] });
+  await select.execute(endedChoice, w.client, [OWNER]);
+  assert.equal(endedChoice.updated, true);
+  assert.match(endedChoice.response.embeds[0].description, /This giveaway has ended/);
+  const endedLabels = endedChoice.response.components.flatMap(row =>
+    json(row).components.map(component => component.label));
+  assert.deepEqual(endedLabels, ['Reroll', 'View participants', 'Delete']);
 });
 
-test('when there are no active giveaways, the private menu is empty despite ended history', async () => {
+test('ended giveaways are still selectable even when no active giveaway exists', async () => {
   const w = world([prize(1, true), { ...prize(2), endsAt: Date.now() - 1000 }]);
   const picker = w.interaction();
   await showGiveawayManagePicker(picker, w.client);
-  assert.equal(picker.response.components.length, 0);
-  assert.match(picker.response.embeds[0].description, /no active giveaways/i);
+  assert.equal(picker.response.components.length, 1);
+  assert.match(picker.response.embeds[0].description, /2 giveaways/i);
+  const menu = json(picker.response.components[0]).components[0];
+  assert.equal(menu.options.length, 2);
+  assert.ok(menu.options.every(option => option.description.startsWith('Ended')));
   assert.equal(w.records.size, 2);
+});
+
+test('when the last posted giveaway is deleted, Manage shows the short empty notice', async () => {
+  const ended = prize(1, true);
+  const w = world([ended]);
+  w.posts.delete(ended.messageId);
+  const picker = w.interaction();
+  await showGiveawayManagePicker(picker, w.client);
+  assert.equal(picker.response.components.length, 0);
+  assert.match(picker.response.embeds[0].description, /no giveaways to manage/i);
+  assert.equal(w.records.size, 0);
 });
 
 test('multiple active giveaways are paginated without duplicates', async () => {
@@ -172,19 +203,20 @@ test('non-owners and a different requester cannot open the picker or select a gi
   assert.match(JSON.stringify(mismatchedOwner.response), /Owner role/);
 });
 
-test('selection from a stale menu refreshes instead of opening ended or deleted giveaway', async () => {
+test('stale selection hides deleted giveaways but still opens posted ended giveaways', async () => {
   const current = prize(1);
   const w = world([current]);
   w.posts.delete(current.messageId);
   const stale = w.interaction(OWNER, 'select', { values: [current.messageId] });
   await selectGiveawayToManage(stale, w.client, OWNER);
   assert.equal(stale.response.components.length, 0);
-  assert.match(stale.response.embeds[0].description, /no active giveaways/);
+  assert.match(stale.response.embeds[0].description, /no giveaways to manage/);
   assert.equal(w.records.has(current.messageId), false);
-  const expired = world([{ ...current, endsAt: Date.now() - 1000 }]);
-  const late = expired.interaction(OWNER, 'select', { values: [current.messageId] });
-  await selectGiveawayToManage(late, expired.client, OWNER);
-  assert.equal(late.response.components.length, 0);
+  const ended = world([prize(1, true)]);
+  const late = ended.interaction(OWNER, 'select', { values: [current.messageId] });
+  await selectGiveawayToManage(late, ended.client, OWNER);
+  assert.deepEqual(late.response.components.flatMap(row =>
+    json(row).components.map(component => component.label)), ['Reroll', 'View participants', 'Delete']);
 });
 
 test('Manage Delete removes an original from the database and any open picker', async () => {
@@ -277,10 +309,10 @@ test('short private giveaway Manage notices disappear after exactly 10 seconds',
   const settle = () => new Promise(resolve => setImmediate(resolve));
 
   // The empty-state message shown in the screenshot is transient.
-  const empty = world([prize(1, true)]);
+  const empty = world([]);
   const noActive = empty.interaction();
   await showGiveawayManagePicker(noActive, empty.client);
-  assert.match(noActive.response.embeds[0].description, /no active giveaways/);
+  assert.match(noActive.response.embeds[0].description, /no giveaways to manage/);
   t.mock.timers.tick(9_999);
   await settle();
   assert.deepEqual(noActive.deletedReplies, []);
