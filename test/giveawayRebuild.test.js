@@ -111,7 +111,8 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   const ended = createGiveawayEmbed(activeGiveaway({ endedAt: new Date(1_800_000_000_000).toISOString() }), 'ended', ['a', 'b']);
   assert.match(ended.description, /\*\*Winners\*\*\n<@a>, <@b>\n/);
   assert.ok(ended.description.includes('Thank you to everyone who participated!'));
-  assert.ok(ended.description.includes('The winner(s) have been announced and tagged below!'));
+  assert.ok(ended.description.includes('This giveaway has ended!'));
+  assert.doesNotMatch(ended.description, /winner\(s\) have been announced/i);
   assert.match(ended.description, /\*\*Giveaway ended\*\*\n<t:1800000000:F>/);
   assert.equal(ended.color, 0xFFFFFF);
 });
