@@ -295,16 +295,16 @@ test('End draws winners, marks the giveaway, and tags the winners with how to cl
   assert.equal(json(staff.edited.embeds[0]).title, 'Success');
   // The default claim text is used when none was given: 24 hours.
   assert.equal(DEFAULT_GIVEAWAY_CLAIM, 'Click **Claim** below to be redirected to a private channel, where you can collect your prize.');
-  assert.match(createWinnerAnnouncement(activeGiveaway(), ['x']).embeds[0].description, new RegExp(DEFAULT_GIVEAWAY_CLAIM));
+  assert.ok(createWinnerAnnouncement(activeGiveaway(), ['x']).embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
 });
 
 test('winner announcement uses the new Claim text and preserves custom instructions and remaining content', () => {
   const standard = createWinnerAnnouncement(activeGiveaway({ claim: null }), ['winner']);
   const legacy = createWinnerAnnouncement(activeGiveaway({ claim: LEGACY_GIVEAWAY_CLAIM }), ['winner']);
   const custom = createWinnerAnnouncement(activeGiveaway({ claim: 'Contact the host for assistance.' }), ['winner']);
-  assert.match(standard.embeds[0].description, /Click \\*\\*Claim\\*\\* below to be redirected to a private channel, where you can collect your prize\\./);
+  assert.ok(standard.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
   assert.equal(legacy.embeds[0].description, standard.embeds[0].description);
-  assert.match(custom.embeds[0].description, /Contact the host for assistance\\./);
+  assert.ok(custom.embeds[0].description.includes('Contact the host for assistance.'));
   assert.doesNotMatch(custom.embeds[0].description, /be redirected to a private channel/);
   assert.match(standard.embeds[0].description, /Failure to claim your prize within this timeframe/);
   assert.ok(standard.embeds[0].thumbnail?.url);
@@ -346,7 +346,7 @@ test('already-posted winner messages replace only the old instruction, in place,
   assert.equal(existing.content, beforeContent);
   assert.equal(existing.components, beforeComponents);
   assert.deepEqual(existing.embeds[0].thumbnail, beforeThumbnail);
-  assert.match(existing.embeds[0].description, /Click \\*\\*Claim\\*\\* below to be redirected to a private channel, where you can collect your prize\\./);
+  assert.ok(existing.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
   assert.match(existing.embeds[0].description, /Failure to claim your prize within this timeframe/);
   await refreshExistingGiveawayClaimInstructions(w.client);
   assert.equal(existing.edits.length, 1);
