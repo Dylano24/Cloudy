@@ -477,7 +477,8 @@ test('Close writes exactly one manual-close log after deleting the private claim
   const end = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim closed');
   assert.equal(end.length, 1);
   assert.match(JSON.stringify(end[0]), new RegExp(channel.id));
-  assert.match(JSON.stringify(end[0]), /Close/);
+  assert.equal(end[0].embeds[0].title, 'Giveaway claim closed');
+  assert.equal(end[0].embeds[0].fields.some(field => field.name === 'Action'), false);
   await handleGiveawayClaimInteraction(w.interaction('gclaim:done:' + CLAIM_ID, WINNER, { channel }), w.client);
   await flushClaimLogs();
   assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim closed').length, 1);
@@ -493,14 +494,14 @@ test('24-hour automatic channel expiry sends the separate expiration log only on
   await cleanupExpiredGiveawayClaims(w.client);
   await flushClaimLogs();
   assert.equal(channel.deleted, true);
-  const expired = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim expired');
+  const expired = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway auto expiry');
   assert.equal(expired.length, 1);
-  assert.equal(expired[0].embeds[0].fields.find(field => field.name === 'Action').value,
-    'giveaway auto expiry');
+  assert.equal(expired[0].embeds[0].fields.some(field => field.name === 'Action'), false);
+  assert.equal(expired[0].embeds[0].color, 0x7A1712);
   assert.match(JSON.stringify(expired[0]), new RegExp(channel.id));
   await cleanupExpiredGiveawayClaims(w.client);
   await flushClaimLogs();
-  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim expired').length, 1);
+  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway auto expiry').length, 1);
 });
 
 test('log channel send failure never prevents Claim, Reveal or Close', async () => {
@@ -589,6 +590,7 @@ test('claim logs hide raw IDs and manual close uses the ticket orange side line'
     assert.equal(embed.footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
     assert.equal(embed.timestamp, undefined);
     assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
+    assert.equal(embed.fields.some(field => field.name === 'Action'), false);
     if (event === 'closed') assert.equal(embed.color, 0xFF7A00);
     if (event === 'revealed') assert.equal(embed.color, 0xFFFFFF);
   }
@@ -783,9 +785,8 @@ test('automatic 24-hour expiry converts every previous channel mention to its ID
   await drainAuditActions();
   assert.equal(channel.deleted, true);
   assert.deepEqual(archive.map(loggedValue), Array(3).fill('`' + channel.id + '`'));
-  assert.equal(archive[2].embeds[0].title, 'Giveaway claim expired');
-  assert.equal(archive[2].embeds[0].fields.find(field => field.name === 'Action').value,
-    'giveaway auto expiry');
+  assert.equal(archive[2].embeds[0].title, 'Giveaway auto expiry');
+  assert.equal(archive[2].embeds[0].fields.some(field => field.name === 'Action'), false);
   assert.equal(archive[2].embeds[0].timestamp, undefined);
   assert.deepEqual(archive.map(entry => entry.edits.length), [1, 1, 0]);
 });
@@ -886,8 +887,10 @@ test('the log service exposes only the three requested claim stages and automati
     ['opened', 'Giveaway claim opened'],
     ['revealed', 'Giveaway code revealed'],
     ['closed', 'Giveaway claim closed'],
-    ['expired', 'Giveaway claim expired'],
+    ['expired', 'Giveaway auto expiry'],
   ]) {
-    assert.equal(buildGiveawayClaimLog({ ...base, event }).embeds[0].title, title);
+    const embed = buildGiveawayClaimLog({ ...base, event }).embeds[0];
+    assert.equal(embed.title, title);
+    assert.equal(embed.fields.some(field => field.name === 'Action'), false);
   }
 });

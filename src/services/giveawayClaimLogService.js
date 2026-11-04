@@ -14,7 +14,7 @@ const EVENTS = Object.freeze({
   opened: { title: 'Giveaway claim opened', color: 0x00C49D, action: 'Claim' },
   revealed: { title: 'Giveaway code revealed', color: 0xFFFFFF, action: 'Reveal my code' },
   closed: { title: 'Giveaway claim closed', color: CLOUDY_TICKET_CLOSED_COLOR, action: 'Close' },
-  expired: { title: 'Giveaway claim expired', color: CLOUDY_RED_COLOR, action: 'giveaway auto expiry' },
+  expired: { title: 'Giveaway auto expiry', color: CLOUDY_RED_COLOR, action: 'giveaway auto expiry' },
 });
 
 function safeValue(value, limit = 1024) {
@@ -43,7 +43,6 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
   const fields = [
     { name: 'Member', value: '<@' + userId + '>', inline: false },
     { name: 'Prize', value: safeValue(giveaway?.prize, 500), inline: true },
-    { name: 'Action', value: definition.action, inline: true },
     { name: 'Giveaway', value: originalLink, inline: false },
   ];
   if (claimChannelId) {
@@ -193,7 +192,8 @@ export async function refreshClosedGiveawayClaimLogChannels(client) {
 // Preserve its original numeric ID in *every* related audit entry (including
 // earlier Claim and Reveal entries), without changing any unrelated field.
 const CLAIM_CHANNEL_ID_PATTERN = /^<#([0-9]{17,20})>(?: \(\x60[0-9]{17,20}\x60\))?$/;
-const claimLogTitles = new Set(Object.values(EVENTS).map(event => event.title));
+const LEGACY_EXPIRED_LOG_TITLE = 'Giveaway claim expired';
+const claimLogTitles = new Set([...Object.values(EVENTS).map(event => event.title), LEGACY_EXPIRED_LOG_TITLE]);
 
 export function replaceClosedClaimChannelMentions(embed, closedChannelIds) {
   const data = embed?.toJSON?.() || { ...(embed || {}) };
@@ -383,7 +383,7 @@ export async function refreshGiveawayAutoExpiryLogAction(client) {
           let changed = false;
           const embeds = (message.embeds || []).map(embed => {
             const data = embed.toJSON?.() || { ...embed };
-            if (data.title !== EVENTS.expired.title
+            if (![EVENTS.expired.title, LEGACY_EXPIRED_LOG_TITLE].includes(data.title)
               || data.footer?.text !== GIVEAWAY_CLAIM_LOG_FOOTER) return data;
             const fields = (data.fields || []).map(field => {
               if (field.name !== 'Action' || field.value === EVENTS.expired.action) return field;
@@ -404,6 +404,57 @@ export async function refreshGiveawayAutoExpiryLogAction(client) {
       if (complete) await client.db.set(marker, true);
     } catch (error) {
       logger.warn('Could not refresh giveaway auto-expiry audit logs in ' + guild.id, error);
+    }
+  }
+}
+
+// One-time in-place cleanup of historical Giveaway claim audit embeds.
+// The log title already states the action; the Action field is redundant.
+// Keep every message and all other fields, original Date, #number/link,
+// member, prize, claim channel, logo and footer intact.
+export async function refreshGiveawayClaimTitlesWithoutAction(client) {
+  if (!client?.db?.get || !client?.db?.set) return;
+  for (const guild of client.guilds?.cache?.values?.() || []) {
+    const marker = 'guild:' + guild.id + ':giveaway-claim:title-only-v1';
+    try {
+      if (await client.db.get(marker, false)) continue;
+      const channel = guild.channels?.cache?.get?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID)
+        || await guild.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
+      if (!channel?.messages?.fetch) continue;
+      let before;
+      let complete = false;
+      // Bounded to 1000 prior messages; never mark complete if more remain.
+      for (let page = 0; page < 10; page++) {
+        const messages = [...(await channel.messages.fetch(before
+          ? { limit: 100, before } : { limit: 100 })).values()];
+        for (const message of messages) {
+          if (message.author?.id !== client.user?.id || !message.edit) continue;
+          let changed = false;
+          const embeds = (message.embeds || []).map(embed => {
+            const data = embed.toJSON?.() || { ...embed };
+            if (!claimLogTitles.has(data.title)
+              || data.footer?.text !== GIVEAWAY_CLAIM_LOG_FOOTER) return data;
+            const expired = data.title === LEGACY_EXPIRED_LOG_TITLE
+              || data.title === EVENTS.expired.title;
+            const title = expired ? EVENTS.expired.title : data.title;
+            const color = expired ? CLOUDY_RED_COLOR : data.color;
+            const fields = (data.fields || []).filter(field => field.name !== 'Action');
+            if (title === data.title && color === data.color
+              && fields.length === (data.fields || []).length) return data;
+            changed = true;
+            return { ...data, title, color, fields };
+          });
+          if (changed) await message.edit({ embeds });
+        }
+        if (messages.length < 100 || !messages.at(-1)?.id) {
+          complete = true;
+          break;
+        }
+        before = messages.at(-1).id;
+      }
+      if (complete) await client.db.set(marker, true);
+    } catch (error) {
+      logger.warn('Could not refresh Giveaway claim title-only logs in ' + guild.id, error);
     }
   }
 }
