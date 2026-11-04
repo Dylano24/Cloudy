@@ -18,7 +18,7 @@ function world() {
   const records = new Map([['guild:' + GUILD + ':giveaways', {
     [GIVEAWAY]: {
       messageId: GIVEAWAY, guildId: GUILD, hostId: OWNER,
-      channelId: 'public', ended: true, isEnded: true, winnerIds: [WINNER],
+      channelId: '156000000000000087', ended: true, isEnded: true, winnerIds: [WINNER],
       prize: 'Six-month subscription',
       claimPanelTitle: 'Your giveaway prize',
       claimDetails: 'The subscription is valid for six months after activation.',
