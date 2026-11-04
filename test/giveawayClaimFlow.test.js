@@ -4,10 +4,11 @@ import { Collection, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { CLOUDY_C_LOGO_URL, createWinnerAnnouncement } from '../src/services/giveawayService.js';
 import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveawayClaimLog, removeExistingClaimLogTimestamps, refreshExistingGiveawayClaimLogPresentation, refreshClosedGiveawayClaimLogChannels, updateClosedClaimChannelLogs, refreshClosedClaimReferencesInEarlierLogs, replaceClosedClaimChannelMentions, removeRedundantGiveawayClaimLogs } from '../src/services/giveawayClaimLogService.js';
 import {
-  CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
+  CLAIM_LIFETIME_MS, CLAIM_DENIED_NOTICE_MS,
   GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
   refreshExistingClaimPanels, refreshPrivateGiveawayClaimNoteSpacing,
 } from '../src/services/giveawayClaimService.js';
+import giveawayClaimChannelDelete from '../src/events/giveawayClaimChannelDelete.js';
 
 const GUILD = '156000000000000001', GIVEAWAY = '156000000000000002';
 const WINNER = '156000000000000003', OWNER = '156000000000000004';
@@ -202,7 +203,7 @@ test('existing private giveaway claim removes just one extra blank line without 
   assert.equal(message.edits.length, 1);
 });
 
-test('Claim replies are private and disappear after 20 seconds for non-winners or 10 minutes for winners', async t => {
+test('Denied Claim notices expire after 20 seconds; successful private notices have no bot timeout', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const w = world();
   const denied = w.interaction('gclaim:open:' + GIVEAWAY, OWNER);
@@ -210,7 +211,6 @@ test('Claim replies are private and disappear after 20 seconds for non-winners o
   await handleGiveawayClaimInteraction(denied, w.client);
   await handleGiveawayClaimInteraction(accepted, w.client);
   assert.equal(CLAIM_DENIED_NOTICE_MS, 20_000);
-  assert.equal(CLAIM_SUCCESS_NOTICE_MS, 600_000);
   assert.equal(denied.deferred, true);
   assert.equal(accepted.deferred, true);
 
@@ -222,10 +222,14 @@ test('Claim replies are private and disappear after 20 seconds for non-winners o
   assert.equal(denied.deletedReplies, 1);
   assert.equal(accepted.deletedReplies, undefined);
 
-  t.mock.timers.tick(CLAIM_SUCCESS_NOTICE_MS - CLAIM_DENIED_NOTICE_MS);
+  // Previously Cloudy deleted the successful notice after 10 minutes. It
+  // must now remain untouched by the bot until its claim channel is deleted.
+  t.mock.timers.tick(10 * 60_000);
   await Promise.resolve();
   await Promise.resolve();
-  assert.equal(accepted.deletedReplies, 1);
+  assert.equal(accepted.deletedReplies, undefined);
+  t.mock.timers.tick(CLAIM_LIFETIME_MS - 10 * 60_000);
+  assert.equal(accepted.deletedReplies, undefined);
   assert.equal(w.created[0].channel.deleted, false);
 });
 
@@ -324,6 +328,25 @@ test('Close also deletes every pending Claim successful notice immediately', asy
   assert.equal(channel.deleted, true);
   assert.equal(first.deletedReplies, 1);
   assert.equal(repeated.deletedReplies, 1);
+});
+
+test('A private claim channel deleted by staff removes its pending success notices only', async () => {
+  const w = world();
+  const success = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(success, w.client);
+  const denied = w.interaction('gclaim:open:' + GIVEAWAY, OWNER);
+  await handleGiveawayClaimInteraction(denied, w.client);
+  const claimChannel = w.created[0].channel;
+  await giveawayClaimChannelDelete.execute({ id: 'unrelated-channel' }, w.client);
+  assert.equal(success.deletedReplies, undefined);
+  assert.equal(denied.deletedReplies, undefined);
+
+  // A staff deletion emits ChannelDelete; it must not change other replies.
+  await giveawayClaimChannelDelete.execute({ id: claimChannel.id }, w.client);
+  assert.equal(success.deletedReplies, 1);
+  assert.equal(denied.deletedReplies, undefined);
+  await giveawayClaimChannelDelete.execute({ id: claimChannel.id }, w.client);
+  assert.equal(success.deletedReplies, 1);
 });
 
 test('Close removes only the winner claim and never reopens it', async () => {
@@ -518,16 +541,19 @@ test('Close writes exactly one manual-close log after deleting the private claim
   assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim closed').length, 1);
 });
 
-test('24-hour automatic channel expiry sends the separate expiration log only once', async () => {
+test('24-hour automatic channel expiry removes success notice and sends expiration log only once', async () => {
   const w = world();
-  await handleGiveawayClaimInteraction(w.interaction('gclaim:open:' + GIVEAWAY), w.client);
+  const success = w.interaction('gclaim:open:' + GIVEAWAY);
+  await handleGiveawayClaimInteraction(success, w.client);
   const channel = w.created[0].channel;
+  assert.equal(success.deletedReplies, undefined);
   const record = w.records.get(KEY)[CLAIM_ID];
   record.expiresAt = new Date(Date.now() - 1_000).toISOString();
   await w.client.db.set(KEY, w.records.get(KEY));
   await cleanupExpiredGiveawayClaims(w.client);
   await flushClaimLogs();
   assert.equal(channel.deleted, true);
+  assert.equal(success.deletedReplies, 1);
   const expired = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway auto expiry');
   assert.equal(expired.length, 1);
   assert.equal(expired[0].embeds[0].fields.some(field => field.name === 'Action'), false);
