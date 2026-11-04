@@ -204,7 +204,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
         String(giveawayParticipants(giveaway).length),
         '',
         ...(ended
-            ? ['The winner(s) have been announced and tagged below!', '']
+            ? ['The winner(s) have been announced and tagged!', '']
             : [`**${giveaway.closingText || DEFAULT_GIVEAWAY_CLOSING}**`, '']),
         `${GIVEAWAY_EMOJIS.timer} **${ended ? 'Giveaway ended' : 'Giveaway ends'}**`,
         ended ? `<t:${unix(endedAt)}:F>` : `<t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
