@@ -41,8 +41,8 @@ export async function refreshPrivateGiveawayClaimNoteSpacing(client) {
             // Match exactly the redundant newline before the white warning
             // emoji, without modifying custom Please note copy.
             const next = description.replace(
-              /\\n\\n\\n(<:W97warningwhite:1543290138707230730> \\*\\*Please note\\*\\*)/,
-              '\\n\\n$1',
+              /\n\n\n(<:W97warningwhite:1543290138707230730> \*\*Please note\*\*)/,
+              '\n\n$1',
             );
             if (next === description) return data;
             changed = true;
