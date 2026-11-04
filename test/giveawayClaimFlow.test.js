@@ -18,7 +18,7 @@ function world() {
   const records = new Map([['guild:' + GUILD + ':giveaways', {
     [GIVEAWAY]: {
       messageId: GIVEAWAY, guildId: GUILD, hostId: OWNER,
-      channelId: 'public', ended: true, isEnded: true, winnerIds: [WINNER],
+      channelId: '156000000000000087', ended: true, isEnded: true, winnerIds: [WINNER],
       prize: 'Six-month subscription',
       claimPanelTitle: 'Your giveaway prize',
       claimDetails: 'The subscription is valid for six months after activation.',
@@ -496,7 +496,7 @@ test('24-hour automatic channel expiry sends the separate expiration log only on
   const expired = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim expired');
   assert.equal(expired.length, 1);
   assert.equal(expired[0].embeds[0].fields.find(field => field.name === 'Action').value,
-    'Automatic close (24 hours)');
+    'Automatic · 24-hour expiry');
   assert.match(JSON.stringify(expired[0]), new RegExp(channel.id));
   await cleanupExpiredGiveawayClaims(w.client);
   await flushClaimLogs();
@@ -600,7 +600,8 @@ test('existing giveaway claim logs remove ID suffixes and recolor Close without 
   function oldLog(event) {
     const embed = buildGiveawayClaimLog({
       event, guildId: GUILD, messageId: GIVEAWAY, userId: WINNER,
-      claimChannelId: originalChannel, giveaway: { prize: 'Prize', channelId: '156000000000000087' },
+      claimChannelId: originalChannel, giveawayNumber: 1,
+      giveaway: { prize: 'Prize', channelId: '156000000000000087' },
     }).embeds[0];
     return {
       ...embed,
@@ -641,7 +642,13 @@ test('existing giveaway claim logs remove ID suffixes and recolor Close without 
       '<#' + originalChannel + '>');
     assert.equal(embed.footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
     assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
-    assert.match(embed.fields.find(field => field.name === 'Giveaway').value, /discord\.com\/channels\//);
+    if (message === opened) {
+      assert.equal(embed.fields.find(field => field.name === 'Giveaway').value,
+        '[#1](https://discord.com/channels/' + GUILD + '/156000000000000087/' + GIVEAWAY + ')');
+    } else {
+      assert.equal(embed.fields.find(field => field.name === 'Giveaway').value, '#1',
+        'closed giveaways keep their number without a clickable link');
+    }
     assert.equal(embed.timestamp, undefined);
   }
   assert.equal(opened.embeds[0].color, 0x00C49D);
@@ -778,7 +785,7 @@ test('automatic 24-hour expiry converts every previous channel mention to its ID
   assert.deepEqual(archive.map(loggedValue), Array(3).fill('`' + channel.id + '`'));
   assert.equal(archive[2].embeds[0].title, 'Giveaway claim expired');
   assert.equal(archive[2].embeds[0].fields.find(field => field.name === 'Action').value,
-    'Automatic close (24 hours)');
+    'Automatic · 24-hour expiry');
   assert.equal(archive[2].embeds[0].timestamp, undefined);
   assert.deepEqual(archive.map(entry => entry.edits.length), [1, 1, 0]);
 });
