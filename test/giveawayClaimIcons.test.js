@@ -61,7 +61,8 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /PlayStation Store gift card/);
   assert.match(embed.description, /satisfied with your experience/);
   assert.match(embed.description, /\[staff reviews\]\(https:\/\/discord\.com\/channels\/test-guild\/1554538609330225225\)/);
-  assert.ok(embed.description.includes('\n\n\n' + icons.warning));
+  assert.ok(embed.description.includes('\n\n' + icons.warning));
+  assert.ok(!embed.description.includes('\n\n\n' + icons.warning), 'Please note uses the same spacing as other headings');
   assert.doesNotMatch(embed.description, /Rate us/);
   assert.doesNotMatch(embed.description, /DEMO-|Your review|Prize details/);
   assert.match(embed.description, /W90250885giveaway/);
