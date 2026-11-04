@@ -51,7 +51,7 @@ import {
     refreshAllTicketChannels,
     } from '../../services/ticketChannelBrowserService.js';
 import { convertVideoUrlToGif } from '../../services/videoGifService.js';
-import { embedMediaStorageEnabled, prefetchDiscordEmbedMedia, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from '../../services/embedMediaStorageService.js';
+import { embedMediaStorageEnabled, prefetchDiscordEmbedMedia, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia, loadStoredEmbedMediaUpload } from '../../services/embedMediaStorageService.js';
 import { previewBannerUrl, rememberPreviewBanner } from '../../utils/builderPreviewBanner.js';
 import { applyInitialSearchSelectionToState,
     followMovedBuilderTarget,
@@ -1007,6 +1007,21 @@ export function buildPostedEmbeds(state) {
     });
 }
 
+// Keep a newly posted banner inside the embed as a Discord-hosted file,
+// preserving the exact GIF/image bytes from the Builder preview.
+export function nativeBannerPayload(embed, banner) {
+    if (!banner?.buffer || !banner.filename) return { embeds: [embed] };
+    const extension = banner.filename.split('.').at(-1);
+    const filename = 'cloudy-banner-' + banner.filename.slice(0, 12) + '.' + extension;
+    return {
+        embeds: [new EmbedBuilder({
+            ...(embed.toJSON?.() || embed),
+            image: { url: 'attachment://' + filename },
+        })],
+        files: [{ attachment: banner.buffer, name: filename }],
+    };
+}
+
 async function postBuiltMessage(channel, state, guild, member, { explicitSave = false } = {}) {
     // The web/content editor can still have a pending update when the
     // channel picker opens. Post the finalized values, never the previous
@@ -1015,6 +1030,10 @@ async function postBuiltMessage(channel, state, guild, member, { explicitSave = 
     await flushPendingEmbedEditorUpdates(state?.colorSessionToken);
     if (!canUseEmbedBuilderChannel(guild, member, channel, { requireSend: true })) return { ok: false, reason: 'permission-denied' };
     const permissions = channel.permissionsFor(guild.members.me);
+    // Native Discord uploads use the same media delivery path as the sharp
+    // Builder preview. Keep Cloudy's durable URL as a safe fallback.
+    const canUseNativeBanner = Boolean(permissions?.has(PermissionFlagsBits.AttachFiles));
+    const addedMediaForPost = Boolean(state.mediaTouched || (state.mediaBuffer && state.mediaName));
     const requiredPermissions = [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.EmbedLinks,
@@ -1028,8 +1047,8 @@ async function postBuiltMessage(channel, state, guild, member, { explicitSave = 
         return { ok: false, reason: 'permission-denied' };
     }
 
-    // Never publish another attachment-backed banner that can jump outside
-    // an edited embed. A permanent URL is reused on every future Save.
+    // Keep a durable, lossless Cloudy copy for the media registry and future
+    // edits. The actual new post may render the same bytes via Discord CDN.
     if (embedMediaStorageEnabled() && (
         (state.mediaBuffer && state.mediaName)
         || /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(String(state.mediaUrl || ''))
@@ -1052,6 +1071,24 @@ async function postBuiltMessage(channel, state, guild, member, { explicitSave = 
     }
 
     const embeds = buildPostedEmbeds(state);
+    // A fresh Add media should not switch from Discord's preview renderer to
+    // an externally hosted image renderer on Post. The original bytes are
+    // already stored once; read that same file and attach it inline, never as
+    // an unreferenced/loose image. Do not alter existing Reappear behavior.
+    let nativeBanner = null;
+    if (addedMediaForPost && canUseNativeBanner && !state.reappearAfter
+        && embedMediaStorageEnabled() && state.mediaUrl) {
+        try {
+            nativeBanner = await loadStoredEmbedMediaUpload(state.mediaUrl);
+            // GIF-only: Discord renders an externally proxied animation
+            // differently. Keep the established permanent URL workflow for
+            // PNG/JPG/WEBP and all existing legacy image messages.
+            if (nativeBanner && !nativeBanner.filename.endsWith('.gif')) nativeBanner = null;
+        } catch (error) {
+            logger.warn('[EMBED_BUILDER] Native banner copy unavailable; keeping durable URL: '
+                + (error?.message || error));
+        }
+    }
     const sentMessages = [];
     const draftTarget = state.modifyTarget?.detached
         && String(state.modifyTarget.messageId).startsWith('draft-') ? { ...state.modifyTarget } : null;
@@ -1084,7 +1121,9 @@ async function postBuiltMessage(channel, state, guild, member, { explicitSave = 
             if (components.length) payload.components = components;
         }
 
-        if (isLast && state.mediaBuffer && state.mediaName) {
+        if (isLast && nativeBanner) {
+            Object.assign(payload, nativeBannerPayload(embeds[index], nativeBanner));
+        } else if (isLast && state.mediaBuffer && state.mediaName) {
             payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
         }
 

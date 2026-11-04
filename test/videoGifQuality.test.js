@@ -3,16 +3,12 @@ import assert from 'node:assert/strict';
 import { VIDEO_GIF_QUALITY_PRESETS, videoGifPaletteFilter } from '../src/services/videoGifService.js';
 
 test('Embed Builder video-to-GIF starts with high-quality resolution and framerate', () => {
-  assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS[0], { width: 1280, fps: 30 });
-  assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS[1], { width: 1080, fps: 26 });
-  assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS[2], { width: 960, fps: 24 });
+  assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS[0], { width: 960, fps: 20 },
+    'restore the responsive, previously working GIF preset');
   assert.ok(VIDEO_GIF_QUALITY_PRESETS.length >= 6);
   assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS.at(-1), { width: 320, fps: 6 });
   for (let i = 1; i < VIDEO_GIF_QUALITY_PRESETS.length; i++) {
-    assert.ok(VIDEO_GIF_QUALITY_PRESETS[i].width <= VIDEO_GIF_QUALITY_PRESETS[i - 1].width);
-    if (VIDEO_GIF_QUALITY_PRESETS[i].width === VIDEO_GIF_QUALITY_PRESETS[i - 1].width) {
-      assert.ok(VIDEO_GIF_QUALITY_PRESETS[i].fps < VIDEO_GIF_QUALITY_PRESETS[i - 1].fps);
-    }
+    assert.ok(VIDEO_GIF_QUALITY_PRESETS[i].width < VIDEO_GIF_QUALITY_PRESETS[i - 1].width);
     assert.ok(VIDEO_GIF_QUALITY_PRESETS[i].fps <= VIDEO_GIF_QUALITY_PRESETS[i - 1].fps);
   }
 });
