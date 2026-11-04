@@ -98,7 +98,8 @@ test('winner announcement has a Claim button; no-winner and builder preview have
   const button = payload.components[0].toJSON().components[0];
   assert.equal(button.custom_id, 'gclaim:open:' + GIVEAWAY);
   assert.equal(button.label, 'Claim');
-  assert.equal(button.emoji.id, '1543303758912688230');
+  assert.equal(button.emoji.id, '1566400796348649492');
+  assert.equal(button.emoji.name, 'gift_icon_white');
   assert.notEqual(button.disabled, true);
   assert.equal(createWinnerAnnouncement({ messageId: GIVEAWAY }, []).components, undefined);
   assert.equal(createWinnerAnnouncement({ prize: 'Preview' }, [WINNER]).components, undefined);
