@@ -71,9 +71,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.match(embed.description, /W79heart4/);
   // Match the same one-space icon-to-heading gap as the other sections.
   assert.ok(embed.description.includes('Cloudy Inc.<a:W79heart4:1543304318470324324>'));
-  assert.ok(embed.description.includes(icons.warning + '\u2009**Please note**'));
-  assert.ok(!embed.description.includes(icons.warning + ' **Please note**'));
-  assert.ok(!embed.description.includes(icons.warning + '**Please note**'));
+  assert.ok(embed.description.includes(icons.warning + ' **Please note**'));
   assert.ok(!embed.description.includes(icons.warning + '  **Please note**'));
   assert.doesNotMatch(embed.description, /Cloudy Inc\.\u202f<a:W79heart4/);
   const olderClaim = claimPanel({
