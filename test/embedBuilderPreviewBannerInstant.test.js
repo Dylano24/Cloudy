@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Collection, Embed } from 'discord.js';
 import { db } from '../src/utils/database.js';
 import { saveModifiedEmbed } from '../src/services/embedManagerService.js';
-import { buildBuilderEmbeds, buildPostedEmbeds } from '../src/commands/Tools/embedbuilder.js';
+import { buildBuilderEmbeds, buildPostedEmbeds, queueBuilderRefresh } from '../src/commands/Tools/embedbuilder.js';
 import { previewBannerUrl, rememberPreviewBanner } from '../src/utils/builderPreviewBanner.js';
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
@@ -79,4 +79,88 @@ test('Save of a new banner: the post gets Cloudy\'s link, the Builder preview ke
   assert.match(posted, /^https:\/\/cloudy\.example\.com\/cloudy-embed-media\/[a-f0-9]{64}\.png$/);
   assert.equal(state.mediaUrl, posted);
   assert.equal(buildBuilderEmbeds(state)[0].toJSON().image.url, upload, 'preview shows at once');
+});
+
+test('Add media prioritizes the picture inside the existing preview before dashboard edits', async () => {
+  const events = [];
+  let finishPreview;
+  const state = {
+    title: 'Cloudy Inc. Rust store', message: 'Rust items and kits',
+    sideColor: 0xC91319, bottomLine: 'Cloudy footer',
+    showLogo: false, embedFields: [],
+    mediaUrl: 'https://cdn.discordapp.com/ephemeral-attachments/1534506224312389863/198888888888888882/banner.gif',
+    mediaBuffer: null, mediaName: null, mediaTouched: true,
+    builderBotManaged: true, builderPreviewUnavailable: false,
+    builderMessageId: '198888888888888800',
+    builderDashboardMessageId: '198888888888888801',
+    builderMessage: {
+      id: '198888888888888800',
+      edit: async payload => {
+        events.push('preview');
+        assert.equal(payload.embeds[0].toJSON().image.url, state.mediaUrl);
+        assert.deepEqual(payload.attachments, []);
+        assert.equal(payload.files, undefined, 'image stays inside the embed, never loose');
+        await new Promise(resolve => { finishPreview = resolve; });
+      },
+    },
+    builderDashboardMessage: {
+      id: '198888888888888801',
+      edit: async payload => {
+        events.push('dashboard');
+        assert.match(payload.embeds[0].toJSON().description, /Picture \/ GIF set/);
+      },
+    },
+  };
+  const updating = queueBuilderRefresh({}, state, true, false, true);
+  assert.deepEqual(events, ['preview'], 'dashboard does not delay the image');
+  finishPreview();
+  await updating;
+  assert.deepEqual(events, ['preview', 'dashboard']);
+  assert.equal(state.mediaUrl.includes('.gif'), true);
+});
+
+test('Remove media clears the same embed preview before enabling Add media controls', async () => {
+  const events = [];
+  let finishPreview;
+  const state = {
+    title: 'Cloudy Inc. Rust store', message: 'Rust items',
+    sideColor: 0xC91319, bottomLine: 'Cloudy footer',
+    showLogo: false, embedFields: [],
+    mediaUrl: null, mediaBuffer: null, mediaName: null, mediaTouched: true,
+    builderBotManaged: true, builderPreviewUnavailable: false,
+    builderMessageId: '198888888888888810',
+    builderDashboardMessageId: '198888888888888811',
+    builderMessage: {
+      id: '198888888888888810',
+      edit: async payload => {
+        events.push('preview');
+        assert.equal(payload.embeds[0].toJSON().image, undefined);
+        assert.deepEqual(payload.attachments, []);
+        await new Promise(resolve => { finishPreview = resolve; });
+      },
+    },
+    builderDashboardMessage: {
+      id: '198888888888888811',
+      edit: async payload => {
+        events.push('dashboard');
+        assert.match(payload.embeds[0].toJSON().description, /Media.*Not set/);
+      },
+    },
+  };
+  const updating = queueBuilderRefresh({}, state, true, false, true);
+  assert.deepEqual(events, ['preview']);
+  finishPreview();
+  await updating;
+  assert.deepEqual(events, ['preview', 'dashboard']);
+});
+
+test('converted GIF with durable URL stays inside preview and original post with no loose file', () => {
+  const state = {
+    title: 'Rust store', message: 'Rust offers', sideColor: 0xC91319,
+    bottomLine: 'Cloudy footer', showLogo: false, embedFields: [],
+    mediaUrl: 'https://cloudy.example.com/cloudy-embed-media/' + 'a'.repeat(64) + '.gif',
+    mediaBuffer: null, mediaName: null, mediaConvertedFromVideo: true,
+  };
+  assert.equal(buildBuilderEmbeds(state)[0].toJSON().image.url, state.mediaUrl);
+  assert.equal(buildPostedEmbeds(state).at(-1).toJSON().image.url, state.mediaUrl);
 });
