@@ -12,6 +12,7 @@ import { logEvent, EVENT_TYPES } from './loggingService.js';
 import {
     createGiveawayButtons,
     createGiveawayEmbed,
+    endedGiveawayWinnerMessage,
     createWinnerAnnouncement,
     DEFAULT_GIVEAWAY_CLAIM,
     GIVEAWAY_CLAIM_BUTTON_EMOJI,
@@ -384,27 +385,28 @@ export async function refreshExistingGiveawayClaimInstructions(client) {
     }
 }
 
-// Place the original final announcement immediately above the existing
-// giveaway-ended date. Keep its exact wording and the date unchanged.
-export function reorderEndedGiveawayDescription(description) {
+// Keep the ended-giveaway sentence immediately above the end date.
+// Adjust only that line to bold singular/plural (or the no-winner case),
+// preserving everything else in the already-posted message.
+export function reorderEndedGiveawayDescription(description, winners = []) {
     if (typeof description !== 'string') return description;
-    const oldCopy = 'The winner(s) have been announced and tagged below!';
-    const newCopy = 'The winner(s) have been announced and tagged!';
-    // Keep the existing migration for older embeds where the winner text was
-    // below the end date. Only replace the old sentence in all other layouts.
-    const previous = /\n\n([^\n]*\*\*Giveaway ended\*\*\n<t:\d+:F>)\n\n(?:This giveaway has ended!|The winner\(s\) have been announced and tagged(?: below)?!)$/;
-    const reordered = description.replace(previous,
+    const newCopy = endedGiveawayWinnerMessage(winners);
+    const oldLine = /(?:This giveaway has ended!|\*{0,2}The winner\(s\) have been announced and tagged(?: below)?!\*{0,2}|\*{0,2}The winners? ha(?:s|ve) been announced and tagged!\*{0,2}|\*{0,2}No winners were announced or tagged\.\*{0,2})/;
+    const dateLine = '[^\\n]*\\*\\*Giveaway ended\\*\\*\\n<t:\\d+:F>';
+    const oldAfterDate = new RegExp('\\n\\n(' + dateLine + ')\\n\\n' + oldLine.source + '$');
+    const oldBeforeDate = new RegExp('\\n\\n' + oldLine.source + '(?=\\n\\n' + dateLine + '$)');
+    const reordered = description.replace(oldAfterDate,
         (_, endedTimeBlock) => '\n\n' + newCopy + '\n\n' + endedTimeBlock);
-    return reordered.replaceAll(oldCopy, newCopy);
+    return reordered.replace(oldBeforeDate, '\n\n' + newCopy);
 }
 
-// Correct already-posted ended giveaways in place; change only the order of
-// their last two blocks and restore the original sentence where necessary.
+// Correct already-posted ended giveaways in place. Do not repost, ping
+// members, change embeds' other fields or edit already-correct copy.
 export async function refreshEndedGiveawayClosingCopy(client) {
     if (!client?.db?.get || !client?.db?.set) return;
     const since = Date.now() - 30 * 24 * 60 * 60_000;
     for (const guild of client.guilds?.cache?.values?.() || []) {
-        const marker = 'guild:' + guild.id + ':giveaway:ended-copy-order-v3';
+        const marker = 'guild:' + guild.id + ':giveaway:ended-winner-copy-v4';
         try {
             if (await client.db.get(marker, false)) continue;
             const records = await getGuildGiveaways(client, guild.id, { strict: true });
@@ -425,7 +427,7 @@ export async function refreshEndedGiveawayClosingCopy(client) {
                     let changed = false;
                     const embeds = message.embeds.map(embed => {
                         const data = embed.toJSON?.() || { ...embed };
-                        const reordered = reorderEndedGiveawayDescription(data.description);
+                        const reordered = reorderEndedGiveawayDescription(data.description, giveaway.winnerIds || []);
                         if (reordered === data.description) return data;
                         changed = true;
                         return { ...data, description: reordered };
