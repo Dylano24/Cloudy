@@ -18,6 +18,7 @@ import {
     LEGACY_GIVEAWAY_CLAIM,
     LEGACY_GIVEAWAY_FAILURE,
     PREVIOUS_GIVEAWAY_CLAIM,
+    FORMER_GIVEAWAY_CLAIM,
     giveawayEndTime,
     giveawayParticipants,
     giveawayPing,
@@ -310,9 +311,9 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
     return result;
 }
 
-// Update only the obsolete default instruction in already-posted winner
-// announcements. Keep message IDs, mentions, buttons, thumbnails, styling and
-// all other text unchanged. Custom claim instructions remain untouched.
+// Update only obsolete default instructions in already-posted winner
+// announcements. Preserve all message IDs, mentions, buttons, thumbnails,
+// styling and other content, including owner-authored claim instructions.
 export async function refreshExistingGiveawayClaimInstructions(client) {
     if (!client?.db) return;
     for (const guild of client.guilds?.cache?.values?.() || []) {
@@ -340,7 +341,7 @@ export async function refreshExistingGiveawayClaimInstructions(client) {
                         const data = embed.toJSON?.() || embed;
                         const description = data?.description;
                         if (!description) return data;
-                        const outdated = [LEGACY_GIVEAWAY_CLAIM, PREVIOUS_GIVEAWAY_CLAIM]
+                        const outdated = [LEGACY_GIVEAWAY_CLAIM, PREVIOUS_GIVEAWAY_CLAIM, FORMER_GIVEAWAY_CLAIM]
                             .find(text => description.includes(text));
                         const updatedDescription = (outdated
                             ? description.replace(outdated, DEFAULT_GIVEAWAY_CLAIM)
