@@ -787,6 +787,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   await handleGiveawayBuilderInteraction(role, w.client);
   assert.equal(json(role.updated.components[0]).components[0].options[1].default, true);
   assert.equal(json(role.updated.components[1]).components[0].custom_id, `gbuilder:role:${sessionId}`);
+  assert.equal(json(role.updated.components[1]).components[0].placeholder, 'Choose the role');
   assert.equal(json(role.updated.components[2]).components[0].custom_id, `gbuilder:channel:${sessionId}`);
   assert.equal(json(role.updated.components[4]).components[1].disabled, true);
   // Posting becomes available only once the user chooses a channel.
