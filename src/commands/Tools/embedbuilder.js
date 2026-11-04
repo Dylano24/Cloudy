@@ -1524,7 +1524,7 @@ function canSaveBuilderState(state) {
     return Boolean(state.modifyTarget || state.title || state.message || state.embedFields?.length || hasMedia(state));
 }
 
-export function queueBuilderRefresh(interaction, state, includeDashboard = true, preferOriginalReply = false) {
+export function queueBuilderRefresh(interaction, state, includeDashboard = true, preferOriginalReply = false, previewFirst = false) {
     const saveEnabled = canSaveBuilderState(state);
     if (state.lastRenderedSaveEnabled !== undefined && state.lastRenderedSaveEnabled !== saveEnabled) includeDashboard = true;
     state.lastRenderedSaveEnabled = saveEnabled;
@@ -1553,6 +1553,7 @@ export function queueBuilderRefresh(interaction, state, includeDashboard = true,
         previewPayload,
         dashboardPayload: dashboardPayload || state.previewEditPending?.dashboardPayload || null,
         preferOriginalReply: preferOriginalReply || state.previewEditPending?.preferOriginalReply || false,
+        previewFirst: previewFirst || state.previewEditPending?.previewFirst || false,
     };
     if (state.previewEditRunning) return Promise.resolve(true);
 
@@ -1572,8 +1573,12 @@ export function queueBuilderRefresh(interaction, state, includeDashboard = true,
                         .then(() => true)
                         .catch(() => editBuilderPreviewMessage(state, interaction, next.previewPayload))
                     : editBuilderPreviewMessage(state, interaction, next.previewPayload);
+                // For Add/Remove media, let Discord apply the image to the live
+                // embed before spending a REST request on the control panel.
                 const dashboardPromise = next.dashboardPayload && state.builderDashboardMessageId
-                    ? editBuilderDashboardMessage(state, next.dashboardPayload)
+                    ? (next.previewFirst
+                        ? previewPromise.then(() => editBuilderDashboardMessage(state, next.dashboardPayload))
+                        : editBuilderDashboardMessage(state, next.dashboardPayload))
                     : Promise.resolve(true);
 
                 const [previewUpdated, dashboardUpdated] = await Promise.all([
@@ -1596,6 +1601,12 @@ export function queueBuilderRefresh(interaction, state, includeDashboard = true,
 
 async function refreshBuilder(interaction, state) {
     return queueBuilderRefresh(interaction, state, true);
+}
+
+async function refreshBuilderMedia(interaction, state) {
+    // One preview edit, then one dashboard edit. Never do two preview edits or
+    // publish an image as a standalone follow-up attachment.
+    return queueBuilderRefresh(interaction, state, true, false, true);
 }
 
 export async function refreshBuilderLogo(interaction, state) {
@@ -1775,12 +1786,18 @@ async function editMedia(buttonInteraction, state) {
     if (mediaKind === 'video') {
         try {
             const converted = await convertVideoUrlToGif(uploadedMedia.url);
-            state.mediaUrl = null;
-            state.mediaBuffer = converted.buffer;
-            state.mediaName = converted.filename;
+            // Use a permanent URL inside the embed, not a Discord message
+            // attachment. This avoids loose GIFs above the preview on edits.
+            const durableUrl = embedMediaStorageEnabled()
+                ? await storeEmbedMediaBuffer(converted.buffer)
+                : null;
+            state.mediaUrl = durableUrl;
+            state.mediaBuffer = durableUrl ? null : converted.buffer;
+            state.mediaName = durableUrl ? null : converted.filename;
             state.mediaConvertedFromVideo = true;
             state.mediaTouched = true;
-            await refreshBuilder(submitted, state);
+            rememberPreviewBanner(state, durableUrl, null);
+            await refreshBuilderMedia(submitted, state);
         } catch (error) {
             logger.error('Video to GIF conversion failed:', error);
             const message = error?.code === 'VIDEO_TOO_SHORT'
@@ -1815,7 +1832,7 @@ async function editMedia(buttonInteraction, state) {
     // and Save reuse it instead of waiting for it.
     prefetchDiscordEmbedMedia(uploadedMedia.url);
 
-    await refreshBuilder(submitted, state);
+    await refreshBuilderMedia(submitted, state);
 }
 
 async function getSharedOwnerGuilds(client, userId) {
@@ -2568,7 +2585,8 @@ export default {
                             state.mediaName = null;
                             state.mediaConvertedFromVideo = false;
                             state.mediaTouched = true;
-                            await refreshBuilder(buttonInteraction, state);
+                            state.previewBanner = null;
+                            await refreshBuilderMedia(buttonInteraction, state);
                             break;
                         case 'simple_embed_buttons':
                             await openEmbedButtonEditor(
