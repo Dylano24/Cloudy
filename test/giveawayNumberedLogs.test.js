@@ -63,7 +63,7 @@ test('Claim and Reveal link to exact giveaway #N; Close and expiry retain #N wit
     assert.equal(field(embed, 'Giveaway'), '#7');
     assert.equal(field(embed, 'Private channel'), '`' + privateChannel + '`');
     assert.equal(field(embed, 'Date'), '<t:1793754780:F>');
-    assert.doesNotMatch(JSON.stringify(embed), /discord\\.com\\/channels/);
+    assert.doesNotMatch(JSON.stringify(embed), /discord\.com\/channels/);
   }
   assert.equal(field(base('closed'), 'Action'), 'Close');
   assert.equal(field(base('expired'), 'Action'), 'Automatic · 24-hour expiry');
