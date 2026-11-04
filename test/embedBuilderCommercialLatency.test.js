@@ -41,6 +41,9 @@ test('local Builder state changes acknowledge Discord before concurrent preview 
     assert.match(block, /await buttonInteraction\.deferUpdate\(\)/);
     if (id === 'simple_embed_logo' || id === 'simple_embed_remove_logo') {
       assert.match(block, /refreshBuilderLogo\(buttonInteraction, state\)/);
+    } else if (id === 'simple_embed_clear_media') {
+      // Media preview is now prioritized over its dashboard update.
+      assert.match(block, /refreshBuilderMedia\(buttonInteraction, state\)/);
     } else {
       assert.match(block, /refreshBuilder\(buttonInteraction, state\)/);
     }
