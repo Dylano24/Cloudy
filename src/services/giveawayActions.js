@@ -388,9 +388,14 @@ export async function refreshExistingGiveawayClaimInstructions(client) {
 // giveaway-ended date. Keep its exact wording and the date unchanged.
 export function reorderEndedGiveawayDescription(description) {
     if (typeof description !== 'string') return description;
-    const previous = /\n\n([^\n]*\*\*Giveaway ended\*\*\n<t:\d+:F>)\n\n(?:This giveaway has ended!|The winner\(s\) have been announced and tagged below!)$/;
-    return description.replace(previous,
-        (_, endedTimeBlock) => '\n\nThe winner(s) have been announced and tagged below!\n\n' + endedTimeBlock);
+    const oldCopy = 'The winner(s) have been announced and tagged below!';
+    const newCopy = 'The winner(s) have been announced and tagged!';
+    // Keep the existing migration for older embeds where the winner text was
+    // below the end date. Only replace the old sentence in all other layouts.
+    const previous = /\n\n([^\n]*\*\*Giveaway ended\*\*\n<t:\d+:F>)\n\n(?:This giveaway has ended!|The winner\(s\) have been announced and tagged(?: below)?!)$/;
+    const reordered = description.replace(previous,
+        (_, endedTimeBlock) => '\n\n' + newCopy + '\n\n' + endedTimeBlock);
+    return reordered.replaceAll(oldCopy, newCopy);
 }
 
 // Correct already-posted ended giveaways in place; change only the order of
@@ -399,7 +404,7 @@ export async function refreshEndedGiveawayClosingCopy(client) {
     if (!client?.db?.get || !client?.db?.set) return;
     const since = Date.now() - 30 * 24 * 60 * 60_000;
     for (const guild of client.guilds?.cache?.values?.() || []) {
-        const marker = 'guild:' + guild.id + ':giveaway:ended-copy-order-v2';
+        const marker = 'guild:' + guild.id + ':giveaway:ended-copy-order-v3';
         try {
             if (await client.db.get(marker, false)) continue;
             const records = await getGuildGiveaways(client, guild.id, { strict: true });
