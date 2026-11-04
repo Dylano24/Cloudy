@@ -30,6 +30,8 @@ const notice = (interaction, text) => interaction.editReply({ content: text, all
 // Reveal logs only after their sends have completed. No audit failure may
 // prevent the Claim, Reveal, or Close interaction from succeeding.
 function logClaimAction(client, guild, detail) {
+  // Capture the action's actual time before the asynchronous audit queue.
+  detail = { ...detail, occurredAt: detail.occurredAt || new Date().toISOString() };
   const auditLock = 'gclaim-audit:' + guild.id + ':' + detail.messageId + ':' + detail.userId;
   void Mutex.runExclusive(auditLock, async () => {
     try {
