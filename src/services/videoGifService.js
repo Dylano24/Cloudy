@@ -89,6 +89,32 @@ async function renderGif(inputPath, outputPath, width, fps) {
     ]);
 }
 
+// An oversized high-quality GIF used to trigger all lower-quality presets
+// sequentially (up to 11 expensive ffmpeg renders). Binary-search the
+// remaining presets to find the highest fidelity that fits in ~4-5 attempts.
+export async function selectFittingVideoGif(renderAttempt, {
+    presets = VIDEO_GIF_QUALITY_PRESETS,
+    maxBytes = MAX_GIF_BYTES,
+} = {}) {
+    let left = 0;
+    let right = presets.length - 1;
+    let best = null;
+    let initial = true;
+    while (left <= right) {
+        // The first attempt always uses the highest-quality source preset.
+        const index = initial ? 0 : Math.floor((left + right) / 2);
+        initial = false;
+        const buffer = await renderAttempt(presets[index], index);
+        if (buffer?.length <= maxBytes) {
+            best = buffer;
+            right = index - 1;
+        } else {
+            left = index + 1;
+        }
+    }
+    return best;
+}
+
 export async function convertVideoUrlToGif(videoUrl) {
     const id = randomUUID();
     const inputPath = path.join(os.tmpdir(), `cloudy-${id}.video`);
@@ -104,14 +130,10 @@ export async function convertVideoUrlToGif(videoUrl) {
             throw error;
         }
 
-        const attempts = VIDEO_GIF_QUALITY_PRESETS;
-
-        let gifBuffer = null;
-        for (const attempt of attempts) {
+        const gifBuffer = await selectFittingVideoGif(async attempt => {
             await renderGif(inputPath, outputPath, attempt.width, attempt.fps);
-            gifBuffer = await fs.readFile(outputPath);
-            if (gifBuffer.length <= MAX_GIF_BYTES) break;
-        }
+            return fs.readFile(outputPath);
+        });
 
         if (!gifBuffer || gifBuffer.length > MAX_GIF_BYTES) {
             const error = new Error('Converted GIF is too large for the embed. Try a lower-resolution video.');
