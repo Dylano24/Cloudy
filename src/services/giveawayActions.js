@@ -14,6 +14,7 @@ import {
     createGiveawayEmbed,
     createWinnerAnnouncement,
     DEFAULT_GIVEAWAY_CLAIM,
+    GIVEAWAY_CLAIM_BUTTON_EMOJI,
     DEFAULT_GIVEAWAY_FAILURE,
     LEGACY_GIVEAWAY_CLAIM,
     LEGACY_GIVEAWAY_FAILURE,
@@ -311,9 +312,9 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
     return result;
 }
 
-// Update only obsolete default instructions in already-posted winner
-// announcements. Preserve all message IDs, mentions, buttons, thumbnails,
-// styling and other content, including owner-authored claim instructions.
+// Update obsolete default copy and the Claim button emoji on existing winner
+// announcements. Preserve message IDs, mentions, button IDs/styles/disabled
+// state, thumbnail, footer and any owner-authored claim instructions.
 export async function refreshExistingGiveawayClaimInstructions(client) {
     if (!client?.db) return;
     for (const guild of client.guilds?.cache?.values?.() || []) {
@@ -351,7 +352,30 @@ export async function refreshExistingGiveawayClaimInstructions(client) {
                         changed = true;
                         return { ...data, description: updatedDescription };
                     });
-                    if (changed) await message.edit({ embeds });
+                    // Change only the emoji on this giveaway's Claim button.
+                    // Discord controls the rendered size; retain custom ID,
+                    // style, disabled state, layout and every other button.
+                    let changedEmoji = false;
+                    const components = (message.components || []).map(row => {
+                        const data = row.toJSON?.() || row;
+                        if (!Array.isArray(data?.components)) return data;
+                        let rowChanged = false;
+                        const buttons = data.components.map(component => {
+                            const button = component.toJSON?.() || component;
+                            if (button.custom_id !== `gclaim:open:${giveaway.messageId}`
+                                || button.emoji?.id === GIVEAWAY_CLAIM_BUTTON_EMOJI.id) return button;
+                            rowChanged = true;
+                            changedEmoji = true;
+                            return { ...button, emoji: { ...GIVEAWAY_CLAIM_BUTTON_EMOJI } };
+                        });
+                        return rowChanged ? { ...data, components: buttons } : data;
+                    });
+                    if (changed || changedEmoji) {
+                        await message.edit({
+                            ...(changed ? { embeds } : {}),
+                            ...(changedEmoji ? { components } : {}),
+                        });
+                    }
                 } catch (error) {
                     logger.warn(`Could not refresh claim instructions in announcement ${id}:`, error);
                 }
