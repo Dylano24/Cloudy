@@ -699,6 +699,12 @@ test('the automatic check ends due giveaways once; a removed giveaway message is
   await checkGiveaways(w.client);
   assert.equal((await loadGiveaway(w.client, GUILD, MESSAGE)).ended, true);
   assert.equal(w.sent.length, 1);
+  // The published, edited giveaway message—not only its builder preview—
+  // displays the bold singular winner line above its end date.
+  assert.match(w.giveawayMessage.edits.at(-1).embeds[0].description,
+    /\*\*The winner has been announced and tagged!\*\*\n\n<a:W89timer:1557506643372146778> \*\*Giveaway ended\*\*/);
+  assert.match(w.giveawayMessage.edits.at(-1).embeds[0].description,
+    /\*\*Requirements\*\*\nNone/);
   await checkGiveaways(w.client);
   assert.equal(w.sent.length, 1);
 
