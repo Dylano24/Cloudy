@@ -5,6 +5,7 @@ import { getOrCreateGiveawayNumber } from '../src/services/giveawayNumberService
 import {
   buildGiveawayClaimLog, GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER,
   replaceClosedClaimChannelMentions, refreshHistoricalGiveawayClaimNumbersAndDates,
+  refreshGiveawayAutoExpiryLogAction,
 } from '../src/services/giveawayClaimLogService.js';
 
 const guildId = '156000000000000001';
@@ -67,6 +68,8 @@ test('Claim and Reveal link to exact giveaway #N; Close and expiry retain #N wit
   }
   assert.equal(field(base('closed'), 'Action'), 'Close');
   assert.equal(field(base('expired'), 'Action'), 'giveaway auto expiry');
+  assert.equal(base('closed').color, 0xFF7A00, 'manual Close keeps the existing orange line');
+  assert.equal(base('expired').color, 0x7A1712, 'automatic expiry uses the standard Cloudy red line');
 });
 
 test('Close strips prior Claim/Reveal links only for that private claim, not other winners', () => {
@@ -121,4 +124,49 @@ test('one-time migration updates historical links, original dates and automatic 
   await refreshHistoricalGiveawayClaimNumbersAndDates(w.client);
   assert.equal(edits, 1);
   assert.equal(w.records.get('guild:' + guildId + ':giveaway-claim:number-date-v1'), true);
+});
+
+test('older 24-hour auto-expiry logs update Action and red line in place without touching Close', async () => {
+  const w = world();
+  const archive = [];
+  function message(event, color, authorId = w.client.user.id) {
+    const data = base(event, 3);
+    data.color = color;
+    if (event === 'expired') {
+      data.fields = data.fields.map(field => field.name === 'Action'
+        ? { ...field, value: 'Automatic · 24-hour expiry' } : field);
+    }
+    const item = {
+      id: String(156000000000000300n + BigInt(archive.length)),
+      author: { id: authorId }, embeds: [data], edits: [],
+      edit: async function(payload) {
+        this.edits.push(payload);
+        this.embeds = structuredClone(payload.embeds);
+      },
+    };
+    archive.push(item);
+    return item;
+  }
+  const expired = message('expired', 0xED4245);
+  const manual = message('closed', 0xFF7A00);
+  const active = message('opened', 0x00C49D);
+  const anotherBot = message('expired', 0xED4245, 'another-bot');
+  const original = structuredClone(expired.embeds[0]);
+  const audit = { messages: { fetch: async () =>
+    new Collection(archive.map(item => [item.id, item])) } };
+  const guild = { id: guildId, channels: { cache: new Map([[GIVEAWAY_CLAIM_LOG_CHANNEL_ID, audit]]) } };
+  w.client.guilds = { cache: new Map([[guildId, guild]]) };
+  await refreshGiveawayAutoExpiryLogAction(w.client);
+  assert.equal(expired.edits.length, 1);
+  assert.equal(expired.embeds[0].color, 0x7A1712);
+  assert.equal(field(expired.embeds[0], 'Action'), 'giveaway auto expiry');
+  assert.deepEqual(expired.embeds[0].fields.filter(field => field.name !== 'Action'),
+    original.fields.filter(field => field.name !== 'Action'));
+  assert.deepEqual(expired.embeds[0].thumbnail, original.thumbnail);
+  assert.deepEqual(expired.embeds[0].footer, original.footer);
+  for (const item of [manual, active, anotherBot]) assert.equal(item.edits.length, 0);
+  assert.equal(field(manual.embeds[0], 'Action'), 'Close');
+  await refreshGiveawayAutoExpiryLogAction(w.client);
+  assert.equal(expired.edits.length, 1, 'the startup migration never repeats completed edits');
+  assert.equal(w.records.get('guild:' + guildId + ':giveaway-claim:auto-expiry-action-v1'), true);
 });
