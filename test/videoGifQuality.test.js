@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { VIDEO_GIF_QUALITY_PRESETS, videoGifPaletteFilter } from '../src/services/videoGifService.js';
+import { VIDEO_GIF_QUALITY_PRESETS, videoGifPaletteFilter, selectFittingVideoGif } from '../src/services/videoGifService.js';
 
 test('Embed Builder video-to-GIF starts with high-quality resolution and framerate', () => {
   assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS[0], { width: 1280, fps: 30 });
@@ -55,4 +55,29 @@ test('original uploaded GIF storage remains bit-for-bit lossless and is never re
     else process.env.CLOUDY_EMBED_MEDIA_DIR = old;
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('oversized high-quality videos find the sharpest fitting GIF in far fewer conversions', async () => {
+  const attempted = [];
+  const payload = await selectFittingVideoGif(async (_, index) => {
+    attempted.push(index);
+    // All choices sharper than index 4 exceed 9 MB.
+    return Buffer.alloc(index < 4 ? 10_000 : 8_000, index);
+  }, { maxBytes: 9_000 });
+  assert.equal(payload[0], 4);
+  assert.equal(attempted[0], 0, 'start at highest quality');
+  assert.ok(attempted.length <= 5, 'no 11-attempt exhaustive encode');
+  assert.ok(attempted.every(index => index >= 0 && index < VIDEO_GIF_QUALITY_PRESETS.length));
+
+  const highest = [];
+  const best = await selectFittingVideoGif(async (_, index) => {
+    highest.push(index);
+    return Buffer.alloc(1000, index);
+  }, { maxBytes: 9_000 });
+  assert.deepEqual(highest, [0], 'already-fitting GIF does not get re-encoded');
+  assert.equal(best[0], 0);
+
+  const impossible = await selectFittingVideoGif(async () => Buffer.alloc(10_000),
+    { maxBytes: 9_000 });
+  assert.equal(impossible, null, 'oversized video still respects the upload limit');
 });
