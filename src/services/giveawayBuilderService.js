@@ -123,7 +123,7 @@ export function renderGiveawayBuilder(session) {
         );
     const role = new RoleSelectMenuBuilder()
         .setCustomId(id(session, 'role'))
-        .setPlaceholder('Choose the role to tag')
+        .setPlaceholder('Choose the role')
         .setMinValues(1)
         .setMaxValues(1);
     if (draft.ping.type === 'role' && draft.ping.roleId) role.setDefaultRoles(draft.ping.roleId);
