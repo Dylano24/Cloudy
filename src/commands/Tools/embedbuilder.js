@@ -1080,6 +1080,10 @@ async function postBuiltMessage(channel, state, guild, member, { explicitSave = 
         && embedMediaStorageEnabled() && state.mediaUrl) {
         try {
             nativeBanner = await loadStoredEmbedMediaUpload(state.mediaUrl);
+            // GIF-only: Discord renders an externally proxied animation
+            // differently. Keep the established permanent URL workflow for
+            // PNG/JPG/WEBP and all existing legacy image messages.
+            if (nativeBanner && !nativeBanner.filename.endsWith('.gif')) nativeBanner = null;
         } catch (error) {
             logger.warn('[EMBED_BUILDER] Native banner copy unavailable; keeping durable URL: '
                 + (error?.message || error));
