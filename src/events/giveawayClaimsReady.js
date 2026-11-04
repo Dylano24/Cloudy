@@ -1,5 +1,5 @@
 import { Events } from 'discord.js';
-import { startGiveawayClaimCleanup } from '../services/giveawayClaimService.js';
+import { startGiveawayClaimCleanup, refreshPrivateGiveawayClaimNoteSpacing } from '../services/giveawayClaimService.js';
 import { removeExistingClaimLogTimestamps, refreshExistingGiveawayClaimLogPresentation, refreshClosedGiveawayClaimLogChannels, refreshClosedClaimReferencesInEarlierLogs, removeRedundantGiveawayClaimLogs, refreshHistoricalGiveawayClaimNumbersAndDates, refreshGiveawayAutoExpiryLogAction, refreshGiveawayClaimTitlesWithoutAction } from '../services/giveawayClaimLogService.js';
 import { refreshExistingGiveawayClaimInstructions, refreshEndedGiveawayClosingCopy } from '../services/giveawayActions.js';
 import { logger } from '../utils/logger.js';
@@ -9,6 +9,8 @@ export default {
   once: true,
   execute(client) {
     startGiveawayClaimCleanup(client);
+    void refreshPrivateGiveawayClaimNoteSpacing(client).catch(error =>
+      logger.warn('Could not refresh existing Giveaway claim Please note spacing', error));
     void removeExistingClaimLogTimestamps(client)
       .then(() => refreshExistingGiveawayClaimLogPresentation(client))
       .then(() => refreshClosedGiveawayClaimLogChannels(client))
