@@ -185,3 +185,58 @@ test('older 24-hour auto-expiry logs update Action and red line in place without
   assert.equal(expired.edits.length, 1, 'the startup migration never repeats completed edits');
   assert.equal(w.records.get('guild:' + guildId + ':giveaway-claim:auto-expiry-action-v1'), true);
 });
+
+test('existing Claim, Reveal, Close and legacy expiry lose only Action; expiry gains its new title', async () => {
+  const w = world();
+  const actionNames = { opened: 'Claim', revealed: 'Reveal my code',
+    closed: 'Close', expired: 'giveaway auto expiry' };
+  const audits = [];
+  for (const event of ['opened', 'revealed', 'closed', 'expired']) {
+    const embed = base(event, 6);
+    embed.fields.splice(2, 0, { name: 'Action', value: actionNames[event], inline: true });
+    if (event === 'expired') {
+      embed.title = 'Giveaway claim expired';
+      embed.color = 0xED4245;
+    }
+    audits.push({
+      id: String(156000000000000500n + BigInt(audits.length)),
+      author: { id: w.client.user.id }, embeds: [embed], edits: [],
+      edit: async function(payload) {
+        this.edits.push(payload);
+        this.embeds = structuredClone(payload.embeds);
+      },
+    });
+  }
+  const unrelated = {
+    id: '156000000000000600', author: { id: w.client.user.id },
+    embeds: [{ title: 'Ticket closed', fields: [{ name: 'Action', value: 'Close' }],
+      footer: { text: GIVEAWAY_CLAIM_LOG_FOOTER } }],
+    edit: async () => { throw new Error('Non-Giveaway log must not be changed'); },
+  };
+  const foreign = {
+    id: '156000000000000601', author: { id: 'another-bot' },
+    embeds: [structuredClone(audits[0].embeds[0])],
+    edit: async () => { throw new Error('Another bot must not be changed'); },
+  };
+  const originals = audits.map(item => structuredClone(item.embeds[0]));
+  const all = [...audits, unrelated, foreign];
+  const audit = { messages: { fetch: async () =>
+    new Collection(all.map(item => [item.id, item])) } };
+  const guild = { id: guildId, channels: { cache: new Map([[GIVEAWAY_CLAIM_LOG_CHANNEL_ID, audit]]) } };
+  w.client.guilds = { cache: new Map([[guildId, guild]]) };
+  await refreshGiveawayClaimTitlesWithoutAction(w.client);
+  for (let i = 0; i < audits.length; i++) {
+    const current = audits[i].embeds[0], previous = originals[i];
+    assert.equal(audits[i].edits.length, 1);
+    assert.deepEqual(current.fields, previous.fields.filter(field => field.name !== 'Action'),
+      'do not change original Giveaway #6, date, member, prize, private channel or reason');
+    assert.deepEqual(current.thumbnail, previous.thumbnail);
+    assert.deepEqual(current.footer, previous.footer);
+    assert.equal(current.title, i === 3 ? 'Giveaway auto expiry' : previous.title);
+    assert.equal(current.color, i === 3 ? 0x7A1712 : previous.color);
+  }
+  assert.deepEqual(foreign.embeds[0], originals[0]);
+  await refreshGiveawayClaimTitlesWithoutAction(w.client);
+  assert.deepEqual(audits.map(item => item.edits.length), [1, 1, 1, 1]);
+  assert.equal(w.records.get('guild:' + guildId + ':giveaway-claim:title-only-v1'), true);
+});
