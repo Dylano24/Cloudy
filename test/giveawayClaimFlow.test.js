@@ -142,7 +142,7 @@ test('only the winner opens exactly one private claim channel', async () => {
     assert.ok(index > position, part + ' must be in order');
     position = index;
   }
-  assert.match(claimEmbed.description, /Details and conditions of their prize/);
+  assert.match(claimEmbed.description, /\*\*Prize conditions\*\*\nNone/);
   assert.match(claimEmbed.description, /Reveal my code/);
   assert.match(claimEmbed.description, /staff reviews/);
   assert.match(claimEmbed.description, /satisfied with your experience/);
