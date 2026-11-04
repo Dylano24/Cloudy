@@ -3228,12 +3228,19 @@ async function saveModifiedEmbedUnlocked(guild, state) {
     );
     const requestedImage = String(payload.embeds[index]?.image?.url || '');
     const discordHostedImage = /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/(?:ephemeral-)?attachments\//i.test(oldImageUrl);
+    // Brand-new Builder GIFs are posted as a single in-embed Discord-native
+    // attachment to preserve preview fidelity. For text/colour/logo edits,
+    // retain that exact attachment instead of switching rendering hosts.
+    // Legacy GIFs and deliberate image replacements use their existing flow.
+    const nativeQualityGif = Boolean(ownerPhysical && !mediaChanged && inlineFile
+        && /^cloudy-banner-[a-f0-9]{12}\.gif$/i.test(String(inlineFile.name || inlineFile.filename || ''))
+        && isInlineEmbedAttachment(inlineFile, oldImageUrl));
     let movedToDurable = false;
 
     // Discord PATCH on an attachment:// image can leave an extra loose GIF.
     // Use one immutable Cloudy URL and remove only that image's old attachment.
     // Migration happens once; future text/color/logo Saves need no download.
-    if (ownerPhysical && embedMediaStorageEnabled()) {
+    if (ownerPhysical && embedMediaStorageEnabled() && !nativeQualityGif) {
         try {
             if (state.mediaBuffer && state.mediaName) {
                 payload.embeds[index].image = { url: await storeEmbedMediaBuffer(state.mediaBuffer) };
