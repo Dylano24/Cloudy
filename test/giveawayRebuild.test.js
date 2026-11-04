@@ -365,6 +365,13 @@ test('winner announcement uses the new Claim text and preserves custom instructi
   assert.doesNotMatch(standard.embeds[0].description, /be redirected to a private channel|within \*\*24 hours\*\*/);
   assert.ok(standard.embeds[0].thumbnail?.url);
   assert.equal(standard.components[0].toJSON().components[0].label, 'Claim');
+  for (const rendered of [standard, createWinnerAnnouncement(activeGiveaway(), ['winner'], { reroll: true })]) {
+    const button = rendered.components[0].toJSON().components[0];
+    assert.deepEqual(button.emoji, { id: '1566400796348649492', name: 'gift_icon_white' });
+    assert.equal(button.custom_id, `gclaim:open:${MESSAGE}`);
+    assert.equal(button.label, 'Claim');
+    assert.equal(button.style, 2);
+  }
 });
 
 test('already-posted winner messages replace only the old instruction, in place, and only once', async () => {
@@ -447,6 +454,50 @@ test('already-posted winner messages replace only the old instruction, in place,
   assert.equal(existing.edits.length, 1);
   assert.equal(previouslyPosted.edits.length, 1);
   assert.equal(justBeforeUpdate.edits.length, 1);
+});
+
+
+// Existing Claim buttons receive the new icon without changing content,
+// embeds, channel/message IDs, button routing, mentions or disabled state.
+test('already-posted Claim button swaps only old gift icon, once, in the same message', async () => {
+  const w = world({ [MESSAGE]: activeGiveaway({
+    ended: true, isEnded: true, winnerIds: ['winner'],
+    announcementIds: ['legacy-claim'],
+  }) });
+  const payload = createWinnerAnnouncement(activeGiveaway(), ['winner']);
+  const previous = payload.components[0].toJSON();
+  const button = { ...previous.components[0],
+    emoji: { id: '1543303758912688230', name: 'W89gift' },
+    disabled: true,
+  };
+  const oldRow = { ...previous, components: [button] };
+  const posted = {
+    id: 'legacy-claim',
+    content: payload.content,
+    embeds: structuredClone(payload.embeds),
+    components: [structuredClone(oldRow)],
+    edits: [],
+    edit: async function(change) {
+      this.edits.push(change);
+      if (change.embeds) this.embeds = change.embeds;
+      if (change.components) this.components = change.components;
+      return this;
+    },
+  };
+  w.channel.messages.fetch = async id => id === 'legacy-claim' ? posted : w.giveawayMessage;
+  const originalText = posted.content;
+  const originalEmbeds = structuredClone(posted.embeds);
+  await refreshExistingGiveawayClaimInstructions(w.client);
+  assert.equal(posted.edits.length, 1);
+  assert.deepEqual(Object.keys(posted.edits[0]), ['components']);
+  assert.deepEqual(posted.embeds, originalEmbeds);
+  assert.equal(posted.content, originalText);
+  const updated = posted.components[0].components[0];
+  assert.deepEqual(updated.emoji, { id: '1566400796348649492', name: 'gift_icon_white' });
+  assert.deepEqual({ ...updated, emoji: button.emoji }, button,
+    'only the emoji is changed; custom ID, label, style and disabled state persist');
+  await refreshExistingGiveawayClaimInstructions(w.client);
+  assert.equal(posted.edits.length, 1, 'second startup must not edit again');
 });
 
 test('Reroll draws someone new and announces them; nobody new left is an error', async () => {
