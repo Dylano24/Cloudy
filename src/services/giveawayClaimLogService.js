@@ -31,7 +31,7 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
   // A closed or expired claim retains #N as text. While open, #N links to the
   // original giveaway, using the same Discord message URL as before.
   const canLink = event !== 'closed' && event !== 'expired'
-    && sourceChannelId && /^\\d{17,20}$/.test(String(sourceChannelId));
+    && sourceChannelId && /^\d{17,20}$/.test(String(sourceChannelId));
   const originalLink = canLink
     ? '[' + label + '](https://discord.com/channels/' + guildId + '/'
       + sourceChannelId + '/' + messageId + ')'
@@ -209,7 +209,7 @@ export function replaceClosedClaimChannelMentions(embed, closedChannelIds) {
       return { ...field, value: '`' + matched[1] + '`' };
     }
     if (field.name === 'Giveaway') {
-      const link = /^\\[(#[1-9]\\d*)\\]\\(https:\\/\\/discord\\.com\\/channels\\/\\d{17,20}\\/\\d{17,20}\\/\\d{17,20}\\)$/.exec(String(field.value || ''));
+      const link = /^\[(#[1-9]\d*)\]\(https:\/\/discord\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\)$/.exec(String(field.value || ''));
       if (link) {
         changed = true;
         return { ...field, value: link[1] };
