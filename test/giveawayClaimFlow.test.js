@@ -496,7 +496,7 @@ test('24-hour automatic channel expiry sends the separate expiration log only on
   const expired = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim expired');
   assert.equal(expired.length, 1);
   assert.equal(expired[0].embeds[0].fields.find(field => field.name === 'Action').value,
-    'Automatic close (24 hours)');
+    'Automatic · 24-hour expiry');
   assert.match(JSON.stringify(expired[0]), new RegExp(channel.id));
   await cleanupExpiredGiveawayClaims(w.client);
   await flushClaimLogs();
@@ -778,7 +778,7 @@ test('automatic 24-hour expiry converts every previous channel mention to its ID
   assert.deepEqual(archive.map(loggedValue), Array(3).fill('`' + channel.id + '`'));
   assert.equal(archive[2].embeds[0].title, 'Giveaway claim expired');
   assert.equal(archive[2].embeds[0].fields.find(field => field.name === 'Action').value,
-    'Automatic close (24 hours)');
+    'Automatic · 24-hour expiry');
   assert.equal(archive[2].embeds[0].timestamp, undefined);
   assert.deepEqual(archive.map(entry => entry.edits.length), [1, 1, 0]);
 });
