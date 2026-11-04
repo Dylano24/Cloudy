@@ -15,6 +15,50 @@ import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons
 import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPreview.js';
 import { sendGiveawayClaimLog, updateClosedClaimChannelLogs } from './giveawayClaimLogService.js';
 
+// One-time, targeted spacing correction for still-open private claim panels.
+// Edit the same message; leave mentions, buttons, other embed text, logo,
+// footer and 24-hour claim lifetime untouched.
+export async function refreshPrivateGiveawayClaimNoteSpacing(client) {
+  if (!client?.db?.get) return;
+  for (const guild of client.guilds?.cache?.values?.() || []) {
+    try {
+      const raw = unwrapReplitData(await client.db.get(registryKey(guild.id), {}));
+      const records = raw && typeof raw === 'object' ? Object.values(raw) : [];
+      for (const record of records) {
+        if (record?.closedAt || !record?.channelId || !record?.panelMessageId) continue;
+        try {
+          const channel = guild.channels?.cache?.get?.(record.channelId)
+            || await guild.channels?.fetch?.(record.channelId);
+          if (!channel?.messages?.fetch) continue;
+          const message = await channel.messages.fetch(record.panelMessageId).catch(() => null);
+          if (!message?.edit || !message.embeds?.length
+            || (message.author?.id && message.author.id !== client.user?.id)) continue;
+          let changed = false;
+          const embeds = message.embeds.map(embed => {
+            const data = embed.toJSON?.() || { ...embed };
+            const description = data.description;
+            if (typeof description !== 'string') return data;
+            // Match exactly the redundant newline before the white warning
+            // emoji, without modifying custom Please note copy.
+            const next = description.replace(
+              /\n\n\n(<:W97warningwhite:1543290138707230730> \*\*Please note\*\*)/,
+              '\n\n$1',
+            );
+            if (next === description) return data;
+            changed = true;
+            return { ...data, description: next };
+          });
+          if (changed) await message.edit({ embeds });
+        } catch (error) {
+          logger.warn('Could not adjust spacing of giveaway claim panel ' + record.panelMessageId, error);
+        }
+      }
+    } catch (error) {
+      logger.warn('Could not load giveaway claim panels for spacing correction in ' + guild.id, error);
+    }
+  }
+}
+
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
 export const CLAIM_SUCCESS_NOTICE_MS = 10 * 60_000;

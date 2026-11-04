@@ -6,7 +6,7 @@ import { GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER, buildGiveaway
 import {
   CLAIM_LIFETIME_MS, CLAIM_SUCCESS_NOTICE_MS, CLAIM_DENIED_NOTICE_MS,
   GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction, cleanupExpiredGiveawayClaims,
-  refreshExistingClaimPanels,
+  refreshExistingClaimPanels, refreshPrivateGiveawayClaimNoteSpacing,
 } from '../src/services/giveawayClaimService.js';
 
 const GUILD = '156000000000000001', GIVEAWAY = '156000000000000002';
@@ -153,7 +153,9 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.match(claimEmbed.description, /Please review the information below before collecting it/);
   assert.match(claimEmbed.description, /Cloudy Inc\./);
   assert.ok(claimEmbed.description.indexOf('Please review the information below') < claimEmbed.description.indexOf('**Prize conditions**'));
-  assert.ok(claimEmbed.description.includes('\n\n\n<:W97warningwhite:'));
+  assert.ok(claimEmbed.description.includes('\n\n<:W97warningwhite:'));
+  assert.ok(!claimEmbed.description.includes('\n\n\n<:W97warningwhite:'),
+    'Please note uses exactly the same blank-line spacing as other sections');
   assert.doesNotMatch(claimEmbed.description, /DEMO-|Your review|Congratulations on winning!/);
   assert.equal(claimEmbed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.equal(claimEmbed.thumbnail, undefined);
@@ -167,6 +169,37 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.equal(repeat.response.embeds[0].title, 'Claim successful!');
   assert.deepEqual(repeat.response.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
   assert.match(repeat.response.embeds[0].description, new RegExp(channel.id));
+});
+
+test('existing private giveaway claim removes just one extra blank line without reposting', async () => {
+  const w = world();
+  const channelId = '156000000000000077';
+  const panelMessageId = '156000000000000088';
+  const before = {
+    description: 'Previous claim copy\n\n\n<:W97warningwhite:1543290138707230730> **Please note**\nPrivate channel closes after 24 hours.',
+    color: 0xFFFFFF,
+    footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+  };
+  const message = {
+    id: panelMessageId, author: { id: w.client.user.id },
+    embeds: [structuredClone(before)],
+    components: [{ type: 1, components: [{ type: 2, custom_id: 'gclaim:done:original' }] }],
+    edits: [],
+    edit: async function(payload) { this.edits.push(payload); this.embeds = payload.embeds; },
+  };
+  w.records.set(KEY, { [CLAIM_ID]: { messageId: GIVEAWAY, userId: WINNER,
+    channelId, panelMessageId, closedAt: null } });
+  w.cache.set(channelId, { id: channelId, messages: { fetch: async id =>
+    id === panelMessageId ? message : null } });
+  await refreshPrivateGiveawayClaimNoteSpacing(w.client);
+  assert.equal(message.edits.length, 1);
+  assert.equal(message.edits[0].components, undefined);
+  assert.equal(message.embeds[0].description,
+    before.description.replace('\n\n\n<:W97warningwhite:', '\n\n<:W97warningwhite:'));
+  assert.equal(message.embeds[0].color, before.color);
+  assert.deepEqual(message.embeds[0].footer, before.footer);
+  await refreshPrivateGiveawayClaimNoteSpacing(w.client);
+  assert.equal(message.edits.length, 1);
 });
 
 test('Claim replies are private and disappear after 20 seconds for non-winners or 10 minutes for winners', async t => {
