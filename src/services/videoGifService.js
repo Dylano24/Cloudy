@@ -59,11 +59,8 @@ async function getDurationSeconds(inputPath) {
 // Preserve original uploaded GIF files untouched; these presets only apply
 // when the owner explicitly uploads a video for conversion to an embed GIF.
 export const VIDEO_GIF_QUALITY_PRESETS = Object.freeze([
-    // Try full-size, smooth animation first. Only lower fidelity when the
-    // actual GIF exceeds the safe Discord upload limit (9 MiB).
-    { width: 1280, fps: 30 },
-    { width: 1080, fps: 26 },
-    { width: 960, fps: 24 },
+    // Restore the previously stable preset: start at 960px/20fps so Add
+    // media never spends multiple slow renders on oversized 1280px GIFs.
     { width: 960, fps: 20 },
     { width: 800, fps: 18 },
     { width: 720, fps: 16 },
