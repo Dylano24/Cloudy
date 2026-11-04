@@ -2,24 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { VIDEO_GIF_QUALITY_PRESETS, videoGifPaletteFilter } from '../src/services/videoGifService.js';
 
-test('Embed Builder video-to-GIF starts with high-quality resolution and framerate', () => {
-  assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS[0], { width: 960, fps: 20 },
-    'restore the responsive, previously working GIF preset');
-  assert.ok(VIDEO_GIF_QUALITY_PRESETS.length >= 6);
+test('Embed Builder video-to-GIF preserves 30fps before reducing size', () => {
+  assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS[0], { width: 960, fps: 30 });
+  assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS[1], { width: 960, fps: 20 },
+    'the previous responsive 20fps preset remains as the first fallback');
+  assert.ok(VIDEO_GIF_QUALITY_PRESETS.length >= 7);
   assert.deepEqual(VIDEO_GIF_QUALITY_PRESETS.at(-1), { width: 320, fps: 6 });
   for (let i = 1; i < VIDEO_GIF_QUALITY_PRESETS.length; i++) {
-    assert.ok(VIDEO_GIF_QUALITY_PRESETS[i].width < VIDEO_GIF_QUALITY_PRESETS[i - 1].width);
-    assert.ok(VIDEO_GIF_QUALITY_PRESETS[i].fps <= VIDEO_GIF_QUALITY_PRESETS[i - 1].fps);
+    assert.ok(VIDEO_GIF_QUALITY_PRESETS[i].width <= VIDEO_GIF_QUALITY_PRESETS[i - 1].width);
+    assert.ok(VIDEO_GIF_QUALITY_PRESETS[i].fps < VIDEO_GIF_QUALITY_PRESETS[i - 1].fps);
   }
 });
 
-test('GIF generation preserves native aspect ratio, supports all 256 colours and high-fidelity dithering', () => {
-  const filter = videoGifPaletteFilter(960, 20);
-  assert.match(filter, /fps=20/);
-  assert.match(filter, /scale='min\(960,iw\)':-2:flags=lanczos/);
+test('GIF generation retains original size, 256 colours and sharp efficient dithering', () => {
+  const filter = videoGifPaletteFilter(960, 30);
+  assert.match(filter, /fps=30/);
+  assert.match(filter, /scale='min\(960,iw\)':-2:flags=lanczos/,
+    'never upscale a video narrower than 960 pixels');
   assert.match(filter, /palettegen=max_colors=256:stats_mode=diff/);
-  assert.match(filter, /paletteuse=dither=sierra2_4a/);
-  assert.doesNotMatch(filter, /max_colors=128|bayer_scale/);
+  assert.match(filter, /paletteuse=dither=bayer:bayer_scale=2:diff_mode=rectangle/);
+  assert.doesNotMatch(filter, /max_colors=128|sierra2_4a/);
 });
 
 test('original uploaded GIF storage remains bit-for-bit lossless and is never re-encoded', async () => {
