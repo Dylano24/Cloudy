@@ -172,3 +172,63 @@ test('Post uses identical GIF bytes to Preview inside the embed, not the Cloudy 
   assert.equal(await loadStoredEmbedMediaUpload('https://cloudy.example.com/cloudy-embed-media/../secret'), null);
   assert.equal(await loadStoredEmbedMediaUpload(stored + '?width=200'), null);
 });
+
+test('Save keeps a native-quality posted GIF embedded without re-uploading or changing its image host', async t => {
+  await storageFixture(t);
+  const store = new Map();
+  t.mock.method(db, 'get', async (key, fallback) => structuredClone(store.get(key) ?? fallback));
+  t.mock.method(db, 'set', async (key, value) => {
+    store.set(key, structuredClone(value)); return true;
+  });
+  // This URL is how Discord resolves attachment:// after the initial Post.
+  const nativeFileName = 'cloudy-banner-123456789abc.gif';
+  const nativeUrl = 'https://cdn.discordapp.com/attachments/'
+    + channelId + '/' + attachmentId + '/' + nativeFileName;
+  const before = {
+    title: 'Rust store', description: 'Browse kits', color: 0xC91319,
+    footer: { text: 'Cloudy footer' }, image: { url: nativeUrl },
+  };
+  const edits = [];
+  const message = {
+    id: messageId, guildId: 'native-gif-save-guild', channelId,
+    author: { id: 'bot' }, embeds: [new Embed(before)],
+    attachments: new Collection([[attachmentId, {
+      id: attachmentId, name: nativeFileName, url: nativeUrl, proxyURL: nativeUrl,
+    }]]),
+    components: [], flags: { has: () => false }, content: '',
+    edit: async function (payload) {
+      edits.push(payload);
+      assert.deepEqual(payload.attachments, [{ id: attachmentId }]);
+      assert.equal(payload.files, undefined, 'never upload a second loose GIF');
+      assert.equal(payload.embeds[0].image.url, 'attachment://' + nativeFileName);
+      this.embeds = payload.embeds.map(embed =>
+        new Embed({ ...embed, image: { url: nativeUrl } }));
+      return this;
+    },
+  };
+  const channel = { id: channelId, messages: { fetch: async () => message } };
+  message.channel = channel;
+  const guild = { id: message.guildId, client: { user: { id: 'bot' } },
+    channels: { cache: new Map([[channelId, channel]]) } };
+  const state = {
+    title: before.title, message: before.description, sideColor: before.color,
+    bottomLine: before.footer.text, showLogo: false,
+    mediaUrl: nativeUrl, embedFields: [],
+    modifyTarget: {
+      guildId: guild.id, channelId, messageId, embedIndex: 0,
+      source: 'embed-builder', templateMode: false, cachedMessage: message,
+      sourceEmbedData: before, previewSourceData: before,
+    },
+  };
+  // No-op must never PATCH the attachment-backed GIF.
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.equal(edits.length, 0);
+  state.title = 'Rust store updated';
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.equal(edits.length, 1);
+  assert.equal(message.embeds[0].image.url, nativeUrl, 'existing Discord CDN GIF remains');
+  state.message = 'New Rust store description';
+  assert.equal((await saveModifiedEmbed(guild, state)).ok, true);
+  assert.equal(edits.length, 2);
+  assert.equal(message.embeds[0].image.url, nativeUrl);
+});
