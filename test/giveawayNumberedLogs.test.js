@@ -5,7 +5,7 @@ import { getOrCreateGiveawayNumber } from '../src/services/giveawayNumberService
 import {
   buildGiveawayClaimLog, GIVEAWAY_CLAIM_LOG_CHANNEL_ID, GIVEAWAY_CLAIM_LOG_FOOTER,
   replaceClosedClaimChannelMentions, refreshHistoricalGiveawayClaimNumbersAndDates,
-  refreshGiveawayAutoExpiryLogAction,
+  refreshGiveawayAutoExpiryLogAction, refreshGiveawayClaimTitlesWithoutAction,
 } from '../src/services/giveawayClaimLogService.js';
 
 const guildId = '156000000000000001';
@@ -66,8 +66,12 @@ test('Claim and Reveal link to exact giveaway #N; Close and expiry retain #N wit
     assert.equal(field(embed, 'Date'), '<t:1793754780:F>');
     assert.doesNotMatch(JSON.stringify(embed), /discord\.com\/channels/);
   }
-  assert.equal(field(base('closed'), 'Action'), 'Close');
-  assert.equal(field(base('expired'), 'Action'), 'giveaway auto expiry');
+  for (const event of ['opened', 'revealed', 'closed', 'expired']) {
+    assert.equal(base(event).fields.some(field => field.name === 'Action'), false,
+      event + ' must not duplicate its title with an Action field');
+  }
+  assert.equal(base('closed').title, 'Giveaway claim closed');
+  assert.equal(base('expired').title, 'Giveaway auto expiry');
   assert.equal(base('closed').color, 0xFF7A00, 'manual Close keeps the existing orange line');
   assert.equal(base('expired').color, 0x7A1712, 'automatic expiry uses the standard Cloudy red line');
 });
@@ -86,7 +90,7 @@ test('Close strips prior Claim/Reveal links only for that private claim, not oth
   assert.equal(replaceClosedClaimChannelMentions(opened, new Set(['156000000000000999'])).changed, false);
 });
 
-test('one-time migration updates historical links, original dates and automatic action in place', async () => {
+test('historical migration keeps #numbers/dates; title-only migration drops legacy Action', async () => {
   const w = world();
   const claims = { [first + ':' + winner]: { messageId: first, userId: winner,
     channelId: privateChannel, closedAt: actionTime } };
@@ -95,10 +99,12 @@ test('one-time migration updates historical links, original dates and automatic 
     event: 'expired', guildId, messageId: first, userId: winner,
     claimChannelId: privateChannel, giveaway: { prize: 'Lifetime access', channelId: publicChannel },
   }).embeds[0];
+  old.title = 'Giveaway claim expired';
+  old.color = 0xED4245;
   old.fields = old.fields.filter(item => item.name !== 'Date').map(item =>
-    item.name === 'Action' ? { ...item, value: 'Automatic close (24 hours)' }
-      : item.name === 'Giveaway'
-        ? { ...item, value: '[Go to giveaway](' + originalLink(first) + ')' } : item);
+    item.name === 'Giveaway'
+      ? { ...item, value: '[Go to giveaway](' + originalLink(first) + ')' } : item);
+  old.fields.splice(2, 0, { name: 'Action', value: 'Automatic close (24 hours)', inline: true });
   let edits = 0;
   const archived = {
     id: '156000000000000300', createdTimestamp: Date.parse(actionTime),
@@ -117,13 +123,21 @@ test('one-time migration updates historical links, original dates and automatic 
   await refreshHistoricalGiveawayClaimNumbersAndDates(w.client);
   assert.equal(edits, 1);
   assert.equal(field(archived.embeds[0], 'Giveaway'), '#1');
-  assert.equal(field(archived.embeds[0], 'Action'), 'giveaway auto expiry');
+  assert.equal(field(archived.embeds[0], 'Date'), '<t:1793754780:F>');
+  await refreshGiveawayClaimTitlesWithoutAction(w.client);
+  assert.equal(edits, 2);
+  assert.equal(archived.embeds[0].title, 'Giveaway auto expiry');
+  assert.equal(archived.embeds[0].color, 0x7A1712);
+  assert.equal(archived.embeds[0].fields.some(item => item.name === 'Action'), false);
+  assert.equal(field(archived.embeds[0], 'Giveaway'), '#1');
   assert.equal(field(archived.embeds[0], 'Date'), '<t:1793754780:F>');
   assert.deepEqual(archived.embeds[0].thumbnail, old.thumbnail);
   assert.equal(archived.embeds[0].footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
   await refreshHistoricalGiveawayClaimNumbersAndDates(w.client);
-  assert.equal(edits, 1);
+  await refreshGiveawayClaimTitlesWithoutAction(w.client);
+  assert.equal(edits, 2);
   assert.equal(w.records.get('guild:' + guildId + ':giveaway-claim:number-date-v1'), true);
+  assert.equal(w.records.get('guild:' + guildId + ':giveaway-claim:title-only-v1'), true);
 });
 
 test('older 24-hour auto-expiry logs update Action and red line in place without touching Close', async () => {
@@ -133,8 +147,8 @@ test('older 24-hour auto-expiry logs update Action and red line in place without
     const data = base(event, 3);
     data.color = color;
     if (event === 'expired') {
-      data.fields = data.fields.map(field => field.name === 'Action'
-        ? { ...field, value: 'Automatic · 24-hour expiry' } : field);
+      data.title = 'Giveaway claim expired';
+      data.fields.splice(2, 0, { name: 'Action', value: 'Automatic · 24-hour expiry', inline: true });
     }
     const item = {
       id: String(156000000000000300n + BigInt(archive.length)),
@@ -165,7 +179,8 @@ test('older 24-hour auto-expiry logs update Action and red line in place without
   assert.deepEqual(expired.embeds[0].thumbnail, original.thumbnail);
   assert.deepEqual(expired.embeds[0].footer, original.footer);
   for (const item of [manual, active, anotherBot]) assert.equal(item.edits.length, 0);
-  assert.equal(field(manual.embeds[0], 'Action'), 'Close');
+  assert.equal(manual.embeds[0].title, 'Giveaway claim closed');
+  assert.equal(manual.embeds[0].fields.some(item => item.name === 'Action'), false);
   await refreshGiveawayAutoExpiryLogAction(w.client);
   assert.equal(expired.edits.length, 1, 'the startup migration never repeats completed edits');
   assert.equal(w.records.get('guild:' + guildId + ':giveaway-claim:auto-expiry-action-v1'), true);
