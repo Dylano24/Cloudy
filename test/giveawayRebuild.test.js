@@ -361,8 +361,8 @@ test('winner announcement uses the new Claim text and preserves custom instructi
   assert.ok(custom.embeds[0].description.includes('Contact the host for assistance.'));
   assert.doesNotMatch(custom.embeds[0].description, /be redirected to a private channel/);
   assert.equal(DEFAULT_GIVEAWAY_FAILURE, 'Failure to claim your prize within this timeframe will result in a reroll, and a new winner will be selected.');
-  assert.ok(standard.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM + '\\n\\n' + DEFAULT_GIVEAWAY_FAILURE));
-  assert.doesNotMatch(standard.embeds[0].description, /be redirected to a private channel|within \\*\\*24 hours\\*\\*/);
+  assert.ok(standard.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM + '\n\n' + DEFAULT_GIVEAWAY_FAILURE));
+  assert.doesNotMatch(standard.embeds[0].description, /be redirected to a private channel|within \*\*24 hours\*\*/);
   assert.ok(standard.embeds[0].thumbnail?.url);
   assert.equal(standard.components[0].toJSON().components[0].label, 'Claim');
 });
@@ -434,7 +434,7 @@ test('already-posted winner messages replace only the old instruction, in place,
   assert.equal(previouslyPosted.edits.length, 1);
   assert.equal(justBeforeUpdate.edits.length, 1);
   assert.ok(previouslyPosted.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
-  assert.ok(justBeforeUpdate.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM + '\\n\\n' + DEFAULT_GIVEAWAY_FAILURE));
+  assert.ok(justBeforeUpdate.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM + '\n\n' + DEFAULT_GIVEAWAY_FAILURE));
   assert.equal(custom.edits.length, 0);
   assert.equal(existing.content, beforeContent);
   assert.equal(existing.components, beforeComponents);
@@ -442,7 +442,7 @@ test('already-posted winner messages replace only the old instruction, in place,
   assert.ok(existing.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
   assert.ok(existing.embeds[0].description.includes(DEFAULT_GIVEAWAY_CLAIM));
   assert.ok(existing.embeds[0].description.includes(DEFAULT_GIVEAWAY_FAILURE));
-  assert.doesNotMatch(existing.embeds[0].description, /within \\*\\*24 hours\\*\\*/);
+  assert.doesNotMatch(existing.embeds[0].description, /within \*\*24 hours\*\*/);
   await refreshExistingGiveawayClaimInstructions(w.client);
   assert.equal(existing.edits.length, 1);
   assert.equal(previouslyPosted.edits.length, 1);
