@@ -3,6 +3,7 @@
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_TICKET_CLOSED_COLOR } from '../utils/ticket/ticketBranding.js';
+import { CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { getOrCreateGiveawayNumber } from './giveawayNumberService.js';
 
@@ -13,7 +14,7 @@ const EVENTS = Object.freeze({
   opened: { title: 'Giveaway claim opened', color: 0x00C49D, action: 'Claim' },
   revealed: { title: 'Giveaway code revealed', color: 0xFFFFFF, action: 'Reveal my code' },
   closed: { title: 'Giveaway claim closed', color: CLOUDY_TICKET_CLOSED_COLOR, action: 'Close' },
-  expired: { title: 'Giveaway claim expired', color: 0x7A1712, action: 'Automatic · 24-hour expiry' },
+  expired: { title: 'Giveaway claim expired', color: CLOUDY_RED_COLOR, action: 'giveaway auto expiry' },
 });
 
 function safeValue(value, limit = 1024) {
@@ -356,6 +357,53 @@ export async function refreshHistoricalGiveawayClaimNumbersAndDates(client) {
       if (complete) await client.db.set(marker, true);
     } catch (error) {
       logger.warn('Could not update old giveaway claim numbers/dates in ' + guild.id, error);
+    }
+  }
+}
+
+// One-time, bounded migration of old automatic 24-hour deletion logs.
+// Only the expired entry's Action and standard Cloudy red side line change;
+// manual Close, existing #numbers, dates, links, logo, and footer stay intact.
+export async function refreshGiveawayAutoExpiryLogAction(client) {
+  if (!client?.db?.get || !client?.db?.set) return;
+  for (const guild of client.guilds?.cache?.values?.() || []) {
+    const marker = 'guild:' + guild.id + ':giveaway-claim:auto-expiry-action-v1';
+    try {
+      if (await client.db.get(marker, false)) continue;
+      const channel = guild.channels?.cache?.get?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID)
+        || await guild.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
+      if (!channel?.messages?.fetch) continue;
+      let before;
+      let complete = false;
+      for (let page = 0; page < 10; page++) {
+        const messages = [...(await channel.messages.fetch(before
+          ? { limit: 100, before } : { limit: 100 })).values()];
+        for (const message of messages) {
+          if (message.author?.id !== client.user?.id || !message.edit) continue;
+          let changed = false;
+          const embeds = (message.embeds || []).map(embed => {
+            const data = embed.toJSON?.() || { ...embed };
+            if (data.title !== EVENTS.expired.title
+              || data.footer?.text !== GIVEAWAY_CLAIM_LOG_FOOTER) return data;
+            const fields = (data.fields || []).map(field => {
+              if (field.name !== 'Action' || field.value === EVENTS.expired.action) return field;
+              changed = true;
+              return { ...field, value: EVENTS.expired.action };
+            });
+            if (data.color !== CLOUDY_RED_COLOR) changed = true;
+            return changed ? { ...data, fields, color: CLOUDY_RED_COLOR } : data;
+          });
+          if (changed) await message.edit({ embeds });
+        }
+        if (messages.length < 100 || !messages.at(-1)?.id) {
+          complete = true;
+          break;
+        }
+        before = messages.at(-1).id;
+      }
+      if (complete) await client.db.set(marker, true);
+    } catch (error) {
+      logger.warn('Could not refresh giveaway auto-expiry audit logs in ' + guild.id, error);
     }
   }
 }
