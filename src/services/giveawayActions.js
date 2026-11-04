@@ -5,6 +5,7 @@ import { CloudyError, ErrorTypes } from '../utils/errorHandler.js';
 import { Mutex } from '../utils/mutex.js';
 import { getEndedGiveaways, unwrapReplitData } from '../utils/database.js';
 import { getGuildGiveaways, saveGiveaway, deleteGiveaway } from '../utils/giveaways.js';
+import { getOrCreateGiveawayNumber } from './giveawayNumberService.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { rememberMessageDeleter } from './deletionAttributionService.js';
 import { logEvent, EVENT_TYPES } from './loggingService.js';
@@ -195,6 +196,14 @@ export async function postGiveaway(client, guild, channel, draft) {
         allowedMentions: tag.allowedMentions,
     });
     giveaway.messageId = message.id;
+    try {
+        giveaway.giveawayNumber = await getOrCreateGiveawayNumber(client, guild.id, message.id);
+    } catch (error) {
+        logger.warn('Failed to assign giveaway number before publishing: ' + (error?.message || error));
+        await message.delete().catch(() => {});
+        throw giveawayError('Giveaway numbering persistence failed',
+            'The giveaway could not be saved. Please try again.', ErrorTypes.DATABASE);
+    }
     if (!await saveGiveaway(client, guild.id, giveaway)) {
         logger.warn(`Failed to save giveaway to database: ${message.id}`);
         await message.delete().catch(() => {});
