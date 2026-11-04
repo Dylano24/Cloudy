@@ -46,7 +46,7 @@ function world(stored = {}) {
     delete: async () => { deleted.push(MESSAGE); } };
   const channel = { id: 'giveaways', isTextBased: () => true,
     messages: { fetch: async id => (id === MESSAGE && !deleted.includes(MESSAGE) ? giveawayMessage : null) },
-    send: async payload => { const message = { id: `sent-${sent.length}`, ...payload, delete: async () => { deleted.push(message.id); } }; sent.push(message); return message; } };
+    send: async payload => { const message = { id: String(1565600000000000100n + BigInt(sent.length)), ...payload, delete: async () => { deleted.push(message.id); } }; sent.push(message); return message; } };
   const guild = { id: GUILD, ownerId: 'owner', channels: { cache: new Collection([[channel.id, channel]]) } };
   client.guilds.cache.set(GUILD, guild);
   const member = (id, permissions = 0n) => ({ id, permissions: { has: flag => (BigInt(permissions) & BigInt(flag)) === BigInt(flag) }, roles: { cache: new Collection() } });
