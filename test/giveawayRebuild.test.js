@@ -114,7 +114,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
   const ended = createGiveawayEmbed(activeGiveaway({ endedAt: new Date(1_800_000_000_000).toISOString() }), 'ended', ['a', 'b']);
   assert.match(ended.description, /\*\*Winners\*\*\n<@a>, <@b>\n/);
   assert.ok(ended.description.includes('Thank you to everyone who participated!'));
-  assert.match(ended.description, /\*\*Participants\*\*\n0\n\nThe winner\(s\) have been announced and tagged below!\n\n<a:W89timer:1557506643372146778> \*\*Giveaway ended\*\*\n<t:1800000000:F>$/);
+  assert.match(ended.description, /\*\*Participants\*\*\n0\n\nThe winner\(s\) have been announced and tagged!\n\n<a:W89timer:1557506643372146778> \*\*Giveaway ended\*\*\n<t:1800000000:F>$/);
   assert.doesNotMatch(ended.description, /This giveaway has ended!/);
   assert.equal(ended.color, 0xFFFFFF);
 });
@@ -122,7 +122,7 @@ test('giveaway embed follows the owner layout: emojis, prize, requirements, winn
 test('ended giveaways with no winners retain the original text in the requested order', () => {
   const embed = createGiveawayEmbed(activeGiveaway({ ended: true, isEnded: true }), 'ended', []);
   assert.match(embed.description, /No valid entries/);
-  assert.match(embed.description, /The winner\(s\) have been announced and tagged below!/);
+  assert.match(embed.description, /The winner\(s\) have been announced and tagged!/);
   assert.doesNotMatch(embed.description, /This giveaway has ended!/);
 });
 
@@ -145,7 +145,7 @@ test('existing ended giveaway messages are reordered in place without changing b
   const edit = w.giveawayMessage.edits[0];
   assert.equal(edit.components, undefined);
   assert.equal(edit.embeds[0].description,
-    'Thank you to everyone who participated!\n\nThe winner(s) have been announced and tagged below!\n\n<a:W89timer:1557506643372146778> **Giveaway ended**\n<t:1800000000:F>');
+    'Thank you to everyone who participated!\n\nThe winner(s) have been announced and tagged!\n\n<a:W89timer:1557506643372146778> **Giveaway ended**\n<t:1800000000:F>');
   assert.equal(edit.embeds[0].color, original.color);
   assert.deepEqual(edit.embeds[0].footer, original.footer);
   assert.deepEqual(edit.embeds[0].thumbnail, original.thumbnail);
@@ -156,12 +156,14 @@ test('existing ended giveaway messages are reordered in place without changing b
 test('existing giveaway swap keeps both original lines unchanged', () => {
   const prefix = 'All other original giveaway content';
   const timer = '<a:W89timer:1557506643372146778> **Giveaway ended**\n<t:1800000000:F>';
-  const copy = 'The winner(s) have been announced and tagged below!';
+  const copy = 'The winner(s) have been announced and tagged!';
   const expected = prefix + '\n\n' + copy + '\n\n' + timer;
-  for (const lastLine of [copy, 'This giveaway has ended!']) {
+  for (const lastLine of [copy, 'This giveaway has ended!', 'The winner(s) have been announced and tagged below!']) {
     assert.equal(reorderEndedGiveawayDescription(prefix + '\n\n' + timer + '\n\n' + lastLine), expected);
   }
   assert.equal(reorderEndedGiveawayDescription(expected), expected);
+  assert.equal(reorderEndedGiveawayDescription(prefix + '\n\nThe winner(s) have been announced and tagged below!\n\n' + timer), expected);
+  assert.equal(reorderEndedGiveawayDescription(prefix + '\n\nThe winner(s) have been announced and tagged!\n\n' + timer), expected);
   assert.equal(reorderEndedGiveawayDescription(prefix + '\n\n' + timer), prefix + '\n\n' + timer);
 });
 
