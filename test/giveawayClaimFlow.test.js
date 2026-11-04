@@ -153,7 +153,9 @@ test('only the winner opens exactly one private claim channel', async () => {
   assert.match(claimEmbed.description, /Please review the information below before collecting it/);
   assert.match(claimEmbed.description, /Cloudy Inc\./);
   assert.ok(claimEmbed.description.indexOf('Please review the information below') < claimEmbed.description.indexOf('**Prize conditions**'));
-  assert.ok(claimEmbed.description.includes('\n\n\n<:W97warningwhite:'));
+  assert.ok(claimEmbed.description.includes('\n\n<:W97warningwhite:'));
+  assert.ok(!claimEmbed.description.includes('\n\n\n<:W97warningwhite:'),
+    'no extra blank line before Please note in private claim panel');
   assert.doesNotMatch(claimEmbed.description, /DEMO-|Your review|Congratulations on winning!/);
   assert.equal(claimEmbed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.equal(claimEmbed.thumbnail, undefined);
