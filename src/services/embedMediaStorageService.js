@@ -67,6 +67,24 @@ export async function storeEmbedMediaBuffer(input, { convert = convertToStorable
   return mediaBaseUrl() + MEDIA_ROUTE + '/' + filename;
 }
 
+// Post the same original GIF/image bytes that the user saw in the preview
+// through Discord's native in-embed attachment renderer. Only Cloudy's own
+// previously validated, content-addressed media may be read back this way.
+export async function loadStoredEmbedMediaUpload(url) {
+  if (!embedMediaStorageEnabled() || !url) return null;
+  let address;
+  try { address = new URL(String(url)); } catch { return null; }
+  const prefix = MEDIA_ROUTE + '/';
+  if (address.origin !== mediaBaseUrl() || !address.pathname.startsWith(prefix)) return null;
+  const filename = address.pathname.slice(prefix.length);
+  if (!FILENAME.test(filename) || address.search || address.hash) return null;
+  const buffer = await readFile(join(mediaDir(), filename));
+  if (!buffer.length || buffer.length > MAX_BYTES) return null;
+  // Verify original file extension matches its actual format (no re-encode).
+  if (imageExtension(buffer) !== filename.split('.').at(-1)) return null;
+  return { buffer, filename };
+}
+
 // A Discord upload link always holds the same picture, so its permanent copy
 // is made once: Add media starts it in the background, Post/Save reuse it.
 const pendingStores = new Map();
