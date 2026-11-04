@@ -153,6 +153,36 @@ test('existing ended giveaway messages are reordered in place without changing b
   assert.equal(w.giveawayMessage.edits.length, 1, 'restart reconciliation is idempotent');
 });
 
+test('already-ended giveaway removes only below from posted copy without changing the embed or buttons', async () => {
+  const giveaway = activeGiveaway({
+    ended: true, isEnded: true, endedAt: new Date().toISOString(), winnerIds: ['winner'],
+  });
+  const w = world({ [MESSAGE]: giveaway });
+  w.client.user = { id: 'cloudy-bot' };
+  w.giveawayMessage.author = { id: 'cloudy-bot' };
+  const original = {
+    description: '**Giveaway ended!**\n\nThank you to everyone who participated!\n\n' +
+      '**Winners**\n<@winner>\n\n**Participants**\n1\n\n' +
+      'The winner(s) have been announced and tagged below!\n\n' +
+      '<a:W89timer:1557506643372146778> **Giveaway ended**\n<t:1800000000:F>',
+    color: 0xFFFFFF,
+    footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+    thumbnail: { url: 'https://example.test/cloudy.png' },
+  };
+  w.giveawayMessage.embeds = [{ toJSON: () => structuredClone(original) }];
+  await refreshEndedGiveawayClosingCopy(w.client);
+  assert.equal(w.giveawayMessage.edits.length, 1);
+  const updated = w.giveawayMessage.edits[0];
+  assert.equal(updated.components, undefined);
+  assert.deepEqual(updated.embeds, [{
+    ...original,
+    description: original.description.replace('tagged below!', 'tagged!'),
+  }]);
+  assert.equal(w.values.get('guild:' + GUILD + ':giveaway:ended-copy-order-v3'), true);
+  await refreshEndedGiveawayClosingCopy(w.client);
+  assert.equal(w.giveawayMessage.edits.length, 1);
+});
+
 test('existing giveaway swap keeps both original lines unchanged', () => {
   const prefix = 'All other original giveaway content';
   const timer = '<a:W89timer:1557506643372146778> **Giveaway ended**\n<t:1800000000:F>';
