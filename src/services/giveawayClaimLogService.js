@@ -4,6 +4,7 @@ import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_TICKET_CLOSED_COLOR } from '../utils/ticket/ticketBranding.js';
 import { unwrapReplitData } from '../utils/database.js';
+import { getOrCreateGiveawayNumber } from './giveawayNumberService.js';
 
 export const GIVEAWAY_CLAIM_LOG_CHANNEL_ID = '1566390264291917874';
 export const GIVEAWAY_CLAIM_LOG_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -12,7 +13,7 @@ const EVENTS = Object.freeze({
   opened: { title: 'Giveaway claim opened', color: 0x00C49D, action: 'Claim' },
   revealed: { title: 'Giveaway code revealed', color: 0xFFFFFF, action: 'Reveal my code' },
   closed: { title: 'Giveaway claim closed', color: CLOUDY_TICKET_CLOSED_COLOR, action: 'Close' },
-  expired: { title: 'Giveaway claim expired', color: 0x7A1712, action: 'Automatic close (24 hours)' },
+  expired: { title: 'Giveaway claim expired', color: 0x7A1712, action: 'Automatic · 24-hour expiry' },
 });
 
 function safeValue(value, limit = 1024) {
@@ -20,14 +21,24 @@ function safeValue(value, limit = 1024) {
 }
 
 export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
-  claimChannelId = null, giveaway = null } = {}) {
+  claimChannelId = null, giveaway = null, giveawayNumber = null, occurredAt = null } = {}) {
   const definition = EVENTS[event];
   if (!definition) throw new Error('Unsupported giveaway claim log event: ' + event);
   const sourceChannelId = giveaway?.channelId;
-  const originalLink = sourceChannelId && /^\d{17,20}$/.test(String(sourceChannelId))
-    ? '[Go to giveaway](https://discord.com/channels/' + guildId + '/'
+  const number = Number(giveawayNumber || giveaway?.giveawayNumber);
+  const validNumber = Number.isSafeInteger(number) && number > 0;
+  const label = validNumber ? '#' + number : 'Go to giveaway';
+  // A closed or expired claim retains #N as text. While open, #N links to the
+  // original giveaway, using the same Discord message URL as before.
+  const canLink = event !== 'closed' && event !== 'expired'
+    && sourceChannelId && /^\\d{17,20}$/.test(String(sourceChannelId));
+  const originalLink = canLink
+    ? '[' + label + '](https://discord.com/channels/' + guildId + '/'
       + sourceChannelId + '/' + messageId + ')'
-    : 'Message ID: `' + safeValue(messageId, 24) + '`';
+    : validNumber ? label : 'Message ID: `' + safeValue(messageId, 24) + '`';
+  // Discord's :F format localizes the exact action time to the viewer.
+  const stamp = new Date(occurredAt || Date.now()).getTime();
+  const eventSeconds = Math.floor((Number.isFinite(stamp) ? stamp : Date.now()) / 1000);
   const fields = [
     { name: 'Member', value: '<@' + userId + '>', inline: false },
     { name: 'Prize', value: safeValue(giveaway?.prize, 500), inline: true },
@@ -43,6 +54,7 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
       inline: false,
     });
   }
+  fields.push({ name: 'Date', value: '<t:' + eventSeconds + ':F>', inline: false });
   if (event === 'expired') {
     fields.push({ name: 'Reason', value: 'The private claim channel reached its 24-hour deadline', inline: false });
   }
@@ -62,7 +74,8 @@ export async function sendGiveawayClaimLog(client, guild, detail) {
   const target = guild?.channels?.cache?.get?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID)
     || await guild?.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
   if (!target?.send) throw new Error('Giveaway claim log channel unavailable');
-  return target.send(buildGiveawayClaimLog({ ...detail, guildId: guild.id }));
+  const giveawayNumber = await getOrCreateGiveawayNumber(client, guild.id, detail.messageId);
+  return target.send(buildGiveawayClaimLog({ ...detail, guildId: guild.id, giveawayNumber }));
 }
 
 // One-time, in-place correction of already posted claim logs. Only remove
@@ -186,13 +199,23 @@ export function replaceClosedClaimChannelMentions(embed, closedChannelIds) {
   if (!claimLogTitles.has(data.title) || data.footer?.text !== GIVEAWAY_CLAIM_LOG_FOOTER) {
     return { embed: data, changed: false };
   }
+  const privateChannel = (data.fields || []).find(field => field.name === 'Private channel');
+  const matched = CLAIM_CHANNEL_ID_PATTERN.exec(String(privateChannel?.value || ''));
+  if (!matched || !closedChannelIds.has(matched[1])) return { embed: data, changed: false };
   let changed = false;
   const fields = (data.fields || []).map(field => {
-    if (field.name !== 'Private channel') return field;
-    const matched = CLAIM_CHANNEL_ID_PATTERN.exec(String(field.value || ''));
-    if (!matched || !closedChannelIds.has(matched[1])) return field;
-    changed = true;
-    return { ...field, value: '\x60' + matched[1] + '\x60' };
+    if (field.name === 'Private channel') {
+      changed = true;
+      return { ...field, value: '`' + matched[1] + '`' };
+    }
+    if (field.name === 'Giveaway') {
+      const link = /^\\[(#[1-9]\\d*)\\]\\(https:\\/\\/discord\\.com\\/channels\\/\\d{17,20}\\/\\d{17,20}\\/\\d{17,20}\\)$/.exec(String(field.value || ''));
+      if (link) {
+        changed = true;
+        return { ...field, value: link[1] };
+      }
+    }
+    return field;
   });
   return { embed: changed ? { ...data, fields } : data, changed };
 }
