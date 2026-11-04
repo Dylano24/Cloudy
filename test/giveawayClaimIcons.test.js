@@ -50,7 +50,7 @@ test('white Cloudy claim icons are PNG application emojis and render in the clai
   assert.equal(embed.color, 0xFFFFFF);
   assert.equal(embed.thumbnail, undefined);
   assert.match(embed.description, /Cloudy Inc.*congratulates you on winning this prize/);
-  assert.match(embed.description, /Prize conditions/);
+  assert.match(embed.description, /\*\*Prize conditions\*\*\nNone/);
   assert.match(embed.description, /How to get your prize/);
   assert.match(embed.description, /Reveal my code/);
   assert.match(embed.description, /Share your feedback/);
