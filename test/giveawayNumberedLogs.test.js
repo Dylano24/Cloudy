@@ -66,7 +66,7 @@ test('Claim and Reveal link to exact giveaway #N; Close and expiry retain #N wit
     assert.doesNotMatch(JSON.stringify(embed), /discord\.com\/channels/);
   }
   assert.equal(field(base('closed'), 'Action'), 'Close');
-  assert.equal(field(base('expired'), 'Action'), 'Automatic · 24-hour expiry');
+  assert.equal(field(base('expired'), 'Action'), 'giveaway auto expiry');
 });
 
 test('Close strips prior Claim/Reveal links only for that private claim, not other winners', () => {
@@ -114,7 +114,7 @@ test('one-time migration updates historical links, original dates and automatic 
   await refreshHistoricalGiveawayClaimNumbersAndDates(w.client);
   assert.equal(edits, 1);
   assert.equal(field(archived.embeds[0], 'Giveaway'), '#1');
-  assert.equal(field(archived.embeds[0], 'Action'), 'Automatic · 24-hour expiry');
+  assert.equal(field(archived.embeds[0], 'Action'), 'giveaway auto expiry');
   assert.equal(field(archived.embeds[0], 'Date'), '<t:1793754780:F>');
   assert.deepEqual(archived.embeds[0].thumbnail, old.thumbnail);
   assert.equal(archived.embeds[0].footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
