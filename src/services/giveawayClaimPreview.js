@@ -13,7 +13,7 @@ export const DEFAULT_CLAIM_PRIZE_NOTICE = 'Please review the information below b
 
 export const DEFAULT_CLAIM_INTRODUCTION =
   'Cloudy Inc. congratulates you on winning this prize!';
-export const DEFAULT_CLAIM_CONDITIONS = 'Details and conditions of their prize.';
+export const DEFAULT_CLAIM_CONDITIONS = 'None';
 export const DEFAULT_CLAIM_HOW_TO_GET =
   'Click the **Reveal my code** button below to display your activation code.';
 export const DEFAULT_CLAIM_REVIEW =
