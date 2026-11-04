@@ -1007,6 +1007,21 @@ export function buildPostedEmbeds(state) {
     });
 }
 
+// Keep a newly posted banner inside the embed as a Discord-hosted file,
+// preserving the exact GIF/image bytes from the Builder preview.
+export function nativeBannerPayload(embed, banner) {
+    if (!banner?.buffer || !banner.filename) return { embeds: [embed] };
+    const extension = banner.filename.split('.').at(-1);
+    const filename = 'cloudy-banner-' + banner.filename.slice(0, 12) + '.' + extension;
+    return {
+        embeds: [new EmbedBuilder({
+            ...(embed.toJSON?.() || embed),
+            image: { url: 'attachment://' + filename },
+        })],
+        files: [{ attachment: banner.buffer, name: filename }],
+    };
+}
+
 async function postBuiltMessage(channel, state, guild, member, { explicitSave = false } = {}) {
     // The web/content editor can still have a pending update when the
     // channel picker opens. Post the finalized values, never the previous
@@ -1103,13 +1118,7 @@ async function postBuiltMessage(channel, state, guild, member, { explicitSave = 
         }
 
         if (isLast && nativeBanner) {
-            const extension = nativeBanner.filename.split('.').at(-1);
-            const filename = 'cloudy-banner-' + nativeBanner.filename.slice(0, 12) + '.' + extension;
-            payload.embeds[0] = new EmbedBuilder({
-                ...embeds[index].toJSON(),
-                image: { url: 'attachment://' + filename },
-            });
-            payload.files = [{ attachment: nativeBanner.buffer, name: filename }];
+            Object.assign(payload, nativeBannerPayload(embeds[index], nativeBanner));
         } else if (isLast && state.mediaBuffer && state.mediaName) {
             payload.files = [{ attachment: state.mediaBuffer, name: state.mediaName }];
         }
