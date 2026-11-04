@@ -157,6 +157,15 @@ const GIVEAWAY_WHITE = 0xFFFFFF;
 const unix = ms => Math.floor(Number(ms) / 1000);
 const mentionList = ids => ids.map(id => `<@${id}>`).join(', ');
 
+// Match the ended giveaway announcement to the number of actual winners.
+export function endedGiveawayWinnerMessage(winners = []) {
+    const count = Array.isArray(winners) ? winners.length : Math.max(0, Number(winners) || 0);
+    if (count === 0) return '**No winners were announced or tagged.**';
+    return count === 1
+        ? '**The winner has been announced and tagged!**'
+        : '**The winners have been announced and tagged!**';
+}
+
 export function giveawayEndTime(giveaway) {
     return Number(giveaway?.endsAt || giveaway?.endTime) || 0;
 }
@@ -204,7 +213,7 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
         String(giveawayParticipants(giveaway).length),
         '',
         ...(ended
-            ? ['The winner(s) have been announced and tagged!', '']
+            ? [endedGiveawayWinnerMessage(winners), '']
             : [`**${giveaway.closingText || DEFAULT_GIVEAWAY_CLOSING}**`, '']),
         `${GIVEAWAY_EMOJIS.timer} **${ended ? 'Giveaway ended' : 'Giveaway ends'}**`,
         ended ? `<t:${unix(endedAt)}:F>` : `<t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
