@@ -12,8 +12,8 @@ const FEED_EMOJIS = Object.freeze({
   offline: { name: 'W8733476glowingdotred', id: '1543291468377104436', fallback: '<:W8733476glowingdotred:1543291468377104436>' },
   server: { name: 'server_router', id: '1567766741889585203', fallback: '<a:server_router:1567766741889585203>' },
   headshot: { name: 'headshot', id: '1567810194564583454', fallback: '<:headshot:1567810194564583454>' },
-  login: { name: 'cloudy_arrow_green_big', crop: '60:98:26:10', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
-  logout: { name: 'cloudy_arrow_red_big', crop: '60:98:41:10', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
+  login: { name: 'cloudy_arrow_green_xl', crop: '52:72:38:28', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
+  logout: { name: 'cloudy_arrow_red_xl', crop: '52:72:38:28', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
   weapon: { name: 'X83rust4ar', id: '1543286149630656592', fallback: '<:X83rust4ar:1543286149630656592>' },
   killer: { name: 'killer', id: '1567842334668886046', fallback: '<:killer:1567842334668886046>' },
   victim: { name: 'victim', id: '1567845116377440396', fallback: '<:victim:1567845116377440396>' },
@@ -62,10 +62,12 @@ async function cropEmojiImage(buffer, crop) {
     await runLocalCommand('ffmpeg', [
       '-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file,pipe',
       '-i', input,
-      '-vf', `crop=${crop},scale=128:128:force_original_aspect_ratio=decrease:flags=lanczos,pad=128:128:(ow-iw)/2:(oh-ih)/2:color=black@0,split[a][b];[a]palettegen=reserve_transparent=1[p];[b][p]paletteuse=alpha_threshold=128`,
+      '-vf', `crop=${crop},scale=128:128:force_original_aspect_ratio=decrease:flags=lanczos,pad=128:128:(ow-iw)/2:(oh-ih)/2:color=black@0,split[a][b];[a]palettegen=reserve_transparent=1:max_colors=64[p];[b][p]paletteuse=alpha_threshold=128:dither=none`,
       '-loop', '0', output,
     ], 60_000);
-    return await readFile(output);
+    const result = await readFile(output);
+    // Discord accepts emojis up to 256 KB; keep the original when the copy is bigger.
+    return result.length <= 250_000 ? result : buffer;
   } finally {
     await rm(directory, { recursive: true, force: true }).catch(() => {});
   }
