@@ -103,7 +103,9 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 
 - The "feeds" channels #pvp, #player, #zorp, #raids, #ban and #wipe-feed get one embed per game event (`gameFeedService.js`): Player killed, Player joined/left, ZORP protection on/off, Raid alert, Player banned/unbanned, Wipe incoming/Server wiped. Plain embeds with the Cloudy logo and footer; colours white, `#00C49D` (join, ZORP on, unban, wiped) or Cloudy red (ZORP off, raid, ban). Channels are found by name in Cloudy's cache (no Discord request per event) and embeds are batched per channel (up to 10 per message).
 - The game server is not linked yet (owner's choice: prepare first, link later). Link point: `POST /api/game/v1/events` with `Authorization: Bearer <CLOUDY_GAME_FEED_SECRET>` (at least 32 characters) and `{ "events": [...] }` (max 50). Without the secret it answers 503. Game-server text is cleaned (no mentions or markdown).
-- `/gamefeed preview` shows every feed embed privately; `/gamefeed status` shows which channels were found and whether the link is set.
+- `/gamefeed preview` shows every feed embed and the three boards privately; `/gamefeed status` shows which channels were found and whether the link is set.
+- Live boards (`gameServerBoardsService.js`), one message each, edited in place at most every 30 seconds and only posted after the first event: #server-status ("Server status": online/offline, players, queue, map, next wipe; `status` events), #population ("Population", sent and edited by a channel webhook named "Cloudy Population" with the still Cloudy logo as avatar) and #leaderboard ("Leaderboard": top 10 by kills per server from `pvp` events, K/D; a `wipe` with state `done` starts that server again). A server that sends no status for 5 minutes shows as offline. Max 20 servers.
+- `/changelog` (staff, Manage Server) opens a form (Server, Changes one per line, Note) and posts "Server changes" in #change-logs with bullets, Changed by and time.
 
 ## Cloudy Feed
 
