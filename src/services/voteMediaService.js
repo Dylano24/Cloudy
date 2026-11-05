@@ -5,7 +5,8 @@
 // only Cloudy and staff see it). Discord's picture links expire after about a
 // day, so Cloudy renews the links of recent votes every 12 hours.
 import { ChannelType, ThreadAutoArchiveDuration } from 'discord.js';
-import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyChannelResolver.js';
+import { getCloudyChannelDefinition, normalizeCloudyChannelName } from './cloudyChannelResolver.js';
+import { logger } from '../utils/logger.js';
 
 const THREAD_KEY = guildId => `guild:${guildId}:vote-media-thread`;
 const THREAD_NAME = 'vote-media';
@@ -17,15 +18,35 @@ async function storageThread(client, guild, fallbackChannel) {
     // An archived thread opens again when Cloudy posts in it.
     if (existing?.send && !existing.locked) return existing;
   }
+  // Private threads only exist in normal text channels: #botlog first, else
+  // the vote's own channel (members never see a private thread).
+  const botlog = botlogChannel(guild);
+  const parents = [...new Set([botlog, fallbackChannel])]
+    .filter(channel => channel?.type === ChannelType.GuildText && channel.threads?.create);
+  let failure = null;
+  for (const parent of parents) {
+    try {
+      const thread = await parent.threads.create({
+        name: THREAD_NAME, type: ChannelType.PrivateThread, invitable: false,
+        autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek, reason: 'Cloudy vote pictures',
+      });
+      await client.db.set(THREAD_KEY(guild.id), thread.id);
+      return thread;
+    } catch (error) {
+      failure = error;
+    }
+  }
+  logger.warn(`[VOTE_MEDIA] No private thread for vote pictures: ${failure?.message || 'no text channel found'}`);
+  // Last resort: #botlog itself (staff only).
+  return botlog?.type === ChannelType.GuildText && botlog.send ? botlog : null;
+}
+
+function botlogChannel(guild) {
   const definition = getCloudyChannelDefinition('botlog');
-  const parent = findCloudyChannelByAlias(guild, definition?.aliases || [], { textOnly: true }) || fallbackChannel;
-  if (!parent?.threads?.create) return null;
-  const thread = await parent.threads.create({
-    name: THREAD_NAME, type: ChannelType.PrivateThread, invitable: false,
-    autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek, reason: 'Cloudy vote pictures',
-  });
-  await client.db.set(THREAD_KEY(guild.id), thread.id);
-  return thread;
+  const names = new Set((definition?.aliases || []).map(normalizeCloudyChannelName));
+  const channels = [...(guild.channels?.cache?.values?.() || [])].filter(channel => channel.type === ChannelType.GuildText);
+  return channels.find(channel => channel.id === definition?.legacyId)
+    || channels.find(channel => names.has(normalizeCloudyChannelName(channel.name))) || null;
 }
 
 const linksFrom = (message, names) => {
