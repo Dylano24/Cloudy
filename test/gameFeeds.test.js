@@ -46,8 +46,8 @@ test('every feed embed has a sentence-case title, the Cloudy logo, the footer an
   }
   assert.deepEqual(embeds.map(embed => embed.color.toString(16)),
     ['ffffff', 'c49d', 'ffffff', 'c49d', '7a1712', '7a1712', '7a1712', 'c49d', 'ffffff', 'c49d']);
-  assert.match(embeds[0].description, /^\*\*Killer:\*\* Dawg\n\*\*Victim:\*\* Mindzset\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Grid:\*\* G12\n\*\*Server:\*\* Server 1 Rust\n/);
-  assert.match(embeds[1].description, /\*\*Online:\*\* 87\/150/);
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* Dawg\n\*\*Victim:\*\* Mindzset\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Server:\*\* Server 1 Rust\n/);
+  assert.match(embeds[1].description, /\*\*Online:\*\* 87\/100/);
   assert.match(embeds[8].description, /^\*\*Server 1 Rust\*\* is about to wipe <t:\d+:R>\.\n\n\*\*Wipe:\*\* Map wipe/);
   assert.match(embeds[9].description, /^\*\*Server 1 Rust\*\* just wiped\.\n\n/);
 });

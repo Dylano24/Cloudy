@@ -113,7 +113,7 @@ export function buildGameFeedEmbed(event) {
       return feedEmbed('Player killed', CLOUDY_NEUTRAL_COLOR, [
         line('Killer', event.killer), line('Victim', event.victim), line('Weapon', event.weapon),
         line('Distance', event.distance == null ? null : `${event.distance} m`),
-        event.headshot ? line('Headshot', 'Yes') : null, line('Grid', event.grid), server,
+        event.headshot ? line('Headshot', 'Yes') : null, server,
       ], event.time);
     case 'player':
       return feedEmbed(event.action === 'join' ? 'Player joined' : 'Player left',
@@ -124,12 +124,11 @@ export function buildGameFeedEmbed(event) {
     case 'zorp':
       return feedEmbed(event.state === 'on' ? 'ZORP protection on' : 'ZORP protection off',
         event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
-          line('Player', event.player), line('Grid', event.grid), server,
+          line('Player', event.player), server,
         ], event.time);
     case 'raid':
       return feedEmbed('Raid alert', CLOUDY_RED_COLOR, [
-        line('Raider', event.attacker), line('Target', event.target), line('Grid', event.grid),
-        line('Used', event.item), server,
+        line('Raider', event.attacker), line('Target', event.target), line('Used', event.item), server,
       ], event.time);
     case 'ban':
       return feedEmbed(event.action === 'ban' ? 'Player banned' : 'Player unbanned',
@@ -155,12 +154,12 @@ export function buildGameFeedEmbed(event) {
 
 // Example events, used by /gamefeed preview.
 export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
-  { type: 'pvp', server: 'Server 1 Rust', killer: 'Dawg', victim: 'Mindzset', weapon: 'Assault rifle', distance: 145, headshot: true, grid: 'G12' },
-  { type: 'player', server: 'Server 1 Rust', action: 'join', player: 'Mindzset', online: 87, max: 150 },
-  { type: 'player', server: 'Server 1 Rust', action: 'leave', player: 'Dawg', online: 86, max: 150 },
-  { type: 'zorp', server: 'Server 1 Rust', state: 'on', player: 'Dawg', grid: 'G12' },
-  { type: 'zorp', server: 'Server 1 Rust', state: 'off', player: 'Dawg', grid: 'G12' },
-  { type: 'raid', server: 'Server 1 Rust', attacker: 'Mindzset', target: 'Dawg', grid: 'G12', item: 'Rocket' },
+  { type: 'pvp', server: 'Server 1 Rust', killer: 'Dawg', victim: 'Mindzset', weapon: 'Assault rifle', distance: 145, headshot: true },
+  { type: 'player', server: 'Server 1 Rust', action: 'join', player: 'Mindzset', online: 87, max: 100 },
+  { type: 'player', server: 'Server 1 Rust', action: 'leave', player: 'Dawg', online: 86, max: 100 },
+  { type: 'zorp', server: 'Server 1 Rust', state: 'on', player: 'Dawg' },
+  { type: 'zorp', server: 'Server 1 Rust', state: 'off', player: 'Dawg' },
+  { type: 'raid', server: 'Server 1 Rust', attacker: 'Mindzset', target: 'Dawg', item: 'Rocket' },
   { type: 'ban', server: 'Server 1 Rust', action: 'ban', player: 'Cheater123', reason: 'Cheating', duration: 'Permanent', by: 'Cloudy staff' },
   { type: 'ban', server: 'Server 1 Rust', action: 'unban', player: 'Player456', reason: 'Appeal accepted', by: 'Cloudy staff' },
   { type: 'wipe', server: 'Server 1 Rust', state: 'soon', at: Date.now() + 3_600_000, kind: 'map', map: 'Procedural 4000' },
