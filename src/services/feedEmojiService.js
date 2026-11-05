@@ -7,7 +7,7 @@ import path from 'node:path';
 import { logger } from '../utils/logger.js';
 import { runLocalCommand } from './cloudyFeedVideoClip.js';
 
-const FEED_EMOJIS = Object.freeze({
+const BASE_EMOJIS = {
   online: { name: 'glowing_dot_green', id: '1567760480439771286', fallback: '<a:glowing_dot_green:1567760480439771286>' },
   offline: { name: 'W8733476glowingdotred', id: '1543291468377104436', fallback: '<:W8733476glowingdotred:1543291468377104436>' },
   dot: { name: 'W87205667glowingdotwhite', id: '1543291335036108830', fallback: '<:W87205667glowingdotwhite:1543291335036108830>' },
@@ -25,8 +25,52 @@ const FEED_EMOJIS = Object.freeze({
   distance: { name: 'distance', id: '1567849614969667615', fallback: '<:distance:1567849614969667615>' },
   on: { name: 'on_swipe', id: '1567862120639635458', fallback: '<a:on_swipe:1567862120639635458>' },
   off: { name: 'off_swipe', id: '1567862121117782077', fallback: '<a:off_swipe:1567862121117782077>' },
-});
+};
+
+// Rust weapon emojis (owner's choice): shown after "Weapon:" / "Used:" for the
+// weapon in the event. The pictures have a white background, so they are
+// uploaded with the white removed. Order matters: the first alias found wins.
+const WEAPONS = [
+  ['lr300', '1331942337672384584', ['lr300', 'lr']],
+  ['mp5', '1331942366021554248', ['mp5']],
+  ['thompson', '1331942293523009546', ['thompson', 'tommy']],
+  ['smg', '1321084795039518742', ['customsmg', 'smg']],
+  ['python', '1334447422167842857', ['python']],
+  ['revolver', '1331942315903942718', ['revolver']],
+  ['m92', '1331942461894823956', ['m92']],
+  ['p250', '1331942389773762623', ['semiautomaticpistol', 'p250', 'sap']],
+  ['prototype', '1331942412267814922', ['prototype17', 'prototype', 'p17']],
+  ['pump', '1331942484791660545', ['pumpshotgun', 'pump']],
+  ['spas', '1331942440009072721', ['spas12', 'spas']],
+  ['sar', '1331942247805227130', ['semiautomaticrifle', 'sar']],
+  ['bolt', '1331942270705991710', ['boltaction', 'bolt', 'l96']],
+  ['m249', '1321080290797424670', ['m249']],
+  ['crossbow', '1321084926522687488', ['crossbow']],
+  ['rocket', '1321084510661640192', ['rocketlauncher', 'rocket']],
+  ['jackhammer', '1321084243560104008', ['jackhammer']],
+  ['pickaxe', '1321084422069686302', ['pickaxe']],
+  ['axe', '1321084470136279166', ['salvagedaxe', 'axe']],
+  ['turret', '1321080979833618503', ['autoturret', 'turret']],
+  ['satchel', '1321084554110566570', ['satchel']],
+  ['c4', '1255562123027943454', ['c4', 'timedexplosive', 'explosive']],
+  ['flamethrower', '1321081135970783345', ['flamethrower', 'flame']],
+  ['ak', '1255551553889370154', ['assaultrifle', 'ak47', 'ak']],
+];
+for (const [key, id, aliases] of WEAPONS) {
+  BASE_EMOJIS[`w_${key}`] = { name: `rust_${key}`, unwhite: true, id, aliases, fallback: `<:rust_${key}:${id}>` };
+}
+const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
+
+/** The emoji of the weapon in `text` ("Assault rifle", "AK-47", "Rocket"), or '' when unknown. */
+export function weaponEmoji(text) {
+  const normalized = String(text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!normalized) return '';
+  for (const [key, , aliases] of WEAPONS) {
+    if (aliases.some(alias => normalized.includes(alias))) return feedEmoji(`w_${key}`);
+  }
+  return '';
+}
 
 export function feedEmoji(key) {
   return resolved.get(key) || FEED_EMOJIS[key]?.fallback || '';
@@ -80,6 +124,23 @@ async function cropEmojiImage(buffer, crop) {
   }
 }
 
+// The weapon pictures come on a white square: near-white pixels become transparent.
+async function removeWhiteBackground(buffer) {
+  const directory = await mkdtemp(path.join(tmpdir(), 'cloudy-emoji-'));
+  try {
+    const input = path.join(directory, 'source');
+    const output = path.join(directory, 'emoji.png');
+    await writeFile(input, buffer);
+    await runLocalCommand('ffmpeg', [
+      '-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file,pipe',
+      '-i', input, '-frames:v', '1', '-vf', 'format=rgba,colorkey=0xFFFFFF:0.14:0.06', output,
+    ], 30_000);
+    return await readFile(output);
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function download(id) {
   for (const extension of ['gif', 'png']) {
     const response = await fetch(`https://cdn.discordapp.com/emojis/${id}.${extension}`, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
@@ -96,13 +157,14 @@ export async function ensureFeedEmojis(client) {
     const existing = await manager.fetch();
     for (const [key, emoji] of Object.entries(FEED_EMOJIS)) {
       const accessible = client.emojis?.cache?.get?.(emoji.id);
-      if (accessible && !emoji.shrink && !emoji.crop) { resolved.set(key, markup(accessible)); continue; }
+      if (accessible && !emoji.shrink && !emoji.crop && !emoji.unwhite) { resolved.set(key, markup(accessible)); continue; }
       let own = [...existing.values()].find(item => item.name === emoji.name);
       if (!own) {
         let image = await download(emoji.id);
         if (!image) continue;
         if (emoji.shrink) image = await shrinkEmojiImage(image).catch(() => image);
         if (emoji.crop) image = await cropEmojiImage(image, emoji.crop).catch(() => image);
+        if (emoji.unwhite) image = await removeWhiteBackground(image).catch(() => image);
         own = await manager.create({ attachment: image, name: emoji.name });
       }
       resolved.set(key, markup(own));
