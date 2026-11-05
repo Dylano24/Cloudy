@@ -10,6 +10,7 @@ import { runLocalCommand } from './cloudyFeedVideoClip.js';
 const FEED_EMOJIS = Object.freeze({
   online: { name: 'glowing_dot_green', id: '1567760480439771286', fallback: '<a:glowing_dot_green:1567760480439771286>' },
   offline: { name: 'W8733476glowingdotred', id: '1543291468377104436', fallback: '<:W8733476glowingdotred:1543291468377104436>' },
+  dot: { name: 'W87205667glowingdotwhite', id: '1543291335036108830', fallback: '<:W87205667glowingdotwhite:1543291335036108830>' },
   server: { name: 'server_router', id: '1567766741889585203', fallback: '<a:server_router:1567766741889585203>' },
   headshot: { name: 'headshot', id: '1567810194564583454', fallback: '<:headshot:1567810194564583454>' },
   login: { name: 'cloudy_arrow_green_v3', crop: '52:72:38:24', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
