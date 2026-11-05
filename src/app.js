@@ -26,6 +26,7 @@ import { registerAppealsApi } from './web/appealsApi.js';
 import { registerWebsiteAssistantApi } from './web/websiteAssistantApi.js';
 import { registerDashboardApi } from './web/dashboardApi.js';
 import { registerGameFeedApi } from './web/gameFeedApi.js';
+import { hasGiveawayCodeKey } from './services/giveawayCodeService.js';
 import { registerEmbedMediaRoutes } from './services/embedMediaStorageService.js';
 import { registerDeletedMediaRoutes } from './services/deletedMediaService.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
@@ -262,6 +263,8 @@ class CloudyBot extends Client {
         },
         schemaVersion: EXPECTED_SCHEMA_VERSION,
         schemaLabel: EXPECTED_SCHEMA_LABEL,
+        // Only whether giveaway codes are stored encrypted; never the key.
+        giveawayCodesEncrypted: hasGiveawayCodeKey(),
       };
 
       if (isReady) {
