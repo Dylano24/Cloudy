@@ -102,7 +102,9 @@ function voteParts(vote, now) {
     end.push(`**${winners.length > 1 ? 'Tie' : 'Winner'}:** ${winners.length ? winners.join(', ') : 'No votes'}`);
     end.push(`**Ended:** <t:${unix(vote.endedAt || vote.endsAt || now)}:f>`);
   } else if (vote.endsAt) {
-    end.push(`**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
+    // Only the date (owner's choice): a live countdown ("in an hour") made
+    // Discord redraw the vote every minute, and the bars flickered with it.
+    end.push(`**Ends:** <t:${unix(vote.endsAt)}:f>`);
   }
   // One button per option (owner's choice): its digit and its name. It only votes.
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
@@ -151,9 +153,10 @@ function buildPreviewVoteMessage(vote, parts) {
   card.addSeparatorComponents(gap())
     .addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')));
   // White and small, on one line (owner's choice): the footer picture.
+  // No description: Discord shows an "ALT" label on described pictures, which
+  // on this thin picture was a black line at the start of the footer.
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
-    .setURL(VOTE_FOOTER_URL)
-    .setDescription(CLOUDY_FOOTER)));
+    .setURL(VOTE_FOOTER_URL)));
   return { flags: MessageFlags.IsComponentsV2, components: [card, ...parts.rows], allowedMentions: { parse: [] } };
 }
 
