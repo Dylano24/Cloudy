@@ -45,7 +45,8 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   assert.match(embeds[6].description, /\*\*Protected for:\*\* 2h 14m/);
   for (const embed of embeds) {
     assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
-    assert.deepEqual(embed.footer, { text: CLOUDY_FOOTER, icon_url: CLOUDY_C_LOGO_URL });
+    assert.deepEqual(embed.footer, { text: CLOUDY_FOOTER });
+    assert.equal(embed.timestamp, undefined);
   }
   assert.deepEqual(embeds.map(embed => embed.color.toString(16)),
     ['7a1712', '7a1712', 'c49d', '7a1712', 'ffffff', 'c49d', '7a1712', '7a1712', '7a1712', 'ffffff']);
