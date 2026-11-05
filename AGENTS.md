@@ -68,6 +68,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 ## Transient replies
 
 - Small status replies such as Success, Warning, Error, Invalid, Information, Wrong channel, Not enough, Expired, Failed, and similar acknowledgements must delete automatically after exactly 10 seconds.
+- A restart (deploy) never leaves a 10-second reply behind: every pending removal is also kept in `pendingTransientDeletes.js` and run at once during graceful shutdown (`flushPendingDeletes` in `app.js`, before the Discord client is destroyed).
 - Every such status reply shows the Cloudy logo as thumbnail (owner's choice): after saved response templates are applied, a status embed without a thumbnail gets the logo back (`withStatusLogo` in `fullResponseCatalogReady.js`; Builder replies are left as they are).
 - Permanent logs, normal content embeds, games, guides, panels, and ticket logs are not transient status replies.
 
