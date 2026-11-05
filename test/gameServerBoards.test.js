@@ -68,22 +68,22 @@ test('status board: online servers with players, queue, map and next wipe; silen
   }, leaderboard: {}, messages: {} };
   const embed = buildStatusBoard(state, now);
   assert.equal(embed.title, 'Server status');
-  assert.match(embed.description, /^<:glowing_dot_green:1567760480439771286> \*\*Server 1 Rust\*\*\nOnline · 87\/150 players · Queue 3\nMap: Procedural 4000 · Next wipe <t:\d+:R>\n\n<:W8733476glowingdotred:1543291468377104436> \*\*Server 2 Rust\*\*\nOffline\n\n\*\*Last update:\*\* <t:\d+:R>$/);
+  assert.match(embed.description, /^<a:glowing_dot_green:1567760480439771286> \*\*Server 1 Rust\*\*\nOnline · 87\/150 players · Queue 3\nMap: Procedural 4000 · Next wipe <t:\d+:R>\n\n<:W8733476glowingdotred:1543291468377104436> \*\*Server 2 Rust\*\*\nOffline\n\n\*\*Last update:\*\* <t:\d+:R>$/);
   const population = buildPopulationBoard(state, now);
   assert.equal(population.title, 'Population');
-  assert.match(population.description, /\*\*Server 1 Rust\*\*\n<:server_router:1567766741889585203> 87\/150 · Queue 3\n\n\*\*Server 2 Rust\*\*\nOffline\n\n\*\*Total online:\*\* 87$/);
+  assert.match(population.description, /\*\*Server 1 Rust\*\*\n<a:server_router:1567766741889585203> 87\/150 · Queue 3\n\n\*\*Server 2 Rust\*\*\nOffline\n\n\*\*Total online:\*\* 87$/);
   for (const item of [embed, population]) {
     assert.ok(item.thumbnail.url);
     assert.equal(item.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   }
 });
 
-test('leaderboard: most kills first, fewer deaths break a tie, K/D shown', () => {
+test('leaderboard: most kills first, fewer deaths break a tie, only kills shown', () => {
   const embed = buildLeaderboard({ leaderboard: { 'Server 1 Rust': { since: Date.now(), players: {
     A: { kills: 5, deaths: 2 }, B: { kills: 9, deaths: 0 }, C: { kills: 5, deaths: 1 },
   } } } });
   assert.equal(embed.title, 'Leaderboard');
-  assert.match(embed.description, /\*\*1\.\*\* B · 9 kills · 0 deaths · K\/D 9\n\*\*2\.\*\* C · 5 kills · 1 death · K\/D 5\.00\n\*\*3\.\*\* A · 5 kills · 2 deaths · K\/D 2\.50/);
+  assert.match(embed.description, /\*\*1\.\*\* B · 9 kills\n\*\*2\.\*\* C · 5 kills\n\*\*3\.\*\* A · 5/s);
 });
 
 test('status events post one board per channel, the population board through the Cloudy Population webhook, then edit in place', async t => {
@@ -98,7 +98,7 @@ test('status events post one board per channel, the population board through the
   await until(() => w.hooks[0]?.sends.length === 1 && w.posts.some(post => post.channel === '📊│server-status'));
   const status = w.posts.filter(post => post.channel === '📊│server-status');
   assert.equal(status.length, 1);
-  assert.match(status[0].message.payload.embeds[0].description, /<:glowing_dot_green:1567760480439771286> \*\*Server 1 Rust\*\*/);
+  assert.match(status[0].message.payload.embeds[0].description, /<a:glowing_dot_green:1567760480439771286> \*\*Server 1 Rust\*\*/);
   assert.equal(w.hooks.length, 1);
   assert.equal(w.hooks[0].name, POPULATION_WEBHOOK_NAME);
   assert.ok(Buffer.isBuffer(w.hooks[0].options.avatar), 'still Cloudy logo as avatar');
@@ -130,7 +130,7 @@ test('kills fill the leaderboard; a finished wipe starts it again', async t => {
   t.mock.timers.tick(1_500);
   await settle();
   const board = w.posts.find(post => post.channel === '🥇│leaderboard').message;
-  assert.match(board.payload.embeds[0].description, /\*\*1\.\*\* Dawg · 2 kills · 0 deaths/);
+  assert.match(board.payload.embeds[0].description, /\*\*1\.\*\* Dawg · 2 kills/);
   await postGameFeedEvents(w.client, [{ type: 'wipe', server: 'Server 1 Rust', state: 'done' }]);
   t.mock.timers.tick(31_000);
   await settle();
