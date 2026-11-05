@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection } from 'discord.js';
-import vote from '../src/commands/Tools/vote.js';
+import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
-import voteMedia from '../src/interactions/buttons/vote/voteMedia.js';
 import { buildVoteMessage, castVote, endDueVotes, loadVote } from '../src/services/voteService.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 
@@ -39,28 +38,51 @@ function world() {
       set: async (key, value) => { store.set(key, structuredClone(value)); return true; },
     },
   };
+  let ids = 0;
   const command = (values, extra = {}) => {
+    ids += 1;
     const interaction = {
-      client, guildId: GUILD, channelId: CHANNEL, channel, user: { id: 'host' }, inGuild: () => true,
+      id: `run-${ids}`, client, guildId: GUILD, channelId: CHANNEL, channel, user: { id: 'host' }, inGuild: () => true,
       options: { getString: name => values[name] ?? null },
-      deferReply: async () => {}, editReply: async payload => { interaction.reply = payload; }, deleteReply: async () => {},
+      reply: async payload => { interaction.answer = payload; },
+      showModal: async modal => { interaction.modal = modal; },
+      deleteReply: async () => {},
       ...extra,
     };
     return interaction;
   };
-  return { client, sent, command };
+  // The media form after /vote: `files` holds the picture per field (media1..3).
+  const form = (run, files = {}, user = run.user) => {
+    const interaction = {
+      client, guild, guildId: GUILD, channelId: CHANNEL, channel, user, inGuild: () => true,
+      fields: { getUploadedFiles: name => (files[name] ? new Collection([['file', files[name]]]) : null) },
+      deferReply: async () => { interaction.deferred = true; },
+      editReply: async payload => { interaction.answer = payload; }, deleteReply: async () => {},
+    };
+    return interaction;
+  };
+  return { client, sent, command, form };
+}
+
+// /vote, then the media form is sent (with the given pictures, or none).
+async function create(w, values, { files = {}, deps = {} } = {}) {
+  const run = w.command(values);
+  await vote.execute(run);
+  assert.ok(run.modal, 'the media form opens after the command');
+  const form = w.form(run, files);
+  await submitVoteForm(form, run.id, deps);
+  return { run, form };
 }
 
 test('/poll is now /vote, with buttons, live counts and an optional end time', async () => {
   const data = vote.data.toJSON();
   assert.equal(data.name, 'vote');
-  assert.deepEqual(data.options.map(option => option.name),
-    ['question', 'option1', 'media1', 'option2', 'media2', 'option3', 'media3', 'duration']);
+  assert.deepEqual(data.options.map(option => [option.name, Boolean(option.required)]),
+    [['question', true], ['option1', true], ['option2', true], ['option3', false], ['duration', false]], 'no media next to the options');
   assert.equal(isPlayerCommand('vote'), true);
   assert.equal(isPlayerCommand('poll'), false);
   const w = world();
-  const run = w.command({ question: 'Next map?', option1: 'Procedural', option2: 'Barren', duration: '1h' });
-  await vote.execute(run);
+  const { form } = await create(w, { question: 'Next map?', option1: 'Procedural', option2: 'Barren', duration: '1h' });
   const posted = w.sent[0];
   const embed = posted.embeds[0];
   assert.equal(embed.title, 'Vote');
@@ -70,13 +92,13 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.ok(embed.thumbnail.url);
   assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
     [['vote_cast:0', '1️⃣', 'Procedural'], ['vote_cast:1', '2️⃣', 'Barren']]);
-  assert.equal(json(run.reply.embeds[0]).title, 'Success');
+  assert.equal(json(form.answer.embeds[0]).title, 'Success');
   assert.equal((await loadVote(w.client, GUILD, posted.id)).options.length, 2);
 });
 
 test('one vote per member: another option changes it, the same option keeps it; counts show, voters do not', async () => {
   const w = world();
-  await vote.execute(w.command({ question: 'Wipe day?', option1: 'Thursday', option2: 'Friday', option3: 'Saturday' }));
+  await create(w, { question: 'Wipe day?', option1: 'Thursday', option2: 'Friday', option3: 'Saturday' });
   const messageId = w.sent[0].id;
   assert.equal((await castVote(w.client, GUILD, messageId, 'a', 1)).status, 'voted');
   assert.equal((await castVote(w.client, GUILD, messageId, 'b', 1)).status, 'voted');
@@ -92,7 +114,7 @@ test('one vote per member: another option changes it, the same option keeps it; 
 
 test('a vote button answers first, refreshes the counts and shows a private notice', async () => {
   const w = world();
-  await vote.execute(w.command({ question: 'Q', option1: 'A', option2: 'B' }));
+  await create(w, { question: 'Q', option1: 'A', option2: 'B' });
   const click = {
     guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id },
     deferUpdate: async () => { click.acked = true; },
@@ -109,7 +131,7 @@ test('a vote button answers first, refreshes the counts and shows a private noti
 
 test('an ended vote shows the winner and disabled buttons', async () => {
   const w = world();
-  await vote.execute(w.command({ question: 'Q', option1: 'A', option2: 'B', duration: '1m' }));
+  await create(w, { question: 'Q', option1: 'A', option2: 'B', duration: '1m' });
   const messageId = w.sent[0].id;
   await castVote(w.client, GUILD, messageId, 'a', 1);
   const stored = await loadVote(w.client, GUILD, messageId);
@@ -126,10 +148,12 @@ test('duplicate options and a bad duration are refused before anything is posted
   const w = world();
   const same = w.command({ question: 'Q', option1: 'A', option2: 'a' });
   await vote.execute(same);
-  assert.match(JSON.stringify(json(same.reply.embeds[0])), /must be different/);
+  assert.match(JSON.stringify(json(same.answer.embeds[0])), /must be different/);
+  assert.equal(same.answer.flags, 64);
+  assert.equal(same.modal, undefined, 'no form for a wrong vote');
   const bad = w.command({ question: 'Q', option1: 'A', option2: 'B', duration: 'soon' });
   await vote.execute(bad);
-  assert.match(JSON.stringify(json(bad.reply.embeds[0])), /Invalid duration|duration/i);
+  assert.match(JSON.stringify(json(bad.answer.embeds[0])), /Invalid duration|duration/i);
   assert.equal(w.sent.length, 0);
 });
 
@@ -154,9 +178,8 @@ test('an option with a picture becomes a blue link to the picture on Discord; no
   };
   const west = { url: 'https://cdn.discordapp.com/a/west.png', name: 'west.png', contentType: 'image/png', size: 2000 };
   const south = { url: 'https://cdn.discordapp.com/a/south.jpg', name: 'south.jpg', contentType: 'image/jpeg', size: 2000 };
-  const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East', option3: 'DZ South', duration: '1h' });
-  run.options.getAttachment = name => ({ media1: west, media3: south }[name] || null);
-  await vote.execute(run, deps);
+  await create(w, { question: 'Choose your map', option1: 'DZ West', option2: 'DZ East', option3: 'DZ South', duration: '1h' },
+    { files: { media1: west, media3: south }, deps });
   assert.deepEqual(uploads, [['option1.png', null, 'option3.jpg']], 'each picture stays with its own option');
   const posted = w.sent[0];
   const text = posted.embeds[0].description;
@@ -169,14 +192,10 @@ test('an option with a picture becomes a blue link to the picture on Discord; no
   assert.equal(posted.thread, undefined, 'no thread on the vote');
   assert.equal((await loadVote(w.client, GUILD, posted.id)).optionMedia.messageId, 'm1');
 
-  const lonely = w.command({ question: 'Q', option1: 'A', option2: 'B' });
-  lonely.options.getAttachment = name => (name === 'media3' ? west : null);
-  await vote.execute(lonely, deps);
-  assert.match(JSON.stringify(json(lonely.reply.embeds[0])), /Media 3 has no option 3/);
-  const video = w.command({ question: 'Q', option1: 'A', option2: 'B' });
-  video.options.getAttachment = name => (name === 'media1' ? { ...west, contentType: 'video/mp4' } : null);
-  await vote.execute(video, deps);
-  assert.match(JSON.stringify(json(video.reply.embeds[0])), /must be a picture/);
+  const { form: video } = await create(w, { question: 'Q', option1: 'A', option2: 'B' },
+    { files: { media1: { ...west, contentType: 'video/mp4' } }, deps });
+  assert.match(JSON.stringify(json(video.answer.embeds[0])), /must be a picture/);
+  assert.equal(w.sent.length, 1, 'nothing posted for a video');
 });
 
 test('Discord picture links of recent votes are renewed every 12 hours', async () => {
@@ -213,9 +232,8 @@ test('the option button votes and shows its picture privately for 30 seconds; wi
       media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
     }),
   };
-  const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East' });
-  run.options.getAttachment = name => (name === 'media1' ? { url: 'https://cdn.discordapp.com/a/w.png', name: 'w.png', contentType: 'image/png', size: 10 } : null);
-  await vote.execute(run, deps);
+  await create(w, { question: 'Choose your map', option1: 'DZ West', option2: 'DZ East' },
+    { files: { media1: { url: 'https://cdn.discordapp.com/a/w.png', name: 'w.png', contentType: 'image/png', size: 10 } }, deps });
   const posted = w.sent[0];
   assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.label]),
     [['vote_cast:0', 'DZ West'], ['vote_cast:1', 'DZ East']], 'one button per option: digit and name');
@@ -255,4 +273,63 @@ test('the option button votes and shows its picture privately for 30 seconds; wi
   await new Promise(resolve => { setImmediate(resolve); });
   assert.equal(plain.deleted, 1, 'no picture: gone after 10 seconds');
   t.mock.timers.reset();
+});
+
+test('after /vote a form asks for an optional picture per option; empty posts the vote without pictures', async () => {
+  const w = world();
+  const run = w.command({ question: 'Next map?', option1: 'Procedural', option2: 'Barren', option3: 'Hapis' });
+  await vote.execute(run);
+  const modal = json(run.modal);
+  assert.equal(modal.title, 'Add media');
+  assert.equal(modal.custom_id, `vote_media_form:${run.id}`);
+  assert.deepEqual(modal.components.map(label => [label.type, label.label, label.component.type, label.component.custom_id, label.component.required]),
+    [[18, '1. Procedural', 19, 'media1', false], [18, '2. Barren', 19, 'media2', false], [18, '3. Hapis', 19, 'media3', false]]);
+  assert.equal(w.sent.length, 0, 'nothing is posted before the form is sent');
+
+  const stranger = w.form(run, {}, { id: 'someone-else' });
+  await submitVoteForm(stranger, run.id);
+  assert.match(JSON.stringify(json(stranger.answer.embeds[0])), /expired/);
+
+  const again = w.command({ question: 'Next map?', option1: 'Procedural', option2: 'Barren' });
+  await vote.execute(again);
+  const empty = w.form(again);
+  await submitVoteForm(empty, again.id, { uploadPictures: async () => { throw new Error('no upload without pictures'); } });
+  assert.equal(json(empty.answer.embeds[0]).title, 'Success');
+  assert.match(w.sent[0].embeds[0].description, /1️⃣ \*\*Procedural\*\*/);
+  assert.equal((await loadVote(w.client, GUILD, w.sent[0].id)).optionMedia, undefined);
+  const twice = w.form(again);
+  await submitVoteForm(twice, again.id);
+  assert.match(JSON.stringify(json(twice.answer.embeds[0])), /expired/, 'one form posts one vote');
+  assert.equal(w.sent.length, 1);
+});
+
+test('vote pictures go to a private thread in a text channel: #botlog first, else the vote channel', async () => {
+  const { uploadVotePictures } = await import('../src/services/voteMediaService.js');
+  const made = [];
+  const textChannel = (id, name) => ({
+    id, name, type: 0, send: async () => { throw new Error('not here'); },
+    threads: { create: async options => {
+      const thread = { id: `${id}-thread`, options, send: async payload => ({ id: 'stored',
+        attachments: new Collection(payload.files.map(file => [file.name, { name: file.name, url: `https://cdn.discordapp.com/attachments/${id}/${file.name}` }])) }) };
+      made.push([id, options.type, options.name]);
+      return thread;
+    } },
+  });
+  const store = new Map();
+  const client = { db: { get: async (key, fallback) => store.get(key) ?? fallback, set: async (key, value) => { store.set(key, value); } },
+    channels: { fetch: async () => null } };
+  const voice = { id: 'v', name: 'botlog', type: 2, send: async () => {} };
+  const general = textChannel('general', '💬 | general');
+  const guild = { id: GUILD, channels: { cache: new Collection([['v', voice], ['general', general]]) } };
+  const files = [{ attachment: Buffer.from('a'), name: 'option1.png' }, null];
+  const result = await uploadVotePictures(client, guild, general, files);
+  assert.deepEqual(made, [['general', 12, 'vote-media']], 'a voice channel named botlog is skipped: private thread in the vote channel');
+  assert.deepEqual(result.links, ['https://cdn.discordapp.com/attachments/general/option1.png', null]);
+
+  made.length = 0;
+  store.clear();
+  const botlog = textChannel('botlog-id', '📜│botlog-commands');
+  guild.channels.cache.set('botlog-id', botlog);
+  await uploadVotePictures(client, guild, general, files);
+  assert.deepEqual(made, [['botlog-id', 12, 'vote-media']], '#botlog first');
 });
