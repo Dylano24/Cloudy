@@ -91,6 +91,8 @@ function voteParts(vote, now) {
     const label = link && !CLOUDY_MEDIA.test(link) ? `[${option}](${link})` : option;
     return {
       line: `${numberIcon(index)} **${label}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`,
+      // The card has a Preview button, so its option names are plain text (owner's choice).
+      name: `${numberIcon(index)} **${option}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`,
       bar: `${bar(share, BAR_LENGTH)} **${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`,
       picture: votePicture(vote, index),
     };
@@ -136,7 +138,7 @@ function buildPreviewVoteMessage(vote, parts) {
     .addSeparatorComponents(gap(SeparatorSpacingSize.Large));
   parts.options.forEach((option, index) => {
     if (index) card.addSeparatorComponents(gap());
-    card.addTextDisplayComponents(text(option.line));
+    card.addTextDisplayComponents(text(option.name));
     // The Preview button stands next to the bar itself, level with its middle
     // (owner's choice), so the bar is the only text beside it.
     if (!option.picture) {
