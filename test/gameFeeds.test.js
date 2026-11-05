@@ -24,8 +24,11 @@ function world({ missing = [] } = {}) {
     cache.set(channel.id, channel);
   }
   const guild = { id: '181818181818181818', channels: { cache } };
-  const client = { isReady: () => true, guilds: { cache: new Collection([[guild.id, guild]]) } };
-  return { client, guild, sent };
+  const store = new Map();
+  const client = { isReady: () => true, guilds: { cache: new Collection([[guild.id, guild]]) },
+    db: { get: async (key, fallback = null) => (store.has(key) ? structuredClone(store.get(key)) : fallback),
+      set: async (key, value) => { store.set(key, structuredClone(value)); return true; } } };
+  return { client, guild, sent, store };
 }
 
 test.afterEach(() => clearGameFeedQueues());
@@ -106,13 +109,16 @@ test('the link point stays closed until the game server is linked, and needs the
 test('/gamefeed preview shows every feed embed privately; status lists the channels and the link', async () => {
   const w = world({ missing: ['wipe-feed'] });
   const reply = sub => {
-    const interaction = { client: w.client, options: { getSubcommand: () => sub }, reply: async payload => { interaction.payload = payload; } };
-    return gamefeed.execute(interaction).then(() => interaction.payload);
+    const interaction = { client: w.client, guild: w.guild, options: { getSubcommand: () => sub },
+      reply: async payload => { interaction.payload = payload; }, followUp: async payload => { interaction.boards = payload; } };
+    return gamefeed.execute(interaction).then(() => Object.assign(interaction.payload, { boards: interaction.boards }));
   };
   assert.equal(gamefeed.data.toJSON().name, 'gamefeed');
   const preview = await reply('preview');
   assert.equal(preview.flags, 64);
   assert.equal(preview.embeds.length, 10);
+  assert.deepEqual(preview.boards.embeds.map(embed => embed.title), ['Server status', 'Population', 'Leaderboard']);
+  assert.equal(preview.boards.flags, 64);
   const status = await reply('status');
   assert.equal(status.embeds[0].title, 'Game server feeds');
   assert.match(status.embeds[0].description, /\*\*#pvp:\*\* <#\d+>/);
