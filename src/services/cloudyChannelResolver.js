@@ -65,6 +65,7 @@ const CHANNELS = Object.freeze({
   raids: { aliases: ['raids'] },
   banFeed: { aliases: ['ban'] },
   wipeFeed: { aliases: ['wipe-feed'] },
+  music: { aliases: ['music'] },
   botCommands: { aliases: ['bot-commands'] },
   banTimeoutAppeals: { legacyId: '1554538665068200039', aliases: ['ban-timeout-appeals'] },
   joinToCreate: { aliases: ['join-for-create-set-it-up', 'join-for-create-and-set-it-up'] },
