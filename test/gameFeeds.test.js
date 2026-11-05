@@ -37,7 +37,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
   assert.deepEqual(embeds.map(embed => embed.title), [
     'Player killed', 'Player login', 'Player logout', 'Kit claimed',
-    'ZORP protection on', 'ZORP protection off', 'Raid alert', 'Player banned', 'Server wiped',
+    'ZORP protection on', 'ZORP protection off', 'Raid alert', 'BANNED', 'UNBAN', 'Server wiped',
   ]);
   assert.match(embeds[0].description, /^\*\*Killer:\*\* `Dyn`\n\*\*Victim:\*\* `Dylano`\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Killstreak:\*\* 🎯 3\n\*\*Server:\*\* Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
   assert.match(embeds[1].description, /\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* Xbox Series/);
@@ -49,7 +49,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
     assert.equal(embed.timestamp, undefined);
   }
   assert.deepEqual(embeds.map(embed => embed.color.toString(16)),
-    ['7a1712', 'c49d', '7a1712', 'ffffff', 'c49d', '7a1712', '7a1712', '7a1712', 'ffffff']);
+    ['7a1712', 'c49d', '7a1712', 'ffffff', 'c49d', '7a1712', '7a1712', '7a1712', 'c49d', 'ffffff']);
 });
 
 test('killstreak and ZORP protection time are tracked per server', async () => {
@@ -129,7 +129,7 @@ test('/gamefeed embeds shows every feed embed privately; status lists the channe
   assert.equal(gamefeed.data.toJSON().name, 'gamefeed');
   const preview = await reply('embeds');
   assert.equal(preview.flags, 64);
-  assert.equal(preview.embeds.length, 9);
+  assert.equal(preview.embeds.length, 10);
   assert.deepEqual(preview.boards.embeds.map(embed => embed.title), ['Server status', 'Population', 'Leaderboard', 'Top killers of the day']);
   assert.equal(preview.boards.flags, 64);
   const status = await reply('status');
