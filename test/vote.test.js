@@ -55,13 +55,13 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   await vote.execute(run);
   const posted = w.sent[0];
   const embed = posted.embeds[0];
-  assert.equal(embed.title, 'Vote');
-  assert.match(embed.description, /^\*\*Next map\?\*\*\n\n1️⃣ Procedural\n`░{10}` 0% · 0 votes\n2️⃣ Barren\n/);
+  assert.equal(embed.title, '🗳️ Vote');
+  assert.match(embed.description, /^\*\*Next map\?\*\*\n\n1️⃣ \*\*Procedural\*\*\n▱{10} \*\*0%\*\* · 0 votes\n2️⃣ \*\*Barren\*\*\n/);
   assert.match(embed.description, /\*\*Total votes:\*\* 0\n\*\*Ends:\*\* <t:\d+:f> \(<t:\d+:R>\)$/);
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(embed.thumbnail.url);
-  assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.label]),
-    [['vote_cast:0', 'Procedural'], ['vote_cast:1', 'Barren']]);
+  assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
+    [['vote_cast:0', '1️⃣', undefined], ['vote_cast:1', '2️⃣', undefined]]);
   assert.equal(json(run.reply.embeds[0]).title, 'Success');
   assert.equal((await loadVote(w.client, GUILD, posted.id)).options.length, 2);
 });
@@ -76,7 +76,7 @@ test('one vote per member: change or remove it; counts show, voters do not', asy
   const removed = await castVote(w.client, GUILD, messageId, 'b', 1);
   assert.equal(removed.status, 'removed');
   const text = buildVoteMessage((await castVote(w.client, GUILD, messageId, 'c', 0)).vote).embeds[0].description;
-  assert.match(text, /1️⃣ Thursday\n`█{10}` 100% · 2 votes/);
+  assert.match(text, /1️⃣ \*\*Thursday\*\*\n▰{10} \*\*100%\*\* · 2 votes/);
   assert.match(text, /\*\*Total votes:\*\* 2/);
   assert.doesNotMatch(text, /<@/);
 });
@@ -93,7 +93,7 @@ test('a vote button answers first, refreshes the counts and shows a private noti
   };
   await voteButton.execute(click, w.client, ['1']);
   assert.equal(click.acked, true);
-  assert.match(click.edited.embeds[0].description, /2️⃣ B\n`█{10}` 100% · 1 vote/);
+  assert.match(click.edited.embeds[0].description, /2️⃣ \*\*B\*\*\n▰{10} \*\*100%\*\* · 1 vote/);
   assert.equal(click.notice.flags, 64);
   assert.match(JSON.stringify(json(click.notice.embeds[0])), /You voted for \*\*B\*\*/);
 });
@@ -107,7 +107,7 @@ test('an ended vote shows the winner and disabled buttons', async () => {
   await w.client.db.set(`guild:${GUILD}:votes`, { [messageId]: { ...stored, endsAt: Date.now() - 1000 } });
   await endDueVotes(w.client);
   const edited = w.sent[0].edits.at(-1);
-  assert.equal(edited.embeds[0].title, 'Vote ended');
+  assert.equal(edited.embeds[0].title, '🗳️ Vote ended');
   assert.match(edited.embeds[0].description, /\*\*Winner:\*\* B\n\*\*Ended:\*\* <t:\d+:f>$/);
   assert.ok(json(edited.components[0]).components.every(button => button.disabled));
   assert.equal((await castVote(w.client, GUILD, messageId, 'z', 0)).status, 'ended');
