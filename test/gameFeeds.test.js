@@ -188,16 +188,16 @@ test('ban log: emoji lines without labels, tags the player and staff, relative t
     discord: '132048835679420418', byDiscord: '155555555555555555', reason: 'Raid in a red zone', expiresAt: 1_900_000_000_000, time: 1_800_000_000_000 }));
   const lines = ban.description.split('\n');
   assert.deepEqual(lines.map(text => text.replace(/^(?:<a?:\w+:\d+>|\S+) /, '')), [
-    '<@132048835679420418>', '`nathanwh3344`', '<t:1800000000:R>', '<t:1900000000:R>', '<@155555555555555555>', 'Raid in a red zone', 'S1 · Tempban',
+    '<@132048835679420418>', '`nathanwh3344`', '<t:1800000000:R>', '<t:1900000000:R>', '<@155555555555555555>', 'Raid in a red zone', 'S1 · tempban',
   ]);
   assert.ok(lines.every(text => !/\*\*\w+:\*\*/.test(text)), 'no labels');
   assert.match(ban.title, /BAN$/);
   assert.equal(ban.footer.text, CLOUDY_FOOTER);
   const unban = buildGameFeedEmbed(normalizeGameFeedEvent({ type: 'ban', server: 'S1', action: 'unban', player: 'x', by: 'Staff', bannedAt: 1_700_000_000_000, time: 1_800_000_000_000 }));
   assert.deepEqual(unban.description.split('\n').map(text => text.replace(/^(?:<a?:\w+:\d+>|\S+) /, '')), [
-    '`x`', '<t:1700000000:R>', '<t:1800000000:R>', 'Staff', 'S1 · Unban',
+    '`x`', '<t:1700000000:R>', '<t:1800000000:R>', 'Staff', 'S1 · unban',
   ]);
   const permanent = buildGameFeedEmbed(normalizeGameFeedEvent({ type: 'ban', server: 'S1', player: 'y', discord: 'not-an-id' }));
-  assert.match(permanent.description, /Permanent\n.*S1 · Permanent$/s);
+  assert.match(permanent.description, /Permanent\n.*S1 · permanent$/s);
   assert.doesNotMatch(permanent.description, /<@/);
 });

@@ -171,7 +171,7 @@ export function buildGameFeedEmbed(event) {
       const until = banned
         ? (event.expiresAt ? `<t:${unix(event.expiresAt)}:R>` : event.duration || 'Permanent')
         : `<t:${unix(event.time)}:R>`;
-      const kind = banned ? (event.expiresAt || event.duration ? 'Tempban' : 'Permanent') : 'Unban';
+      const kind = banned ? (event.expiresAt || event.duration ? 'tempban' : 'permanent') : 'unban';
       return {
         title: banned ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
         description: [
@@ -257,7 +257,7 @@ export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
   { type: 'zorp', server: 'Darkzone South', state: 'on', player: 'Dyn' },
   { type: 'zorp', server: 'Darkzone South', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
   { type: 'raid', server: 'Darkzone South', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
-  { type: 'ban', server: 'Darkzone South', action: 'ban', player: 'Dyn', reason: 'Raid in a red zone', by: 'Dylano', expiresAt: Date.now() + 3 * 86_400_000 },
+  { type: 'ban', server: 'Darkzone South', action: 'ban', player: 'Dyn', reason: 'Exploit', by: 'Dylano', expiresAt: Date.now() + 3 * 86_400_000 },
   { type: 'ban', server: 'Darkzone South', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted', by: 'Dylano', bannedAt: Date.now() - 4 * 86_400_000 },
   { type: 'wipe', server: 'Darkzone South', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
