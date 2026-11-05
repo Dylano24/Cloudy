@@ -144,7 +144,7 @@ export function buildGameFeedEmbed(event) {
       return classicEmbed(event.action === 'join' ? `${feedEmoji('login')} LOGIN` : `${feedEmoji('logout')} LOGOUT`,
         event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', name(event.player)),
-          event.action === 'join' ? line('Platform', event.platform) : null, server,
+          event.platform ? line('Platform', feedEmoji(/xbox/i.test(event.platform) ? 'xbox' : 'console')) : null, server,
           line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
         ], event);
     case 'zorp':
@@ -229,7 +229,7 @@ export function enrichGameFeedEvent(event) {
 export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
   { type: 'pvp', server: 'Server 1', killer: 'Dyn', victim: 'Dylano', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
   { type: 'player', server: 'Server 1', action: 'join', player: 'Dylano', platform: 'Xbox Series' },
-  { type: 'player', server: 'Server 1', action: 'leave', player: 'Dyn' },
+  { type: 'player', server: 'Server 1', action: 'leave', player: 'Dyn', platform: 'PlayStation 5' },
   { type: 'player', server: 'Server 1', action: 'kit', player: 'Cloudy', kit: 'Full Kit AK' },
   { type: 'zorp', server: 'Server 1', state: 'on', player: 'Dyn' },
   { type: 'zorp', server: 'Server 1', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
