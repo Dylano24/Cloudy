@@ -27,6 +27,22 @@ export async function downloadVotePicture(attachment, index, fetchImpl = fetch) 
   return { image: `attachment://${name}`, file: { attachment: Buffer.from(await response.arrayBuffer()), name } };
 }
 
+// The media of a /vote (owner's choice): one picture (shown in the embed, a
+// click opens it in full size) or video (played under the vote). It is sent
+// again with the vote, so it never expires.
+export async function downloadVoteMedia(attachment, fetchImpl = fetch) {
+  const type = String(attachment.contentType || '');
+  const video = type.startsWith('video/');
+  if (!video && !type.startsWith('image/')) throw new Error('The media must be a picture or a video.');
+  if (attachment.size > MAX_PICTURE_BYTES) throw new Error('The media is larger than 10 MB.');
+  const response = await fetchImpl(attachment.url, { signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new Error('The media could not be downloaded.');
+  const extension = (String(attachment.name || '').match(/\.(png|jpe?g|gif|webp|mp4|mov|webm)$/i)?.[1]
+    || (video ? 'mp4' : 'png')).toLowerCase();
+  const name = `media.${extension}`;
+  return { image: video ? null : `attachment://${name}`, file: { attachment: Buffer.from(await response.arrayBuffer()), name } };
+}
+
 // All map pictures share this URL so Discord shows them together in one embed.
 export const GALLERY_URL = 'https://rustmaps.com';
 // Six pieces keep the bar, percentage and count on one line next to the logo.
@@ -94,7 +110,8 @@ export function buildVoteMessage(vote, now = Date.now()) {
   };
   // Pictures: embeds with the same URL are shown as one embed with small
   // pictures side by side; a click opens a picture in full size.
-  if (images.length) Object.assign(main, { url: GALLERY_URL, image: { url: images[0] } });
+  // One picture is simply the embed's picture; several share the gallery URL.
+  if (images.length) Object.assign(main, { image: { url: images[0] }, ...(images.length > 1 ? { url: GALLERY_URL } : {}) });
   return {
     embeds: [main, ...images.slice(1).map(image => ({ url: GALLERY_URL, image: { url: image } }))],
     components: rows,
