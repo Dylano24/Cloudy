@@ -59,6 +59,12 @@ const WEAPONS = [
 for (const [key, id, aliases] of WEAPONS) {
   BASE_EMOJIS[`w_${key}`] = { name: `rust_${key}`, unwhite: true, id, aliases, fallback: `<:rust_${key}:${id}>` };
 }
+// Flashy success-style numbers for the vote buttons (owner's choice). They are
+// made in this repo (assets/vote-emojis) and uploaded as application emojis;
+// until then the keycap emoji is used.
+['1️⃣', '2️⃣', '3️⃣'].forEach((keycap, index) => {
+  BASE_EMOJIS[`vote_${index + 1}`] = { name: `vote_${index + 1}_badge`, file: `../../assets/vote-emojis/vote_${index + 1}.gif`, fallback: keycap };
+});
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 
@@ -160,7 +166,9 @@ export async function ensureFeedEmojis(client) {
       if (accessible && !emoji.shrink && !emoji.crop && !emoji.unwhite) { resolved.set(key, markup(accessible)); continue; }
       let own = [...existing.values()].find(item => item.name === emoji.name);
       if (!own) {
-        let image = await download(emoji.id);
+        let image = emoji.file
+          ? await readFile(new URL(emoji.file, import.meta.url)).catch(() => null)
+          : await download(emoji.id);
         if (!image) continue;
         if (emoji.shrink) image = await shrinkEmojiImage(image).catch(() => image);
         if (emoji.crop) image = await cropEmojiImage(image, emoji.crop).catch(() => image);

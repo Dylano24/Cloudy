@@ -5,11 +5,16 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { feedEmoji } from './feedEmojiService.js';
 
 export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const VOTE_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 export const MAX_VOTE_OPTIONS = 10;
+// Numbers 1 to 3 are flashy custom emojis; the rest keep the keycaps.
+const numberIcon = index => (index < 3 ? feedEmoji(`vote_${index + 1}`) : VOTE_NUMBERS[index]);
+// All map pictures share this URL so Discord shows them together in one embed.
+export const GALLERY_URL = 'https://rustmaps.com';
 const BAR_LENGTH = 10;
 
 const votesKey = guildId => `guild:${guildId}:votes`;
@@ -35,7 +40,8 @@ export function buildVoteMessage(vote, now = Date.now()) {
   const lines = [`**${vote.question}**`, ''];
   vote.options.forEach((option, index) => {
     const share = total ? counts[index] / total : 0;
-    lines.push(`${VOTE_NUMBERS[index]} ${option}`);
+    lines.push(`${numberIcon(index)} ${vote.optionLinks?.[index] ? `[${option}](${vote.optionLinks[index]})` : option}`);
+    if (vote.optionNotes?.[index]) lines.push(vote.optionNotes[index]);
     lines.push(`\`${bar(share)}\` ${Math.round(share * 100)}% · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`);
   });
   lines.push('', `**Total votes:** ${total}`);
@@ -49,7 +55,7 @@ export function buildVoteMessage(vote, now = Date.now()) {
   }
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
     .setCustomId(`vote_cast:${index}`)
-    .setEmoji(VOTE_NUMBERS[index])
+    .setEmoji(numberIcon(index))
     .setLabel(option.slice(0, 80))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(Boolean(ended)));
@@ -57,14 +63,19 @@ export function buildVoteMessage(vote, now = Date.now()) {
   for (let start = 0; start < buttons.length; start += 5) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
+  const images = (vote.images || []).slice(0, 4);
+  const main = {
+    title: ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote'),
+    description: lines.join('\n').slice(0, 4096),
+    color: 0xFFFFFF,
+    thumbnail: { url: CLOUDY_C_LOGO_URL },
+    footer: { text: CLOUDY_FOOTER },
+  };
+  // Pictures: embeds with the same URL are shown as one embed with small
+  // pictures side by side; a click opens a picture in full size.
+  if (images.length) Object.assign(main, { url: GALLERY_URL, image: { url: images[0] } });
   return {
-    embeds: [{
-      title: ended ? 'Vote ended' : 'Vote',
-      description: lines.join('\n').slice(0, 4096),
-      color: 0xFFFFFF,
-      thumbnail: { url: CLOUDY_C_LOGO_URL },
-      footer: { text: CLOUDY_FOOTER },
-    }],
+    embeds: [main, ...images.slice(1).map(image => ({ url: GALLERY_URL, image: { url: image } }))],
     components: rows,
     allowedMentions: { parse: [] },
   };
