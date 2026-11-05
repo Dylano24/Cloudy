@@ -125,7 +125,7 @@ export function buildGameFeedEmbed(event) {
   switch (event.type) {
     case 'pvp':
       return classicEmbed('Player killed', CLOUDY_RED_COLOR, [
-        line('Killer', name(event.killer), 'killer'), line('Victim', name(event.victim), 'victim'), line('Weapon', event.weapon),
+        line('Killer', name(event.killer), 'killer'), line('Victim', name(event.victim), 'victim'), line('Weapon', event.weapon, 'weapon'),
         line('Distance', event.distance == null ? null : `${event.distance} m`, 'distance'),
         event.headshot ? line('Headshot', 'Yes', 'headshot') : null,
         event.streak > 1 ? line('Killstreak', `🔥 ${event.streak}`) : null, serverIcon,
