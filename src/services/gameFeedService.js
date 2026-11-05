@@ -110,14 +110,14 @@ export function buildGameFeedEmbed(event) {
   const server = line('Server', event.server);
   switch (event.type) {
     case 'pvp':
-      return feedEmbed('Player killed', CLOUDY_NEUTRAL_COLOR, [
+      return feedEmbed('Player killed', CLOUDY_RED_COLOR, [
         line('Killer', event.killer), line('Victim', event.victim), line('Weapon', event.weapon),
         line('Distance', event.distance == null ? null : `${event.distance} m`),
         event.headshot ? line('Headshot', 'Yes') : null, server,
       ], event.time);
     case 'player':
-      return feedEmbed(event.action === 'join' ? 'Player joined' : 'Player left',
-        event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_NEUTRAL_COLOR, [
+      return feedEmbed(event.action === 'join' ? 'Player online' : 'Player offline',
+        event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', event.player), server,
           line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
         ], event.time);
@@ -139,7 +139,7 @@ export function buildGameFeedEmbed(event) {
         ], event.time);
     default: {
       const soon = event.state === 'soon';
-      return feedEmbed(soon ? 'Wipe incoming' : 'Server wiped', soon ? CLOUDY_NEUTRAL_COLOR : CLOUDY_GREEN_COLOR, [
+      return feedEmbed(soon ? 'Wipe incoming' : 'Server wiped', CLOUDY_NEUTRAL_COLOR, [
         soon ? `**${event.server}** is about to wipe${event.at ? ` <t:${unix(event.at)}:R>` : ''}.`
           : `**${event.server}** just wiped.`,
         '',
