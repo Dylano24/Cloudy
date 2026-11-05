@@ -93,7 +93,8 @@ export function normalizeGameFeedEvent(raw) {
   if (!['soon', 'done'].includes(state)) fail('state must be soon or done');
   const kind = String(raw.kind || '').toLowerCase();
   return { ...base, state, at: moment(raw.at), map: text(raw.map, 60) || null,
-    kind: ['map', 'full'].includes(kind) ? kind : null, next: moment(raw.next) };
+    kind: ['map', 'full'].includes(kind) ? kind : null, next: moment(raw.next),
+    store: /^https:\/\/[^\s<>()\[\]]{4,200}$/.test(String(raw.store || '')) ? String(raw.store) : null };
 }
 
 // Player names are shown in a code block (owner's choice).
@@ -162,6 +163,23 @@ export function buildGameFeedEmbed(event) {
         ], event);
     default: {
       const soon = event.state === 'soon';
+      if (!soon) {
+        return classicEmbed('Server wiped', CLOUDY_NEUTRAL_COLOR, [
+          `**${event.server}** has just wiped!`,
+          '',
+          line('Wipe', event.kind === 'full' ? 'Full wipe' : event.kind === 'map' ? 'Map wipe' : null),
+          line('Map', event.map),
+          '',
+          '**How to play on this server?**',
+          '• Open the community tab in Rust',
+          `• Search for ${name(event.server)}`,
+          '',
+          '**Current wipe**',
+          `• **Start:** <t:${unix(event.time)}:f>`,
+          event.next ? `• **End:** <t:${unix(event.next)}:f>` : null,
+          event.store ? `\n**Store:** [Click here to view our packages](${event.store})` : null,
+        ], event);
+      }
       return classicEmbed(soon ? 'Wipe incoming' : 'Server wiped', CLOUDY_NEUTRAL_COLOR, [
         soon ? `**${event.server}** is about to wipe${event.at ? ` <t:${unix(event.at)}:R>` : ''}.`
           : `**${event.server}** just wiped.`,
