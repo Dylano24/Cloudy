@@ -11,11 +11,12 @@ export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const VOTE_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 export const MAX_VOTE_OPTIONS = 10;
-// Every number is a flashy green badge (owner's choice).
+// Every number is a custom digit emoji (owner's choice).
 const numberIcon = index => feedEmoji(`vote_${index + 1}`);
 // All map pictures share this URL so Discord shows them together in one embed.
 export const GALLERY_URL = 'https://rustmaps.com';
-const BAR_LENGTH = 10;
+// Six pieces keep the bar, percentage and count on one line next to the logo.
+const BAR_LENGTH = 6;
 
 const votesKey = guildId => `guild:${guildId}:votes`;
 const unix = ms => Math.floor(ms / 1000);
@@ -28,8 +29,7 @@ export function voteCounts(vote) {
   return counts;
 }
 
-// A green progress bar made of custom emoji pieces (rounded ends). Long votes
-// get a shorter bar so the embed stays within Discord's text limit.
+// A green progress bar made of custom emoji pieces (rounded ends).
 function bar(share, length) {
   const filled = Math.round(share * length);
   return Array.from({ length }, (_, index) => {
@@ -43,9 +43,10 @@ export function buildVoteMessage(vote, now = Date.now()) {
   const total = counts.reduce((sum, count) => sum + count, 0);
   const ended = vote.ended === true || (vote.endsAt && vote.endsAt <= now);
   const lines = [`**${vote.question}**`, ''];
-  const length = vote.options.length > 6 ? 6 : BAR_LENGTH;
+  const length = BAR_LENGTH;
   vote.options.forEach((option, index) => {
-    const share = total ? counts[index] / total : 0;
+    // Every vote is 1% (owner's choice), up to 100%.
+    const share = Math.min(100, counts[index]) / 100;
     const label = vote.optionLinks?.[index] ? `[${option}](${vote.optionLinks[index]})` : option;
     lines.push(`${numberIcon(index)} **${label}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`);
     lines.push(`${bar(share, length)} **${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`);
