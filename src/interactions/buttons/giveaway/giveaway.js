@@ -4,6 +4,8 @@ import {
   giveawayLeaveHandler,
   giveawayManageHandler,
   giveawayAdminHandler,
+  giveawayCountryPageHandler,
+  giveawayCountryTypeHandler,
   legacyGiveawayHandlers,
 } from '../../../handlers/giveawayButtons.js';
 
@@ -19,6 +21,8 @@ export default [
   giveawayLeaveHandler,
   giveawayManageHandler,
   giveawayAdminHandler,
+  giveawayCountryPageHandler,
+  giveawayCountryTypeHandler,
   {
     customId: 'gmanage_page',
     execute: (interaction, client, [requesterId, page, status]) =>
