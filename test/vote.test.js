@@ -138,43 +138,35 @@ test('every vote counts as 1%: 50 votes fill half the bar', () => {
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
 });
 
-test('an option with a picture gets a button that shows it privately for 30 seconds; no thread, no link', async t => {
+test('an option with a picture becomes a blue link to the picture on Discord; no buttons, no thread', async () => {
   const w = world();
+  const uploads = [];
   const deps = {
     fetchImpl: async url => ({ ok: true, arrayBuffer: async () => new TextEncoder().encode(url).buffer }),
-    storeMedia: async buffer => `https://cloudy.example/cloudy-embed-media/${Buffer.from(buffer).toString('hex').slice(-12)}.png`,
+    uploadPictures: async (client, guild, channel, files) => {
+      uploads.push(files.map(file => file?.name || null));
+      return {
+        links: files.map(file => (file ? `https://cdn.discordapp.com/attachments/1/2/${file.name}?ex=1` : null)),
+        media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
+      };
+    },
   };
   const west = { url: 'https://cdn.discordapp.com/a/west.png', name: 'west.png', contentType: 'image/png', size: 2000 };
-  const south = { url: 'https://cdn.discordapp.com/a/south.png', name: 'south.png', contentType: 'image/png', size: 2000 };
+  const south = { url: 'https://cdn.discordapp.com/a/south.jpg', name: 'south.jpg', contentType: 'image/jpeg', size: 2000 };
   const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East', option3: 'DZ South', duration: '1h' });
   run.options.getAttachment = name => ({ media1: west, media3: south }[name] || null);
   await vote.execute(run, deps);
+  assert.deepEqual(uploads, [['option1.png', null, 'option3.jpg']], 'each picture stays with its own option');
   const posted = w.sent[0];
-  assert.equal(posted.thread, undefined, 'no thread');
   const text = posted.embeds[0].description;
-  assert.doesNotMatch(text, /\]\(/, 'options stay plain white text');
+  assert.match(text, /\*\*\[DZ West\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*/);
+  assert.match(text, /\*\*DZ East\*\*/, 'no picture: plain white text');
+  assert.match(text, /\*\*\[DZ South\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option3\.jpg\?ex=1\)\*\*/);
+  assert.doesNotMatch(text, /railway|cloudy-embed-media/);
   assert.match(text, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\*/, 'empty line before the end');
-  assert.equal(posted.embeds[0].title, 'Vote');
-  const rows = posted.components.map(row => json(row).components);
-  assert.deepEqual(rows[1].map(button => [button.custom_id, button.label]), [['vote_media:0', 'DZ West'], ['vote_media:2', 'DZ South']]);
-  const stored = await loadVote(w.client, GUILD, posted.id);
-  assert.notEqual(stored.optionImages[0], stored.optionImages[2], 'each option keeps its own picture');
-  assert.equal(stored.optionImages[1], null);
-
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const click = { id: 'click-1', guildId: GUILD, message: { id: posted.id },
-    deferReply: async () => {}, editReply: async payload => { click.reply = payload; return { id: 'view' }; },
-    deleteReply: async () => { click.deleted = true; } };
-  await voteMedia.execute(click, w.client, ['2']);
-  assert.equal(click.reply.embeds[0].image.url, stored.optionImages[2]);
-  assert.equal(click.reply.embeds[0].title, undefined);
-  assert.equal(click.reply.embeds[0].thumbnail, undefined);
-  t.mock.timers.tick(29_000);
-  assert.equal(click.deleted, undefined);
-  t.mock.timers.tick(1_000);
-  await new Promise(resolve => { setImmediate(resolve); });
-  assert.equal(click.deleted, true, 'gone after 30 seconds');
-  t.mock.timers.reset();
+  assert.equal(posted.components.length, 1, 'only the vote buttons');
+  assert.equal(posted.thread, undefined, 'no thread on the vote');
+  assert.equal((await loadVote(w.client, GUILD, posted.id)).optionMedia.messageId, 'm1');
 
   const lonely = w.command({ question: 'Q', option1: 'A', option2: 'B' });
   lonely.options.getAttachment = name => (name === 'media3' ? west : null);
@@ -184,4 +176,29 @@ test('an option with a picture gets a button that shows it privately for 30 seco
   video.options.getAttachment = name => (name === 'media1' ? { ...west, contentType: 'video/mp4' } : null);
   await vote.execute(video, deps);
   assert.match(JSON.stringify(json(video.reply.embeds[0])), /must be a picture/);
+});
+
+test('Discord picture links of recent votes are renewed every 12 hours', async () => {
+  const { refreshVotePictureLinks } = await import('../src/services/voteService.js');
+  const w = world();
+  const now = Date.parse('2026-11-05T20:00:00Z');
+  const stored = {
+    messageId: '210000000000000000', channelId: CHANNEL, guildId: GUILD, question: 'Q', options: ['A', 'B'], votes: {},
+    optionLinks: ['https://cdn.discordapp.com/old/a.png?ex=1', null],
+    optionMedia: { channelId: 'thread', messageId: 'store', names: ['option1.png', null] },
+    mediaRefreshedAt: now - 13 * 60 * 60_000, createdAt: new Date(now - 60_000).toISOString(),
+  };
+  await w.client.db.set(`guild:${GUILD}:votes`, { [stored.messageId]: stored });
+  const edits = [];
+  w.client.guilds.cache.get(GUILD).channels.cache.get(CHANNEL).messages.fetch = async () => ({ edit: async payload => { edits.push(payload); } });
+  w.client.channels = { fetch: async () => ({ messages: { fetch: async () => ({
+    attachments: new Collection([['x', { name: 'option1.png', url: 'https://cdn.discordapp.com/new/a.png?ex=2' }]]),
+  }) } }) };
+  await refreshVotePictureLinks(w.client, now);
+  const after = await loadVote(w.client, GUILD, stored.messageId);
+  assert.deepEqual(after.optionLinks, ['https://cdn.discordapp.com/new/a.png?ex=2', null]);
+  assert.equal(after.mediaRefreshedAt, now);
+  assert.match(edits[0].embeds[0].description, /\[A\]\(https:\/\/cdn\.discordapp\.com\/new\/a\.png\?ex=2\)/);
+  await refreshVotePictureLinks(w.client, now + 60_000);
+  assert.equal(edits.length, 1, 'not again within 12 hours');
 });

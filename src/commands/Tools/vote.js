@@ -4,10 +4,11 @@ import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColor
 import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
 import { buildVoteMessage, saveVote } from '../../services/voteService.js';
-import { storeEmbedMediaBuffer } from '../../services/embedMediaStorageService.js';
+import { uploadVotePictures } from '../../services/voteMediaService.js';
 
 const VOTE_OPTIONS = 3;
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
+const EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 
 // Short replies disappear after exactly 10 seconds.
 function removeAfterTenSeconds(interaction) {
@@ -23,8 +24,8 @@ async function notice(interaction, embed) {
 // /vote (owner's choice, was /poll): a vote with buttons and live counts.
 export default {
   // Only what the owner wants (owner's choice): the question, three options,
-  // each followed by an optional picture (the option becomes a link to it, e.g.
-  // the map), and a duration. Discord lists required options first, so only
+  // each followed by an optional picture (the option becomes a blue link that
+  // opens it, e.g. the map), and a duration. Discord lists required options first, so only
   // the question and option 1 are required there; a second option is checked below.
   data: (() => {
     const command = new SlashCommandBuilder()
@@ -67,30 +68,37 @@ export default {
         return warn(error?.userMessage || 'Use a duration like 30m, 1h or 2d.');
       }
     }
-    // Each picture is stored as permanent Cloudy media. A link cannot open a
-    // private message in Discord, so every option with a picture gets a grey
-    // button under the vote that shows it privately for 30 seconds.
-    const store = dependencies.storeMedia || storeEmbedMediaBuffer;
+    // Pictures (owner's choice): uploaded to Discord, each option with a
+    // picture becomes a blue link that opens it (voteMediaService.js).
     const fetchImpl = dependencies.fetchImpl || fetch;
-    const optionImages = [];
+    const files = [];
     for (const [index, picture] of media.entries()) {
-      if (!picture) { optionImages.push(null); continue; }
+      if (!picture) { files.push(null); continue; }
       try {
-        if (!String(picture.contentType || '').startsWith('image/')) throw new Error(`Media ${index + 1} must be a picture.`);
+        const type = String(picture.contentType || '');
+        if (!type.startsWith('image/')) throw new Error(`Media ${index + 1} must be a picture.`);
         if (picture.size > MAX_MEDIA_BYTES) throw new Error(`Media ${index + 1} is larger than 10 MB.`);
         const response = await fetchImpl(picture.url, { signal: AbortSignal.timeout(30_000) });
         if (!response.ok) throw new Error(`Media ${index + 1} could not be downloaded.`);
-        const url = await store(Buffer.from(await response.arrayBuffer()));
-        if (!url) throw new Error('Media cannot be stored right now.');
-        optionImages.push(url);
+        const extension = EXTENSIONS[type.split(';')[0]]
+          || String(picture.name || '').match(/\.(png|jpe?g|gif|webp|heic|heif)$/i)?.[1]?.toLowerCase() || 'png';
+        files.push({ attachment: Buffer.from(await response.arrayBuffer()), name: `option${index + 1}.${extension}` });
       } catch (error) {
         return warn(error?.message || `Media ${index + 1} could not be added.`);
+      }
+    }
+    let pictures = null;
+    if (files.some(Boolean)) {
+      try {
+        pictures = await (dependencies.uploadPictures || uploadVotePictures)(interaction.client, interaction.guild, interaction.channel, files);
+      } catch (error) {
+        return warn(error?.message || 'The pictures could not be added.');
       }
     }
     const vote = {
       messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
       question, options, votes: {}, endsAt, ended: false,
-      ...(optionImages.some(Boolean) ? { optionImages } : {}),
+      ...(pictures ? { optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now() } : {}),
       createdBy: interaction.user.id, createdAt: new Date().toISOString(),
     };
     const message = await interaction.channel.send(buildVoteMessage(vote));
