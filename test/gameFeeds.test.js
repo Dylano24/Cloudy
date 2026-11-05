@@ -125,3 +125,25 @@ test('/gamefeed preview shows every feed embed privately; status lists the chann
   assert.match(status.embeds[0].description, /\*\*#wipe-feed:\*\* Not found/);
   assert.match(status.embeds[0].description, /\*\*Game server link:\*\* Not linked yet/);
 });
+
+test('the owner\'s feed channel IDs win over channel names', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const w = world();
+  const sent = [];
+  const ids = { kills: '1555124201688670269', players: '1555124202825191516', zorp: '1555124204008116274', raids: '1555124205391970395', bans: '1555124206495207445' };
+  for (const [name, id] of Object.entries(ids)) {
+    w.guild.channels.cache.set(id, { id, name: `renamed-${name}`, type: ChannelType.GuildText, isTextBased: () => true,
+      send: async payload => { sent.push({ id, payload }); return { id: 'm' }; } });
+  }
+  await postGameFeedEvents(w.client, [
+    { type: 'pvp', server: 'S1', killer: 'A', victim: 'B' },
+    { type: 'player', server: 'S1', action: 'join', player: 'A' },
+    { type: 'zorp', server: 'S1', state: 'on', player: 'A' },
+    { type: 'raid', server: 'S1', attacker: 'A' },
+    { type: 'ban', server: 'S1', player: 'A' },
+  ]);
+  t.mock.timers.tick(1_500);
+  await settle();
+  assert.deepEqual(sent.map(entry => entry.id).sort(), Object.values(ids).sort());
+  assert.equal(w.sent.length, 0, 'the channels found by name are not used');
+});
