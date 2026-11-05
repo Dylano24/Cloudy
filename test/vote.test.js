@@ -4,6 +4,11 @@ import { Collection } from 'discord.js';
 import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
 import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
+import { forgetVotePreviews, shrinkVotePicture, warmVotePreviews } from '../src/services/votePreviewService.js';
+import { spawnSync } from 'node:child_process';
+
+const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
+const keepAsIs = async (buffer, name) => ({ attachment: buffer, name });
 import { buildVoteMessage, castVote, endDueVotes, loadVote } from '../src/services/voteService.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 
@@ -85,7 +90,8 @@ async function create(w, values, { files = {}, deps = {} } = {}) {
   await vote.execute(run);
   assert.ok(run.modal, 'the media form opens after the command');
   const form = w.form(run, files);
-  await submitVoteForm(form, run.id, deps);
+  // The Preview copies are made in the background; tests that need them make them themselves.
+  await submitVoteForm(form, run.id, { warmPreviews: async () => {}, ...deps });
   return { run, form };
 }
 
@@ -416,7 +422,8 @@ test('Preview shows the picture privately under the vote with the option name, f
   const preview = click('p1');
   const fetched = [];
   const fetchImpl = async url => { fetched.push(url); return { ok: true, arrayBuffer: async () => new TextEncoder().encode('png').buffer }; };
-  await votePreview.execute(preview, w.client, ['1'], { fetchImpl });
+  forgetVotePreviews();
+  await votePreview.execute(preview, w.client, ['1'], { fetchImpl, shrink: keepAsIs });
   assert.equal(preview.answer.flags, 64, 'private');
   assert.equal(preview.deferred, undefined, 'answered in one step: no thinking reply that is filled in later');
   const embed = preview.answer.embeds[0];
@@ -434,7 +441,7 @@ test('Preview shows the picture privately under the vote with the option name, f
   assert.equal(preview.deleted, 1, 'gone after 30 seconds');
   assert.equal((await loadVote(w.client, GUILD, w.sent[0].id)).votes.member, undefined, 'a preview is not a vote');
   const again = click('p2');
-  await votePreview.execute(again, w.client, ['1'], { fetchImpl });
+  await votePreview.execute(again, w.client, ['1'], { fetchImpl, shrink: keepAsIs });
   assert.equal(fetched.length, 1, 'the second Preview uses the kept picture: instant');
   assert.equal(again.answer.files[0].name, 'option2.png');
   t.mock.timers.reset();
@@ -458,7 +465,8 @@ test('when the picture takes longer than 2 seconds, Preview is acknowledged firs
     deferReply: async () => { order.push('ack'); },
     editReply: async payload => { order.push('picture'); preview.edited = payload; },
     deleteReply: async () => {} };
-  const running = votePreview.execute(preview, w.client, ['0'], { fetchImpl });
+  forgetVotePreviews();
+  const running = votePreview.execute(preview, w.client, ['0'], { fetchImpl, shrink: keepAsIs });
   await new Promise(resolve => { setImmediate(resolve); });
   t.mock.timers.tick(2_000);
   await new Promise(resolve => { setImmediate(resolve); });
@@ -512,7 +520,63 @@ test('an expired picture link is renewed before the preview is shown', async () 
   const preview = { id: 'p4', guildId: GUILD, user: { id: 'member' }, message: { id: stored.messageId },
     reply: async payload => { preview.answer = payload; },
     deferReply: async () => {}, editReply: async () => {}, deleteReply: async () => {} };
-  await votePreview.execute(preview, w.client, ['0'], { fetchImpl });
+  forgetVotePreviews();
+  await votePreview.execute(preview, w.client, ['0'], { fetchImpl, shrink: keepAsIs });
   assert.deepEqual(fetched, ['https://cdn.discordapp.com/old/option1.png?ex=1', 'https://cdn.discordapp.com/new/option1.png?ex=2']);
   assert.equal(preview.answer.embeds[0].image.url, 'attachment://option1.png');
+});
+
+test('the small Preview copies are made when the vote is posted, so the first Preview needs no download', async () => {
+  forgetVotePreviews();
+  const w = world();
+  let warming;
+  const shrunk = [];
+  const deps = {
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
+    uploadPictures: async (client, guild, channel, files) => ({
+      links: files.map(file => (file ? `https://cdn.discordapp.com/attachments/9/9/${file.name}?ex=1` : null)),
+      media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
+    }),
+    warmPreviews: (messageId, files) => {
+      warming = warmVotePreviews(messageId, files, async (buffer, name) => {
+        shrunk.push(name);
+        return { attachment: Buffer.from('small'), name: name.replace(/\.\w+$/, '.jpg') };
+      });
+      return warming;
+    },
+  };
+  await create(w, { question: 'Map?', option1: 'A', option2: 'B' },
+    { files: { media2: { url: 'https://cdn.discordapp.com/a/b.png', name: 'b.png', contentType: 'image/png', size: 10 } }, deps });
+  await warming;
+  assert.deepEqual(shrunk, ['option2.png'], 'only options with a picture');
+  const fetched = [];
+  const preview = { id: 'p9', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id },
+    reply: async payload => { preview.answer = payload; }, deferReply: async () => {}, editReply: async () => {}, deleteReply: async () => {} };
+  await votePreview.execute(preview, w.client, ['1'], { fetchImpl: async url => { fetched.push(url); return { ok: false }; } });
+  assert.deepEqual(fetched, [], 'no download: the small copy was ready');
+  assert.equal(preview.answer.files[0].name, 'option2.jpg');
+  assert.equal(preview.answer.embeds[0].image.url, 'attachment://option2.jpg');
+});
+
+test('a big picture becomes a small JPG of at most 1024 px wide for Preview', { skip: !hasFfmpeg && 'ffmpeg is not installed' }, async () => {
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const directory = await mkdtemp(path.join(tmpdir(), 'vote-preview-test-'));
+  try {
+    const big = path.join(directory, 'big.png');
+    spawnSync('ffmpeg', ['-nostdin', '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=2400x1350', '-frames:v', '1', big]);
+    const original = await readFile(big);
+    const small = await shrinkVotePicture(original, 'option1.png');
+    assert.equal(small.name, 'option1.jpg');
+    assert.ok(small.attachment.length < original.length, 'smaller to send');
+    const probe = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', '-'], { input: small.attachment });
+    assert.equal(String(probe.stdout).trim(), '1024,576');
+    const gif = await shrinkVotePicture(Buffer.from('GIF89a'), 'option2.gif');
+    assert.equal(gif.name, 'option2.gif', 'GIFs keep the original');
+    const broken = await shrinkVotePicture(Buffer.from('not a picture'), 'option3.png');
+    assert.equal(broken.name, 'option3.png', 'unreadable pictures keep the original');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
