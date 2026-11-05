@@ -56,7 +56,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const posted = w.sent[0];
   const embed = posted.embeds[0];
   assert.equal(embed.title, '🗳️ Vote');
-  assert.match(embed.description, /^\*\*Next map\?\*\*\n\n1️⃣ \*\*Procedural\*\*\n▱{10} \*\*0%\*\* · 0 votes\n2️⃣ \*\*Barren\*\*\n/);
+  assert.match(embed.description, /^\*\*Next map\?\*\*\n\n1️⃣ \*\*Procedural\*\*\n▱{6} \*\*0%\*\* · 0 votes\n2️⃣ \*\*Barren\*\*\n/);
   assert.match(embed.description, /\*\*Total votes:\*\* 0\n\*\*Ends:\*\* <t:\d+:f> \(<t:\d+:R>\)$/);
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(embed.thumbnail.url);
@@ -76,7 +76,7 @@ test('one vote per member: change or remove it; counts show, voters do not', asy
   const removed = await castVote(w.client, GUILD, messageId, 'b', 1);
   assert.equal(removed.status, 'removed');
   const text = buildVoteMessage((await castVote(w.client, GUILD, messageId, 'c', 0)).vote).embeds[0].description;
-  assert.match(text, /1️⃣ \*\*Thursday\*\*\n▰{10} \*\*100%\*\* · 2 votes/);
+  assert.match(text, /1️⃣ \*\*Thursday\*\*\n▱{6} \*\*2%\*\* · 2 votes/);
   assert.match(text, /\*\*Total votes:\*\* 2/);
   assert.doesNotMatch(text, /<@/);
 });
@@ -93,7 +93,7 @@ test('a vote button answers first, refreshes the counts and shows a private noti
   };
   await voteButton.execute(click, w.client, ['1']);
   assert.equal(click.acked, true);
-  assert.match(click.edited.embeds[0].description, /2️⃣ \*\*B\*\*\n▰{10} \*\*100%\*\* · 1 vote/);
+  assert.match(click.edited.embeds[0].description, /2️⃣ \*\*B\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
   assert.equal(click.notice.flags, 64);
   assert.match(JSON.stringify(json(click.notice.embeds[0])), /You voted for \*\*B\*\*/);
 });
@@ -122,4 +122,10 @@ test('duplicate options and a bad duration are refused before anything is posted
   await vote.execute(bad);
   assert.match(JSON.stringify(json(bad.reply.embeds[0])), /Invalid duration|duration/i);
   assert.equal(w.sent.length, 0);
+});
+
+test('every vote counts as 1%: 50 votes fill half the bar', () => {
+  const vote = { question: 'Q', options: ['A', 'B'], votes: Object.fromEntries(Array.from({ length: 50 }, (_, n) => [`u${n}`, 0])) };
+  const text = buildVoteMessage(vote).embeds[0].description;
+  assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
 });
