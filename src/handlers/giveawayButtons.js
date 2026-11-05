@@ -25,13 +25,15 @@ import {
     leaveGiveaway,
     loadGiveaway,
     removeGiveaway,
+    refreshGiveawayMessage,
     rerollGiveaway,
     setGiveawayCode,
     setGiveawayTimer,
     setGiveawayText,
 } from '../services/giveawayActions.js';
 import {
-    giveawayCodeModal, giveawayCountryModal, readGiveawayCodeModal, readGiveawayCountryModal,
+    giveawayCodeModal, giveawayCountryModal, giveawayCountryPicker, readGiveawayCodeModal,
+    readGiveawayCountryModal, readGiveawayCountryPick,
 } from '../services/giveawayCodeService.js';
 
 const EPHEMERAL = MessageFlags.Ephemeral;
@@ -142,17 +144,55 @@ export const giveawayEnterHandler = {
     },
 };
 
+// The private country list closes after 5 minutes without a choice.
+export const COUNTRY_PICKER_LIFETIME_MS = 5 * 60_000;
+
 export const giveawayCountryModalHandler = {
     customId: 'giveaway_country',
     async execute(interaction, client) {
-        let country;
+        let search;
         try {
-            country = readGiveawayCountryModal(interaction);
+            search = readGiveawayCountryModal(interaction);
         } catch (error) {
             return onError(interaction, error, 'giveaway_country');
         }
-        // Submitted from the giveaway itself: the entry count updates in place.
-        return changeEntry(interaction, client, true, { country });
+        // One match: entered at once, the entry count updates in place.
+        if (search.matches.length === 1) return changeEntry(interaction, client, true, { country: search.matches[0] });
+        try {
+            await interaction.reply({ ...giveawayCountryPicker(interaction.message.id, search.query, search.matches), flags: EPHEMERAL });
+            const timer = setTimeout(() => { void interaction.deleteReply().catch(() => {}); }, COUNTRY_PICKER_LIFETIME_MS);
+            timer.unref?.();
+            return undefined;
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_country');
+        }
+    },
+};
+
+// giveaway_country_pick:<giveaway message ID>, from the private country list.
+export const giveawayCountryPickHandler = {
+    customId: 'giveaway_country_pick',
+    async execute(interaction, client, [messageId] = []) {
+        try {
+            if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
+            const country = readGiveawayCountryPick(interaction);
+            await interaction.deferUpdate();
+            const result = await enterGiveaway(client, interaction.guildId, messageId, interaction.user.id, { country });
+            const answer = {
+                missing: 'This giveaway is no longer active.',
+                ended: 'This giveaway has already ended.',
+                already: 'You have already entered this giveaway.',
+            }[result.status];
+            if (!answer) await refreshGiveawayMessage(client, interaction.guild, result.giveaway);
+            // The list itself turns into the 10-second notice.
+            await interaction.editReply({
+                embeds: [answer ? giveawayWarning(answer) : successEmbed('Success', 'You entered the giveaway.\n\nGood luck!')],
+                components: [],
+            });
+            return removeAfterTenSeconds(interaction);
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_country_pick');
+        }
     },
 };
 
@@ -323,8 +363,10 @@ export const giveawayCodeModalHandler = {
             await deferPrivate(interaction);
             await setGiveawayCode(client, interaction.guild, messageId, choice);
             return notice(interaction, successEmbed('Success', choice.codeType === 'none'
-                ? 'This giveaway has no code. Members choose their country when they enter.'
-                : 'Cloudy now generates a code for every winner of this giveaway.'));
+                ? 'This giveaway has no code. Members give their country when they enter.'
+                : choice.codeType === 'added'
+                    ? 'The codes were saved. Each winner gets the next unused code when they claim.'
+                    : 'Cloudy now generates a code for every winner of this giveaway.'));
         } catch (error) {
             return onError(interaction, error, 'giveaway_code');
         }

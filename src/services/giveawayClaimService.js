@@ -3,7 +3,6 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags,
   ModalBuilder, PermissionFlagsBits, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { Mutex } from '../utils/mutex.js';
@@ -14,7 +13,11 @@ import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPreview.js';
 import { sendGiveawayClaimLog, updateClosedClaimChannelLogs } from './giveawayClaimLogService.js';
-import { generateGiveawayCode, givesGeneratedCode, requiresCountry } from './giveawayCodeService.js';
+import {
+  generateGiveawayCode, givesGeneratedCode, hasGiveawayCodeKey, protectGiveawayCode, requiresCountry,
+  revealGiveawayCode, sealGiveawayCode, takeAddedCode, usesAddedCodes,
+} from './giveawayCodeService.js';
+import { saveGiveaway } from '../utils/giveaways.js';
 import { getOrCreateGiveawayNumber } from './giveawayNumberService.js';
 
 // One-time, targeted spacing correction for still-open private claim panels.
@@ -67,7 +70,6 @@ export const CLAIM_SUCCESS_NOTICE_MS = 10 * 60_000;
 export const CLAIM_DENIED_NOTICE_MS = 20_000;
 export const GIVEAWAY_CLAIM_CATEGORY_ID = '1566382220904763443';
 const WHITE = 0xFFFFFF;
-const CODE_KEY_ENV = 'GIVEAWAY_CLAIM_ENCRYPTION_KEY';
 const registryKey = guildId => 'guild:' + guildId + ':giveaway-claim:records';
 const claimId = (messageId, userId) => messageId + ':' + userId;
 const notice = (interaction, text) => interaction.editReply({ content: text, allowedMentions: { parse: [] } });
@@ -163,34 +165,10 @@ async function claimResultNotice(interaction, channelId = null, client = null, m
   entry.timer.unref?.();
 }
 
-function secretKey() {
-  const text = process.env[CODE_KEY_ENV] || '';
-  if (!/^[0-9a-fA-F]{64}$/.test(text)) return null;
-  return Buffer.from(text, 'hex');
-}
-
-function protect(code) {
-  const key = secretKey();
-  if (!key) return null;
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const ciphertext = Buffer.concat([cipher.update(code, 'utf8'), cipher.final()]);
-  return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), body: ciphertext.toString('base64') };
-}
-
-function reveal(encrypted) {
-  const key = secretKey();
-  if (!key || !encrypted?.iv || !encrypted?.tag || !encrypted?.body) return null;
-  try {
-    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(encrypted.iv, 'base64'));
-    decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
-    return Buffer.concat([
-      decipher.update(Buffer.from(encrypted.body, 'base64')), decipher.final(),
-    ]).toString('utf8');
-  } catch {
-    return null;
-  }
-}
+// Shared with the giveaway Code form (GIVEAWAY_CLAIM_ENCRYPTION_KEY).
+const secretKey = hasGiveawayCodeKey;
+const protect = protectGiveawayCode;
+const reveal = revealGiveawayCode;
 
 async function registry(client, guildId) {
   const value = unwrapReplitData(await client.db.get(registryKey(guildId), {}));
@@ -238,6 +216,16 @@ export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
     components: [new ActionRowBuilder().addComponents(...buttons)],
     allowedMentions: { parse: [], users: [userId] },
   };
+}
+
+// Runs inside the giveaway's own lock (Claim or Reveal). The same winner
+// always keeps the same added code.
+async function takeAddedGiveawayCode(client, guildId, giveaway, userId) {
+  const taken = takeAddedCode(giveaway, userId);
+  if (taken.changed && !await saveGiveaway(client, guildId, taken.giveaway)) {
+    throw new Error('Could not save the added giveaway code');
+  }
+  return taken.code;
 }
 
 async function openClaim(interaction, client, messageId) {
@@ -299,15 +287,16 @@ async function openClaim(interaction, client, messageId) {
         ] }] : []),
       ],
     });
-    // A website giveaway gives this winner a new CLOUDY- code, stored
-    // encrypted when the key is configured.
-    const generatedCode = givesGeneratedCode(giveaway) ? generateGiveawayCode(giveaway) : null;
-    const encryptedCode = generatedCode ? protect(generatedCode) : null;
+    // A website giveaway gives this winner a new CLOUDY- code, or the next
+    // unused code staff added; stored encrypted when the key is configured.
+    const prizeCode = givesGeneratedCode(giveaway) ? generateGiveawayCode(giveaway)
+      : usesAddedCodes(giveaway) ? await takeAddedGiveawayCode(client, guild.id, giveaway, userId) : null;
+    const sealed = prizeCode ? sealGiveawayCode(prizeCode) : { encryptedCode: null, code: null };
     const record = {
       messageId, userId, channelId: channel.id, createdAt: new Date().toISOString(),
       revealedAt: null, expiresAt: new Date(Date.now() + CLAIM_LIFETIME_MS).toISOString(),
-      encryptedCode, closedAt: null,
-      ...(generatedCode && !encryptedCode ? { code: generatedCode } : {}),
+      encryptedCode: sealed.encryptedCode, closedAt: null,
+      ...(sealed.code ? { code: sealed.code } : {}),
     };
     try {
       await saveClaim(client, guild.id, record);
@@ -394,12 +383,24 @@ async function revealClaimCode(interaction, client, messageId, userId) {
     if (requiresCountry(giveaway)) {
       return notice(interaction, 'This prize has no code. Our team will contact you in this channel.');
     }
-    // Generated without the encryption key: kept in the private claim record.
-    if (typeof record.code === 'string' && record.code) {
-      if (!record.revealedAt) {
-        await saveClaim(client, interaction.guildId, { ...record, revealedAt: new Date().toISOString() });
-      }
-      await notice(interaction, record.code);
+    // Without the encryption key the code is kept in the private claim record.
+    let code = typeof record.code === 'string' && record.code ? record.code : null;
+    // No added code was left when this winner opened the claim: staff may
+    // have added more since.
+    if (!code && usesAddedCodes(giveaway)) {
+      code = await Mutex.runExclusive('giveaway:' + messageId, async () => {
+        const current = await loadGiveaway(client, interaction.guildId, messageId);
+        return current ? takeAddedGiveawayCode(client, interaction.guildId, current, userId) : null;
+      });
+      if (!code) return notice(interaction, 'Your code is not ready yet. Our team will add it soon.');
+      await saveClaim(client, interaction.guildId, {
+        ...record, ...sealGiveawayCode(code), revealedAt: record.revealedAt || new Date().toISOString(),
+      });
+    } else if (code && !record.revealedAt) {
+      await saveClaim(client, interaction.guildId, { ...record, revealedAt: new Date().toISOString() });
+    }
+    if (code) {
+      await notice(interaction, code);
       logClaimAction(client, interaction.guild, {
         event: 'revealed', messageId, userId, claimChannelId: record.channelId, giveaway,
       });
