@@ -105,7 +105,7 @@ function duration(ms) {
   return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
 }
 
-const line = (label, value, emoji) => (value == null || value === '' ? null : `${emoji ? `${feedEmoji(emoji)} ` : ''}**${label}:** ${value}`);
+const line = (label, value, emoji) => (value == null || value === '' ? null : `**${label}:** ${emoji ? `${feedEmoji(emoji)} ` : ''}${value}`);
 
 // Classic feed layout (owner's choice): title, labelled lines with names in
 // code, Time, the big Cloudy logo and the footer with the small logo.
