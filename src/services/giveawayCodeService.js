@@ -3,12 +3,13 @@
 // or staff add their own existing codes) or has no code: then it is hosted
 // outside the website and members give their country when they enter.
 import {
-  ActionRowBuilder, LabelBuilder, ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, LabelBuilder, ModalBuilder, StringSelectMenuBuilder,
+  TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { createCipheriv, createDecipheriv, randomBytes, randomInt } from 'node:crypto';
 import { CloudyError, ErrorTypes } from '../utils/errorHandler.js';
 import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
-import { isGiveawayCountry, searchGiveawayCountries } from './giveawayCountries.js';
+import { GIVEAWAY_COUNTRY_NAMES, isGiveawayCountry, searchGiveawayCountries } from './giveawayCountries.js';
 
 export const GIVEAWAY_CODE_TYPES = Object.freeze({
   none: { label: 'No code', option: 'No code', description: 'Hosted outside the website: members give their country' },
@@ -204,8 +205,12 @@ export function readGiveawayCodeModal(interaction) {
   return { codeType, codeDiscount, addedCodes: null };
 }
 
-// Country: the member types it (in any common form) and Cloudy searches the
-// full English list. One match enters at once; several give a short list.
+// Country (owner's choice): a private list with every country, 25 per page
+// (Discord's limit), and "Type my country". What they type is searched in
+// the list; when it is not there, it is saved as typed.
+export const COUNTRY_PAGE_SIZE = 25;
+export const COUNTRY_PAGE_COUNT = Math.ceil(GIVEAWAY_COUNTRY_NAMES.length / COUNTRY_PAGE_SIZE);
+
 export function giveawayCountryModal(messageId) {
   return new ModalBuilder()
     .setCustomId(`giveaway_country:${messageId}`)
@@ -223,32 +228,69 @@ export function giveawayCountryModal(messageId) {
     );
 }
 
+const cleanCountry = value => String(value || '').replace(/[`*_~|<>@#\\]/g, '')
+  .replace(/\s+/g, ' ').trim().slice(0, 60);
+
+// { query, matches, country }: country is set when there is one answer (one
+// match, or no match at all: then the text as typed).
 export function readGiveawayCountryModal(interaction) {
-  const query = String(interaction.fields.getTextInputValue('country') || '').replace(/\s+/g, ' ').trim();
+  const query = cleanCountry(interaction.fields.getTextInputValue('country'));
+  if (query.length < 2) throw expectedError('Type your country.');
   const matches = searchGiveawayCountries(query);
-  if (!matches.length) {
-    const shown = query.replace(/[`*_~|<>@#\\]/g, '').slice(0, 60);
-    throw expectedError(`No country matches **${shown || 'that'}**. Type the country in English, for example Netherlands.`);
-  }
-  return { query, matches };
+  if (matches.length === 1) return { query, matches, country: matches[0] };
+  if (!matches.length) return { query, matches, country: query };
+  return { query, matches, country: null };
 }
 
-export function giveawayCountryPicker(messageId, query, matches) {
-  const shown = String(query || '').replace(/[`*_~|<>@#\\]/g, '').slice(0, 60);
+const pickerEmbed = description => ({
+  title: 'Choose your country',
+  description,
+  color: 0xFFFFFF,
+  thumbnail: { url: CLOUDY_C_LOGO_URL },
+  footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+});
+
+const countrySelect = (messageId, countries) => new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+  .setCustomId(`giveaway_country_pick:${messageId}`)
+  .setPlaceholder('Choose your country')
+  .setMinValues(1)
+  .setMaxValues(1)
+  .addOptions(countries.slice(0, COUNTRY_PAGE_SIZE).map(country => ({ label: country, value: country }))));
+
+const typeButton = messageId => new ButtonBuilder()
+  .setCustomId(`giveaway_country_type:${messageId}`).setLabel('Type my country').setStyle(ButtonStyle.Secondary);
+
+// One page of the full list, or (with matches) the countries that matched.
+export function giveawayCountryPicker(messageId, { page = 0, query = null, matches = null } = {}) {
+  if (matches?.length) {
+    const shown = cleanCountry(query);
+    return {
+      embeds: [pickerEmbed(`More than one country matches **${shown}**. Choose yours below.`)],
+      components: [
+        countrySelect(messageId, matches),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`giveaway_country_page:${messageId}:0`)
+            .setLabel('All countries').setStyle(ButtonStyle.Secondary),
+          typeButton(messageId),
+        ),
+      ],
+    };
+  }
+  const current = Math.max(0, Math.min(Number(page) || 0, COUNTRY_PAGE_COUNT - 1));
+  const countries = GIVEAWAY_COUNTRY_NAMES.slice(current * COUNTRY_PAGE_SIZE, (current + 1) * COUNTRY_PAGE_SIZE);
   return {
-    embeds: [{
-      title: 'Choose your country',
-      description: `More than one country matches **${shown}**. Choose yours below.`,
-      color: 0xFFFFFF,
-      thumbnail: { url: CLOUDY_C_LOGO_URL },
-      footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
-    }],
-    components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
-      .setCustomId(`giveaway_country_pick:${messageId}`)
-      .setPlaceholder('Choose your country')
-      .setMinValues(1)
-      .setMaxValues(1)
-      .addOptions(matches.slice(0, 25).map(country => ({ label: country, value: country }))))],
+    embeds: [pickerEmbed(`Choose the country you live in. Can't find it? Use **Type my country**.\n\n`
+      + `Page ${current + 1}/${COUNTRY_PAGE_COUNT} · ${countries[0]} to ${countries.at(-1)}`)],
+    components: [
+      countrySelect(messageId, countries),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`giveaway_country_page:${messageId}:${current - 1}`)
+          .setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(current === 0),
+        new ButtonBuilder().setCustomId(`giveaway_country_page:${messageId}:${current + 1}`)
+          .setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(current >= COUNTRY_PAGE_COUNT - 1),
+        typeButton(messageId),
+      ),
+    ],
   };
 }
 
