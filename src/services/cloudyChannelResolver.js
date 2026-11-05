@@ -64,6 +64,7 @@ const CHANNELS = Object.freeze({
   zorpUpdates: { aliases: ['zorp'] },
   raids: { aliases: ['raids'] },
   banFeed: { aliases: ['ban'] },
+  wipeFeed: { aliases: ['wipe-feed'] },
   botCommands: { aliases: ['bot-commands'] },
   banTimeoutAppeals: { legacyId: '1554538665068200039', aliases: ['ban-timeout-appeals'] },
   joinToCreate: { aliases: ['join-for-create-set-it-up', 'join-for-create-and-set-it-up'] },
