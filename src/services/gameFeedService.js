@@ -227,16 +227,16 @@ export function enrichGameFeedEvent(event) {
 
 // Example events, used by /gamefeed preview.
 export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
-  { type: 'pvp', server: 'Darkzone', killer: 'Dyn', victim: 'Dylano', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
-  { type: 'player', server: 'Darkzone', action: 'join', player: 'Dylano', platform: 'Xbox Series' },
-  { type: 'player', server: 'Darkzone', action: 'leave', player: 'Dyn', platform: 'PlayStation 5' },
-  { type: 'player', server: 'Darkzone', action: 'kit', player: 'Cloudy', kit: 'Full Kit AK' },
-  { type: 'zorp', server: 'Darkzone', state: 'on', player: 'Dyn' },
-  { type: 'zorp', server: 'Darkzone', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
-  { type: 'raid', server: 'Darkzone', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
-  { type: 'ban', server: 'Darkzone', action: 'ban', player: 'Dyn', reason: 'Cheating', duration: 'Permanent' },
-  { type: 'ban', server: 'Darkzone', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted' },
-  { type: 'wipe', server: 'Darkzone', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
+  { type: 'pvp', server: 'Darkzone South', killer: 'Dyn', victim: 'Dylano', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
+  { type: 'player', server: 'Darkzone South', action: 'join', player: 'Dylano', platform: 'Xbox Series' },
+  { type: 'player', server: 'Darkzone South', action: 'leave', player: 'Dyn', platform: 'PlayStation 5' },
+  { type: 'player', server: 'Darkzone South', action: 'kit', player: 'Cloudy', kit: 'Full Kit AK' },
+  { type: 'zorp', server: 'Darkzone South', state: 'on', player: 'Dyn' },
+  { type: 'zorp', server: 'Darkzone South', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
+  { type: 'raid', server: 'Darkzone South', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
+  { type: 'ban', server: 'Darkzone South', action: 'ban', player: 'Dyn', reason: 'Cheating', duration: 'Permanent' },
+  { type: 'ban', server: 'Darkzone South', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted' },
+  { type: 'wipe', server: 'Darkzone South', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
 // Embeds go out per channel in batches (up to 10 per message), so a busy
