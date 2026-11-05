@@ -71,7 +71,7 @@ test('status board: online servers with players, queue, map and next wipe; silen
   assert.match(embed.description, /^<a:glowing_dot_green:1567760480439771286> \*\*Server 1 Rust\*\* Online\n<:W87205667glowingdotwhite:\d+> \*\*Players:\*\* 87\/150\n<:W87205667glowingdotwhite:\d+> \*\*Queue:\*\* 3\n<:W87205667glowingdotwhite:\d+> \*\*Map:\*\* Procedural 4000\n<:W87205667glowingdotwhite:\d+> \*\*Next wipe:\*\* <t:\d+:R>\n\n<:W8733476glowingdotred:1543291468377104436> \*\*Server 2 Rust\*\* Offline\n\n\*\*Last update:\*\* <t:\d+:R>$/);
   const population = buildPopulationBoard(state, now);
   assert.equal(population.title, 'Population');
-  assert.match(population.description, /\*\*Server 1 Rust\*\*\n<a:server_router:1567766741889585203> 87\/150 · Queue 3\n\n\*\*Server 2 Rust\*\*\nOffline\n\n\*\*Total online:\*\* 87$/);
+  assert.match(population.description, /\*\*Server 1 Rust\*\*\n<a:glowing_dot_green:1567760480439771286> 87\/150\n\n\*\*Server 2 Rust\*\*\n<:W8733476glowingdotred:1543291468377104436> Offline\n\n\*\*Total online:\*\* 87$/);
   for (const item of [embed, population]) {
     assert.ok(item.thumbnail.url);
     assert.equal(item.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
@@ -95,14 +95,17 @@ test('status events post one board per channel, the population board through the
   ]);
   assert.deepEqual(result, { accepted: 2, rejected: [] });
   t.mock.timers.tick(1_000);
-  await until(() => w.hooks[0]?.sends.length === 1 && w.posts.some(post => post.channel === '📊│server-status'));
+  await until(() => w.hooks[0]?.sends.length === 2 && w.posts.some(post => post.channel === '📊│server-status'));
   const status = w.posts.filter(post => post.channel === '📊│server-status');
   assert.equal(status.length, 1);
   assert.match(status[0].message.payload.embeds[0].description, /<a:glowing_dot_green:1567760480439771286> \*\*Server 1 Rust\*\*/);
   assert.equal(w.hooks.length, 1);
   assert.equal(w.hooks[0].name, POPULATION_WEBHOOK_NAME);
   assert.ok(Buffer.isBuffer(w.hooks[0].options.avatar), 'still Cloudy logo as avatar');
-  assert.equal(w.hooks[0].sends.length, 1);
+  assert.deepEqual(w.hooks[0].sends.map(send => [send.username, send.content]), [
+    ['Server 1 Rust', '<a:glowing_dot_green:1567760480439771286> 80/150'],
+    ['Server 2 Rust', '<:W8733476glowingdotred:1543291468377104436> Offline'],
+  ]);
 
   // A later update edits the same messages, at most every 30 seconds.
   await postGameFeedEvents(w.client, [{ type: 'status', server: 'Server 1 Rust', online: true, players: 90, max: 150 }]);
@@ -114,8 +117,8 @@ test('status events post one board per channel, the population board through the
   assert.equal(w.posts.filter(post => post.channel === '📊│server-status').length, 1);
   assert.match(status[0].message.edits.at(-1).embeds[0].description, /90\/150/);
   assert.equal(w.hooks.length, 1);
-  assert.equal(w.hooks[0].sends.length, 1);
-  assert.match(w.hooks[0].edits.at(-1).payload.embeds[0].description, /90\/150/);
+  assert.equal(w.hooks[0].sends.length, 2);
+  assert.ok(w.hooks[0].edits.some(edit => /90\/150/.test(edit.payload.content)), 'the Server 1 Rust message shows 90/150');
   assert.deepEqual((await postGameFeedEvents(w.client, [{ type: 'status', server: 'S1' }])).rejected,
     [{ index: 0, error: 'online must be true or false' }]);
 });

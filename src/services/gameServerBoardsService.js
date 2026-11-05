@@ -74,14 +74,21 @@ export function buildStatusBoard(state, now = Date.now()) {
   ].join('\n'));
 }
 
+// The live #population channel has one webhook message per server, named after
+// the server, showing only "<dot> 87/100" (owner's choice). The preview board
+// below shows the same lines in one embed.
+function populationLine(server, now) {
+  if (!isOnline(server, now)) return `${feedEmoji('offline')} Offline`;
+  return `${feedEmoji('online')} ${server.players ?? 0}${server.max ? `/${server.max}` : ''}`;
+}
+
 export function buildPopulationBoard(state, now = Date.now()) {
   const servers = sortedServers(state);
   let total = 0;
   const blocks = servers.map(([name, server]) => {
-    if (!isOnline(server, now)) return `**${name}**\nOffline`;
-    const players = server.players ?? 0;
-    total += players;
-    return `**${name}**\n${feedEmoji('server')} ${players}${server.max ? `/${server.max}` : ''}${server.queue ? ` · Queue ${server.queue}` : ''}`;
+    const line = populationLine(server, now);
+    if (isOnline(server, now)) total += server.players ?? 0;
+    return `**${name}**\n${line}`;
   });
   return board('Population', [
     blocks.length ? blocks.join('\n\n') : 'No servers yet.',
@@ -179,25 +186,53 @@ async function populationWebhook(client, channel) {
 
 const BUILDERS = { status: buildStatusBoard, population: buildPopulationBoard, leaderboard: buildLeaderboard };
 
+// One message per server, sent by the Cloudy Population webhook under the server's name.
+async function renderPopulation(client, guild, channel) {
+  const state = await readState(client, guild.id);
+  const hook = await populationWebhook(client, channel);
+  const now = Date.now();
+  const ids = { ...(state.messages.populationServers || {}) };
+  for (const [serverName, server] of sortedServers(state)) {
+    const content = populationLine(server, now);
+    const payload = { content, allowedMentions: { parse: [] } };
+    if (ids[serverName]) {
+      try {
+        await hook.editMessage(ids[serverName], payload);
+        continue;
+      } catch (error) {
+        // 10008: the message was removed; post it again below.
+        if (error?.code !== 10008) throw error;
+      }
+    }
+    ids[serverName] = (await hook.send({ ...payload, username: serverName.slice(0, 80) })).id;
+  }
+  // The old single Population embed is replaced by the per-server messages.
+  const oldId = state.messages.population;
+  if (oldId) await channel.messages?.delete?.(oldId).catch(() => {});
+  await updateState(client, guild.id, next => {
+    next.messages.populationServers = ids;
+    delete next.messages.population;
+  });
+}
+
 async function renderBoard(client, guild, name) {
   const definition = getCloudyChannelDefinition(BOARD_CHANNELS[name].key);
   const channel = findCloudyChannelByAlias(guild, definition?.aliases || [], { textOnly: true });
   if (!channel?.send) return;
+  if (name === 'population') return renderPopulation(client, guild, channel);
   const state = await readState(client, guild.id);
   const payload = { embeds: [BUILDERS[name](state)], allowedMentions: { parse: [] } };
   const messageId = state.messages[name];
-  const hook = name === 'population' ? await populationWebhook(client, channel) : null;
   if (messageId) {
     try {
-      if (hook) await hook.editMessage(messageId, payload);
-      else await (await channel.messages.fetch(messageId)).edit(payload);
+      await (await channel.messages.fetch(messageId)).edit(payload);
       return;
     } catch (error) {
       // 10008: the board was removed; post it again below.
       if (error?.code !== 10008) throw error;
     }
   }
-  const sent = hook ? await hook.send(payload) : await channel.send(payload);
+  const sent = await channel.send(payload);
   await updateState(client, guild.id, next => { next.messages[name] = sent.id; });
 }
 
