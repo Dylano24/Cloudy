@@ -172,8 +172,8 @@ export function buildGameFeedEmbed(event) {
         return classicEmbed('Server wiped', CLOUDY_NEUTRAL_COLOR, [
           `**${event.server}** has just wiped!`,
           '',
-          line('Wipe', event.kind === 'full' ? 'Full wipe' : event.kind === 'map' ? 'Map wipe' : null),
-          line('Map', event.map),
+          ...[line('Wipe', event.kind === 'full' ? 'Full wipe' : event.kind === 'map' ? 'Map wipe' : null),
+            line('Map', event.map)].map(entry => (entry ? `${dot} ${entry}` : null)),
           '',
           '**How to play on this server?**',
           SMALL_GAP,
