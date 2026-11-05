@@ -95,12 +95,8 @@ export function normalizeGameFeedEvent(raw) {
     kind: ['map', 'full'].includes(kind) ? kind : null, next: moment(raw.next) };
 }
 
-// Compact feed posts (owner's choice, like the KAOSBOT feeds): one or two
-// short lines, names in a code block, the small Cloudy logo beside the footer
-// "© Cloudy Inc. • <server> • <feed>" and Discord's own time.
-export const FEED_TAGS = Object.freeze({ pvp: 'kill', player: 'player', zorp: 'zorp', raid: 'raid', ban: 'ban', wipe: 'wipe' });
+// Player names are shown in a code block (owner's choice).
 const name = value => `\`${value}\``;
-const unixDay = ms => `<t:${unix(ms)}:D>`;
 
 function duration(ms) {
   const minutes = Math.max(1, Math.round(ms / 60_000));
@@ -108,56 +104,70 @@ function duration(ms) {
   return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
 }
 
-function feedEmbed(type, color, lines, event) {
+const line = (label, value) => (value == null || value === '' ? null : `**${label}:** ${value}`);
+
+// Classic feed layout (owner's choice): title, labelled lines with names in
+// code, Time, the big Cloudy logo and the footer with the small logo.
+function classicEmbed(title, color, lines, event) {
   return {
-    description: lines.filter(entry => entry != null && entry !== '').join('\n'),
+    title,
+    description: [...lines, line('Time', `<t:${unix(event.time)}:f>`)].filter(entry => entry != null).join('\n'),
     color,
-    footer: { text: `© Cloudy Inc. • ${event.server} • ${FEED_TAGS[type]}`, icon_url: CLOUDY_C_LOGO_URL },
-    timestamp: new Date(event.time).toISOString(),
+    thumbnail: { url: CLOUDY_C_LOGO_URL },
+    footer: { text: CLOUDY_FOOTER, icon_url: CLOUDY_C_LOGO_URL },
   };
 }
 
 export function buildGameFeedEmbed(event) {
+  const server = line('Server', event.server);
   switch (event.type) {
-    case 'pvp': {
-      const details = [event.weapon, event.distance == null ? null : `${event.distance} m`, event.headshot ? '🎯 Headshot' : null]
-        .filter(Boolean).join(' · ');
-      return feedEmbed('pvp', CLOUDY_RED_COLOR, [
-        `${event.firstBlood ? '🩸 **FIRST BLOOD** · ' : ''}${name(event.killer)}  💀  ${name(event.victim)}${event.streak > 1 ? `  🎯 ${event.streak}` : ''}`,
-        details || null,
+    case 'pvp':
+      return classicEmbed(event.firstBlood ? '🩸 First blood' : 'Player killed', CLOUDY_RED_COLOR, [
+        line('Killer', name(event.killer)), line('Victim', name(event.victim)), line('Weapon', event.weapon),
+        line('Distance', event.distance == null ? null : `${event.distance} m`),
+        event.headshot ? line('Headshot', 'Yes') : null,
+        event.streak > 1 ? line('Killstreak', `🎯 ${event.streak}`) : null, server,
       ], event);
-    }
     case 'player':
       if (event.action === 'kit') {
-        return feedEmbed('player', CLOUDY_NEUTRAL_COLOR, [`**[KIT]** ${name(event.player)} **[${event.kit}]**`], event);
+        return classicEmbed('Kit claimed', CLOUDY_NEUTRAL_COLOR, [
+          line('Player', name(event.player)), line('Kit', event.kit), server,
+        ], event);
       }
-      return feedEmbed('player', event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
-        event.action === 'join'
-          ? `**[LOGIN]** ${name(event.player)}${event.platform ? ` **[${event.platform}]**` : ''}`
-          : `**[LOGOUT]** ${name(event.player)}`,
-      ], event);
+      return classicEmbed(event.action === 'join' ? 'Player login' : 'Player logout',
+        event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
+          line('Player', name(event.player)), event.action === 'join' ? line('Platform', event.platform) : null, server,
+          line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
+        ], event);
     case 'zorp':
-      return feedEmbed('zorp', event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
-        event.state === 'on'
-          ? `🟢⚔️ ${name(event.player)}`
-          : `🔴🛡️ ${name(event.player)}${event.protectedFor ? ` · offline protected ${duration(event.protectedFor)}` : ''}`,
-      ], event);
+      return classicEmbed(event.state === 'on' ? 'ZORP protection on' : 'ZORP protection off',
+        event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
+          line('Player', name(event.player)),
+          event.state === 'off' && event.protectedFor ? line('Protected for', duration(event.protectedFor)) : null, server,
+        ], event);
     case 'raid':
-      return feedEmbed('raid', CLOUDY_RED_COLOR, [
-        `💣 ${name(event.attacker)}${event.target ? ` ➜ ${name(event.target)}'s base` : ''}${event.item ? ` · ${event.item}` : ''}`,
+      return classicEmbed('Raid alert', CLOUDY_RED_COLOR, [
+        line('Raider', name(event.attacker)), line('Target', event.target ? name(event.target) : null),
+        line('Used', event.item), server,
       ], event);
     case 'ban':
-      return feedEmbed('ban', event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
-        event.action === 'ban'
-          ? [`**[BAN]** ${name(event.player)}`, event.reason, event.duration || 'Permanent'].filter(Boolean).join(' · ')
-          : [`**[UNBAN]** ${name(event.player)}`, event.reason].filter(Boolean).join(' · '),
-      ], event);
+      return classicEmbed(event.action === 'ban' ? 'Player banned' : 'Player unbanned',
+        event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
+          line('Player', name(event.player)), line('Reason', event.reason),
+          event.action === 'ban' ? line('Duration', event.duration || 'Permanent') : null,
+          line('By', event.by), server,
+        ], event);
     default: {
-      const kind = event.kind === 'full' ? 'Full wipe' : event.kind === 'map' ? 'Map wipe' : null;
-      return feedEmbed('wipe', CLOUDY_NEUTRAL_COLOR, event.state === 'soon'
-        ? [`⏳ **${event.server}** wipes${event.at ? ` <t:${unix(event.at)}:R>` : ' soon'}${kind ? ` · ${kind}` : ''}`]
-        : [`🧹 **${event.server}** just wiped${event.map ? ` · ${event.map}` : ''}`,
-          event.next ? `Next wipe: ${unixDay(event.next)}` : null], event);
+      const soon = event.state === 'soon';
+      return classicEmbed(soon ? 'Wipe incoming' : 'Server wiped', CLOUDY_NEUTRAL_COLOR, [
+        soon ? `**${event.server}** is about to wipe${event.at ? ` <t:${unix(event.at)}:R>` : ''}.`
+          : `**${event.server}** just wiped.`,
+        '',
+        line('Wipe', event.kind === 'full' ? 'Full wipe' : event.kind === 'map' ? 'Map wipe' : null),
+        line('Map', event.map),
+        soon && event.at ? line('Wipe time', `<t:${unix(event.at)}:f>`) : null,
+        line('Next wipe', event.next ? `<t:${unix(event.next)}:f>` : null),
+      ], event);
     }
   }
 }
@@ -202,7 +212,7 @@ export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
   { type: 'zorp', server: 'Server 1', state: 'off', player: 'Dawg', protectedFor: 8_040_000 },
   { type: 'raid', server: 'Server 1', attacker: 'Mindzset', target: 'Dawg', item: 'Rocket' },
   { type: 'ban', server: 'Server 1', action: 'ban', player: 'Cheater123', reason: 'Cheating', duration: 'Permanent' },
-  { type: 'wipe', server: 'Server 1 Rust', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
+  { type: 'wipe', server: 'Server 1', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
 // Embeds go out per channel in batches (up to 10 per message), so a busy
