@@ -12,9 +12,7 @@ import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyCh
 
 const LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-const ONLINE_DOT = '<a:glowing_dot_green:1567760480439771286>';
-const OFFLINE_DOT = '<:W8733476glowingdotred:1543291468377104436>';
-const SERVER_ICON = '<a:server_router:1567766741889585203>';
+import { feedEmoji } from './feedEmojiService.js';
 export const POPULATION_WEBHOOK_NAME = 'Cloudy Population';
 export const OFFLINE_AFTER_MS = 5 * 60_000;
 export const BOARD_EDIT_INTERVAL_MS = 30_000;
@@ -63,7 +61,7 @@ export function buildStatusBoard(state, now = Date.now()) {
       ? [`Online · ${server.players ?? 0}${server.max ? `/${server.max}` : ''} players${server.queue ? ` · Queue ${server.queue}` : ''}`,
         [server.map ? `Map: ${server.map}` : null, server.nextWipe ? `Next wipe <t:${unix(server.nextWipe)}:R>` : null].filter(Boolean).join(' · ')]
       : ['Offline'];
-    return [`${online ? ONLINE_DOT : OFFLINE_DOT} **${name}**`, ...details.filter(Boolean)].join('\n');
+    return [`${feedEmoji(online ? 'online' : 'offline')} **${name}**`, ...details.filter(Boolean)].join('\n');
   });
   const updated = Math.max(0, ...servers.map(([, server]) => server.updatedAt || 0));
   return board('Server status', [
@@ -79,7 +77,7 @@ export function buildPopulationBoard(state, now = Date.now()) {
     if (!isOnline(server, now)) return `**${name}**\nOffline`;
     const players = server.players ?? 0;
     total += players;
-    return `**${name}**\n${SERVER_ICON} ${players}${server.max ? `/${server.max}` : ''}${server.queue ? ` · Queue ${server.queue}` : ''}`;
+    return `**${name}**\n${feedEmoji('server')} ${players}${server.max ? `/${server.max}` : ''}${server.queue ? ` · Queue ${server.queue}` : ''}`;
   });
   return board('Population', [
     blocks.length ? blocks.join('\n\n') : 'No servers yet.',
