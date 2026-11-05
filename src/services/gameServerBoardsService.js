@@ -58,11 +58,12 @@ export function buildStatusBoard(state, now = Date.now()) {
   const blocks = servers.map(([name, server]) => {
     const online = isOnline(server, now);
     // Status next to the name, then one line each (owner's choice).
+    const dot = `${feedEmoji('dot')} `;
     const details = online
-      ? [`**Players:** ${server.players ?? 0}${server.max ? `/${server.max}` : ''}`,
-        server.queue != null ? `**Queue:** ${server.queue}` : null,
-        server.map ? `**Map:** ${server.map}` : null,
-        server.nextWipe ? `**Next wipe:** <t:${unix(server.nextWipe)}:R>` : null]
+      ? [`${dot}**Players:** ${server.players ?? 0}${server.max ? `/${server.max}` : ''}`,
+        server.queue != null ? `${dot}**Queue:** ${server.queue}` : null,
+        server.map ? `${dot}**Map:** ${server.map}` : null,
+        server.nextWipe ? `${dot}**Next wipe:** <t:${unix(server.nextWipe)}:R>` : null]
       : [];
     return [`${feedEmoji(online ? 'online' : 'offline')} **${name}** ${online ? 'Online' : 'Offline'}`, ...details.filter(Boolean)].join('\n');
   });
