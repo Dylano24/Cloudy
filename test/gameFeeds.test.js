@@ -39,7 +39,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
     'Player killed', 'LOGIN', 'LOGOUT', 'Kit claimed',
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
-  assert.match(embeds[0].description, /^\*\*Killer:\*\* <:killer:\d+> `Dyn`\n\*\*Victim:\*\* <:victim:\d+> `Dylano`\n\*\*Weapon:\*\* <:X83rust4ar:\d+> Assault rifle\n\*\*Distance:\*\* <:distance:\d+> 145 m\n\*\*Headshot:\*\* <:headshot:\d+> Yes\n\*\*Killstreak:\*\* 🔥 3\n\*\*Server:\*\* <a?:server_router:\d+> Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* <:killer:\d+> `Dyn`\n\*\*Victim:\*\* <:victim:\d+> `Dylano`\n\*\*Weapon:\*\* <:X83rust4ar:\d+> Assault rifle\n\*\*Distance:\*\* <:distance:\d+> 145 m\n\*\*Headshot:\*\* <:headshot:\d+>\n\*\*Killstreak:\*\* 🔥 3\n\*\*Server:\*\* <a?:server_router:\d+> Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
   assert.match(embeds[1].description, /^`Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+> Xbox Series/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
   assert.match(embeds[5].description, /\*\*Protected for:\*\* 2h 14m/);
