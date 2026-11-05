@@ -6,6 +6,7 @@
 import { logger } from '../utils/logger.js';
 import { CLOUDY_GREEN_COLOR, CLOUDY_NEUTRAL_COLOR, CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyChannelResolver.js';
+import { recordKill, recordServerStatus, resetLeaderboard } from './gameServerBoardsService.js';
 
 export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -51,8 +52,14 @@ const unix = ms => Math.floor(ms / 1000);
 export function normalizeGameFeedEvent(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('event must be an object');
   const type = String(raw.type || '').toLowerCase();
-  if (!Object.hasOwn(GAME_FEED_CHANNELS, type)) fail(`unknown type ${text(type, 20) || '(empty)'}`);
+  if (!Object.hasOwn(GAME_FEED_CHANNELS, type) && type !== 'status') fail(`unknown type ${text(type, 20) || '(empty)'}`);
   const base = { type, server: required(raw.server, 'server', 60), time: moment(raw.time) || Date.now() };
+  // status: no feed post; it updates #server-status and #population.
+  if (type === 'status') {
+    if (typeof raw.online !== 'boolean') fail('online must be true or false');
+    return { ...base, online: raw.online, players: whole(raw.players, 0, 10_000), max: whole(raw.max, 0, 10_000),
+      queue: whole(raw.queue, 0, 10_000), map: text(raw.map, 60) || null, nextWipe: moment(raw.nextWipe) };
+  }
   if (type === 'pvp') {
     return { ...base, killer: required(raw.killer, 'killer', 60), victim: required(raw.victim, 'victim', 60),
       weapon: text(raw.weapon, 60) || null, distance: whole(raw.distance, 0, 10_000),
@@ -218,10 +225,20 @@ export async function postGameFeedEvents(client, rawEvents) {
   for (const [index, raw] of events.entries()) {
     try {
       const event = normalizeGameFeedEvent(raw);
+      const guild = await primaryGuild(client);
+      if (event.type === 'status') {
+        if (!guild) fail('server not found');
+        await recordServerStatus(client, guild, event);
+        accepted += 1;
+        continue;
+      }
       const channel = channels[event.type];
       if (!channel?.send) fail(`${GAME_FEED_CHANNELS[event.type].name} channel not found`);
       enqueue(channel, buildGameFeedEmbed(event));
       accepted += 1;
+      // The leaderboard counts kills and starts again after a wipe.
+      if (event.type === 'pvp') await recordKill(client, guild, event);
+      if (event.type === 'wipe' && event.state === 'done') await resetLeaderboard(client, guild, event.server);
     } catch (error) {
       rejected.push({ index, error: error instanceof GameFeedError ? error.message : 'could not be posted' });
     }
