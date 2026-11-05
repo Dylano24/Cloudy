@@ -12,8 +12,8 @@ const FEED_EMOJIS = Object.freeze({
   offline: { name: 'W8733476glowingdotred', id: '1543291468377104436', fallback: '<:W8733476glowingdotred:1543291468377104436>' },
   server: { name: 'server_router', id: '1567766741889585203', fallback: '<a:server_router:1567766741889585203>' },
   headshot: { name: 'headshot', id: '1567810194564583454', fallback: '<:headshot:1567810194564583454>' },
-  login: { name: 'cloudy_arrow_green_xl', crop: '52:72:38:28', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
-  logout: { name: 'cloudy_arrow_red_xl', crop: '52:72:38:28', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
+  login: { name: 'cloudy_arrow_green_v3', crop: '52:72:38:24', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
+  logout: { name: 'cloudy_arrow_red_v3', crop: '52:72:38:24', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
   weapon: { name: 'X83rust4ar', id: '1543286149630656592', fallback: '<:X83rust4ar:1543286149630656592>' },
   killer: { name: 'killer', id: '1567842334668886046', fallback: '<:killer:1567842334668886046>' },
   victim: { name: 'victim', id: '1567845116377440396', fallback: '<:victim:1567845116377440396>' },
@@ -51,6 +51,10 @@ async function shrinkEmojiImage(buffer) {
   }
 }
 
+// The arrows carry a dark copy of themselves behind them. Near-black and dark
+// grey pixels are made transparent so only the coloured arrow stays.
+const REMOVE_DARK_SHADOW = "format=gbrap,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(max(max(r(X,Y),g(X,Y)),b(X,Y)),56)+lt(max(max(r(X,Y),g(X,Y)),b(X,Y))-min(min(r(X,Y),g(X,Y)),b(X,Y)),24)*lt(max(max(r(X,Y),g(X,Y)),b(X,Y)),90),0,alpha(X,Y))',format=rgba";
+
 // The arrows sit small inside their square. Cropping to the arrow (the box
 // covers every animation frame) and scaling it back up makes them larger.
 async function cropEmojiImage(buffer, crop) {
@@ -62,7 +66,7 @@ async function cropEmojiImage(buffer, crop) {
     await runLocalCommand('ffmpeg', [
       '-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file,pipe',
       '-i', input,
-      '-vf', `crop=${crop},scale=128:128:force_original_aspect_ratio=decrease:flags=lanczos,pad=128:128:(ow-iw)/2:(oh-ih)/2:color=black@0,split[a][b];[a]palettegen=reserve_transparent=1:max_colors=64[p];[b][p]paletteuse=alpha_threshold=128:dither=none`,
+      '-vf', `${REMOVE_DARK_SHADOW},crop=${crop},scale=128:128:force_original_aspect_ratio=decrease:flags=lanczos,pad=128:128:(ow-iw)/2:(oh-ih)/2:color=black@0,split[a][b];[a]palettegen=reserve_transparent=1:max_colors=64[p];[b][p]paletteuse=alpha_threshold=128:dither=none`,
       '-loop', '0', output,
     ], 60_000);
     const result = await readFile(output);

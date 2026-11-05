@@ -138,7 +138,7 @@ export function buildGameFeedEmbed(event) {
       }
       return classicEmbed(event.action === 'join' ? `LOGIN ${feedEmoji('login')}` : `LOGOUT ${feedEmoji('logout')}`,
         event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
-          name(event.player),
+          line('Player', name(event.player)),
           event.action === 'join' ? line('Platform', event.platform, /xbox/i.test(event.platform || '') ? 'xbox' : 'console') : null, serverIcon,
           line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
         ], event);
