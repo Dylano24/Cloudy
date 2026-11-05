@@ -775,7 +775,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.equal(openCode.modal.title, 'Giveaway code');
   const codeSelect = openCode.modal.components[0].component;
   assert.equal(codeSelect.custom_id, 'codeType');
-  assert.deepEqual(codeSelect.options.map(option => option.value), ['none', 'standard', 'kit', 'credit', 'discount']);
+  assert.deepEqual(codeSelect.options.map(option => option.value), ['none', 'standard', 'kit', 'credit', 'discount', 'added']);
   assert.equal(codeSelect.options.find(option => option.default).value, 'none');
   const codeForm = click(`gbuilder:codeform:${sessionId}`, { fields: {
     getStringSelectValues: () => ['standard'], getTextInputValue: () => '',
