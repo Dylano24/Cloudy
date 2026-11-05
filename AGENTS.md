@@ -95,6 +95,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 ## Patchbot
 
 - Patchbot (owner's choice, like the PatchBot bot) posts game updates in the channel a server chooses on the website: dashboard module `patchbot` (`enabled`, `channelId`, optional `roleId` to tag, `games`; Rust only for now) and action `postlatest` ("Post latest update"). `patchbotService.js` reuses the Rust update post (`buildRustPatchPayload`) and runs after each Rust feed check.
+- The Rust update banner (built-in poster and Patchbot) is a permanent Cloudy media link (`storeEmbedMediaBuffer`), not an uploaded file: an uploaded banner showed a second time above the embed as soon as anything edited the message. Upload is only the fallback without the media volume.
 - Only updates that appear after Patchbot is switched on (or its channel changes) are posted; each server/channel remembers the last one. Patchbot never posts in Cloudy's own #rust-patch-notes, which keeps its built-in poster unchanged.
 
 ## Music
