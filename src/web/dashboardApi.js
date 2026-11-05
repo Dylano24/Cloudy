@@ -23,6 +23,7 @@ import { readGuildEconomyValues } from '../utils/economy.js';
 import { getEconomyPrefix, getWarningsPrefix } from '../utils/database/keys.js';
 import { BotConfig } from '../config/bot.js';
 import { getServerCounters, getCounterTypeLabel } from '../services/serverstatsService.js';
+import { PATCHBOT_GAMES, getPatchbotConfig, postLatestPatchbotUpdate } from '../services/patchbotService.js';
 
 export const DASHBOARD_PREFIX = '/api/dashboard/v1';
 const MAX_SKEW_SECONDS = 60;
@@ -433,6 +434,34 @@ export const MODULES = {
       const next = { ...config, ...changes };
       if (next.enabled && !next.channelId) throw new DashboardError('Choose a counting channel first.', 400, 'invalid', 'channelId');
       await saveCountingGameConfig(client, guild.id, next);
+    },
+  },
+  // Patchbot: game update posts in a chosen channel (Rust for now).
+  patchbot: {
+    fields: { enabled: T.bool, channelId: T.id, roleId: T.id, games: T.flags(Object.keys(PATCHBOT_GAMES)) },
+    async read({ client, guild }) {
+      return getPatchbotConfig(client, guild.id);
+    },
+    async write({ client, guild }, changes, current) {
+      if (changes.channelId) channelOfType(guild, changes.channelId, TEXT_TYPES, 'text channel');
+      if (changes.roleId) {
+        const role = guild.roles.cache.get(changes.roleId);
+        if (!role || role.id === guild.id || role.managed) throw new DashboardError('Choose a normal server role to tag.', 400, 'invalid', 'roleId');
+      }
+      const next = { ...current, ...changes, games: { ...current.games, ...(changes.games || {}) } };
+      if (next.enabled && !next.channelId) throw new DashboardError('Choose a channel for Patchbot first.', 400, 'invalid', 'channelId');
+      if (next.enabled && !Object.values(next.games).some(Boolean)) throw new DashboardError('Choose at least one game.', 400, 'invalid', 'games');
+      await patchGuildConfig(client, guild.id, { patchbot: next }, { source: 'dashboard' });
+    },
+    actions: {
+      async postlatest({ client, guild }) {
+        try {
+          const patch = await postLatestPatchbotUpdate(client, guild, 'rust');
+          return `Posted the latest Rust update: ${patch.title}`.slice(0, 200);
+        } catch (error) {
+          throw new DashboardError(userMessage(error, 'The latest update could not be posted.'), 400, 'invalid');
+        }
+      },
     },
   },
   jointocreate: {
