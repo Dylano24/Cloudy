@@ -164,23 +164,17 @@ export function buildGameFeedEmbed(event) {
     case 'ban': {
       // Ban log (owner's choice, like the KAOSBOT ban-log in Cloudy style):
       // every line is an emoji and its value, no labels. Discord accounts are
-      // tagged (without pinging); the times are relative.
+      // tagged (without pinging).
       const banned = event.action === 'ban';
       const icon = (key, value) => (value == null || value === '' ? null : `${feedEmoji(key)} ${value}`);
-      const since = banned ? event.time : event.bannedAt;
-      const until = banned
-        ? (event.expiresAt ? `<t:${unix(event.expiresAt)}:R>` : event.duration || 'Permanent')
-        : `<t:${unix(event.time)}:R>`;
       return {
         title: banned ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
         description: [
-          icon('log_link', event.discord ? `<@${event.discord}>` : null),
-          icon('log_rust', name(event.player)),
-          icon('log_timer', since ? `<t:${unix(since)}:R>` : null),
-          icon('log_expiry', until),
+          icon('ban_link', event.discord ? `<@${event.discord}>` : null),
+          icon('ban_rust', name(event.player)),
           // An unban (accepted) shows the reason sign in green (owner's choice).
-          icon(banned ? 'log_reason' : 'log_reason_green', event.reason),
-          icon('server', event.server),
+          icon(banned ? 'ban_reason' : 'ban_reason_green', event.reason),
+          icon('ban_server', event.server),
         ].filter(Boolean).join('\n'),
         color: banned ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR,
         thumbnail: { url: CLOUDY_C_LOGO_URL },
