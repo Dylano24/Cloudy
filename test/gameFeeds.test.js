@@ -34,34 +34,32 @@ function world({ missing = [] } = {}) {
 test.afterEach(() => clearGameFeedQueues());
 
 test('classic feed embeds with names in code, big logo, footer with small logo and Time', () => {
-  const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, firstBlood: event.firstBlood, protectedFor: event.protectedFor }));
+  const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
   assert.deepEqual(embeds.map(embed => embed.title), [
-    'Player killed', '🩸 First blood', 'Player login', 'Player logout', 'Kit claimed',
+    'Player killed', 'Player login', 'Player logout', 'Kit claimed',
     'ZORP protection on', 'ZORP protection off', 'Raid alert', 'Player banned', 'Server wiped',
   ]);
-  assert.match(embeds[0].description, /^\*\*Killer:\*\* `Dawg`\n\*\*Victim:\*\* `Mindzset`\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Killstreak:\*\* 🎯 3\n\*\*Server:\*\* Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
-  assert.match(embeds[2].description, /\*\*Player:\*\* `Mindzset`\n\*\*Platform:\*\* Xbox Series/);
-  assert.match(embeds[4].description, /\*\*Kit:\*\* Full Kit AK/);
-  assert.match(embeds[6].description, /\*\*Protected for:\*\* 2h 14m/);
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* `Player 1`\n\*\*Victim:\*\* `Player 2`\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Killstreak:\*\* 🎯 3\n\*\*Server:\*\* Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
+  assert.match(embeds[1].description, /\*\*Player:\*\* `Player 2`\n\*\*Platform:\*\* Xbox Series/);
+  assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
+  assert.match(embeds[5].description, /\*\*Protected for:\*\* 2h 14m/);
   for (const embed of embeds) {
     assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
     assert.deepEqual(embed.footer, { text: CLOUDY_FOOTER });
     assert.equal(embed.timestamp, undefined);
   }
   assert.deepEqual(embeds.map(embed => embed.color.toString(16)),
-    ['7a1712', '7a1712', 'c49d', '7a1712', 'ffffff', 'c49d', '7a1712', '7a1712', '7a1712', 'ffffff']);
+    ['7a1712', 'c49d', '7a1712', 'ffffff', 'c49d', '7a1712', '7a1712', '7a1712', 'ffffff']);
 });
 
-test('killstreak, first blood after a wipe and ZORP protection time are tracked per server', async () => {
+test('killstreak and ZORP protection time are tracked per server', async () => {
   const { enrichGameFeedEvent } = await import('../src/services/gameFeedService.js');
   const kill = (killer, victim) => enrichGameFeedEvent(normalizeGameFeedEvent({ type: 'pvp', server: 'Track', killer, victim }));
   enrichGameFeedEvent(normalizeGameFeedEvent({ type: 'wipe', server: 'Track', state: 'done' }));
-  const first = kill('A', 'B');
-  assert.equal(first.firstBlood, true);
+  assert.equal(kill('A', 'B').streak, 1);
   assert.equal(kill('A', 'C').streak, 2);
   assert.equal(kill('C', 'A').streak, 1);
   assert.equal(kill('A', 'B').streak, 1, 'a death ends the streak');
-  assert.equal(kill('A', 'B').firstBlood, false);
   enrichGameFeedEvent(normalizeGameFeedEvent({ type: 'zorp', server: 'Track', state: 'on', player: 'Z', time: 1_000_000_000_000 }));
   const off = enrichGameFeedEvent(normalizeGameFeedEvent({ type: 'zorp', server: 'Track', state: 'off', player: 'Z', time: 1_000_000_000_000 + 3_600_000 }));
   assert.equal(off.protectedFor, 3_600_000);
@@ -131,7 +129,7 @@ test('/gamefeed embeds shows every feed embed privately; status lists the channe
   assert.equal(gamefeed.data.toJSON().name, 'gamefeed');
   const preview = await reply('embeds');
   assert.equal(preview.flags, 64);
-  assert.equal(preview.embeds.length, 10);
+  assert.equal(preview.embeds.length, 9);
   assert.deepEqual(preview.boards.embeds.map(embed => embed.title), ['Server status', 'Population', 'Leaderboard', 'Top killers of the day']);
   assert.equal(preview.boards.flags, 64);
   const status = await reply('status');
