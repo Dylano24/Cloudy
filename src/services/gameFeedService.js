@@ -122,7 +122,7 @@ export function buildGameFeedEmbed(event) {
   const server = line('Server', event.server);
   switch (event.type) {
     case 'pvp':
-      return classicEmbed(event.firstBlood ? '🩸 First blood' : 'Player killed', CLOUDY_RED_COLOR, [
+      return classicEmbed('Player killed', CLOUDY_RED_COLOR, [
         line('Killer', name(event.killer)), line('Victim', name(event.victim)), line('Weapon', event.weapon),
         line('Distance', event.distance == null ? null : `${event.distance} m`),
         event.headshot ? line('Headshot', 'Yes') : null,
@@ -172,10 +172,9 @@ export function buildGameFeedEmbed(event) {
   }
 }
 
-// Killstreaks, first blood after a wipe and ZORP protection time are kept in
+// Killstreaks and ZORP protection time are kept in
 // memory per server; a restart starts them again.
 const streaks = new Map();
-const firstBloodPending = new Map();
 const zorpSince = new Map();
 
 export function enrichGameFeedEvent(event) {
@@ -184,9 +183,7 @@ export function enrichGameFeedEvent(event) {
     const streak = (streaks.get(key(event.killer)) || 0) + 1;
     streaks.set(key(event.killer), streak);
     streaks.delete(key(event.victim));
-    const firstBlood = firstBloodPending.get(event.server) === true;
-    if (firstBlood) firstBloodPending.delete(event.server);
-    return { ...event, streak, firstBlood };
+    return { ...event, streak };
   }
   if (event.type === 'zorp') {
     if (event.state === 'on') { zorpSince.set(key(event.player), event.time); return event; }
@@ -195,7 +192,6 @@ export function enrichGameFeedEvent(event) {
     return since ? { ...event, protectedFor: event.time - since } : event;
   }
   if (event.type === 'wipe' && event.state === 'done') {
-    firstBloodPending.set(event.server, true);
     for (const streakKey of streaks.keys()) if (streakKey.startsWith(`${event.server}\u0000`)) streaks.delete(streakKey);
   }
   return event;
@@ -203,15 +199,14 @@ export function enrichGameFeedEvent(event) {
 
 // Example events, used by /gamefeed preview.
 export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
-  { type: 'pvp', server: 'Server 1', killer: 'Dawg', victim: 'Mindzset', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
-  { type: 'pvp', server: 'Server 1', killer: 'Dawg', victim: 'Player456', firstBlood: true },
-  { type: 'player', server: 'Server 1', action: 'join', player: 'Mindzset', platform: 'Xbox Series' },
-  { type: 'player', server: 'Server 1', action: 'leave', player: 'Dawg' },
-  { type: 'player', server: 'Server 1', action: 'kit', player: 'Lnvzyx', kit: 'Full Kit AK' },
-  { type: 'zorp', server: 'Server 1', state: 'on', player: 'Dawg' },
-  { type: 'zorp', server: 'Server 1', state: 'off', player: 'Dawg', protectedFor: 8_040_000 },
-  { type: 'raid', server: 'Server 1', attacker: 'Mindzset', target: 'Dawg', item: 'Rocket' },
-  { type: 'ban', server: 'Server 1', action: 'ban', player: 'Cheater123', reason: 'Cheating', duration: 'Permanent' },
+  { type: 'pvp', server: 'Server 1', killer: 'Player 1', victim: 'Player 2', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
+  { type: 'player', server: 'Server 1', action: 'join', player: 'Player 2', platform: 'Xbox Series' },
+  { type: 'player', server: 'Server 1', action: 'leave', player: 'Player 1' },
+  { type: 'player', server: 'Server 1', action: 'kit', player: 'Player 3', kit: 'Full Kit AK' },
+  { type: 'zorp', server: 'Server 1', state: 'on', player: 'Player 1' },
+  { type: 'zorp', server: 'Server 1', state: 'off', player: 'Player 1', protectedFor: 8_040_000 },
+  { type: 'raid', server: 'Server 1', attacker: 'Player 2', target: 'Player 1', item: 'Rocket' },
+  { type: 'ban', server: 'Server 1', action: 'ban', player: 'Player 4', reason: 'Cheating', duration: 'Permanent' },
   { type: 'wipe', server: 'Server 1', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
