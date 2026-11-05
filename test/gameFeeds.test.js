@@ -36,7 +36,7 @@ test.afterEach(() => clearGameFeedQueues());
 test('every feed embed has a sentence-case title, the Cloudy logo, the footer and its own colour', () => {
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed(normalizeGameFeedEvent(event)));
   assert.deepEqual(embeds.map(embed => embed.title), [
-    'Player killed', 'Player joined', 'Player left', 'ZORP protection on', 'ZORP protection off',
+    'Player killed', 'Player online', 'Player offline', 'ZORP protection on', 'ZORP protection off',
     'Raid alert', 'Player banned', 'Player unbanned', 'Wipe incoming', 'Server wiped',
   ]);
   for (const embed of embeds) {
@@ -45,7 +45,7 @@ test('every feed embed has a sentence-case title, the Cloudy logo, the footer an
     assert.match(embed.description, /\*\*Time:\*\* <t:\d+:f>$/);
   }
   assert.deepEqual(embeds.map(embed => embed.color.toString(16)),
-    ['ffffff', 'c49d', 'ffffff', 'c49d', '7a1712', '7a1712', '7a1712', 'c49d', 'ffffff', 'c49d']);
+    ['7a1712', 'c49d', '7a1712', 'c49d', '7a1712', '7a1712', '7a1712', 'c49d', 'ffffff', 'ffffff']);
   assert.match(embeds[0].description, /^\*\*Killer:\*\* Dawg\n\*\*Victim:\*\* Mindzset\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Server:\*\* Server 1 Rust\n/);
   assert.match(embeds[1].description, /\*\*Online:\*\* 87\/100/);
   assert.match(embeds[8].description, /^\*\*Server 1 Rust\*\* is about to wipe <t:\d+:R>\.\n\n\*\*Wipe:\*\* Map wipe/);
@@ -106,44 +106,15 @@ test('the link point stays closed until the game server is linked, and needs the
   assert.equal(single.statusCode, 202);
 });
 
-test('/gamefeed preview shows every feed embed privately; status lists the channels and the link', async () => {
+test('/gamefeed has only status: lists the channels and the link', async () => {
   const w = world({ missing: ['wipe-feed'] });
-  const reply = sub => {
-    const interaction = { client: w.client, guild: w.guild, options: { getSubcommand: () => sub },
-      reply: async payload => { interaction.payload = payload; }, followUp: async payload => { interaction.boards = payload; } };
-    return gamefeed.execute(interaction).then(() => Object.assign(interaction.payload, { boards: interaction.boards }));
-  };
-  assert.equal(gamefeed.data.toJSON().name, 'gamefeed');
-  const preview = await reply('preview');
-  assert.equal(preview.flags, 64);
-  assert.equal(preview.embeds.length, 10);
-  assert.deepEqual(preview.boards.embeds.map(embed => embed.title), ['Server status', 'Population', 'Leaderboard']);
-  assert.equal(preview.boards.flags, 64);
-  const status = await reply('status');
-  assert.equal(status.embeds[0].title, 'Game server feeds');
-  assert.match(status.embeds[0].description, /\*\*#pvp:\*\* <#\d+>/);
-  assert.match(status.embeds[0].description, /\*\*#wipe-feed:\*\* Not found/);
-  assert.match(status.embeds[0].description, /\*\*Game server link:\*\* Not linked yet/);
-});
-
-test('the owner\'s feed channel IDs win over channel names', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const w = world();
-  const sent = [];
-  const ids = { kills: '1555124201688670269', players: '1555124202825191516', zorp: '1555124204008116274', raids: '1555124205391970395', bans: '1555124206495207445' };
-  for (const [name, id] of Object.entries(ids)) {
-    w.guild.channels.cache.set(id, { id, name: `renamed-${name}`, type: ChannelType.GuildText, isTextBased: () => true,
-      send: async payload => { sent.push({ id, payload }); return { id: 'm' }; } });
-  }
-  await postGameFeedEvents(w.client, [
-    { type: 'pvp', server: 'S1', killer: 'A', victim: 'B' },
-    { type: 'player', server: 'S1', action: 'join', player: 'A' },
-    { type: 'zorp', server: 'S1', state: 'on', player: 'A' },
-    { type: 'raid', server: 'S1', attacker: 'A' },
-    { type: 'ban', server: 'S1', player: 'A' },
-  ]);
-  t.mock.timers.tick(1_500);
-  await settle();
-  assert.deepEqual(sent.map(entry => entry.id).sort(), Object.values(ids).sort());
-  assert.equal(w.sent.length, 0, 'the channels found by name are not used');
+  const interaction = { client: w.client, guild: w.guild, options: { getSubcommand: () => 'status' },
+    reply: async payload => { interaction.payload = payload; } };
+  await gamefeed.execute(interaction);
+  assert.deepEqual(gamefeed.data.toJSON().options.map(option => option.name), ['status']);
+  const { embeds, flags } = interaction.payload;
+  assert.equal(flags, 64);
+  assert.match(embeds[0].description, /\*\*#pvp:\*\* <#\d+>/);
+  assert.match(embeds[0].description, /\*\*#wipe-feed:\*\* Not found/);
+  assert.match(embeds[0].description, /\*\*Game server link:\*\* Not linked yet/);
 });
