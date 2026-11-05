@@ -1,10 +1,10 @@
 import { MessageFlags } from 'discord.js';
 import { warningEmbed } from '../../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../../utils/embedColorPolicy.js';
-import { CLOUDY_C_LOGO_URL, CLOUDY_FOOTER, loadVote, optionPicture } from '../../../services/voteService.js';
+import { CLOUDY_FOOTER, loadVote, optionPicture } from '../../../services/voteService.js';
 
-// vote_media:<option index>: shows that option's picture (e.g. its map) in a
-// private message, so it opens inside Discord at its own size (owner's choice).
+// vote_media:<option index>: buttons on votes from before the picture links;
+// shows that option's picture privately inside Discord.
 export default {
   name: 'vote_media',
   async execute(interaction, client, [index] = []) {
@@ -18,12 +18,7 @@ export default {
       timer.unref?.();
       return;
     }
-    await interaction.editReply({ embeds: [{
-      title: vote.options[position],
-      image: { url: picture },
-      color: 0xFFFFFF,
-      thumbnail: { url: CLOUDY_C_LOGO_URL },
-      footer: { text: CLOUDY_FOOTER },
-    }] });
+    // Only the picture (owner's choice: no title, no logo).
+    await interaction.editReply({ embeds: [{ image: { url: picture }, color: 0xFFFFFF, footer: { text: CLOUDY_FOOTER } }] });
   },
 };
