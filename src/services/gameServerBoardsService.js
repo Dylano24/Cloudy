@@ -32,13 +32,13 @@ const board = (title, description) => ({
 });
 
 function emptyState() {
-  return { servers: {}, leaderboard: {}, messages: {} };
+  return { servers: {}, leaderboard: {}, messages: {}, daily: {} };
 }
 
 async function readState(client, guildId) {
   const raw = unwrapReplitData(await client.db.get(stateKey(guildId), null));
   const state = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : emptyState();
-  return { servers: state.servers || {}, leaderboard: state.leaderboard || {}, messages: state.messages || {} };
+  return { servers: state.servers || {}, leaderboard: state.leaderboard || {}, messages: state.messages || {}, daily: state.daily || {} };
 }
 
 async function updateState(client, guildId, change) {
@@ -133,6 +133,11 @@ export async function recordKill(client, guild, event) {
       entry.players[name] ||= { kills: 0, deaths: 0 };
       entry.players[name][field] += 1;
     }
+    // Kills of today (Amsterdam), for the daily top killer at 00:00.
+    const day = state.daily[event.server] ||= { date: amsterdamDate(), kills: {} };
+    if (Object.keys(day.kills).length < MAX_PLAYERS_PER_SERVER || day.kills[event.killer]) {
+      day.kills[event.killer] = (day.kills[event.killer] || 0) + 1;
+    }
   });
   scheduleBoard(client, guild, 'leaderboard');
 }
@@ -210,6 +215,41 @@ export function scheduleBoard(client, guild, name) {
   pending.set(key, timer);
 }
 
+export function amsterdamDate(ms = Date.now()) {
+  return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Europe/Amsterdam' });
+}
+
+// "Top killer of the day" (owner's choice), posted in #leaderboard at 00:00.
+export function buildDailyTopKiller(server, kills, time = Date.now()) {
+  const medals = ['🥇', '🥈', '🥉'];
+  const top = Object.entries(kills || {}).sort(([, a], [, b]) => b - a).slice(0, 3)
+    .map(([player, count], index) => `${medals[index]} \`${player}\` · ${count} ${count === 1 ? 'kill' : 'kills'}`);
+  return {
+    description: ['**Top killer of the day**', ...(top.length ? top : ['No kills today.'])].join('\n'),
+    color: 0xFFFFFF,
+    footer: { text: `© Cloudy Inc. • ${server} • leaderboard`, icon_url: LOGO },
+    timestamp: new Date(time).toISOString(),
+  };
+}
+
+export async function postDailyTopKillers(client, guild, today = amsterdamDate()) {
+  const finished = await updateState(client, guild.id, state => {
+    const done = Object.entries(state.daily).filter(([, day]) => day.date !== today);
+    for (const [server] of done) state.daily[server] = { date: today, kills: {} };
+    return done;
+  });
+  if (!finished.length) return 0;
+  const definition = getCloudyChannelDefinition(BOARD_CHANNELS.leaderboard.key);
+  const channel = findCloudyChannelByAlias(guild, definition?.aliases || [], { textOnly: true });
+  if (!channel?.send) return 0;
+  for (const [server, day] of finished) {
+    if (Object.keys(day.kills).length) {
+      await channel.send({ embeds: [buildDailyTopKiller(server, day.kills)], allowedMentions: { parse: [] } });
+    }
+  }
+  return finished.length;
+}
+
 // Every minute: a server that stopped reporting shows as offline.
 let started = false;
 export function startGameServerBoards(client) {
@@ -217,6 +257,8 @@ export function startGameServerBoards(client) {
   started = true;
   const timer = setInterval(() => {
     for (const guild of client.guilds?.cache?.values?.() || []) {
+      void postDailyTopKillers(client, guild)
+        .catch(error => logger.warn(`Daily top killer failed: ${error?.message || error}`));
       void readState(client, guild.id).then(state => {
         if (!Object.keys(state.servers).length) return;
         scheduleBoard(client, guild, 'status');

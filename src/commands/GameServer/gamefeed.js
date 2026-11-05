@@ -5,7 +5,7 @@ import {
 } from '../../services/gameFeedService.js';
 import { GAME_FEED_PATH } from '../../web/gameFeedApi.js';
 import {
-  BOARD_CHANNELS, POPULATION_WEBHOOK_NAME, buildLeaderboard, buildPopulationBoard, buildStatusBoard,
+  BOARD_CHANNELS, POPULATION_WEBHOOK_NAME, buildDailyTopKiller, buildLeaderboard, buildPopulationBoard, buildStatusBoard,
 } from '../../services/gameServerBoardsService.js';
 import { findCloudyChannelByAlias, getCloudyChannelDefinition } from '../../services/cloudyChannelResolver.js';
 
@@ -21,7 +21,8 @@ function sampleBoards(now = Date.now()) {
     },
     messages: {},
   };
-  return [buildStatusBoard(state, now), buildPopulationBoard(state, now), buildLeaderboard(state, now)];
+  return [buildStatusBoard(state, now), buildPopulationBoard(state, now), buildLeaderboard(state, now),
+    buildDailyTopKiller('Server 1', { Dawg: 25, Mindzset: 19, Player456: 6 }, now)];
 }
 
 // Staff only: see the feed embeds before the game server is linked, and
@@ -41,7 +42,7 @@ export default {
 
   async execute(interaction) {
     if (interaction.options.getSubcommand() === 'embeds') {
-      const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed(normalizeGameFeedEvent(event)));
+      const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, firstBlood: event.firstBlood, protectedFor: event.protectedFor }));
       await interaction.reply({ embeds, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       // The live boards (#server-status, #population, #leaderboard).
       return interaction.followUp({ embeds: sampleBoards(), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
