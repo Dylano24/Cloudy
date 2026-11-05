@@ -50,13 +50,13 @@ test('the map vote shows three small pictures in one embed and numbered buttons'
   });
   const message = sent[0];
   assert.equal(message.embeds.length, 3);
-  assert.equal(message.embeds[0].title, '🗳️ Map vote');
+  assert.equal(message.embeds[0].title, 'Map vote');
   assert.ok(new Set(message.embeds.map(embed => embed.url)).size === 1, 'same url: Discord shows one embed');
   assert.ok(message.embeds.every(embed => embed.image.url.endsWith('/map_icons.png')));
   assert.match(message.embeds[0].description, /\*\*\[Map 1\]\(https:\/\/rustmaps\.com\/map\/3700_555\)\*\* · Size 3700 · Seed 555\n▱{6} \*\*0%\*\*/);
   assert.deepEqual(json(message.components[0]).components.map(button => button.emoji?.name), ['1️⃣', '2️⃣', '3️⃣']);
   assert.equal((await loadVote(client, 'g', '31')).images.length, 3);
-  assert.equal(buildVoteMessage({ ...(await loadVote(client, 'g', '31')), ended: true }).embeds[0].title, '🗳️ Map vote ended');
+  assert.equal(buildVoteMessage({ ...(await loadVote(client, 'g', '31')), ended: true }).embeds[0].title, 'Map vote ended');
 });
 
 test('your own map pictures are sent with the vote and shown in the same gallery', async () => {

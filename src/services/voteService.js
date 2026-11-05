@@ -80,10 +80,11 @@ export function buildVoteMessage(vote, now = Date.now()) {
   if (ended) {
     const best = Math.max(0, ...counts);
     const winners = total ? vote.options.filter((_, index) => counts[index] === best) : [];
-    lines.push(`**${winners.length > 1 ? 'Tie' : 'Winner'}:** ${winners.length ? winners.join(', ') : 'No votes'}`);
+    // An empty line between the total and the end (owner's choice).
+    lines.push('', `**${winners.length > 1 ? 'Tie' : 'Winner'}:** ${winners.length ? winners.join(', ') : 'No votes'}`);
     lines.push(`**Ended:** <t:${unix(vote.endedAt || vote.endsAt || now)}:f>`);
   } else if (vote.endsAt) {
-    lines.push(`**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
+    lines.push('', `**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
   }
   // Buttons show only the number badge (owner's choice); the embed names the option.
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
@@ -95,16 +96,10 @@ export function buildVoteMessage(vote, now = Date.now()) {
   for (let start = 0; start < buttons.length; start += 5) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
-  // Options with a picture get a grey button that shows it privately.
-  const pictureButtons = vote.options.map((option, index) => (optionPicture(vote, index)
-    ? new ButtonBuilder().setCustomId(`vote_media:${index}`).setEmoji('🗺️').setLabel(option.slice(0, 80)).setStyle(ButtonStyle.Secondary)
-    : null)).filter(Boolean);
-  for (let start = 0; start < pictureButtons.length && rows.length < 5; start += 5) {
-    rows.push(new ActionRowBuilder().addComponents(pictureButtons.slice(start, start + 5)));
-  }
+
   const images = (vote.images || []).slice(0, 4);
   const main = {
-    title: `${feedEmoji('vote_icon')} ${ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote')}`,
+    title: ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote'),
     description: lines.join('\n').slice(0, 4096),
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
