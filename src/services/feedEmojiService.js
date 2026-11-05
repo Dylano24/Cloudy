@@ -20,8 +20,8 @@ const FEED_EMOJIS = Object.freeze({
   xbox: { name: 'xbox_logo_small', shrink: true, id: '1567847794968887366', fallback: '<:whitexboxlogominimal:1567847794968887366>' },
   console: { name: 'console', id: '1567848153284214834', fallback: '<:console:1567848153284214834>' },
   distance: { name: 'distance', id: '1567849614969667615', fallback: '<:distance:1567849614969667615>' },
-  on: { name: 'on', id: '1567853607867514901', fallback: '<:on:1567853607867514901>' },
-  off: { name: 'off', id: '1567853607682973820', fallback: '<:off:1567853607682973820>' },
+  on: { name: 'on_swipe', id: '1567862120639635458', fallback: '<a:on_swipe:1567862120639635458>' },
+  off: { name: 'off_swipe', id: '1567862121117782077', fallback: '<a:off_swipe:1567862121117782077>' },
 });
 const resolved = new Map();
 
