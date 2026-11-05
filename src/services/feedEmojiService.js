@@ -70,17 +70,18 @@ for (const piece of ['lf', 'mf', 'rf', 'le', 'me', 're']) {
   BASE_EMOJIS[`bar_${piece}`] = { name: `vb_${piece}`, file: `../../assets/vote-emojis/bar_${piece}.png`, fallback: piece.endsWith('f') ? '▰' : '▱' };
 }
 BASE_EMOJIS.vote_icon = { name: 'vote_ballot', file: '../../assets/vote-emojis/vote_icon.gif', fallback: '🗳️' };
-// Ban log icons (owner's choice): the owner's own animated emojis for link,
-// Rust gamertag, start time, end time and reason, plus a green copy of the
-// reason emoji for an unban (made in assets/feed-emojis).
-for (const [key, id] of [
-  ['log_link', '1567920525018398803'], ['log_rust', '1567920463206678639'], ['log_timer', '1567920487059689582'],
-  ['log_expiry', '1567920483016376522'], ['log_reason', '1567920506928111739'],
+// Ban log icons (owner's choice): the owner's own emojis (link, Rust gamertag,
+// reason; a green reason for an unban) and the server icon, all trimmed and
+// scaled to the same size in assets/feed-emojis so they look equally big.
+for (const [key, file, fallback] of [
+  ['ban_link', 'ban_link.gif', '<a:log_link:1567920525018398803>'],
+  ['ban_rust', 'ban_rust.gif', '<a:log_rust:1567920463206678639>'],
+  ['ban_reason', 'ban_reason.gif', '<a:log_reason:1567920506928111739>'],
+  ['ban_reason_green', 'ban_reason_green.gif', '<a:log_reason:1567920506928111739>'],
+  ['ban_server', 'ban_server.png', '<a:server_router:1567766741889585203>'],
 ]) {
-  const original = key === 'log_timer' ? 'timer' : key;
-  BASE_EMOJIS[key] = { name: key, id, fallback: `<a:${original}:${id}>` };
+  BASE_EMOJIS[key] = { name: key, file: `../../assets/feed-emojis/${file}`, fallback };
 }
-BASE_EMOJIS.log_reason_green = { name: 'log_reason_green', file: '../../assets/feed-emojis/log_reason_green.gif', fallback: '<a:log_reason:1567920506928111739>' };
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 
