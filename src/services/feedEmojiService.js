@@ -71,8 +71,8 @@ for (const piece of ['lf', 'mf', 'rf', 'le', 'me', 're']) {
 }
 BASE_EMOJIS.vote_icon = { name: 'vote_ballot', file: '../../assets/vote-emojis/vote_icon.gif', fallback: '🗳️' };
 // Ban log icons (owner's choice): the owner's own animated emojis for link,
-// Rust gamertag, start time, end time and reason; the staff icon is made in
-// assets/feed-emojis.
+// Rust gamertag, start time, end time and reason, plus a green copy of the
+// reason emoji for an unban (made in assets/feed-emojis).
 for (const [key, id] of [
   ['log_link', '1567920525018398803'], ['log_rust', '1567920463206678639'], ['log_timer', '1567920487059689582'],
   ['log_expiry', '1567920483016376522'], ['log_reason', '1567920506928111739'],
@@ -80,7 +80,7 @@ for (const [key, id] of [
   const original = key === 'log_timer' ? 'timer' : key;
   BASE_EMOJIS[key] = { name: key, id, fallback: `<a:${original}:${id}>` };
 }
-BASE_EMOJIS.staff = { name: 'cloudy_staff', file: '../../assets/feed-emojis/staff.png', fallback: '🛡️' };
+BASE_EMOJIS.log_reason_green = { name: 'log_reason_green', file: '../../assets/feed-emojis/log_reason_green.gif', fallback: '<a:log_reason:1567920506928111739>' };
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 
