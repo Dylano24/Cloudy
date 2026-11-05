@@ -94,6 +94,12 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Patchbot (owner's choice, like the PatchBot bot) posts game updates in the channel a server chooses on the website: dashboard module `patchbot` (`enabled`, `channelId`, optional `roleId` to tag, `games`; Rust only for now) and action `postlatest` ("Post latest update"). `patchbotService.js` reuses the Rust update post (`buildRustPatchPayload`) and runs after each Rust feed check.
 - Only updates that appear after Patchbot is switched on (or its channel changes) are posted; each server/channel remembers the last one. Patchbot never posts in Cloudy's own #rust-patch-notes, which keeps its built-in poster unchanged.
 
+## Game server feeds
+
+- The "feeds" channels #pvp, #player, #zorp, #raids, #ban and #wipe-feed get one embed per game event (`gameFeedService.js`): Player killed, Player joined/left, ZORP protection on/off, Raid alert, Player banned/unbanned, Wipe incoming/Server wiped. Plain embeds with the Cloudy logo and footer; colours white, `#00C49D` (join, ZORP on, unban, wiped) or Cloudy red (ZORP off, raid, ban). Channels are found by name in Cloudy's cache (no Discord request per event) and embeds are batched per channel (up to 10 per message).
+- The game server is not linked yet (owner's choice: prepare first, link later). Link point: `POST /api/game/v1/events` with `Authorization: Bearer <CLOUDY_GAME_FEED_SECRET>` (at least 32 characters) and `{ "events": [...] }` (max 50). Without the secret it answers 503. Game-server text is cleaned (no mentions or markdown).
+- `/gamefeed preview` shows every feed embed privately; `/gamefeed status` shows which channels were found and whether the link is set.
+
 ## Cloudy Feed
 
 - Add/Edit feed form (owner's choice, in this order): Feed name, Website URL, Auto message, Start time, 18+ content. Media type is not in the form: for Add it is chosen on the channel step (the form opens once both media type and channel are chosen); for an existing feed it is the select on the Manage screen, saved at once.
