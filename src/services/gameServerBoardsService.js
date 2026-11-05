@@ -13,6 +13,7 @@ import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyCh
 const LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 import { feedEmoji } from './feedEmojiService.js';
+import { resetPopulationBots, updatePopulationBots } from './populationBotService.js';
 export const POPULATION_WEBHOOK_NAME = 'Cloudy Population';
 export const OFFLINE_AFTER_MS = 5 * 60_000;
 export const BOARD_EDIT_INTERVAL_MS = 30_000;
@@ -80,6 +81,12 @@ export function buildStatusBoard(state, now = Date.now()) {
 function populationLine(server, now) {
   if (!isOnline(server, now)) return `${feedEmoji('offline')} Offline`;
   return `${feedEmoji('online')} ${server.players ?? 0}${server.max ? `/${server.max}` : ''}`;
+}
+
+// The same for a bot status, which cannot hold custom emojis.
+function populationText(server, now) {
+  if (!isOnline(server, now)) return '🔴 Offline';
+  return `🟢 ${server.players ?? 0}${server.max ? `/${server.max}` : ''}`;
 }
 
 export function buildPopulationBoard(state, now = Date.now()) {
@@ -189,10 +196,15 @@ const BUILDERS = { status: buildStatusBoard, population: buildPopulationBoard, l
 // One message per server, sent by the Cloudy Population webhook under the server's name.
 async function renderPopulation(client, guild, channel) {
   const state = await readState(client, guild.id);
-  const hook = await populationWebhook(client, channel);
   const now = Date.now();
+  // Servers with their own population bot show it in the member list instead.
+  const handled = await updatePopulationBots(guild, sortedServers(state).map(([name, server]) => ({
+    name, online: isOnline(server, now), text: populationText(server, now),
+  }))).catch(() => new Set());
+  const hook = await populationWebhook(client, channel);
   const ids = { ...(state.messages.populationServers || {}) };
   for (const [serverName, server] of sortedServers(state)) {
+    if (handled.has(serverName)) continue;
     const content = populationLine(server, now);
     const payload = { content, allowedMentions: { parse: [] } };
     if (ids[serverName]) {
@@ -312,4 +324,5 @@ export function resetGameServerBoards() {
   pending.clear();
   lastRender.clear();
   populationHooks.clear();
+  resetPopulationBots();
 }
