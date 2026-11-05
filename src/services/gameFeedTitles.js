@@ -3,7 +3,7 @@
 // response templates must never restyle them.
 const TITLES = new Set([
   'player killed', 'player login', 'player logout', 'kit claimed', 'player online', 'player offline', 'zorp protection on', 'zorp protection off',
-  'raid alert', 'player banned', 'player unbanned', 'wipe incoming', 'server wiped',
+  'raid alert', 'player banned', 'player unbanned', 'banned', 'unban', 'wipe incoming', 'server wiped',
   'server status', 'population', 'leaderboard', 'server changes',
 ]);
 

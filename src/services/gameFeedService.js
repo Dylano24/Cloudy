@@ -151,7 +151,7 @@ export function buildGameFeedEmbed(event) {
         line('Used', event.item), server,
       ], event);
     case 'ban':
-      return classicEmbed(event.action === 'ban' ? 'Player banned' : 'Player unbanned',
+      return classicEmbed(event.action === 'ban' ? 'BANNED' : 'UNBAN',
         event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
           line('Player', name(event.player)), line('Reason', event.reason),
           event.action === 'ban' ? line('Duration', event.duration || 'Permanent') : null,
@@ -207,6 +207,7 @@ export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
   { type: 'zorp', server: 'Server 1', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
   { type: 'raid', server: 'Server 1', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
   { type: 'ban', server: 'Server 1', action: 'ban', player: 'Dyn', reason: 'Cheating', duration: 'Permanent' },
+  { type: 'ban', server: 'Server 1', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted' },
   { type: 'wipe', server: 'Server 1', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
