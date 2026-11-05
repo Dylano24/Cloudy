@@ -3,12 +3,27 @@ import assert from 'node:assert/strict';
 import { Collection } from 'discord.js';
 import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
+import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
 import { buildVoteMessage, castVote, endDueVotes, loadVote } from '../src/services/voteService.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 
 const GUILD = '191919191919191919';
+const CLOUDY_LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const CHANNEL = '202020202020202020';
 const json = value => value?.toJSON?.() || value;
+
+// All text of a vote: the embed text, or the text of the card (votes with pictures).
+function textOf(payload) {
+  if (payload.embeds?.length) return payload.embeds[0].description;
+  const texts = [];
+  const walk = component => {
+    const data = json(component);
+    if (data.type === 10) texts.push(data.content);
+    for (const child of data.components || []) walk(child);
+  };
+  for (const component of payload.components || []) walk(component);
+  return texts.join('\n');
+}
 
 function world() {
   const store = new Map();
@@ -191,7 +206,7 @@ test('every vote counts as 1%: 50 votes fill half the bar', () => {
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
 });
 
-test('an option with a picture becomes a blue link to the picture on Discord; no buttons, no thread', async () => {
+test('an option with a picture becomes a blue link with a small Preview button right next to it; no thread', async () => {
   const w = world();
   const uploads = [];
   const deps = {
@@ -210,14 +225,26 @@ test('an option with a picture becomes a blue link to the picture on Discord; no
     { files: { media1: west, media3: south }, deps });
   assert.deepEqual(uploads, [['option1.png', null, 'option3.jpg']], 'each picture stays with its own option');
   const posted = w.sent[0];
-  const text = posted.embeds[0].description;
+  const text = textOf(posted);
   assert.match(text, /\*\*\[DZ West\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*/);
   assert.match(text, /\*\*DZ East\*\*/, 'no picture: plain white text');
   assert.match(text, /\*\*\[DZ South\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option3\.jpg\?ex=1\)\*\*/);
   assert.doesNotMatch(text, /railway|cloudy-embed-media/);
   assert.match(text, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\*/, 'empty line before the end');
-  assert.equal(posted.components.length, 1, 'only the vote buttons');
+  assert.equal(posted.flags, 32768, "Discord's newer layout: a button can stand next to text");
+  const [card, row] = posted.components.map(json);
+  assert.equal(card.type, 17);
+  assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
+  assert.equal(card.components[0].accessory.media.url, CLOUDY_LOGO, 'Cloudy logo top right');
+  assert.match(card.components[0].components[0].content, /^### Vote\n\*\*Choose your map\*\*$/);
+  const sections = card.components.filter(part => part.type === 9 && part.accessory?.type === 2);
+  assert.deepEqual(sections.map(part => [part.components[0].content.split('\n')[0].replace(/\(.*\)/, ''), part.accessory.custom_id, part.accessory.label]),
+    [['1️⃣ **[DZ West]**', 'vote_media:0', 'Preview'], ['3️⃣ **[DZ South]**', 'vote_media:2', 'Preview']], 'Preview only next to options with a picture');
+  assert.equal(card.components.at(-1).content, '-# © Cloudy Inc. • Quality. Innovation. Performance.');
+  assert.deepEqual(row.components.map(button => button.custom_id), ['vote_cast:0', 'vote_cast:1', 'vote_cast:2'], 'vote buttons stay under the vote');
+  assert.equal(posted.components.length, 2);
   assert.equal(posted.thread, undefined, 'no thread on the vote');
+  assert.equal((await loadVote(w.client, GUILD, posted.id)).layout, 'preview');
   assert.equal((await loadVote(w.client, GUILD, posted.id)).optionMedia.messageId, 'm1');
 
   const { form: video } = await create(w, { question: 'Q', option1: 'A', option2: 'B' },
@@ -263,9 +290,9 @@ test('the option button only votes: the picture opens from the blue link, the no
   await create(w, { question: 'Choose your map', option1: 'DZ West', option2: 'DZ East' },
     { files: { media1: { url: 'https://cdn.discordapp.com/a/w.png', name: 'w.png', contentType: 'image/png', size: 10 } }, deps });
   const posted = w.sent[0];
-  assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.label]),
+  const row = posted.components.map(json).find(component => component.type === 1);
+  assert.deepEqual(row.components.map(button => [button.custom_id, button.label]),
     [['vote_cast:0', 'DZ West'], ['vote_cast:1', 'DZ East']], 'one button per option: digit and name');
-  assert.equal(posted.components.length, 1);
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const click = (index, user = 'member') => {
@@ -283,7 +310,8 @@ test('the option button only votes: the picture opens from the blue link, the no
   assert.equal(embed.title, 'Success');
   assert.equal(embed.description, 'You voted for **DZ West**.');
   assert.equal(embed.image, undefined, 'no picture behind the button');
-  assert.match(first.updated.embeds[0].description,
+  assert.equal(first.updated.flags, 32768, 'the card stays a card');
+  assert.match(textOf(first.updated),
     /\[DZ West\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*\n▱{6} \*\*1%\*\* · 1 vote/, 'the blue link opens the picture');
   t.mock.timers.tick(10_000);
   await new Promise(resolve => { setImmediate(resolve); });
@@ -353,4 +381,61 @@ test('vote pictures go to a private thread in a text channel: #botlog first, els
   guild.channels.cache.set('botlog-id', botlog);
   await uploadVotePictures(client, guild, general, files);
   assert.deepEqual(made, [['botlog-id', 12, 'vote-media']], '#botlog first');
+});
+
+test('Preview shows the picture privately under the vote with the option name, for 30 seconds', async t => {
+  const w = world();
+  const deps = {
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
+    uploadPictures: async (client, guild, channel, files) => ({
+      links: files.map(file => (file ? `https://cdn.discordapp.com/attachments/1/2/${file.name}?ex=1` : null)),
+      media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
+    }),
+  };
+  await create(w, { question: 'Choose your map', option1: 'DZ West', option2: 'DZ East' },
+    { files: { media2: { url: 'https://cdn.discordapp.com/a/e.png', name: 'e.png', contentType: 'image/png', size: 10 } }, deps });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const preview = { id: 'p1', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id }, deleted: 0,
+    deferReply: async options => { preview.flags = options.flags; },
+    editReply: async payload => { preview.reply = payload; return { id: 'r' }; },
+    deleteReply: async () => { preview.deleted += 1; } };
+  await votePreview.execute(preview, w.client, ['1']);
+  assert.equal(preview.flags, 64, 'private');
+  const embed = preview.reply.embeds[0];
+  assert.equal(embed.description, '**DZ East**');
+  assert.equal(embed.image.url, 'https://cdn.discordapp.com/attachments/1/2/option2.png?ex=1');
+  assert.equal(embed.title, undefined);
+  assert.equal(embed.thumbnail, undefined);
+  t.mock.timers.tick(29_000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(preview.deleted, 0);
+  t.mock.timers.tick(1_000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(preview.deleted, 1, 'gone after 30 seconds');
+  assert.equal((await loadVote(w.client, GUILD, w.sent[0].id)).votes.member, undefined, 'a preview is not a vote');
+  t.mock.timers.reset();
+});
+
+test('if Discord refuses the card, the vote is posted in the normal layout with blue links', async () => {
+  const w = world();
+  const send = w.sent;
+  const channel = w.client.guilds.cache.get(GUILD).channels.cache.get(CHANNEL);
+  const original = channel.send;
+  channel.send = async payload => {
+    if (payload.flags) throw new Error('Invalid Form Body');
+    return original(payload);
+  };
+  const deps = {
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
+    uploadPictures: async (client, guild, ch, files) => ({
+      links: files.map(file => (file ? `https://cdn.discordapp.com/attachments/1/2/${file.name}?ex=1` : null)),
+      media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
+    }),
+  };
+  const { form } = await create(w, { question: 'Q', option1: 'A', option2: 'B' },
+    { files: { media1: { url: 'https://cdn.discordapp.com/a/a.png', name: 'a.png', contentType: 'image/png', size: 10 } }, deps });
+  assert.equal(json(form.answer.embeds[0]).title, 'Success');
+  assert.equal(send.length, 1);
+  assert.match(send[0].embeds[0].description, /\*\*\[A\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*/);
+  assert.equal((await loadVote(w.client, GUILD, send[0].id)).layout, undefined);
 });
