@@ -35,6 +35,12 @@ const CLOUDY_MEDIA = /\/cloudy-embed-media\//;
 // The picture of an option (owner's choice: opened inside Discord with a
 // button, never shown as a website link). Votes from before this kept the
 // picture as a link; those Cloudy media links count as pictures too.
+/** The picture shown privately when someone votes for this option, or null. */
+export function votePicture(vote, index) {
+  if (vote.optionMedia && vote.optionLinks?.[index]) return vote.optionLinks[index];
+  return optionPicture(vote, index);
+}
+
 export function optionPicture(vote, index) {
   if (vote.optionImages?.[index]) return vote.optionImages[index];
   const link = vote.optionLinks?.[index];
@@ -90,10 +96,12 @@ export function buildVoteMessage(vote, now = Date.now()) {
   } else if (vote.endsAt) {
     lines.push('', `**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
   }
-  // Buttons show only the number badge (owner's choice); the embed names the option.
+  // One button per option (owner's choice): its digit and its name. The same
+  // button votes and, when the option has a picture, shows it privately.
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
     .setCustomId(`vote_cast:${index}`)
     .setEmoji(numberIcon(index))
+    .setLabel(option.slice(0, 80))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(Boolean(ended)));
   const rows = [];
@@ -142,8 +150,9 @@ export async function loadVote(client, guildId, messageId) {
   return (await readVotes(client, guildId))[messageId] || null;
 }
 
-// One vote per member: a new option replaces the old one; the same option
-// again removes it. Returns { status, vote, option }.
+// One vote per member: a new option replaces the old one. The same option again
+// keeps the vote (owner's choice: that button also shows the option's picture,
+// so a second look must not remove the vote). Returns { status, vote, option }.
 export async function castVote(client, guildId, messageId, userId, index) {
   return Mutex.runExclusive(votesKey(guildId), async () => {
     const votes = await readVotes(client, guildId);
@@ -155,8 +164,7 @@ export async function castVote(client, guildId, messageId, userId, index) {
     const next = { ...(vote.votes || {}) };
     let status;
     if (current === index) {
-      delete next[userId];
-      status = 'removed';
+      return { status: 'unchanged', vote, option: vote.options[index] };
     } else {
       next[userId] = index;
       status = current === undefined ? 'voted' : 'changed';
