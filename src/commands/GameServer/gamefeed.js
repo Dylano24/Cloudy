@@ -42,7 +42,12 @@ export default {
 
   async execute(interaction) {
     if (interaction.options.getSubcommand() === 'embeds') {
-      const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
+      const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({
+        ...normalizeGameFeedEvent(event),
+        streak: event.streak,
+        protectedFor: event.protectedFor,
+        discordMemberId: event.type === 'ban' && event.action === 'ban' && interaction.guild ? interaction.user?.id : null,
+      }));
       await interaction.reply({ embeds, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       // The live boards (#server-status, #population, #leaderboard).
       return interaction.followUp({ embeds: sampleBoards(), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
