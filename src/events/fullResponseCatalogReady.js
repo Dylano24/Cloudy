@@ -1,3 +1,4 @@
+import { isGameFeedEmbed } from '../services/gameFeedTitles.js';
 import { isPatchBannerRepairInProgress } from '../services/patchNotesBannerService.js';
 import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 // BUILDER_SAVED_PARITY_V1
@@ -542,6 +543,7 @@ export async function applySavedResponsePayloadTemplates(payload, source) {
     const data = embed?.toJSON ? embed.toJSON() : embed;
     if (!data || typeof data !== 'object') return embed;
     if (/^cloudy template key:/i.test(String(data.author?.name || ''))) return embed;
+    if (isGameFeedEmbed(data)) return embed;
     const overlay = getCachedSavedEmbedTemplateData(guildId, channelId, data, {
       responseIdentity: balanceResponseIdentity(data, source),
     });

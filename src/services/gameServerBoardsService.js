@@ -12,9 +12,9 @@ import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyCh
 
 const LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-const ONLINE_DOT = '<:glowing_dot_green:1567760480439771286>';
+const ONLINE_DOT = '<a:glowing_dot_green:1567760480439771286>';
 const OFFLINE_DOT = '<:W8733476glowingdotred:1543291468377104436>';
-const SERVER_ICON = '<:server_router:1567766741889585203>';
+const SERVER_ICON = '<a:server_router:1567766741889585203>';
 export const POPULATION_WEBHOOK_NAME = 'Cloudy Population';
 export const OFFLINE_AFTER_MS = 5 * 60_000;
 export const BOARD_EDIT_INTERVAL_MS = 30_000;
@@ -95,8 +95,7 @@ export function buildLeaderboard(state) {
       .sort(([, a], [, b]) => (b.kills - a.kills) || (a.deaths - b.deaths))
       .slice(0, LEADERBOARD_SIZE)
       .map(([player, stats], index) => {
-        const ratio = stats.deaths ? (stats.kills / stats.deaths).toFixed(2) : String(stats.kills);
-        return `**${index + 1}.** ${player} · ${stats.kills} ${stats.kills === 1 ? 'kill' : 'kills'} · ${stats.deaths} ${stats.deaths === 1 ? 'death' : 'deaths'} · K/D ${ratio}`;
+        return `**${index + 1}.** ${player} · ${stats.kills} ${stats.kills === 1 ? 'kill' : 'kills'}`;
       });
     return [`**${name}**`, ...(top.length ? top : ['No kills yet.']),
       ...(entry.since ? [`Since the wipe <t:${unix(entry.since)}:R>`] : [])].join('\n');
