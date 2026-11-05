@@ -2,6 +2,7 @@
 
 import { logger } from '../../utils/logger.js';
 import { getGuildMusicData, clearUpdateInterval } from './playerStore.js';
+import { findCloudyChannelByAlias, getCloudyChannelDefinition } from '../cloudyChannelResolver.js';
 import {
     buildNowPlayingEmbed,
     buildPlayerButtonRows,
@@ -64,7 +65,13 @@ export async function refreshPlayerMessage(client, guildId) {
 
         const embed = buildNowPlayingEmbed(player.current, player, guildData);
         const components = buildPlayerButtonRows(player, guildData);
-        const channelId = guildData.playerChannelId || player.textChannel;
+        // A new player panel goes to #music when the server has it (owner's
+        // choice); an existing panel keeps its message.
+        const guild = client.guilds?.cache?.get?.(guildId);
+        const musicChannel = !guildData.playerMessageId && guild
+            ? findCloudyChannelByAlias(guild, getCloudyChannelDefinition('music')?.aliases || [], { textOnly: true })
+            : null;
+        const channelId = musicChannel?.id || guildData.playerChannelId || player.textChannel;
         await editOrSendPlayerMessage(client, guildData, channelId, embed, components);
       }
     })().catch(error => {
