@@ -58,3 +58,32 @@ test('the map vote shows three small pictures in one embed and numbered buttons'
   assert.equal((await loadVote(client, 'g', '31')).images.length, 3);
   assert.equal(buildVoteMessage({ ...(await loadVote(client, 'g', '31')), ended: true }).embeds[0].title, '🗳️ Map vote ended');
 });
+
+test('your own map pictures are sent with the vote and shown in the same gallery', async () => {
+  const sent = [];
+  const store = new Map();
+  const channel = { id: 'c', send: async payload => { const message = { id: '41', ...payload }; sent.push(message); return message; } };
+  const client = { guilds: { cache: new Collection() }, db: {
+    get: async (key, fallback = null) => (store.has(key) ? structuredClone(store.get(key)) : fallback),
+    set: async (key, value) => { store.set(key, structuredClone(value)); return true; } } };
+  const pictures = {
+    picture1: { url: 'https://cdn.discordapp.com/a/1.png', name: 'Screenshot.PNG', contentType: 'image/png', size: 1000 },
+    picture2: { url: 'https://cdn.discordapp.com/a/2.jpg', name: 'map.jpg', contentType: 'image/jpeg', size: 1000 },
+  };
+  const interaction = { client, guildId: 'g', channelId: 'c', channel, user: { id: 'u' }, inGuild: () => true,
+    options: { getString: () => null, getAttachment: name => pictures[name] || null },
+    deferReply: async () => {}, editReply: async payload => { interaction.reply = payload; }, deleteReply: async () => {} };
+  await mapvote.execute(interaction, {
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) }),
+    featuredMaps: (count, options) => featuredMaps(count, { ...options, fetchImpl: fakeFetch, random: () => 0 }),
+  });
+  const message = sent[0];
+  assert.deepEqual(message.files.map(file => file.name), ['map1.png', 'map2.jpg']);
+  assert.deepEqual(message.embeds.map(embed => embed.image.url).slice(0, 2), ['attachment://map1.png', 'attachment://map2.jpg']);
+  assert.ok(message.embeds[2].image.url.endsWith('/map_icons.png'));
+  assert.match(message.embeds[0].description, /\*\*Map 1\*\*\n/);
+  const bad = { ...interaction, options: { getString: () => null, getAttachment: name => (name === 'picture1' ? { ...pictures.picture1, contentType: 'text/plain' } : null) } };
+  bad.editReply = async payload => { bad.reply = payload; };
+  await mapvote.execute(bad, { fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) }) });
+  assert.match(JSON.stringify(json(bad.reply.embeds[0])), /must be an image/);
+});
