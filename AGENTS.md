@@ -89,6 +89,11 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - When winners are drawn (automatic every minute, End, Reroll) Cloudy replies to the giveaway with a message that tags only the winners and shows "How to claim your prize". The result is saved before anything is shown; a giveaway whose message was removed is closed without tagging anyone. Old giveaway buttons (`giveaway_join`, `giveaway_end`, `giveaway_reroll`, `giveaway_view`) keep working.
 - Every giveaway and Giveaway Builder notice (Success/Warning, also after End/Reroll/Delete/Post/Cancel) removes itself after exactly 10 seconds (`removeAfterTenSeconds`); it never removes the giveaway message itself. Notices use the Warning title with a red side line (`giveawayWarning`, `CLOUDY_RED_COLOR`, owner's choice: never yellow), not the generic error embed (a saved response template rewrote its title). The View participants list also disappears after 10 seconds (owner's choice). The private Manage panel follows the 5-minute dashboard rule. Every giveaway button acknowledges Discord before any database work.
 
+## Patchbot
+
+- Patchbot (owner's choice, like the PatchBot bot) posts game updates in the channel a server chooses on the website: dashboard module `patchbot` (`enabled`, `channelId`, optional `roleId` to tag, `games`; Rust only for now) and action `postlatest` ("Post latest update"). `patchbotService.js` reuses the Rust update post (`buildRustPatchPayload`) and runs after each Rust feed check.
+- Only updates that appear after Patchbot is switched on (or its channel changes) are posted; each server/channel remembers the last one. Patchbot never posts in Cloudy's own #rust-patch-notes, which keeps its built-in poster unchanged.
+
 ## Cloudy Feed
 
 - Add/Edit feed form (owner's choice, in this order): Feed name, Website URL, Auto message, Start time, 18+ content. Media type is not in the form: for Add it is chosen on the channel step (the form opens once both media type and channel are chosen); for an existing feed it is the select on the Manage screen, saved at once.
