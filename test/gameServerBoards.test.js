@@ -68,7 +68,7 @@ test('status board: online servers with players, queue, map and next wipe; silen
   }, leaderboard: {}, messages: {} };
   const embed = buildStatusBoard(state, now);
   assert.equal(embed.title, 'Server status');
-  assert.match(embed.description, /^<a:glowing_dot_green:1567760480439771286> \*\*Server 1 Rust\*\*\nOnline · 87\/150 players · Queue 3\nMap: Procedural 4000 · Next wipe <t:\d+:R>\n\n<:W8733476glowingdotred:1543291468377104436> \*\*Server 2 Rust\*\*\nOffline\n\n\*\*Last update:\*\* <t:\d+:R>$/);
+  assert.match(embed.description, /^<a:glowing_dot_green:1567760480439771286> \*\*Server 1 Rust\*\* Online\n\*\*Players:\*\* 87\/150\n\*\*Queue:\*\* 3\n\*\*Map:\*\* Procedural 4000\n\*\*Next wipe:\*\* <t:\d+:R>\n\n<:W8733476glowingdotred:1543291468377104436> \*\*Server 2 Rust\*\* Offline\n\n\*\*Last update:\*\* <t:\d+:R>$/);
   const population = buildPopulationBoard(state, now);
   assert.equal(population.title, 'Population');
   assert.match(population.description, /\*\*Server 1 Rust\*\*\n<a:server_router:1567766741889585203> 87\/150 · Queue 3\n\n\*\*Server 2 Rust\*\*\nOffline\n\n\*\*Total online:\*\* 87$/);
