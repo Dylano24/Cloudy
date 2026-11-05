@@ -112,21 +112,49 @@ test('one vote per member: another option changes it, the same option keeps it; 
   assert.doesNotMatch(text, /<@/);
 });
 
-test('a vote button answers first, refreshes the counts and shows a private notice', async () => {
+test('a vote click changes the vote in one step (no separate acknowledge and edit) and shows a private notice', async () => {
   const w = world();
   await create(w, { question: 'Q', option1: 'A', option2: 'B' });
   const click = {
     guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id },
+    update: async payload => { click.updated = payload; },
     deferUpdate: async () => { click.acked = true; },
     editReply: async payload => { click.edited = payload; },
     followUp: async payload => { click.notice = payload; return { id: 'notice' }; },
     deleteReply: async () => {},
   };
   await voteButton.execute(click, w.client, ['1']);
-  assert.equal(click.acked, true);
-  assert.match(click.edited.embeds[0].description, /2️⃣ \*\*B\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  assert.match(click.updated.embeds[0].description, /2️⃣ \*\*B\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  assert.equal(click.acked, undefined, 'no acknowledge before the change');
+  assert.equal(click.edited, undefined, 'no second edit');
   assert.equal(click.notice.flags, 64);
   assert.match(JSON.stringify(json(click.notice.embeds[0])), /You voted for \*\*B\*\*/);
+});
+
+test('when saving a vote takes longer than 2 seconds the click is acknowledged first', async t => {
+  const w = world();
+  await create(w, { question: 'Q', option1: 'A', option2: 'B' });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const get = w.client.db.get;
+  w.client.db.get = async (...args) => { await gate; return get(...args); };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const order = [];
+  const click = { id: 'slow', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id },
+    update: async () => { order.push('update'); },
+    deferUpdate: async () => { order.push('ack'); },
+    editReply: async payload => { order.push('edit'); click.edited = payload; },
+    followUp: async () => { order.push('notice'); return { id: 'n' }; },
+    deleteReply: async () => {} };
+  const running = voteButton.execute(click, w.client, ['0']);
+  await new Promise(resolve => { setImmediate(resolve); });
+  t.mock.timers.tick(2_000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  release();
+  await running;
+  assert.deepEqual(order, ['ack', 'edit', 'notice']);
+  assert.match(click.edited.embeds[0].description, /1️⃣ \*\*A\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  t.mock.timers.reset();
 });
 
 test('an ended vote shows the winner and disabled buttons', async () => {
@@ -223,7 +251,7 @@ test('Discord picture links of recent votes are renewed every 12 hours', async (
   assert.equal(edits.length, 1, 'not again within 12 hours');
 });
 
-test('the option button votes and shows its picture privately for 30 seconds; without a picture the usual 10-second notice', async t => {
+test('the option button only votes: the picture opens from the blue link, the notice is the usual 10-second Success', async t => {
   const w = world();
   const deps = {
     fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
@@ -243,35 +271,28 @@ test('the option button votes and shows its picture privately for 30 seconds; wi
   const click = (index, user = 'member') => {
     const state = { deleted: 0 };
     const interaction = { id: `i-${index}-${user}-${Math.random()}`, guildId: GUILD, user: { id: user }, message: { id: posted.id },
-      deferUpdate: async () => {}, editReply: async payload => { state.edited = payload; },
+      update: async payload => { state.updated = payload; },
+      deferUpdate: async () => { state.acked = true; },
+      editReply: async payload => { state.edited = payload; },
       followUp: async payload => { state.notice = payload; return { id: 'notice' }; },
       deleteReply: async () => { state.deleted += 1; } };
     return voteButton.execute(interaction, w.client, [String(index)]).then(() => state);
   };
   const first = await click(0);
-  const embed = first.notice.embeds[0];
-  assert.equal(embed.image.url, 'https://cdn.discordapp.com/attachments/1/2/option1.png?ex=1');
+  const embed = json(first.notice.embeds[0]);
+  assert.equal(embed.title, 'Success');
   assert.equal(embed.description, 'You voted for **DZ West**.');
-  assert.equal(embed.title, undefined);
-  assert.equal(embed.thumbnail, undefined);
-  assert.match(first.edited.embeds[0].description, /\[DZ West\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  assert.equal(embed.image, undefined, 'no picture behind the button');
+  assert.match(first.updated.embeds[0].description,
+    /\[DZ West\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*\n▱{6} \*\*1%\*\* · 1 vote/, 'the blue link opens the picture');
   t.mock.timers.tick(10_000);
   await new Promise(resolve => { setImmediate(resolve); });
-  assert.equal(first.deleted, 0, 'the picture stays longer than 10 seconds');
-  t.mock.timers.tick(20_000);
-  await new Promise(resolve => { setImmediate(resolve); });
-  assert.equal(first.deleted, 1, 'gone after 30 seconds');
+  assert.equal(first.deleted, 1, 'gone after 10 seconds');
 
   const again = await click(0);
-  assert.equal(again.edited, undefined, 'a second look keeps the vote and changes nothing');
-  assert.equal(again.notice.embeds[0].image.url, embed.image.url);
-  assert.equal((await loadVote(w.client, GUILD, posted.id)).votes.member, 0);
-
-  const plain = await click(1, 'other');
-  assert.equal(json(plain.notice.embeds[0]).title, 'Success');
-  t.mock.timers.tick(10_000);
-  await new Promise(resolve => { setImmediate(resolve); });
-  assert.equal(plain.deleted, 1, 'no picture: gone after 10 seconds');
+  assert.equal(again.updated, undefined, 'the same option again changes nothing');
+  assert.equal(again.acked, true);
+  assert.equal((await loadVote(w.client, GUILD, posted.id)).votes.member, 0, 'and keeps the vote');
   t.mock.timers.reset();
 });
 
