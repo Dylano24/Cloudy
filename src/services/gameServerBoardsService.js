@@ -13,7 +13,7 @@ import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyCh
 const LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 import { feedEmoji } from './feedEmojiService.js';
-import { resetPopulationBots, updatePopulationBots } from './populationBotService.js';
+import { populationBotTokens, resetPopulationBots, updatePopulationBots } from './populationBotService.js';
 export const POPULATION_WEBHOOK_NAME = 'Cloudy Population';
 export const OFFLINE_AFTER_MS = 5 * 60_000;
 export const BOARD_EDIT_INTERVAL_MS = 30_000;
@@ -299,12 +299,32 @@ export async function postDailyTopKillers(client, guild, today = amsterdamDate()
   return finished.length;
 }
 
+// Population bots are in the member list from the start: a server that has not
+// reported (or is not linked yet) shows "🔴 Offline" until its first status.
+export async function refreshPopulationBots(client, guild, now = Date.now()) {
+  const names = Object.keys(populationBotTokens());
+  if (!names.length) return new Set();
+  const state = await readState(client, guild.id);
+  return updatePopulationBots(guild, names.map(name => {
+    const server = state.servers[name] || {};
+    return { name, online: isOnline(server, now), text: populationText(server, now) };
+  }));
+}
+
 // Every minute: a server that stopped reporting shows as offline.
 let started = false;
 export function startGameServerBoards(client) {
   if (started) return;
   started = true;
+  const refreshBots = () => {
+    for (const guild of client.guilds?.cache?.values?.() || []) {
+      void refreshPopulationBots(client, guild)
+        .catch(error => logger.warn(`Population bots refresh failed: ${error?.message || error}`));
+    }
+  };
+  refreshBots();
   const timer = setInterval(() => {
+    refreshBots();
     for (const guild of client.guilds?.cache?.values?.() || []) {
       void postDailyTopKillers(client, guild)
         .catch(error => logger.warn(`Daily top killer failed: ${error?.message || error}`));

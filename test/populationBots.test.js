@@ -59,3 +59,14 @@ test('a bot that is not in the server yet is not counted as handled', async () =
   const handled = await updatePopulationBots(w.guild, [{ name: 'Server 1 Rust', online: true, text: '🟢 1/100' }], { env, createClient: w.createClient });
   assert.equal(handled.size, 0);
 });
+
+test('a bot whose game server is not linked yet shows 🔴 Offline with a red (dnd) dot', async () => {
+  const w = setup();
+  const env = { POPULATION_BOT_TOKENS: JSON.stringify({ 'Server 1 Rust': TOKEN }) };
+  const handled = await updatePopulationBots(w.guild, [{ name: 'Server 1 Rust', online: false, text: '🔴 Offline' }],
+    { env, createClient: w.createClient });
+  assert.deepEqual([...handled], ['Server 1 Rust']);
+  assert.equal(w.presences[0].status, 'dnd');
+  assert.equal(w.presences[0].activities[0].state, '🔴 Offline');
+  assert.ok(w.roleIds.has('role1'));
+});
