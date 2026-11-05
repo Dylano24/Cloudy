@@ -32,15 +32,8 @@ export async function downloadVotePicture(attachment, index, fetchImpl = fetch) 
 export const GALLERY_URL = 'https://rustmaps.com';
 const CLOUDY_MEDIA = /\/cloudy-embed-media\//;
 
-// The picture of an option (owner's choice: opened inside Discord with a
-// button, never shown as a website link). Votes from before this kept the
-// picture as a link; those Cloudy media links count as pictures too.
-/** The picture shown privately when someone votes for this option, or null. */
-export function votePicture(vote, index) {
-  if (vote.optionMedia && vote.optionLinks?.[index]) return vote.optionLinks[index];
-  return optionPicture(vote, index);
-}
-
+// The picture of an option on older votes (a Cloudy media link or an uploaded
+// picture); such options show as plain text.
 export function optionPicture(vote, index) {
   if (vote.optionImages?.[index]) return vote.optionImages[index];
   const link = vote.optionLinks?.[index];
@@ -96,8 +89,8 @@ export function buildVoteMessage(vote, now = Date.now()) {
   } else if (vote.endsAt) {
     lines.push('', `**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
   }
-  // One button per option (owner's choice): its digit and its name. The same
-  // button votes and, when the option has a picture, shows it privately.
+  // One button per option (owner's choice): its digit and its name. It only
+  // votes; a picture opens from the option's blue link.
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
     .setCustomId(`vote_cast:${index}`)
     .setEmoji(numberIcon(index))
