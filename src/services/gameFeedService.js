@@ -48,6 +48,8 @@ function moment(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 const unix = ms => Math.floor(ms / 1000);
+// Short date and time (05/11/2026 13:26) so a line stays on one row next to the logo.
+const shortMoment = ms => `<t:${unix(ms)}:d> <t:${unix(ms)}:t>`;
 
 // Checks one incoming event and returns the clean version, or throws.
 export function normalizeGameFeedEvent(raw) {
@@ -113,7 +115,7 @@ const line = (label, value, emoji) => (value == null || value === '' ? null : `*
 function classicEmbed(title, color, lines, event, timeIcon) {
   return {
     title,
-    description: [...lines, `${timeIcon ? `${feedEmoji('dot')} ` : ''}${line('Time', `<t:${unix(event.time)}:f>`)}`].filter(entry => entry != null).join('\n'),
+    description: [...lines, `${timeIcon ? `${feedEmoji('dot')} ` : ''}${line('Time', timeIcon ? shortMoment(event.time) : `<t:${unix(event.time)}:f>`)}`].filter(entry => entry != null).join('\n'),
     color,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
     footer: { text: CLOUDY_FOOTER },
@@ -176,8 +178,8 @@ export function buildGameFeedEmbed(event) {
           `${dot} Search for ${name(event.server)}`,
           '',
           '**Current wipe**',
-          `${dot} **Start:** <t:${unix(event.time)}:f>`,
-          event.next ? `${dot} **End:** <t:${unix(event.next)}:f>` : null,
+          `${dot} **Start:** ${shortMoment(event.time)}`,
+          event.next ? `${dot} **End:** ${shortMoment(event.next)}` : null,
           event.store ? `\n**Store:** [Click here to view our packages](${event.store})` : null,
         ], event, true);
       }
