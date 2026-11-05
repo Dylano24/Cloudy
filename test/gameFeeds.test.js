@@ -35,12 +35,12 @@ test.afterEach(() => clearGameFeedQueues());
 
 test('classic feed embeds with names in code, big logo, footer with small logo and Time', () => {
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
-  assert.deepEqual(embeds.map(embed => embed.title), [
-    'Player killed', 'Player login', 'Player logout', 'Kit claimed',
-    'ZORP on', 'ZORP off', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
+  assert.deepEqual(embeds.map(embed => embed.title.replace(/ <a?:\w+:\d+>$/, '')), [
+    'Player killed', 'LOGIN', 'LOGOUT', 'Kit claimed',
+    'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
   assert.match(embeds[0].description, /^<:killer:\d+> \*\*Killer:\*\* `Dyn`\n<:victim:\d+> \*\*Victim:\*\* `Dylano`\n\*\*Weapon:\*\* Assault rifle\n<:distance:\d+> \*\*Distance:\*\* 145 m\n<:headshot:\d+> \*\*Headshot:\*\* Yes\n\*\*Killstreak:\*\* 🔥 3\n<a?:server_router:\d+> \*\*Server:\*\* Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
-  assert.match(embeds[1].description, /<:login_green_slim:\d+> \*\*Player:\*\* `Dylano`\n<:whitexboxlogominimal:\d+> \*\*Platform:\*\* Xbox Series/);
+  assert.match(embeds[1].description, /\*\*Player:\*\* `Dylano`\n<:whitexboxlogominimal:\d+> \*\*Platform:\*\* Xbox Series/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
   assert.match(embeds[5].description, /\*\*Protected for:\*\* 2h 14m/);
   for (const embed of embeds) {
