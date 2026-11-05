@@ -241,7 +241,7 @@ test('an option with a picture becomes a blue link with a small Preview button r
   const sections = card.components.filter(part => part.type === 9 && part.accessory?.type === 2);
   assert.deepEqual(sections.map(part => [part.components[0].content.split('\n')[0].replace(/\(.*\)/, ''), part.accessory.custom_id, part.accessory.label]),
     [['1️⃣ **[DZ West]**', 'vote_media:0', 'Preview'], ['3️⃣ **[DZ South]**', 'vote_media:2', 'Preview']], 'Preview only next to options with a picture');
-  assert.equal(card.components.at(-1).content, '-# © Cloudy Inc. • Quality. Innovation. Performance.');
+  assert.equal(card.components.at(-1).content, '-# © Cloudy Inc.\n-# Quality. Innovation. Performance.', 'footer: two neat small lines');
   assert.deepEqual(row.components.map(button => button.custom_id), ['vote_cast:0', 'vote_cast:1', 'vote_cast:2'], 'vote buttons stay under the vote');
   assert.equal(posted.components.length, 2);
   assert.equal(posted.thread, undefined, 'no thread on the vote');
