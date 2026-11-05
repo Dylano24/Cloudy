@@ -119,29 +119,63 @@ export async function repairEncodedPatchText(message) {
     if (JSON.stringify(original) !== JSON.stringify(embeds)) await message.edit({ embeds });
 }
 
-async function checkForRustPatch(client) {
+// The newest official Rust update from Facepunch's news feed.
+export async function fetchLatestRustPatch() {
     try {
-        let patch;
-
-        try {
-            const feedUrl = `${RUST_NEWS_FEED}?cloudy=${Date.now()}`;
-            const response = await fetch(feedUrl, {
-                headers: {
-                    'User-Agent': 'Cloudy Discord Bot/1.0',
-                    Accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
-                    'Cache-Control': 'no-cache',
-                },
-                signal: AbortSignal.timeout(15000),
-            });
-            if (!response.ok) {
-                throw new Error(`Rust feed returned HTTP ${response.status}`);
-            }
-
-            patch = parseLatestPatch(await response.text());
-            if (!patch) throw new Error('No official Rust patch in feed');
-        } catch (feedError) {
-            throw new Error('Could not fetch current official Rust patch; retrying later', { cause: feedError });
+        const feedUrl = `${RUST_NEWS_FEED}?cloudy=${Date.now()}`;
+        const response = await fetch(feedUrl, {
+            headers: {
+                'User-Agent': 'Cloudy Discord Bot/1.0',
+                Accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+                'Cache-Control': 'no-cache',
+            },
+            signal: AbortSignal.timeout(15000),
+        });
+        if (!response.ok) {
+            throw new Error(`Rust feed returned HTTP ${response.status}`);
         }
+
+        const patch = parseLatestPatch(await response.text());
+        if (!patch) throw new Error('No official Rust patch in feed');
+        return patch;
+    } catch (feedError) {
+        throw new Error('Could not fetch current official Rust patch; retrying later', { cause: feedError });
+    }
+}
+
+// The Rust update post (also used by Patchbot): banner uploaded with it.
+export function buildRustPatchPayload(patch, banner) {
+    const articlePreview =
+        patch.body ||
+        patch.description ||
+        'A new official Rust update is available.';
+
+    const embed = new EmbedBuilder()
+        .setColor('#FFFFFF')
+        .setAuthor({ name: 'RUST • OFFICIAL UPDATE' })
+        .setTitle(patch.title)
+        .setURL(patch.link)
+        .setDescription(articlePreview)
+        .setFooter({ text: 'Cloudy Patch Notes • Source: Facepunch Studios' })
+        .setTimestamp(patch.publishedAt ? new Date(patch.publishedAt) : new Date());
+
+    embed.setImage(banner.image.url);
+
+    const linkRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setLabel('Read full patch notes')
+            .setStyle(ButtonStyle.Link)
+            .setURL(patch.link)
+    );
+
+    return { embeds: [embed], components: [linkRow], files: [banner.file] };
+}
+
+async function checkForRustPatch(client, state = {}) {
+    try {
+        const patch = await fetchLatestRustPatch();
+        // Patchbot servers get the same update without a second download.
+        state.patch = patch;
 
         const channel = await resolveCloudyChannel(client, 'rustPatch', { textOnly: true });
         if (!channel?.isTextBased()) {
@@ -191,34 +225,7 @@ async function checkForRustPatch(client) {
         }
 
         const banner = await preparePatchNotesBanner(patch);
-        const articlePreview =
-            patch.body ||
-            patch.description ||
-            'A new official Rust update is available.';
-
-        const embed = new EmbedBuilder()
-            .setColor('#FFFFFF')
-            .setAuthor({ name: 'RUST • OFFICIAL UPDATE' })
-            .setTitle(patch.title)
-            .setURL(patch.link)
-            .setDescription(articlePreview)
-            .setFooter({ text: 'Cloudy Patch Notes • Source: Facepunch Studios' })
-            .setTimestamp(patch.publishedAt ? new Date(patch.publishedAt) : new Date());
-
-        embed.setImage(banner.image.url);
-
-        const linkRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setLabel('Read full patch notes')
-                .setStyle(ButtonStyle.Link)
-                .setURL(patch.link)
-        );
-
-        await channel.send({
-            embeds: [embed],
-            components: [linkRow],
-            files: [banner.file],
-        });
+        await channel.send(buildRustPatchPayload(patch, banner));
         await client.db.set(LAST_PATCH_KEY, patch.link);
         lastPatchChannelWarningAt = 0;
         logger.info(`Posted Rust patch notes: ${patch.title}`);
@@ -240,7 +247,17 @@ export function startRustPatchNotes(client) {
     // Ready and app startup both request this monitor. Reserve it before any
     // network await so they cannot install duplicate checks or intervals.
     if (patchNotesMonitors.has(client)) return;
-    const runCheck = createSingleFlight(() => checkForRustPatch(client));
+    const runCheck = createSingleFlight(async () => {
+        const state = {};
+        const posted = await checkForRustPatch(client, state);
+        // Patchbot (per-server setting) never affects Cloudy's own channel.
+        // Loaded here so this module stays free of the config modules.
+        if (state.patch && client.guilds?.cache?.size) {
+            const { deliverPatchbotUpdates } = await import('./patchbotService.js');
+            await deliverPatchbotUpdates(client, 'rust', state.patch, { skipChannelIds: [RUST_PATCH_CHANNEL_ID] });
+        }
+        return posted;
+    });
     patchNotesMonitors.set(client, { runCheck });
 
     const beginMonitoring = async () => {
