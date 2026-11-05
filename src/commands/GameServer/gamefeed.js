@@ -13,16 +13,16 @@ import { findCloudyChannelByAlias, getCloudyChannelDefinition } from '../../serv
 function sampleBoards(now = Date.now()) {
   const state = {
     servers: {
-      'Darkzone': { online: true, players: 87, max: 100, queue: 3, map: 'Procedural 4000', nextWipe: now + 3 * 86_400_000, updatedAt: now },
-      'Server 2 Rust': { online: false, updatedAt: now },
+      'Darkzone South': { online: true, players: 87, max: 100, queue: 3, map: 'Procedural 4000', nextWipe: now + 3 * 86_400_000, updatedAt: now },
+      'Darkzone West': { online: false, updatedAt: now },
     },
     leaderboard: {
-      'Darkzone': { since: now - 2 * 86_400_000, players: { 'Dyn': { kills: 25, deaths: 4 }, 'Dylano': { kills: 19, deaths: 7 }, 'Cloudy': { kills: 6, deaths: 9 } } },
+      'Darkzone South': { since: now - 2 * 86_400_000, players: { 'Dyn': { kills: 25, deaths: 4 }, 'Dylano': { kills: 19, deaths: 7 }, 'Cloudy': { kills: 6, deaths: 9 } } },
     },
     messages: {},
   };
   return [buildStatusBoard(state, now), buildPopulationBoard(state, now), buildLeaderboard(state, now),
-    buildDailyTopKiller('Darkzone', { 'Dyn': 25, 'Dylano': 19, 'Cloudy': 6 }, now)];
+    buildDailyTopKiller('Darkzone South', { 'Dyn': 25, 'Dylano': 19, 'Cloudy': 6 }, now)];
 }
 
 // Staff only: see the feed embeds before the game server is linked, and
