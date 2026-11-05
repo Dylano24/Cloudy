@@ -1,9 +1,9 @@
-import { MessageFlags, SlashCommandBuilder, ThreadAutoArchiveDuration } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { successEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
-import { CLOUDY_FOOTER, buildVoteMessage, saveVote } from '../../services/voteService.js';
+import { buildVoteMessage, saveVote } from '../../services/voteService.js';
 import { storeEmbedMediaBuffer } from '../../services/embedMediaStorageService.js';
 
 const VOTE_OPTIONS = 3;
@@ -18,29 +18,6 @@ function removeAfterTenSeconds(interaction) {
 async function notice(interaction, embed) {
   await interaction.editReply({ embeds: [embed], components: [] });
   removeAfterTenSeconds(interaction);
-}
-
-// One message per picture (only the picture and the Cloudy footer: no title,
-// no logo) in a thread on the vote. Returns the message link per option.
-async function postOptionPictures(message, optionImages) {
-  const links = optionImages.map(() => null);
-  let thread;
-  try {
-    thread = await message.startThread({ name: 'Vote media', autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek });
-  } catch {
-    return links;
-  }
-  for (const [index, image] of optionImages.entries()) {
-    if (!image) continue;
-    const sent = await thread.send({
-      embeds: [{ image: { url: image }, color: 0xFFFFFF, footer: { text: CLOUDY_FOOTER } }],
-      allowedMentions: { parse: [] },
-    }).catch(() => null);
-    if (sent?.url) links[index] = sent.url;
-  }
-  // Only Cloudy posts there.
-  await thread.setLocked?.(true).catch(() => {});
-  return links;
 }
 
 // /vote (owner's choice, was /poll): a vote with buttons and live counts.
@@ -90,10 +67,9 @@ export default {
         return warn(error?.userMessage || 'Use a duration like 30m, 1h or 2d.');
       }
     }
-    // Each picture is stored as permanent Cloudy media. After the vote is
-    // posted, every picture gets its own message in a "Vote media" thread on
-    // the vote, and that option becomes a blue link to its message (inside
-    // Discord, never a website). Options without a picture stay plain text.
+    // Each picture is stored as permanent Cloudy media. A link cannot open a
+    // private message in Discord, so every option with a picture gets a grey
+    // button under the vote that shows it privately for 30 seconds.
     const store = dependencies.storeMedia || storeEmbedMediaBuffer;
     const fetchImpl = dependencies.fetchImpl || fetch;
     const optionImages = [];
@@ -119,10 +95,6 @@ export default {
     };
     const message = await interaction.channel.send(buildVoteMessage(vote));
     vote.messageId = message.id;
-    if (optionImages.some(Boolean)) {
-      vote.optionLinks = await postOptionPictures(message, optionImages);
-      if (vote.optionLinks.some(Boolean)) await message.edit(buildVoteMessage(vote)).catch(() => {});
-    }
     try {
       await saveVote(interaction.client, interaction.guildId, vote);
     } catch (error) {

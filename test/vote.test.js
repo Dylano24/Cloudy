@@ -138,7 +138,7 @@ test('every vote counts as 1%: 50 votes fill half the bar', () => {
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
 });
 
-test('a picture after an option makes only that option a blue link to its picture message', async () => {
+test('an option with a picture gets a button that shows it privately for 30 seconds; no thread, no link', async t => {
   const w = world();
   const deps = {
     fetchImpl: async url => ({ ok: true, arrayBuffer: async () => new TextEncoder().encode(url).buffer }),
@@ -150,35 +150,36 @@ test('a picture after an option makes only that option a blue link to its pictur
   run.options.getAttachment = name => ({ media1: west, media3: south }[name] || null);
   await vote.execute(run, deps);
   const posted = w.sent[0];
-  // The pictures are in a locked "Vote media" thread: one message each, picture and footer only.
-  assert.equal(posted.thread.name, 'Vote media');
-  assert.equal(posted.thread.locked, true);
-  assert.equal(posted.thread.posts.length, 2);
-  assert.notEqual(posted.thread.posts[0].embeds[0].image.url, posted.thread.posts[1].embeds[0].image.url, 'each option keeps its own picture');
-  for (const post of posted.thread.posts) {
-    assert.equal(post.embeds[0].title, undefined);
-    assert.equal(post.embeds[0].thumbnail, undefined);
-  }
-  const text = posted.edits.at(-1).embeds[0].description;
-  assert.match(text, /\*\*\[DZ West\]\(https:\/\/discord\.com\/channels\/\d+\/thread\/1\)\*\*/);
-  assert.match(text, /\*\*DZ East\*\*/, 'no picture: plain text, no link');
-  assert.match(text, /\*\*\[DZ South\]\(https:\/\/discord\.com\/channels\/\d+\/thread\/2\)\*\*/);
+  assert.equal(posted.thread, undefined, 'no thread');
+  const text = posted.embeds[0].description;
+  assert.doesNotMatch(text, /\]\(/, 'options stay plain white text');
   assert.match(text, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\*/, 'empty line before the end');
-  assert.equal(posted.edits.at(-1).components.length, 1, 'only the vote buttons');
-  assert.equal(posted.edits.at(-1).embeds[0].title, 'Vote');
+  assert.equal(posted.embeds[0].title, 'Vote');
+  const rows = posted.components.map(row => json(row).components);
+  assert.deepEqual(rows[1].map(button => [button.custom_id, button.label]), [['vote_media:0', 'DZ West'], ['vote_media:2', 'DZ South']]);
+  const stored = await loadVote(w.client, GUILD, posted.id);
+  assert.notEqual(stored.optionImages[0], stored.optionImages[2], 'each option keeps its own picture');
+  assert.equal(stored.optionImages[1], null);
 
-  const plain = w.command({ question: 'Q', option1: 'A', option2: 'B' });
-  await vote.execute(plain, deps);
-  assert.equal(w.sent[1].thread, undefined, 'no pictures: no thread');
-  assert.doesNotMatch(w.sent[1].embeds[0].description, /\]\(/);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const click = { id: 'click-1', guildId: GUILD, message: { id: posted.id },
+    deferReply: async () => {}, editReply: async payload => { click.reply = payload; return { id: 'view' }; },
+    deleteReply: async () => { click.deleted = true; } };
+  await voteMedia.execute(click, w.client, ['2']);
+  assert.equal(click.reply.embeds[0].image.url, stored.optionImages[2]);
+  assert.equal(click.reply.embeds[0].title, undefined);
+  assert.equal(click.reply.embeds[0].thumbnail, undefined);
+  t.mock.timers.tick(29_000);
+  assert.equal(click.deleted, undefined);
+  t.mock.timers.tick(1_000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(click.deleted, true, 'gone after 30 seconds');
+  t.mock.timers.reset();
 
   const lonely = w.command({ question: 'Q', option1: 'A', option2: 'B' });
   lonely.options.getAttachment = name => (name === 'media3' ? west : null);
   await vote.execute(lonely, deps);
   assert.match(JSON.stringify(json(lonely.reply.embeds[0])), /Media 3 has no option 3/);
-  const one = w.command({ question: 'Q', option1: 'A' });
-  await vote.execute(one, deps);
-  assert.match(JSON.stringify(json(one.reply.embeds[0])), /at least two options/);
   const video = w.command({ question: 'Q', option1: 'A', option2: 'B' });
   video.options.getAttachment = name => (name === 'media1' ? { ...west, contentType: 'video/mp4' } : null);
   await vote.execute(video, deps);
