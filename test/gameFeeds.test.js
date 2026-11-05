@@ -43,7 +43,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+> Xbox Series/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
   assert.match(embeds[5].description, /\*\*Protected for:\*\* 2h 14m/);
-  assert.match(embeds[9].description, /^\*\*Server 1\*\* has just wiped!\n\n\*\*Wipe:\*\* Map wipe\n\*\*Map:\*\* Procedural 4000\n\n\*\*How to play on this server\?\*\*\n• Open the community tab in Rust\n• Search for `Server 1`\n\n\*\*Current wipe\*\*\n• \*\*Start:\*\* <t:\d+:f>\n• \*\*End:\*\* <t:\d+:f>\n\*\*Time:\*\*/);
+  assert.match(embeds[9].description, /^\*\*Server 1\*\* has just wiped!\n\n\*\*Wipe:\*\* Map wipe\n\*\*Map:\*\* Procedural 4000\n\n\*\*How to play on this server\?\*\*\n<:W87205667glowingdotwhite:\d+> Open the community tab in Rust\n<:W87205667glowingdotwhite:\d+> Search for `Server 1`\n\n\*\*Current wipe\*\*\n<:W87205667glowingdotwhite:\d+> \*\*Start:\*\* <t:\d+:f>\n<:W87205667glowingdotwhite:\d+> \*\*End:\*\* <t:\d+:f>\n<:W87205667glowingdotwhite:\d+> \*\*Time:\*\*/);
   for (const embed of embeds) {
     assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
     assert.deepEqual(embed.footer, { text: CLOUDY_FOOTER });

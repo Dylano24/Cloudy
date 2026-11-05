@@ -110,10 +110,10 @@ const line = (label, value, emoji) => (value == null || value === '' ? null : `*
 
 // Classic feed layout (owner's choice): title, labelled lines with names in
 // code, Time, the big Cloudy logo and the footer with the small logo.
-function classicEmbed(title, color, lines, event) {
+function classicEmbed(title, color, lines, event, timeIcon) {
   return {
     title,
-    description: [...lines, line('Time', `<t:${unix(event.time)}:f>`)].filter(entry => entry != null).join('\n'),
+    description: [...lines, `${timeIcon ? `${feedEmoji('dot')} ` : ''}${line('Time', `<t:${unix(event.time)}:f>`)}`].filter(entry => entry != null).join('\n'),
     color,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
     footer: { text: CLOUDY_FOOTER },
@@ -164,6 +164,7 @@ export function buildGameFeedEmbed(event) {
     default: {
       const soon = event.state === 'soon';
       if (!soon) {
+        const dot = feedEmoji('dot');
         return classicEmbed('Server wiped', CLOUDY_NEUTRAL_COLOR, [
           `**${event.server}** has just wiped!`,
           '',
@@ -171,14 +172,14 @@ export function buildGameFeedEmbed(event) {
           line('Map', event.map),
           '',
           '**How to play on this server?**',
-          '• Open the community tab in Rust',
-          `• Search for ${name(event.server)}`,
+          `${dot} Open the community tab in Rust`,
+          `${dot} Search for ${name(event.server)}`,
           '',
           '**Current wipe**',
-          `• **Start:** <t:${unix(event.time)}:f>`,
-          event.next ? `• **End:** <t:${unix(event.next)}:f>` : null,
+          `${dot} **Start:** <t:${unix(event.time)}:f>`,
+          event.next ? `${dot} **End:** <t:${unix(event.next)}:f>` : null,
           event.store ? `\n**Store:** [Click here to view our packages](${event.store})` : null,
-        ], event);
+        ], event, true);
       }
       return classicEmbed(soon ? 'Wipe incoming' : 'Server wiped', CLOUDY_NEUTRAL_COLOR, [
         soon ? `**${event.server}** is about to wipe${event.at ? ` <t:${unix(event.at)}:R>` : ''}.`
