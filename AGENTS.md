@@ -95,6 +95,10 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Patchbot (owner's choice, like the PatchBot bot) posts game updates in the channel a server chooses on the website: dashboard module `patchbot` (`enabled`, `channelId`, optional `roleId` to tag, `games`; Rust only for now) and action `postlatest` ("Post latest update"). `patchbotService.js` reuses the Rust update post (`buildRustPatchPayload`) and runs after each Rust feed check.
 - Only updates that appear after Patchbot is switched on (or its channel changes) are posted; each server/channel remembers the last one. Patchbot never posts in Cloudy's own #rust-patch-notes, which keeps its built-in poster unchanged.
 
+## Vote
+
+- `/vote` replaces `/poll` (owner's choice): question, 2 to 10 options and an optional duration. The embed ("Vote", "Vote ended") shows each option with a bar, percentage and count, total votes and the end time, with the Cloudy logo and footer; one button per option (`vote_cast:<index>`). One vote per member: another option changes it, the same option removes it; only counts are shown, never who voted. Votes are stored per guild (`guild:<id>:votes`) and closed every minute when their time passes (winner or tie shown, buttons disabled). Notices disappear after 10 seconds.
+
 ## Game server feeds
 
 - The "feeds" channels #pvp, #player, #zorp, #raids, #ban and #wipe-feed get one embed per game event (`gameFeedService.js`): Player killed, Player joined/left, ZORP protection on/off, Raid alert, Player banned/unbanned, Wipe incoming/Server wiped. Plain embeds with the Cloudy logo and footer; colours white, `#00C49D` (join, ZORP on, unban, wiped) or Cloudy red (ZORP off, raid, ban). Channels are found by name in Cloudy's cache (no Discord request per event) and embeds are batched per channel (up to 10 per message).
