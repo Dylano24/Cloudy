@@ -47,7 +47,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const data = vote.data.toJSON();
   assert.equal(data.name, 'vote');
   assert.deepEqual(data.options.map(option => option.name),
-    ['question', 'option1', 'option2', 'option3', 'option4', 'option5', 'option6', 'option7', 'option8', 'option9', 'option10', 'duration']);
+    ['question', 'option1', 'option2', 'option3', 'option4', 'option5', 'option6', 'option7', 'option8', 'option9', 'option10', 'duration', 'picture1', 'picture2', 'picture3', 'picture4']);
   assert.equal(isPlayerCommand('vote'), true);
   assert.equal(isPlayerCommand('poll'), false);
   const w = world();
@@ -128,4 +128,24 @@ test('every vote counts as 1%: 50 votes fill half the bar', () => {
   const vote = { question: 'Q', options: ['A', 'B'], votes: Object.fromEntries(Array.from({ length: 50 }, (_, n) => [`u${n}`, 0])) };
   const text = buildVoteMessage(vote).embeds[0].description;
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
+});
+
+test('a vote can show a picture per option (e.g. maps) in one embed', async () => {
+  const w = world();
+  const pictures = {
+    picture1: { url: 'https://cdn.discordapp.com/a/west.png', name: 'west.png', contentType: 'image/png', size: 2000 },
+    picture2: { url: 'https://cdn.discordapp.com/a/east.jpg', name: 'east.jpg', contentType: 'image/jpeg', size: 2000 },
+  };
+  const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East' });
+  run.options.getAttachment = name => pictures[name] || null;
+  await vote.execute(run, { fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }) });
+  const posted = w.sent[0];
+  assert.deepEqual(posted.files.map(file => file.name), ['map1.png', 'map2.jpg']);
+  assert.deepEqual(posted.embeds.map(embed => embed.image?.url), ['attachment://map1.png', 'attachment://map2.jpg']);
+  assert.equal(new Set(posted.embeds.map(embed => embed.url)).size, 1);
+  assert.equal((await loadVote(w.client, GUILD, posted.id)).images.length, 2);
+  const lonely = w.command({ question: 'Q', option1: 'A', option2: 'B' });
+  lonely.options.getAttachment = name => (name === 'picture3' ? pictures.picture1 : null);
+  await vote.execute(lonely, { fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }) });
+  assert.match(JSON.stringify(json(lonely.reply.embeds[0])), /Picture 3 has no option 3/);
 });

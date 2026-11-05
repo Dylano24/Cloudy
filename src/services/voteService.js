@@ -13,6 +13,20 @@ export const VOTE_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️�
 export const MAX_VOTE_OPTIONS = 10;
 // Every number is a custom digit emoji (owner's choice).
 const numberIcon = index => feedEmoji(`vote_${index + 1}`);
+const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
+
+// A picture added to a vote (e.g. a map screenshot): downloaded from Discord and
+// sent again with the vote as attachment://mapN.ext, so it never expires.
+export async function downloadVotePicture(attachment, index, fetchImpl = fetch) {
+  if (!String(attachment.contentType || '').startsWith('image/')) throw new Error(`Picture ${index} must be an image.`);
+  if (attachment.size > MAX_PICTURE_BYTES) throw new Error(`Picture ${index} is larger than 10 MB.`);
+  const response = await fetchImpl(attachment.url, { signal: AbortSignal.timeout(20_000) });
+  if (!response.ok) throw new Error(`Picture ${index} could not be downloaded.`);
+  const extension = (String(attachment.name || '').match(/\.(png|jpe?g|gif|webp)$/i)?.[1] || 'png').toLowerCase();
+  const name = `map${index}.${extension}`;
+  return { image: `attachment://${name}`, file: { attachment: Buffer.from(await response.arrayBuffer()), name } };
+}
+
 // All map pictures share this URL so Discord shows them together in one embed.
 export const GALLERY_URL = 'https://rustmaps.com';
 // Six pieces keep the bar, percentage and count on one line next to the logo.
