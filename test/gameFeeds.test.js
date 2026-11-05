@@ -39,8 +39,8 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
     'Player killed', 'Player login', 'Player logout', 'Kit claimed',
     'ZORP protection on', 'ZORP protection off', 'Raid alert', 'Player banned', 'Server wiped',
   ]);
-  assert.match(embeds[0].description, /^\*\*Killer:\*\* `Player 1`\n\*\*Victim:\*\* `Player 2`\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Killstreak:\*\* 🎯 3\n\*\*Server:\*\* Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
-  assert.match(embeds[1].description, /\*\*Player:\*\* `Player 2`\n\*\*Platform:\*\* Xbox Series/);
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* `Dyn`\n\*\*Victim:\*\* `Dylano`\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Killstreak:\*\* 🎯 3\n\*\*Server:\*\* Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
+  assert.match(embeds[1].description, /\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* Xbox Series/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
   assert.match(embeds[5].description, /\*\*Protected for:\*\* 2h 14m/);
   for (const embed of embeds) {

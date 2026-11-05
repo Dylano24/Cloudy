@@ -199,14 +199,14 @@ export function enrichGameFeedEvent(event) {
 
 // Example events, used by /gamefeed preview.
 export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
-  { type: 'pvp', server: 'Server 1', killer: 'Player 1', victim: 'Player 2', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
-  { type: 'player', server: 'Server 1', action: 'join', player: 'Player 2', platform: 'Xbox Series' },
-  { type: 'player', server: 'Server 1', action: 'leave', player: 'Player 1' },
-  { type: 'player', server: 'Server 1', action: 'kit', player: 'Player 3', kit: 'Full Kit AK' },
-  { type: 'zorp', server: 'Server 1', state: 'on', player: 'Player 1' },
-  { type: 'zorp', server: 'Server 1', state: 'off', player: 'Player 1', protectedFor: 8_040_000 },
-  { type: 'raid', server: 'Server 1', attacker: 'Player 2', target: 'Player 1', item: 'Rocket' },
-  { type: 'ban', server: 'Server 1', action: 'ban', player: 'Player 4', reason: 'Cheating', duration: 'Permanent' },
+  { type: 'pvp', server: 'Server 1', killer: 'Dyn', victim: 'Dylano', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
+  { type: 'player', server: 'Server 1', action: 'join', player: 'Dylano', platform: 'Xbox Series' },
+  { type: 'player', server: 'Server 1', action: 'leave', player: 'Dyn' },
+  { type: 'player', server: 'Server 1', action: 'kit', player: 'Cloudy', kit: 'Full Kit AK' },
+  { type: 'zorp', server: 'Server 1', state: 'on', player: 'Dyn' },
+  { type: 'zorp', server: 'Server 1', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
+  { type: 'raid', server: 'Server 1', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
+  { type: 'ban', server: 'Server 1', action: 'ban', player: 'Dyn', reason: 'Cheating', duration: 'Permanent' },
   { type: 'wipe', server: 'Server 1', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
