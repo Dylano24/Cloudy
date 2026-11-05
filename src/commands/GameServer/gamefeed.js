@@ -17,12 +17,12 @@ function sampleBoards(now = Date.now()) {
       'Server 2 Rust': { online: false, updatedAt: now },
     },
     leaderboard: {
-      'Server 1 Rust': { since: now - 2 * 86_400_000, players: { 'Player 1': { kills: 25, deaths: 4 }, 'Player 2': { kills: 19, deaths: 7 }, 'Player 3': { kills: 6, deaths: 9 } } },
+      'Server 1 Rust': { since: now - 2 * 86_400_000, players: { 'Dyn': { kills: 25, deaths: 4 }, 'Dylano': { kills: 19, deaths: 7 }, 'Cloudy': { kills: 6, deaths: 9 } } },
     },
     messages: {},
   };
   return [buildStatusBoard(state, now), buildPopulationBoard(state, now), buildLeaderboard(state, now),
-    buildDailyTopKiller('Server 1', { 'Player 1': 25, 'Player 2': 19, 'Player 3': 6 }, now)];
+    buildDailyTopKiller('Server 1', { 'Dyn': 25, 'Dylano': 19, 'Cloudy': 6 }, now)];
 }
 
 // Staff only: see the feed embeds before the game server is linked, and
