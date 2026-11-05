@@ -66,7 +66,6 @@ export async function refreshPrivateGiveawayClaimNoteSpacing(client) {
 
 export const GIVEAWAY_CLAIM_PREFIX = 'gclaim:';
 export const CLAIM_LIFETIME_MS = 24 * 60 * 60 * 1000;
-export const CLAIM_SUCCESS_NOTICE_MS = 10 * 60_000;
 export const CLAIM_DENIED_NOTICE_MS = 20_000;
 export const GIVEAWAY_CLAIM_CATEGORY_ID = '1566382220904763443';
 const WHITE = 0xFFFFFF;
@@ -94,8 +93,9 @@ function logClaimAction(client, guild, detail) {
     logger.warn('Could not update closed giveaway claim audit references: ' + (error?.message || error)));
 }
 
-// Keep the short-lived private success replies associated with their claim so
-// closing the private channel also removes the confirmation from the giveaway.
+// Keep private Claim successful replies associated with their claim channel.
+// No bot-imposed timeout: remove them only when the claim channel is deleted.
+// Discord ultimately controls the lifetime of ephemeral replies.
 const pendingSuccessNotices = new WeakMap();
 const noticeKey = (messageId, userId) => messageId + ':' + userId;
 function pendingNotices(client, messageId, userId, create = false) {
@@ -116,7 +116,9 @@ async function deleteClaimResultReply(interaction) {
   try {
     await interaction.deleteReply();
   } catch (error) {
-    if (error?.code !== 10008 && error?.code !== 10015) {
+    // Discord interaction tokens eventually expire, making old ephemeral
+    // replies undeletable via the API. They may already be gone in the client.
+    if (error?.code !== 10008 && error?.code !== 10015 && error?.code !== 50027) {
       logger.warn('Giveaway Claim notice could not be removed: ' + (error?.message || error));
     }
   }
@@ -125,14 +127,28 @@ async function deletePendingSuccessNotices(client, messageId, userId) {
   const { byClaim, key, notices } = pendingNotices(client, messageId, userId);
   if (!notices?.size) return;
   byClaim.delete(key);
-  await Promise.all([...notices].map(entry => {
-    clearTimeout(entry.timer);
-    return deleteClaimResultReply(entry.interaction);
-  }));
+  await Promise.all([...notices].map(entry => deleteClaimResultReply(entry.interaction)));
 }
 
-// Only the Claim-button result uses these custom lifetimes; other claim
-// actions and the existing 24-hour prize-channel expiry remain unchanged.
+// Clean up success notices when a claim channel is deleted outside the bot
+// (e.g., by staff). Unrelated channel deletion events do nothing.
+export async function removeClaimSuccessNoticesForChannel(client, channelId) {
+  const byClaim = pendingSuccessNotices.get(client);
+  if (!byClaim || !channelId) return;
+  const interactions = [];
+  for (const [key, notices] of byClaim) {
+    for (const entry of notices) {
+      if (entry.channelId !== channelId) continue;
+      notices.delete(entry);
+      interactions.push(entry.interaction);
+    }
+    if (!notices.size) byClaim.delete(key);
+  }
+  await Promise.all(interactions.map(deleteClaimResultReply));
+}
+
+// Denied notices still disappear after 20 seconds. Successful notices have
+// no bot timer; the separate 24-hour claim-channel expiry remains unchanged.
 async function claimResultNotice(interaction, channelId = null, client = null, messageId = null) {
   const success = Boolean(channelId);
   await interaction.editReply({
@@ -149,20 +165,17 @@ async function claimResultNotice(interaction, channelId = null, client = null, m
     components: [],
     allowedMentions: { parse: [] },
   });
-  // Success replies are private and live for at most 10 minutes, unless the
-  // winner closes the claim channel first. Repeated Claim clicks are tracked.
-  const tracker = success && client && messageId
-    ? pendingNotices(client, messageId, interaction.user.id, true) : null;
-  const entry = { interaction, timer: null };
-  if (tracker) tracker.notices.add(entry);
-  entry.timer = setTimeout(() => {
-    if (tracker) {
-      tracker.notices.delete(entry);
-      if (!tracker.notices.size) tracker.byClaim.delete(tracker.key);
+  if (success) {
+    if (client && messageId) {
+      pendingNotices(client, messageId, interaction.user.id, true)
+        .notices.add({ interaction, channelId });
     }
+    return;
+  }
+  const timer = setTimeout(() => {
     void deleteClaimResultReply(interaction);
-  }, success ? CLAIM_SUCCESS_NOTICE_MS : CLAIM_DENIED_NOTICE_MS);
-  entry.timer.unref?.();
+  }, CLAIM_DENIED_NOTICE_MS);
+  timer.unref?.();
 }
 
 // Shared with the giveaway Code form (GIVEAWAY_CLAIM_ENCRYPTION_KEY).
@@ -537,6 +550,7 @@ export async function cleanupExpiredGiveawayClaims(client) {
           catch (error) { logger.warn('Could not delete expired giveaway claim channel ' + current.channelId, error); return; }
         }
         await saveClaim(client, guild.id, { ...current, closedAt: new Date().toISOString(), encryptedCode: null, code: null });
+        await deletePendingSuccessNotices(client, current.messageId, current.userId);
         logClaimAction(client, guild, {
           event: 'expired', messageId: current.messageId, userId: current.userId,
           claimChannelId: current.channelId,
