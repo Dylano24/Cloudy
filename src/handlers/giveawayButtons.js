@@ -129,40 +129,104 @@ async function changeEntry(interaction, client, enter, { country = null } = {}) 
     }
 }
 
-// giveaway_enter:country (a giveaway without a code) first asks the
-// member's country in a form; that is Discord's first answer.
+// The private country list closes after 5 minutes without activity; every
+// page, search or form on it starts the 5 minutes again.
+export const COUNTRY_PICKER_LIFETIME_MS = 5 * 60_000;
+const countryPickerTimers = new Map();
+
+function keepCountryPicker(interaction, messageId) {
+    const key = `${messageId}:${interaction.user.id}`;
+    clearTimeout(countryPickerTimers.get(key));
+    const timer = setTimeout(() => {
+        countryPickerTimers.delete(key);
+        void interaction.deleteReply().catch(() => {});
+    }, COUNTRY_PICKER_LIFETIME_MS);
+    timer.unref?.();
+    countryPickerTimers.set(key, timer);
+}
+
+function closeCountryPicker(interaction, messageId) {
+    const key = `${messageId}:${interaction.user.id}`;
+    clearTimeout(countryPickerTimers.get(key));
+    countryPickerTimers.delete(key);
+}
+
+// Enters with the chosen country and refreshes the giveaway itself. From the
+// private list, that list turns into the 10-second notice.
+async function enterWithCountry(interaction, client, messageId, country) {
+    const fromList = interaction.message?.id !== messageId;
+    if (fromList) await interaction.deferUpdate();
+    else await interaction.deferReply({ flags: EPHEMERAL });
+    closeCountryPicker(interaction, messageId);
+    const result = await enterGiveaway(client, interaction.guildId, messageId, interaction.user.id, { country });
+    const answer = {
+        missing: 'This giveaway is no longer active.',
+        ended: 'This giveaway has already ended.',
+        already: 'You have already entered this giveaway.',
+    }[result.status];
+    if (!answer) await refreshGiveawayMessage(client, interaction.guild, result.giveaway);
+    await interaction.editReply({
+        embeds: [answer ? giveawayWarning(answer) : successEmbed('Success', 'You entered the giveaway.\n\nGood luck!')],
+        components: [],
+    });
+    return removeAfterTenSeconds(interaction);
+}
+
+// giveaway_enter:country (a giveaway without a code) first opens the private
+// country list; that is Discord's first answer, before any database work.
 export const giveawayEnterHandler = {
     customId: 'giveaway_enter',
     async execute(interaction, client, [mode] = []) {
         if (mode !== 'country') return changeEntry(interaction, client, true);
         try {
             if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
-            return await interaction.showModal(giveawayCountryModal(interaction.message.id));
+            const messageId = interaction.message.id;
+            await interaction.reply({ ...giveawayCountryPicker(messageId, { page: 0 }), flags: EPHEMERAL });
+            return keepCountryPicker(interaction, messageId);
         } catch (error) {
             return onError(interaction, error, 'giveaway_enter:country');
         }
     },
 };
 
-// The private country list closes after 5 minutes without a choice.
-export const COUNTRY_PICKER_LIFETIME_MS = 5 * 60_000;
+// giveaway_country_page:<giveaway message ID>:<page>
+export const giveawayCountryPageHandler = {
+    customId: 'giveaway_country_page',
+    async execute(interaction, client, [messageId, page] = []) {
+        try {
+            await interaction.update(giveawayCountryPicker(messageId, { page: Number(page) || 0 }));
+            return keepCountryPicker(interaction, messageId);
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_country_page');
+        }
+    },
+};
 
+// giveaway_country_type:<giveaway message ID>: Type my country.
+export const giveawayCountryTypeHandler = {
+    customId: 'giveaway_country_type',
+    async execute(interaction, client, [messageId] = []) {
+        try {
+            return await interaction.showModal(giveawayCountryModal(messageId));
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_country_type');
+        }
+    },
+};
+
+// Typed country: one match or no match at all (saved as typed) enters at
+// once; several matches show those countries in the list.
 export const giveawayCountryModalHandler = {
     customId: 'giveaway_country',
-    async execute(interaction, client) {
-        let search;
+    async execute(interaction, client, [messageId = interaction.message?.id] = []) {
         try {
-            search = readGiveawayCountryModal(interaction);
-        } catch (error) {
-            return onError(interaction, error, 'giveaway_country');
-        }
-        // One match: entered at once, the entry count updates in place.
-        if (search.matches.length === 1) return changeEntry(interaction, client, true, { country: search.matches[0] });
-        try {
-            await interaction.reply({ ...giveawayCountryPicker(interaction.message.id, search.query, search.matches), flags: EPHEMERAL });
-            const timer = setTimeout(() => { void interaction.deleteReply().catch(() => {}); }, COUNTRY_PICKER_LIFETIME_MS);
-            timer.unref?.();
-            return undefined;
+            if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
+            const search = readGiveawayCountryModal(interaction);
+            if (search.country) return await enterWithCountry(interaction, client, messageId, search.country);
+            const picker = giveawayCountryPicker(messageId, search);
+            if (interaction.message?.id !== messageId) await interaction.update(picker);
+            else await interaction.reply({ ...picker, flags: EPHEMERAL });
+            return keepCountryPicker(interaction, messageId);
         } catch (error) {
             return onError(interaction, error, 'giveaway_country');
         }
@@ -175,21 +239,7 @@ export const giveawayCountryPickHandler = {
     async execute(interaction, client, [messageId] = []) {
         try {
             if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
-            const country = readGiveawayCountryPick(interaction);
-            await interaction.deferUpdate();
-            const result = await enterGiveaway(client, interaction.guildId, messageId, interaction.user.id, { country });
-            const answer = {
-                missing: 'This giveaway is no longer active.',
-                ended: 'This giveaway has already ended.',
-                already: 'You have already entered this giveaway.',
-            }[result.status];
-            if (!answer) await refreshGiveawayMessage(client, interaction.guild, result.giveaway);
-            // The list itself turns into the 10-second notice.
-            await interaction.editReply({
-                embeds: [answer ? giveawayWarning(answer) : successEmbed('Success', 'You entered the giveaway.\n\nGood luck!')],
-                components: [],
-            });
-            return removeAfterTenSeconds(interaction);
+            return await enterWithCountry(interaction, client, messageId, readGiveawayCountryPick(interaction));
         } catch (error) {
             return onError(interaction, error, 'giveaway_country_pick');
         }

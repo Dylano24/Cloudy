@@ -13,7 +13,8 @@ import {
 import { GIVEAWAY_CLAIM_LOG_FOOTER } from '../src/services/giveawayClaimLogService.js';
 import { finishGiveaway, loadGiveaway, setGiveawayCode } from '../src/services/giveawayActions.js';
 import {
-  giveawayCodeModalHandler, giveawayCountryModalHandler, giveawayCountryPickHandler, giveawayEnterHandler,
+  giveawayCodeModalHandler, giveawayCountryModalHandler, giveawayCountryPageHandler, giveawayCountryPickHandler,
+  giveawayCountryTypeHandler, giveawayEnterHandler,
 } from '../src/handlers/giveawayButtons.js';
 import { GIVEAWAY_CLAIM_CATEGORY_ID, handleGiveawayClaimInteraction } from '../src/services/giveawayClaimService.js';
 
@@ -130,44 +131,67 @@ test('the country is typed and searched in a full English list', () => {
   assert.deepEqual(searchGiveawayCountries('guinea'), ['Guinea', 'Equatorial Guinea', 'Guinea-Bissau', 'Papua New Guinea']);
   assert.deepEqual(searchGiveawayCountries('x'), []);
   const form = text => ({ fields: { getTextInputValue: () => text } });
-  assert.deepEqual(readGiveawayCountryModal(form('  Duitsland ')).matches, ['Germany']);
-  assert.throws(() => readGiveawayCountryModal(form('Atlantis')), /No country matches \*\*Atlantis\*\*/);
+  assert.equal(readGiveawayCountryModal(form('  Duitsland ')).country, 'Germany');
+  // Not in the list: saved as typed (owner's choice).
+  assert.equal(readGiveawayCountryModal(form(' Atlantis  island ')).country, 'Atlantis island');
+  assert.equal(readGiveawayCountryModal(form('guinea')).country, null);
 });
 
-test('Enter giveaway without a code: country form first, then the entry and its country are saved', async () => {
+test('Enter giveaway without a code opens a private list of every country, 25 per page', async () => {
   const w = world(giveaway({ codeType: 'none', participantCountries: {} }));
   const click = w.interaction('member-1');
   await giveawayEnterHandler.execute(click, w.client, ['country']);
-  assert.equal(click.modal.custom_id, `giveaway_country:${MESSAGE}`);
-  assert.equal(click.deferred, false, 'the form is Discord\'s first answer');
-  const submit = w.interaction('member-1', { fields: { getTextInputValue: () => 'belgie' } });
-  await giveawayCountryModalHandler.execute(submit, w.client, [MESSAGE]);
+  const list = click.replies[0];
+  assert.equal(list.flags, 64);
+  assert.equal(list.embeds[0].title, 'Choose your country');
+  assert.deepEqual(list.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
+  assert.equal(list.embeds[0].footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+  assert.match(list.embeds[0].description, /Page 1\/9 · Afghanistan to/);
+  const menu = json(list.components[0]).components[0];
+  assert.equal(menu.custom_id, `giveaway_country_pick:${MESSAGE}`);
+  assert.equal(menu.options.length, 25);
+  assert.deepEqual(json(list.components[1]).components.map(button => [button.label, button.disabled ?? false]),
+    [['Previous', true], ['Next', false], ['Type my country', false]]);
+  // Next page.
+  const next = w.interaction('member-1', { update: async payload => { next.updated = payload; } });
+  await giveawayCountryPageHandler.execute(next, w.client, [MESSAGE, '1']);
+  assert.match(next.updated.embeds[0].description, /Page 2\/9/);
+  assert.equal(json(next.updated.components[0]).components[0].options[0].value, GIVEAWAY_COUNTRY_NAMES[25]);
+  // Choosing a country enters the giveaway; the list becomes the notice.
+  const pick = w.interaction('member-1', { message: { id: 'private-list' }, values: ['Belgium'] });
+  await giveawayCountryPickHandler.execute(pick, w.client, [MESSAGE]);
   const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
   assert.deepEqual(stored.participants, ['member-1']);
   assert.deepEqual(stored.participantCountries, { 'member-1': 'Belgium' });
-  assert.equal(json(submit.edited.components[0]).components[0].custom_id, 'giveaway_enter:country');
-  assert.match(JSON.stringify(json(submit.replies[0].embeds[0])), /You entered the giveaway/);
-});
-
-test('several matching countries give a private list; the choice enters the giveaway', async () => {
-  const w = world(giveaway({ codeType: 'none', participantCountries: {} }));
-  const submit = w.interaction('member-2', { fields: { getTextInputValue: () => 'guinea' } });
-  await giveawayCountryModalHandler.execute(submit, w.client, [MESSAGE]);
-  const picker = submit.replies[0];
-  assert.equal(picker.flags, 64);
-  assert.equal(picker.embeds[0].title, 'Choose your country');
-  assert.deepEqual(picker.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
-  const menu = json(picker.components[0]).components[0];
-  assert.equal(menu.custom_id, `giveaway_country_pick:${MESSAGE}`);
-  assert.deepEqual(menu.options.map(option => option.value), ['Guinea', 'Equatorial Guinea', 'Guinea-Bissau', 'Papua New Guinea']);
-  assert.equal((await loadGiveaway(w.client, GUILD, MESSAGE)).participants.length, 0, 'not entered before choosing');
-  const pick = w.interaction('member-2', { values: ['Guinea-Bissau'] });
-  await giveawayCountryPickHandler.execute(pick, w.client, [MESSAGE]);
-  const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
-  assert.deepEqual(stored.participantCountries, { 'member-2': 'Guinea-Bissau' });
-  assert.equal(w.giveawayMessage.edits.length, 1, 'the giveaway itself is refreshed');
+  assert.equal(json(w.giveawayMessage.edits.at(-1).components[0]).components[0].custom_id, 'giveaway_enter:country');
   assert.match(JSON.stringify(json(pick.edited.embeds[0])), /You entered the giveaway/);
   assert.deepEqual(pick.edited.components, []);
+});
+
+test('Type my country: one match or an unknown country enters; several matches show those countries', async () => {
+  const w = world(giveaway({ codeType: 'none', participantCountries: {} }));
+  const type = w.interaction('member-2', { message: { id: 'private-list' } });
+  await giveawayCountryTypeHandler.execute(type, w.client, [MESSAGE]);
+  assert.equal(type.modal.custom_id, `giveaway_country:${MESSAGE}`);
+  const fromList = (user, text) => w.interaction(user, {
+    message: { id: 'private-list' }, fields: { getTextInputValue: () => text },
+    update: async payload => { fromList.updated = payload; },
+  });
+  const several = fromList('member-2', 'guinea');
+  await giveawayCountryModalHandler.execute(several, w.client, [MESSAGE]);
+  assert.match(fromList.updated.embeds[0].description, /More than one country matches \*\*guinea\*\*/);
+  assert.deepEqual(json(fromList.updated.components[0]).components[0].options.map(option => option.value),
+    ['Guinea', 'Equatorial Guinea', 'Guinea-Bissau', 'Papua New Guinea']);
+  assert.deepEqual(json(fromList.updated.components[1]).components.map(button => button.label), ['All countries', 'Type my country']);
+  assert.equal((await loadGiveaway(w.client, GUILD, MESSAGE)).participants.length, 0, 'not entered before choosing');
+  const one = fromList('member-2', 'nederland');
+  await giveawayCountryModalHandler.execute(one, w.client, [MESSAGE]);
+  const unknown = fromList('member-3', 'Atlantis');
+  await giveawayCountryModalHandler.execute(unknown, w.client, [MESSAGE]);
+  assert.match(JSON.stringify(json(unknown.edited.embeds[0])), /You entered the giveaway/);
+  const stored = await loadGiveaway(w.client, GUILD, MESSAGE);
+  assert.deepEqual(stored.participantCountries, { 'member-2': 'Netherlands', 'member-3': 'Atlantis' });
+  assert.equal(w.giveawayMessage.edits.length, 2, 'the giveaway itself is refreshed after each entry');
 });
 
 test('ending a giveaway without a code logs the end and the winner country with the Owner role tagged', async () => {
