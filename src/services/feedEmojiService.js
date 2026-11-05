@@ -12,8 +12,8 @@ const FEED_EMOJIS = Object.freeze({
   offline: { name: 'W8733476glowingdotred', id: '1543291468377104436', fallback: '<:W8733476glowingdotred:1543291468377104436>' },
   server: { name: 'server_router', id: '1567766741889585203', fallback: '<a:server_router:1567766741889585203>' },
   headshot: { name: 'headshot', id: '1567810194564583454', fallback: '<:headshot:1567810194564583454>' },
-  login: { name: 'cloudy_arrow_green', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
-  logout: { name: 'cloudy_arrow_red', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
+  login: { name: 'cloudy_arrow_green_big', crop: '60:98:26:10', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
+  logout: { name: 'cloudy_arrow_red_big', crop: '60:98:41:10', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
   weapon: { name: 'X83rust4ar', id: '1543286149630656592', fallback: '<:X83rust4ar:1543286149630656592>' },
   killer: { name: 'killer', id: '1567842334668886046', fallback: '<:killer:1567842334668886046>' },
   victim: { name: 'victim', id: '1567845116377440396', fallback: '<:victim:1567845116377440396>' },
@@ -51,6 +51,26 @@ async function shrinkEmojiImage(buffer) {
   }
 }
 
+// The arrows sit small inside their square. Cropping to the arrow (the box
+// covers every animation frame) and scaling it back up makes them larger.
+async function cropEmojiImage(buffer, crop) {
+  const directory = await mkdtemp(path.join(tmpdir(), 'cloudy-emoji-'));
+  try {
+    const input = path.join(directory, 'source');
+    const output = path.join(directory, 'emoji.gif');
+    await writeFile(input, buffer);
+    await runLocalCommand('ffmpeg', [
+      '-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file,pipe',
+      '-i', input,
+      '-vf', `crop=${crop},scale=128:128:force_original_aspect_ratio=decrease:flags=lanczos,pad=128:128:(ow-iw)/2:(oh-ih)/2:color=black@0,split[a][b];[a]palettegen=reserve_transparent=1[p];[b][p]paletteuse=alpha_threshold=128`,
+      '-loop', '0', output,
+    ], 60_000);
+    return await readFile(output);
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function download(id) {
   for (const extension of ['gif', 'png']) {
     const response = await fetch(`https://cdn.discordapp.com/emojis/${id}.${extension}`, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
@@ -67,12 +87,13 @@ export async function ensureFeedEmojis(client) {
     const existing = await manager.fetch();
     for (const [key, emoji] of Object.entries(FEED_EMOJIS)) {
       const accessible = client.emojis?.cache?.get?.(emoji.id);
-      if (accessible && !emoji.shrink) { resolved.set(key, markup(accessible)); continue; }
+      if (accessible && !emoji.shrink && !emoji.crop) { resolved.set(key, markup(accessible)); continue; }
       let own = [...existing.values()].find(item => item.name === emoji.name);
       if (!own) {
         let image = await download(emoji.id);
         if (!image) continue;
         if (emoji.shrink) image = await shrinkEmojiImage(image).catch(() => image);
+        if (emoji.crop) image = await cropEmojiImage(image, emoji.crop).catch(() => image);
         own = await manager.create({ attachment: image, name: emoji.name });
       }
       resolved.set(key, markup(own));
