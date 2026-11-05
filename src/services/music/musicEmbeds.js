@@ -3,6 +3,9 @@ import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 
 const QUEUE_PAGE_SIZE = 10;
+// Cloudy's logo and footer on every music embed (owner's choice).
+const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
+const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 export const MUSIC_BUTTON_IDS = {
     PAUSE: 'music_pause',
@@ -58,20 +61,24 @@ export function buildNowPlayingEmbed(track, player, guildData) {
     const position = formatDuration(player?.position || 0);
     const duration = formatDuration(track?.info?.length || 0);
 
+    const queued = player?.queue?.length || 0;
+    // The track's cover is the image; the Cloudy logo stays the thumbnail.
     return createEmbed({
-        title: 'Now Playing',
-        description: track?.info?.title || 'Unknown track',
+        title: 'Now playing',
+        description: `**${track?.info?.title || 'Unknown track'}**`,
         color: 'primary',
         fields: [
             { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
-            { name: 'Requester', value: requesterLabel, inline: true },
+            { name: 'Requested by', value: requesterLabel, inline: true },
             { name: 'Progress', value: `${position} / ${duration}`, inline: true },
+            { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: true },
             { name: 'Volume', value: `${guildData?.volume ?? 75}%`, inline: true },
             { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: true },
-            { name: 'Queue', value: `${player?.queue?.length || 0} track(s)`, inline: true },
+            { name: 'Queue', value: `${queued} ${queued === 1 ? 'track' : 'tracks'}`, inline: true },
         ],
-        thumbnail: getTrackArtwork(track),
-        footer: player?.paused ? 'Paused' : 'Playing',
+        thumbnail: CLOUDY_C_LOGO_URL,
+        image: getTrackArtwork(track),
+        footer: CLOUDY_FOOTER,
     });
 }
 
@@ -84,7 +91,7 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
 
     let description = '';
     if (currentTrack) {
-        description += `**Now Playing**\n${currentTrack.info?.title || 'Unknown'} — ${currentTrack.info?.author || 'Unknown'}\n\n`;
+        description += `**Now playing**\n${currentTrack.info?.title || 'Unknown'} — ${currentTrack.info?.author || 'Unknown'}\n\n`;
     }
 
     if (slice.length === 0) {
@@ -98,11 +105,13 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
             .join('\n');
     }
 
+    description += `\n\nPage ${safePage + 1} of ${totalPages} · ${totalTracks} queued`;
     return createEmbed({
-        title: 'Music Queue',
+        title: 'Music queue',
         description: description.substring(0, 4096),
         color: 'info',
-        footer: `Page ${safePage + 1} of ${totalPages} • ${totalTracks} queued`,
+        thumbnail: CLOUDY_C_LOGO_URL,
+        footer: CLOUDY_FOOTER,
     });
 }
 

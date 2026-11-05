@@ -112,7 +112,7 @@ export async function joinVoiceChannel(client, interaction) {
     player.setVolume(guildData.volume);
 
     return successEmbed(
-        'Joined Voice Channel',
+        'Joined voice channel',
         `Connected to **${channel.name}**. Use /play to start music, or /music for playback controls.`,
     );
 }
@@ -155,7 +155,7 @@ export async function playQuery(client, interaction, query) {
 
         return {
             embed: successEmbed(
-                'Playlist Added',
+                'Playlist added',
                 `**${playlistInfo?.name || 'Playlist'}**\nAdded ${added} of ${tracks.length} track(s).${skipped ? ` Skipped ${skipped} duplicate(s).` : ''}`,
             ),
         };
@@ -192,7 +192,7 @@ export async function playQuery(client, interaction, query) {
 
         return {
             embed: successEmbed(
-                willPlayNow ? 'Now Playing' : 'Track Added',
+                willPlayNow ? 'Now playing' : 'Track added',
                 willPlayNow
                     ? `**${track.info.title}**\n${track.info.author}`
                     : `**${track.info.title}**\n${track.info.author}\nPosition: #${queuePosition} in queue`,
@@ -237,7 +237,7 @@ export async function stopPlayback(client, interaction) {
             }
         }, 15000);
         return successEmbed(
-            'Confirm Stop',
+            'Confirm stop',
             `There are **${queueLength}** tracks in the queue. Run **/music stop** again within 15 seconds to confirm.`,
         );
     }
@@ -324,7 +324,7 @@ export async function setLoopMode(client, interaction, mode) {
 
     const labels = { none: 'Off', track: 'Track', queue: 'Queue' };
     await refreshPlayerMessage(client, interaction.guild.id);
-    return successEmbed('Loop Updated', `Loop mode set to **${labels[mode] || mode}**.`);
+    return successEmbed('Loop updated', `Loop mode set to **${labels[mode] || mode}**.`);
 }
 
 export async function toggleLoop(client, interaction) {
@@ -344,7 +344,7 @@ export async function setVolume(client, interaction, volume) {
     guildData.volume = Math.max(0, Math.min(100, volume));
     player.setVolume(guildData.volume);
     await refreshPlayerMessage(client, interaction.guild.id);
-    return successEmbed('Volume Updated', `Volume set to **${guildData.volume}%**.`);
+    return successEmbed('Volume updated', `Volume set to **${guildData.volume}%**.`);
 }
 
 export async function adjustVolume(client, interaction, delta) {
@@ -428,14 +428,14 @@ export async function clearQueue(client, interaction) {
     assertCanControl(interaction.member, player);
     player.queue.clear();
     await refreshPlayerMessage(client, interaction.guild.id);
-    return successEmbed('Queue Cleared', 'All queued tracks were removed.');
+    return successEmbed('Queue cleared', 'All queued tracks were removed.');
 }
 
 export async function setTwentyFourSeven(client, interaction, enabled) {
     const guildData = getGuildMusicData(interaction.guild.id);
     guildData.twentyFourSeven = enabled;
     return successEmbed(
-        '24/7 Mode',
+        '24/7 mode',
         enabled
             ? '24/7 mode enabled. The bot will stay in the voice channel when the queue ends.'
             : '24/7 mode disabled. The bot will leave after 30 seconds of idle time.',
@@ -522,7 +522,7 @@ export async function leaveVoiceChannel(client, interaction) {
 
     await destroyPlayerSession(client, guildId, player, guildData, { forceDisconnect: true });
 
-    return successEmbed('Left Voice Channel', `Disconnected from **${channelName}**.`);
+    return successEmbed('Left voice channel', `Disconnected from **${channelName}**.`);
 }
 
 export async function replyMusicSuccess(interaction, embed) {
