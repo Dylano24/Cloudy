@@ -3,6 +3,7 @@ import { isAdditionalStatusTitle, isAdditionalStatusContent } from './statusRepl
 import { isBuilderSessionMessage, isBuilderUiMessage } from './builderSessionCleanup.js';
 import { isBuilderOwnedMessage } from './builderOwnedSends.js';
 import { rememberTransientBotMessage } from '../services/deletionAttributionService.js';
+import { registerPendingDelete, unregisterPendingDelete } from './pendingTransientDeletes.js';
 
 const TRANSIENT_TTL_MS = 10_000;
 const transientPayloads = new WeakSet();
@@ -85,15 +86,21 @@ export function scheduleTransientMessageDeletion(message) {
 
   // A status notice is not content: its deletion is never message-logged.
   rememberTransientBotMessage(message.id);
-  const timer = setTimeout(() => {
-    if (messageId) scheduledMessageIds.delete(messageId);
+  const pendingKey = `message:${messageId || Math.random()}`;
+  const run = () => {
     // A split Embed Builder preview can be registered immediately after the
     // Discord reply resolves. Re-check ownership at deletion time so a timer
     // scheduled a few milliseconds earlier can never delete Builder UI.
-    if (isBuilderSessionMessage(message)) return;
-    void message.delete().catch(() => {});
+    if (isBuilderSessionMessage(message)) return undefined;
+    return message.delete().catch(() => {});
+  };
+  const timer = setTimeout(() => {
+    if (messageId) scheduledMessageIds.delete(messageId);
+    unregisterPendingDelete(pendingKey);
+    void run();
   }, TRANSIENT_TTL_MS);
   timer.unref?.();
+  registerPendingDelete(pendingKey, run);
   return true;
 }
 
@@ -113,7 +120,10 @@ export async function scheduleTransientInteractionReplyDeletion(interaction) {
   if (!reply || isBuilderSessionMessage(reply) || isPersistentBotMessage(reply)
       || !isTransientStatusPayload(null, reply)) return false;
 
-  const timer = setTimeout(() => interaction.deleteReply?.().catch(() => {}), TRANSIENT_TTL_MS);
+  const pendingKey = `reply:${interaction.id || reply.id}`;
+  const run = () => interaction.deleteReply?.().catch(() => {});
+  const timer = setTimeout(() => { unregisterPendingDelete(pendingKey); void run(); }, TRANSIENT_TTL_MS);
   timer.unref?.();
+  registerPendingDelete(pendingKey, run);
   return true;
 }

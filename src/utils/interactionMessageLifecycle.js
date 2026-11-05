@@ -4,6 +4,7 @@ import { InteractionHelper } from './interactionHelper.js';
 import { isBuilderSessionMessage } from './builderSessionCleanup.js';
 import { isPersistentBotMessage, isTransientStatusPayload } from './transientResponse.js';
 import { rememberTransientBotMessage } from '../services/deletionAttributionService.js';
+import { registerPendingDelete, unregisterPendingDelete } from './pendingTransientDeletes.js';
 
 export const DASHBOARD_IDLE_MS = 5 * 60_000;
 export const TRANSIENT_MESSAGE_MS = 10_000;
@@ -92,6 +93,7 @@ function clearTimer(store, messageId) {
   const timer = store.get(key);
   if (timer) clearTimeout(timer);
   store.delete(key);
+  if (store === transientTimers) unregisterPendingDelete(`lifecycle:${key}`);
 }
 
 function clearBuilderLifecycleTimers(message) {
@@ -175,12 +177,16 @@ function schedule(store, message, interaction, delay) {
   // A short-lived reply is not content: its deletion is never message-logged.
   if (store === transientTimers) rememberTransientBotMessage(key);
 
+  const run = () => deleteLifecycleMessage(message, interaction);
   const timer = setTimeout(() => {
     store.delete(key);
-    void deleteLifecycleMessage(message, interaction);
+    if (store === transientTimers) unregisterPendingDelete(`lifecycle:${key}`);
+    void run();
   }, delay);
   timer.unref?.();
   store.set(key, timer);
+  // A restart must not leave a 10-second reply behind (owner's rule).
+  if (store === transientTimers) registerPendingDelete(`lifecycle:${key}`, run);
   return true;
 }
 

@@ -31,6 +31,7 @@ import { registerEmbedMediaRoutes } from './services/embedMediaStorageService.js
 import { registerDeletedMediaRoutes } from './services/deletedMediaService.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 import { getBuiltInSystemCatalogCoverage } from './services/systemEmbedCatalogService.js';
+import { flushPendingDeletes } from './utils/pendingTransientDeletes.js';
 
 function runtimeBuildInfo() {
   const commit = String(
@@ -476,6 +477,15 @@ class CloudyBot extends Client {
         logger.info('Closing web server...');
         await new Promise((resolve) => { this.webServer.close(resolve); });
         logger.info('✅ Web server closed');
+      }
+
+      // 10-second status replies still waiting for their timer are removed now:
+      // the timers do not survive the restart (owner's 10-second rule).
+      try {
+        const flushed = await flushPendingDeletes(3_000);
+        if (flushed) logger.info(`✅ Removed ${flushed} pending 10-second replies`);
+      } catch (error) {
+        logger.warn('Pending 10-second replies could not be removed:', error?.message || error);
       }
 
       // Stop Discord events before closing PostgreSQL so in-flight message
