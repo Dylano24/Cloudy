@@ -13,7 +13,7 @@ import { findCloudyChannelByAlias, getCloudyChannelDefinition } from '../../serv
 function sampleBoards(now = Date.now()) {
   const state = {
     servers: {
-      'Server 1 Rust': { online: true, players: 87, max: 150, queue: 3, map: 'Procedural 4000', nextWipe: now + 3 * 86_400_000, updatedAt: now },
+      'Server 1 Rust': { online: true, players: 87, max: 100, queue: 3, map: 'Procedural 4000', nextWipe: now + 3 * 86_400_000, updatedAt: now },
       'Server 2 Rust': { online: false, updatedAt: now },
     },
     leaderboard: {
