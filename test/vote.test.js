@@ -102,7 +102,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const embed = posted.embeds[0];
   assert.equal(embed.title, 'Vote');
   assert.match(embed.description, /^\*\*Next map\?\*\*\n\n1️⃣ \*\*Procedural\*\*\n▱{6} \*\*0%\*\* · 0 votes\n2️⃣ \*\*Barren\*\*\n/);
-  assert.match(embed.description, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\* <t:\d+:f> \(<t:\d+:R>\)$/);
+  assert.match(embed.description, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\* <t:\d+:f>$/, 'only the date: no live countdown that redraws the vote');
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(embed.thumbnail.url);
   assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
@@ -250,7 +250,7 @@ test('an option with a picture becomes a blue link with a small Preview button r
   const footer = card.components.at(-1);
   assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
   assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png');
-  assert.equal(footer.items[0].description, '© Cloudy Inc. • Quality. Innovation. Performance.');
+  assert.equal(footer.items[0].description, undefined, 'no ALT label (it showed as a black line)');
   assert.deepEqual(row.components.map(button => button.custom_id), ['vote_cast:0', 'vote_cast:1', 'vote_cast:2'], 'vote buttons stay under the vote');
   assert.equal(posted.components.length, 2);
   assert.equal(posted.thread, undefined, 'no thread on the vote');
