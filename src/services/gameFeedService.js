@@ -157,7 +157,7 @@ export function buildGameFeedEmbed(event) {
         line('Used', event.item), server,
       ], event);
     case 'ban':
-      return classicEmbed(event.action === 'ban' ? 'BAN' : 'UNBAN',
+      return classicEmbed(event.action === 'ban' ? `BAN ${feedEmoji('ban')}` : `UNBAN ${feedEmoji('unban')}`,
         event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
           line('Player', name(event.player)), line('Reason', event.reason),
           event.action === 'ban' ? line('Duration', event.duration || 'Permanent') : null,
