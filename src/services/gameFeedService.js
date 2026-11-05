@@ -142,14 +142,14 @@ export function buildGameFeedEmbed(event) {
       return classicEmbed(event.action === 'join' ? `LOGIN ${feedEmoji('login')}` : `LOGOUT ${feedEmoji('logout')}`,
         event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', name(event.player)),
-          event.action === 'join' ? line('Platform', event.platform, /xbox/i.test(event.platform || '') ? 'xbox' : 'console') : null, serverIcon,
+          event.action === 'join' ? line('Platform', event.platform) : null, server,
           line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
         ], event);
     case 'zorp':
       return classicEmbed(`ZORP ${feedEmoji(event.state === 'on' ? 'on' : 'off')}`,
         event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', name(event.player)),
-          event.state === 'off' && event.protectedFor ? line('Protected for', duration(event.protectedFor)) : null, serverIcon,
+          event.state === 'off' && event.protectedFor ? line('Protected for', duration(event.protectedFor)) : null, server,
         ], event);
     case 'raid':
       return classicEmbed('Raid alert', CLOUDY_RED_COLOR, [
