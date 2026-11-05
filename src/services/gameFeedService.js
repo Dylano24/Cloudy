@@ -3,6 +3,7 @@
 // server is not linked yet: whatever links it later (a server plugin, an RCON
 // or Nitrado bridge) sends events to POST /api/game/v1/events (gameFeedApi.js).
 // Embeds are plain objects so their colours stay exactly as set here.
+import { feedEmoji } from './feedEmojiService.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_GREEN_COLOR, CLOUDY_NEUTRAL_COLOR, CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyChannelResolver.js';
@@ -104,7 +105,7 @@ function duration(ms) {
   return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
 }
 
-const line = (label, value) => (value == null || value === '' ? null : `**${label}:** ${value}`);
+const line = (label, value, emoji) => (value == null || value === '' ? null : `${emoji ? `${feedEmoji(emoji)} ` : ''}**${label}:** ${value}`);
 
 // Classic feed layout (owner's choice): title, labelled lines with names in
 // code, Time, the big Cloudy logo and the footer with the small logo.
@@ -120,13 +121,14 @@ function classicEmbed(title, color, lines, event) {
 
 export function buildGameFeedEmbed(event) {
   const server = line('Server', event.server);
+  const serverIcon = line('Server', event.server, 'server');
   switch (event.type) {
     case 'pvp':
       return classicEmbed('Player killed', CLOUDY_RED_COLOR, [
-        line('Killer', name(event.killer)), line('Victim', name(event.victim)), line('Weapon', event.weapon),
-        line('Distance', event.distance == null ? null : `${event.distance} m`),
-        event.headshot ? line('Headshot', 'Yes') : null,
-        event.streak > 1 ? line('Killstreak', `🎯 ${event.streak}`) : null, server,
+        line('Killer', name(event.killer), 'killer'), line('Victim', name(event.victim), 'victim'), line('Weapon', event.weapon),
+        line('Distance', event.distance == null ? null : `${event.distance} m`, 'distance'),
+        event.headshot ? line('Headshot', 'Yes', 'headshot') : null,
+        event.streak > 1 ? line('Killstreak', `🔥 ${event.streak}`) : null, serverIcon,
       ], event);
     case 'player':
       if (event.action === 'kit') {
@@ -136,14 +138,15 @@ export function buildGameFeedEmbed(event) {
       }
       return classicEmbed(event.action === 'join' ? 'Player login' : 'Player logout',
         event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
-          line('Player', name(event.player)), event.action === 'join' ? line('Platform', event.platform) : null, server,
+          line('Player', name(event.player), event.action === 'join' ? 'login' : 'logout'),
+          event.action === 'join' ? line('Platform', event.platform, /xbox/i.test(event.platform || '') ? 'xbox' : 'console') : null, serverIcon,
           line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
         ], event);
     case 'zorp':
       return classicEmbed(event.state === 'on' ? 'ZORP on' : 'ZORP off',
         event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
-          line('Player', name(event.player)),
-          event.state === 'off' && event.protectedFor ? line('Protected for', duration(event.protectedFor)) : null, server,
+          line('Player', name(event.player), event.state === 'on' ? 'on' : 'off'),
+          event.state === 'off' && event.protectedFor ? line('Protected for', duration(event.protectedFor)) : null, serverIcon,
         ], event);
     case 'raid':
       return classicEmbed('Raid alert', CLOUDY_RED_COLOR, [
