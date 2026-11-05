@@ -143,7 +143,9 @@ function buildPreviewVoteMessage(vote, parts) {
   });
   card.addSeparatorComponents(gap())
     .addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')))
-    .addTextDisplayComponents(text(`-# ${CLOUDY_FOOTER}`));
+    // The footer as two small lines (owner's choice): on a phone it does not
+    // fit on one line here, and a lone "Performance." looked broken.
+    .addTextDisplayComponents(text(CLOUDY_FOOTER.split(' • ').map(part => `-# ${part}`).join('\n')));
   return { flags: MessageFlags.IsComponentsV2, components: [card, ...parts.rows], allowedMentions: { parse: [] } };
 }
 
