@@ -39,7 +39,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
     'Player killed', 'LOGIN', 'LOGOUT', 'Kit claimed',
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
-  assert.match(embeds[0].description, /^\*\*Killer:\*\* <:killer_suit:\d+> `Dyn`\n\*\*Victim:\*\* <:victim_suit:\d+> `Dylano`\n\*\*Weapon:\*\* <:X83rust4ar:\d+> Assault rifle\n\*\*Distance:\*\* <:distance:\d+> 145 m\n\*\*Headshot:\*\* <:headshot:\d+>\n\*\*Killstreak:\*\* 🔥 3\n\*\*Server:\*\* <a?:server_router:\d+> Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* <:killer_suit:\d+> `Dyn`\n\*\*Victim:\*\* <:victim_suit:\d+> `Dylano`\n\*\*Weapon:\*\* <:rust_ak:\d+> Assault rifle\n\*\*Distance:\*\* <:distance:\d+> 145 m\n\*\*Headshot:\*\* <:headshot:\d+>\n\*\*Killstreak:\*\* 🔥 3\n\*\*Server:\*\* <a?:server_router:\d+> Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
   assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+>\n/);
   assert.match(embeds[2].description, /\*\*Platform:\*\* <:\w*console\w*:\d+>\n/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
@@ -161,4 +161,24 @@ test('the owner\'s feed channel IDs win over channel names', async t => {
   await settle();
   assert.deepEqual(sent.map(entry => entry.id).sort(), Object.values(ids).sort());
   assert.equal(w.sent.length, 0, 'the channels found by name are not used');
+});
+
+test('the weapon in an event gets its Rust emoji; unknown weapons keep the general one', async () => {
+  const { weaponEmoji } = await import('../src/services/feedEmojiService.js');
+  const id = text => weaponEmoji(text).match(/rust_(\w+):/)?.[1];
+  assert.equal(id('Assault Rifle'), 'ak');
+  assert.equal(id('AK-47'), 'ak');
+  assert.equal(id('MP5A4'), 'mp5');
+  assert.equal(id('Custom SMG'), 'smg');
+  assert.equal(id('Thompson'), 'thompson');
+  assert.equal(id('Jackhammer'), 'jackhammer');
+  assert.equal(id('Pickaxe'), 'pickaxe');
+  assert.equal(id('Rocket'), 'rocket');
+  assert.equal(id('Semi-Automatic Rifle'), 'sar');
+  assert.equal(id('Timed Explosive Charge'), 'c4');
+  assert.equal(weaponEmoji('Spoon'), '');
+  const unknown = buildGameFeedEmbed({ ...normalizeGameFeedEvent({ type: 'pvp', server: 'S', killer: 'A', victim: 'B', weapon: 'Spoon' }) });
+  assert.match(unknown.description, /\*\*Weapon:\*\* <:X83rust4ar:\d+> Spoon/);
+  const raid = buildGameFeedEmbed({ ...normalizeGameFeedEvent({ type: 'raid', server: 'S', attacker: 'A', item: 'Rocket' }) });
+  assert.match(raid.description, /\*\*Used:\*\* <:rust_rocket:\d+> Rocket/);
 });
