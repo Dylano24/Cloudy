@@ -3,7 +3,7 @@
 // server is not linked yet: whatever links it later (a server plugin, an RCON
 // or Nitrado bridge) sends events to POST /api/game/v1/events (gameFeedApi.js).
 // Embeds are plain objects so their colours stay exactly as set here.
-import { feedEmoji } from './feedEmojiService.js';
+import { feedEmoji, weaponEmoji } from './feedEmojiService.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_GREEN_COLOR, CLOUDY_NEUTRAL_COLOR, CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyChannelResolver.js';
@@ -130,7 +130,7 @@ export function buildGameFeedEmbed(event) {
   switch (event.type) {
     case 'pvp':
       return classicEmbed('Player killed', CLOUDY_RED_COLOR, [
-        line('Killer', name(event.killer), 'killer'), line('Victim', name(event.victim), 'victim'), line('Weapon', event.weapon, 'weapon'),
+        line('Killer', name(event.killer), 'killer'), line('Victim', name(event.victim), 'victim'), line('Weapon', event.weapon && `${weaponEmoji(event.weapon) || feedEmoji('weapon')} ${event.weapon}`),
         line('Distance', event.distance == null ? null : `${event.distance} m`, 'distance'),
         event.headshot ? line('Headshot', feedEmoji('headshot')) : null,
         event.streak > 1 ? line('Killstreak', `🔥 ${event.streak}`) : null, serverIcon,
@@ -156,7 +156,7 @@ export function buildGameFeedEmbed(event) {
     case 'raid':
       return classicEmbed('Raid alert', CLOUDY_RED_COLOR, [
         line('Raider', name(event.attacker)), line('Target', event.target ? name(event.target) : null),
-        line('Used', event.item), server,
+        line('Used', event.item && `${weaponEmoji(event.item) ? `${weaponEmoji(event.item)} ` : ''}${event.item}`), server,
       ], event);
     case 'ban':
       return classicEmbed(event.action === 'ban' ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
