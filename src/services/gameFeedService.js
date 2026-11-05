@@ -140,7 +140,7 @@ export function buildGameFeedEmbed(event) {
           line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
         ], event);
     case 'zorp':
-      return classicEmbed(event.state === 'on' ? 'ZORP protection on' : 'ZORP protection off',
+      return classicEmbed(event.state === 'on' ? 'ZORP on' : 'ZORP off',
         event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', name(event.player)),
           event.state === 'off' && event.protectedFor ? line('Protected for', duration(event.protectedFor)) : null, server,
