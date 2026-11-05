@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Collection } from 'discord.js';
 import vote from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
+import voteMedia from '../src/interactions/buttons/vote/voteMedia.js';
 import { buildVoteMessage, castVote, endDueVotes, loadVote } from '../src/services/voteService.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 
@@ -130,7 +131,7 @@ test('every vote counts as 1%: 50 votes fill half the bar', () => {
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
 });
 
-test('a picture after an option turns that option into a link to it (e.g. the map)', async () => {
+test('a picture after an option gets a button that shows it inside Discord, never a website link', async () => {
   const w = world();
   const stored = [];
   const deps = {
@@ -141,13 +142,19 @@ test('a picture after an option turns that option into a link to it (e.g. the ma
   const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East', option3: 'DZ South' });
   run.options.getAttachment = name => (name === 'media1' || name === 'media3' ? png : null);
   await vote.execute(run, deps);
-  const text = w.sent[0].embeds[0].description;
-  assert.match(text, /\*\*\[DZ West\]\(https:\/\/cloudy\.example\/cloudy-embed-media\/a+1\.png\)\*\*/);
-  assert.match(text, /\*\*DZ East\*\*/);
-  assert.match(text, /\*\*\[DZ South\]\(https:\/\/cloudy\.example\/cloudy-embed-media\/a+2\.png\)\*\*/);
-  assert.equal(w.sent[0].files, undefined);
-  assert.equal(w.sent[0].embeds[0].image, undefined);
-  assert.deepEqual((await loadVote(w.client, GUILD, w.sent[0].id)).optionLinks.map(Boolean), [true, false, true]);
+  const posted = w.sent[0];
+  const text = posted.embeds[0].description;
+  assert.doesNotMatch(text, /https?:\/\//, 'no link in the vote');
+  assert.match(text, /\*\*DZ West\*\*/);
+  const rows = posted.components.map(row => json(row).components);
+  assert.deepEqual(rows[1].map(button => [button.custom_id, button.label]), [['vote_media:0', 'DZ West'], ['vote_media:2', 'DZ South']]);
+
+  const click = { guildId: GUILD, message: { id: posted.id },
+    deferReply: async () => {}, editReply: async payload => { click.reply = payload; return { id: 'view' }; }, deleteReply: async () => {} };
+  await voteMedia.execute(click, w.client, ['2']);
+  assert.equal(click.reply.embeds[0].title, 'DZ South');
+  assert.match(click.reply.embeds[0].image.url, /a+2\.png$/);
+  assert.ok(click.reply.embeds[0].thumbnail.url);
 
   const lonely = w.command({ question: 'Q', option1: 'A', option2: 'B' });
   lonely.options.getAttachment = name => (name === 'media3' ? png : null);
