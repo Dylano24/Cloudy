@@ -7,8 +7,11 @@ const TITLES = new Set([
   'server status', 'population', 'leaderboard', 'server changes',
 ]);
 
+const FEED_FOOTER = /^© Cloudy Inc\. • .+ • (?:kill|player|zorp|raid|ban|wipe|leaderboard)$/;
+
 export function isGameFeedEmbed(embed) {
   const data = embed?.toJSON ? embed.toJSON() : embed;
+  if (FEED_FOOTER.test(String(data?.footer?.text || ''))) return true;
   return TITLES.has(String(data?.title || '').trim().toLowerCase())
     && String(data?.footer?.text || '').startsWith('© Cloudy Inc.');
 }

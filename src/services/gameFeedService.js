@@ -67,9 +67,11 @@ export function normalizeGameFeedEvent(raw) {
   }
   if (type === 'player') {
     const action = String(raw.action || '').toLowerCase();
-    if (!['join', 'leave'].includes(action)) fail('action must be join or leave');
+    if (!['join', 'leave', 'kit'].includes(action)) fail('action must be join, leave or kit');
     return { ...base, action, player: required(raw.player, 'player', 60),
-      online: whole(raw.online, 0, 10_000), max: whole(raw.max, 0, 10_000) };
+      online: whole(raw.online, 0, 10_000), max: whole(raw.max, 0, 10_000),
+      platform: text(raw.platform, 30) || null,
+      kit: action === 'kit' ? required(raw.kit, 'kit', 60) : null };
   }
   if (type === 'zorp') {
     const state = String(raw.state || '').toLowerCase();
@@ -93,76 +95,113 @@ export function normalizeGameFeedEvent(raw) {
     kind: ['map', 'full'].includes(kind) ? kind : null, next: moment(raw.next) };
 }
 
-const line = (label, value) => (value == null || value === '' ? null : `**${label}:** ${value}`);
+// Compact feed posts (owner's choice, like the KAOSBOT feeds): one or two
+// short lines, names in a code block, the small Cloudy logo beside the footer
+// "© Cloudy Inc. • <server> • <feed>" and Discord's own time.
+export const FEED_TAGS = Object.freeze({ pvp: 'kill', player: 'player', zorp: 'zorp', raid: 'raid', ban: 'ban', wipe: 'wipe' });
+const name = value => `\`${value}\``;
+const unixDay = ms => `<t:${unix(ms)}:D>`;
 
-function feedEmbed(title, color, lines, time) {
+function duration(ms) {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
+
+function feedEmbed(type, color, lines, event) {
   return {
-    title,
-    // null = left out; '' = an intended empty line.
-    description: [...lines, line('Time', `<t:${unix(time)}:f>`)].filter(entry => entry != null).join('\n'),
+    description: lines.filter(entry => entry != null && entry !== '').join('\n'),
     color,
-    thumbnail: { url: CLOUDY_C_LOGO_URL },
-    footer: { text: CLOUDY_FOOTER },
+    footer: { text: `© Cloudy Inc. • ${event.server} • ${FEED_TAGS[type]}`, icon_url: CLOUDY_C_LOGO_URL },
+    timestamp: new Date(event.time).toISOString(),
   };
 }
 
 export function buildGameFeedEmbed(event) {
-  const server = line('Server', event.server);
   switch (event.type) {
-    case 'pvp':
-      return feedEmbed('Player killed', CLOUDY_RED_COLOR, [
-        line('Killer', event.killer), line('Victim', event.victim), line('Weapon', event.weapon),
-        line('Distance', event.distance == null ? null : `${event.distance} m`),
-        event.headshot ? line('Headshot', 'Yes') : null, server,
-      ], event.time);
+    case 'pvp': {
+      const details = [event.weapon, event.distance == null ? null : `${event.distance} m`, event.headshot ? '🎯 Headshot' : null]
+        .filter(Boolean).join(' · ');
+      return feedEmbed('pvp', CLOUDY_RED_COLOR, [
+        `${event.firstBlood ? '🩸 **FIRST BLOOD** · ' : ''}${name(event.killer)}  💀  ${name(event.victim)}${event.streak > 1 ? `  🎯 ${event.streak}` : ''}`,
+        details || null,
+      ], event);
+    }
     case 'player':
-      return feedEmbed(event.action === 'join' ? 'Player online' : 'Player offline',
-        event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
-          line('Player', event.player), server,
-          line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
-        ], event.time);
+      if (event.action === 'kit') {
+        return feedEmbed('player', CLOUDY_NEUTRAL_COLOR, [`**[KIT]** ${name(event.player)} **[${event.kit}]**`], event);
+      }
+      return feedEmbed('player', event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
+        event.action === 'join'
+          ? `**[LOGIN]** ${name(event.player)}${event.platform ? ` **[${event.platform}]**` : ''}`
+          : `**[LOGOUT]** ${name(event.player)}`,
+      ], event);
     case 'zorp':
-      return feedEmbed(event.state === 'on' ? 'ZORP protection on' : 'ZORP protection off',
-        event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
-          line('Player', event.player), server,
-        ], event.time);
+      return feedEmbed('zorp', event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
+        event.state === 'on'
+          ? `🟢⚔️ ${name(event.player)}`
+          : `🔴🛡️ ${name(event.player)}${event.protectedFor ? ` · offline protected ${duration(event.protectedFor)}` : ''}`,
+      ], event);
     case 'raid':
-      return feedEmbed('Raid alert', CLOUDY_RED_COLOR, [
-        line('Raider', event.attacker), line('Target', event.target), line('Used', event.item), server,
-      ], event.time);
+      return feedEmbed('raid', CLOUDY_RED_COLOR, [
+        `💣 ${name(event.attacker)}${event.target ? ` ➜ ${name(event.target)}'s base` : ''}${event.item ? ` · ${event.item}` : ''}`,
+      ], event);
     case 'ban':
-      return feedEmbed(event.action === 'ban' ? 'Player banned' : 'Player unbanned',
-        event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
-          line('Player', event.player), line('Reason', event.reason),
-          event.action === 'ban' ? line('Duration', event.duration || 'Permanent') : null,
-          line('By', event.by), server,
-        ], event.time);
+      return feedEmbed('ban', event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
+        event.action === 'ban'
+          ? [`**[BAN]** ${name(event.player)}`, event.reason, event.duration || 'Permanent'].filter(Boolean).join(' · ')
+          : [`**[UNBAN]** ${name(event.player)}`, event.reason].filter(Boolean).join(' · '),
+      ], event);
     default: {
-      const soon = event.state === 'soon';
-      return feedEmbed(soon ? 'Wipe incoming' : 'Server wiped', CLOUDY_NEUTRAL_COLOR, [
-        soon ? `**${event.server}** is about to wipe${event.at ? ` <t:${unix(event.at)}:R>` : ''}.`
-          : `**${event.server}** just wiped.`,
-        '',
-        line('Wipe', event.kind === 'full' ? 'Full wipe' : event.kind === 'map' ? 'Map wipe' : null),
-        line('Map', event.map),
-        soon && event.at ? line('Wipe time', `<t:${unix(event.at)}:f>`) : null,
-        line('Next wipe', event.next ? `<t:${unix(event.next)}:f>` : null),
-      ], event.time);
+      const kind = event.kind === 'full' ? 'Full wipe' : event.kind === 'map' ? 'Map wipe' : null;
+      return feedEmbed('wipe', CLOUDY_NEUTRAL_COLOR, event.state === 'soon'
+        ? [`⏳ **${event.server}** wipes${event.at ? ` <t:${unix(event.at)}:R>` : ' soon'}${kind ? ` · ${kind}` : ''}`]
+        : [`🧹 **${event.server}** just wiped${event.map ? ` · ${event.map}` : ''}`,
+          event.next ? `Next wipe: ${unixDay(event.next)}` : null], event);
     }
   }
 }
 
+// Killstreaks, first blood after a wipe and ZORP protection time are kept in
+// memory per server; a restart starts them again.
+const streaks = new Map();
+const firstBloodPending = new Map();
+const zorpSince = new Map();
+
+export function enrichGameFeedEvent(event) {
+  const key = player => `${event.server}\u0000${player}`;
+  if (event.type === 'pvp') {
+    const streak = (streaks.get(key(event.killer)) || 0) + 1;
+    streaks.set(key(event.killer), streak);
+    streaks.delete(key(event.victim));
+    const firstBlood = firstBloodPending.get(event.server) === true;
+    if (firstBlood) firstBloodPending.delete(event.server);
+    return { ...event, streak, firstBlood };
+  }
+  if (event.type === 'zorp') {
+    if (event.state === 'on') { zorpSince.set(key(event.player), event.time); return event; }
+    const since = zorpSince.get(key(event.player));
+    zorpSince.delete(key(event.player));
+    return since ? { ...event, protectedFor: event.time - since } : event;
+  }
+  if (event.type === 'wipe' && event.state === 'done') {
+    firstBloodPending.set(event.server, true);
+    for (const streakKey of streaks.keys()) if (streakKey.startsWith(`${event.server}\u0000`)) streaks.delete(streakKey);
+  }
+  return event;
+}
+
 // Example events, used by /gamefeed preview.
 export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
-  { type: 'pvp', server: 'Server 1 Rust', killer: 'Dawg', victim: 'Mindzset', weapon: 'Assault rifle', distance: 145, headshot: true },
-  { type: 'player', server: 'Server 1 Rust', action: 'join', player: 'Mindzset', online: 87, max: 100 },
-  { type: 'player', server: 'Server 1 Rust', action: 'leave', player: 'Dawg', online: 86, max: 100 },
-  { type: 'zorp', server: 'Server 1 Rust', state: 'on', player: 'Dawg' },
-  { type: 'zorp', server: 'Server 1 Rust', state: 'off', player: 'Dawg' },
-  { type: 'raid', server: 'Server 1 Rust', attacker: 'Mindzset', target: 'Dawg', item: 'Rocket' },
-  { type: 'ban', server: 'Server 1 Rust', action: 'ban', player: 'Cheater123', reason: 'Cheating', duration: 'Permanent', by: 'Cloudy staff' },
-  { type: 'ban', server: 'Server 1 Rust', action: 'unban', player: 'Player456', reason: 'Appeal accepted', by: 'Cloudy staff' },
-  { type: 'wipe', server: 'Server 1 Rust', state: 'soon', at: Date.now() + 3_600_000, kind: 'map', map: 'Procedural 4000' },
+  { type: 'pvp', server: 'Server 1', killer: 'Dawg', victim: 'Mindzset', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
+  { type: 'pvp', server: 'Server 1', killer: 'Dawg', victim: 'Player456', firstBlood: true },
+  { type: 'player', server: 'Server 1', action: 'join', player: 'Mindzset', platform: 'Xbox Series' },
+  { type: 'player', server: 'Server 1', action: 'leave', player: 'Dawg' },
+  { type: 'player', server: 'Server 1', action: 'kit', player: 'Lnvzyx', kit: 'Full Kit AK' },
+  { type: 'zorp', server: 'Server 1', state: 'on', player: 'Dawg' },
+  { type: 'zorp', server: 'Server 1', state: 'off', player: 'Dawg', protectedFor: 8_040_000 },
+  { type: 'raid', server: 'Server 1', attacker: 'Mindzset', target: 'Dawg', item: 'Rocket' },
+  { type: 'ban', server: 'Server 1', action: 'ban', player: 'Cheater123', reason: 'Cheating', duration: 'Permanent' },
   { type: 'wipe', server: 'Server 1 Rust', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
@@ -237,7 +276,7 @@ export async function postGameFeedEvents(client, rawEvents) {
       }
       const channel = channels[event.type];
       if (!channel?.send) fail(`${GAME_FEED_CHANNELS[event.type].name} channel not found`);
-      enqueue(channel, buildGameFeedEmbed(event));
+      enqueue(channel, buildGameFeedEmbed(enrichGameFeedEvent(event)));
       accepted += 1;
       // The leaderboard counts kills and starts again after a wipe.
       if (event.type === 'pvp') await recordKill(client, guild, event);
