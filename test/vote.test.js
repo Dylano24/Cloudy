@@ -405,19 +405,25 @@ test('Preview shows the picture privately under the vote with the option name, f
   await create(w, { question: 'Choose your map', option1: 'DZ West', option2: 'DZ East' },
     { files: { media2: { url: 'https://cdn.discordapp.com/a/e.png', name: 'e.png', contentType: 'image/png', size: 10 } }, deps });
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const preview = { id: 'p1', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id }, deleted: 0,
-    deferReply: async options => { preview.flags = options.flags; },
-    editReply: async payload => { preview.reply = payload; return { id: 'r' }; },
-    deleteReply: async () => { preview.deleted += 1; } };
+  const click = id => {
+    const preview = { id, guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id }, deleted: 0,
+      reply: async payload => { preview.answer = payload; },
+      deferReply: async () => { preview.deferred = true; },
+      editReply: async payload => { preview.edited = payload; },
+      deleteReply: async () => { preview.deleted += 1; } };
+    return preview;
+  };
+  const preview = click('p1');
   const fetched = [];
   const fetchImpl = async url => { fetched.push(url); return { ok: true, arrayBuffer: async () => new TextEncoder().encode('png').buffer }; };
   await votePreview.execute(preview, w.client, ['1'], { fetchImpl });
-  assert.equal(preview.flags, 64, 'private');
-  const embed = preview.reply.embeds[0];
+  assert.equal(preview.answer.flags, 64, 'private');
+  assert.equal(preview.deferred, undefined, 'answered in one step: no thinking reply that is filled in later');
+  const embed = preview.answer.embeds[0];
   assert.equal(embed.description, '**DZ East**');
   assert.deepEqual(fetched, ['https://cdn.discordapp.com/attachments/1/2/option2.png?ex=1']);
   assert.equal(embed.image.url, 'attachment://option2.png', 'sent as a file: Discord knows its size at once');
-  assert.equal(preview.reply.files[0].name, 'option2.png');
+  assert.equal(preview.answer.files[0].name, 'option2.png');
   assert.equal(embed.title, undefined);
   assert.equal(embed.thumbnail, undefined);
   t.mock.timers.tick(29_000);
@@ -427,6 +433,39 @@ test('Preview shows the picture privately under the vote with the option name, f
   await new Promise(resolve => { setImmediate(resolve); });
   assert.equal(preview.deleted, 1, 'gone after 30 seconds');
   assert.equal((await loadVote(w.client, GUILD, w.sent[0].id)).votes.member, undefined, 'a preview is not a vote');
+  const again = click('p2');
+  await votePreview.execute(again, w.client, ['1'], { fetchImpl });
+  assert.equal(fetched.length, 1, 'the second Preview uses the kept picture: instant');
+  assert.equal(again.answer.files[0].name, 'option2.png');
+  t.mock.timers.reset();
+});
+
+test('when the picture takes longer than 2 seconds, Preview is acknowledged first and filled in after', async t => {
+  const w = world();
+  const stored = {
+    messageId: '210000000000000088', channelId: CHANNEL, guildId: GUILD, question: 'Q', options: ['A', 'B'], votes: {},
+    optionLinks: ['https://cdn.discordapp.com/slow/option1.png?ex=1', null],
+    optionMedia: { channelId: 'thread', messageId: 'store', names: ['option1.png', null] }, layout: 'preview',
+  };
+  await w.client.db.set(`guild:${GUILD}:votes`, { [stored.messageId]: stored });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const fetchImpl = async () => { await gate; return { ok: true, arrayBuffer: async () => new ArrayBuffer(3) }; };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const order = [];
+  const preview = { id: 'p3', guildId: GUILD, user: { id: 'member' }, message: { id: stored.messageId },
+    reply: async () => { order.push('reply'); },
+    deferReply: async () => { order.push('ack'); },
+    editReply: async payload => { order.push('picture'); preview.edited = payload; },
+    deleteReply: async () => {} };
+  const running = votePreview.execute(preview, w.client, ['0'], { fetchImpl });
+  await new Promise(resolve => { setImmediate(resolve); });
+  t.mock.timers.tick(2_000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  release();
+  await running;
+  assert.deepEqual(order, ['ack', 'picture']);
+  assert.equal(preview.edited.embeds[0].image.url, 'attachment://option1.png');
   t.mock.timers.reset();
 });
 
@@ -470,9 +509,10 @@ test('an expired picture link is renewed before the preview is shown', async () 
     fetched.push(url);
     return url.includes('/old/') ? { ok: false } : { ok: true, arrayBuffer: async () => new ArrayBuffer(3) };
   };
-  const preview = { id: 'p2', guildId: GUILD, user: { id: 'member' }, message: { id: stored.messageId },
-    deferReply: async () => {}, editReply: async payload => { preview.reply = payload; return { id: 'r' }; }, deleteReply: async () => {} };
+  const preview = { id: 'p4', guildId: GUILD, user: { id: 'member' }, message: { id: stored.messageId },
+    reply: async payload => { preview.answer = payload; },
+    deferReply: async () => {}, editReply: async () => {}, deleteReply: async () => {} };
   await votePreview.execute(preview, w.client, ['0'], { fetchImpl });
   assert.deepEqual(fetched, ['https://cdn.discordapp.com/old/option1.png?ex=1', 'https://cdn.discordapp.com/new/option1.png?ex=2']);
-  assert.equal(preview.reply.embeds[0].image.url, 'attachment://option1.png');
+  assert.equal(preview.answer.embeds[0].image.url, 'attachment://option1.png');
 });
