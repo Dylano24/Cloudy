@@ -35,7 +35,7 @@ test.afterEach(() => clearGameFeedQueues());
 
 test('classic feed embeds with names in code, big logo, footer with small logo and Time', () => {
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
-  assert.deepEqual(embeds.map(embed => embed.title.replace(/ <a?:\w+:\d+>$/, '')), [
+  assert.deepEqual(embeds.map(embed => embed.title.replace(/^<a?:\w+:\d+> /, '')), [
     'Player killed', 'LOGIN', 'LOGOUT', 'Kit claimed',
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
