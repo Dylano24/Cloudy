@@ -5,6 +5,7 @@ import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
 import { buildVoteMessage, saveVote } from '../../services/voteService.js';
 import { uploadVotePictures } from '../../services/voteMediaService.js';
+import { logger } from '../../utils/logger.js';
 
 const VOTE_OPTIONS = 3;
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -92,10 +93,20 @@ export async function submitVoteForm(interaction, id, dependencies = {}) {
     messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
     question: draft.question, options: draft.options, votes: {},
     endsAt: draft.durationMs ? Date.now() + draft.durationMs : null, ended: false,
-    ...(pictures ? { optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now() } : {}),
+    // With pictures: a Preview button next to each option with a picture.
+    ...(pictures ? { optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now(), layout: 'preview' } : {}),
     createdBy: interaction.user.id, createdAt: new Date().toISOString(),
   };
-  const message = await interaction.channel.send(buildVoteMessage(vote));
+  let message;
+  try {
+    message = await interaction.channel.send(buildVoteMessage(vote));
+  } catch (error) {
+    if (!vote.layout) throw error;
+    // Never lose the vote: the normal layout (blue links) if Discord refuses the card.
+    logger.warn(`[VOTE] Preview layout refused, normal layout used: ${error?.message || error}`);
+    delete vote.layout;
+    message = await interaction.channel.send(buildVoteMessage(vote));
+  }
   vote.messageId = message.id;
   try {
     await saveVote(interaction.client, interaction.guildId, vote);
