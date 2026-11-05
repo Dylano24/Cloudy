@@ -67,12 +67,13 @@ export default {
         return warn(error?.userMessage || 'Use a duration like 30m, 1h or 2d.');
       }
     }
-    // Each picture is stored as permanent Cloudy media; its option links to it.
+    // Each picture is stored as permanent Cloudy media and shown with a button
+    // under the vote (inside Discord, never as a website link).
     const store = dependencies.storeMedia || storeEmbedMediaBuffer;
     const fetchImpl = dependencies.fetchImpl || fetch;
-    const optionLinks = [];
+    const optionImages = [];
     for (const [index, picture] of media.entries()) {
-      if (!picture) { optionLinks.push(null); continue; }
+      if (!picture) { optionImages.push(null); continue; }
       try {
         if (!String(picture.contentType || '').startsWith('image/')) throw new Error(`Media ${index + 1} must be a picture.`);
         if (picture.size > MAX_MEDIA_BYTES) throw new Error(`Media ${index + 1} is larger than 10 MB.`);
@@ -80,7 +81,7 @@ export default {
         if (!response.ok) throw new Error(`Media ${index + 1} could not be downloaded.`);
         const url = await store(Buffer.from(await response.arrayBuffer()));
         if (!url) throw new Error('Media cannot be stored right now.');
-        optionLinks.push(url);
+        optionImages.push(url);
       } catch (error) {
         return warn(error?.message || `Media ${index + 1} could not be added.`);
       }
@@ -88,7 +89,7 @@ export default {
     const vote = {
       messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
       question, options, votes: {}, endsAt, ended: false,
-      ...(optionLinks.some(Boolean) ? { optionLinks } : {}),
+      ...(optionImages.some(Boolean) ? { optionImages } : {}),
       createdBy: interaction.user.id, createdAt: new Date().toISOString(),
     };
     const message = await interaction.channel.send(buildVoteMessage(vote));
