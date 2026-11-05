@@ -139,14 +139,14 @@ export function buildGameFeedEmbed(event) {
           line('Player', name(event.player)), line('Kit', event.kit), server,
         ], event);
       }
-      return classicEmbed(event.action === 'join' ? `LOGIN ${feedEmoji('login')}` : `LOGOUT ${feedEmoji('logout')}`,
+      return classicEmbed(event.action === 'join' ? `${feedEmoji('login')} LOGIN` : `${feedEmoji('logout')} LOGOUT`,
         event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', name(event.player)),
           event.action === 'join' ? line('Platform', event.platform) : null, server,
           line('Online', event.online == null ? null : event.max ? `${event.online}/${event.max}` : String(event.online)),
         ], event);
     case 'zorp':
-      return classicEmbed(`ZORP ${feedEmoji(event.state === 'on' ? 'on' : 'off')}`,
+      return classicEmbed(`${feedEmoji(event.state === 'on' ? 'on' : 'off')} ZORP`,
         event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', name(event.player)),
           event.state === 'off' && event.protectedFor ? line('Protected for', duration(event.protectedFor)) : null, server,
@@ -157,7 +157,7 @@ export function buildGameFeedEmbed(event) {
         line('Used', event.item), server,
       ], event);
     case 'ban':
-      return classicEmbed(event.action === 'ban' ? `BAN ${feedEmoji('ban')}` : `UNBAN ${feedEmoji('unban')}`,
+      return classicEmbed(event.action === 'ban' ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
         event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
           line('Player', name(event.player)), line('Reason', event.reason),
           event.action === 'ban' ? line('Duration', event.duration || 'Permanent') : null,
