@@ -15,9 +15,24 @@ async function notice(interaction, embed) {
   removeAfterTenSeconds(interaction);
 }
 
+const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
+
+// Your own map picture (e.g. a console screenshot): downloaded from Discord and
+// sent again with the vote, so it never expires.
+async function ownPicture(attachment, index, fetchImpl = fetch) {
+  if (!String(attachment.contentType || '').startsWith('image/')) throw new Error(`Picture ${index} must be an image.`);
+  if (attachment.size > MAX_PICTURE_BYTES) throw new Error(`Picture ${index} is larger than 10 MB.`);
+  const response = await fetchImpl(attachment.url, { signal: AbortSignal.timeout(20_000) });
+  if (!response.ok) throw new Error(`Picture ${index} could not be downloaded.`);
+  const extension = (String(attachment.name || '').match(/\.(png|jpe?g|gif|webp)$/i)?.[1] || 'png').toLowerCase();
+  const name = `map${index}.${extension}`;
+  return { mapId: `own-${index}`, own: true, image: `attachment://${name}`, file: { attachment: Buffer.from(await response.arrayBuffer()), name } };
+}
+
 // /mapvote (owner's choice): three Rust maps in one vote embed (small pictures,
-// a click opens one in full size) with the numbered buttons. Maps you give are
-// used; missing ones are picked from rustmaps.com.
+// a click opens one in full size) with the numbered buttons. Your own pictures
+// (picture1..3) or rustmaps.com maps you give are used; missing ones are picked
+// from rustmaps.com.
 export default {
   data: (() => {
     const command = new SlashCommandBuilder()
@@ -30,6 +45,12 @@ export default {
         .setDescription(`Map ${index}: a rustmaps.com link or size_seed (optional, random if empty)`)
         .setRequired(false)
         .setMaxLength(100));
+    }
+    for (let index = 1; index <= 3; index += 1) {
+      command.addAttachmentOption(option => option
+        .setName(`picture${index}`)
+        .setDescription(`Your own picture for map ${index}, e.g. a screenshot (optional)`)
+        .setRequired(false));
     }
     return command.addStringOption(option => option
       .setName('duration')
@@ -57,8 +78,10 @@ export default {
     try {
       const given = [];
       for (let index = 1; index <= 3; index += 1) {
+        const picture = interaction.options.getAttachment?.(`picture${index}`);
         const input = interaction.options.getString(`map${index}`)?.trim();
-        given.push(input ? await resolve(input) : null);
+        if (picture) given.push(await ownPicture(picture, index, dependencies.fetchImpl));
+        else given.push(input ? await resolve(input) : null);
       }
       const missing = given.filter(map => !map).length;
       const extra = missing ? await featured(missing, { exclude: given.filter(Boolean).map(map => map.mapId) }) : [];
@@ -71,13 +94,14 @@ export default {
       messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
       title: 'Map vote', question: 'Which map do you want to play next?',
       options: maps.map((_, index) => `Map ${index + 1}`),
-      optionLinks: maps.map(map => map.pageUrl),
-      optionNotes: maps.map(map => `Size ${map.size} · Seed ${map.seed}`),
+      optionLinks: maps.map(map => map.pageUrl || null),
+      optionNotes: maps.map(map => (map.own ? null : `Size ${map.size} · Seed ${map.seed}`)),
       images: maps.map(map => map.image),
       votes: {}, endsAt, ended: false,
       createdBy: interaction.user.id, createdAt: new Date().toISOString(),
     };
-    const message = await interaction.channel.send(buildVoteMessage(vote));
+    const files = maps.filter(map => map.file).map(map => map.file);
+    const message = await interaction.channel.send({ ...buildVoteMessage(vote), ...(files.length ? { files } : {}) });
     vote.messageId = message.id;
     try {
       await saveVote(interaction.client, interaction.guildId, vote);
