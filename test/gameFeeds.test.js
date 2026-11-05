@@ -132,7 +132,7 @@ test('/gamefeed embeds shows every feed embed privately; status lists the channe
   const preview = await reply('embeds');
   assert.equal(preview.flags, 64);
   assert.equal(preview.embeds.length, 10);
-  assert.deepEqual(preview.boards.embeds.map(embed => embed.title), ['Server status', 'Population', 'Leaderboard', undefined]);
+  assert.deepEqual(preview.boards.embeds.map(embed => embed.title), ['Server status', 'Population', 'Leaderboard', 'Top killers of the day']);
   assert.equal(preview.boards.flags, 64);
   const status = await reply('status');
   assert.equal(status.embeds[0].title, 'Game server feeds');
