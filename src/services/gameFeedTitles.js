@@ -2,7 +2,7 @@
 // in gameFeedService / gameServerBoardsService, so saved or auto-learned
 // response templates must never restyle them.
 const TITLES = new Set([
-  'player killed', 'player online', 'player offline', 'zorp protection on', 'zorp protection off',
+  'player killed', '🩸 first blood', 'player login', 'player logout', 'kit claimed', 'player online', 'player offline', 'zorp protection on', 'zorp protection off',
   'raid alert', 'player banned', 'player unbanned', 'wipe incoming', 'server wiped',
   'server status', 'population', 'leaderboard', 'server changes',
 ]);

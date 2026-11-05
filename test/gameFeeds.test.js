@@ -33,28 +33,19 @@ function world({ missing = [] } = {}) {
 
 test.afterEach(() => clearGameFeedQueues());
 
-test('compact feed posts: short lines, names in code, small Cloudy logo by the footer, own colour', () => {
+test('classic feed embeds with names in code, big logo, footer with small logo and Time', () => {
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, firstBlood: event.firstBlood, protectedFor: event.protectedFor }));
-  assert.deepEqual(embeds.map(embed => embed.description), [
-    '`Dawg`  💀  `Mindzset`  🎯 3\nAssault rifle · 145 m · 🎯 Headshot',
-    '🩸 **FIRST BLOOD** · `Dawg`  💀  `Player456`',
-    '**[LOGIN]** `Mindzset` **[Xbox Series]**',
-    '**[LOGOUT]** `Dawg`',
-    '**[KIT]** `Lnvzyx` **[Full Kit AK]**',
-    '🟢⚔️ `Dawg`',
-    '🔴🛡️ `Dawg` · offline protected 2h 14m',
-    '💣 `Mindzset` ➜ `Dawg`\'s base · Rocket',
-    '**[BAN]** `Cheater123` · Cheating · Permanent',
-    embeds[9].description,
+  assert.deepEqual(embeds.map(embed => embed.title), [
+    'Player killed', '🩸 First blood', 'Player login', 'Player logout', 'Kit claimed',
+    'ZORP protection on', 'ZORP protection off', 'Raid alert', 'Player banned', 'Server wiped',
   ]);
-  assert.match(embeds[9].description, /^🧹 \*\*Server 1 Rust\*\* just wiped · Procedural 4000\nNext wipe: <t:\d+:D>$/);
-  assert.deepEqual(embeds.map(embed => embed.footer.text.split(' • ').at(-1)),
-    ['kill', 'kill', 'player', 'player', 'player', 'zorp', 'zorp', 'raid', 'ban', 'wipe']);
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* `Dawg`\n\*\*Victim:\*\* `Mindzset`\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Killstreak:\*\* 🎯 3\n\*\*Server:\*\* Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
+  assert.match(embeds[2].description, /\*\*Player:\*\* `Mindzset`\n\*\*Platform:\*\* Xbox Series/);
+  assert.match(embeds[4].description, /\*\*Kit:\*\* Full Kit AK/);
+  assert.match(embeds[6].description, /\*\*Protected for:\*\* 2h 14m/);
   for (const embed of embeds) {
-    assert.equal(embed.title, undefined);
-    assert.equal(embed.footer.icon_url, CLOUDY_C_LOGO_URL);
-    assert.match(embed.footer.text, /^© Cloudy Inc\. • Server 1/);
-    assert.ok(embed.timestamp);
+    assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
+    assert.deepEqual(embed.footer, { text: CLOUDY_FOOTER, icon_url: CLOUDY_C_LOGO_URL });
   }
   assert.deepEqual(embeds.map(embed => embed.color.toString(16)),
     ['7a1712', '7a1712', 'c49d', '7a1712', 'ffffff', 'c49d', '7a1712', '7a1712', '7a1712', 'ffffff']);
