@@ -2,7 +2,7 @@ import { isGameFeedEmbed } from '../services/gameFeedTitles.js';
 import { isPatchBannerRepairInProgress } from '../services/patchNotesBannerService.js';
 import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 // BUILDER_SAVED_PARITY_V1
-import { rememberTransientPayloadIntent } from '../utils/transientResponse.js';
+import { isTransientStatusEmbed, rememberTransientPayloadIntent } from '../utils/transientResponse.js';
 import { commercialUnsavedBotTitle } from '../utils/builderCommercialTitle.js';
 import { balanceResponseIdentity } from '../services/balanceResponseIdentity.js';
 import { PRESERVE_EXISTING_EMBEDS } from '../services/existingEmbedPolicy.js';
@@ -555,14 +555,21 @@ export async function applySavedResponsePayloadTemplates(payload, source) {
     // title (sentence case/no decorative emoji), but no other field changes.
     if (overlay.matched
       || String(data.footer?.text || '').endsWith(MESSAGE_BUILDER_FOOTER_MARKER)) {
-      return overlay.data;
+      return withStatusLogo(overlay.data);
     }
     if (builderInteraction) return embed;
     const formattedTitle = commercialUnsavedBotTitle(overlay.data.title);
-    return formattedTitle && formattedTitle !== overlay.data.title
+    return withStatusLogo(formattedTitle && formattedTitle !== overlay.data.title
       ? { ...overlay.data, title: formattedTitle }
-      : overlay.data;
+      : overlay.data);
   }) };
+}
+
+// Status replies (Success, Warning, Error, ...) always show the Cloudy logo
+// (owner's choice), also when a saved response template has no thumbnail.
+export function withStatusLogo(data) {
+  if (!data || typeof data !== 'object' || data.thumbnail?.url || !isTransientStatusEmbed(data)) return data;
+  return { ...data, thumbnail: { url: CLOUDY_LOGO_URL } };
 }
 
 function patchInteractionCapture() {
