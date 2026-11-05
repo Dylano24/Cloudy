@@ -212,7 +212,7 @@ test('every vote counts as 1%: 50 votes fill half the bar', () => {
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
 });
 
-test('an option with a picture becomes a blue link with a small Preview button right next to it; no thread', async () => {
+test('an option with a picture gets a small Preview button right next to it; plain name, no link, no thread', async () => {
   const w = world();
   const uploads = [];
   const deps = {
@@ -232,9 +232,10 @@ test('an option with a picture becomes a blue link with a small Preview button r
   assert.deepEqual(uploads, [['option1.png', null, 'option3.jpg']], 'each picture stays with its own option');
   const posted = w.sent[0];
   const text = textOf(posted);
-  assert.match(text, /\*\*\[DZ West\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*/);
-  assert.match(text, /\*\*DZ East\*\*/, 'no picture: plain white text');
-  assert.match(text, /\*\*\[DZ South\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option3\.jpg\?ex=1\)\*\*/);
+  assert.match(text, /1️⃣ \*\*DZ West\*\*/);
+  assert.match(text, /2️⃣ \*\*DZ East\*\*/);
+  assert.match(text, /3️⃣ \*\*DZ South\*\*/);
+  assert.doesNotMatch(text, /\]\(|cdn\.discordapp\.com/, 'no links in the card: the Preview button shows the picture');
   assert.doesNotMatch(text, /railway|cloudy-embed-media/);
   assert.match(text, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\*/, 'empty line before the end');
   assert.equal(posted.flags, 32768, "Discord's newer layout: a button can stand next to text");
@@ -250,8 +251,8 @@ test('an option with a picture becomes a blue link with a small Preview button r
   const previews = card.components.flatMap((part, index) => (part.type === 9 && part.accessory?.type === 2
     ? [[card.components[index - 1].content.replace(/\(.*\)/, ''), part.components.map(item => item.content), part.accessory.custom_id, part.accessory.label]] : []));
   assert.deepEqual(previews, [
-    ['1️⃣ **[DZ West]**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:0', 'Preview'],
-    ['3️⃣ **[DZ South]**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:2', 'Preview'],
+    ['1️⃣ **DZ West**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:0', 'Preview'],
+    ['3️⃣ **DZ South**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:2', 'Preview'],
   ], 'Preview only next to options with a picture, level with the bar');
   const footer = card.components.at(-1);
   assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
@@ -327,8 +328,7 @@ test('the option button only votes: the picture opens from the blue link, the no
   assert.equal(embed.description, 'You voted for **DZ West**.');
   assert.equal(embed.image, undefined, 'no picture behind the button');
   assert.equal(first.updated.flags, 32768, 'the card stays a card');
-  assert.match(textOf(first.updated),
-    /\[DZ West\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*\n▱{6} \*\*1%\*\* · 1 vote/, 'the blue link opens the picture');
+  assert.match(textOf(first.updated), /1️⃣ \*\*DZ West\*\*\n▱{6} \*\*1%\*\* · 1 vote/, 'the Preview button shows the picture');
   t.mock.timers.tick(10_000);
   await new Promise(resolve => { setImmediate(resolve); });
   assert.equal(first.deleted, 1, 'gone after 10 seconds');
