@@ -59,12 +59,17 @@ const WEAPONS = [
 for (const [key, id, aliases] of WEAPONS) {
   BASE_EMOJIS[`w_${key}`] = { name: `rust_${key}`, unwhite: true, id, aliases, fallback: `<:rust_${key}:${id}>` };
 }
-// Flashy success-style numbers for the vote buttons (owner's choice). They are
-// made in this repo (assets/vote-emojis) and uploaded as application emojis;
-// until then the keycap emoji is used.
-['1️⃣', '2️⃣', '3️⃣'].forEach((keycap, index) => {
+// Vote emojis (owner's choice), made in this repo (assets/vote-emojis) and
+// uploaded as application emojis: flashy green number badges 1 to 10, the
+// green progress bar pieces and the ballot icon before the title. Until they
+// are uploaded the plain fallback is shown.
+['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'].forEach((keycap, index) => {
   BASE_EMOJIS[`vote_${index + 1}`] = { name: `vote_${index + 1}_badge`, file: `../../assets/vote-emojis/vote_${index + 1}.gif`, fallback: keycap };
 });
+for (const piece of ['lf', 'mf', 'rf', 'le', 'me', 're']) {
+  BASE_EMOJIS[`bar_${piece}`] = { name: `vb_${piece}`, file: `../../assets/vote-emojis/bar_${piece}.png`, fallback: piece.endsWith('f') ? '▰' : '▱' };
+}
+BASE_EMOJIS.vote_icon = { name: 'vote_ballot', file: '../../assets/vote-emojis/vote_icon.gif', fallback: '🗳️' };
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 

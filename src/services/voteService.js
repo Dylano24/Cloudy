@@ -11,8 +11,8 @@ export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 export const VOTE_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 export const MAX_VOTE_OPTIONS = 10;
-// Numbers 1 to 3 are flashy custom emojis; the rest keep the keycaps.
-const numberIcon = index => (index < 3 ? feedEmoji(`vote_${index + 1}`) : VOTE_NUMBERS[index]);
+// Every number is a flashy green badge (owner's choice).
+const numberIcon = index => feedEmoji(`vote_${index + 1}`);
 // All map pictures share this URL so Discord shows them together in one embed.
 export const GALLERY_URL = 'https://rustmaps.com';
 const BAR_LENGTH = 10;
@@ -28,9 +28,14 @@ export function voteCounts(vote) {
   return counts;
 }
 
-function bar(share) {
-  const filled = Math.round(share * BAR_LENGTH);
-  return '█'.repeat(filled) + '░'.repeat(BAR_LENGTH - filled);
+// A green progress bar made of custom emoji pieces (rounded ends). Long votes
+// get a shorter bar so the embed stays within Discord's text limit.
+function bar(share, length) {
+  const filled = Math.round(share * length);
+  return Array.from({ length }, (_, index) => {
+    const end = index === 0 ? 'l' : index === length - 1 ? 'r' : 'm';
+    return feedEmoji(`bar_${end}${index < filled ? 'f' : 'e'}`);
+  }).join('');
 }
 
 export function buildVoteMessage(vote, now = Date.now()) {
@@ -38,11 +43,12 @@ export function buildVoteMessage(vote, now = Date.now()) {
   const total = counts.reduce((sum, count) => sum + count, 0);
   const ended = vote.ended === true || (vote.endsAt && vote.endsAt <= now);
   const lines = [`**${vote.question}**`, ''];
+  const length = vote.options.length > 6 ? 6 : BAR_LENGTH;
   vote.options.forEach((option, index) => {
     const share = total ? counts[index] / total : 0;
-    lines.push(`${numberIcon(index)} ${vote.optionLinks?.[index] ? `[${option}](${vote.optionLinks[index]})` : option}`);
-    if (vote.optionNotes?.[index]) lines.push(vote.optionNotes[index]);
-    lines.push(`\`${bar(share)}\` ${Math.round(share * 100)}% · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`);
+    const label = vote.optionLinks?.[index] ? `[${option}](${vote.optionLinks[index]})` : option;
+    lines.push(`${numberIcon(index)} **${label}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`);
+    lines.push(`${bar(share, length)} **${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`);
   });
   lines.push('', `**Total votes:** ${total}`);
   if (ended) {
@@ -53,10 +59,10 @@ export function buildVoteMessage(vote, now = Date.now()) {
   } else if (vote.endsAt) {
     lines.push(`**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
   }
+  // Buttons show only the number badge (owner's choice); the embed names the option.
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
     .setCustomId(`vote_cast:${index}`)
     .setEmoji(numberIcon(index))
-    .setLabel(option.slice(0, 80))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(Boolean(ended)));
   const rows = [];
@@ -65,7 +71,7 @@ export function buildVoteMessage(vote, now = Date.now()) {
   }
   const images = (vote.images || []).slice(0, 4);
   const main = {
-    title: ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote'),
+    title: `${feedEmoji('vote_icon')} ${ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote')}`,
     description: lines.join('\n').slice(0, 4096),
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
