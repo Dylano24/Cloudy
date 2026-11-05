@@ -237,6 +237,7 @@ test('an option with a picture becomes a blue link with a small Preview button r
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
   assert.equal(card.components[0].accessory.media.url, CLOUDY_LOGO, 'Cloudy logo top right');
   assert.match(card.components[0].components[0].content, /^### Vote\n\*\*Choose your map\*\*$/);
+  assert.deepEqual(card.components[1], { type: 14, divider: false, spacing: 2 }, 'more room under the logo');
   const sections = card.components.filter(part => part.type === 9 && part.accessory?.type === 2);
   assert.deepEqual(sections.map(part => [part.components[0].content.split('\n')[0].replace(/\(.*\)/, ''), part.accessory.custom_id, part.accessory.label]),
     [['1️⃣ **[DZ West]**', 'vote_media:0', 'Preview'], ['3️⃣ **[DZ South]**', 'vote_media:2', 'Preview']], 'Preview only next to options with a picture');
@@ -399,11 +400,15 @@ test('Preview shows the picture privately under the vote with the option name, f
     deferReply: async options => { preview.flags = options.flags; },
     editReply: async payload => { preview.reply = payload; return { id: 'r' }; },
     deleteReply: async () => { preview.deleted += 1; } };
-  await votePreview.execute(preview, w.client, ['1']);
+  const fetched = [];
+  const fetchImpl = async url => { fetched.push(url); return { ok: true, arrayBuffer: async () => new TextEncoder().encode('png').buffer }; };
+  await votePreview.execute(preview, w.client, ['1'], { fetchImpl });
   assert.equal(preview.flags, 64, 'private');
   const embed = preview.reply.embeds[0];
   assert.equal(embed.description, '**DZ East**');
-  assert.equal(embed.image.url, 'https://cdn.discordapp.com/attachments/1/2/option2.png?ex=1');
+  assert.deepEqual(fetched, ['https://cdn.discordapp.com/attachments/1/2/option2.png?ex=1']);
+  assert.equal(embed.image.url, 'attachment://option2.png', 'sent as a file: Discord knows its size at once');
+  assert.equal(preview.reply.files[0].name, 'option2.png');
   assert.equal(embed.title, undefined);
   assert.equal(embed.thumbnail, undefined);
   t.mock.timers.tick(29_000);
@@ -438,4 +443,27 @@ test('if Discord refuses the card, the vote is posted in the normal layout with 
   assert.equal(send.length, 1);
   assert.match(send[0].embeds[0].description, /\*\*\[A\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*/);
   assert.equal((await loadVote(w.client, GUILD, send[0].id)).layout, undefined);
+});
+
+test('an expired picture link is renewed before the preview is shown', async () => {
+  const w = world();
+  const stored = {
+    messageId: '210000000000000077', channelId: CHANNEL, guildId: GUILD, question: 'Q', options: ['A', 'B'], votes: {},
+    optionLinks: ['https://cdn.discordapp.com/old/option1.png?ex=1', null],
+    optionMedia: { channelId: 'thread', messageId: 'store', names: ['option1.png', null] }, layout: 'preview',
+  };
+  await w.client.db.set(`guild:${GUILD}:votes`, { [stored.messageId]: stored });
+  w.client.channels = { fetch: async () => ({ messages: { fetch: async () => ({
+    attachments: new Collection([['x', { name: 'option1.png', url: 'https://cdn.discordapp.com/new/option1.png?ex=2' }]]),
+  }) } }) };
+  const fetched = [];
+  const fetchImpl = async url => {
+    fetched.push(url);
+    return url.includes('/old/') ? { ok: false } : { ok: true, arrayBuffer: async () => new ArrayBuffer(3) };
+  };
+  const preview = { id: 'p2', guildId: GUILD, user: { id: 'member' }, message: { id: stored.messageId },
+    deferReply: async () => {}, editReply: async payload => { preview.reply = payload; return { id: 'r' }; }, deleteReply: async () => {} };
+  await votePreview.execute(preview, w.client, ['0'], { fetchImpl });
+  assert.deepEqual(fetched, ['https://cdn.discordapp.com/old/option1.png?ex=1', 'https://cdn.discordapp.com/new/option1.png?ex=2']);
+  assert.equal(preview.reply.embeds[0].image.url, 'attachment://option1.png');
 });
