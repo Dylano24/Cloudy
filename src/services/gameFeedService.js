@@ -90,8 +90,11 @@ export function normalizeGameFeedEvent(raw) {
   if (type === 'ban') {
     const action = String(raw.action || 'ban').toLowerCase();
     if (!['ban', 'unban'].includes(action)) fail('action must be ban or unban');
+    const discordId = value => (/^\d{17,20}$/.test(String(value ?? '')) ? String(value) : null);
     return { ...base, action, player: required(raw.player, 'player', 60), reason: text(raw.reason, 300) || null,
-      duration: text(raw.duration, 40) || null, by: text(raw.by, 60) || null };
+      duration: text(raw.duration, 40) || null, by: text(raw.by, 60) || null,
+      discord: discordId(raw.discord), byDiscord: discordId(raw.byDiscord),
+      bannedAt: moment(raw.bannedAt), expiresAt: moment(raw.expiresAt) };
   }
   const state = String(raw.state || '').toLowerCase();
   if (!['soon', 'done'].includes(state)) fail('state must be soon or done');
@@ -158,13 +161,33 @@ export function buildGameFeedEmbed(event) {
         line('Raider', name(event.attacker)), line('Target', event.target ? name(event.target) : null),
         line('Used', event.item && `${weaponEmoji(event.item) ? `${weaponEmoji(event.item)} ` : ''}${event.item}`), server,
       ], event);
-    case 'ban':
-      return classicEmbed(event.action === 'ban' ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
-        event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
-          line('Player', name(event.player)), line('Reason', event.reason),
-          event.action === 'ban' ? line('Duration', event.duration || 'Permanent') : null,
-          line('By', event.by), server,
-        ], event);
+    case 'ban': {
+      // Ban log (owner's choice, like the KAOSBOT ban-log in Cloudy style):
+      // every line is an emoji and its value, no labels. Discord accounts are
+      // tagged (without pinging); the times are relative.
+      const banned = event.action === 'ban';
+      const icon = (key, value) => (value == null || value === '' ? null : `${feedEmoji(key)} ${value}`);
+      const since = banned ? event.time : event.bannedAt;
+      const until = banned
+        ? (event.expiresAt ? `<t:${unix(event.expiresAt)}:R>` : event.duration || 'Permanent')
+        : `<t:${unix(event.time)}:R>`;
+      const kind = banned ? (event.expiresAt || event.duration ? 'Tempban' : 'Permanent') : 'Unban';
+      return {
+        title: banned ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
+        description: [
+          icon('mention', event.discord ? `<@${event.discord}>` : null),
+          icon('victim', name(event.player)),
+          icon('timer', since ? `<t:${unix(since)}:R>` : null),
+          icon('timer_off', until),
+          icon('staff', event.byDiscord ? `<@${event.byDiscord}>` : event.by),
+          icon('warning', event.reason),
+          icon('server', `${event.server} · ${kind}`),
+        ].filter(Boolean).join('\n'),
+        color: banned ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR,
+        thumbnail: { url: CLOUDY_C_LOGO_URL },
+        footer: { text: CLOUDY_FOOTER },
+      };
+    }
     default: {
       const soon = event.state === 'soon';
       if (!soon) {
@@ -234,8 +257,8 @@ export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
   { type: 'zorp', server: 'Darkzone South', state: 'on', player: 'Dyn' },
   { type: 'zorp', server: 'Darkzone South', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
   { type: 'raid', server: 'Darkzone South', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
-  { type: 'ban', server: 'Darkzone South', action: 'ban', player: 'Dyn', reason: 'Cheating', duration: 'Permanent' },
-  { type: 'ban', server: 'Darkzone South', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted' },
+  { type: 'ban', server: 'Darkzone South', action: 'ban', player: 'Dyn', reason: 'Raid in a red zone', by: 'Dylano', expiresAt: Date.now() + 3 * 86_400_000 },
+  { type: 'ban', server: 'Darkzone South', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted', by: 'Dylano', bannedAt: Date.now() - 4 * 86_400_000 },
   { type: 'wipe', server: 'Darkzone South', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
