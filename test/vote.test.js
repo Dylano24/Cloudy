@@ -47,7 +47,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const data = vote.data.toJSON();
   assert.equal(data.name, 'vote');
   assert.deepEqual(data.options.map(option => option.name),
-    ['question', 'option1', 'option2', 'option3', 'duration', 'media']);
+    ['question', 'option1', 'media1', 'option2', 'media2', 'option3', 'media3', 'duration']);
   assert.equal(isPlayerCommand('vote'), true);
   assert.equal(isPlayerCommand('poll'), false);
   const w = world();
@@ -130,23 +130,34 @@ test('every vote counts as 1%: 50 votes fill half the bar', () => {
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
 });
 
-test('a vote can show one picture or video (media)', async () => {
+test('a picture after an option turns that option into a link to it (e.g. the map)', async () => {
   const w = world();
-  const fetchImpl = async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) });
-  const picture = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East', option3: 'DZ South' });
-  picture.options.getAttachment = name => (name === 'media' ? { url: 'https://cdn.discordapp.com/a/maps.png', name: 'maps.PNG', contentType: 'image/png', size: 2000 } : null);
-  await vote.execute(picture, { fetchImpl });
-  assert.deepEqual(w.sent[0].files.map(file => file.name), ['media.png']);
-  assert.equal(w.sent[0].embeds.length, 1);
-  assert.equal(w.sent[0].embeds[0].image.url, 'attachment://media.png');
-  assert.equal(w.sent[0].embeds[0].url, undefined, 'one picture: the title is not a link');
-  const clip = w.command({ question: 'Q', option1: 'A', option2: 'B' });
-  clip.options.getAttachment = name => (name === 'media' ? { url: 'https://cdn.discordapp.com/a/clip.mp4', name: 'clip.mp4', contentType: 'video/mp4', size: 2000 } : null);
-  await vote.execute(clip, { fetchImpl });
-  assert.deepEqual(w.sent[1].files.map(file => file.name), ['media.mp4']);
-  assert.equal(w.sent[1].embeds[0].image, undefined, 'a video plays under the vote');
-  const text = w.command({ question: 'Q', option1: 'A', option2: 'B' });
-  text.options.getAttachment = name => (name === 'media' ? { url: 'x', name: 'a.txt', contentType: 'text/plain', size: 10 } : null);
-  await vote.execute(text, { fetchImpl });
-  assert.match(JSON.stringify(json(text.reply.embeds[0])), /picture or a video/);
+  const stored = [];
+  const deps = {
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
+    storeMedia: async () => { stored.push(1); return `https://cloudy.example/cloudy-embed-media/${'a'.repeat(63)}${stored.length}.png`; },
+  };
+  const png = { url: 'https://cdn.discordapp.com/a/west.png', name: 'west.png', contentType: 'image/png', size: 2000 };
+  const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East', option3: 'DZ South' });
+  run.options.getAttachment = name => (name === 'media1' || name === 'media3' ? png : null);
+  await vote.execute(run, deps);
+  const text = w.sent[0].embeds[0].description;
+  assert.match(text, /\*\*\[DZ West\]\(https:\/\/cloudy\.example\/cloudy-embed-media\/a+1\.png\)\*\*/);
+  assert.match(text, /\*\*DZ East\*\*/);
+  assert.match(text, /\*\*\[DZ South\]\(https:\/\/cloudy\.example\/cloudy-embed-media\/a+2\.png\)\*\*/);
+  assert.equal(w.sent[0].files, undefined);
+  assert.equal(w.sent[0].embeds[0].image, undefined);
+  assert.deepEqual((await loadVote(w.client, GUILD, w.sent[0].id)).optionLinks.map(Boolean), [true, false, true]);
+
+  const lonely = w.command({ question: 'Q', option1: 'A', option2: 'B' });
+  lonely.options.getAttachment = name => (name === 'media3' ? png : null);
+  await vote.execute(lonely, deps);
+  assert.match(JSON.stringify(json(lonely.reply.embeds[0])), /Media 3 has no option 3/);
+  const one = w.command({ question: 'Q', option1: 'A' });
+  await vote.execute(one, deps);
+  assert.match(JSON.stringify(json(one.reply.embeds[0])), /at least two options/);
+  const video = w.command({ question: 'Q', option1: 'A', option2: 'B' });
+  video.options.getAttachment = name => (name === 'media1' ? { ...png, contentType: 'video/mp4' } : null);
+  await vote.execute(video, deps);
+  assert.match(JSON.stringify(json(video.reply.embeds[0])), /must be a picture/);
 });

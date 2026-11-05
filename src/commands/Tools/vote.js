@@ -3,9 +3,11 @@ import { successEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
-import { buildVoteMessage, downloadVoteMedia, saveVote } from '../../services/voteService.js';
+import { buildVoteMessage, saveVote } from '../../services/voteService.js';
+import { storeEmbedMediaBuffer } from '../../services/embedMediaStorageService.js';
 
 const VOTE_OPTIONS = 3;
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
 // Short replies disappear after exactly 10 seconds.
 function removeAfterTenSeconds(interaction) {
@@ -21,16 +23,23 @@ async function notice(interaction, embed) {
 // /vote (owner's choice, was /poll): a vote with buttons and live counts.
 export default {
   // Only what the owner wants (owner's choice): the question, three options,
-  // a duration and one media file (picture or video).
-  data: new SlashCommandBuilder()
-    .setName('vote')
-    .setDescription('Start a vote with up to 3 options.')
-    .addStringOption(option => option.setName('question').setDescription('What people vote on').setRequired(true).setMaxLength(250))
-    .addStringOption(option => option.setName('option1').setDescription('First option').setRequired(true).setMaxLength(80))
-    .addStringOption(option => option.setName('option2').setDescription('Second option').setRequired(true).setMaxLength(80))
-    .addStringOption(option => option.setName('option3').setDescription('Third option (optional)').setRequired(false).setMaxLength(80))
-    .addStringOption(option => option.setName('duration').setDescription('How long the vote stays open, e.g. 1h or 2d (optional)').setRequired(false).setMaxLength(10))
-    .addAttachmentOption(option => option.setName('media').setDescription('A picture or video to show with the vote (optional)').setRequired(false)),
+  // each followed by an optional picture (the option becomes a link to it, e.g.
+  // the map), and a duration. Discord lists required options first, so only
+  // the question and option 1 are required there; a second option is checked below.
+  data: (() => {
+    const command = new SlashCommandBuilder()
+      .setName('vote')
+      .setDescription('Start a vote with up to 3 options.')
+      .addStringOption(option => option.setName('question').setDescription('What people vote on').setRequired(true).setMaxLength(250))
+      .addStringOption(option => option.setName('option1').setDescription('First option').setRequired(true).setMaxLength(80))
+      .addAttachmentOption(option => option.setName('media1').setDescription('Picture for option 1, e.g. its map: the option becomes a link (optional)').setRequired(false));
+    for (const index of [2, 3]) {
+      command
+        .addStringOption(option => option.setName(`option${index}`).setDescription(index === 2 ? 'Second option' : 'Third option (optional)').setRequired(false).setMaxLength(80))
+        .addAttachmentOption(option => option.setName(`media${index}`).setDescription(`Picture for option ${index}, e.g. its map: the option becomes a link (optional)`).setRequired(false));
+    }
+    return command.addStringOption(option => option.setName('duration').setDescription('How long the vote stays open, e.g. 1h or 2d (optional)').setRequired(false).setMaxLength(10));
+  })(),
 
   async execute(interaction, dependencies = {}) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -38,10 +47,14 @@ export default {
     if (!interaction.inGuild?.() || !interaction.channel?.send) return warn('Votes only work in a server channel.');
     const question = interaction.options.getString('question').trim();
     const options = [];
+    const media = [];
     for (let index = 1; index <= VOTE_OPTIONS; index += 1) {
       const option = interaction.options.getString(`option${index}`)?.trim();
-      if (option) options.push(option);
+      const picture = interaction.options.getAttachment?.(`media${index}`) || null;
+      if (picture && !option) return warn(`Media ${index} has no option ${index}.`);
+      if (option) { options.push(option); media.push(picture); }
     }
+    if (options.length < 2) return warn('Add at least two options.');
     if (new Set(options.map(option => option.toLowerCase())).size !== options.length) {
       return warn('Every option must be different.');
     }
@@ -54,23 +67,31 @@ export default {
         return warn(error?.userMessage || 'Use a duration like 30m, 1h or 2d.');
       }
     }
-    let media = null;
-    const attachment = interaction.options.getAttachment?.('media');
-    if (attachment) {
+    // Each picture is stored as permanent Cloudy media; its option links to it.
+    const store = dependencies.storeMedia || storeEmbedMediaBuffer;
+    const fetchImpl = dependencies.fetchImpl || fetch;
+    const optionLinks = [];
+    for (const [index, picture] of media.entries()) {
+      if (!picture) { optionLinks.push(null); continue; }
       try {
-        media = await downloadVoteMedia(attachment, dependencies.fetchImpl);
+        if (!String(picture.contentType || '').startsWith('image/')) throw new Error(`Media ${index + 1} must be a picture.`);
+        if (picture.size > MAX_MEDIA_BYTES) throw new Error(`Media ${index + 1} is larger than 10 MB.`);
+        const response = await fetchImpl(picture.url, { signal: AbortSignal.timeout(30_000) });
+        if (!response.ok) throw new Error(`Media ${index + 1} could not be downloaded.`);
+        const url = await store(Buffer.from(await response.arrayBuffer()));
+        if (!url) throw new Error('Media cannot be stored right now.');
+        optionLinks.push(url);
       } catch (error) {
-        return warn(error?.message || 'The media could not be added.');
+        return warn(error?.message || `Media ${index + 1} could not be added.`);
       }
     }
     const vote = {
       messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
       question, options, votes: {}, endsAt, ended: false,
-      ...(media?.image ? { images: [media.image] } : {}),
+      ...(optionLinks.some(Boolean) ? { optionLinks } : {}),
       createdBy: interaction.user.id, createdAt: new Date().toISOString(),
     };
-    const files = media ? [media.file] : [];
-    const message = await interaction.channel.send({ ...buildVoteMessage(vote), ...(files.length ? { files } : {}) });
+    const message = await interaction.channel.send(buildVoteMessage(vote));
     vote.messageId = message.id;
     try {
       await saveVote(interaction.client, interaction.guildId, vote);
