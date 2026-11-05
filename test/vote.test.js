@@ -18,7 +18,14 @@ function world() {
     id: CHANNEL,
     send: async payload => {
       const message = { id: String(210000000000000000n + BigInt(sent.length)), ...payload, edits: [],
-        edit: async next => { message.edits.push(next); }, delete: async () => {} };
+        edit: async next => { message.edits.push(next); }, delete: async () => {},
+        startThread: async options => {
+          const thread = { name: options.name, posts: [], locked: false,
+            send: async post => { thread.posts.push(post); return { url: `https://discord.com/channels/${GUILD}/thread/${thread.posts.length}` }; },
+            setLocked: async value => { thread.locked = value; } };
+          message.thread = thread;
+          return thread;
+        } };
       sent.push(message);
       return message;
     },
@@ -56,9 +63,9 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   await vote.execute(run);
   const posted = w.sent[0];
   const embed = posted.embeds[0];
-  assert.equal(embed.title, '🗳️ Vote');
+  assert.equal(embed.title, 'Vote');
   assert.match(embed.description, /^\*\*Next map\?\*\*\n\n1️⃣ \*\*Procedural\*\*\n▱{6} \*\*0%\*\* · 0 votes\n2️⃣ \*\*Barren\*\*\n/);
-  assert.match(embed.description, /\*\*Total votes:\*\* 0\n\*\*Ends:\*\* <t:\d+:f> \(<t:\d+:R>\)$/);
+  assert.match(embed.description, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\* <t:\d+:f> \(<t:\d+:R>\)$/);
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(embed.thumbnail.url);
   assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
@@ -108,8 +115,8 @@ test('an ended vote shows the winner and disabled buttons', async () => {
   await w.client.db.set(`guild:${GUILD}:votes`, { [messageId]: { ...stored, endsAt: Date.now() - 1000 } });
   await endDueVotes(w.client);
   const edited = w.sent[0].edits.at(-1);
-  assert.equal(edited.embeds[0].title, '🗳️ Vote ended');
-  assert.match(edited.embeds[0].description, /\*\*Winner:\*\* B\n\*\*Ended:\*\* <t:\d+:f>$/);
+  assert.equal(edited.embeds[0].title, 'Vote ended');
+  assert.match(edited.embeds[0].description, /\*\*Total votes:\*\* 1\n\n\*\*Winner:\*\* B\n\*\*Ended:\*\* <t:\d+:f>$/);
   assert.ok(json(edited.components[0]).components.every(button => button.disabled));
   assert.equal((await castVote(w.client, GUILD, messageId, 'z', 0)).status, 'ended');
 });
@@ -131,40 +138,49 @@ test('every vote counts as 1%: 50 votes fill half the bar', () => {
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
 });
 
-test('a picture after an option gets a button that shows it inside Discord, never a website link', async () => {
+test('a picture after an option makes only that option a blue link to its picture message', async () => {
   const w = world();
-  const stored = [];
   const deps = {
-    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
-    storeMedia: async () => { stored.push(1); return `https://cloudy.example/cloudy-embed-media/${'a'.repeat(63)}${stored.length}.png`; },
+    fetchImpl: async url => ({ ok: true, arrayBuffer: async () => new TextEncoder().encode(url).buffer }),
+    storeMedia: async buffer => `https://cloudy.example/cloudy-embed-media/${Buffer.from(buffer).toString('hex').slice(-12)}.png`,
   };
-  const png = { url: 'https://cdn.discordapp.com/a/west.png', name: 'west.png', contentType: 'image/png', size: 2000 };
-  const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East', option3: 'DZ South' });
-  run.options.getAttachment = name => (name === 'media1' || name === 'media3' ? png : null);
+  const west = { url: 'https://cdn.discordapp.com/a/west.png', name: 'west.png', contentType: 'image/png', size: 2000 };
+  const south = { url: 'https://cdn.discordapp.com/a/south.png', name: 'south.png', contentType: 'image/png', size: 2000 };
+  const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East', option3: 'DZ South', duration: '1h' });
+  run.options.getAttachment = name => ({ media1: west, media3: south }[name] || null);
   await vote.execute(run, deps);
   const posted = w.sent[0];
-  const text = posted.embeds[0].description;
-  assert.doesNotMatch(text, /https?:\/\//, 'no link in the vote');
-  assert.match(text, /\*\*DZ West\*\*/);
-  const rows = posted.components.map(row => json(row).components);
-  assert.deepEqual(rows[1].map(button => [button.custom_id, button.label]), [['vote_media:0', 'DZ West'], ['vote_media:2', 'DZ South']]);
+  // The pictures are in a locked "Vote media" thread: one message each, picture and footer only.
+  assert.equal(posted.thread.name, 'Vote media');
+  assert.equal(posted.thread.locked, true);
+  assert.equal(posted.thread.posts.length, 2);
+  assert.notEqual(posted.thread.posts[0].embeds[0].image.url, posted.thread.posts[1].embeds[0].image.url, 'each option keeps its own picture');
+  for (const post of posted.thread.posts) {
+    assert.equal(post.embeds[0].title, undefined);
+    assert.equal(post.embeds[0].thumbnail, undefined);
+  }
+  const text = posted.edits.at(-1).embeds[0].description;
+  assert.match(text, /\*\*\[DZ West\]\(https:\/\/discord\.com\/channels\/\d+\/thread\/1\)\*\*/);
+  assert.match(text, /\*\*DZ East\*\*/, 'no picture: plain text, no link');
+  assert.match(text, /\*\*\[DZ South\]\(https:\/\/discord\.com\/channels\/\d+\/thread\/2\)\*\*/);
+  assert.match(text, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\*/, 'empty line before the end');
+  assert.equal(posted.edits.at(-1).components.length, 1, 'only the vote buttons');
+  assert.equal(posted.edits.at(-1).embeds[0].title, 'Vote');
 
-  const click = { guildId: GUILD, message: { id: posted.id },
-    deferReply: async () => {}, editReply: async payload => { click.reply = payload; return { id: 'view' }; }, deleteReply: async () => {} };
-  await voteMedia.execute(click, w.client, ['2']);
-  assert.equal(click.reply.embeds[0].title, 'DZ South');
-  assert.match(click.reply.embeds[0].image.url, /a+2\.png$/);
-  assert.ok(click.reply.embeds[0].thumbnail.url);
+  const plain = w.command({ question: 'Q', option1: 'A', option2: 'B' });
+  await vote.execute(plain, deps);
+  assert.equal(w.sent[1].thread, undefined, 'no pictures: no thread');
+  assert.doesNotMatch(w.sent[1].embeds[0].description, /\]\(/);
 
   const lonely = w.command({ question: 'Q', option1: 'A', option2: 'B' });
-  lonely.options.getAttachment = name => (name === 'media3' ? png : null);
+  lonely.options.getAttachment = name => (name === 'media3' ? west : null);
   await vote.execute(lonely, deps);
   assert.match(JSON.stringify(json(lonely.reply.embeds[0])), /Media 3 has no option 3/);
   const one = w.command({ question: 'Q', option1: 'A' });
   await vote.execute(one, deps);
   assert.match(JSON.stringify(json(one.reply.embeds[0])), /at least two options/);
   const video = w.command({ question: 'Q', option1: 'A', option2: 'B' });
-  video.options.getAttachment = name => (name === 'media1' ? { ...png, contentType: 'video/mp4' } : null);
+  video.options.getAttachment = name => (name === 'media1' ? { ...west, contentType: 'video/mp4' } : null);
   await vote.execute(video, deps);
   assert.match(JSON.stringify(json(video.reply.embeds[0])), /must be a picture/);
 });
