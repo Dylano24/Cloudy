@@ -204,13 +204,17 @@ async function primaryGuild(client) {
   return (guildId && client.guilds?.cache?.get?.(guildId)) || client.guilds?.cache?.first?.() || null;
 }
 
-// Found by name in Cloudy's channel cache: no Discord request per event.
+// Found in Cloudy's channel cache (no Discord request per event): the
+// owner's channel ID first (#pvp, #player, #zorp, #raids, #ban), else by name.
 export async function gameFeedChannels(client) {
   const guild = await primaryGuild(client);
   const result = {};
   for (const [type, channel] of Object.entries(GAME_FEED_CHANNELS)) {
-    const aliases = getCloudyChannelDefinition(channel.key)?.aliases || [];
-    result[type] = guild ? findCloudyChannelByAlias(guild, aliases, { textOnly: true }) : null;
+    const definition = getCloudyChannelDefinition(channel.key);
+    const known = guild?.channels?.cache?.get?.(definition?.legacyId);
+    result[type] = !guild ? null
+      : known?.isTextBased?.() ? known
+        : findCloudyChannelByAlias(guild, definition?.aliases || [], { textOnly: true });
   }
   return result;
 }
