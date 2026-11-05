@@ -68,6 +68,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 ## Transient replies
 
 - Small status replies such as Success, Warning, Error, Invalid, Information, Wrong channel, Not enough, Expired, Failed, and similar acknowledgements must delete automatically after exactly 10 seconds.
+- Every such status reply shows the Cloudy logo as thumbnail (owner's choice): after saved response templates are applied, a status embed without a thumbnail gets the logo back (`withStatusLogo` in `fullResponseCatalogReady.js`; Builder replies are left as they are).
 - Permanent logs, normal content embeds, games, guides, panels, and ticket logs are not transient status replies.
 
 ## Default embed colors and dashboard lifetime
