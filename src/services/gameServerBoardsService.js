@@ -224,12 +224,10 @@ export function buildDailyTopKiller(server, kills, time = Date.now()) {
   const medals = ['🥇', '🥈', '🥉'];
   const top = Object.entries(kills || {}).sort(([, a], [, b]) => b - a).slice(0, 3)
     .map(([player, count], index) => `${medals[index]} \`${player}\` · ${count} ${count === 1 ? 'kill' : 'kills'}`);
-  return {
-    description: ['**Top killer of the day**', ...(top.length ? top : ['No kills today.'])].join('\n'),
-    color: 0xFFFFFF,
-    footer: { text: `© Cloudy Inc. • ${server} • leaderboard`, icon_url: LOGO },
-    timestamp: new Date(time).toISOString(),
-  };
+  return board('Top killers of the day', [
+    ...(top.length ? top : ['No kills today.']),
+    '', `**Server:** ${server}`, `**Time:** <t:${Math.floor(time / 1000)}:f>`,
+  ].join('\n'));
 }
 
 export async function postDailyTopKillers(client, guild, today = amsterdamDate()) {
