@@ -3,7 +3,9 @@ import { successEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
-import { MAX_VOTE_OPTIONS, buildVoteMessage, saveVote } from '../../services/voteService.js';
+import { MAX_VOTE_OPTIONS, buildVoteMessage, downloadVotePicture, saveVote } from '../../services/voteService.js';
+
+const MAX_PICTURES = 4;
 
 const NAMES = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'];
 
@@ -32,14 +34,23 @@ export default {
         .setRequired(index < 2)
         .setMaxLength(80));
     }
-    return command.addStringOption(option => option
+    command.addStringOption(option => option
       .setName('duration')
       .setDescription('How long the vote stays open, e.g. 1h or 2d (optional)')
       .setRequired(false)
       .setMaxLength(10));
+    // Pictures (e.g. a map per option): shown small side by side in the vote,
+    // a click opens one in full size (owner's choice).
+    for (let index = 1; index <= MAX_PICTURES; index += 1) {
+      command.addAttachmentOption(option => option
+        .setName(`picture${index}`)
+        .setDescription(`Picture for option ${index}, e.g. its map (optional)`)
+        .setRequired(false));
+    }
+    return command;
   })(),
 
-  async execute(interaction) {
+  async execute(interaction, dependencies = {}) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const warn = text => notice(interaction, setPreservedEmbedColor(warningEmbed('Warning', text), CLOUDY_RED_COLOR));
     if (!interaction.inGuild?.() || !interaction.channel?.send) return warn('Votes only work in a server channel.');
@@ -61,12 +72,25 @@ export default {
         return warn(error?.userMessage || 'Use a duration like 30m, 1h or 2d.');
       }
     }
+    const pictures = [];
+    for (let index = 1; index <= MAX_PICTURES; index += 1) {
+      const attachment = interaction.options.getAttachment?.(`picture${index}`);
+      if (!attachment) continue;
+      if (index > options.length) return warn(`Picture ${index} has no option ${index}.`);
+      try {
+        pictures.push(await downloadVotePicture(attachment, index, dependencies.fetchImpl));
+      } catch (error) {
+        return warn(error?.message || `Picture ${index} could not be added.`);
+      }
+    }
     const vote = {
       messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
       question, options, votes: {}, endsAt, ended: false,
+      ...(pictures.length ? { images: pictures.map(picture => picture.image) } : {}),
       createdBy: interaction.user.id, createdAt: new Date().toISOString(),
     };
-    const message = await interaction.channel.send(buildVoteMessage(vote));
+    const files = pictures.map(picture => picture.file);
+    const message = await interaction.channel.send({ ...buildVoteMessage(vote), ...(files.length ? { files } : {}) });
     vote.messageId = message.id;
     try {
       await saveVote(interaction.client, interaction.guildId, vote);

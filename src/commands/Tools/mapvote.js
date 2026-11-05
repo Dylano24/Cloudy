@@ -2,7 +2,7 @@ import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 import { parseDuration } from '../../services/giveawayService.js';
-import { buildVoteMessage, saveVote } from '../../services/voteService.js';
+import { buildVoteMessage, downloadVotePicture, saveVote } from '../../services/voteService.js';
 import { featuredMaps, resolveMap } from '../../services/rustMapsService.js';
 
 function removeAfterTenSeconds(interaction) {
@@ -13,20 +13,6 @@ function removeAfterTenSeconds(interaction) {
 async function notice(interaction, embed) {
   await interaction.editReply({ embeds: [embed], components: [] });
   removeAfterTenSeconds(interaction);
-}
-
-const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
-
-// Your own map picture (e.g. a console screenshot): downloaded from Discord and
-// sent again with the vote, so it never expires.
-async function ownPicture(attachment, index, fetchImpl = fetch) {
-  if (!String(attachment.contentType || '').startsWith('image/')) throw new Error(`Picture ${index} must be an image.`);
-  if (attachment.size > MAX_PICTURE_BYTES) throw new Error(`Picture ${index} is larger than 10 MB.`);
-  const response = await fetchImpl(attachment.url, { signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error(`Picture ${index} could not be downloaded.`);
-  const extension = (String(attachment.name || '').match(/\.(png|jpe?g|gif|webp)$/i)?.[1] || 'png').toLowerCase();
-  const name = `map${index}.${extension}`;
-  return { mapId: `own-${index}`, own: true, image: `attachment://${name}`, file: { attachment: Buffer.from(await response.arrayBuffer()), name } };
 }
 
 // /mapvote (owner's choice): three Rust maps in one vote embed (small pictures,
@@ -80,7 +66,7 @@ export default {
       for (let index = 1; index <= 3; index += 1) {
         const picture = interaction.options.getAttachment?.(`picture${index}`);
         const input = interaction.options.getString(`map${index}`)?.trim();
-        if (picture) given.push(await ownPicture(picture, index, dependencies.fetchImpl));
+        if (picture) given.push({ mapId: `own-${index}`, own: true, ...(await downloadVotePicture(picture, index, dependencies.fetchImpl)) });
         else given.push(input ? await resolve(input) : null);
       }
       const missing = given.filter(map => !map).length;
