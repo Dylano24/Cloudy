@@ -1,7 +1,10 @@
 // /vote (owner's choice, was /poll): a vote with one button per option,
 // live counts in the embed and one vote per member (they can change or remove
 // it). Who voted for what is never shown, only the counts.
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MessageFlags, SectionBuilder,
+  SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder, ThumbnailBuilder,
+} from 'discord.js';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
@@ -31,6 +34,12 @@ export async function downloadVotePicture(attachment, index, fetchImpl = fetch) 
 // All map pictures share this URL so Discord shows them together in one embed.
 export const GALLERY_URL = 'https://rustmaps.com';
 const CLOUDY_MEDIA = /\/cloudy-embed-media\//;
+
+/** The picture an option's Preview button shows, or null. */
+export function votePicture(vote, index) {
+  if (vote.optionMedia) return vote.optionLinks?.[index] || null;
+  return optionPicture(vote, index);
+}
 
 // The picture of an option on older votes (a Cloudy media link or an uploaded
 // picture); such options show as plain text.
@@ -62,13 +71,12 @@ function bar(share, length) {
   }).join('');
 }
 
-export function buildVoteMessage(vote, now = Date.now()) {
+// The pieces of a vote, shared by both layouts.
+function voteParts(vote, now) {
   const counts = voteCounts(vote);
   const total = counts.reduce((sum, count) => sum + count, 0);
   const ended = vote.ended === true || (vote.endsAt && vote.endsAt <= now);
-  const lines = [`**${vote.question}**`, ''];
-  const length = BAR_LENGTH;
-  vote.options.forEach((option, index) => {
+  const options = vote.options.map((option, index) => {
     // Every vote is 1% (owner's choice), up to 100%.
     const share = Math.min(100, counts[index]) / 100;
     // An option with a picture is a blue link that opens it (Discord's own
@@ -76,21 +84,22 @@ export function buildVoteMessage(vote, now = Date.now()) {
     // (pictures behind buttons) show plain text.
     const link = optionPicture(vote, index) ? null : vote.optionLinks?.[index];
     const label = link && !CLOUDY_MEDIA.test(link) ? `[${option}](${link})` : option;
-    lines.push(`${numberIcon(index)} **${label}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`);
-    lines.push(`${bar(share, length)} **${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`);
+    return {
+      line: `${numberIcon(index)} **${label}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`,
+      bar: `${bar(share, BAR_LENGTH)} **${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`,
+      picture: votePicture(vote, index),
+    };
   });
-  lines.push('', `**Total votes:** ${total}`);
+  const end = [];
   if (ended) {
     const best = Math.max(0, ...counts);
     const winners = total ? vote.options.filter((_, index) => counts[index] === best) : [];
-    // An empty line between the total and the end (owner's choice).
-    lines.push('', `**${winners.length > 1 ? 'Tie' : 'Winner'}:** ${winners.length ? winners.join(', ') : 'No votes'}`);
-    lines.push(`**Ended:** <t:${unix(vote.endedAt || vote.endsAt || now)}:f>`);
+    end.push(`**${winners.length > 1 ? 'Tie' : 'Winner'}:** ${winners.length ? winners.join(', ') : 'No votes'}`);
+    end.push(`**Ended:** <t:${unix(vote.endedAt || vote.endsAt || now)}:f>`);
   } else if (vote.endsAt) {
-    lines.push('', `**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
+    end.push(`**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
   }
-  // One button per option (owner's choice): its digit and its name. It only
-  // votes; a picture opens from the option's blue link.
+  // One button per option (owner's choice): its digit and its name. It only votes.
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
     .setCustomId(`vote_cast:${index}`)
     .setEmoji(numberIcon(index))
@@ -101,10 +110,53 @@ export function buildVoteMessage(vote, now = Date.now()) {
   for (let start = 0; start < buttons.length; start += 5) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
+  const title = ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote');
+  return { total, options, end, rows, title };
+}
+
+// A vote with pictures (owner's choice): a small "Preview" button right next
+// to every option with a picture, which shows it privately (vote_media). Only
+// Discord's newer message layout can put a button next to text, so these
+// votes are a card (white side line, Cloudy logo and footer) instead of an embed.
+function buildPreviewVoteMessage(vote, parts) {
+  const gap = () => new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small);
+  const text = content => new TextDisplayBuilder().setContent(content);
+  const card = new ContainerBuilder()
+    .setAccentColor(0xFFFFFF)
+    .addSectionComponents(new SectionBuilder()
+      .addTextDisplayComponents(text(`### ${parts.title}\n**${vote.question}**`))
+      .setThumbnailAccessory(new ThumbnailBuilder().setURL(CLOUDY_C_LOGO_URL)))
+    .addSeparatorComponents(gap());
+  parts.options.forEach((option, index) => {
+    const content = text(`${option.line}\n${option.bar}`);
+    if (!option.picture) {
+      card.addTextDisplayComponents(content);
+      return;
+    }
+    card.addSectionComponents(new SectionBuilder()
+      .addTextDisplayComponents(content)
+      .setButtonAccessory(new ButtonBuilder()
+        .setCustomId(`vote_media:${index}`)
+        .setLabel('Preview')
+        .setStyle(ButtonStyle.Secondary)));
+  });
+  card.addSeparatorComponents(gap())
+    .addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')))
+    .addTextDisplayComponents(text(`-# ${CLOUDY_FOOTER}`));
+  return { flags: MessageFlags.IsComponentsV2, components: [card, ...parts.rows], allowedMentions: { parse: [] } };
+}
+
+export function buildVoteMessage(vote, now = Date.now()) {
+  const parts = voteParts(vote, now);
+  if (vote.layout === 'preview') return buildPreviewVoteMessage(vote, parts);
+  const lines = [`**${vote.question}**`, '', ...parts.options.flatMap(option => [option.line, option.bar])];
+  lines.push('', `**Total votes:** ${parts.total}`);
+  // An empty line between the total and the end (owner's choice).
+  if (parts.end.length) lines.push('', ...parts.end);
 
   const images = (vote.images || []).slice(0, 4);
   const main = {
-    title: ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote'),
+    title: parts.title,
     description: lines.join('\n').slice(0, 4096),
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
@@ -116,7 +168,7 @@ export function buildVoteMessage(vote, now = Date.now()) {
   if (images.length) Object.assign(main, { image: { url: images[0] }, ...(images.length > 1 ? { url: GALLERY_URL } : {}) });
   return {
     embeds: [main, ...images.slice(1).map(image => ({ url: GALLERY_URL, image: { url: image } }))],
-    components: rows,
+    components: parts.rows,
     allowedMentions: { parse: [] },
   };
 }
