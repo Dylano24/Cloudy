@@ -119,14 +119,15 @@ function voteParts(vote, now) {
 // Discord's newer message layout can put a button next to text, so these
 // votes are a card (white side line, Cloudy logo and footer) instead of an embed.
 function buildPreviewVoteMessage(vote, parts) {
-  const gap = () => new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small);
+  const gap = (size = SeparatorSpacingSize.Small) => new SeparatorBuilder().setDivider(false).setSpacing(size);
   const text = content => new TextDisplayBuilder().setContent(content);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
     .addSectionComponents(new SectionBuilder()
       .addTextDisplayComponents(text(`### ${parts.title}\n**${vote.question}**`))
       .setThumbnailAccessory(new ThumbnailBuilder().setURL(CLOUDY_C_LOGO_URL)))
-    .addSeparatorComponents(gap());
+    // More room under the logo before the options (owner's choice).
+    .addSeparatorComponents(gap(SeparatorSpacingSize.Large));
   parts.options.forEach((option, index) => {
     const content = text(`${option.line}\n${option.bar}`);
     if (!option.picture) {
@@ -142,7 +143,9 @@ function buildPreviewVoteMessage(vote, parts) {
   });
   card.addSeparatorComponents(gap())
     .addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')))
-    .addTextDisplayComponents(text(`-# ${CLOUDY_FOOTER}`));
+    // The footer as two small lines (owner's choice): on a phone it does not
+    // fit on one line here, and a lone "Performance." looked broken.
+    .addTextDisplayComponents(text(CLOUDY_FOOTER.split(' • ').map(part => `-# ${part}`).join('\n')));
   return { flags: MessageFlags.IsComponentsV2, components: [card, ...parts.rows], allowedMentions: { parse: [] } };
 }
 
