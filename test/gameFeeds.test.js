@@ -93,6 +93,40 @@ test('events are posted per channel, up to 10 embeds per message', async t => {
   assert.ok(w.sent.every(entry => entry.payload.allowedMentions.parse.length === 0));
 });
 
+test('Rust ban logs distinguish a Discord member from a username or an unknown account', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const w = world();
+  const memberId = '180000000000000001';
+  const nonMemberId = '180000000000000002';
+  w.guild.members = {
+    cache: new Collection(),
+    fetch: async id => {
+      if (id === memberId) return { id };
+      throw new Error('Unknown member');
+    },
+  };
+  w.client.users = { cache: new Collection([[nonMemberId, { id: nonMemberId, username: 'outside_discord' }]]) };
+  const result = await postGameFeedEvents(w.client, [
+    { type: 'ban', server: 'S1', gamertag: 'Player_One', discordUserId: memberId, by: 'TestStaff', reason: 'Cheating' },
+    { type: 'ban', server: 'S1', action: 'unban', player: 'Player_Two', discordUserId: nonMemberId },
+    { type: 'ban', server: 'S1', player: 'Player_Three', discordMemberId: memberId },
+    { type: 'ban', server: 'S1', player: 'Player_Four', discordUsername: 'plain.name_4' },
+  ]);
+  assert.deepEqual(result, { accepted: 4, rejected: [] });
+  t.mock.timers.tick(1_500);
+  await settle();
+  const [linked, outside, unknown, nameOnly] = w.sent[0].payload.embeds.map(embed => embed.description);
+  assert.match(linked, /^\*\*Gamertag:\*\* <a:log_rust:\d+> `Player_One`\n/);
+  assert.match(linked, new RegExp(`\\*\\*Discord:\\*\\* <a:log_link:\\d+> <@${memberId}>`));
+  assert.match(linked, /\*\*Reason:\*\* <a:log_reason:\d+> Cheating/);
+  assert.doesNotMatch(linked, /TestStaff|log_moderator|log_mention/);
+  assert.match(outside, /\*\*Discord:\*\* `outside_discord`/);
+  assert.doesNotMatch(outside, /log_link|<@/);
+  assert.doesNotMatch(unknown, /\*\*Discord:|<@/);
+  assert.match(nameOnly, /\*\*Discord:\*\* `plain\.name_4`/);
+  assert.deepEqual(w.sent[0].payload.allowedMentions, { parse: [] });
+});
+
 test('a missing feed channel rejects only its own events', async () => {
   const w = world({ missing: ['raids'] });
   const result = await postGameFeedEvents(w.client, [{ type: 'raid', server: 'S1', attacker: 'A' }]);

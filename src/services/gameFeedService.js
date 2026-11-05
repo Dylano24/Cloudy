@@ -38,6 +38,16 @@ function text(value, max = 100) {
 function required(value, field, max) {
   return text(value, max) || fail(`${field} is required`);
 }
+// These names are shown as inline code. Keep underscores and other literal
+// name characters, but strip code delimiters, control characters and mentions.
+function accountName(value, max = 60) {
+  if (typeof value !== 'string') return null;
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/[`<>@]/g, '')
+    .replace(/\s+/g, ' ').trim().slice(0, max) || null;
+}
+const discordId = value => typeof value === 'string' && /^\d{17,20}$/.test(value.trim()) ? value.trim() : null;
+
 function whole(value, min, max) {
   const number = Number(value);
   return Number.isFinite(number) && number >= min && number <= max ? Math.round(number) : null;
@@ -90,8 +100,10 @@ export function normalizeGameFeedEvent(raw) {
   if (type === 'ban') {
     const action = String(raw.action || 'ban').toLowerCase();
     if (!['ban', 'unban'].includes(action)) fail('action must be ban or unban');
-    return { ...base, action, player: required(raw.player, 'player', 60), reason: text(raw.reason, 300) || null,
-      duration: text(raw.duration, 40) || null, by: text(raw.by, 60) || null };
+    const player = accountName(raw.gamertag) || accountName(raw.player) || fail('player is required');
+    return { ...base, action, player, reason: text(raw.reason, 300) || null,
+      duration: text(raw.duration, 40) || null, by: text(raw.by, 60) || null,
+      discordUserId: discordId(raw.discordUserId), discordUsername: accountName(raw.discordUsername, 100) };
   }
   const state = String(raw.state || '').toLowerCase();
   if (!['soon', 'done'].includes(state)) fail('state must be soon or done');
@@ -115,9 +127,11 @@ const line = (label, value, emoji) => (value == null || value === '' ? null : `*
 // Classic feed layout (owner's choice): title, labelled lines with names in
 // code, Time, the big Cloudy logo and the footer with the small logo.
 function classicEmbed(title, color, lines, event, timeIcon) {
+  const time = line('Time', timeIcon ? shortMoment(event.time) : `<t:${unix(event.time)}:f>`,
+    event.type === 'ban' ? 'logTimer' : null);
   return {
     title,
-    description: [...lines, `${timeIcon ? `${feedEmoji('dot')} ` : ''}${line('Time', timeIcon ? shortMoment(event.time) : `<t:${unix(event.time)}:f>`)}`].filter(entry => entry != null).join('\n'),
+    description: [...lines, timeIcon ? `${feedEmoji('dot')} ${time}` : time].filter(entry => entry != null).join('\n'),
     color,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
     footer: { text: CLOUDY_FOOTER },
@@ -158,13 +172,18 @@ export function buildGameFeedEmbed(event) {
         line('Raider', name(event.attacker)), line('Target', event.target ? name(event.target) : null),
         line('Used', event.item && `${weaponEmoji(event.item) ? `${weaponEmoji(event.item)} ` : ''}${event.item}`), server,
       ], event);
-    case 'ban':
+    case 'ban': {
+      const memberId = discordId(event.discordMemberId);
+      const discord = memberId
+        ? line('Discord', `<@${memberId}>`, 'logLink')
+        : line('Discord', event.discordUsername && name(event.discordUsername));
       return classicEmbed(event.action === 'ban' ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
         event.action === 'ban' ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR, [
-          line('Player', name(event.player)), line('Reason', event.reason),
-          event.action === 'ban' ? line('Duration', event.duration || 'Permanent') : null,
-          line('By', event.by), server,
+          line('Gamertag', name(event.player), 'logRust'), discord, line('Reason', event.reason, 'logReason'),
+          event.action === 'ban' ? line('Duration', event.duration || 'Permanent', 'logExpiry') : null,
+          server,
         ], event);
+    }
     default: {
       const soon = event.state === 'soon';
       if (!soon) {
@@ -235,7 +254,7 @@ export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
   { type: 'zorp', server: 'Darkzone South', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
   { type: 'raid', server: 'Darkzone South', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
   { type: 'ban', server: 'Darkzone South', action: 'ban', player: 'Dyn', reason: 'Cheating', duration: 'Permanent' },
-  { type: 'ban', server: 'Darkzone South', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted' },
+  { type: 'ban', server: 'Darkzone South', action: 'unban', player: 'Cloudy', discordUsername: 'cloudy.player', reason: 'Appeal accepted' },
   { type: 'wipe', server: 'Darkzone South', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
@@ -291,6 +310,16 @@ export async function gameFeedChannels(client) {
   return result;
 }
 
+async function withBanDiscordAccount(event, guild, client) {
+  const id = event.discordUserId;
+  if (!id) return event;
+  const member = guild?.members?.cache?.get(id) || await guild?.members?.fetch?.(id).catch(() => null);
+  if (member?.id === id) return { ...event, discordMemberId: id };
+  if (event.discordUsername) return event;
+  const user = client.users?.cache?.get(id) || await client.users?.fetch?.(id).catch(() => null);
+  return { ...event, discordUsername: accountName(user?.username, 100) };
+}
+
 // Accepts a batch of events; each is checked on its own. Returns what was
 // accepted and why the others were not.
 export async function postGameFeedEvents(client, rawEvents) {
@@ -310,7 +339,10 @@ export async function postGameFeedEvents(client, rawEvents) {
       }
       const channel = channels[event.type];
       if (!channel?.send) fail(`${GAME_FEED_CHANNELS[event.type].name} channel not found`);
-      enqueue(channel, buildGameFeedEmbed(enrichGameFeedEvent(event)));
+      const enriched = event.type === 'ban'
+        ? await withBanDiscordAccount(event, channel.guild || guild, client)
+        : enrichGameFeedEvent(event);
+      enqueue(channel, buildGameFeedEmbed(enriched));
       accepted += 1;
       // The leaderboard counts kills and starts again after a wipe.
       if (event.type === 'pvp') await recordKill(client, guild, event);
