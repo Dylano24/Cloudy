@@ -2,6 +2,7 @@ import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
 import { AttachmentBuilder } from 'discord.js';
 import { withEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities.js';
+import { storeEmbedMediaBuffer } from './embedMediaStorageService.js';
 
 const MAX_BANNER_BYTES = 8 * 1024 * 1024;
 const MEDIA_HOSTS = new Set([
@@ -48,6 +49,11 @@ async function downloadBanner(url) {
   const buffer = Buffer.from(await response.arrayBuffer());
   const extension = imageExtension(buffer);
   if (!extension || buffer.length > MAX_BANNER_BYTES) throw new Error('Patch banner has invalid image data or size');
+  // A permanent Cloudy media link instead of an uploaded file: an uploaded
+  // banner shows a second time above the embed as soon as anything edits the
+  // message (e.g. the footer branding). The upload is only the fallback.
+  const permanent = await storeEmbedMediaBuffer(buffer).catch(() => null);
+  if (permanent) return { image: { url: permanent }, file: null };
   const name = `patch-notes-banner.${extension}`;
   return { image: { url: `attachment://${name}` }, file: new AttachmentBuilder(buffer, { name }) };
 }
@@ -111,7 +117,7 @@ export async function repairMissingPatchBanner(message, article) {
       await current.edit({
         embeds,
         attachments: [...(current.attachments?.values() || [])].map(({ id }) => ({ id })),
-        ...(banner && missing.length ? { files: [banner.file] } : {}),
+        ...(banner?.file && missing.length ? { files: [banner.file] } : {}),
       });
     } finally {
       activeBannerRepairs.delete(current);

@@ -168,7 +168,7 @@ export function buildRustPatchPayload(patch, banner) {
             .setURL(patch.link)
     );
 
-    return { embeds: [embed], components: [linkRow], files: [banner.file] };
+    return { embeds: [embed], components: [linkRow], files: banner.file ? [banner.file] : [] };
 }
 
 async function checkForRustPatch(client, state = {}) {
