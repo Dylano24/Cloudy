@@ -5,6 +5,7 @@ import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
 import { buildVoteMessage, saveVote } from '../../services/voteService.js';
 import { uploadVotePictures } from '../../services/voteMediaService.js';
+import { warmVotePreviews } from '../../services/votePreviewService.js';
 import { logger } from '../../utils/logger.js';
 
 const VOTE_OPTIONS = 3;
@@ -114,6 +115,8 @@ export async function submitVoteForm(interaction, id, dependencies = {}) {
     await message.delete().catch(() => {});
     throw error;
   }
+  // The small Preview copies are made now, so the first Preview is instant too.
+  if (pictures) void (dependencies.warmPreviews || warmVotePreviews)(message.id, files).catch(() => {});
   return notice(interaction, successEmbed('Success', 'The vote is live.'));
 }
 
