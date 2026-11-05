@@ -14,6 +14,8 @@ import { CLOUDY_C_LOGO_URL } from './giveawayService.js';
 import { DEFAULT_CLAIM_ICONS, getGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { buildPrivateClaimEmbed, displayDemoClaimCode } from './giveawayClaimPreview.js';
 import { sendGiveawayClaimLog, updateClosedClaimChannelLogs } from './giveawayClaimLogService.js';
+import { generateGiveawayCode, givesGeneratedCode, requiresCountry } from './giveawayCodeService.js';
+import { getOrCreateGiveawayNumber } from './giveawayNumberService.js';
 
 // One-time, targeted spacing correction for still-open private claim panels.
 // Edit the same message; leave mentions, buttons, other embed text, logo,
@@ -227,11 +229,13 @@ export function claimPanel(giveaway, userId, icons = DEFAULT_CLAIM_ICONS) {
   const check = buttonEmoji(icons.check);
   if (key) revealButton.setEmoji(key);
   if (check) closeButton.setEmoji(check);
+  // A giveaway without a code (outside the website) has nothing to reveal.
+  const buttons = requiresCountry(giveaway) ? [closeButton] : [revealButton, closeButton];
 
   return {
     content: '<@' + userId + '>',
     embeds: [buildPrivateClaimEmbed(giveaway, userId, icons)],
-    components: [new ActionRowBuilder().addComponents(revealButton, closeButton)],
+    components: [new ActionRowBuilder().addComponents(...buttons)],
     allowedMentions: { parse: [], users: [userId] },
   };
 }
@@ -274,8 +278,12 @@ async function openClaim(interaction, client, messageId) {
     }
     const config = await getGuildConfig(client, guild.id).catch(() => ({}));
     const staffRoleId = config.ticketStaffRoleId;
+    // The channel carries the giveaway's own number (as in #giveaway-logs).
+    const giveawayNumber = Number.isSafeInteger(giveaway.giveawayNumber) && giveaway.giveawayNumber > 0
+      ? giveaway.giveawayNumber
+      : await getOrCreateGiveawayNumber(client, guild.id, messageId).catch(() => null);
     const channel = await guild.channels.create({
-      name: 'giveaway-claim-' + userId.slice(-6),
+      name: 'giveaway-claim-' + (giveawayNumber || userId.slice(-6)),
       type: ChannelType.GuildText,
       parent: category.id,
       topic: 'Cloudy giveaway claim ' + messageId + ' ' + userId,
@@ -291,10 +299,15 @@ async function openClaim(interaction, client, messageId) {
         ] }] : []),
       ],
     });
+    // A website giveaway gives this winner a new CLOUDY- code, stored
+    // encrypted when the key is configured.
+    const generatedCode = givesGeneratedCode(giveaway) ? generateGiveawayCode(giveaway) : null;
+    const encryptedCode = generatedCode ? protect(generatedCode) : null;
     const record = {
       messageId, userId, channelId: channel.id, createdAt: new Date().toISOString(),
       revealedAt: null, expiresAt: new Date(Date.now() + CLAIM_LIFETIME_MS).toISOString(),
-      encryptedCode: null, closedAt: null,
+      encryptedCode, closedAt: null,
+      ...(generatedCode && !encryptedCode ? { code: generatedCode } : {}),
     };
     try {
       await saveClaim(client, guild.id, record);
@@ -327,7 +340,7 @@ async function finishClaim(interaction, client, messageId, userId) {
     }
     // Save state before deletion to prevent double processing if the interaction
     // is repeated. If Discord rejects the deletion, undo that state for retry.
-    const closed = { ...record, closedAt: new Date().toISOString(), encryptedCode: null };
+    const closed = { ...record, closedAt: new Date().toISOString(), encryptedCode: null, code: null };
     await saveClaim(client, interaction.guildId, closed);
     try {
       await interaction.channel.delete('Winner selected Close on giveaway claim');
@@ -378,6 +391,20 @@ async function revealClaimCode(interaction, client, messageId, userId) {
 
     const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
     if (!giveaway) return notice(interaction, 'The giveaway could not be found.');
+    if (requiresCountry(giveaway)) {
+      return notice(interaction, 'This prize has no code. Our team will contact you in this channel.');
+    }
+    // Generated without the encryption key: kept in the private claim record.
+    if (typeof record.code === 'string' && record.code) {
+      if (!record.revealedAt) {
+        await saveClaim(client, interaction.guildId, { ...record, revealedAt: new Date().toISOString() });
+      }
+      await notice(interaction, record.code);
+      logClaimAction(client, interaction.guild, {
+        event: 'revealed', messageId, userId, claimChannelId: record.channelId, giveaway,
+      });
+      return;
+    }
     const demo = displayDemoClaimCode(giveaway, userId);
     await notice(interaction, demo);
     logClaimAction(client, interaction.guild, {
@@ -508,7 +535,7 @@ export async function cleanupExpiredGiveawayClaims(client) {
           try { await channel.delete('Giveaway prize code viewed; 24-hour claim period ended'); }
           catch (error) { logger.warn('Could not delete expired giveaway claim channel ' + current.channelId, error); return; }
         }
-        await saveClaim(client, guild.id, { ...current, closedAt: new Date().toISOString(), encryptedCode: null });
+        await saveClaim(client, guild.id, { ...current, closedAt: new Date().toISOString(), encryptedCode: null, code: null });
         logClaimAction(client, guild, {
           event: 'expired', messageId: current.messageId, userId: current.userId,
           claimChannelId: current.channelId,

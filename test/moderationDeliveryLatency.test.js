@@ -52,15 +52,16 @@ test('unexpected DM transport errors cannot reveal internal exception text', asy
 });
 
 test('sent moderation messages and giveaways acknowledge before optional audit logging', () => {
-  for (const [path, trigger, acknowledge] of [
+  for (const [path, trigger, acknowledge, audit = 'await logEvent('] of [
     ['../src/commands/Moderation/say.js', 'const sentMessage = await channel.send(', 'await InteractionHelper.safeEditReply('],
     ['../src/commands/Moderation/dm.js', 'await dmChannel.send(', 'await InteractionHelper.safeEditReply('],
-    ['../src/services/giveawayBuilderService.js', 'const giveaway = await postGiveaway(', 'await interaction.editReply('],
+    // The created log goes to #giveaway-logs.
+    ['../src/services/giveawayBuilderService.js', 'const giveaway = await postGiveaway(', 'await interaction.editReply(', 'await sendGiveawayCreatedLog('],
   ]) {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8');
     const delivery = source.indexOf(trigger);
     const response = source.indexOf(acknowledge, delivery);
-    const log = source.indexOf('await logEvent(', delivery);
+    const log = source.indexOf(audit, delivery);
     assert.ok(delivery >= 0 && response > delivery && log > response,
       path + ': send/save must succeed before acknowledgement, and audit I/O follows acknowledgement');
   }

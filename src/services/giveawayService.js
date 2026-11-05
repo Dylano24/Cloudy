@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 import { CloudyError, ErrorTypes } from '../utils/errorHandler.js';
 import { botConfig } from '../config/bot.js';
 import { checkRateLimit, getRateLimitStatus } from '../utils/rateLimiter.js';
+import { requiresCountry } from './giveawayCodeService.js';
 
 const GIVEAWAY_CONFIG = botConfig.giveaways || {};
 const GIVEAWAY_INTERACTION_COOLDOWN = 1000;
@@ -229,9 +230,11 @@ export function createGiveawayEmbed(giveaway, status = 'active', winners = givea
 // Public giveaway posts only contain participation buttons. Management is
 // private through /giveaway manage (no publicly visible Manage button).
 export function createGiveawayButtons(giveaway, { ended = isGiveawayFinished(giveaway) } = {}) {
+    // A giveaway without a code asks the member's country first; the button
+    // says so in its ID, so no database read is needed before the form opens.
     const entry = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId('giveaway_enter')
+            .setCustomId(!ended && requiresCountry(giveaway) ? 'giveaway_enter:country' : 'giveaway_enter')
             .setEmoji(GIVEAWAY_EMOJIS.enter)
             .setLabel('Enter giveaway')
             .setStyle(ButtonStyle.Secondary)
@@ -269,34 +272,38 @@ export function createGiveawayManagePanel(giveaway, { participantsIcon = '👤' 
         if (action === 'participants') return built.setEmoji(participantsIcon);
         return action === 'reroll' ? built.setEmoji('🎲') : built;
     };
+    // Owner's order. Discord has no yellow button, so End stays red.
     const rows = ended
         ? [
             new ActionRowBuilder().addComponents(
                 button('reroll', 'Reroll', ButtonStyle.Secondary),
+                button('code', 'Code', ButtonStyle.Secondary)),
+            new ActionRowBuilder().addComponents(
                 button('participants', 'View participants', ButtonStyle.Primary),
                 button('delete', 'Delete', ButtonStyle.Danger)),
         ]
         : [
             new ActionRowBuilder().addComponents(
-                button('reroll', 'Reroll', ButtonStyle.Secondary),
                 button('text', 'Edit text', ButtonStyle.Secondary),
+                button('claim', 'Edit claim', ButtonStyle.Secondary),
                 button('timer', 'Edit timer', ButtonStyle.Secondary)),
             new ActionRowBuilder().addComponents(
-                button('end', 'End', ButtonStyle.Danger),
-                button('participants', 'View participants', ButtonStyle.Primary),
-                button('delete', 'Delete', ButtonStyle.Danger)),
+                button('code', 'Code', ButtonStyle.Secondary),
+                button('participants', 'View participants', ButtonStyle.Primary)),
             new ActionRowBuilder().addComponents(
-                button('claim', 'Edit claim', ButtonStyle.Secondary)),
+                button('end', 'End', ButtonStyle.Danger),
+                button('delete', 'Delete', ButtonStyle.Danger)),
         ];
     const endsAt = giveawayEndTime(giveaway);
     return {
         embeds: [{
             title: 'Manage giveaway',
+            // One empty line between each section (owner's choice).
             description: [
                 `**${giveaway.prize || 'Giveaway'}**`,
                 `${count} ${count === 1 ? 'participant' : 'participants'}`,
                 ended ? 'This giveaway has ended.' : `Ends <t:${unix(endsAt)}:F> (<t:${unix(endsAt)}:R>)`,
-            ].join('\n'),
+            ].join('\n\n'),
             color: GIVEAWAY_WHITE,
             thumbnail: { url: CLOUDY_C_LOGO_URL },
         }],
