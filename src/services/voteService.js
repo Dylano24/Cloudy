@@ -2,8 +2,8 @@
 // live counts in the embed and one vote per member (they can change or remove
 // it). Who voted for what is never shown, only the counts.
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MessageFlags, SectionBuilder,
-  SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder, ThumbnailBuilder,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder,
+  MessageFlags, SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder,
 } from 'discord.js';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
@@ -13,6 +13,11 @@ import { freshVotePictureLinks } from './voteMediaService.js';
 
 export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+// The card of a vote with pictures has no real footer: small text is always
+// grey there. White and small (owner's choice) is a thin picture of the footer
+// (assets/vote-footer.png), on a fixed link like the logo, so every edit keeps
+// the same picture and nothing loads again.
+export const VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png';
 export const VOTE_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 export const MAX_VOTE_OPTIONS = 10;
 // Every number is a custom digit emoji (owner's choice).
@@ -121,31 +126,34 @@ function voteParts(vote, now) {
 function buildPreviewVoteMessage(vote, parts) {
   const gap = (size = SeparatorSpacingSize.Small) => new SeparatorBuilder().setDivider(false).setSpacing(size);
   const text = content => new TextDisplayBuilder().setContent(content);
+  // No logo in the card (owner's choice).
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addSectionComponents(new SectionBuilder()
-      .addTextDisplayComponents(text(`### ${parts.title}\n**${vote.question}**`))
-      .setThumbnailAccessory(new ThumbnailBuilder().setURL(CLOUDY_C_LOGO_URL)))
-    // More room under the logo before the options (owner's choice).
+    .addTextDisplayComponents(text(`### ${parts.title}\n**${vote.question}**`))
+    // More room under the question before the options (owner's choice).
     .addSeparatorComponents(gap(SeparatorSpacingSize.Large));
   parts.options.forEach((option, index) => {
-    const content = text(`${option.line}\n${option.bar}`);
+    if (index) card.addSeparatorComponents(gap());
+    card.addTextDisplayComponents(text(option.line));
+    // The Preview button stands next to the bar itself, level with its middle
+    // (owner's choice), so the bar is the only text beside it.
     if (!option.picture) {
-      card.addTextDisplayComponents(content);
+      card.addTextDisplayComponents(text(option.bar));
       return;
     }
     card.addSectionComponents(new SectionBuilder()
-      .addTextDisplayComponents(content)
+      .addTextDisplayComponents(text(option.bar))
       .setButtonAccessory(new ButtonBuilder()
         .setCustomId(`vote_media:${index}`)
         .setLabel('Preview')
         .setStyle(ButtonStyle.Secondary)));
   });
   card.addSeparatorComponents(gap())
-    .addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')))
-    // The footer as two small lines (owner's choice): on a phone it does not
-    // fit on one line here, and a lone "Performance." looked broken.
-    .addTextDisplayComponents(text(CLOUDY_FOOTER.split(' • ').map(part => `-# ${part}`).join('\n')));
+    .addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')));
+  // White and small, on one line (owner's choice): the footer picture.
+  card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
+    .setURL(VOTE_FOOTER_URL)
+    .setDescription(CLOUDY_FOOTER)));
   return { flags: MessageFlags.IsComponentsV2, components: [card, ...parts.rows], allowedMentions: { parse: [] } };
 }
 

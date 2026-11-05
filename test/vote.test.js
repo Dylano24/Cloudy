@@ -235,13 +235,22 @@ test('an option with a picture becomes a blue link with a small Preview button r
   const [card, row] = posted.components.map(json);
   assert.equal(card.type, 17);
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
-  assert.equal(card.components[0].accessory.media.url, CLOUDY_LOGO, 'Cloudy logo top right');
-  assert.match(card.components[0].components[0].content, /^### Vote\n\*\*Choose your map\*\*$/);
-  assert.deepEqual(card.components[1], { type: 14, divider: false, spacing: 2 }, 'more room under the logo');
-  const sections = card.components.filter(part => part.type === 9 && part.accessory?.type === 2);
-  assert.deepEqual(sections.map(part => [part.components[0].content.split('\n')[0].replace(/\(.*\)/, ''), part.accessory.custom_id, part.accessory.label]),
-    [['1️⃣ **[DZ West]**', 'vote_media:0', 'Preview'], ['3️⃣ **[DZ South]**', 'vote_media:2', 'Preview']], 'Preview only next to options with a picture');
-  assert.equal(card.components.at(-1).content, '-# © Cloudy Inc.\n-# Quality. Innovation. Performance.', 'footer: two neat small lines');
+  assert.equal(card.components[0].type, 10, 'no logo: just the title and question');
+  assert.match(card.components[0].content, /^### Vote\n\*\*Choose your map\*\*$/);
+  assert.doesNotMatch(JSON.stringify(card), new RegExp(CLOUDY_LOGO.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), 'no C logo in the card');
+  assert.deepEqual(card.components[1], { type: 14, divider: false, spacing: 2 }, 'more room under the question');
+  // Each Preview stands next to its bar (the bar is the only text beside it),
+  // with the option's name right above.
+  const previews = card.components.flatMap((part, index) => (part.type === 9 && part.accessory?.type === 2
+    ? [[card.components[index - 1].content.replace(/\(.*\)/, ''), part.components.map(item => item.content), part.accessory.custom_id, part.accessory.label]] : []));
+  assert.deepEqual(previews, [
+    ['1️⃣ **[DZ West]**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:0', 'Preview'],
+    ['3️⃣ **[DZ South]**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:2', 'Preview'],
+  ], 'Preview only next to options with a picture, level with the bar');
+  const footer = card.components.at(-1);
+  assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
+  assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png');
+  assert.equal(footer.items[0].description, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.deepEqual(row.components.map(button => button.custom_id), ['vote_cast:0', 'vote_cast:1', 'vote_cast:2'], 'vote buttons stay under the vote');
   assert.equal(posted.components.length, 2);
   assert.equal(posted.thread, undefined, 'no thread on the vote');
