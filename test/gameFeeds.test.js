@@ -37,7 +37,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
   assert.deepEqual(embeds.map(embed => embed.title), [
     'Player killed', 'Player login', 'Player logout', 'Kit claimed',
-    'ZORP protection on', 'ZORP protection off', 'Raid alert', 'BANNED', 'UNBAN', 'Server wiped',
+    'ZORP protection on', 'ZORP protection off', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
   assert.match(embeds[0].description, /^\*\*Killer:\*\* `Dyn`\n\*\*Victim:\*\* `Dylano`\n\*\*Weapon:\*\* Assault rifle\n\*\*Distance:\*\* 145 m\n\*\*Headshot:\*\* Yes\n\*\*Killstreak:\*\* 🎯 3\n\*\*Server:\*\* Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
   assert.match(embeds[1].description, /\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* Xbox Series/);
