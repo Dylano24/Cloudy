@@ -48,8 +48,10 @@ function moment(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 const unix = ms => Math.floor(ms / 1000);
+// An empty line in small text: a smaller gap than a normal empty line.
+const SMALL_GAP = '-# \u200b';
 // Short date and time (05/11/2026 13:26) so a line stays on one row next to the logo.
-const shortMoment = ms => `<t:${unix(ms)}:d> <t:${unix(ms)}:t>`;
+const shortMoment = ms => `<t:${unix(ms)}:s>`;
 
 // Checks one incoming event and returns the clean version, or throws.
 export function normalizeGameFeedEvent(raw) {
@@ -174,12 +176,12 @@ export function buildGameFeedEmbed(event) {
           line('Map', event.map),
           '',
           '**How to play on this server?**',
-          '',
+          SMALL_GAP,
           `${dot} Open the community tab in Rust`,
           `${dot} Search for ${name(event.server)}`,
           '',
           '**Current wipe**',
-          '',
+          SMALL_GAP,
           `${dot} **Start:** ${shortMoment(event.time)}`,
           event.next ? `${dot} **End:** ${shortMoment(event.next)}` : null,
           event.store ? `\n**Store:** [Click here to view our packages](${event.store})` : null,
