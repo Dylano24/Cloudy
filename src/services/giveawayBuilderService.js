@@ -78,6 +78,7 @@ export function newGiveawayDraft(channelId) {
         // No code until Code says otherwise: members then choose their country.
         codeType: 'none',
         codeDiscount: null,
+        plainAddedCodes: [],
         durationText: '1d',
         durationMs: 86_400_000,
         winnerCount: 1,
@@ -306,7 +307,7 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
         if (action === 'text' || action === 'timing' || action === 'claim' || action === 'code') {
             await interaction.showModal(action === 'text' ? giveawayTextModal(session)
                 : action === 'claim' ? giveawayClaimModal(session)
-                    : action === 'code' ? giveawayCodeModal(id(session, 'codeform'), draft)
+                    : action === 'code' ? giveawayCodeModal(id(session, 'codeform'), { ...draft, draftAddedCodes: draft.plainAddedCodes || [] })
                         : giveawayTimingModal(session));
             return true;
         }
@@ -333,7 +334,8 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             const roleId = interaction.fields.getField('role')?.values?.[0];
             if (roleId) draft.ping = { type: 'role', roleId };
         } else if (action === 'codeform') {
-            Object.assign(draft, readGiveawayCodeModal(interaction));
+            const { codeType, codeDiscount, addedCodes } = readGiveawayCodeModal(interaction);
+            Object.assign(draft, { codeType, codeDiscount, plainAddedCodes: addedCodes || [] });
         } else if (action === 'textform') {
             const value = name => giveawayText(interaction.fields.getTextInputValue(name), name === 'prize' ? 256 : name === 'description' ? 1000 : 500);
             draft.introTitle = value('introTitle') || DEFAULT_GIVEAWAY_INTRO;

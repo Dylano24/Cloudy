@@ -10,7 +10,7 @@ import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { rememberMessageDeleter } from './deletionAttributionService.js';
 import { logEvent, EVENT_TYPES } from './loggingService.js';
 import { sendGiveawayEndedLog, sendGiveawayWinnerCountryLog } from './giveawayLogService.js';
-import { GIVEAWAY_CODE_TYPES, validDiscount } from './giveawayCodeService.js';
+import { GIVEAWAY_CODE_TYPES, validDiscount, withAddedCodes } from './giveawayCodeService.js';
 import {
     createGiveawayButtons,
     createGiveawayEmbed,
@@ -193,6 +193,8 @@ export async function postGiveaway(client, guild, channel, draft) {
         // country. Otherwise Cloudy generates a code for every winner.
         codeType: Object.hasOwn(GIVEAWAY_CODE_TYPES, draft.codeType || '') ? draft.codeType : 'none',
         codeDiscount: draft.codeType === 'discount' ? validDiscount(draft.codeDiscount) || 10 : null,
+        // Staff's own existing codes: each winner takes the next unused one.
+        addedCodes: draft.codeType === 'added' ? withAddedCodes({}, draft.plainAddedCodes || []) : [],
         participantCountries: {},
         pingRoleId: draft.ping?.type === 'role' ? draft.ping.roleId : null,
         pingEveryone: draft.ping?.type === 'everyone',
@@ -610,10 +612,13 @@ export async function setGiveawayText(client, guild, messageId, fields) {
 // Code: no code (members choose their country) or a code type Cloudy uses
 // to generate each winner's code. Also allowed after the end, for winners
 // who have not opened their claim yet. The Enter button changes with it.
-export async function setGiveawayCode(client, guild, messageId, { codeType, codeDiscount = null }) {
+export async function setGiveawayCode(client, guild, messageId, { codeType, codeDiscount = null, addedCodes = null }) {
     const guildId = guild?.id;
     if (!Object.hasOwn(GIVEAWAY_CODE_TYPES, codeType || '')) {
-        throw giveawayError('Invalid giveaway code type', 'Choose a code type.');
+        throw giveawayError('Invalid giveaway code type', 'Choose a code.');
+    }
+    if (codeType === 'added' && !addedCodes?.length) {
+        throw giveawayError('No added giveaway codes', 'Add at least one code in Existing codes.');
     }
     return Mutex.runExclusive(lockKey(messageId), async () => {
         const giveaway = await requireGiveaway(client, guildId, messageId);
@@ -621,8 +626,13 @@ export async function setGiveawayCode(client, guild, messageId, { codeType, code
             ...giveaway,
             codeType,
             codeDiscount: codeType === 'discount' ? validDiscount(codeDiscount) || 10 : null,
+            // Given-out codes stay with their winner; the unused ones are
+            // replaced by the codes in the form.
+            addedCodes: codeType === 'added' ? withAddedCodes(giveaway, addedCodes)
+                : (giveaway.addedCodes || []).filter(entry => entry?.usedBy),
         };
-        if (updated.codeType === giveaway.codeType && updated.codeDiscount === (giveaway.codeDiscount ?? null)) return updated;
+        if (codeType !== 'added' && updated.codeType === giveaway.codeType
+            && updated.codeDiscount === (giveaway.codeDiscount ?? null)) return giveaway;
         await persist(client, guildId, updated);
         if (!isGiveawayFinished(updated)) {
             const channel = await fetchGiveawayChannel(client, guild, updated.channelId);
@@ -631,6 +641,15 @@ export async function setGiveawayCode(client, guild, messageId, { codeType, code
         }
         return updated;
     });
+}
+
+// Shows the current entry count on the giveaway itself (used when the
+// member picked their country from a private list).
+export async function refreshGiveawayMessage(client, guild, giveaway) {
+    const channel = await fetchGiveawayChannel(client, guild, giveaway?.channelId);
+    const message = await fetchGiveawayMessage(channel, giveaway?.messageId);
+    if (message) await message.edit(activeGiveawayPayload(giveaway));
+    return Boolean(message);
 }
 
 // Edit timer: the giveaway now ends this long from now.
