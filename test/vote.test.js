@@ -69,23 +69,24 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
   assert.ok(embed.thumbnail.url);
   assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
-    [['vote_cast:0', '1️⃣', undefined], ['vote_cast:1', '2️⃣', undefined]]);
+    [['vote_cast:0', '1️⃣', 'Procedural'], ['vote_cast:1', '2️⃣', 'Barren']]);
   assert.equal(json(run.reply.embeds[0]).title, 'Success');
   assert.equal((await loadVote(w.client, GUILD, posted.id)).options.length, 2);
 });
 
-test('one vote per member: change or remove it; counts show, voters do not', async () => {
+test('one vote per member: another option changes it, the same option keeps it; counts show, voters do not', async () => {
   const w = world();
   await vote.execute(w.command({ question: 'Wipe day?', option1: 'Thursday', option2: 'Friday', option3: 'Saturday' }));
   const messageId = w.sent[0].id;
   assert.equal((await castVote(w.client, GUILD, messageId, 'a', 1)).status, 'voted');
   assert.equal((await castVote(w.client, GUILD, messageId, 'b', 1)).status, 'voted');
   assert.equal((await castVote(w.client, GUILD, messageId, 'a', 0)).status, 'changed');
-  const removed = await castVote(w.client, GUILD, messageId, 'b', 1);
-  assert.equal(removed.status, 'removed');
+  const again = await castVote(w.client, GUILD, messageId, 'b', 1);
+  assert.equal(again.status, 'unchanged', 'a second click (e.g. to see the picture again) keeps the vote');
   const text = buildVoteMessage((await castVote(w.client, GUILD, messageId, 'c', 0)).vote).embeds[0].description;
   assert.match(text, /1️⃣ \*\*Thursday\*\*\n▱{6} \*\*2%\*\* · 2 votes/);
-  assert.match(text, /\*\*Total votes:\*\* 2/);
+  assert.match(text, /2️⃣ \*\*Friday\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  assert.match(text, /\*\*Total votes:\*\* 3/);
   assert.doesNotMatch(text, /<@/);
 });
 
@@ -201,4 +202,57 @@ test('Discord picture links of recent votes are renewed every 12 hours', async (
   assert.match(edits[0].embeds[0].description, /\[A\]\(https:\/\/cdn\.discordapp\.com\/new\/a\.png\?ex=2\)/);
   await refreshVotePictureLinks(w.client, now + 60_000);
   assert.equal(edits.length, 1, 'not again within 12 hours');
+});
+
+test('the option button votes and shows its picture privately for 30 seconds; without a picture the usual 10-second notice', async t => {
+  const w = world();
+  const deps = {
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
+    uploadPictures: async (client, guild, channel, files) => ({
+      links: files.map(file => (file ? `https://cdn.discordapp.com/attachments/1/2/${file.name}?ex=1` : null)),
+      media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
+    }),
+  };
+  const run = w.command({ question: 'Choose your map', option1: 'DZ West', option2: 'DZ East' });
+  run.options.getAttachment = name => (name === 'media1' ? { url: 'https://cdn.discordapp.com/a/w.png', name: 'w.png', contentType: 'image/png', size: 10 } : null);
+  await vote.execute(run, deps);
+  const posted = w.sent[0];
+  assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.label]),
+    [['vote_cast:0', 'DZ West'], ['vote_cast:1', 'DZ East']], 'one button per option: digit and name');
+  assert.equal(posted.components.length, 1);
+
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const click = (index, user = 'member') => {
+    const state = { deleted: 0 };
+    const interaction = { id: `i-${index}-${user}-${Math.random()}`, guildId: GUILD, user: { id: user }, message: { id: posted.id },
+      deferUpdate: async () => {}, editReply: async payload => { state.edited = payload; },
+      followUp: async payload => { state.notice = payload; return { id: 'notice' }; },
+      deleteReply: async () => { state.deleted += 1; } };
+    return voteButton.execute(interaction, w.client, [String(index)]).then(() => state);
+  };
+  const first = await click(0);
+  const embed = first.notice.embeds[0];
+  assert.equal(embed.image.url, 'https://cdn.discordapp.com/attachments/1/2/option1.png?ex=1');
+  assert.equal(embed.description, 'You voted for **DZ West**.');
+  assert.equal(embed.title, undefined);
+  assert.equal(embed.thumbnail, undefined);
+  assert.match(first.edited.embeds[0].description, /\[DZ West\]\(https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/option1\.png\?ex=1\)\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  t.mock.timers.tick(10_000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(first.deleted, 0, 'the picture stays longer than 10 seconds');
+  t.mock.timers.tick(20_000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(first.deleted, 1, 'gone after 30 seconds');
+
+  const again = await click(0);
+  assert.equal(again.edited, undefined, 'a second look keeps the vote and changes nothing');
+  assert.equal(again.notice.embeds[0].image.url, embed.image.url);
+  assert.equal((await loadVote(w.client, GUILD, posted.id)).votes.member, 0);
+
+  const plain = await click(1, 'other');
+  assert.equal(json(plain.notice.embeds[0]).title, 'Success');
+  t.mock.timers.tick(10_000);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(plain.deleted, 1, 'no picture: gone after 10 seconds');
+  t.mock.timers.reset();
 });
