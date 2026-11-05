@@ -40,7 +40,8 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
   assert.match(embeds[0].description, /^\*\*Killer:\*\* <:killer_suit:\d+> `Dyn`\n\*\*Victim:\*\* <:victim_suit:\d+> `Dylano`\n\*\*Weapon:\*\* <:X83rust4ar:\d+> Assault rifle\n\*\*Distance:\*\* <:distance:\d+> 145 m\n\*\*Headshot:\*\* <:headshot:\d+>\n\*\*Killstreak:\*\* 🔥 3\n\*\*Server:\*\* <a?:server_router:\d+> Server 1\n\*\*Time:\*\* <t:\d+:f>$/);
-  assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* Xbox Series/);
+  assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+>\n/);
+  assert.match(embeds[2].description, /\*\*Platform:\*\* <:\w*console\w*:\d+>\n/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
   assert.match(embeds[5].description, /\*\*Protected for:\*\* 2h 14m/);
   assert.match(embeds[9].description, /^\*\*Server 1\*\* has just wiped!\n\n<:W87205667glowingdotwhite:\d+> \*\*Wipe:\*\* Map wipe\n<:W87205667glowingdotwhite:\d+> \*\*Map:\*\* Procedural 4000\n\n\*\*How to play on this server\?\*\*\n-# \u200b\n<:W87205667glowingdotwhite:\d+> Open the community tab in Rust\n<:W87205667glowingdotwhite:\d+> Search for `Server 1`\n\n\*\*Current wipe\*\*\n-# \u200b\n<:W87205667glowingdotwhite:\d+> \*\*Start:\*\* <t:\d+:s>\n<:W87205667glowingdotwhite:\d+> \*\*End:\*\* <t:\d+:s>\n<:W87205667glowingdotwhite:\d+> \*\*Time:\*\*/);
