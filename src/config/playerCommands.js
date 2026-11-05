@@ -28,7 +28,7 @@ const PLAYER_COMMAND_NAMES = [
   'calculate',
   'countdown',
   'hexcolor',
-  'poll',
+  'vote',
   'randomuser',
   'shorten',
   'time',
