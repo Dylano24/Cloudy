@@ -70,6 +70,13 @@ for (const piece of ['lf', 'mf', 'rf', 'le', 'me', 're']) {
   BASE_EMOJIS[`bar_${piece}`] = { name: `vb_${piece}`, file: `../../assets/vote-emojis/bar_${piece}.png`, fallback: piece.endsWith('f') ? '▰' : '▱' };
 }
 BASE_EMOJIS.vote_icon = { name: 'vote_ballot', file: '../../assets/vote-emojis/vote_icon.gif', fallback: '🗳️' };
+// Ban log icons (owner's choice): the owner's timer and warning emojis, the
+// victim suit for the player, and three icons made in assets/feed-emojis.
+BASE_EMOJIS.timer = { name: 'W89timer', id: '1557506643372146778', fallback: '<a:W89timer:1557506643372146778>' };
+BASE_EMOJIS.warning = { name: 'W97warningwhite', id: '1543290138707230730', fallback: '<:W97warningwhite:1543290138707230730>' };
+BASE_EMOJIS.mention = { name: 'cloudy_mention', file: '../../assets/feed-emojis/mention.png', fallback: '@' };
+BASE_EMOJIS.timer_off = { name: 'cloudy_timer_off', file: '../../assets/feed-emojis/timer_off.png', fallback: '⏱️' };
+BASE_EMOJIS.staff = { name: 'cloudy_staff', file: '../../assets/feed-emojis/staff.png', fallback: '🛡️' };
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 
