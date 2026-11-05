@@ -187,6 +187,8 @@ test('ban log: emoji lines without labels, tags the player and staff, relative t
   const ban = buildGameFeedEmbed(normalizeGameFeedEvent({ type: 'ban', server: 'S1', action: 'ban', player: 'nathanwh3344',
     discord: '132048835679420418', byDiscord: '155555555555555555', reason: 'Raid in a red zone', expiresAt: 1_900_000_000_000, time: 1_800_000_000_000 }));
   const lines = ban.description.split('\n');
+  assert.deepEqual(lines.map(text => text.match(/^<a?:(\w+):\d+>|^\S+/)[1] || 'staff'),
+    ['log_link', 'log_rust', 'timer', 'log_expiry', 'staff', 'log_reason', 'server_router']);
   assert.deepEqual(lines.map(text => text.replace(/^(?:<a?:\w+:\d+>|\S+) /, '')), [
     '<@132048835679420418>', '`nathanwh3344`', '<t:1800000000:R>', '<t:1900000000:R>', '<@155555555555555555>', 'Raid in a red zone', 'S1 · tempban',
   ]);

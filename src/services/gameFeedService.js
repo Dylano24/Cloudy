@@ -175,12 +175,12 @@ export function buildGameFeedEmbed(event) {
       return {
         title: banned ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
         description: [
-          icon('mention', event.discord ? `<@${event.discord}>` : null),
-          icon('victim', name(event.player)),
-          icon('timer', since ? `<t:${unix(since)}:R>` : null),
-          icon('timer_off', until),
+          icon('log_link', event.discord ? `<@${event.discord}>` : null),
+          icon('log_rust', name(event.player)),
+          icon('log_timer', since ? `<t:${unix(since)}:R>` : null),
+          icon('log_expiry', until),
           icon('staff', event.byDiscord ? `<@${event.byDiscord}>` : event.by),
-          icon('warning', event.reason),
+          icon('log_reason', event.reason),
           icon('server', `${event.server} · ${kind}`),
         ].filter(Boolean).join('\n'),
         color: banned ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR,
