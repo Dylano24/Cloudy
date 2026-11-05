@@ -6,6 +6,7 @@ import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { feedEmoji } from './feedEmojiService.js';
+import { freshVotePictureLinks } from './voteMediaService.js';
 
 export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -34,6 +35,12 @@ const CLOUDY_MEDIA = /\/cloudy-embed-media\//;
 // The picture of an option (owner's choice: opened inside Discord with a
 // button, never shown as a website link). Votes from before this kept the
 // picture as a link; those Cloudy media links count as pictures too.
+/** The picture shown privately when someone votes for this option, or null. */
+export function votePicture(vote, index) {
+  if (vote.optionMedia && vote.optionLinks?.[index]) return vote.optionLinks[index];
+  return optionPicture(vote, index);
+}
+
 export function optionPicture(vote, index) {
   if (vote.optionImages?.[index]) return vote.optionImages[index];
   const link = vote.optionLinks?.[index];
@@ -71,8 +78,9 @@ export function buildVoteMessage(vote, now = Date.now()) {
   vote.options.forEach((option, index) => {
     // Every vote is 1% (owner's choice), up to 100%.
     const share = Math.min(100, counts[index]) / 100;
-    // An option with a picture stays plain text (its picture is behind a
-    // button); other links (rustmaps.com pages of /mapvote) stay links.
+    // An option with a picture is a blue link that opens it (Discord's own
+    // picture link); /mapvote links to rustmaps.com. Votes from before this
+    // (pictures behind buttons) show plain text.
     const link = optionPicture(vote, index) ? null : vote.optionLinks?.[index];
     const label = link && !CLOUDY_MEDIA.test(link) ? `[${option}](${link})` : option;
     lines.push(`${numberIcon(index)} **${label}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`);
@@ -88,23 +96,17 @@ export function buildVoteMessage(vote, now = Date.now()) {
   } else if (vote.endsAt) {
     lines.push('', `**Ends:** <t:${unix(vote.endsAt)}:f> (<t:${unix(vote.endsAt)}:R>)`);
   }
-  // Buttons show only the number badge (owner's choice); the embed names the option.
+  // One button per option (owner's choice): its digit and its name. The same
+  // button votes and, when the option has a picture, shows it privately.
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
     .setCustomId(`vote_cast:${index}`)
     .setEmoji(numberIcon(index))
+    .setLabel(option.slice(0, 80))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(Boolean(ended)));
   const rows = [];
   for (let start = 0; start < buttons.length; start += 5) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
-  }
-  // Options with a picture get a grey button with their name: it shows the
-  // picture privately for 30 seconds (owner's choice; a link cannot do that).
-  const pictureButtons = vote.options.map((option, index) => (optionPicture(vote, index)
-    ? new ButtonBuilder().setCustomId(`vote_media:${index}`).setEmoji('🖼️').setLabel(option.slice(0, 80)).setStyle(ButtonStyle.Secondary)
-    : null)).filter(Boolean);
-  for (let start = 0; start < pictureButtons.length && rows.length < 5; start += 5) {
-    rows.push(new ActionRowBuilder().addComponents(pictureButtons.slice(start, start + 5)));
   }
 
   const images = (vote.images || []).slice(0, 4);
@@ -148,8 +150,9 @@ export async function loadVote(client, guildId, messageId) {
   return (await readVotes(client, guildId))[messageId] || null;
 }
 
-// One vote per member: a new option replaces the old one; the same option
-// again removes it. Returns { status, vote, option }.
+// One vote per member: a new option replaces the old one. The same option again
+// keeps the vote (owner's choice: that button also shows the option's picture,
+// so a second look must not remove the vote). Returns { status, vote, option }.
 export async function castVote(client, guildId, messageId, userId, index) {
   return Mutex.runExclusive(votesKey(guildId), async () => {
     const votes = await readVotes(client, guildId);
@@ -161,8 +164,7 @@ export async function castVote(client, guildId, messageId, userId, index) {
     const next = { ...(vote.votes || {}) };
     let status;
     if (current === index) {
-      delete next[userId];
-      status = 'removed';
+      return { status: 'unchanged', vote, option: vote.options[index] };
     } else {
       next[userId] = index;
       status = current === undefined ? 'voted' : 'changed';
@@ -200,11 +202,43 @@ export async function endDueVotes(client) {
   }
 }
 
+// Discord's picture links expire after about a day: the links of votes from
+// the last 30 days are renewed every 12 hours (same message, same layout).
+const MEDIA_REFRESH_MS = 12 * 60 * 60_000;
+const MEDIA_KEEP_MS = 30 * 24 * 60 * 60_000;
+
+export async function refreshVotePictureLinks(client, now = Date.now()) {
+  for (const guild of client.guilds?.cache?.values?.() || []) {
+    const votes = await readVotes(client, guild.id).catch(() => ({}));
+    for (const vote of Object.values(votes)) {
+      if (!vote.optionMedia || now - (vote.mediaRefreshedAt || 0) < MEDIA_REFRESH_MS) continue;
+      if (now - Date.parse(vote.createdAt || 0) > MEDIA_KEEP_MS) continue;
+      const links = await freshVotePictureLinks(client, vote.optionMedia).catch(() => null);
+      if (!links) continue;
+      const updated = await Mutex.runExclusive(votesKey(guild.id), async () => {
+        const current = await readVotes(client, guild.id);
+        const stored = current[vote.messageId];
+        if (!stored) return null;
+        current[vote.messageId] = { ...stored, optionLinks: links, mediaRefreshedAt: now };
+        await writeVotes(client, guild.id, current);
+        return current[vote.messageId];
+      }).catch(() => null);
+      if (!updated) continue;
+      const channel = guild.channels?.cache?.get?.(updated.channelId);
+      const message = await channel?.messages?.fetch?.(updated.messageId).catch(() => null);
+      if (message?.edit) await message.edit(buildVoteMessage(updated)).catch(error => logger.warn('Could not renew vote picture links:', error));
+    }
+  }
+}
+
 let started = false;
 export function startVoteTimer(client) {
   if (started) return;
   started = true;
-  const timer = setInterval(() => { void endDueVotes(client).catch(() => {}); }, 60_000);
+  const timer = setInterval(() => {
+    void endDueVotes(client).catch(() => {});
+    void refreshVotePictureLinks(client).catch(() => {});
+  }, 60_000);
   timer.unref?.();
   void endDueVotes(client).catch(() => {});
 }
