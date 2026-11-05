@@ -171,7 +171,6 @@ export function buildGameFeedEmbed(event) {
       const until = banned
         ? (event.expiresAt ? `<t:${unix(event.expiresAt)}:R>` : event.duration || 'Permanent')
         : `<t:${unix(event.time)}:R>`;
-      const kind = banned ? (event.expiresAt || event.duration ? 'tempban' : 'permanent') : 'unban';
       return {
         title: banned ? `${feedEmoji('ban')} BAN` : `${feedEmoji('unban')} UNBAN`,
         description: [
@@ -179,9 +178,9 @@ export function buildGameFeedEmbed(event) {
           icon('log_rust', name(event.player)),
           icon('log_timer', since ? `<t:${unix(since)}:R>` : null),
           icon('log_expiry', until),
-          icon('staff', event.byDiscord ? `<@${event.byDiscord}>` : event.by),
-          icon('log_reason', event.reason),
-          icon('server', `${event.server} · ${kind}`),
+          // An unban (accepted) shows the reason sign in green (owner's choice).
+          icon(banned ? 'log_reason' : 'log_reason_green', event.reason),
+          icon('server', event.server),
         ].filter(Boolean).join('\n'),
         color: banned ? CLOUDY_RED_COLOR : CLOUDY_GREEN_COLOR,
         thumbnail: { url: CLOUDY_C_LOGO_URL },
