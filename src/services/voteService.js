@@ -71,7 +71,9 @@ export function buildVoteMessage(vote, now = Date.now()) {
   vote.options.forEach((option, index) => {
     // Every vote is 1% (owner's choice), up to 100%.
     const share = Math.min(100, counts[index]) / 100;
-    const link = vote.optionLinks?.[index];
+    // An option with a picture stays plain text (its picture is behind a
+    // button); other links (rustmaps.com pages of /mapvote) stay links.
+    const link = optionPicture(vote, index) ? null : vote.optionLinks?.[index];
     const label = link && !CLOUDY_MEDIA.test(link) ? `[${option}](${link})` : option;
     lines.push(`${numberIcon(index)} **${label}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`);
     lines.push(`${bar(share, length)} **${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`);
@@ -95,6 +97,14 @@ export function buildVoteMessage(vote, now = Date.now()) {
   const rows = [];
   for (let start = 0; start < buttons.length; start += 5) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
+  }
+  // Options with a picture get a grey button with their name: it shows the
+  // picture privately for 30 seconds (owner's choice; a link cannot do that).
+  const pictureButtons = vote.options.map((option, index) => (optionPicture(vote, index)
+    ? new ButtonBuilder().setCustomId(`vote_media:${index}`).setEmoji('🖼️').setLabel(option.slice(0, 80)).setStyle(ButtonStyle.Secondary)
+    : null)).filter(Boolean);
+  for (let start = 0; start < pictureButtons.length && rows.length < 5; start += 5) {
+    rows.push(new ActionRowBuilder().addComponents(pictureButtons.slice(start, start + 5)));
   }
 
   const images = (vote.images || []).slice(0, 4);
