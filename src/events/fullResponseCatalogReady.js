@@ -181,6 +181,8 @@ function isBuilderAuthoredMessage(message) {
 }
 
 function applyPayloadTemplates(payload, source) {
+  // Game server feeds and boards keep their own titles and colours.
+  if (Array.isArray(payload?.embeds) && payload.embeds.some(isGameFeedEmbed)) return payload;
   if (isStaffRobberyProtectionPayload(payload)) return payload;
   // This specific Commands guide is already finalized before sending.
   // Never apply a stale runtime catalog title over it.
@@ -347,6 +349,7 @@ function patchMessageEdits() {
 }
 
 function capturePayload(payload, source) {
+  if (Array.isArray(payload?.embeds) && payload.embeds.some(isGameFeedEmbed)) return;
   if (isStaffRobberyProtectionPayload(payload)) return false;
   if (isPrivateReportCasePayload(payload)) return false;
   if (payload == null) return false;

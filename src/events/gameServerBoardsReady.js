@@ -1,5 +1,6 @@
 import { Events } from 'discord.js';
 import { startGameServerBoards } from '../services/gameServerBoardsService.js';
+import { ensureFeedEmojis } from '../services/feedEmojiService.js';
 
 // Marks a game server offline on its boards when it stops reporting.
 export default {
@@ -7,5 +8,6 @@ export default {
   once: true,
   execute(client) {
     startGameServerBoards(client);
+    void ensureFeedEmojis(client);
   },
 };
