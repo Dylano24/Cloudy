@@ -2,6 +2,7 @@
 // Real activation codes are never included in this embed.
 import { createHash, randomBytes } from 'node:crypto';
 import { DEFAULT_CLAIM_ICONS } from './giveawayClaimIcons.js';
+import { requiresCountry } from './giveawayCodeService.js';
 
 export const CLAIM_INTRO_ICON = '<:W90250885giveaway:1543303914152001536>';
 export const CLAIM_REVIEW_ICON = '<:W84starwhite:1543289625035022346>';
@@ -16,6 +17,17 @@ export const DEFAULT_CLAIM_INTRODUCTION =
 export const DEFAULT_CLAIM_CONDITIONS = 'None';
 export const DEFAULT_CLAIM_HOW_TO_GET =
   'Click the **Reveal my code** button below to display your activation code.';
+// A giveaway without a code has no Reveal my code button.
+export const DEFAULT_CLAIM_HOW_TO_GET_NO_CODE =
+  'Our team will contact you in this channel to deliver your prize.';
+export function defaultClaimHowToGet(giveaway) {
+  return requiresCountry(giveaway) ? DEFAULT_CLAIM_HOW_TO_GET_NO_CODE : DEFAULT_CLAIM_HOW_TO_GET;
+}
+// A saved default is not custom text: it keeps following the giveaway's code.
+export function customClaimHowToGet(value) {
+  const text = typeof value === 'string' ? value.trim() : value;
+  return text === DEFAULT_CLAIM_HOW_TO_GET || text === DEFAULT_CLAIM_HOW_TO_GET_NO_CODE ? null : value;
+}
 export const DEFAULT_CLAIM_REVIEW =
   "If you enjoyed your prize and are satisfied with your experience and the work of our team, we’d appreciate it if you could take a moment to leave us a rating in our staff reviews section.\n\n"
   + "Your feedback means a lot to us. It encourages our team, helps us improve and supports what we do at Cloudy Inc."
@@ -23,6 +35,17 @@ export const DEFAULT_CLAIM_REVIEW =
 export const DEFAULT_CLAIM_PLEASE_NOTE =
   'This private channel will be automatically deleted after 24 hours. Make sure to copy or take a screenshot of your activation code before the channel is deleted.\n\n'
   + 'You can also close this channel yourself using the **Close** button below.';
+
+export const DEFAULT_CLAIM_PLEASE_NOTE_NO_CODE =
+  'This private channel will be automatically deleted after 24 hours.\n\n'
+  + 'You can also close this channel yourself using the **Close** button below.';
+export function defaultClaimPleaseNote(giveaway) {
+  return requiresCountry(giveaway) ? DEFAULT_CLAIM_PLEASE_NOTE_NO_CODE : DEFAULT_CLAIM_PLEASE_NOTE;
+}
+export function customClaimPleaseNote(value) {
+  const text = typeof value === 'string' ? value.trim() : value;
+  return text === DEFAULT_CLAIM_PLEASE_NOTE || text === DEFAULT_CLAIM_PLEASE_NOTE_NO_CODE ? null : value;
+}
 
 // Kept for existing test giveaways and staff-owned private code configuration.
 // Demo-prefixed values are never valid redemption credentials.
@@ -70,11 +93,11 @@ export function buildPrivateClaimEmbed(giveaway, _userId, icons = DEFAULT_CLAIM_
       + '\n\n' + icons.info + ' **Prize conditions**\n'
       + text('claimConditions', DEFAULT_CLAIM_CONDITIONS)
       + '\n\n' + icons.key + ' **How to get your prize**\n'
-      + text('claimHowToGet', DEFAULT_CLAIM_HOW_TO_GET)
+      + text('claimHowToGet', defaultClaimHowToGet(giveaway))
       + '\n\n' + CLAIM_REVIEW_ICON + ' **Share your feedback**\n'
       + linkifyStaffReviews(tightenHeartGap(text('claimReview', DEFAULT_CLAIM_REVIEW)), giveaway?.guildId)
       + '\n\n' + icons.warning + ' **Please note**\n'
-      + text('claimPleaseNote', DEFAULT_CLAIM_PLEASE_NOTE),
+      + text('claimPleaseNote', defaultClaimPleaseNote(giveaway)),
     color: 0xFFFFFF,
     footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
   };

@@ -21,8 +21,8 @@ export default [
   giveawayAdminHandler,
   {
     customId: 'gmanage_page',
-    execute: (interaction, client, [requesterId, page]) =>
-      showGiveawayManagePicker(interaction, client, Number(page), requesterId),
+    execute: (interaction, client, [requesterId, page, status]) =>
+      showGiveawayManagePicker(interaction, client, Number(page), requesterId, status || null),
   },
   ...legacyGiveawayHandlers,
 ].map(fromCustomId);
