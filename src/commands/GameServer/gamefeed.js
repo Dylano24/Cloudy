@@ -42,7 +42,11 @@ export default {
 
   async execute(interaction) {
     if (interaction.options.getSubcommand() === 'embeds') {
-      const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
+      // The ban examples tag you, so the tag is visible in the preview.
+      const you = interaction.user?.id;
+      const embeds = SAMPLE_GAME_FEED_EVENTS
+        .map(event => (event.type === 'ban' && you ? { ...event, discord: you, byDiscord: you } : event))
+        .map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
       await interaction.reply({ embeds, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       // The live boards (#server-status, #population, #leaderboard).
       return interaction.followUp({ embeds: sampleBoards(), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
