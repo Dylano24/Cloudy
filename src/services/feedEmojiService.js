@@ -175,9 +175,18 @@ async function download(id) {
 export async function ensureFeedEmojis(client) {
   const manager = client.application?.emojis;
   if (!manager?.fetch) return;
+  let existing;
   try {
-    const existing = await manager.fetch();
-    for (const [key, emoji] of Object.entries(FEED_EMOJIS)) {
+    existing = await manager.fetch();
+  } catch (error) {
+    logger.warn(`Could not prepare the game server emojis: ${error?.message || error}`);
+    return;
+  }
+  // One emoji that fails never stops the others; the result is logged once.
+  const created = [];
+  const failed = [];
+  for (const [key, emoji] of Object.entries(FEED_EMOJIS)) {
+    try {
       const accessible = client.emojis?.cache?.get?.(emoji.id);
       if (accessible && !emoji.shrink && !emoji.crop && !emoji.unwhite) { resolved.set(key, markup(accessible)); continue; }
       let own = [...existing.values()].find(item => item.name === emoji.name);
@@ -185,15 +194,21 @@ export async function ensureFeedEmojis(client) {
         let image = emoji.file
           ? await readFile(new URL(emoji.file, import.meta.url)).catch(() => null)
           : await download(emoji.id);
-        if (!image) continue;
+        if (!image) { failed.push(`${emoji.name} (no picture)`); continue; }
         if (emoji.shrink) image = await shrinkEmojiImage(image).catch(() => image);
         if (emoji.crop) image = await cropEmojiImage(image, emoji.crop).catch(() => image);
         if (emoji.unwhite) image = await removeWhiteBackground(image).catch(() => image);
         own = await manager.create({ attachment: image, name: emoji.name });
+        created.push(emoji.name);
       }
       resolved.set(key, markup(own));
+    } catch (error) {
+      failed.push(`${emoji.name} (${error?.message || error})`);
     }
-  } catch (error) {
-    logger.warn(`Could not prepare the game server emojis: ${error?.message || error}`);
   }
+  const summary = `[FEED_EMOJIS] ${resolved.size}/${Object.keys(FEED_EMOJIS).length} ready`
+    + (created.length ? `; uploaded ${created.join(', ')}` : '')
+    + (failed.length ? `; failed ${failed.join('; ')}` : '');
+  if (failed.length) logger.warn(summary);
+  else logger.info(summary);
 }
