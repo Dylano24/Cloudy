@@ -4,6 +4,7 @@ import {
     ButtonStyle,
     ChannelSelectMenuBuilder,
     ChannelType,
+    LabelBuilder,
     MessageFlags,
     ModalBuilder,
     RoleSelectMenuBuilder,
@@ -14,15 +15,16 @@ import {
 import { randomUUID } from 'node:crypto';
 import {
     buildPrivateClaimEmbed, createDemoClaimCode, DEFAULT_CLAIM_INTRODUCTION,
-    DEFAULT_CLAIM_CONDITIONS, DEFAULT_CLAIM_HOW_TO_GET,
-    DEFAULT_CLAIM_REVIEW, DEFAULT_CLAIM_PLEASE_NOTE,
+    DEFAULT_CLAIM_CONDITIONS, defaultClaimHowToGet, customClaimHowToGet,
+    DEFAULT_CLAIM_REVIEW, defaultClaimPleaseNote, customClaimPleaseNote,
 } from './giveawayClaimPreview.js';
 import { currentGiveawayClaimIcons } from './giveawayClaimIcons.js';
 import { successEmbed } from '../utils/embeds.js';
 import { giveawayWarning, removeAfterTenSeconds } from '../handlers/giveawayButtons.js';
 import { logger } from '../utils/logger.js';
 import { botConfig } from '../config/bot.js';
-import { logEvent, EVENT_TYPES } from './loggingService.js';
+import { sendGiveawayCreatedLog } from './giveawayLogService.js';
+import { giveawayCodeModal, readGiveawayCodeModal } from './giveawayCodeService.js';
 import {
     createGiveawayEmbed,
     DEFAULT_GIVEAWAY_DESCRIPTION,
@@ -73,6 +75,9 @@ export function newGiveawayDraft(channelId) {
         claimHowToGet: null,
         claimReview: null,
         claimPleaseNote: null,
+        // No code until Code says otherwise: members then choose their country.
+        codeType: 'none',
+        codeDiscount: null,
         durationText: '1d',
         durationMs: 86_400_000,
         winnerCount: 1,
@@ -112,37 +117,39 @@ export function renderGiveawayBuilder(session) {
         .setMaxValues(1);
     if (draft.channelId) channel.setDefaultChannels(draft.channelId);
     // @everyone is not a Discord role-selectable role. A dedicated choice
-    // places it first while preserving the ability to choose any real role.
+    // places it first; "Role" opens a small form with the role picker, so the
+    // controls fit Discord's limit of five rows.
+    const roleName = draft.ping.type === 'role' && draft.ping.roleId
+        ? session.roleName?.(draft.ping.roleId) || null : null;
     const pingType = new StringSelectMenuBuilder()
         .setCustomId(id(session, 'pingtype'))
-        .setPlaceholder('Choose a tag')
+        .setPlaceholder(draft.ping.type === 'role' && draft.ping.roleId
+            ? `Role: @${roleName || 'chosen role'}`.slice(0, 150) : 'Choose a tag')
         .addOptions(
             { label: '@everyone', value: 'everyone', default: draft.ping.type === 'everyone' },
-            { label: 'Role', value: 'role', default: draft.ping.type === 'role' },
+            { label: 'Role', value: 'role' },
             { label: 'No tag', value: 'none' },
         );
-    const role = new RoleSelectMenuBuilder()
-        .setCustomId(id(session, 'role'))
-        .setPlaceholder('Choose the role')
-        .setMinValues(1)
-        .setMaxValues(1);
-    if (draft.ping.type === 'role' && draft.ping.roleId) role.setDefaultRoles(draft.ping.roleId);
 
     return {
         embeds: [preview, winnerPreview],
         components: [
             new ActionRowBuilder().addComponents(pingType),
-            ...(draft.ping.type === 'role' ? [new ActionRowBuilder().addComponents(role)] : []),
             new ActionRowBuilder().addComponents(channel),
+            // Owner's order: Edit text, Edit claim / Duration & winners, Code /
+            // Post giveaway, Cancel (red).
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'text')).setLabel('Edit text').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId(id(session, 'timing')).setLabel('Duration & winners').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(id(session, 'claim')).setLabel('Edit claim').setStyle(ButtonStyle.Secondary),
             ),
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(id(session, 'claim')).setLabel('Edit claim').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(id(session, 'timing')).setLabel('Duration & winners').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(id(session, 'code')).setLabel('Code').setStyle(ButtonStyle.Secondary),
+            ),
+            new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(id(session, 'post')).setEmoji('📤').setLabel('Post giveaway')
                     .setStyle(ButtonStyle.Success).setDisabled(!draft.prize || !draft.channelId),
-                new ButtonBuilder().setCustomId(id(session, 'cancel')).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(id(session, 'cancel')).setLabel('Cancel').setStyle(ButtonStyle.Danger),
             ),
         ],
         allowedMentions: { parse: [] },
@@ -182,12 +189,25 @@ export function giveawayClaimModal(session) {
             textInput('claimConditions', 'Prize conditions', TextInputStyle.Paragraph,
                 { value: draft.claimConditions || DEFAULT_CLAIM_CONDITIONS, maxLength: 1000 }),
             textInput('claimHowToGet', 'How to get your prize', TextInputStyle.Paragraph,
-                { value: draft.claimHowToGet || DEFAULT_CLAIM_HOW_TO_GET, maxLength: 500 }),
+                { value: draft.claimHowToGet || defaultClaimHowToGet(draft), maxLength: 500 }),
             textInput('claimReview', 'Share your feedback', TextInputStyle.Paragraph,
                 { value: draft.claimReview || DEFAULT_CLAIM_REVIEW, maxLength: 1000 }),
             textInput('claimPleaseNote', 'Please note', TextInputStyle.Paragraph,
-                { value: draft.claimPleaseNote || DEFAULT_CLAIM_PLEASE_NOTE, maxLength: 1000 }),
+                { value: draft.claimPleaseNote || defaultClaimPleaseNote(draft), maxLength: 1000 }),
         );
+}
+
+export function giveawayRoleModal(session) {
+    const role = new RoleSelectMenuBuilder()
+        .setCustomId('role')
+        .setPlaceholder('Choose the role')
+        .setMinValues(1)
+        .setMaxValues(1);
+    if (session.draft.ping.type === 'role' && session.draft.ping.roleId) role.setDefaultRoles(session.draft.ping.roleId);
+    return new ModalBuilder()
+        .setCustomId(id(session, 'roleform'))
+        .setTitle('Tag a role')
+        .addLabelComponents(new LabelBuilder().setLabel('Role').setRoleSelectMenuComponent(role));
 }
 
 export function giveawayTimingModal(session) {
@@ -214,7 +234,8 @@ export async function openGiveawayBuilder(interaction) {
     }
     // Require an explicit channel choice for each new giveaway.
     const session = { id: randomUUID().slice(0, 12), guildId: interaction.guildId, userId: interaction.user.id,
-        root: interaction, timer: null, draft: newGiveawayDraft() };
+        root: interaction, timer: null, draft: newGiveawayDraft(),
+        roleName: roleId => interaction.guild?.roles?.cache?.get?.(roleId)?.name || null };
     sessions.set(session.id, session);
     try {
         await interaction.reply({ ...renderGiveawayBuilder(session), flags: MessageFlags.Ephemeral });
@@ -259,26 +280,8 @@ async function postFromBuilder(interaction, client, session) {
     });
     removeAfterTenSeconds(interaction);
 
-    try {
-        await logEvent({
-            client,
-            guildId: interaction.guildId,
-            eventType: EVENT_TYPES.GIVEAWAY_CREATE,
-            data: {
-                description: `Giveaway created: ${giveaway.prize}`,
-                channelId: channel.id,
-                userId: interaction.user.id,
-                fields: [
-                    { name: 'Prize', value: giveaway.prize, inline: true },
-                    { name: 'Winners', value: String(giveaway.winnerCount), inline: true },
-                    { name: 'Duration', value: draft.durationText, inline: true },
-                    { name: 'Channel', value: `<#${channel.id}>`, inline: true },
-                ],
-            },
-        });
-    } catch (logError) {
-        logger.debug('Error logging giveaway creation event:', logError);
-    }
+    // Created log in #giveaway-logs (owner's choice).
+    await sendGiveawayCreatedLog(client, interaction.guild, giveaway);
     return giveaway;
 }
 
@@ -300,9 +303,15 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
         keepAlive(session);
         const { draft } = session;
 
-        if (action === 'text' || action === 'timing' || action === 'claim') {
+        if (action === 'text' || action === 'timing' || action === 'claim' || action === 'code') {
             await interaction.showModal(action === 'text' ? giveawayTextModal(session)
-                : action === 'claim' ? giveawayClaimModal(session) : giveawayTimingModal(session));
+                : action === 'claim' ? giveawayClaimModal(session)
+                    : action === 'code' ? giveawayCodeModal(id(session, 'codeform'), draft)
+                        : giveawayTimingModal(session));
+            return true;
+        }
+        if (action === 'pingtype' && interaction.isStringSelectMenu?.() && interaction.values[0] === 'role') {
+            await interaction.showModal(giveawayRoleModal(session));
             return true;
         }
         if (action === 'cancel') {
@@ -319,12 +328,12 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
             draft.channelId = interaction.values[0] || draft.channelId;
         } else if (action === 'pingtype' && interaction.isStringSelectMenu?.()) {
             const type = interaction.values[0];
-            if (['everyone', 'role', 'none'].includes(type)) {
-                draft.ping = { type, roleId: type === 'role' ? draft.ping.roleId : null };
-            }
-        } else if (action === 'role' && interaction.isRoleSelectMenu?.()) {
-            const roleId = interaction.values[0];
-            draft.ping = roleId ? { type: 'role', roleId } : { type: 'role', roleId: null };
+            if (['everyone', 'none'].includes(type)) draft.ping = { type, roleId: null };
+        } else if (action === 'roleform') {
+            const roleId = interaction.fields.getField('role')?.values?.[0];
+            if (roleId) draft.ping = { type: 'role', roleId };
+        } else if (action === 'codeform') {
+            Object.assign(draft, readGiveawayCodeModal(interaction));
         } else if (action === 'textform') {
             const value = name => giveawayText(interaction.fields.getTextInputValue(name), name === 'prize' ? 256 : name === 'description' ? 1000 : 500);
             draft.introTitle = value('introTitle') || DEFAULT_GIVEAWAY_INTRO;
@@ -335,9 +344,9 @@ export async function handleGiveawayBuilderInteraction(interaction, client) {
         } else if (action === 'claimform') {
             draft.claimIntroduction = giveawayText(interaction.fields.getTextInputValue('claimIntroduction'), 250);
             draft.claimConditions = giveawayText(interaction.fields.getTextInputValue('claimConditions'), 1000);
-            draft.claimHowToGet = giveawayText(interaction.fields.getTextInputValue('claimHowToGet'), 500);
+            draft.claimHowToGet = customClaimHowToGet(giveawayText(interaction.fields.getTextInputValue('claimHowToGet'), 500));
             draft.claimReview = giveawayText(interaction.fields.getTextInputValue('claimReview'), 1000);
-            draft.claimPleaseNote = giveawayText(interaction.fields.getTextInputValue('claimPleaseNote'), 1000);
+            draft.claimPleaseNote = customClaimPleaseNote(giveawayText(interaction.fields.getTextInputValue('claimPleaseNote'), 1000));
         } else if (action === 'timingform') {
             const durationText = interaction.fields.getTextInputValue('duration').trim();
             const durationMs = parseDuration(durationText);

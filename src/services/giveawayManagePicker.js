@@ -82,19 +82,51 @@ export async function listManageableGiveaways(client, guildId) {
       - (Number(Date.parse(a.createdAt) || giveawayEndTime(a)) || 0));
 }
 
-export function buildGiveawayManagePicker(giveaways, guild, requesterId, requestedPage = 0) {
-  const pageCount = Math.max(1, Math.ceil(giveaways.length / GIVEAWAY_MANAGE_PAGE_SIZE));
-  const page = Math.max(0, Math.min(Number(requestedPage) || 0, pageCount - 1));
-  const available = giveaways.slice(page * GIVEAWAY_MANAGE_PAGE_SIZE, (page + 1) * GIVEAWAY_MANAGE_PAGE_SIZE);
+const STATUSES = Object.freeze({ active: 'Active giveaways', ended: 'Ended giveaways' });
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+// Manage > status (active or ended) > giveaway (owner's choice). The status
+// picker stays on top, so the other status is one choice away.
+function statusPicker(giveaways, requesterId, status) {
+  const active = giveaways.filter(giveaway => isActiveManageableGiveaway(giveaway)).length;
+  const counts = { active, ended: giveaways.length - active };
+  return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+    .setCustomId(`gmanage_status:${requesterId}`)
+    .setPlaceholder('Choose a status')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(Object.entries(STATUSES).map(([value, label]) => ({
+      label, value, description: plural(counts[value], 'giveaway'), default: value === status,
+    }))));
+}
+
+export function buildGiveawayManagePicker(giveaways, guild, requesterId, requestedPage = 0, status = null) {
   const embed = {
     title: 'Manage giveaway',
-    description: giveaways.length
-      ? `Select a giveaway to manage.\n\n${giveaways.length} giveaway${giveaways.length === 1 ? '' : 's'} · Page ${page + 1}/${pageCount}`
-      : 'There are no giveaways to manage in this server.',
     color: 0xFFFFFF,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
   };
-  if (!available.length) return { embeds: [embed], components: [] };
+  if (!giveaways.length) {
+    return { embeds: [{ ...embed, description: 'There are no giveaways to manage in this server.' }], components: [] };
+  }
+  if (!Object.hasOwn(STATUSES, status || '')) {
+    const active = giveaways.filter(giveaway => isActiveManageableGiveaway(giveaway)).length;
+    return {
+      embeds: [{ ...embed, description: `Choose a giveaway status.\n\n${active} active · ${giveaways.length - active} ended` }],
+      components: [statusPicker(giveaways, requesterId, null)],
+    };
+  }
+  const filtered = giveaways.filter(giveaway => isActiveManageableGiveaway(giveaway) === (status === 'active'));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / GIVEAWAY_MANAGE_PAGE_SIZE));
+  const page = Math.max(0, Math.min(Number(requestedPage) || 0, pageCount - 1));
+  const available = filtered.slice(page * GIVEAWAY_MANAGE_PAGE_SIZE, (page + 1) * GIVEAWAY_MANAGE_PAGE_SIZE);
+  const components = [statusPicker(giveaways, requesterId, status)];
+  if (!available.length) {
+    return {
+      embeds: [{ ...embed, description: `There are no ${status} giveaways.` }],
+      components,
+    };
+  }
   const picker = new StringSelectMenuBuilder()
     .setCustomId(`gmanage_select:${requesterId}`)
     .setPlaceholder('Choose a giveaway')
@@ -110,16 +142,19 @@ export function buildGiveawayManagePicker(giveaways, guild, requesterId, request
         value: String(giveaway.messageId),
       };
     }));
-  const components = [new ActionRowBuilder().addComponents(picker)];
+  components.push(new ActionRowBuilder().addComponents(picker));
   if (pageCount > 1) {
     components.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`gmanage_page:${requesterId}:${page - 1}`)
+      new ButtonBuilder().setCustomId(`gmanage_page:${requesterId}:${page - 1}:${status}`)
         .setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-      new ButtonBuilder().setCustomId(`gmanage_page:${requesterId}:${page + 1}`)
+      new ButtonBuilder().setCustomId(`gmanage_page:${requesterId}:${page + 1}:${status}`)
         .setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page === pageCount - 1),
     ));
   }
-  return { embeds: [embed], components };
+  return {
+    embeds: [{ ...embed, description: `Select a giveaway to manage.\n\n${plural(filtered.length, `${status} giveaway`)} · Page ${page + 1}/${pageCount}` }],
+    components,
+  };
 }
 
 // A short private state (empty list, warning, error) is not an interactive
@@ -140,14 +175,14 @@ async function reject(interaction) {
   return result;
 }
 
-export async function showGiveawayManagePicker(interaction, client, page = 0, requesterId = interaction.user.id) {
+export async function showGiveawayManagePicker(interaction, client, page = 0, requesterId = interaction.user.id, status = null) {
   if (!canUse(interaction) || interaction.user.id !== requesterId) return reject(interaction);
   const fromComponent = interaction.isButton?.() || interaction.isStringSelectMenu?.();
   if (fromComponent) await interaction.deferUpdate();
   else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   try {
     const giveaways = await listManageableGiveaways(client, interaction.guildId);
-    return editManageReply(interaction, buildGiveawayManagePicker(giveaways, interaction.guild, requesterId, page));
+    return editManageReply(interaction, buildGiveawayManagePicker(giveaways, interaction.guild, requesterId, page, status));
   } catch {
     return editManageReply(interaction, {
       embeds: [giveawayWarning('Giveaways could not be loaded. Please try again.')],

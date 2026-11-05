@@ -192,3 +192,16 @@ test('the response-catalog pass never edits Staff/Member/AutoMod message logs af
   assert.equal(await applyTemplatesToExistingMessage(message('some-other-channel'), { initialCreation: true }), true);
   assert.deepEqual(edits, ['some-other-channel']);
 });
+
+test('Cloudy removing its own uncached message without a stored copy (left-over Builder) is never logged', async () => {
+  const { client, guild, sent } = setup();
+  const cloudy = { id: 'bot', label: '<@bot>', source: 'cloudy', type: 'Deleted by Cloudy', bot: true };
+  const before = sent.length;
+  await logDeletedMessage({ id: '1567379185947639901', guild, guildId: guild.id, channelId: 'general', client, partial: true, author: null, content: null, attachments: new Collection() },
+    { deletedBy: cloudy, snapshot: null });
+  assert.equal(sent.length, before);
+  // The same unknown message removed by staff (an explicit reason) is still logged.
+  await logDeletedMessage({ id: '1567379185947639902', guild, guildId: guild.id, channelId: 'general', client, partial: true, author: null, content: null, attachments: new Collection() },
+    { deletedBy: { id: 'member', label: '<@member>', source: 'staff', type: 'Deleted by staff' }, snapshot: null });
+  assert.equal(sent.length, before + 1);
+});

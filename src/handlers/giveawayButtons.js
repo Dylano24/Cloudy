@@ -1,7 +1,7 @@
 import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import {
-    DEFAULT_CLAIM_INTRODUCTION, DEFAULT_CLAIM_CONDITIONS, DEFAULT_CLAIM_HOW_TO_GET,
-    DEFAULT_CLAIM_REVIEW, DEFAULT_CLAIM_PLEASE_NOTE,
+    DEFAULT_CLAIM_INTRODUCTION, DEFAULT_CLAIM_CONDITIONS, defaultClaimHowToGet, customClaimHowToGet,
+    DEFAULT_CLAIM_REVIEW, defaultClaimPleaseNote, customClaimPleaseNote,
 } from '../services/giveawayClaimPreview.js';
 import { successEmbed, warningEmbed } from '../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
@@ -26,9 +26,13 @@ import {
     loadGiveaway,
     removeGiveaway,
     rerollGiveaway,
+    setGiveawayCode,
     setGiveawayTimer,
     setGiveawayText,
 } from '../services/giveawayActions.js';
+import {
+    giveawayCodeModal, giveawayCountryModal, readGiveawayCodeModal, readGiveawayCountryModal,
+} from '../services/giveawayCodeService.js';
 
 const EPHEMERAL = MessageFlags.Ephemeral;
 
@@ -97,7 +101,7 @@ async function onError(interaction, error, customId) {
     return handleInteractionError(interaction, error, { type: 'button', customId, handler: 'giveaway' });
 }
 
-async function changeEntry(interaction, client, enter) {
+async function changeEntry(interaction, client, enter, { country = null } = {}) {
     const customId = enter ? 'giveaway_enter' : 'giveaway_leave';
     try {
         if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
@@ -106,8 +110,9 @@ async function changeEntry(interaction, client, enter) {
         }
         await recordUserInteraction(interaction.user.id, interaction.message.id);
         await interaction.deferUpdate();
-        const action = enter ? enterGiveaway : leaveGiveaway;
-        const result = await action(client, interaction.guildId, interaction.message.id, interaction.user.id);
+        const result = enter
+            ? await enterGiveaway(client, interaction.guildId, interaction.message.id, interaction.user.id, { country })
+            : await leaveGiveaway(client, interaction.guildId, interaction.message.id, interaction.user.id);
         if (result.status === 'missing') return warn(interaction, 'This giveaway is no longer active.');
         if (result.status === 'ended') return warn(interaction, 'This giveaway has already ended.');
         if (result.status === 'already') return warn(interaction, 'You have already entered this giveaway.');
@@ -122,9 +127,33 @@ async function changeEntry(interaction, client, enter) {
     }
 }
 
+// giveaway_enter:country (a giveaway without a code) first asks the
+// member's country in a form; that is Discord's first answer.
 export const giveawayEnterHandler = {
     customId: 'giveaway_enter',
-    execute: (interaction, client) => changeEntry(interaction, client, true),
+    async execute(interaction, client, [mode] = []) {
+        if (mode !== 'country') return changeEntry(interaction, client, true);
+        try {
+            if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
+            return await interaction.showModal(giveawayCountryModal(interaction.message.id));
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_enter:country');
+        }
+    },
+};
+
+export const giveawayCountryModalHandler = {
+    customId: 'giveaway_country',
+    async execute(interaction, client) {
+        let country;
+        try {
+            country = readGiveawayCountryModal(interaction);
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_country');
+        }
+        // Submitted from the giveaway itself: the entry count updates in place.
+        return changeEntry(interaction, client, true, { country });
+    },
 };
 
 export const giveawayLeaveHandler = {
@@ -198,9 +227,9 @@ export function giveawayClaimEditModal(messageId, giveaway) {
         .addComponents(
             field('claimIntroduction', 'Introduction', giveaway.claimIntroduction || DEFAULT_CLAIM_INTRODUCTION, 250),
             field('claimConditions', 'Prize conditions', giveaway.claimConditions || DEFAULT_CLAIM_CONDITIONS, 1000),
-            field('claimHowToGet', 'How to get your prize', giveaway.claimHowToGet || DEFAULT_CLAIM_HOW_TO_GET, 500),
+            field('claimHowToGet', 'How to get your prize', giveaway.claimHowToGet || defaultClaimHowToGet(giveaway), 500),
             field('claimReview', 'Share your feedback', giveaway.claimReview || DEFAULT_CLAIM_REVIEW, 1000),
-            field('claimPleaseNote', 'Please note', giveaway.claimPleaseNote || DEFAULT_CLAIM_PLEASE_NOTE, 1000),
+            field('claimPleaseNote', 'Please note', giveaway.claimPleaseNote || defaultClaimPleaseNote(giveaway), 1000),
         );
 }
 
@@ -215,6 +244,11 @@ export const giveawayAdminHandler = {
             }
             // A form must be the first answer, before any defer.
             if (action === 'timer') return interaction.showModal(giveawayTimerModal(messageId));
+            if (action === 'code') {
+                const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
+                if (!giveaway) return warn(interaction, 'This giveaway no longer exists.');
+                return interaction.showModal(giveawayCodeModal(`giveaway_code:${messageId}`, giveaway));
+            }
             if (action === 'text' || action === 'claim') {
                 const giveaway = await loadGiveaway(client, interaction.guildId, messageId);
                 if (!giveaway) return warn(interaction, 'This giveaway no longer exists.');
@@ -277,6 +311,26 @@ export const giveawayTimerModalHandler = {
     },
 };
 
+export const giveawayCodeModalHandler = {
+    customId: 'giveaway_code',
+    async execute(interaction, client, [messageId] = []) {
+        try {
+            if (!interaction.inGuild()) return warn(interaction, 'Giveaways only work in a server.');
+            if (!canManageGiveawaysAsOwner(interaction.member, interaction.guild)) {
+                return warn(interaction, 'Only the Owner role can manage giveaways.');
+            }
+            const choice = readGiveawayCodeModal(interaction);
+            await deferPrivate(interaction);
+            await setGiveawayCode(client, interaction.guild, messageId, choice);
+            return notice(interaction, successEmbed('Success', choice.codeType === 'none'
+                ? 'This giveaway has no code. Members choose their country when they enter.'
+                : 'Cloudy now generates a code for every winner of this giveaway.'));
+        } catch (error) {
+            return onError(interaction, error, 'giveaway_code');
+        }
+    },
+};
+
 export const giveawayTextModalHandler = {
     customId: 'giveaway_text',
     async execute(interaction, client, [messageId] = []) {
@@ -313,9 +367,9 @@ export const giveawayClaimModalHandler = {
             await setGiveawayText(client, interaction.guild, messageId, {
                 claimIntroduction: interaction.fields.getTextInputValue('claimIntroduction'),
                 claimConditions: interaction.fields.getTextInputValue('claimConditions'),
-                claimHowToGet: interaction.fields.getTextInputValue('claimHowToGet'),
+                claimHowToGet: customClaimHowToGet(interaction.fields.getTextInputValue('claimHowToGet')) ?? '',
                 claimReview: interaction.fields.getTextInputValue('claimReview'),
-                claimPleaseNote: interaction.fields.getTextInputValue('claimPleaseNote'),
+                claimPleaseNote: customClaimPleaseNote(interaction.fields.getTextInputValue('claimPleaseNote')) ?? '',
             });
             return notice(interaction, successEmbed('Success', 'Winner claim instructions were updated.'));
         } catch (error) {

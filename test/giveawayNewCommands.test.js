@@ -23,19 +23,28 @@ test('manage buttons match the required order, IDs and branding', () => {
   const panel = createGiveawayManagePanel(giveaway);
   const rows = panel.components.map(row => row.toJSON().components);
   assert.deepEqual(rows.map(row => row.map(button => button.label)), [
-    ['Reroll', 'Edit text', 'Edit timer'],
-    ['End', 'View participants', 'Delete'],
-    ['Edit claim'],
+    ['Edit text', 'Edit claim', 'Edit timer'],
+    ['Code', 'View participants'],
+    ['End', 'Delete'],
   ]);
   assert.deepEqual(rows.flat().map(button => button.custom_id), [
-    'giveaway_admin:reroll:123456789012345678',
     'giveaway_admin:text:123456789012345678',
-    'giveaway_admin:timer:123456789012345678',
-    'giveaway_admin:end:123456789012345678',
-    'giveaway_admin:participants:123456789012345678',
-    'giveaway_admin:delete:123456789012345678',
     'giveaway_admin:claim:123456789012345678',
+    'giveaway_admin:timer:123456789012345678',
+    'giveaway_admin:code:123456789012345678',
+    'giveaway_admin:participants:123456789012345678',
+    'giveaway_admin:end:123456789012345678',
+    'giveaway_admin:delete:123456789012345678',
   ]);
+  // Ended: Reroll, Code / View participants, Delete.
+  const ended = createGiveawayManagePanel({ ...giveaway, ended: true, isEnded: true });
+  assert.deepEqual(ended.components.map(row => row.toJSON().components.map(button => button.label)), [
+    ['Reroll', 'Code'],
+    ['View participants', 'Delete'],
+  ]);
+  // One empty line between prize, participants and the end line.
+  assert.match(panel.embeds[0].description, /^\*\*Yes\*\*\n\n0 participants\n\nEnds <t:\d+:F> \(<t:\d+:R>\)$/);
+  assert.equal(ended.embeds[0].description, '**Yes**\n\n0 participants\n\nThis giveaway has ended.');
   assert.ok(panel.embeds[0].thumbnail.url);
   assert.ok(createDeleteConfirmation(giveaway).embeds[0].thumbnail.url);
   assert.equal(giveawayTextModalHandler.customId, 'giveaway_text');
