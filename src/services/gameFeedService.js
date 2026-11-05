@@ -114,7 +114,7 @@ function classicEmbed(title, color, lines, event) {
     description: [...lines, line('Time', `<t:${unix(event.time)}:f>`)].filter(entry => entry != null).join('\n'),
     color,
     thumbnail: { url: CLOUDY_C_LOGO_URL },
-    footer: { text: CLOUDY_FOOTER, icon_url: CLOUDY_C_LOGO_URL },
+    footer: { text: CLOUDY_FOOTER },
   };
 }
 
