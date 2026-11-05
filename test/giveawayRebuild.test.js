@@ -284,9 +284,10 @@ test('legacy Manage clicks remain Owner-only for old posts', async () => {
   const panel = staff.edited;
   assert.equal(staff.deferred, true);
   assert.deepEqual(panel.components.flatMap(row => json(row).components.map(component => component.label)),
-    ['Reroll', 'Edit text', 'Edit timer', 'End', 'View participants', 'Delete', 'Edit claim']);
+    ['Edit text', 'Edit claim', 'Edit timer', 'Code', 'View participants', 'End', 'Delete']);
   assert.equal(panel.components.flatMap(row => json(row).components).find(component => component.label === 'View participants').emoji.name, '👤');
-  assert.equal(panel.components.flatMap(row => json(row).components).find(component => component.label === 'Reroll').emoji.name, '🎲');
+  // An active giveaway has no Reroll (owner's choice).
+  assert.equal(panel.components.flatMap(row => json(row).components).find(component => component.label === 'Reroll'), undefined);
   // The owner's white person emoji is used once Cloudy can see it.
   w.client.emojis = { cache: new Collection([['999', { id: '999', name: 'W881241476043907403887', animated: false }]]) };
   const withEmoji = w.interaction('staff', { staff: true });
@@ -729,9 +730,12 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.match(builder.embeds[1].description, /Share your feedback/);
   const controls = builder.components.map(json);
   const sessionId = controls[2].components[0].custom_id.split(':')[2];
+  // Owner's order: Edit text, Edit claim / Duration & winners, Code /
+  // Post giveaway, Cancel (red).
   assert.deepEqual(controls.slice(2).map(row => row.components.map(component => [component.label, component.style])), [
-    [['Edit text', 2], ['Duration & winners', 2]],
-    [['Edit claim', 2], ['Post giveaway', 3], ['Cancel', 2]],
+    [['Edit text', 2], ['Edit claim', 2]],
+    [['Duration & winners', 2], ['Code', 2]],
+    [['Post giveaway', 3], ['Cancel', 4]],
   ]);
   assert.equal(controls[0].components[0].options[0].label, '@everyone');
   assert.equal(controls[0].components[0].options[1].label, 'Role');
@@ -739,7 +743,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.notEqual(controls[0].components[0].options[2].default, true);
   assert.equal(controls[1].components[0].placeholder, 'Choose a channel');
   assert.equal(controls[1].components[0].default_values, undefined);
-  const postButton = controls[3].components[1];
+  const postButton = controls[4].components[0];
   assert.equal(postButton.emoji.name, '📤');
   assert.equal(postButton.disabled, true);
 
@@ -760,9 +764,24 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   await handleGiveawayBuilderInteraction(textForm, w.client);
   assert.match(textForm.updated.embeds[0].description, /\*\*1 month vip\*\*/);
   assert.match(textForm.updated.embeds[1].description, /How to get your prize/);
-  assert.match(textForm.updated.embeds[1].description, /Reveal my code/);
+  // Without a code (the default) there is nothing to reveal.
+  assert.match(textForm.updated.embeds[1].description, /Our team will contact you in this channel/);
+  assert.doesNotMatch(textForm.updated.embeds[1].description, /Reveal my code|activation code/);
   assert.doesNotMatch(textForm.updated.embeds[1].description, /<@staff>/);
-  assert.equal(json(textForm.updated.components[3]).components[1].disabled, true);
+  assert.equal(json(textForm.updated.components[4]).components[0].disabled, true);
+  // Code: Cloudy generates a code for every winner of this giveaway.
+  const openCode = click(`gbuilder:code:${sessionId}`);
+  await handleGiveawayBuilderInteraction(openCode, w.client);
+  assert.equal(openCode.modal.title, 'Giveaway code');
+  const codeSelect = openCode.modal.components[0].component;
+  assert.equal(codeSelect.custom_id, 'codeType');
+  assert.deepEqual(codeSelect.options.map(option => option.value), ['none', 'standard', 'kit', 'credit', 'discount']);
+  assert.equal(codeSelect.options.find(option => option.default).value, 'none');
+  const codeForm = click(`gbuilder:codeform:${sessionId}`, { fields: {
+    getStringSelectValues: () => ['standard'], getTextInputValue: () => '',
+  } });
+  await handleGiveawayBuilderInteraction(codeForm, w.client);
+  assert.match(codeForm.updated.embeds[1].description, /Reveal my code/);
   const openClaim = click(`gbuilder:claim:${sessionId}`);
   await handleGiveawayBuilderInteraction(openClaim, w.client);
   assert.deepEqual(openClaim.modal.components.map(row => row.components[0].custom_id),
@@ -796,18 +815,22 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   const timing = click(`gbuilder:timingform:${sessionId}`, { fields: { getTextInputValue: name => (name === 'duration' ? '2h' : '2') } });
   await handleGiveawayBuilderInteraction(timing, w.client);
   assert.match(timing.updated.embeds[0].description, /\*\*Winners\*\*\n2\n/);
-  // A role selector appears above the channel selector, without changing the other buttons.
-  const role = click(`gbuilder:role:${sessionId}`, { values: ['giveaway-role'], isRoleSelectMenu: () => true });
+  // "Role" opens a small form with the role picker; the controls keep their
+  // five rows (Discord's limit).
+  const roleChoice = click(`gbuilder:pingtype:${sessionId}`, { values: ['role'], isStringSelectMenu: () => true });
+  await handleGiveawayBuilderInteraction(roleChoice, w.client);
+  assert.equal(roleChoice.modal.title, 'Tag a role');
+  assert.equal(roleChoice.modal.components[0].component.placeholder, 'Choose the role');
+  const role = click(`gbuilder:roleform:${sessionId}`, { fields: { getField: () => ({ values: ['giveaway-role'] }) } });
   await handleGiveawayBuilderInteraction(role, w.client);
-  assert.equal(json(role.updated.components[0]).components[0].options[1].default, true);
-  assert.equal(json(role.updated.components[1]).components[0].custom_id, `gbuilder:role:${sessionId}`);
-  assert.equal(json(role.updated.components[1]).components[0].placeholder, 'Choose the role');
-  assert.equal(json(role.updated.components[2]).components[0].custom_id, `gbuilder:channel:${sessionId}`);
-  assert.equal(json(role.updated.components[4]).components[1].disabled, true);
+  assert.equal(role.updated.components.length, 5);
+  assert.match(json(role.updated.components[0]).components[0].placeholder, /^Role: @/);
+  assert.equal(json(role.updated.components[1]).components[0].custom_id, `gbuilder:channel:${sessionId}`);
+  assert.equal(json(role.updated.components[4]).components[0].disabled, true);
   // Posting becomes available only once the user chooses a channel.
   const channel = click(`gbuilder:channel:${sessionId}`, { values: ['giveaways'], isChannelSelectMenu: () => true });
   await handleGiveawayBuilderInteraction(channel, w.client);
-  assert.equal(json(channel.updated.components[4]).components[1].disabled, false);
+  assert.equal(json(channel.updated.components[4]).components[0].disabled, false);
   const post = click(`gbuilder:post:${sessionId}`);
   await handleGiveawayBuilderInteraction(post, w.client);
   const posted = w.sent[0];
@@ -819,6 +842,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.equal(stored.requirements, 'Level 5');
   assert.equal(stored.claim, null);
   assert.equal(stored.winnerCount, 2);
+  assert.equal(stored.codeType, 'standard');
   assert.ok(stored.endsAt > Date.now() + 7_100_000);
   assert.equal(json(post.edited.embeds[0]).title, 'Success');
   // The builder is closed once posted.
@@ -841,7 +865,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   assert.notEqual(json(reopen.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(json(reopen.replies[0].components[0]).components[0].placeholder, 'Choose a tag');
   assert.equal(json(reopen.replies[0].components[1]).components[0].placeholder, 'Choose a channel');
-  assert.equal(json(reopen.replies[0].components[3]).components[1].disabled, true);
+  assert.equal(json(reopen.replies[0].components[4]).components[0].disabled, true);
 });
 
 test('opening a new builder ignores past giveaways and legacy saved templates', async () => {
@@ -873,7 +897,7 @@ test('opening a new builder ignores past giveaways and legacy saved templates', 
   assert.match(winner.description, /satisfied with your experience/);
   assert.doesNotMatch(winner.description, /Old custom claim review text/);
   assert.doesNotMatch(giveaway.description, /Custom old introduction|Old saved giveaway prize/);
-  assert.equal(command.replies[0].components.length, 4);
+  assert.equal(command.replies[0].components.length, 5);
   assert.notEqual(json(command.replies[0].components[0]).components[0].options[2].default, true);
   assert.equal(w.sent.length, 0);
 });

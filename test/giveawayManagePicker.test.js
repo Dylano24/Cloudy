@@ -4,6 +4,7 @@ import { Collection, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import command from '../src/commands/Giveaway/giveaway.js';
 import buttons from '../src/interactions/buttons/giveaway/giveaway.js';
 import select from '../src/interactions/selectMenus/giveaway/giveawayManage.js';
+import statusSelect from '../src/interactions/selectMenus/giveaway/giveawayManageStatus.js';
 import messageDeleted from '../src/events/giveawayOriginalMessageDelete.js';
 import bulkDeleted from '../src/events/giveawayOriginalMessageBulkDelete.js';
 import channelDeleted from '../src/events/giveawayOriginalChannelDelete.js';
@@ -120,14 +121,30 @@ test('posted ended giveaways are visible alongside active ones, but deleted post
   const picker = w.interaction();
   await command.execute(picker);
   assert.equal(picker.deferred.flags, MessageFlags.Ephemeral);
-  const menu = json(picker.response.components[0]).components[0];
-  assert.deepEqual(menu.options.map(option => option.value),
-    [active.messageId, expired.messageId, ended.messageId]);
-  assert.match(menu.options[0].description, /Active.*#giveaways/);
-  assert.match(menu.options[1].description, /Ended.*#giveaways/);
-  assert.match(menu.options[2].description, /Ended.*#giveaways/);
-  assert.match(picker.response.embeds[0].description, /3 giveaways/);
+  // Manage > status (active or ended) > giveaway.
+  assert.equal(picker.response.components.length, 1);
+  const status = json(picker.response.components[0]).components[0];
+  assert.equal(status.custom_id, `gmanage_status:${OWNER}`);
+  assert.equal(status.placeholder, 'Choose a status');
+  assert.deepEqual(status.options.map(option => [option.label, option.value, option.description]),
+    [['Active giveaways', 'active', '1 giveaway'], ['Ended giveaways', 'ended', '2 giveaways']]);
+  assert.match(picker.response.embeds[0].description, /Choose a giveaway status\.\n\n1 active · 2 ended/);
   assert.ok(picker.response.embeds[0].thumbnail.url);
+  const activeList = w.interaction(OWNER, 'select', { values: ['active'] });
+  await statusSelect.execute(activeList, w.client, [OWNER]);
+  assert.equal(activeList.updated, true);
+  assert.equal(json(activeList.response.components[0]).components[0].options[0].default, true);
+  const activeMenu = json(activeList.response.components[1]).components[0];
+  assert.deepEqual(activeMenu.options.map(option => option.value), [active.messageId]);
+  assert.match(activeMenu.options[0].description, /Active.*#giveaways/);
+  assert.match(activeList.response.embeds[0].description, /1 active giveaway · Page 1\/1/);
+  const endedList = w.interaction(OWNER, 'select', { values: ['ended'] });
+  await statusSelect.execute(endedList, w.client, [OWNER]);
+  const menu = json(endedList.response.components[1]).components[0];
+  assert.deepEqual(menu.options.map(option => option.value), [expired.messageId, ended.messageId]);
+  assert.match(menu.options[0].description, /Ended.*#giveaways/);
+  assert.match(menu.options[1].description, /Ended.*#giveaways/);
+  assert.match(endedList.response.embeds[0].description, /2 ended giveaways/);
   assert.equal(w.records.has(removed.messageId), false, 'deleted ended giveaway is pruned');
   assert.equal(w.records.has(ended.messageId), true, 'posted ended giveaway is retained');
   assert.equal(w.records.has(expired.messageId), true, 'past-due original message is retained');
@@ -136,23 +153,23 @@ test('posted ended giveaways are visible alongside active ones, but deleted post
   assert.equal(choose.updated, true);
   assert.equal(choose.response.embeds[0].title, 'Manage giveaway');
   const labels = choose.response.components.flatMap(row => json(row).components.map(c => c.label));
-  assert.deepEqual(labels, ['Reroll', 'Edit text', 'Edit timer', 'End', 'View participants', 'Delete', 'Edit claim']);
+  assert.deepEqual(labels, ['Edit text', 'Edit claim', 'Edit timer', 'Code', 'View participants', 'End', 'Delete']);
   const endedChoice = w.interaction(OWNER, 'select', { values: [ended.messageId] });
   await select.execute(endedChoice, w.client, [OWNER]);
   assert.equal(endedChoice.updated, true);
   assert.match(endedChoice.response.embeds[0].description, /This giveaway has ended/);
   const endedLabels = endedChoice.response.components.flatMap(row =>
     json(row).components.map(component => component.label));
-  assert.deepEqual(endedLabels, ['Reroll', 'View participants', 'Delete']);
+  assert.deepEqual(endedLabels, ['Reroll', 'Code', 'View participants', 'Delete']);
 });
 
 test('ended giveaways are still selectable even when no active giveaway exists', async () => {
   const w = world([prize(1, true), { ...prize(2), endsAt: Date.now() - 1000 }]);
   const picker = w.interaction();
-  await showGiveawayManagePicker(picker, w.client);
-  assert.equal(picker.response.components.length, 1);
-  assert.match(picker.response.embeds[0].description, /2 giveaways/i);
-  const menu = json(picker.response.components[0]).components[0];
+  await showGiveawayManagePicker(picker, w.client, 0, OWNER, 'ended');
+  assert.equal(picker.response.components.length, 2);
+  assert.match(picker.response.embeds[0].description, /2 ended giveaways/i);
+  const menu = json(picker.response.components[1]).components[0];
   assert.equal(menu.options.length, 2);
   assert.ok(menu.options.every(option => option.description.startsWith('Ended')));
   assert.equal(w.records.size, 2);
@@ -173,18 +190,19 @@ test('multiple active giveaways are paginated without duplicates', async () => {
   const giveaways = Array.from({ length: 56 }, (_, i) => prize(i));
   const w = world(giveaways);
   const sorted = await listManageableGiveaways(w.client, GUILD);
-  const first = buildGiveawayManagePicker(sorted, w.guild, OWNER, 0);
-  assert.equal(json(first.components[0]).components[0].options.length, 25);
-  assert.equal(json(first.components[1]).components[0].disabled, true);
+  const first = buildGiveawayManagePicker(sorted, w.guild, OWNER, 0, 'active');
+  assert.equal(json(first.components[1]).components[0].options.length, 25);
+  assert.equal(json(first.components[2]).components[0].disabled, true);
+  assert.equal(json(first.components[2]).components[1].custom_id, `gmanage_page:${OWNER}:1:active`);
   const next = w.interaction(OWNER, 'button');
-  await buttons.find(item => item.name === 'gmanage_page').execute(next, w.client, [OWNER, '1']);
+  await buttons.find(item => item.name === 'gmanage_page').execute(next, w.client, [OWNER, '1', 'active']);
   assert.equal(next.updated, true);
-  assert.equal(json(next.response.components[0]).components[0].options.length, 25);
-  const last = buildGiveawayManagePicker(sorted, w.guild, OWNER, 2);
-  assert.equal(json(last.components[0]).components[0].options.length, 6);
-  assert.equal(json(last.components[1]).components[1].disabled, true);
+  assert.equal(json(next.response.components[1]).components[0].options.length, 25);
+  const last = buildGiveawayManagePicker(sorted, w.guild, OWNER, 2, 'active');
+  assert.equal(json(last.components[1]).components[0].options.length, 6);
+  assert.equal(json(last.components[2]).components[1].disabled, true);
   const ids = [first, next.response, last].flatMap(payload =>
-    json(payload.components[0]).components[0].options.map(option => option.value));
+    json(payload.components[1]).components[0].options.map(option => option.value));
   assert.equal(new Set(ids).size, 56);
 });
 
@@ -216,7 +234,7 @@ test('stale selection hides deleted giveaways but still opens posted ended givea
   const late = ended.interaction(OWNER, 'select', { values: [current.messageId] });
   await selectGiveawayToManage(late, ended.client, OWNER);
   assert.deepEqual(late.response.components.flatMap(row =>
-    json(row).components.map(component => component.label)), ['Reroll', 'View participants', 'Delete']);
+    json(row).components.map(component => component.label)), ['Reroll', 'Code', 'View participants', 'Delete']);
 });
 
 test('Manage Delete removes an original from the database and any open picker', async () => {
@@ -224,12 +242,14 @@ test('Manage Delete removes an original from the database and any open picker', 
   const first = prize(1);
   assert.equal(await deleteGiveaway(w.client, GUILD, first.messageId), true);
   const picker = w.interaction();
-  await showGiveawayManagePicker(picker, w.client);
-  const values = json(picker.response.components[0]).components[0].options.map(x => x.value);
+  await showGiveawayManagePicker(picker, w.client, 0, OWNER, 'active');
+  const values = json(picker.response.components[1]).components[0].options.map(x => x.value);
   assert.deepEqual(values, [prize(2).messageId]);
   const stale = w.interaction(OWNER, 'select', { values: [first.messageId] });
   await selectGiveawayToManage(stale, w.client, OWNER);
-  assert.deepEqual(json(stale.response.components[0]).components[0].options.map(x => x.value), [prize(2).messageId]);
+  // Back to the status step, which counts only the remaining giveaway.
+  assert.equal(json(stale.response.components[0]).components[0].custom_id, `gmanage_status:${OWNER}`);
+  assert.match(stale.response.embeds[0].description, /1 active · 0 ended/);
 });
 
 test('manual in-channel message deletion removes only that giveaway, not other messages', async () => {
@@ -245,8 +265,8 @@ test('manual in-channel message deletion removes only that giveaway, not other m
   assert.equal(w.records.has(one.messageId), false);
   assert.equal(w.records.has(two.messageId), true);
   const picker = w.interaction();
-  await showGiveawayManagePicker(picker, w.client);
-  assert.deepEqual(json(picker.response.components[0]).components[0].options.map(x => x.value), [two.messageId]);
+  await showGiveawayManagePicker(picker, w.client, 0, OWNER, 'active');
+  assert.deepEqual(json(picker.response.components[1]).components[0].options.map(x => x.value), [two.messageId]);
 });
 
 test('bulk deleting original messages removes matching records only', async () => {
