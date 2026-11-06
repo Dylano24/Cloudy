@@ -224,9 +224,7 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
     .addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Question**\n${vote.question}`));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
-  // Between the parts the white glowing dot (owner's choice), like the card's bullets.
-  const dot = feedEmoji('dot');
-  const line = index => `${numberIcon(index)} **${vote.options[index]}** ${dot} ${votes(counts[index])} ${dot} ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
+  const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
   const winners = mostVoted(vote);
   // Results first, then Most votes with the winner's picture (owner's choice).
   card.addSeparatorComponents(sectionGap())
