@@ -165,8 +165,8 @@ function buildPreviewVoteMessage(vote, parts) {
     .setAccentColor(0xFFFFFF)
     .addTextDisplayComponents(text(`### ${vote.title || 'Vote started'}\n**Question**\n${vote.question}\n**Choices**`));
   parts.options.forEach((option, index) => {
-    // Unicode number keycaps (not custom emoji, which flickered on every redraw).
-    const line = text(`${VOTE_NUMBERS[index]} ${vote.options[index]}`);
+    // Cloudy's own number emoji (owner's choice).
+    const line = text(`${numberIcon(index)} **${vote.options[index]}**`);
     if (option.picture && !parts.ended) {
       card.addSectionComponents(new SectionBuilder()
         .addTextDisplayComponents(line)
@@ -178,7 +178,7 @@ function buildPreviewVoteMessage(vote, parts) {
       card.addTextDisplayComponents(line);
     }
   });
-  card.addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}\n**Mode**\nSingle votes only`));
+  card.addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`));
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
     .setURL(VOTE_FOOTER_URL)));
   const rows = [];
@@ -208,14 +208,15 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
       '**Question**', vote.question,
       '**Total**', votes(total),
       '**Results**',
-      ...order.map(index => `${VOTE_NUMBERS[index]} ${(total ? counts[index] / total * 100 : 0).toFixed(2)}% (${votes(counts[index])}) - ${vote.options[index]}`),
+      // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
+      ...order.map(index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`),
     ].join('\n')));
   // The winner's picture (owner's choice).
   if (pictureNames.length) {
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
       .setURL(`attachment://${name}`))));
   }
-  card.addTextDisplayComponents(text(`**Ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>\n**Mode**\nSingle votes only`));
+  card.addTextDisplayComponents(text(`**Ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
   return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
