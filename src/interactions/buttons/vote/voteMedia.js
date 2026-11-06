@@ -3,67 +3,40 @@ import { warningEmbed } from '../../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../../utils/embedColorPolicy.js';
 import { CLOUDY_FOOTER, loadVote, votePicture } from '../../../services/voteService.js';
 import { freshVotePictureLinks } from '../../../services/voteMediaService.js';
-import { keepVotePreview, keptVotePreview, shrinkVotePicture } from '../../../services/votePreviewService.js';
+import { shrinkVotePicture, votePreviewFile } from '../../../services/votePreviewService.js';
 import { registerPendingDelete, unregisterPendingDelete } from '../../../utils/pendingTransientDeletes.js';
 
 export const PICTURE_LIFETIME_MS = 30_000;
 export const NOTICE_MS = 10_000;
 // Discord waits 3 seconds for the answer.
 export const ANSWER_WITHIN_MS = 2_000;
-const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
 const wait = ms => new Promise(resolve => {
   const timer = setTimeout(() => resolve(null), ms);
   timer.unref?.();
 });
 
-async function download(url, fetchImpl) {
-  try {
-    const response = await fetchImpl(url, { signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) return null;
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return buffer.length && buffer.length <= MAX_PICTURE_BYTES ? buffer : null;
-  } catch {
-    return null;
-  }
-}
-
-// The picture goes along as a file: Discord then knows its size at once and
-// shows the whole message straight away (with only a link, the small embed
-// with just the footer appeared first and the picture popped in later). It is
-// the small copy (votePreviewService.js), made when the vote was posted.
-async function pictureFile(client, vote, position, url, fetchImpl, shrink) {
-  const known = keptVotePreview(vote.messageId, position);
-  if (known) return known;
-  let buffer = await download(url, fetchImpl);
-  if (!buffer && vote.optionMedia) {
-    // Discord's picture link may have expired: ask for a fresh one.
-    const fresh = (await freshVotePictureLinks(client, vote.optionMedia).catch(() => null))?.[position];
-    if (fresh) buffer = await download(fresh, fetchImpl);
-  }
-  if (!buffer) return null;
-  const extension = String(new URL(url).pathname).match(/\.(png|jpe?g|gif|webp)$/i)?.[1]?.toLowerCase() || 'png';
-  const file = await shrink(buffer, `option${position + 1}.${extension}`);
-  keepVotePreview(vote.messageId, position, file);
-  return file;
-}
-
 async function previewAnswer(client, interaction, position, fetchImpl, shrink) {
   const vote = await loadVote(client, interaction.guildId, interaction.message.id);
-  const picture = vote ? votePicture(vote, position) : null;
-  if (!picture) {
+  const url = vote ? votePicture(vote, position) : null;
+  // The small copy (votePreviewService.js), made when the vote was posted.
+  const file = vote ? await votePreviewFile({
+    messageId: vote.messageId, position, url, fetchImpl, shrink,
+    // Discord's picture link may have expired: ask for a fresh one.
+    refresh: vote.optionMedia ? async () => (await freshVotePictureLinks(client, vote.optionMedia))?.[position] : null,
+  }) : null;
+  if (!file && !url) {
     return {
       payload: { embeds: [setPreservedEmbedColor(warningEmbed('Warning', 'This picture is no longer available.'), CLOUDY_RED_COLOR)] },
       lifetime: NOTICE_MS,
     };
   }
-  const file = await pictureFile(client, vote, position, picture, fetchImpl, shrink);
   // The option's name and its picture (owner's choice: no title, no logo).
   const option = vote.options?.[position];
   return {
     payload: {
       embeds: [{
         ...(option ? { description: `**${option}**` } : {}),
-        image: { url: file ? `attachment://${file.name}` : picture }, color: 0xFFFFFF, footer: { text: CLOUDY_FOOTER },
+        image: { url: file ? `attachment://${file.name}` : url }, color: 0xFFFFFF, footer: { text: CLOUDY_FOOTER },
       }],
       ...(file ? { files: [file] } : {}),
     },
