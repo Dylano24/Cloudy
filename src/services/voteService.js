@@ -176,22 +176,31 @@ function buildPreviewVoteMessage(vote, parts) {
     .addTextDisplayComponents(text([`### ${vote.title || 'Vote started'}`, ...howTo].join('\n')))
     .addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Question**\n${vote.question}`))
-    .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text('**Choices**'));
+    .addSeparatorComponents(sectionGap());
+  // Choices sit tight under their heading in one block, like Results (owner's
+  // choice). Only a choice with a picture is its own block: Discord can put
+  // its Preview button only beside a block of its own.
+  let lines = ['**Choices**'];
+  const flush = () => {
+    if (lines.length) card.addTextDisplayComponents(text(lines.join('\n')));
+    lines = [];
+  };
   parts.options.forEach((option, index) => {
     // Cloudy's own number emoji (owner's choice).
-    const line = text(`${numberIcon(index)} **${vote.options[index]}**`);
+    const line = `${numberIcon(index)} **${vote.options[index]}**`;
     if (option.picture && !parts.ended) {
+      flush();
       card.addSectionComponents(new SectionBuilder()
-        .addTextDisplayComponents(line)
+        .addTextDisplayComponents(text(line))
         .setButtonAccessory(new ButtonBuilder()
           .setCustomId(`vote_media:${index}`)
           .setLabel('Preview')
           .setStyle(ButtonStyle.Secondary)));
     } else {
-      card.addTextDisplayComponents(line);
+      lines.push(line);
     }
   });
+  flush();
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
     .addSeparatorComponents(sectionGap());
