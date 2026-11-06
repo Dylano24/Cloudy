@@ -67,13 +67,12 @@ export function voteCounts(vote) {
   return counts;
 }
 
-// A green progress bar made of custom emoji pieces (rounded ends).
+// The progress bar is plain text (owner's choice): ▰ filled, ▱ open. The
+// green bar of custom emoji pictures flickered every time Discord redrew the
+// vote (the pictures loaded again); text never has to load.
 function bar(share, length) {
   const filled = Math.round(share * length);
-  return Array.from({ length }, (_, index) => {
-    const end = index === 0 ? 'l' : index === length - 1 ? 'r' : 'm';
-    return feedEmoji(`bar_${end}${index < filled ? 'f' : 'e'}`);
-  }).join('');
+  return '▰'.repeat(filled) + '▱'.repeat(length - filled);
 }
 
 // The pieces of a vote, shared by both layouts.
@@ -142,11 +141,13 @@ function buildPreviewVoteMessage(vote, parts) {
     // The Preview button stands next to the bar itself, level with its middle
     // (owner's choice), so the bar is the only text beside it.
     if (!option.picture) {
-      card.addTextDisplayComponents(text(option.bar));
+      card.addTextDisplayComponents(text(`### ${option.bar}`));
       return;
     }
     card.addSectionComponents(new SectionBuilder()
-      .addTextDisplayComponents(text(option.bar))
+      // As a heading (owner's choice): only a line as tall as the button
+      // stands level with it, Discord puts the button at the top of the line.
+      .addTextDisplayComponents(text(`### ${option.bar}`))
       .setButtonAccessory(new ButtonBuilder()
         .setCustomId(`vote_media:${index}`)
         .setLabel('Preview')
