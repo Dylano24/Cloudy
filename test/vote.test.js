@@ -29,7 +29,8 @@ const json = value => value?.toJSON?.() || value;
 // The counts on the vote buttons (number + count, like a classic map poll).
 function countsOf(payload) {
   const row = (payload.components || []).map(json).find(component => component.type === 1);
-  return row ? row.components.map(button => button.label) : [];
+  // The label is the text number badge and the count ("❶ 3").
+  return row ? row.components.map(button => button.label.split(' ').pop()) : [];
 }
 
 function textOf(payload) {
@@ -140,7 +141,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.doesNotMatch(text, /[▰▱]|<t:\d+:R>|Mode/, 'no bars, no countdown, no mode');
   assert.equal(card.components.some(part => part.type === 9 && part.accessory?.type === 2), false, 'no Preview without pictures');
   assert.deepEqual(json(posted.components[1]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
-    [['vote_cast:0', '1️⃣', '0'], ['vote_cast:1', '2️⃣', '0']], 'number and count on each button');
+    [['vote_cast:0', undefined, '❶ 0'], ['vote_cast:1', undefined, '❷ 0']], 'a text number badge and the count; no picture in a button');
   assert.equal(json(form.answer.embeds[0]).title, 'Success');
   assert.equal((await loadVote(w.client, GUILD, posted.id)).options.length, 2);
 });
@@ -338,7 +339,7 @@ test('the option button only votes: the picture opens from the blue link, the no
   const posted = w.sent[0];
   const row = posted.components.map(json).find(component => component.type === 1);
   assert.deepEqual(row.components.map(button => [button.custom_id, button.label]),
-    [['vote_cast:0', '0'], ['vote_cast:1', '0']], 'one button per option: number and count');
+    [['vote_cast:0', '❶ 0'], ['vote_cast:1', '❷ 0']], 'one button per option: number and count');
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const click = (index, user = 'member') => {
@@ -861,12 +862,11 @@ test('/votemanage lists only votes still in a channel: a vote deleted in Discord
   assert.equal(await loadVote(w.client, GUILD, kept), null);
 });
 
-test('the vote buttons use a still copy of each number badge (animated ones sometimes stayed empty in a button)', async () => {
-  const { existsSync } = await import('node:fs');
-  for (let number = 1; number <= 10; number += 1) {
-    assert.ok(existsSync(new URL(`../assets/vote-emojis/key_${number}_still.png`, import.meta.url)), `still badge ${number}`);
-  }
-  const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../src/services/voteService.js', import.meta.url), 'utf8'));
-  assert.equal((source.match(/\.setEmoji\(buttonIcon\(index\)\)/g) || []).length, 2, 'both layouts use the still badge in their buttons');
-  assert.doesNotMatch(source, /\.setEmoji\(numberIcon\(/, 'no animated badge in a button');
+test('the vote buttons carry no picture at all, only text, so Discord can never leave one empty', () => {
+  const card = buildVoteMessage({ messageId: '1', guildId: GUILD, question: 'Q', options: ['A', 'B', 'C'], votes: { u: 2 }, layout: 'preview' });
+  const buttons = json(card.components.at(-1)).components;
+  assert.deepEqual(buttons.map(button => [button.emoji, button.label]), [[undefined, '❶ 0'], [undefined, '❷ 0'], [undefined, '❸ 1']]);
+  const classic = buildVoteMessage({ messageId: '2', guildId: GUILD, question: 'Q', options: ['Map one', 'Map two'], votes: {} });
+  assert.deepEqual(json(classic.components[0]).components.map(button => [button.emoji, button.label]),
+    [[undefined, '❶ Map one'], [undefined, '❷ Map two']], 'older votes too');
 });
