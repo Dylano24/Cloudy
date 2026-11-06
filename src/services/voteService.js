@@ -261,7 +261,13 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
     .addTextDisplayComponents(text(`**Vote ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
   card.addSeparatorComponents(sectionGap())
     .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
-  return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
+  // The role tagged on the vote is tagged on its result too (owner's choice).
+  const tag = voteTag(vote);
+  return {
+    flags: MessageFlags.IsComponentsV2,
+    components: [...(tag ? [text(tag)] : []), card],
+    allowedMentions: voteMentions(vote),
+  };
 }
 
 export function buildVoteMessage(vote, now = Date.now()) {
