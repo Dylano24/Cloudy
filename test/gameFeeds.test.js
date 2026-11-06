@@ -37,11 +37,11 @@ test.afterEach(() => clearGameFeedQueues());
 test('classic feed embeds with names in code, big logo, footer with small logo and Time', () => {
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
   assert.deepEqual(embeds.map(embed => embed.title.replace(/^<a?:\w+:\d+> /, '')), [
-    'Dyn <a:cloudy_headshot:1568299328450207764> Dylano', 'LOGIN', 'LOGOUT', 'Kit claimed',
+    'Kill feed', 'LOGIN', 'LOGOUT', 'Kit claimed',
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
-  // Player killed (owner's choice): the skull between the names, then only an icon and its value per line.
-  assert.match(embeds[0].description, /^<a:cloudy_killer:\d+> `Dyn`\n<a:cloudy_victim:\d+> `Dylano`\n<a:cloudy_rifle:\d+> Assault rifle\n<a:cloudy_distance:\d+> 145 m\n<a:cloudy_headshot:\d+> Headshot\n<a:cloudy_killstreak:\d+> 3\n<a?:server_router:\d+> Darkzone South\n<:W87205667glowingdotwhite:\d+> <t:\d+:f>$/);
+  // Player killed (owner's choice): "Kill feed", killer, skull, victim and streak on one line, then icon and value per line.
+  assert.match(embeds[0].description, /^<a:cloudy_killer:\d+> `Dyn` <a:cloudy_headshot:\d+> <a:cloudy_victim:\d+> `Dylano` <a:cloudy_killstreak:\d+> 3\n<a:cloudy_rifle:\d+> Assault rifle\n<a:cloudy_distance:\d+> 145 m\n<a?:server_router:\d+> Darkzone South\n<:W87205667glowingdotwhite:\d+> <t:\d+:f>$/);
   assert.doesNotMatch(embeds[0].description, /:\*\*/, 'no labels with colons');
   assert.equal(isGameFeedEmbed(embeds[0]), true, 'still skipped by every response-template layer');
   assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+>\n/);
