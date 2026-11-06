@@ -132,18 +132,17 @@ export function buildGameFeedEmbed(event) {
   const serverIcon = line('Server', event.server, 'server');
   switch (event.type) {
     case 'pvp': {
-      // Player killed (owner's choice): "Dyn <skull> Dylano" as the title and
-      // every line the owner's icon and its value, no labels or colons.
+      // Player killed (owner's choice): the title is "Kill feed", then the
+      // killer, the skull, the victim and the streak on one line, then only an
+      // icon and its value per line, no labels or colons.
       const icon = (key, value) => (value == null || value === '' ? null : `${feedEmoji(key)} ${value}`);
+      const streak = event.streak > 1 ? ` ${feedEmoji('kill_streak')} ${event.streak}` : '';
       return {
-        title: `${event.killer} ${feedEmoji('kill_skull')} ${event.victim}`,
+        title: 'Kill feed',
         description: [
-          icon('kill_killer', name(event.killer)),
-          icon('kill_victim', name(event.victim)),
+          `${feedEmoji('kill_killer')} ${name(event.killer)} ${feedEmoji('kill_skull')} ${feedEmoji('kill_victim')} ${name(event.victim)}${streak}`,
           icon('kill_weapon', event.weapon),
           icon('kill_distance', event.distance == null ? null : `${event.distance} m`),
-          event.headshot ? icon('kill_skull', 'Headshot') : null,
-          event.streak > 1 ? icon('kill_streak', String(event.streak)) : null,
           icon('server', event.server),
           icon('dot', `<t:${unix(event.time)}:f>`),
         ].filter(Boolean).join('\n'),
