@@ -167,10 +167,12 @@ function buildPreviewVoteMessage(vote, parts) {
   const text = content => new TextDisplayBuilder().setContent(content);
   // A short how-to under the title (owner's choice), like a classic map poll.
   const hasPreview = !parts.ended && parts.options.some(option => option.picture);
+  // The bullets are Cloudy's white glowing dot (owner's choice), as in the feeds.
+  const dot = feedEmoji('dot');
   const howTo = [
-    '• Press a number below to vote.',
-    '• Press another number to change your vote.',
-    ...(hasPreview ? ['• Press **Preview** to see the pictures.'] : []),
+    `${dot} Press a number below to vote.`,
+    `${dot} Press another number to change your vote.`,
+    ...(hasPreview ? [`${dot} Press **Preview** to see the pictures.`] : []),
   ];
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
@@ -222,7 +224,9 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
     .addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Question**\n${vote.question}`));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
-  const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
+  // Between the parts the white glowing dot (owner's choice), like the card's bullets.
+  const dot = feedEmoji('dot');
+  const line = index => `${numberIcon(index)} **${vote.options[index]}** ${dot} ${votes(counts[index])} ${dot} ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
   const winners = mostVoted(vote);
   // Results first, then Most votes with the winner's picture (owner's choice).
   card.addSeparatorComponents(sectionGap())
