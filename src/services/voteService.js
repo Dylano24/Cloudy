@@ -36,12 +36,10 @@ export const MAX_VOTE_OPTIONS = 10;
 // Every number is a custom digit emoji (owner's choice).
 const numberIcon = index => feedEmoji(`vote_${index + 1}`);
 export const voteNumberIcon = numberIcon;
-// The buttons carry no picture at all (owner's choice: it must never glitch):
-// Discord's app sometimes left a custom emoji in a button empty when a vote was
-// posted, animated or still. A number badge that is plain text always shows.
-// The choices and results keep the animated badges.
-const BUTTON_NUMBERS = ['❶', '❷', '❸', '❹', '❺', '❻', '❼', '❽', '❾', '❿'];
-const buttonNumber = index => BUTTON_NUMBERS[index] || String(index + 1);
+// The buttons carry a still copy of the badge (owner's choice): an animated
+// emoji in a button sometimes stayed empty in Discord's app until the vote was
+// redrawn. The choices and results keep the animated badges.
+const buttonIcon = index => feedEmoji(`vote_${index + 1}_still`);
 
 // All pictures of an older vote share this URL so Discord shows them together in one embed.
 export const GALLERY_URL = 'https://rustmaps.com';
@@ -145,7 +143,8 @@ function voteParts(vote, now) {
   // One button per option (owner's choice): its digit and its name. It only votes.
   const buttons = vote.options.map((option, index) => new ButtonBuilder()
     .setCustomId(`vote_cast:${index}`)
-    .setLabel(`${buttonNumber(index)} ${option}`.slice(0, 80))
+    .setEmoji(buttonIcon(index))
+    .setLabel(option.slice(0, 80))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(Boolean(ended)));
   // Once the vote has ended its buttons are gone (owner's choice).
@@ -219,7 +218,8 @@ function buildPreviewVoteMessage(vote, parts) {
   if (!parts.ended) {
     const buttons = parts.options.map((option, index) => new ButtonBuilder()
       .setCustomId(`vote_cast:${index}`)
-      .setLabel(`${buttonNumber(index)} ${option.count}`)
+      .setEmoji(buttonIcon(index))
+      .setLabel(String(option.count))
       .setStyle(ButtonStyle.Secondary));
     for (let start = 0; start < buttons.length; start += 5) rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
