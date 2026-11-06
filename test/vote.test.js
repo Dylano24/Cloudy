@@ -681,6 +681,7 @@ test('Preview opens a dropdown of the choices with a picture; a choice shows onl
   assert.equal(preview.answer.embeds, undefined, 'first only the dropdown');
   const menu = json(preview.answer.components[0]).components[0];
   assert.equal(menu.custom_id, `vote_pick:${w.sent[0].id}:pall`);
+  assert.equal(menu.placeholder, 'Choices preview');
   assert.deepEqual(menu.options.map(option => [option.label, option.value, option.emoji.name, Boolean(option.default)]), [
     ['West', '0', '1️⃣', false],
     ['South', '2', '3️⃣', false],
