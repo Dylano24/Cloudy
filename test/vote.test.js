@@ -4,7 +4,6 @@ import { Collection } from 'discord.js';
 import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
 import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
-import votePick from '../src/interactions/selectMenus/vote/votePick.js';
 import votemanage from '../src/commands/Tools/votemanage.js';
 import voteManageSelects from '../src/interactions/selectMenus/vote/voteManage.js';
 import voteManageButtons from '../src/interactions/buttons/vote/voteManage.js';
@@ -212,7 +211,7 @@ test('an ended vote stays as it was without buttons; the result is a message und
   assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
   const result = w.sent[0].reply;
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
-  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Total\*\*\n1 vote\n\*\*Ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
+  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Total votes\*\*\n1 vote\n\*\*Vote ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
   // The normal layout (older votes) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
@@ -646,7 +645,7 @@ test('the card bar is a picture in steps of 5%: the same picture (and link) unti
   assert.match(voteBarPicture(0.5), /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/vote-bars\/bar_10\.png$/, 'a fixed link');
 });
 
-test('Preview opens a dropdown of the choices with a picture; a choice shows only its picture, without logo', async t => {
+test('the one Preview beside the choices shows every picture at once, each with its number and name, never the logo', async () => {
   forgetVotePreviews();
   const w = world();
   const deps = {
@@ -663,40 +662,18 @@ test('Preview opens a dropdown of the choices with a picture; a choice shows onl
     },
     deps,
   });
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const tick = async ms => { t.mock.timers.tick(ms); await new Promise(resolve => { setImmediate(resolve); }); };
-  const preview = { id: 'pall', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id }, deleted: 0,
-    reply: async payload => { preview.answer = payload; }, deferReply: async () => {}, editReply: async () => {},
-    deleteReply: async () => { preview.deleted += 1; } };
+  const preview = { id: 'pall', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id },
+    reply: async payload => { preview.answer = payload; }, deferReply: async () => {}, editReply: async () => {}, deleteReply: async () => {} };
   await votePreview.execute(preview, w.client, ['all'], { fetchImpl: async () => ({ ok: false }), shrink: keepAsIs });
   assert.equal(preview.answer.flags, 64, 'private');
-  assert.equal(preview.answer.embeds, undefined, 'first only the dropdown');
-  const menu = json(preview.answer.components[0]).components[0];
-  assert.equal(menu.custom_id, `vote_pick:${w.sent[0].id}:pall`);
-  assert.deepEqual(menu.options.map(option => [option.label, option.value, option.emoji.name, Boolean(option.default)]), [
-    ['West', '0', '1️⃣', false],
-    ['South', '2', '3️⃣', false],
-  ], 'only the choices with a picture, each with its number');
-  await tick(20_000);
-  const pick = { guildId: GUILD, values: ['2'], message: { id: 'private' }, deleted: 0,
-    update: async payload => { pick.answer = payload; }, deferUpdate: async () => {}, editReply: async () => {},
-    deleteReply: async () => { pick.deleted += 1; } };
-  await votePick.execute(pick, w.client, [w.sent[0].id, 'pall'], { fetchImpl: async () => ({ ok: false }), shrink: keepAsIs });
-  assert.equal(pick.answer.embeds.length, 1, 'only the chosen picture');
-  const [embed] = pick.answer.embeds;
-  assert.equal(embed.description, '3️⃣ **South**');
-  assert.equal(embed.image.url, 'attachment://option3.png');
-  assert.equal(embed.footer.text, CLOUDY_FOOTER);
-  assert.equal(withCloudyFooter({ embeds: pick.answer.embeds }).embeds[0].thumbnail, undefined, 'no logo: it has its own footer');
-  assert.deepEqual(pick.answer.files.map(file => file.name), ['option3.png']);
-  assert.deepEqual(pick.answer.attachments, [], 'the picture shown before is replaced');
-  const chosen = json(pick.answer.components[0]).components[0].options.filter(option => option.default);
-  assert.deepEqual(chosen.map(option => option.value), ['2'], 'the dropdown stays to switch, with the choice selected');
-  await tick(29_000);
-  assert.deepEqual([preview.deleted, pick.deleted], [0, 0], 'a choice restarts the 30 seconds');
-  await tick(1_000);
-  assert.deepEqual([preview.deleted, pick.deleted], [0, 1], 'gone 30 seconds after the last choice, once');
-  t.mock.timers.reset();
+  assert.equal(preview.answer.components, undefined, 'no dropdown: the pictures at once');
+  assert.deepEqual(preview.answer.embeds.map(embed => [embed.description, embed.image.url, embed.footer.text]), [
+    ['1️⃣ **West**', 'attachment://option1.png', CLOUDY_FOOTER],
+    ['3️⃣ **South**', 'attachment://option3.png', CLOUDY_FOOTER],
+  ], 'only options with a picture, each with the Cloudy footer');
+  assert.deepEqual(withCloudyFooter({ embeds: preview.answer.embeds }).embeds.map(embed => embed.thumbnail), [undefined, undefined],
+    'no logo on any picture');
+  assert.deepEqual(preview.answer.files.map(file => file.name), ['option1.png', 'option3.png']);
 });
 
 test('the vote can tag a role; the how-to sits under the choices and there is no description', async () => {
