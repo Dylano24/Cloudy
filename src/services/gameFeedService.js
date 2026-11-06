@@ -131,28 +131,16 @@ export function buildGameFeedEmbed(event) {
   const server = line('Server', event.server);
   const serverIcon = line('Server', event.server, 'server');
   switch (event.type) {
-    case 'pvp': {
-      // Player killed (owner's choice, like the KAOSBOT kill feed): the title is
-      // "Kill feed" and the first line is one code box with the killer, a skull,
-      // the victim and the streak. Only standard emoji show inside a code box
-      // (custom emoji never do), so the box holds 💀 and 🔥. Below it only an
-      // icon and its value per line, no labels or colons.
-      const icon = (key, value) => (value == null || value === '' ? null : `${feedEmoji(key)} ${value}`);
-      const streak = event.streak > 1 ? ` 🔥 ${event.streak}` : '';
-      return {
-        title: 'Kill feed',
-        description: [
-          `\`${event.killer} 💀 ${event.victim}${streak}\``,
-          icon('kill_weapon', event.weapon),
-          icon('kill_distance', event.distance == null ? null : `${event.distance} m`),
-          icon('server', event.server),
-          icon('dot', `<t:${unix(event.time)}:f>`),
-        ].filter(Boolean).join('\n'),
-        color: CLOUDY_RED_COLOR,
-        thumbnail: { url: CLOUDY_C_LOGO_URL },
-        footer: { text: CLOUDY_FOOTER },
-      };
-    }
+    case 'pvp':
+      // Player killed (owner's choice): title "Kill feed", labelled lines with
+      // the owner's animated icons; no distance and no streak.
+      return classicEmbed('Kill feed', CLOUDY_RED_COLOR, [
+        line('Killer', name(event.killer), 'kill_killer'),
+        line('Victim', name(event.victim), 'kill_victim'),
+        line('Weapon', event.weapon, 'kill_weapon'),
+        event.headshot ? line('Headshot', feedEmoji('kill_skull')) : null,
+        line('Server', event.server, 'server'),
+      ], event);
     case 'player':
       if (event.action === 'kit') {
         return classicEmbed('Kit claimed', CLOUDY_NEUTRAL_COLOR, [
