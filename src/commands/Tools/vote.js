@@ -100,26 +100,28 @@ async function postVoteFromForm(interaction, id, dependencies) {
     messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
     question: draft.question, options: draft.options, votes: {},
     endsAt: draft.durationMs ? Date.now() + draft.durationMs : null, ended: false,
-    // With pictures: a Preview button next to each option with a picture.
-    ...(hasPictures ? { layout: 'preview', pictureOptions: small.map(Boolean) } : {}),
+    // Every vote is the card (owner's choice: no custom emoji, so nothing
+    // flickers); a Preview button next to each option with a picture.
+    layout: 'preview', pictureOptions: small.map(Boolean),
     createdBy: interaction.user.id, createdAt: new Date().toISOString(),
   };
   let message;
   try {
     message = await interaction.channel.send(buildVoteMessage(vote));
   } catch (error) {
-    if (!vote.layout) throw error;
     // Never lose the vote: the normal layout (blue links) if Discord refuses the card.
-    logger.warn(`[VOTE] Preview layout refused, normal layout used: ${error?.message || error}`);
-    let pictures;
-    try {
-      pictures = await upload();
-    } catch (uploadError) {
-      return warning(uploadError?.message || 'The pictures could not be added.');
-    }
+    logger.warn(`[VOTE] Card refused, normal layout used: ${error?.message || error}`);
     delete vote.layout;
     delete vote.pictureOptions;
-    Object.assign(vote, { optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now() });
+    if (hasPictures) {
+      let pictures;
+      try {
+        pictures = await upload();
+      } catch (uploadError) {
+        return warning(uploadError?.message || 'The pictures could not be added.');
+      }
+      Object.assign(vote, { optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now() });
+    }
     message = await interaction.channel.send(buildVoteMessage(vote));
   }
   vote.messageId = message.id;
@@ -131,7 +133,7 @@ async function postVoteFromForm(interaction, id, dependencies) {
   }
   // Preview shows these small copies at once.
   small.forEach((file, position) => { if (file) keepVotePreview(message.id, position, file); });
-  if (vote.layout === 'preview') {
+  if (vote.layout === 'preview' && hasPictures) {
     void upload()
       .then(pictures => setVotePictures(interaction.client, interaction.guildId, message.id, pictures))
       .catch(error => logger.warn(`[VOTE] Vote pictures could not be stored: ${error?.message || error}`));
