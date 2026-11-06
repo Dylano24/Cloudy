@@ -126,15 +126,18 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.equal(form.deferred, undefined, 'answered at once: no "thinking"');
   assert.equal(posted.flags, 32768, 'every vote is the card, also without pictures');
   const card = json(posted.components[0]);
-  assert.equal(card.components[0].content, '### Vote started', 'only the title on top');
-  assert.deepEqual(card.components.slice(1, 7).map(part => part.type === 10 ? part.content : part.type),
-    [14, '**Question**\nNext map?', 14, '**Choices**\n1️⃣ **Procedural**\n2️⃣ **Barren**', 14,
+  const [head] = card.components;
+  assert.equal(head.type, 9, 'the title and the question beside the logo');
+  assert.deepEqual(head.components.map(part => part.content), ['### Vote started', '**Question**\nNext map?']);
+  assert.equal(head.accessory.media.url, CLOUDY_LOGO, 'the Cloudy logo (owner\'s choice)');
+  assert.deepEqual(card.components.slice(1, 5).map(part => part.type === 10 ? part.content : part.type),
+    [14, '**Choices**\n1️⃣ **Procedural**\n2️⃣ **Barren**', 14,
       '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote.'],
     'choices tight under their heading, like Results; then the how-to (owner\'s choice: where the description was)');
   const text = textOf(posted);
-  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote\.\n\*\*Ends\*\*\n<t:\d+:f>$/);
+  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote\.\n\*\*Vote ends\*\*\n<t:\d+:f>$/);
   assert.doesNotMatch(text, /[▰▱]|<t:\d+:R>|Mode/, 'no bars, no countdown, no mode');
-  assert.equal(card.components.some(part => part.type === 9), false, 'no Preview without pictures');
+  assert.equal(card.components.some(part => part.type === 9 && part.accessory?.type === 2), false, 'no Preview without pictures');
   assert.deepEqual(json(posted.components[1]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
     [['vote_cast:0', '1️⃣', '0'], ['vote_cast:1', '2️⃣', '0']], 'number and count on each button');
   assert.equal(json(form.answer.embeds[0]).title, 'Success');
@@ -268,12 +271,12 @@ test('an option with a picture gets a small Preview button right next to it; pla
   const [card, row] = posted.components.map(json);
   assert.equal(card.type, 17);
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
-  assert.equal(card.components[0].type, 10, 'no logo: just the title and question');
-  assert.equal(card.components[0].content, '### Vote started');
+  assert.equal(card.components[0].type, 9, 'the title and the question beside the logo');
+  assert.equal(card.components[0].components[0].content, '### Vote started');
   assert.ok(card.components.some(part => part.content === '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press **Preview** to see the pictures.'),
     'the how-to with the Preview line, under the choices');
-  assert.equal(card.components[2].content, '**Question**\nChoose your map');
-  assert.doesNotMatch(JSON.stringify(card), new RegExp(CLOUDY_LOGO.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), 'no C logo in the card');
+  assert.equal(card.components[0].components[1].content, '**Question**\nChoose your map');
+  assert.equal(card.components[0].accessory.media.url, CLOUDY_LOGO, 'the Cloudy logo (owner\'s choice)');
   // All choices tight in one block, like Results, with one Preview beside them.
   const previews = card.components.flatMap(part => (part.type === 9 && part.accessory?.type === 2
     ? [[part.components[0].content, part.accessory.custom_id, part.accessory.label]] : []));
@@ -608,9 +611,11 @@ test('when a vote with pictures ends, the result message shows Most votes with i
   assert.deepEqual(result.files.map(file => file.name), ['most-votes-2.png'], 'the winner\'s picture goes with the result');
   const card = json(result.components[0]);
   const parts = card.components.filter(part => part.type !== 14);
-  assert.match(parts[2].content, /^\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* · 2 votes · 67%\n1️⃣ \*\*DZ West\*\* · 1 vote · 33%$/);
-  assert.equal(parts[3].content, '**Most votes**\n2️⃣ **DZ East** · 2 votes · 67%');
-  assert.equal(parts[4].items[0].media.url, 'attachment://most-votes-2.png', 'the winner\'s picture right under it');
+  assert.equal(parts[0].components[0].content, '### Vote ended');
+  assert.equal(parts[0].accessory.media.url, CLOUDY_LOGO, 'the Cloudy logo on the result too (owner\'s choice)');
+  assert.match(parts[1].content, /^\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* · 2 votes · 67%\n1️⃣ \*\*DZ West\*\* · 1 vote · 33%$/);
+  assert.equal(parts[2].content, '**Most votes**\n2️⃣ **DZ East** · 2 votes · 67%');
+  assert.equal(parts[3].items[0].media.url, 'attachment://most-votes-2.png', 'the winner\'s picture right under it');
   assert.ok(card.components.filter(part => part.type === 14).length >= 4, 'a little room between sections');
   assert.equal(w.sent[0].edits.at(-1).components.length, 1, 'the vote itself has no buttons anymore');
 });
@@ -687,8 +692,9 @@ test('the vote can tag a role; the how-to sits under the choices and there is no
   assert.equal(json(posted.components[0]).content, '<@&303030303030303030>', 'the tag above the vote');
   assert.deepEqual(posted.allowedMentions, { parse: [], roles: ['303030303030303030'] }, 'only that role is pinged');
   const card = json(posted.components[1]);
-  assert.deepEqual(card.components.filter(part => part.type === 10).map(part => part.content.split('\n')[0]),
-    ['### Vote started', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Ends**'],
+  assert.deepEqual(card.components.flatMap(part => (part.type === 9 ? part.components : part.type === 10 ? [part] : []))
+    .map(part => part.content.split('\n')[0]),
+    ['### Vote started', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Vote ends**'],
     'Question, Choices, then the how-to (owner\'s choice: where the description was)');
   assert.doesNotMatch(JSON.stringify(card), /Description/);
   const stored = await loadVote(w.client, GUILD, posted.id);
