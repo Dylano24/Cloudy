@@ -246,9 +246,10 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
       .setURL(`attachment://${name}`))));
   }
   card.addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text(`**Total**\n${votes(total)}`))
+    // These two headings literally (owner's choice).
+    .addTextDisplayComponents(text(`**Total votes**\n${votes(total)}`))
     .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text(`**Ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
+    .addTextDisplayComponents(text(`**Vote ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
   card.addSeparatorComponents(sectionGap())
     .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
   return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
